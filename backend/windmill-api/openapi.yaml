@@ -3579,9 +3579,40 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/workspaces/create_pg_database:
+    post:
+      summary: create a new PostgreSQL database for a datatable
+      operationId: createPgDatabase
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Create pg database request
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, target_dbname]
+              properties:
+                source:
+                  type: string
+                  description: "Datatable source to determine connection info: 'datatable://name' or '$res:path'"
+                target_dbname:
+                  type: string
+                  description: "Name for the new database"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/import_pg_database:
     post:
-      summary: import a PostgreSQL database from source to target
+      summary: import a PostgreSQL database from source to target via pg_dump
       operationId: importPgDatabase
       tags:
         - workspace
@@ -3605,9 +3636,6 @@ paths:
                 target_dbname_override:
                   type: string
                   description: "Override the target database name"
-                create_target_db:
-                  type: boolean
-                  description: "When true, CREATE DATABASE is run before importing"
                 fork_behavior:
                   type: string
                   enum:

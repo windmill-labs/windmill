@@ -157,6 +157,7 @@ pub fn workspaced_service() -> Router {
             post(reset_workspace_diffs),
         )
         .route("/compare/{target_workspace_id}", get(compare_workspaces))
+        .route("/create_pg_database", post(create_pg_database))
         .route("/import_pg_database", post(import_pg_database))
         .route("/export_pg_schema", post(export_pg_schema))
         .route(
@@ -1610,16 +1611,104 @@ async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<
 }
 
 #[derive(Deserialize)]
+struct CreatePgDatabaseRequest {
+    /// The datatable source to determine connection info: 'datatable://name' or '$res:path'
+    source: String,
+    /// Name for the new database
+    target_dbname: String,
+}
+
+/// Create a new PostgreSQL database. For instance datatables, creates on the Windmill PG instance.
+/// For resource datatables, creates on the same server as the source.
+async fn create_pg_database(
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<CreatePgDatabaseRequest>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+    windmill_common::validate_dbname(&req.target_dbname)?;
+
+    // Determine if this is an instance or resource-backed datatable
+    let is_instance_datatable = if let Some(dt_name) = req.source.strip_prefix("datatable://") {
+        let config = sqlx::query_scalar!(
+            "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
+            &w_id,
+            dt_name
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten();
+        config
+            .and_then(|v| {
+                v.get("database")
+                    .and_then(|d| d.get("resource_type"))
+                    .and_then(|r| r.as_str())
+                    .map(|s| s == "instance")
+            })
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
+    if is_instance_datatable {
+        windmill_common::create_custom_instance_database(&db, &req.target_dbname, "datatable")
+            .await?;
+    } else {
+        let source_pg = resolve_pg_source(&db, &w_id, &req.source).await?;
+        let (client, connection) = source_pg.connect().await?;
+        let join_handle = tokio::spawn(async move { connection.await });
+
+        let row = client
+            .query_one(
+                "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+                &[&req.target_dbname],
+            )
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!("Failed to check database existence: {}", e))
+            })?;
+        let db_exists: bool = row.get(0);
+
+        if db_exists {
+            drop(client);
+            let _ = join_handle.await;
+            return Err(Error::BadRequest(format!(
+                "Database '{}' already exists on the resource server",
+                req.target_dbname
+            )));
+        }
+
+        client
+            .execute(&format!("CREATE DATABASE \"{}\"", &req.target_dbname), &[])
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to create database '{}': {}",
+                    req.target_dbname, e
+                ))
+            })?;
+
+        drop(client);
+        join_handle
+            .await
+            .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
+            .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+    }
+
+    Ok(format!("Created database '{}'", req.target_dbname))
+}
+
+#[derive(Deserialize)]
 struct ImportPgDatabaseRequest {
     source: String,
     target: String,
     #[serde(default)]
     target_dbname_override: Option<String>,
-    #[serde(default)]
-    create_target_db: bool,
     fork_behavior: DataTableForkBehavior,
 }
 
+/// Import (pg_dump/pg_import) from source to target. Does NOT create the target database.
 async fn import_pg_database(
     ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1645,78 +1734,6 @@ async fn import_pg_database(
 
     if let Some(ref override_dbname) = req.target_dbname_override {
         target_pg.dbname = override_dbname.clone();
-    }
-
-    windmill_common::validate_dbname(&target_pg.dbname)?;
-
-    if req.create_target_db {
-        // Determine if this is an instance or resource-backed datatable
-        let is_instance_datatable = if let Some(dt_name) = req.target.strip_prefix("datatable://") {
-            let config = sqlx::query_scalar!(
-                "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
-                &w_id,
-                dt_name
-            )
-            .fetch_optional(&db)
-            .await?
-            .flatten();
-            config
-                .and_then(|v| {
-                    v.get("database")
-                        .and_then(|d| d.get("resource_type"))
-                        .and_then(|r| r.as_str())
-                        .map(|s| s == "instance")
-                })
-                .unwrap_or(false)
-        } else {
-            false
-        };
-
-        if is_instance_datatable {
-            // Instance datatable: create on Windmill PG instance
-            windmill_common::create_custom_instance_database(&db, &target_pg.dbname, "datatable")
-                .await?;
-        } else {
-            // Resource datatable or $res: CREATE DATABASE on the source server
-            let (client, connection) = source_pg.connect().await?;
-            let join_handle = tokio::spawn(async move { connection.await });
-
-            let row = client
-                .query_one(
-                    "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
-                    &[&target_pg.dbname],
-                )
-                .await
-                .map_err(|e| {
-                    Error::internal_err(format!("Failed to check database existence: {}", e))
-                })?;
-            let db_exists: bool = row.get(0);
-
-            if db_exists {
-                drop(client);
-                let _ = join_handle.await;
-                return Err(Error::BadRequest(format!(
-                    "Database '{}' already exists on the resource server",
-                    target_pg.dbname
-                )));
-            }
-
-            client
-                .execute(&format!("CREATE DATABASE \"{}\"", &target_pg.dbname), &[])
-                .await
-                .map_err(|e| {
-                    Error::internal_err(format!(
-                        "Failed to create database '{}': {}",
-                        target_pg.dbname, e
-                    ))
-                })?;
-
-            drop(client);
-            join_handle
-                .await
-                .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
-                .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
-        }
     }
 
     let dump_file = pg_dump_database(&source_pg, schema_only).await?;

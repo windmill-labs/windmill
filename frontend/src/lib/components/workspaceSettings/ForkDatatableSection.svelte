@@ -68,7 +68,11 @@
 
 				const steps: ForkStep[] = [
 					{
-						label: `CREATE DATABASE "${newDbName}" + pg_dump → pg_import (${behavior === 'schema_only' ? 'schema only' : 'schema + data'})`,
+						label: `CREATE DATABASE "${newDbName}"`,
+						status: 'pending'
+					},
+					{
+						label: `pg_dump → pg_import (${behavior === 'schema_only' ? 'schema only' : 'schema + data'})`,
 						status: 'pending'
 					},
 					{
@@ -108,6 +112,26 @@
 		cloneRunning = true
 		let stepIdx = 0
 
+		// Step 1: Create the database
+		job.steps[stepIdx].status = 'running'
+		try {
+			await WorkspaceService.createPgDatabase({
+				workspace: job._sourceWorkspace,
+				requestBody: {
+					source: `datatable://${job.name}`,
+					target_dbname: job._newDbName
+				}
+			})
+			job.steps[stepIdx].status = 'done'
+		} catch (e: any) {
+			job.steps[stepIdx].status = 'error'
+			job.steps[stepIdx].error = e?.body ?? e?.message ?? String(e)
+			cloneRunning = false
+			return
+		}
+		stepIdx++
+
+		// Step 2: Import data
 		job.steps[stepIdx].status = 'running'
 		try {
 			await WorkspaceService.importPgDatabase({
@@ -116,7 +140,6 @@
 					source: `datatable://${job.name}`,
 					target: `datatable://${job.name}`,
 					target_dbname_override: job._newDbName,
-					create_target_db: true,
 					fork_behavior: job.behavior
 				}
 			})
