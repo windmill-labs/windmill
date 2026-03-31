@@ -9,6 +9,8 @@ import {
   setupWorkspaceProfile,
   createRemoteScript,
   createRemoteFlow,
+  createRemoteMultiStepFlow,
+  createRemoteFailingFlow,
   runRemoteScript,
   runRemoteFlow,
   waitForJob,
@@ -169,13 +171,13 @@ describe("job command", () => {
     });
   });
 
-  test("job logs for flow job shows helpful message", async () => {
+  test("job logs for flow job aggregates step logs", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);
 
       const uniqueId = Date.now();
       const flowPath = `f/test/flow_logs_${uniqueId}`;
-      await createRemoteFlow(backend, flowPath);
+      await createRemoteMultiStepFlow(backend, flowPath);
       const jobId = await runRemoteFlow(backend, flowPath);
       await waitForJob(backend, jobId);
 
@@ -185,7 +187,9 @@ describe("job command", () => {
       );
 
       expect(result.code).toEqual(0);
-      expect(result.stdout).toContain("Flow jobs don't have direct logs");
+      // Should show labeled step headers instead of "no direct logs"
+      expect(result.stdout).toContain("======");
+      expect(result.stdout).toContain("a");
     });
   });
 
@@ -215,6 +219,130 @@ describe("job command", () => {
       expect(output).toContain("cancel");
       expect(output).toContain("--failed");
       expect(output).toContain("--running");
+      expect(output).toContain("--parent");
+      expect(output).toContain("--is-flow-step");
+    });
+  });
+
+  test("job get for flow shows hierarchical step tree", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const flowPath = `f/test/flow_get_${uniqueId}`;
+      await createRemoteMultiStepFlow(backend, flowPath);
+      const jobId = await runRemoteFlow(backend, flowPath);
+      await waitForJob(backend, jobId);
+
+      const result = await backend.runCLICommand(
+        ["job", "get", jobId],
+        tempDir
+      );
+
+      expect(result.code).toEqual(0);
+      expect(result.stdout).toContain("Steps:");
+      // Should show step IDs from the flow definition
+      expect(result.stdout).toContain("a");
+      expect(result.stdout).toContain("b");
+      // Should show status icons (✓ for success)
+      expect(result.stdout).toContain("✓");
+    });
+  });
+
+  test("job get --json for flow includes flow_status", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const flowPath = `f/test/flow_json_${uniqueId}`;
+      await createRemoteMultiStepFlow(backend, flowPath);
+      const jobId = await runRemoteFlow(backend, flowPath);
+      await waitForJob(backend, jobId);
+
+      const result = await backend.runCLICommand(
+        ["job", "get", jobId, "--json"],
+        tempDir
+      );
+
+      expect(result.code).toEqual(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.flow_status).toBeDefined();
+      expect(parsed.flow_status.modules).toBeDefined();
+      expect(parsed.flow_status.modules.length).toBe(2);
+    });
+  });
+
+  test("job list --parent shows sub-jobs of a flow", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const flowPath = `f/test/flow_parent_${uniqueId}`;
+      await createRemoteMultiStepFlow(backend, flowPath);
+      const jobId = await runRemoteFlow(backend, flowPath);
+      await waitForJob(backend, jobId);
+
+      const result = await backend.runCLICommand(
+        ["job", "list", "--json", "--parent", jobId],
+        tempDir
+      );
+
+      expect(result.code).toEqual(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(Array.isArray(parsed)).toBe(true);
+      // A 2-step flow should have at least 2 sub-jobs
+      expect(parsed.length).toBeGreaterThanOrEqual(2);
+      // All sub-jobs should reference the parent flow
+      expect(parsed.every((j: any) => j.parent_job === jobId)).toBe(true);
+    });
+  });
+
+  test("job list --all includes sub-jobs", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const flowPath = `f/test/flow_all_${uniqueId}`;
+      await createRemoteMultiStepFlow(backend, flowPath);
+      const jobId = await runRemoteFlow(backend, flowPath);
+      await waitForJob(backend, jobId);
+
+      const result = await backend.runCLICommand(
+        ["job", "list", "--json", "--all"],
+        tempDir
+      );
+
+      expect(result.code).toEqual(0);
+      const parsed = JSON.parse(result.stdout);
+      // Should contain both the parent flow and its sub-jobs
+      const parentJob = parsed.find((j: any) => j.id === jobId);
+      const subJobs = parsed.filter((j: any) => j.parent_job === jobId);
+      expect(parentJob).toBeDefined();
+      expect(subJobs.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  test("job get for failed flow shows failure status", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const flowPath = `f/test/flow_fail_${uniqueId}`;
+      await createRemoteFailingFlow(backend, flowPath);
+      const jobId = await runRemoteFlow(backend, flowPath);
+      await waitForJob(backend, jobId);
+
+      const result = await backend.runCLICommand(
+        ["job", "get", jobId],
+        tempDir
+      );
+
+      expect(result.code).toEqual(0);
+      expect(result.stdout).toContain("failure");
+      expect(result.stdout).toContain("Steps:");
+      // Step a should succeed, step b should fail
+      expect(result.stdout).toContain("✓");
+      expect(result.stdout).toContain("✗");
     });
   });
 });
