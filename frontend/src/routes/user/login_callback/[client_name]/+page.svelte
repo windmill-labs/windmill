@@ -8,6 +8,7 @@
 	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { logoutWithRedirect } from '$lib/logoutKit'
+	import { isValidLogoutRedirect } from '$lib/logoutRedirect'
 	import { parseQueryParams } from '$lib/utils'
 	import { page } from '$app/state'
 	import { isCloudHosted } from '$lib/cloud'
@@ -22,10 +23,11 @@
 	onMount(async () => {
 		// const closeCookie = getAndDeleteCookie('close')
 		// console.log('closeCookie', closeCookie)
-		const rd = localStorage.getItem('rd')
-		if (rd) {
+		const rawRd = localStorage.getItem('rd')
+		if (rawRd) {
 			localStorage.removeItem('rd')
 		}
+		const rd = rawRd?.startsWith('http') && !isValidLogoutRedirect(rawRd) ? null : rawRd
 		const cookieCloseUponLogin = getCookie('close') == 'true'
 		const closeUponLogin = cookieCloseUponLogin ?? localStorage.getItem('closeUponLogin') == 'true'
 		if (error) {
