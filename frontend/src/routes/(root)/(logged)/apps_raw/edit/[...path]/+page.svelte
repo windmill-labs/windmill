@@ -13,7 +13,6 @@
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-	import { normalizeRawAppRunnables } from '$lib/components/raw_apps/utils'
 	let files: Record<string, string> | undefined = $state(undefined)
 	let runnables = $state({})
 	/** Data configuration including tables and creation policy */
@@ -51,7 +50,7 @@
 	})
 
 	function extractRawApp(app: any) {
-		runnables = normalizeRawAppRunnables(app.value.runnables)
+		runnables = app.value.runnables
 		// Support old formats and new format
 		if (app.value.data) {
 			const d = app.value.data
@@ -131,7 +130,7 @@
 			app_w_draft.value = stateLoadedFromLocalStorage
 			const rawValue = app_w_draft.value as any
 			files = rawValue.files as any
-			runnables = normalizeRawAppRunnables(rawValue.runnables as any)
+			runnables = rawValue.runnables as any
 			redraw += 1
 		} else if (app_w_draft.draft) {
 			extractRawApp(app_w_draft.draft)

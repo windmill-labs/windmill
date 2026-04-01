@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { genWmillTs, normalizeRawAppRunnables, type Runnable } from './utils'
+import { genWmillTs, type Runnable } from './utils'
 
 const flowSchema = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -17,65 +17,29 @@ const flowSchema = {
 	}
 } as const
 
-function buildLegacyFlowRunnable(
-	fieldValue: string,
-	fieldType: 'static' | 'user' = 'static'
-): Runnable {
-	return {
-		type: 'path',
-		runType: 'flow',
-		path: 'u/dev/my_flow',
-		name: 'My flow',
-		schema: {
-			summary: 'My flow',
-			schema: flowSchema
-		},
-		fields: {
-			string_input: {
-				type: fieldType,
-				value: fieldValue,
-				fieldType: 'text'
+describe('genWmillTs', () => {
+	it('generates the correct flow args type for path runnables', () => {
+		const runnables: Record<string, Runnable> = {
+			myflow: {
+				type: 'path',
+				runType: 'flow',
+				path: 'u/dev/my_flow',
+				name: 'My flow',
+				schema: flowSchema,
+				fields: {
+					count: {
+						type: 'static',
+						value: 1,
+						fieldType: 'number'
+					}
+				}
 			}
 		}
-	}
-}
 
-describe('normalizeRawAppRunnables', () => {
-	it('unwraps legacy flow schemas and converts generated static defaults to user fields', () => {
-		const runnables = normalizeRawAppRunnables({
-			myflow: buildLegacyFlowRunnable('')
-		})
-
-		expect(runnables.myflow).toMatchObject({
-			type: 'path',
-			runType: 'flow',
-			schema: flowSchema
-		})
-		expect(runnables.myflow?.fields?.string_input.type).toBe('user')
-	})
-
-	it('preserves customized static fields', () => {
-		const runnables = normalizeRawAppRunnables({
-			myflow: buildLegacyFlowRunnable('preset')
-		})
-
-		expect(runnables.myflow?.fields?.string_input.type).toBe('static')
-		expect((runnables.myflow?.fields?.string_input as { value?: string } | undefined)?.value).toBe(
-			'preset'
-		)
-	})
-})
-
-describe('genWmillTs', () => {
-	it('generates the correct flow args type after normalization', () => {
-		const dts = genWmillTs(
-			normalizeRawAppRunnables({
-				myflow: buildLegacyFlowRunnable('')
-			})
-		)
+		const dts = genWmillTs(runnables)
 
 		expect(dts).toContain(
-			'myflow: (args: { string_input: string; count?: number }) => Promise<any>;'
+			'myflow: (args: { string_input: string }) => Promise<any>;'
 		)
 	})
 })

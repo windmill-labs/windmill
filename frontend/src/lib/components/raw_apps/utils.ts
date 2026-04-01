@@ -3,7 +3,6 @@ import type { Schema } from '../../common'
 import { schemaToTsType } from '../../schema'
 import { isRunnableByName, isRunnableByPath, type RunnableWithFields } from '../apps/inputType'
 import type { InlineScript } from '../apps/sharedTypes'
-import { deepEqual } from 'fast-equals'
 
 // export type RunnableWithFields = any
 
@@ -108,95 +107,14 @@ function hiddenRunnableToTsType(runnable: Runnable) {
 			return '{}'
 		}
 	} else if (isRunnableByPath(runnable)) {
-		const schema = getPathRunnableSchema(runnable)
-		if (schema) {
-			return schemaToTsType(removeStaticFields(schema, runnable?.fields ?? {}))
+		if (runnable?.schema) {
+			return schemaToTsType(removeStaticFields(runnable.schema as Schema, runnable?.fields ?? {}))
 		} else {
 			return '{}'
 		}
 	} else {
 		return '{}'
 	}
-}
-
-function getPathRunnableSchema(runnable: Runnable): Schema | undefined {
-	if (!isRunnableByPath(runnable)) {
-		return undefined
-	}
-
-	const schema = runnable.schema as Schema | { schema?: Schema } | undefined
-	if (
-		schema &&
-		typeof schema === 'object' &&
-		'schema' in schema &&
-		schema.schema &&
-		typeof schema.schema === 'object'
-	) {
-		return schema.schema
-	}
-
-	return schema as Schema | undefined
-}
-
-function shouldConvertLegacyStaticFields(
-	runnable: RunnableWithInlineScript,
-	schema: Schema | undefined
-): boolean {
-	if (!schema?.properties || !runnable.fields) {
-		return false
-	}
-
-	const fieldEntries = Object.entries(runnable.fields)
-	if (fieldEntries.length === 0) {
-		return false
-	}
-
-	return fieldEntries.every(([key, field]) => {
-		const property = schema.properties?.[key]
-		return (
-			field?.type === 'static' &&
-			property !== undefined &&
-			deepEqual(field.value, property.default)
-		)
-	})
-}
-
-function normalizeRawAppRunnable(runnable: Runnable): Runnable {
-	if (!isRunnableByPath(runnable)) {
-		return runnable
-	}
-
-	const schema = getPathRunnableSchema(runnable)
-	const fields =
-		shouldConvertLegacyStaticFields(runnable, schema)
-			? Object.fromEntries(
-					Object.entries(runnable.fields ?? {}).map(([key, field]) => [
-						key,
-						{ ...field, type: 'user' as const }
-					])
-				) as typeof runnable.fields
-			: runnable.fields
-
-	if (schema === runnable.schema && fields === runnable.fields) {
-		return runnable
-	}
-
-	return {
-		...runnable,
-		schema,
-		fields
-	}
-}
-
-export function normalizeRawAppRunnables(
-	runnables: Record<string, Runnable> | undefined
-): Record<string, Runnable> {
-	return Object.fromEntries(
-		Object.entries(runnables ?? {}).map(([key, runnable]) => [
-			key,
-			normalizeRawAppRunnable(runnable)
-		])
-	)
 }
 
 export function genWmillTs(runnables: Record<string, Runnable>) {
