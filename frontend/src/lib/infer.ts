@@ -573,16 +573,14 @@ function parseRSignatureFallback(code: string): MainArgSignature {
 		star_kwargs: false,
 		args: [],
 		has_preprocessor: null,
-		no_main_func: null
+		auto_kind: null
 	}
 
 	const mainMatch = code.match(/\bmain\s*(?:<-|=)\s*function\s*\(([^)]*)\)/)
 	if (!mainMatch) {
-		result.no_main_func = true
 		return result
 	}
 
-	result.no_main_func = false
 	const paramsStr = mainMatch[1].trim()
 	if (!paramsStr) return result
 

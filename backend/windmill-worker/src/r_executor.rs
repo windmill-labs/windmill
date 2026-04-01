@@ -685,19 +685,20 @@ fn wrap(inner_content: &str) -> Result<String, Error> {
         .collect_vec()
         .join(", ");
     let wm_lib_path = format!("{}/r_libs/windmill.r", *R_CACHE_DIR);
-    Ok(r#"source("WM_LIB_PATH")
+    Ok(format!(
+        r#"source("{wm_lib_path}")
 
-suppressPackageStartupMessages({
-INNER_CONTENT
-})
+suppressPackageStartupMessages({{
+{inner_content}
+}})
 
 library(jsonlite)
 args <- fromJSON("args.json")
 
-tryCatch({
-    res <- main(SPREAD)
+tryCatch({{
+    res <- main({spread})
     write(toJSON(res, auto_unbox = TRUE, null = "null"), "result.json")
-}, error = function(e) {
+}}, error = function(e) {{
     error_obj <- list(
         name = class(e)[1],
         message = conditionMessage(e),
@@ -705,9 +706,10 @@ tryCatch({
     )
     write(toJSON(error_obj, auto_unbox = TRUE), "result.json")
     stop(e)
-})
-"#
-    .replace("WM_LIB_PATH", &wm_lib_path)
-    .replace("INNER_CONTENT", inner_content)
-    .replace("SPREAD", &spread))
+}})
+"#,
+        wm_lib_path = wm_lib_path,
+        inner_content = inner_content,
+        spread = spread,
+    ))
 }
