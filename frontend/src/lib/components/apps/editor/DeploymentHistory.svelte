@@ -324,21 +324,19 @@
 
 										<div class="h-[calc(100vh-260px)] min-h-[420px]">
 											{#if previousVersionYaml && selectedVersionYaml}
-												{#key `${previousVersionId ?? 'none'}:${selectedVersion?.version ?? 'current'}`}
-													{#await import('$lib/components/DiffEditor.svelte')}
-														<Loader2 class="animate-spin" />
-													{:then Module}
-														<Module.default
-															open={true}
-															automaticLayout
-															className="h-full"
-															defaultLang="yaml"
-															defaultOriginal={previousVersionYaml}
-															defaultModified={selectedVersionYaml}
-															readOnly
-														/>
-													{/await}
-												{/key}
+												{#await import('$lib/components/DiffEditor.svelte')}
+													<Loader2 class="animate-spin" />
+												{:then Module}
+													<Module.default
+														open={true}
+														automaticLayout
+														className="h-full"
+														defaultLang="yaml"
+														defaultOriginal={previousVersionYaml}
+														defaultModified={selectedVersionYaml}
+														readOnly
+													/>
+												{/await}
 											{:else}
 												<Loader2 class="animate-spin" />
 											{/if}
@@ -355,6 +353,7 @@
 											user={$userStore}
 											secret={currentSelected.bundle_secret}
 											path={currentSelected.path}
+											version={selectedVersion?.version}
 											runnables={(currentSelected.value?.runnables ?? {}) as Record<string, Runnable>}
 										/>
 									{:else}

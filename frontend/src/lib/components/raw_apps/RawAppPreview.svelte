@@ -10,10 +10,11 @@
 		user: UserExt | undefined
 		secret: string | undefined
 		path: string
+		version?: number
 		runnables: Record<string, Runnable>
 	}
 
-	let { workspace, user, secret, path, runnables }: Props = $props()
+	let { workspace, user, secret, path, version = undefined, runnables }: Props = $props()
 
 	let iframe = $state() as HTMLIFrameElement | undefined
 
@@ -65,7 +66,7 @@
 	})
 </script>
 
-<RawAppBackgroundRunner {workspace} editor={false} {iframe} {runnables} {path} />
+<RawAppBackgroundRunner {workspace} editor={false} {iframe} {runnables} {path} {version} />
 
 {#if blobUrl}
 	<iframe

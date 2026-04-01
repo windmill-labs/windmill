@@ -10,6 +10,7 @@
 	interface Props {
 		iframe: HTMLIFrameElement | undefined
 		path: string
+		version?: number
 		runnables: Record<string, Runnable>
 		jobs?: string[]
 		jobsById?: Record<string, JobById>
@@ -20,6 +21,7 @@
 	let {
 		iframe,
 		path,
+		version = undefined,
 		runnables,
 		jobs = $bindable([]),
 		jobsById = $bindable({}),
@@ -78,7 +80,7 @@
 				const uuid = await executeRunnable(
 					runnable,
 					workspace,
-					undefined,
+					version,
 					$userStore?.username,
 					path,
 					runnable_id,

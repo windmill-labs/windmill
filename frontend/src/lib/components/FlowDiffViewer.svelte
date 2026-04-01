@@ -20,29 +20,25 @@
 
 	<div class="flex-1 min-h-0">
 		{#if diffMode === 'yaml'}
-			{#key `${beforeYaml}:${afterYaml}:yaml`}
-				{#await import('$lib/components/DiffEditor.svelte')}
-					<Loader2 class="animate-spin" />
-				{:then Module}
-					<Module.default
-						open={true}
-						automaticLayout
-						className="h-full min-h-[400px]"
-						defaultLang="yaml"
-						defaultOriginal={beforeYaml}
-						defaultModified={afterYaml}
-						readOnly
-					/>
-				{/await}
-			{/key}
+			{#await import('$lib/components/DiffEditor.svelte')}
+				<Loader2 class="animate-spin" />
+			{:then Module}
+				<Module.default
+					open={true}
+					automaticLayout
+					className="h-full min-h-[400px]"
+					defaultLang="yaml"
+					defaultOriginal={beforeYaml}
+					defaultModified={afterYaml}
+					readOnly
+				/>
+			{/await}
 		{:else}
-			{#key `${beforeYaml}:${afterYaml}:graph`}
-				{#await import('$lib/components/FlowGraphDiffViewer.svelte')}
-					<Loader2 class="animate-spin" />
-				{:then Module}
-					<Module.default {beforeYaml} {afterYaml} />
-				{/await}
-			{/key}
+			{#await import('$lib/components/FlowGraphDiffViewer.svelte')}
+				<Loader2 class="animate-spin" />
+			{:then Module}
+				<Module.default {beforeYaml} {afterYaml} />
+			{/await}
 		{/if}
 	</div>
 </div>
