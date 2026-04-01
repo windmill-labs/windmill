@@ -1373,7 +1373,7 @@ paths:
   /settings/restart_worker_group/{worker_group}:
     post:
       summary: restart worker group
-      description: Send a restart signal to all workers in the specified worker group. Workers will gracefully shut down and are expected to be restarted by their supervisor. Requires superadmin privileges.
+      description: Send a restart signal to all workers in the specified worker group. Workers will gracefully shut down and are expected to be restarted by their supervisor. Requires devops role.
       operationId: restartWorkerGroup
       tags:
         - setting

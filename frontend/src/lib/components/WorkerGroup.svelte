@@ -387,6 +387,7 @@
 		} catch (e) {
 			sendUserToast(`Failed to restart worker group: ${e}`, true)
 		}
+		dispatch('reload')
 		openRestart = false
 	}}
 >
