@@ -96,7 +96,7 @@ pub fn global_service() -> Router {
             post(setup_custom_instance_pg_database),
         )
         .route(
-            "/drop_custom_instance_pg_database/:name",
+            "/drop_custom_instance_pg_database/{name}",
             post(drop_custom_instance_pg_database),
         )
         .route(
