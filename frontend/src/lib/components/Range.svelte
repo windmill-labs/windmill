@@ -37,12 +37,13 @@
 
 	run(() => {
 		if (value === null || value === undefined || Number.isNaN(value)) {
-			value =
+			const fallback =
 				initialValue !== undefined
 					? typeof initialValue === 'string'
 						? parseInt(initialValue)
 						: initialValue
 					: (min ?? 0)
+			value = Number.isNaN(fallback) ? (min ?? 0) : fallback
 		}
 	})
 

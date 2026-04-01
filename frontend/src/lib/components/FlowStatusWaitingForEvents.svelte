@@ -49,6 +49,7 @@
 		default_payload = args
 
 		approvalPageUrl = job_result?.['resume']
+		actionTaken = false
 		hide_cancel = job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel ?? false
 		schema = mergeSchema(
 			job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? {},
