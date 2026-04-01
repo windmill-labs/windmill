@@ -102,6 +102,10 @@ pub fn global_service() -> Router {
         .route(
             "/sync_cached_resource_types",
             post(sync_cached_resource_types),
+        )
+        .route(
+            "/restart_worker_group/{worker_group}",
+            post(restart_worker_group),
         );
 
     // Vault integration routes (EE only - requires both private and enterprise features)
@@ -660,6 +664,25 @@ pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resu
     .await?;
 
     Ok("Sent stats".to_string())
+}
+
+async fn restart_worker_group(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Path(worker_group): Path<String>,
+) -> error::Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    sqlx::query!(
+        "INSERT INTO notify_event (channel, payload) VALUES ('restart_worker_group', $1)",
+        worker_group
+    )
+    .execute(&db)
+    .await?;
+
+    Ok(format!(
+        "Restart signal sent to worker group '{worker_group}'"
+    ))
 }
 
 #[derive(serde::Serialize)]
