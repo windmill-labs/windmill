@@ -1812,7 +1812,6 @@ async fn import_pg_database(
         resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
 
     if let Some(ref override_dbname) = req.target_dbname_override {
-        windmill_common::validate_dbname(override_dbname)?;
         if !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
             if !override_dbname.starts_with("wm_fork_") {
                 return Err(Error::BadRequest(
@@ -1823,6 +1822,7 @@ async fn import_pg_database(
         }
         target_pg.dbname = override_dbname.clone();
     }
+    windmill_common::validate_dbname(&target_pg.dbname)?;
 
     let dump_file = pg_dump_database(&source_pg, schema_only).await?;
     pg_import_dump(&target_pg, &dump_file).await?;
