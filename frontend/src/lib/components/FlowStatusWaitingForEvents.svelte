@@ -48,7 +48,7 @@
 		defaultValues = JSON.parse(JSON.stringify(args))
 		default_payload = args
 
-		approvalPageUrl = job_result?.['resume']
+		approvalPageUrl = job_result?.['approvalPage']
 		actionTaken = false
 		hide_cancel = job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel ?? false
 		schema = mergeSchema(
