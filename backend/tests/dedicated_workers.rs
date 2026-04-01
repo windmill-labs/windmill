@@ -1,6 +1,7 @@
 #[cfg(all(feature = "private", feature = "enterprise"))]
 mod dedicated_worker_tests {
     use serde_json::json;
+    use serial_test::serial;
     use sqlx::{Pool, Postgres};
     use windmill_common::jobs::JobPayload;
     use windmill_common::worker::WorkspacedPath;
@@ -25,6 +26,7 @@ mod dedicated_worker_tests {
     /// Test a dedicated flow with a single inline RawScript bun step.
     /// This is the regression test for the "Script not found" bug.
     #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
     async fn test_dedicated_flow_rawscript(db: Pool<Postgres>) -> anyhow::Result<()> {
         initialize_tracing().await;
         let server = ApiServer::start(db.clone()).await?;
@@ -60,6 +62,7 @@ mod dedicated_worker_tests {
 
     /// Test a dedicated flow with a Script step referencing an external workspace script.
     #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
     async fn test_dedicated_flow_workspace_script(db: Pool<Postgres>) -> anyhow::Result<()> {
         initialize_tracing().await;
         let server = ApiServer::start(db.clone()).await?;
@@ -97,6 +100,7 @@ mod dedicated_worker_tests {
     /// Test a dedicated flow with multiple inline RawScript steps.
     /// Validates that each step gets its own wrapper key and no collisions occur.
     #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
     async fn test_dedicated_flow_multiple_steps(db: Pool<Postgres>) -> anyhow::Result<()> {
         initialize_tracing().await;
         let server = ApiServer::start(db.clone()).await?;
@@ -132,6 +136,7 @@ mod dedicated_worker_tests {
 
     /// Test a standalone dedicated script (not in a flow).
     #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
     async fn test_dedicated_standalone_script(db: Pool<Postgres>) -> anyhow::Result<()> {
         initialize_tracing().await;
         let server = ApiServer::start(db.clone()).await?;
@@ -172,6 +177,7 @@ mod dedicated_worker_tests {
     /// Test runner groups: two scripts sharing a workspace dependency are auto-grouped
     /// into a single runner process. Both should execute correctly.
     #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
     async fn test_dedicated_runner_group(db: Pool<Postgres>) -> anyhow::Result<()> {
         initialize_tracing().await;
         let server = ApiServer::start(db.clone()).await?;
@@ -239,6 +245,7 @@ mod dedicated_worker_tests {
 
     /// Test flow runners: a squashed for-loop spawns dedicated subprocesses.
     #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
     async fn test_dedicated_flow_runners(db: Pool<Postgres>) -> anyhow::Result<()> {
         initialize_tracing().await;
         // Reset dedicated_workers in WORKER_CONFIG to avoid pollution from previous tests.

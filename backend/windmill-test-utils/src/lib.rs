@@ -461,14 +461,13 @@ pub fn spawn_test_worker_dedicated(
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
 
-        // Insert dedicated worker config into the DB config table so that
-        // reload_worker_config (called by the monitor) picks it up consistently.
+        // Insert dedicated worker config into the DB so that load_worker_config
+        // (called by the monitor and at worker startup) picks it up consistently.
+        // This avoids global WORKER_CONFIG races between parallel tests.
         let dedicated_strs: Vec<String> = dedicated_workers
             .iter()
             .map(|dw| format!("{}:{}", dw.workspace_id, dw.path))
             .collect();
-        // Include dedicated worker tags AND default tags in worker_tags so that
-        // the monitor reload (load_worker_config) doesn't clobber the pull query.
         let mut all_tags = windmill_common::worker::DEFAULT_TAGS.clone();
         for dw in &dedicated_workers {
             all_tags.push(windmill_common::worker::dedicated_worker_tag(
@@ -480,31 +479,29 @@ pub fn spawn_test_worker_dedicated(
             "dedicated_workers": dedicated_strs,
             "worker_tags": all_tags,
         });
+        let db_ref = match &conn {
+            Connection::Sql(db) => db,
+            _ => panic!("dedicated worker tests require SQL connection"),
+        };
         sqlx::query("INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = $2")
             .bind(format!("worker__{}", *windmill_common::worker::WORKER_GROUP))
             .bind(&config_value)
-            .execute(match &conn {
-                Connection::Sql(db) => db,
-                _ => panic!("dedicated worker tests require SQL connection"),
-            })
+            .execute(db_ref)
             .await
             .expect("insert dedicated worker config");
 
+        // Load the config from DB (same path as the monitor) to set WORKER_CONFIG
+        // consistently. This ensures tags, pull queries, and dedicated_workers are
+        // all set from the same source of truth.
         {
+            let killpill_tx2 = tx2.clone();
+            let config = windmill_common::worker::load_worker_config(db_ref, killpill_tx2)
+                .await
+                .expect("load worker config");
             let mut wc = WORKER_CONFIG.write().await;
-            let mut tags = windmill_common::worker::DEFAULT_TAGS.clone();
-            for dw in &dedicated_workers {
-                tags.push(windmill_common::worker::dedicated_worker_tag(
-                    &dw.workspace_id,
-                    &dw.path,
-                ));
-            }
-            wc.worker_tags = tags.clone();
-            wc.priority_tags_sorted =
-                vec![windmill_common::worker::PriorityTags { priority: 0, tags }];
-            wc.dedicated_workers = Some(dedicated_workers);
-            windmill_common::worker::store_suspended_pull_query(&wc).await;
-            windmill_common::worker::store_pull_query(&wc).await;
+            windmill_common::worker::store_suspended_pull_query(&config).await;
+            windmill_common::worker::store_pull_query(&config).await;
+            *wc = config;
         }
         windmill_worker::run_worker(
             &conn,

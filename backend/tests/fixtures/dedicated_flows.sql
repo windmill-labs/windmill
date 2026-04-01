@@ -1,11 +1,5 @@
 -- Fixtures for dedicated worker E2E tests
 
--- Worker config: set dedicated_workers + tags so the monitor reload picks them up
-INSERT INTO config (name, config) VALUES (
-'worker__default',
-'{"dedicated_workers": ["test-workspace:f/system/dedicated_double", "test-workspace:flow/f/system/dedicated_rawscript_flow", "test-workspace:flow/f/system/dedicated_script_flow", "test-workspace:flow/f/system/dedicated_multi_step_flow", "test-workspace:f/system/rg_script_a", "test-workspace:f/system/rg_script_b"], "worker_tags": ["deno","python3","go","bash","powershell","nativets","mysql","oracledb","bun","postgresql","bigquery","snowflake","mssql","graphql","php","rust","ansible","csharp","nu","java","ruby","rlang","duckdb","dependency","flow","other","test-workspace:f/system/dedicated_double","test-workspace:flow/f/system/dedicated_rawscript_flow","test-workspace:flow/f/system/dedicated_script_flow","test-workspace:flow/f/system/dedicated_multi_step_flow","test-workspace:f/system/rg_script_a","test-workspace:f/system/rg_script_b"]}'
-) ON CONFLICT (name) DO UPDATE SET config = EXCLUDED.config;
-
 -- A simple Bun script for testing dedicated Script steps in flows
 INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock, dedicated_worker) VALUES (
 'test-workspace',
