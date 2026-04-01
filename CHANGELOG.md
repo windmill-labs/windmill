@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.671.0](https://github.com/windmill-labs/windmill/compare/v1.670.0...v1.671.0) (2026-03-31)
+
+
+### Features
+
+* add configurable preview job tag override in default tags settings ([#8649](https://github.com/windmill-labs/windmill/issues/8649)) ([da8886b](https://github.com/windmill-labs/windmill/commit/da8886be8575dd925b6d24c55ab379bc6984c5f8))
+* improve CLI flow log streaming and job inspection ([#8644](https://github.com/windmill-labs/windmill/issues/8644)) ([6c3c971](https://github.com/windmill-labs/windmill/commit/6c3c971af5aa1362632ee0deeddf91b8bc47c853))
+* support hub flows in raw app runnables ([#8627](https://github.com/windmill-labs/windmill/issues/8627)) ([040a199](https://github.com/windmill-labs/windmill/commit/040a199685cea5c99c944bacb5584a381d6ec829))
+
+
+### Bug Fixes
+
+* return default_args/enums in approval info and fix subflow resume buttons ([#8648](https://github.com/windmill-labs/windmill/issues/8648)) ([852c59e](https://github.com/windmill-labs/windmill/commit/852c59efbb04510e5e6f99919707effcf6769a2f))
+
 ## [1.670.0](https://github.com/windmill-labs/windmill/compare/v1.669.1...v1.670.0) (2026-03-31)
 
 
