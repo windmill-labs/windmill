@@ -144,7 +144,7 @@
 				const app = await AppService.getAppByPath({ workspace, path })
 				return app.summary
 			} else if (kind === 'folder') {
-				const folder = await FolderService.getFolder({ workspace, name: path.slice(2) })
+				const folder = await FolderService.getFolder({ workspace, name: path.replace(/^f\//, '') })
 				return folder.summary
 			}
 		} catch (error) {
