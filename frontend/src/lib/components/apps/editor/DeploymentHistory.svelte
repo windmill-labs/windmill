@@ -6,11 +6,13 @@
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import { classNames, displayDate, emptyString } from '$lib/utils'
 	import { AppService, type AppWithLastVersion, type AppHistory } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { Pencil, ArrowRight, X, Loader2 } from 'lucide-svelte'
+	import RawAppPreview from '$lib/components/raw_apps/RawAppPreview.svelte'
+	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 
 	interface Props {
 		appPath: string | undefined
@@ -182,7 +184,10 @@
 						<div class="flex p-1 gap-2">
 							<Button
 								size="xs"
-								on:click={() => window.open(`/apps/add?template_id=${selectedVersion?.version}`)}
+								on:click={() =>
+									window.open(
+										`${selected?.raw_app ? '/apps_raw' : '/apps'}/add?template_id=${selectedVersion?.version}`
+									)}
 							>
 								Restore as fork
 							</Button>
@@ -192,11 +197,25 @@
 						</div>
 					</div>
 
-					{#await import('$lib/components/apps/editor/AppPreview.svelte')}
-						<Loader2 class="animate-spin" />
-					{:then Module}
-						<Module.default noBackend app={selected.value} context={{}} />
-					{/await}
+					{#if selected.raw_app}
+						{#if selected.bundle_secret}
+							<RawAppPreview
+								workspace={$workspaceStore!}
+								user={$userStore}
+								secret={selected.bundle_secret}
+								path={selected.path}
+								runnables={(selected.value?.runnables ?? {}) as Record<string, Runnable>}
+							/>
+						{:else}
+							<div class="text-sm p-2 text-primary">This raw app version has no preview bundle.</div>
+						{/if}
+					{:else}
+						{#await import('$lib/components/apps/editor/AppPreview.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default noBackend app={selected.value} context={{}} />
+						{/await}
+					{/if}
 				{:else}
 					<Skeleton layout={[[40]]} />
 				{/if}
