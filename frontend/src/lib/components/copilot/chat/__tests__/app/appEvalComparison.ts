@@ -121,7 +121,7 @@ Please evaluate how well the generated app:
 
 	try {
 		const response = await client.messages.create({
-			model: 'claude-sonnet-4-5-20250514',
+			model: 'claude-sonnet-4-6',
 			max_tokens: 2048,
 			system: APP_GENERATION_EVALUATOR_SYSTEM_PROMPT,
 			messages: [

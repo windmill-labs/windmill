@@ -11,7 +11,7 @@ The current implementation is intentionally small:
 - `compare` command
 - `history` command
 - `list-cases` and `list-variants` discovery commands
-- `cli` surface only
+- `cli`, `frontend-flow`, and `frontend-app` surfaces
 
 This is the benchmark entrypoint for prompt and artifact evaluation.
 
@@ -35,11 +35,27 @@ cd ai_evals
 bun run cli -- list-cases --surface cli
 ```
 
+List available frontend cases:
+
+```bash
+cd ai_evals
+bun run cli -- list-cases --surface frontend-flow
+bun run cli -- list-cases --surface frontend-app
+```
+
 List available CLI variants:
 
 ```bash
 cd ai_evals
 bun run cli -- list-variants --surface cli
+```
+
+List available frontend variants:
+
+```bash
+cd ai_evals
+bun run cli -- list-variants --surface frontend-flow
+bun run cli -- list-variants --surface frontend-app
 ```
 
 Snapshot the current guidance bundle into a named CLI variant:
@@ -54,6 +70,20 @@ Run one CLI case:
 ```bash
 cd ai_evals
 bun run cli -- run --surface cli --case bun-hello-script --variant baseline
+```
+
+Run one frontend flow case:
+
+```bash
+cd ai_evals
+bun run cli -- run --surface frontend-flow --case flow-test1-user-role-actions --variant baseline --runs 1
+```
+
+Run one frontend app case:
+
+```bash
+cd ai_evals
+bun run cli -- run --surface frontend-app --case app-test1-counter-create --variant baseline --runs 1
 ```
 
 Keep the temp workspace for inspection:
@@ -89,6 +119,20 @@ Write official benchmark snapshots while comparing distinct variants:
 ```bash
 cd ai_evals
 bun run cli -- compare --surface cli --case bun-hello-script --variant baseline-frozen --variant candidate --runs 5 --write-history
+```
+
+Compare frontend prompt variants:
+
+```bash
+cd ai_evals
+bun run cli -- compare --surface frontend-flow --case flow-test1-user-role-actions --variant baseline --variant candidate --runs 3
+```
+
+Write official history snapshots for frontend variants:
+
+```bash
+cd ai_evals
+bun run cli -- compare --surface frontend-app --case app-test1-counter-create --variant baseline --variant candidate --runs 3 --write-history
 ```
 
 Inspect the tracked history:
@@ -157,6 +201,15 @@ official snapshot per compared variant into `ai_evals/history/` and rebuilds:
 
 The compare output also includes tool usage and invoked skills as diagnostics.
 
+For frontend surfaces, the benchmark CLI shells into a frontend-native Vitest
+adapter so the evaluation runs with the frontend project's own module
+resolution and test environment, while still producing the same benchmark
+result shape as the CLI surface.
+
+By default, the repo only ships `baseline` frontend variants. To compare
+distinct prompt variants or write official history snapshots, add a second
+manifest under `ai_evals/variants/frontend/<surface>/`.
+
 True efficiency metrics such as latency, token usage, and cost are planned, but
 the current CLI does not emit them yet. Until that lands, use `compare`
 primarily to answer "did this skill bundle produce better artifacts on the same
@@ -193,7 +246,7 @@ instead of the generated default.
 
 Later iterations should add:
 
-- frontend adapters
 - variant cleanup and diff helpers
 - token and cost metrics in compare output
 - richer history views and filtering
+- frontend `script` surface

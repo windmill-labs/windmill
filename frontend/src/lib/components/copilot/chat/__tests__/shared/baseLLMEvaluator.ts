@@ -50,7 +50,7 @@ export async function evaluateWithLLM(params: EvaluateParams): Promise<Evaluatio
 		expectedOutput,
 		evaluatorSystemPrompt,
 		apiKey,
-		model = 'claude-sonnet-4-5-20250514'
+		model = 'claude-sonnet-4-6'
 	} = params
 
 	// @ts-ignore - process.env

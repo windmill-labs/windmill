@@ -24,6 +24,15 @@ import {
   loadLatestHistoryRollup,
   loadSummaryHistory
 } from "../history/writer.mjs";
+import {
+  loadFrontendCases,
+  loadFrontendVariants,
+  type FrontendSurfaceName,
+} from "../adapters/frontend/manifests";
+import {
+  runFrontendBenchmarkAdapter,
+  type FrontendAdapterPayload,
+} from "../adapters/frontend/runtime";
 
 type CommandName =
   | "run"
@@ -32,7 +41,7 @@ type CommandName =
   | "snapshot-variant"
   | "compare"
   | "history";
-type SurfaceName = "cli";
+type SurfaceName = "cli" | FrontendSurfaceName;
 
 interface ParsedArgs {
   command: CommandName;
@@ -62,6 +71,8 @@ interface AttemptSummary {
   requiredFailedChecks: string[];
   expectedFiles: Array<{ path: string; exists: boolean }>;
   pathSignature: string;
+  judgeScore: number | null;
+  error: string | null;
 }
 
 interface AggregateMetrics {
@@ -77,6 +88,9 @@ interface AggregateMetrics {
   distinctSkillsInvoked: string[];
   distinctToolsUsed: string[];
   requiredFailureCounts: Array<{ name: string; count: number }>;
+  judgeScoreMean: number | null;
+  judgeScoreMedian: number | null;
+  judgeScoreP10: number | null;
 }
 
 interface CompareCaseResult {
@@ -99,6 +113,9 @@ interface CompareCaseResult {
 interface CompareVariantResult {
   label: string;
   variant: string;
+  provider: string;
+  model: string;
+  judgeModel: string | null;
   totalCases: number;
   fullyPassedCases: number;
   totalRuns: number;
@@ -113,6 +130,9 @@ interface CompareVariantResult {
   distinctSkillsInvoked: string[];
   distinctToolsUsed: string[];
   requiredFailureCounts: Array<{ name: string; count: number }>;
+  judgeScoreMean: number | null;
+  judgeScoreMedian: number | null;
+  judgeScoreP10: number | null;
   caseResults: CompareCaseResult[];
 }
 
@@ -170,6 +190,30 @@ async function handleListCases(args: ParsedArgs) {
       }
       return;
     }
+    case "frontend-flow":
+    case "frontend-app": {
+      const cases = await loadFrontendCases(surface);
+      const payload = {
+        surface,
+        cases: cases.map((entry) => ({
+          id: entry.id,
+          description: entry.title ?? null
+        }))
+      };
+
+      if (args.json) {
+        process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+        return;
+      }
+
+      process.stdout.write(`Surface: ${surface}\n`);
+      for (const entry of payload.cases) {
+        process.stdout.write(
+          `- ${entry.id}${entry.description ? `: ${entry.description}` : ""}\n`
+        );
+      }
+      return;
+    }
     default:
       assertNever(surface);
   }
@@ -181,6 +225,30 @@ async function handleListVariants(args: ParsedArgs) {
   switch (surface) {
     case "cli": {
       const variants = await loadCliVariants();
+      const payload = {
+        surface,
+        variants: variants.map((entry) => ({
+          id: entry.id,
+          description: entry.description ?? null
+        }))
+      };
+
+      if (args.json) {
+        process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+        return;
+      }
+
+      process.stdout.write(`Surface: ${surface}\n`);
+      for (const entry of payload.variants) {
+        process.stdout.write(
+          `- ${entry.id}${entry.description ? `: ${entry.description}` : ""}\n`
+        );
+      }
+      return;
+    }
+    case "frontend-flow":
+    case "frontend-app": {
+      const variants = await loadFrontendVariants(surface);
       const payload = {
         surface,
         variants: variants.map((entry) => ({
@@ -261,6 +329,30 @@ async function handleRun(args: ParsedArgs) {
       }
       return;
     }
+    case "frontend-flow":
+    case "frontend-app": {
+      if (args.keepWorkspace) {
+        throw new Error("--keep-workspace is not supported for frontend benchmark surfaces");
+      }
+      const variantId = requireSingleVariantId(args.variantIds, "baseline");
+      const payload = await buildFrontendRunPayload({
+        surface,
+        caseId,
+        variantId,
+        runs: args.runs
+      });
+
+      if (args.json) {
+        process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+      } else {
+        printRunSummary(payload);
+      }
+
+      if (!payload.passed) {
+        process.exitCode = 1;
+      }
+      return;
+    }
     default:
       assertNever(surface);
   }
@@ -295,6 +387,9 @@ async function handleSnapshotVariant(args: ParsedArgs) {
 
       return;
     }
+    case "frontend-flow":
+    case "frontend-app":
+      throw new Error("snapshot-variant is currently supported for the cli surface only");
     default:
       assertNever(surface);
   }
@@ -367,6 +462,9 @@ async function handleCompare(args: ParsedArgs) {
         internalVariantResults.push({
           label: labeledVariant.label,
           variant: labeledVariant.variant.id,
+          provider: CLI_BENCHMARK_PROVIDER,
+          model: CLI_BENCHMARK_MODEL,
+          judgeModel: null,
           totalCases: caseResults.length,
           fullyPassedCases: caseResults.filter(
             (entry) => entry.passedRuns === entry.totalRuns
@@ -383,6 +481,9 @@ async function handleCompare(args: ParsedArgs) {
           distinctSkillsInvoked: aggregate.distinctSkillsInvoked,
           distinctToolsUsed: aggregate.distinctToolsUsed,
           requiredFailureCounts: aggregate.requiredFailureCounts,
+          judgeScoreMean: aggregate.judgeScoreMean,
+          judgeScoreMedian: aggregate.judgeScoreMedian,
+          judgeScoreP10: aggregate.judgeScoreP10,
           caseResults,
           allAttempts
         });
@@ -401,6 +502,53 @@ async function handleCompare(args: ParsedArgs) {
         command: "compare",
         surface,
         caseIds: selectedCases.map((entry) => entry.id),
+        runs: args.runs,
+        variants: internalVariantResults.map(({ allAttempts: _allAttempts, ...variant }) => variant),
+        historyWrites
+      };
+
+      if (args.json) {
+        process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+      } else {
+        printCompareSummary(payload);
+      }
+
+      return;
+    }
+    case "frontend-flow":
+    case "frontend-app": {
+      if (args.variantIds.length < 2) {
+        throw new Error("compare requires at least two --variant values");
+      }
+      if (args.writeHistory && new Set(args.variantIds).size !== args.variantIds.length) {
+        throw new Error(
+          "--write-history requires distinct variant ids so official snapshots stay unambiguous"
+        );
+      }
+
+      const internalVariantResults = await buildFrontendCompareResults({
+        surface,
+        caseIds: args.caseIds,
+        variantIds: args.variantIds,
+        runs: args.runs
+      });
+
+      const historyWrites = args.writeHistory
+        ? await writeCompareHistorySnapshots({
+            surface,
+            runs: args.runs,
+            variants: internalVariantResults,
+            historyDir: args.historyDir
+          })
+        : [];
+
+      const payload = {
+        command: "compare",
+        surface,
+        caseIds:
+          args.caseIds.length === 0
+            ? internalVariantResults[0]?.caseResults.map((entry) => entry.caseId) ?? []
+            : args.caseIds,
         runs: args.runs,
         variants: internalVariantResults.map(({ allAttempts: _allAttempts, ...variant }) => variant),
         historyWrites
@@ -475,6 +623,137 @@ async function handleHistory(args: ParsedArgs) {
   }
 }
 
+async function buildFrontendRunPayload(input: {
+  surface: FrontendSurfaceName;
+  caseId: string;
+  variantId: string;
+  runs: number;
+}) {
+  const compareResults = await buildFrontendCompareResults({
+    surface: input.surface,
+    caseIds: [input.caseId],
+    variantIds: [input.variantId],
+    runs: input.runs
+  });
+  const variant = compareResults[0];
+
+  return {
+    command: "run",
+    surface: input.surface,
+    variant: variant.variant,
+    caseId: input.caseId,
+    runs: input.runs,
+    passed: variant.passedRuns === variant.totalRuns,
+    passedRuns: variant.passedRuns,
+    totalRuns: variant.totalRuns,
+    passRate: variant.passRate,
+    workspaceKept: false,
+    workspaceDir: null,
+    metrics: {
+      averageDurationMs: variant.averageDurationMs,
+      averageAssistantMessages: variant.averageAssistantMessages,
+      averageToolCalls: variant.averageToolCalls,
+      averageSkillInvocations: variant.averageSkillInvocations
+    },
+    distinctSkillsInvoked: variant.distinctSkillsInvoked,
+    distinctToolsUsed: variant.distinctToolsUsed,
+    requiredFailureCounts: variant.requiredFailureCounts,
+    attempts: variant.allAttempts
+  };
+}
+
+async function buildFrontendCompareResults(input: {
+  surface: FrontendSurfaceName;
+  caseIds: string[];
+  variantIds: string[];
+  runs: number;
+}): Promise<Array<CompareVariantResult & { allAttempts: AttemptSummary[] }>> {
+  const adapterResult = await runFrontendBenchmarkAdapter({
+    surface: input.surface,
+    caseIds: input.caseIds,
+    variantIds: input.variantIds,
+    runs: input.runs
+  });
+
+  return adapterResult.variants.map((variant) => {
+    const caseResults = variant.caseResults.map((caseResult) => {
+      const attempts = caseResult.attempts.map(summarizeFrontendAttempt);
+      const aggregate = aggregateAttempts(attempts);
+      return {
+        caseId: caseResult.caseId,
+        totalRuns: aggregate.totalRuns,
+        passedRuns: aggregate.passedRuns,
+        passRate: aggregate.passRate,
+        averageDurationMs: aggregate.averageDurationMs,
+        medianDurationMs: aggregate.medianDurationMs,
+        latencyPerSuccessMs: aggregate.latencyPerSuccessMs,
+        averageAssistantMessages: aggregate.averageAssistantMessages,
+        averageToolCalls: aggregate.averageToolCalls,
+        averageSkillInvocations: aggregate.averageSkillInvocations,
+        pathConsistency: computePathConsistency(attempts),
+        distinctSkillsInvoked: aggregate.distinctSkillsInvoked,
+        distinctToolsUsed: aggregate.distinctToolsUsed,
+        requiredFailureCounts: aggregate.requiredFailureCounts
+      };
+    });
+
+    const allAttempts = variant.caseResults.flatMap((caseResult) =>
+      caseResult.attempts.map(summarizeFrontendAttempt)
+    );
+    const aggregate = aggregateAttempts(allAttempts);
+
+    return {
+      label: variant.variant,
+      variant: variant.variant,
+      provider: variant.provider,
+      model: variant.model,
+      judgeModel: variant.judgeModel,
+      totalCases: caseResults.length,
+      fullyPassedCases: caseResults.filter((entry) => entry.passedRuns === entry.totalRuns)
+        .length,
+      totalRuns: aggregate.totalRuns,
+      passedRuns: aggregate.passedRuns,
+      passRate: aggregate.passRate,
+      averageDurationMs: aggregate.averageDurationMs,
+      medianDurationMs: aggregate.medianDurationMs,
+      latencyPerSuccessMs: aggregate.latencyPerSuccessMs,
+      averageAssistantMessages: aggregate.averageAssistantMessages,
+      averageToolCalls: aggregate.averageToolCalls,
+      averageSkillInvocations: aggregate.averageSkillInvocations,
+      distinctSkillsInvoked: aggregate.distinctSkillsInvoked,
+      distinctToolsUsed: aggregate.distinctToolsUsed,
+      requiredFailureCounts: aggregate.requiredFailureCounts,
+      judgeScoreMean: aggregate.judgeScoreMean,
+      judgeScoreMedian: aggregate.judgeScoreMedian,
+      judgeScoreP10: aggregate.judgeScoreP10,
+      caseResults,
+      allAttempts
+    };
+  });
+}
+
+function summarizeFrontendAttempt(
+  attempt: FrontendAdapterPayload["variants"][number]["caseResults"][number]["attempts"][number]
+): AttemptSummary {
+  const toolsUsed = uniqueStrings(attempt.toolsUsed);
+  return {
+    attempt: attempt.attempt,
+    passed: attempt.passed,
+    durationMs: attempt.durationMs,
+    assistantMessageCount: attempt.assistantMessageCount,
+    toolCallCount: attempt.toolCallCount,
+    skillInvocationCount: 0,
+    skillsInvoked: [],
+    toolsUsed,
+    checks: attempt.checks,
+    requiredFailedChecks: attempt.requiredFailedChecks,
+    expectedFiles: [],
+    pathSignature: buildPathSignature([], toolsUsed),
+    judgeScore: attempt.judgeScore,
+    error: attempt.error
+  };
+}
+
 async function runCaseAttempts(
   evalCase: Awaited<ReturnType<typeof loadCliArtifactEvalCases>>[number],
   variant: CliVariant,
@@ -534,13 +813,18 @@ function summarizeAttempt(
       path: file.path,
       exists: file.exists
     })),
-    pathSignature: buildPathSignature(skillsInvoked, toolsUsed)
+    pathSignature: buildPathSignature(skillsInvoked, toolsUsed),
+    judgeScore: null,
+    error: result.error ?? null
   };
 }
 
 function aggregateAttempts(attempts: AttemptSummary[]): AggregateMetrics {
   const requiredFailureCounts = new Map<string, number>();
   const successfulAttempts = attempts.filter((attempt) => attempt.passed);
+  const judgeScores = attempts
+    .map((attempt) => attempt.judgeScore)
+    .filter((score): score is number => typeof score === "number" && Number.isFinite(score));
 
   for (const attempt of attempts) {
     for (const failure of attempt.requiredFailedChecks) {
@@ -562,7 +846,10 @@ function aggregateAttempts(attempts: AttemptSummary[]): AggregateMetrics {
     distinctToolsUsed: uniqueStrings(attempts.flatMap((attempt) => attempt.toolsUsed)),
     requiredFailureCounts: [...requiredFailureCounts.entries()]
       .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-      .map(([name, count]) => ({ name, count }))
+      .map(([name, count]) => ({ name, count })),
+    judgeScoreMean: judgeScores.length > 0 ? average(judgeScores) : null,
+    judgeScoreMedian: judgeScores.length > 0 ? median(judgeScores) : null,
+    judgeScoreP10: judgeScores.length > 0 ? percentile(judgeScores, 0.1) : null
   };
 }
 
@@ -684,7 +971,7 @@ function requireSurface(surface: string | undefined): SurfaceName {
   if (!surface) {
     throw new Error("Missing required --surface argument");
   }
-  if (surface !== "cli") {
+  if (surface !== "cli" && surface !== "frontend-flow" && surface !== "frontend-app") {
     throw new Error(`Unsupported surface for now: ${surface}`);
   }
   return surface;
@@ -947,18 +1234,18 @@ function buildOfficialRun(input: {
     scoring_version: "cli-deterministic-v1",
     surface: input.surface,
     variant_name: input.variant.variant,
-    provider: CLI_BENCHMARK_PROVIDER,
-    model: CLI_BENCHMARK_MODEL,
-    judge_model: null,
+    provider: input.variant.provider,
+    model: input.variant.model,
+    judge_model: input.variant.judgeModel,
     runs_per_case: input.runs,
     case_count: input.variant.caseResults.length,
     metrics: {
       quality: {
         pass_rate: input.variant.passRate,
         deterministic_pass_rate: input.variant.passRate,
-        judge_score_mean: 0,
-        judge_score_median: 0,
-        judge_score_p10: 0,
+        judge_score_mean: input.variant.judgeScoreMean ?? 0,
+        judge_score_median: input.variant.judgeScoreMedian ?? 0,
+        judge_score_p10: input.variant.judgeScoreP10 ?? 0,
         quality_score: qualityScore
       },
       reliability: {
@@ -1127,14 +1414,18 @@ function printHelp() {
     [
       "Usage:",
       "  cd ai_evals && bun run cli -- list-cases --surface cli [--json]",
+      "  cd ai_evals && bun run cli -- list-cases --surface frontend-flow [--json]",
+      "  cd ai_evals && bun run cli -- list-cases --surface frontend-app [--json]",
       "  cd ai_evals && bun run cli -- list-variants --surface cli [--json]",
+      "  cd ai_evals && bun run cli -- list-variants --surface frontend-flow [--json]",
+      "  cd ai_evals && bun run cli -- list-variants --surface frontend-app [--json]",
       "  cd ai_evals && bun run cli -- snapshot-variant --surface cli --variant <id> [--description <text>] [--json]",
-      "  cd ai_evals && bun run cli -- run --surface cli --case <id> [--variant <id>] [--runs <n>] [--json] [--keep-workspace]",
-      "  cd ai_evals && bun run cli -- compare --surface cli [--case <id> ...] [--variant <id> ...] [--runs <n>] [--write-history] [--history-dir <path>] [--json]",
+      "  cd ai_evals && bun run cli -- run --surface <cli|frontend-flow|frontend-app> --case <id> [--variant <id>] [--runs <n>] [--json] [--keep-workspace]",
+      "  cd ai_evals && bun run cli -- compare --surface <cli|frontend-flow|frontend-app> [--case <id> ...] [--variant <id> ...] [--runs <n>] [--write-history] [--history-dir <path>] [--json]",
       "  cd ai_evals && bun run cli -- history [--view latest|summary|surface|variant|model] [--limit <n>] [--history-dir <path>] [--json]",
       "",
       "Current support:",
-      "  surfaces: cli"
+      "  surfaces: cli, frontend-flow, frontend-app"
     ].join("\n") + "\n"
   );
 }
@@ -1163,6 +1454,16 @@ function median(values: number[]): number {
   }
 
   return sorted[middle];
+}
+
+function percentile(values: number[], ratio: number): number {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = Math.max(0, Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * ratio)));
+  return sorted[index];
 }
 
 function uniqueStrings(values: string[]): string[] {
