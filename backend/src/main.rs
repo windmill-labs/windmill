@@ -51,7 +51,7 @@ use windmill_common::{
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
         OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
         RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
         SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
@@ -95,20 +95,21 @@ use windmill_worker::{
     BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS,
     DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, JAVA_CACHE_DIR, NU_CACHE_DIR,
     POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
-    RUBY_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
+    RUBY_CACHE_DIR, RUST_CACHE_DIR, R_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
-    initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_require_preexisting_user,
-    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db,
-    reload_app_workspaced_route_setting, reload_audit_log_retention_days_setting,
-    reload_base_url_setting, reload_bunfig_install_scopes_setting,
-    reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
-    reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
-    reload_http_route_workspaced_route_setting, reload_hub_api_secret_setting,
-    reload_hub_base_url_setting, reload_instance_events_webhook_setting,
-    reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
-    reload_license_key, reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
+    initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_preview_tags_override,
+    load_require_preexisting_user, load_tag_per_workspace_enabled,
+    load_tag_per_workspace_workspaces, monitor_db, reload_app_workspaced_route_setting,
+    reload_audit_log_retention_days_setting, reload_base_url_setting,
+    reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
+    reload_critical_alerts_on_token_expiry_setting, reload_critical_error_channels_setting,
+    reload_extra_pip_index_url_setting, reload_http_route_workspaced_route_setting,
+    reload_hub_api_secret_setting, reload_hub_base_url_setting,
+    reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
+    reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
+    reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
     reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
     reload_smtp_config, reload_uv_index_strategy_setting, reload_worker_config, MonitorIteration,
 };
@@ -1742,6 +1743,11 @@ async fn process_notify_event(
                         );
                     }
                 }
+                PREVIEW_TAGS_OVERRIDE_SETTING => {
+                    if let Err(e) = load_preview_tags_override(db).await {
+                        tracing::error!("Error loading preview tags override: {e:#}");
+                    }
+                }
                 SMTP_SETTING => {
                     reload_smtp_config(db).await;
                 }
@@ -2005,6 +2011,7 @@ pub async fn run_workers(
         &*POWERSHELL_CACHE_DIR,
         &*JAVA_CACHE_DIR,
         &*RUBY_CACHE_DIR,
+        &*R_CACHE_DIR,
         &*TAR_JAVA_CACHE_DIR, // for related places search: ADD_NEW_LANG
     ] {
         DirBuilder::new()

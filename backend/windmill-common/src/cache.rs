@@ -1231,3 +1231,75 @@ const _: () = {
         }
     }
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn flow_data_extras_preserves_notes_and_groups() {
+        let raw = serde_json::value::to_raw_value(&json!({
+            "modules": [],
+            "notes": [{"id": "n1", "text": "hello", "color": "blue", "type": "group",
+                        "contained_node_ids": ["a", "b"], "locked": false}],
+            "groups": [{"start_id": "a", "end_id": "b", "summary": "grp", "color": "green"}]
+        }))
+        .unwrap();
+
+        let data = FlowData::from_raw(raw).unwrap();
+
+        // FlowValue ignores notes/groups
+        assert!(data.value().modules.is_empty());
+
+        // But extras() recovers them from the raw JSON
+        let extras = data.extras().expect("extras should parse");
+        let notes: serde_json::Value =
+            serde_json::from_str(extras.notes.expect("notes present").get()).unwrap();
+        assert_eq!(notes.as_array().unwrap().len(), 1);
+        assert_eq!(notes[0]["id"], "n1");
+        assert_eq!(notes[0]["color"], "blue");
+
+        let groups: serde_json::Value =
+            serde_json::from_str(extras.groups.expect("groups present").get()).unwrap();
+        assert_eq!(groups.as_array().unwrap().len(), 1);
+        assert_eq!(groups[0]["start_id"], "a");
+    }
+
+    #[test]
+    fn flow_data_extras_returns_none_when_missing() {
+        let raw = serde_json::value::to_raw_value(&json!({"modules": []})).unwrap();
+        let data = FlowData::from_raw(raw).unwrap();
+
+        let extras = data
+            .extras()
+            .expect("extras should parse even without notes/groups");
+        assert!(extras.notes.is_none());
+        assert!(extras.groups.is_none());
+    }
+
+    #[test]
+    fn flow_data_extras_lost_after_flow_value_roundtrip() {
+        // Demonstrates the bug: serializing through FlowValue drops notes/groups.
+        // This is the root cause of #8641.
+        let raw = serde_json::value::to_raw_value(&json!({
+            "modules": [],
+            "notes": [{"id": "n1", "text": "t", "color": "blue", "type": "free"}]
+        }))
+        .unwrap();
+
+        let data = FlowData::from_raw(raw).unwrap();
+
+        // Re-serialize through FlowValue (what RunFlowDependenciesRequest does)
+        let stripped = serde_json::to_string(data.value()).unwrap();
+        let stripped_raw = RawValue::from_string(stripped).unwrap();
+        let data2 = FlowData::from_raw(stripped_raw).unwrap();
+
+        // Notes are gone after the FlowValue round-trip
+        let extras = data2.extras().expect("extras should parse");
+        assert!(
+            extras.notes.is_none(),
+            "notes lost after FlowValue round-trip"
+        );
+    }
+}

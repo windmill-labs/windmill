@@ -51,6 +51,10 @@ RUN /usr/bin/java -jar /usr/bin/coursier about
 # Ruby
 RUN apt-get install -y ruby ruby-bundler
 
+# R
+RUN apt-get install -y r-base-dev \
+    && Rscript -e 'install.packages("renv", lib="/usr/lib/R/library", repos="https://cloud.r-project.org")'
+
 # iptables
 RUN apt-get install -y iptables
 

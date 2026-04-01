@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.671.0](https://github.com/windmill-labs/windmill/compare/v1.670.0...v1.671.0) (2026-03-31)
+
+
+### Features
+
+* add configurable preview job tag override in default tags settings ([#8649](https://github.com/windmill-labs/windmill/issues/8649)) ([da8886b](https://github.com/windmill-labs/windmill/commit/da8886be8575dd925b6d24c55ab379bc6984c5f8))
+* improve CLI flow log streaming and job inspection ([#8644](https://github.com/windmill-labs/windmill/issues/8644)) ([6c3c971](https://github.com/windmill-labs/windmill/commit/6c3c971af5aa1362632ee0deeddf91b8bc47c853))
+* support hub flows in raw app runnables ([#8627](https://github.com/windmill-labs/windmill/issues/8627)) ([040a199](https://github.com/windmill-labs/windmill/commit/040a199685cea5c99c944bacb5584a381d6ec829))
+
+
+### Bug Fixes
+
+* return default_args/enums in approval info and fix subflow resume buttons ([#8648](https://github.com/windmill-labs/windmill/issues/8648)) ([852c59e](https://github.com/windmill-labs/windmill/commit/852c59efbb04510e5e6f99919707effcf6769a2f))
+
+## [1.670.0](https://github.com/windmill-labs/windmill/compare/v1.669.1...v1.670.0) (2026-03-31)
+
+
+### Features
+
+* add OR logic support to kafka/websocket trigger filters ([#8580](https://github.com/windmill-labs/windmill/issues/8580)) ([3876902](https://github.com/windmill-labs/windmill/commit/3876902a7be798fd5ef208bc5756b28fb55e569e))
+* expose getJob and getJobLogs as MCP tools ([#8632](https://github.com/windmill-labs/windmill/issues/8632)) ([cd8edcd](https://github.com/windmill-labs/windmill/commit/cd8edcd94f2bf44c3e771000cb0bbad08accc0e7))
+* support multiline secrets in resource password fields ([#8637](https://github.com/windmill-labs/windmill/issues/8637)) ([26050f9](https://github.com/windmill-labs/windmill/commit/26050f96c34f14826298760174a45f3559d3266c))
+* support sensitive/secret fields for non-string types ([#8635](https://github.com/windmill-labs/windmill/issues/8635)) ([375fb66](https://github.com/windmill-labs/windmill/commit/375fb66abe2d1861b53dc2b36d2cf0e2eb82c3a8))
+
+
+### Bug Fixes
+
+* cap input history per_page to 100 on cloud ([#8624](https://github.com/windmill-labs/windmill/issues/8624)) ([8e973c8](https://github.com/windmill-labs/windmill/commit/8e973c892d768be2da2e6b4b7af9e40b62333052))
+* compute highest workspace role across all instance groups ([#8633](https://github.com/windmill-labs/windmill/issues/8633)) ([92b9ac7](https://github.com/windmill-labs/windmill/commit/92b9ac72c5fc9a5085fcb2e9d835ccbb53bcd4b0))
+* Ducklake UI Nits ([#8628](https://github.com/windmill-labs/windmill/issues/8628)) ([ef1757f](https://github.com/windmill-labs/windmill/commit/ef1757f5d747e513d201eb6fa48918dba8248abe))
+* preserve flow notes/groups and field ordering in generate-metadata ([#8641](https://github.com/windmill-labs/windmill/issues/8641)) ([#8642](https://github.com/windmill-labs/windmill/issues/8642)) ([52a04d2](https://github.com/windmill-labs/windmill/commit/52a04d210f476f4598007f67770bc6520b045950))
+* remove timeout on python client httpx to prevent ducklake query timeouts ([#8636](https://github.com/windmill-labs/windmill/issues/8636)) ([c5fccd2](https://github.com/windmill-labs/windmill/commit/c5fccd2f69ad8a6e46c514cf89b9aa21b380e6fe))
+* resolve missing form schema for nested suspend steps in FlowNode sub-flows ([#8643](https://github.com/windmill-labs/windmill/issues/8643)) ([12ea7e7](https://github.com/windmill-labs/windmill/commit/12ea7e74237560a9dfc99b6bc1338e3343b57640))
+* smarter secret masking based on secret length ([#8629](https://github.com/windmill-labs/windmill/issues/8629)) ([bfc2aef](https://github.com/windmill-labs/windmill/commit/bfc2aefdb8ab92b7284de7f9e485a5504502d944))
+
 ## [1.669.1](https://github.com/windmill-labs/windmill/compare/v1.669.0...v1.669.1) (2026-03-30)
 
 

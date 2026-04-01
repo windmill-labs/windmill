@@ -1306,6 +1306,7 @@ export async function elementsToMap(
           "nu",
           "java",
           "rb",
+          "r",
           // for related places search: ADD_NEW_LANG
         ].includes(path.split(".").pop() ?? "")
       ) {
