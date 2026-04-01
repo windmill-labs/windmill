@@ -24,10 +24,12 @@ What is true today:
 - repeated-run CLI benchmarking exists through `--runs`
 - basic CLI reliability metrics now exist
 - benchmark history writing and reading now exist in the benchmark CLI
+- the CLI base is strong enough to stop blocking the frontend adapter
 
 What is not true yet:
 
 - frontend is not yet exposed through the benchmark CLI
+- CLI still needs broader case coverage and richer efficiency metrics
 - token and cost metrics are not implemented
 - no UI studio exists yet
 
@@ -262,18 +264,18 @@ The most important implemented changes so far are:
 
 The highest-priority remaining work is:
 
-1. Add richer aggregate metrics:
+1. Bring frontend behind the same benchmark CLI.
+2. Expand the CLI case corpus to cover more real skill behavior.
+3. Add richer aggregate metrics:
    - pass rate
    - flake rate
    - latency
    - tool-call count
    - token and cost metrics if available
-2. Expand the CLI case corpus to cover more real skill behavior.
-3. Add stronger official history summaries:
+4. Add stronger official history summaries:
    - worst-failure views
    - better pass-rate rollups
    - more filtering
-4. Bring frontend behind the same benchmark CLI.
 5. Add CI tiers.
 6. Build the UI last.
 
@@ -281,13 +283,13 @@ The highest-priority remaining work is:
 
 The best next implementation step is:
 
-- expand CLI coverage and enrich the official history metrics
+- start the frontend adapter behind the existing benchmark CLI
 
 Reason:
 
 - the current CLI harness can now detect meaningful skill regressions, write official snapshots, and read them back
-- the next missing layer is better coverage and stronger metrics inside that tracked history
-- CI and the future trend dashboard should build on the existing history path instead of inventing a second one
+- that is a strong enough foundation to reuse for the frontend instead of delaying on CLI perfection
+- the remaining CLI work should stay tracked as follow-up TODOs while the main implementation path moves to frontend coverage
 
 ## Relevant Files
 
