@@ -186,6 +186,29 @@
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => schedulesFilterSchema))
+	let allFolders = $derived(
+		Array.from(
+			new Set(
+				(schedules ?? [])
+					.map((x) => x.path.split('/').slice(0, 2).join('/'))
+					.filter((x) => x.startsWith('f/'))
+			)
+		)
+			.sort()
+			.map((f) => f.replace(/^f\//, ''))
+	)
+	let presets = $derived([
+		...allFolders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
+		...allLabels.map((l) => ({ name: l, value: `label:\\ ${l}` })),
+		...(schedulesFilterSchema.user_folders_only
+			? [
+					{
+						name: schedulesFilterSchema.user_folders_only.label ?? '?',
+						value: 'user_folders_only:\\ true'
+					}
+				]
+			: [])
+	])
 
 	let nbDisplayed = $state(15)
 	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = $state('all')
@@ -281,6 +304,7 @@
 					schema={schedulesFilterSchema}
 					bind:value={filters.val}
 					class="grow max-w-[26rem]"
+					{presets}
 				/>
 			</div>
 			{#if loading}
