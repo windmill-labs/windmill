@@ -59,10 +59,10 @@ export function buildVariablesFilterSchema({
 			type: 'oneof' as const,
 			options: (labels ?? []).map((s) => ({ label: s, value: s })),
 			allowNegative: false,
-			allowMultiple: false,
+			allowMultiple: true,
 			label: 'Label',
 			icon: Tag,
-			description: 'Filter by label'
+			description: 'Filter by label (comma-separated for multiple)'
 		},
 		...(showUserFoldersFilter
 			? {

@@ -323,7 +323,9 @@ async fn list_resources(
     }
 
     if let Some(label) = &lq.label {
-        sqlb.and_where("resource.labels @> ARRAY[?]".bind(label));
+        for l in label.split(',') {
+            sqlb.and_where("resource.labels @> ARRAY[?]".bind(&l.trim()));
+        }
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;

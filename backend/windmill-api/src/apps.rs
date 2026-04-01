@@ -404,7 +404,9 @@ async fn list_apps(
     }
 
     if let Some(label) = &lq.label {
-        sqlb.and_where("app.labels @> ARRAY[?]".bind(label));
+        for l in label.split(',') {
+            sqlb.and_where("app.labels @> ARRAY[?]".bind(&l.trim()));
+        }
     }
 
     if lq.with_deployment_msg.unwrap_or(false) {

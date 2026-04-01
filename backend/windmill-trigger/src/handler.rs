@@ -360,7 +360,9 @@ pub trait TriggerCrud: Send + Sync + 'static {
             }
 
             if let Some(label) = &query.label {
-                sqlb.and_where("labels @> ARRAY[?]".bind(label));
+                for l in label.split(',') {
+                    sqlb.and_where("labels @> ARRAY[?]".bind(&l.trim()));
+                }
             }
 
             sqlb.offset(offset).limit(per_page);

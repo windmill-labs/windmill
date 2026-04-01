@@ -386,7 +386,9 @@ async fn list_scripts(
         sqlb.and_where_eq("dedicated_worker", dw);
     }
     if let Some(label) = &lq.label {
-        sqlb.and_where("o.labels @> ARRAY[?]".bind(label));
+        for l in label.split(',') {
+            sqlb.and_where("o.labels @> ARRAY[?]".bind(&l.trim()));
+        }
     }
     if authed.is_operator {
         sqlb.and_where_eq("kind", quote("script"));

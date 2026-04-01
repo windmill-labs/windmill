@@ -697,7 +697,9 @@ async fn list_schedule(
         );
     }
     if let Some(label) = &lsq.label {
-        sqlb.and_where("labels @> ARRAY[?]".bind(label));
+        for l in label.split(',') {
+            sqlb.and_where("labels @> ARRAY[?]".bind(&l.trim()));
+        }
     }
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let rows = sqlx::query_as::<_, ScheduleLight>(&sql)

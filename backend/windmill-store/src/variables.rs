@@ -174,7 +174,9 @@ async fn list_variables(
     }
 
     if let Some(label) = &lq.label {
-        sqlb.and_where("variable.labels @> ARRAY[?]".bind(label));
+        for l in label.split(',') {
+            sqlb.and_where("variable.labels @> ARRAY[?]".bind(&l.trim()));
+        }
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
