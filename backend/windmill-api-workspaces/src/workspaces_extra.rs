@@ -898,6 +898,13 @@ pub async fn drop_forked_datatable_databases(
             == windmill_common::workspaces::DataTableCatalogResourceType::Instance
         {
             let db_to_drop = &dt.database.resource_path;
+            if !db_to_drop.starts_with("wm_fork_") {
+                errors.push(format!(
+                    "Refusing to drop instance database '{}' for datatable://{}:  name does not start with 'wm_fork_'",
+                    db_to_drop, dt_name
+                ));
+                continue;
+            }
             if let Err(e) = windmill_common::drop_custom_instance_database(&db, db_to_drop).await {
                 errors.push(format!(
                     "Could not drop instance database '{}' for datatable://{}: {}",
@@ -943,6 +950,13 @@ pub async fn drop_forked_datatable_databases(
                 errors.push(format!(
                     "Invalid database name '{}' for datatable://{}: {}",
                     db_to_drop, dt_name, e
+                ));
+                continue;
+            }
+            if !db_to_drop.starts_with("wm_fork_") {
+                errors.push(format!(
+                    "Refusing to drop resource database '{}' for datatable://{}: name does not start with 'wm_fork_'",
+                    db_to_drop, dt_name
                 ));
                 continue;
             }
