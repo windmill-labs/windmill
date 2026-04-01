@@ -340,20 +340,27 @@
 							</tr>
 						</Head>
 						<tbody class="divide-y">
-							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked }}
+							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels }}
 								<Row>
 									<Cell class="!px-0 text-center w-12" first>
 										<SharedBadge {canWrite} extraPerms={extra_perms} />
 									</Cell>
 									<Cell>
-										<a
-											class="break-all"
-											id="edit-{path}"
-											onclick={() => variableEditor?.editVariable(path)}
-											href="#{path}"
-										>
-											{path}
-										</a>
+										<div class="flex items-center gap-2">
+											<a
+												class="break-all"
+												id="edit-{path}"
+												onclick={() => variableEditor?.editVariable(path)}
+												href="#{path}"
+											>
+												{path}
+											</a>
+											{#if labels?.length}
+												{#each labels as label}
+													<Badge color="blue" small>{label}</Badge>
+												{/each}
+											{/if}
+										</div>
 									</Cell>
 									<Cell>
 										<span class="inline-flex flex-row items-center gap-2">
