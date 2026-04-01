@@ -15,6 +15,7 @@
 	import { react18Template, react19Template, svelte5Template } from './templates'
 	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
+	import { normalizeRawAppRunnables } from '$lib/components/raw_apps/utils'
 	import {
 		createDatatablesResource,
 		createSchemasResource,
@@ -104,7 +105,7 @@
 
 	function extractValue(value: any) {
 		files = value.files
-		runnables = value.runnables
+		runnables = normalizeRawAppRunnables(value.runnables)
 		// Support old formats and new format
 		if (value.data) {
 			const d = value.data
