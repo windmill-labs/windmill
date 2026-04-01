@@ -19,7 +19,7 @@
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -306,7 +306,7 @@
 				<div class="text-center text-sm text-primary mt-2"> No email triggers </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_local_part, path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, marked, local_part, mode, retry, error_handler_path, error_handler_args } (path)}
+					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_local_part, path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, marked, local_part, mode, retry, error_handler_path, error_handler_args, labels } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const emailAddress = getEmailAddress(
 							local_part,
@@ -348,6 +348,11 @@
 
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
+							{#if labels?.length}
+								{#each labels as label}
+									<Badge color="blue" small>{label}</Badge>
+								{/each}
+							{/if}
 								</div>
 
 								<TriggerModeToggle

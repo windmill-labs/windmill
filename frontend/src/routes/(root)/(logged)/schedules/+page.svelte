@@ -291,7 +291,7 @@
 				<div class="text-center text-xs font-semibold text-emphasis mt-2"> No schedules </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const avg_s = jobs
 							? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
@@ -318,6 +318,11 @@
 										schedule: {path}
 									</div>
 								</a>
+								{#if labels?.length}
+									{#each labels as label}
+										<Badge color="blue" small>{label}</Badge>
+									{/each}
+								{/if}
 
 								{#if paused_until && new Date(paused_until) > new Date()}
 									<div class="pb-1">
