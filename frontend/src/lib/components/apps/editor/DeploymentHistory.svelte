@@ -14,24 +14,18 @@
 		type Value
 	} from '$lib/utils'
 	import { AppService, type AppWithLastVersion, type AppHistory } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { Pencil, ArrowRight, X, Loader2 } from 'lucide-svelte'
-	import RawAppPreview from '$lib/components/raw_apps/RawAppPreview.svelte'
-	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 	import Select from '$lib/components/select/Select.svelte'
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import Tab from '$lib/components/common/tabs/Tab.svelte'
-	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 
 	interface Props {
 		appPath: string | undefined
 	}
 
 	type HistoryApp = AppWithLastVersion & { value: any }
-	type HistoryTab = 'preview' | 'diff'
 
 	let { appPath }: Props = $props()
 	let loading: boolean = $state(false)
@@ -43,7 +37,6 @@
 	let previousVersion: HistoryApp | undefined = $state(undefined)
 	let selectedVersionIndex: number | undefined = $state(undefined)
 	let previousVersionId: number | undefined = $state(undefined)
-	let selectedTab: HistoryTab = $state('preview')
 	let versionCache: Record<number, HistoryApp> = $state({})
 
 	let deploymentMsgUpdateMode = $state(false)
@@ -110,13 +103,7 @@
 	}
 
 	function toComparableVersionValue(app: HistoryApp): Value {
-		return {
-			summary: app.summary,
-			value: app.value,
-			path: app.path,
-			policy: app.policy,
-			custom_path: app.custom_path
-		}
+		return app.value as Value
 	}
 
 	function toVersionLabel(version: AppHistory): string {
@@ -170,9 +157,6 @@
 	$effect(() => {
 		if (availableVersions.length === 0) {
 			previousVersionId = undefined
-			if (selectedTab === 'diff') {
-				selectedTab = 'preview'
-			}
 			return
 		}
 
@@ -224,7 +208,6 @@
 		<div class="h-full w-full overflow-auto">
 			{#if selectedVersion}
 				{#if selected}
-					{@const currentSelected = selected}
 					<div class="flex flex-col justify-between">
 						<span class="flex flex-row text-sm p-1 text-primary">
 							{#if deploymentMsgUpdateMode}
@@ -302,75 +285,43 @@
 						</div>
 					</div>
 
-					<Tabs bind:selected={selectedTab}>
+					<div class="flex flex-col gap-2">
 						{#if availableVersions.length > 0}
-							<Tab value="diff" label="Diff" />
-						{/if}
-						<Tab value="preview" label="Preview" />
+							<div class="flex flex-row items-center gap-2 py-2">
+								<div class="text-xs">Compare with:</div>
+								<Select
+									items={compareVersionItems}
+									bind:value={previousVersionId}
+									class="w-56"
+									size="sm"
+								/>
+							</div>
 
-						{#snippet content()}
-							{#if availableVersions.length > 0}
-								<TabContent value="diff">
-									<div class="flex flex-col gap-2">
-										<div class="flex flex-row items-center gap-2 py-2">
-											<div class="text-xs">Compare with:</div>
-											<Select
-												items={compareVersionItems}
-												bind:value={previousVersionId}
-												class="w-56"
-												size="sm"
-											/>
-										</div>
-
-										<div class="h-[calc(100vh-260px)] min-h-[420px]">
-											{#if previousVersionYaml && selectedVersionYaml}
-												{#await import('$lib/components/DiffEditor.svelte')}
-													<Loader2 class="animate-spin" />
-												{:then Module}
-													<Module.default
-														open={true}
-														automaticLayout
-														className="h-full"
-														defaultLang="yaml"
-														defaultOriginal={previousVersionYaml}
-														defaultModified={selectedVersionYaml}
-														readOnly
-													/>
-												{/await}
-											{:else}
-												<Loader2 class="animate-spin" />
-											{/if}
-										</div>
-									</div>
-								</TabContent>
-							{/if}
-
-							<TabContent value="preview">
-								{#if currentSelected.raw_app}
-									{#if currentSelected.bundle_secret}
-										<RawAppPreview
-											workspace={$workspaceStore!}
-											user={$userStore}
-											secret={currentSelected.bundle_secret}
-											path={currentSelected.path}
-											version={selectedVersion?.version}
-											runnables={(currentSelected.value?.runnables ?? {}) as Record<string, Runnable>}
-										/>
-									{:else}
-										<div class="text-sm p-2 text-primary">
-											This raw app version has no preview bundle.
-										</div>
-									{/if}
-								{:else}
-									{#await import('$lib/components/apps/editor/AppPreview.svelte')}
+							<div class="h-[calc(100vh-260px)] min-h-[420px]">
+								{#if previousVersionYaml && selectedVersionYaml}
+									{#await import('$lib/components/DiffEditor.svelte')}
 										<Loader2 class="animate-spin" />
 									{:then Module}
-										<Module.default noBackend app={currentSelected.value} context={{}} />
+										<Module.default
+											open={true}
+											automaticLayout
+											className="h-full"
+											defaultLang="yaml"
+											defaultOriginal={previousVersionYaml}
+											defaultModified={selectedVersionYaml}
+											readOnly
+										/>
 									{/await}
+								{:else}
+									<Loader2 class="animate-spin" />
 								{/if}
-							</TabContent>
-						{/snippet}
-					</Tabs>
+							</div>
+						{:else}
+							<div class="text-sm p-2 text-primary">
+								No older deployment is available to compare with this version.
+							</div>
+						{/if}
+					</div>
 				{:else}
 					<Skeleton layout={[[40]]} />
 				{/if}
