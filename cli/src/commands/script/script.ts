@@ -832,6 +832,8 @@ export function filePathExtensionFromContentType(
     return ".java";
   } else if (language === "ruby") {
     return ".rb";
+  } else if (language === "rlang") {
+    return ".r";
     // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);
@@ -863,6 +865,7 @@ export const exts = [
   ".playbook.yml",
   ".java",
   ".rb",
+  ".r",
   // for related places search: ADD_NEW_LANG
 ];
 

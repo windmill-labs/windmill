@@ -25,6 +25,7 @@
 	import JavaIcon from '$lib/components/icons/JavaIcon.svelte'
 	import DuckDbIcon from '$lib/components/icons/DuckDbIcon.svelte'
 	import RubyIcon from '$lib/components/icons/RubyIcon.svelte'
+	import RIcon from '$lib/components/icons/RIcon.svelte'
 	import ClaudeIcon from '$lib/components/icons/ClaudeIcon.svelte'
 
 	interface Props {
@@ -72,6 +73,7 @@
 		nu: 'Nu',
 		java: 'Java',
 		ruby: 'Ruby',
+		rlang: 'R',
 		claudesandbox: 'Claude Sandbox'
 		// for related places search: ADD_NEW_LANG
 	}
@@ -107,6 +109,7 @@
 		nu: NuIcon,
 		java: JavaIcon,
 		ruby: RubyIcon,
+		rlang: RIcon,
 		duckdb: DuckDbIcon,
 		claudesandbox: TypeScriptIcon
 		// for related places search: ADD_NEW_LANG
