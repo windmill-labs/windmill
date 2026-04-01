@@ -766,7 +766,6 @@ async fn custom_path_exists(
 
 async fn get_app_by_id(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, i64)>,
 ) -> JsonResult<AppWithLastVersion> {
@@ -785,13 +784,9 @@ async fn get_app_by_id(
     .await?;
     tx.commit().await?;
 
-    let mut app = not_found_if_none(app_o, "App", id.to_string())?;
+    let app = not_found_if_none(app_o, "App", id.to_string())?;
 
     check_scopes(&authed, || format!("apps:read:{}", &app.path))?;
-
-    if app.raw_app {
-        app.bundle_secret = Some(compute_bundle_secret_for_version(&db, &w_id, id).await?);
-    }
 
     Ok(Json(app))
 }
@@ -935,14 +930,6 @@ pub async fn compute_bundle_secret(db: &DB, w_id: &str, versions: &[i64]) -> Res
     let version_id = versions
         .last()
         .ok_or_else(|| Error::internal_err("App has no versions".to_string()))?;
-    compute_bundle_secret_for_version(db, w_id, *version_id).await
-}
-
-pub async fn compute_bundle_secret_for_version(
-    db: &DB,
-    w_id: &str,
-    version_id: i64,
-) -> Result<String> {
     let mc = build_crypt(db, w_id).await?;
     let hx =
         hex::encode(mc.encrypt_str_to_bytes(format!("{}{}", BUNDLE_SECRET_PREFIX, version_id)));
@@ -973,7 +960,11 @@ async fn get_latest_version_secret_id(
 
     let id = not_found_if_none(id_o, "App", path.to_string())?;
 
-    compute_bundle_secret_for_version(&db, &w_id, id).await
+    let mc = build_crypt(&db, &w_id).await?;
+
+    let hx = hex::encode(mc.encrypt_str_to_bytes(format!("{}{}", BUNDLE_SECRET_PREFIX, id)));
+
+    Ok(hx)
 }
 
 async fn store_raw_app_file<'a>(
