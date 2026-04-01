@@ -133,6 +133,22 @@
 		}
 	}
 
+	/** Detect PostgreSQL auto-increment columns and return the serial type + cleaned props.
+	 *  e.g. bigint + nextval('seq'::regclass) → BIGSERIAL (no DEFAULT needed) */
+	function resolveColumnType(c: TableEditorValuesColumn): {
+		datatype: string
+		defaultValue: string | undefined
+	} {
+		const dv = c.defaultValue ?? ''
+		if (/^{?nextval\(/.test(dv)) {
+			const dt = c.datatype?.toLowerCase() ?? ''
+			if (dt === 'bigint') return { datatype: 'BIGSERIAL', defaultValue: undefined }
+			if (dt === 'integer' || dt === 'int') return { datatype: 'SERIAL', defaultValue: undefined }
+			if (dt === 'smallint') return { datatype: 'SMALLSERIAL', defaultValue: undefined }
+		}
+		return { datatype: c.datatype, defaultValue: c.defaultValue }
+	}
+
 	export function generateMigrationSql(change: TableDiff, sourceSchema: DatabaseSchema): string {
 		if (change.kind === 'modified' && change.operations) {
 			const queries = makeAlterTableQueries(change.operations, 'postgresql', change.schemaName)
@@ -144,9 +160,10 @@
 			if (!table) return ''
 			const colDefs = table.columns
 				.map((c) => {
-					let def = `"${c.name}" ${c.datatype}`
+					const { datatype, defaultValue } = resolveColumnType(c)
+					let def = `"${c.name}" ${datatype}`
 					if (c.nullable === false) def += ' NOT NULL'
-					if (c.defaultValue) def += ` DEFAULT ${c.defaultValue}`
+					if (defaultValue) def += ` DEFAULT ${defaultValue}`
 					return def
 				})
 				.join(',\n  ')
