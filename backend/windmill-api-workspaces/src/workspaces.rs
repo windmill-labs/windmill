@@ -39,9 +39,9 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_user_against_rule, get_datatable_resource_from_db_unchecked, transform_json_unchecked,
-    DataTable, DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind,
-    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
+    check_user_against_rule, get_datatable_resource_from_db_unchecked, DataTable,
+    DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
+    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::{
@@ -1480,14 +1480,65 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
     Ok(schema_map)
 }
 
-/// Resolve a source string to PgDatabase credentials.
-/// Supports `datatable://name` (resolves via workspace datatable config)
-/// and `$res:path` (resolves via resource table).
+/// Resolve a source string to PgDatabase credentials (no permission check on $res:).
+/// For internal use (e.g. drop_forked_datatable_databases) where permissions are checked elsewhere.
 pub(crate) async fn resolve_pg_source(db: &DB, w_id: &str, source: &str) -> Result<PgDatabase> {
     let db_resource = if let Some(name) = source.strip_prefix("datatable://") {
         get_datatable_resource_from_db_unchecked(db, w_id, name).await?
-    } else if source.starts_with("$res:") {
-        transform_json_unchecked(&serde_json::Value::String(source.to_string()), w_id, db).await?
+    } else if let Some(path) = source.strip_prefix("$res:") {
+        sqlx::query_scalar!(
+            "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+            path,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .ok_or_else(|| Error::NotFound(format!("Resource '{}' not found", path)))?
+    } else {
+        return Err(Error::BadRequest(format!(
+            "Invalid source format: '{}'. Expected 'datatable://name' or '$res:path'",
+            source
+        )));
+    };
+
+    serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
+}
+
+/// Resolve a source string to PgDatabase credentials with user-scoped permission checks.
+/// For `datatable://name`: accessible to everyone.
+/// For `$res:path`: uses UserDB (row-level security) to verify the user can see the resource.
+pub(crate) async fn resolve_pg_source_checked(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    source: &str,
+) -> Result<PgDatabase> {
+    let db_resource = if let Some(name) = source.strip_prefix("datatable://") {
+        get_datatable_resource_from_db_unchecked(db, w_id, name).await?
+    } else if let Some(path) = source.strip_prefix("$res:") {
+        let mut tx = user_db.clone().begin(authed).await?;
+        let value = sqlx::query_scalar!(
+            "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+            path,
+            w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+        tx.commit().await?;
+
+        match value {
+            Some(v) => v,
+            None => {
+                return Err(Error::NotAuthorized(format!(
+                    "Resource '{}' not found or you do not have access to it",
+                    path
+                )));
+            }
+        }
     } else {
         return Err(Error::BadRequest(format!(
             "Invalid source format: '{}'. Expected 'datatable://name' or '$res:path'",
@@ -1625,13 +1676,24 @@ struct CreatePgDatabaseRequest {
 /// Create a new PostgreSQL database. For instance datatables, creates on the Windmill PG instance.
 /// For resource datatables, creates on the same server as the source.
 async fn create_pg_database(
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(req): Json<CreatePgDatabaseRequest>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
     windmill_common::validate_dbname(&req.target_dbname)?;
+
+    // Non-superadmin: restrict dbname to wm_fork_ prefix
+    if !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+        if !req.target_dbname.starts_with("wm_fork_") {
+            return Err(Error::BadRequest(
+                "Non-superadmin users can only create databases with names starting with 'wm_fork_'"
+                    .to_string(),
+            ));
+        }
+    }
 
     // Determine if this is an instance or resource-backed datatable
     let is_instance_datatable = if let Some(dt_name) = req.source.strip_prefix("datatable://") {
@@ -1659,7 +1721,8 @@ async fn create_pg_database(
         windmill_common::create_custom_instance_database(&db, &req.target_dbname, "datatable")
             .await?;
     } else {
-        let source_pg = resolve_pg_source(&db, &w_id, &req.source).await?;
+        let source_pg =
+            resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
         let (client, connection) = source_pg.connect().await?;
         let join_handle = tokio::spawn(async move { connection.await });
 
@@ -1714,7 +1777,8 @@ struct ImportPgDatabaseRequest {
 
 /// Import (pg_dump/pg_import) from source to target. Does NOT create the target database.
 async fn import_pg_database(
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(req): Json<ImportPgDatabaseRequest>,
@@ -1723,13 +1787,8 @@ async fn import_pg_database(
         return Ok("No action needed for KeepOriginal behavior".to_string());
     }
 
-    // $res: sources reference scoped resources — require admin to access them
-    if req.source.starts_with("$res:") || req.target.starts_with("$res:") {
-        require_admin(is_admin, &username)?;
-    }
-
     if req.fork_behavior == DataTableForkBehavior::SchemaAndData {
-        require_admin(is_admin, &username)?;
+        require_admin(authed.is_admin, &authed.username)?;
         if *CLOUD_HOSTED {
             return Err(Error::BadRequest(
                 "Importing schema and data is not available on cloud".to_string(),
@@ -1738,8 +1797,9 @@ async fn import_pg_database(
     }
 
     let schema_only = req.fork_behavior == DataTableForkBehavior::SchemaOnly;
-    let source_pg = resolve_pg_source(&db, &w_id, &req.source).await?;
-    let mut target_pg = resolve_pg_source(&db, &w_id, &req.target).await?;
+    let source_pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
+    let mut target_pg =
+        resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
 
     if let Some(ref override_dbname) = req.target_dbname_override {
         target_pg.dbname = override_dbname.clone();
@@ -1760,14 +1820,15 @@ struct ExportPgSchemaRequest {
 }
 
 async fn export_pg_schema(
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(req): Json<ExportPgSchemaRequest>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
-    let pg = resolve_pg_source(&db, &w_id, &req.source).await?;
+    let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
     let dump_file = pg_dump_database(&pg, true).await?;
     tokio::fs::read_to_string(&dump_file.path)
         .await
@@ -1780,14 +1841,15 @@ struct GetDatatableFullSchemaRequest {
 }
 
 async fn get_datatable_full_schema(
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(req): Json<GetDatatableFullSchemaRequest>,
 ) -> JsonResult<windmill_common::query_builders::FullDatabaseSchema> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
-    let pg = resolve_pg_source(&db, &w_id, &req.source).await?;
+    let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
     let (client, connection) = pg.connect().await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
