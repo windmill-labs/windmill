@@ -453,30 +453,22 @@
 		</Button>
 	</div>
 	<div class="relative">
-		<ListFilters
-			syncQuery
-			bind:selectedFilter={ownerFilter}
-			filters={owners}
-			bottomMargin={false}
-		/>
-		{#if allLabels.length > 0}
-			<div class="gap-1.5 w-full flex flex-wrap mt-2">
-				{#each allLabels as label (label)}
-					<Badge
-						color="blue"
-						small
-						clickable
-						selected={label === labelFilter}
-						onclick={() => {
-							labelFilter = labelFilter === label ? undefined : label
-						}}
-					>
-						{label}
-						{#if label === labelFilter}&cross;{/if}
-					</Badge>
-				{/each}
-			</div>
-		{/if}
+		<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} bottomMargin={false}>
+			{#each allLabels as label (label)}
+				<Badge
+					color="blue"
+					small
+					clickable
+					selected={label === labelFilter}
+					onclick={() => {
+						labelFilter = labelFilter === label ? undefined : label
+					}}
+				>
+					{label}
+					{#if label === labelFilter}&cross;{/if}
+				</Badge>
+			{/each}
+		</ListFilters>
 		{#if filteredItems?.length == 0}
 			<div class="mt-10"></div>
 		{/if}

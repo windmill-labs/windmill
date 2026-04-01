@@ -11,6 +11,7 @@
 		queryName?: string
 		syncQuery?: boolean
 		bottomMargin?: boolean
+		children?: import('svelte').Snippet
 	}
 
 	let {
@@ -19,7 +20,8 @@
 		resourceType = false,
 		queryName = 'filter',
 		syncQuery = false,
-		bottomMargin = true
+		bottomMargin = true,
+		children
 	}: Props = $props()
 
 	const queryChange: (value: URL) => void = (url: URL) => {
@@ -104,5 +106,10 @@
 				</Badge>
 			</div>
 		{/each}
+		{@render children?.()}
+	</div>
+{:else if children}
+	<div class={`gap-2 w-full flex flex-wrap ${bottomMargin ? 'my-4' : 'mt-4'}`}>
+		{@render children()}
 	</div>
 {/if}
