@@ -156,29 +156,59 @@ The exact binary name can change, but the architecture should not:
 
 ## Temporary Bootstrap Code
 
-Existing frontend test files under `frontend/.../__tests__/...` are acceptable
-as bootstrap code while the benchmark CLI is being built.
+This bootstrap phase is now complete for frontend `flow` and `app`.
 
-They should not be treated as the final user-facing interface for prompt
-evaluation.
+Frontend AI benchmark ownership has moved into `ai_evals/`, and the frontend
+source tree no longer owns a separate AI benchmark suite under
+`frontend/.../__tests__/...`.
 
 Benchmark authors should only need the repo-level benchmark CLI to run the
 long-term suite.
 
+The only temporary frontend-specific piece that remains is a thin Vitest/Vite
+loader bridge so the benchmark runner can import the production chat modules in
+the same module/runtime environment they already expect.
+
 ## Frontend: What Exists Today
 
-The current frontend evals are already **mostly decoupled from the UI**.
+The current frontend benchmark path is **decoupled from the UI** and now owned
+by `ai_evals`.
 
 They currently:
 
 - run through the shared headless chat loop
 - use production prompt builders
 - use production tool definitions
-- use in-memory helper implementations instead of browser interactions
+- use benchmark-owned helper adapters that write to temp workspaces on disk
+- execute through the frontend module/runtime environment only as a loader bridge
 
-This means the current flow and app evals are already closer to a proper black-box prompt harness than to a frontend UI test.
+This means the current flow and app evals are now a proper benchmark adapter,
+not a frontend test suite.
 
 That is the correct direction.
+
+### Frontend Architecture Notes
+
+There are three categories of code involved:
+
+- shared production logic:
+  - production system prompt builders
+  - production tool definitions
+  - production `runChatLoop`
+- benchmark-only infrastructure:
+  - case loading
+  - variant loading
+  - judge scoring
+  - benchmark result shaping
+  - history/reporting integration
+- alternate helper adapters:
+  - production helpers mutate UI/editor state
+  - benchmark helpers mutate temp-workspace files
+
+This is important because the benchmark suite is **not** meant to duplicate the
+frontend chat logic. It is meant to reuse the production chat loop and tool
+definitions while swapping the execution backend from UI state to filesystem
+state.
 
 ## Frontend: What Is Missing
 
@@ -189,34 +219,34 @@ That is the correct direction.
 
 ### Reliability gaps
 
-- Existing evals are mostly report-oriented rather than pass/fail oriented.
-- They write results and logs, but they do not yet act like a proper reliability gate.
-- They do not compute pass rate across repeated runs.
+- Frontend flow and app can already run with pass/fail results and repeated runs through the shared benchmark CLI.
+- The remaining gap is turning that into stronger routine reliability gating with better deterministic validators and broader routine case coverage.
+- Frontend reliability reporting is still less mature than the intended end state for official CI tiers and richer failure triage.
 
 ### Prompt-iteration gaps
 
-- Testing a new prompt variant is possible in code, but not ergonomic enough.
-- Variants are still mostly defined in TypeScript, not in a prompt-candidate workflow that makes experimentation cheap.
-- There is no simple "baseline vs candidate" benchmark command that product or prompt authors can run repeatedly.
+- Frontend prompt variants are file-backed now, but the repo only ships baseline manifests by default.
+- Creating and curating meaningful frontend candidate variants is still a mostly manual workflow compared with the CLI snapshot flow.
+- Frontend prompt comparison exists through the shared `compare` command, but it still needs broader routine use and better variant coverage.
 
 ### Artifact-validation gaps
 
-- The current flow and app helpers mock several effects instead of validating the resulting artifact deeply enough.
+- The current flow and app helpers are file-backed now, but several effects are still lightweight and should become more realistic over time.
 - Linting and runnable validation are currently too lightweight in the eval path.
 - Datatable interactions are mocked rather than validated as output constraints.
 - The suite does not yet enforce a strong deterministic validator layer before using an LLM judge.
 
 ### Corpus gaps
 
-- There is no single shared evaluation corpus for frontend surfaces.
-- Cases are not yet organized as a reusable benchmark set with metadata, tags, and expected constraints.
-- There is no explicit regression library built from real failures.
+- Frontend surfaces already use shared case manifests under `ai_evals/cases/frontend/`.
+- The remaining gap is breadth and representativeness, not the absence of a shared corpus.
+- Cases still need richer metadata, stronger deterministic constraints, and a larger regression library built from real failures.
 
 ### Reporting gaps
 
-- There is no stable result format for comparing runs over time.
-- There is no leaderboard view by prompt variant, provider, model, or surface.
-- There is no "worst failures first" report for debugging regressions.
+- Frontend runs already emit the shared benchmark result shape and can write official history snapshots through the shared benchmark CLI.
+- There is still no rich leaderboard or trend-oriented debugging workflow for frontend surfaces specifically.
+- There is still no strong "worst failures first" report for debugging regressions.
 
 ## Frontend: Perfect Testing Logic
 
@@ -241,6 +271,14 @@ The runner should directly invoke:
 - the production user message builder
 - the production tool list
 - the production chat loop
+
+It is acceptable for the benchmark adapter to use the frontend Vitest/Vite
+runtime as a thin loader bridge when production chat modules still depend on
+that environment, as long as:
+
+- the benchmark entrypoint remains the shared benchmark CLI
+- the benchmark logic and fixtures live under `ai_evals`
+- the frontend source tree does not own a separate benchmark suite
 
 This keeps the suite decorrelated from the frontend UI while still testing the real AI logic.
 

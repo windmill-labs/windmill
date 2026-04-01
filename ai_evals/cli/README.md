@@ -211,6 +211,8 @@ That means:
 - the benchmark entrypoint remains `ai_evals/cli`
 - frontend flow/app fixtures live under `ai_evals/fixtures/frontend/`
 - the frontend source tree no longer owns a separate AI chat benchmark suite
+- production frontend prompt builders, tool definitions, and `runChatLoop` are still reused
+- benchmark-only infrastructure and file-backed helper adapters live under `ai_evals`
 
 By default, the repo only ships `baseline` frontend variants. To compare
 distinct prompt variants or write official history snapshots, add a second
@@ -256,3 +258,4 @@ Later iterations should add:
 - token and cost metrics in compare output
 - richer history views and filtering
 - frontend `script` surface
+- optional reduction of the thin frontend Vitest bridge

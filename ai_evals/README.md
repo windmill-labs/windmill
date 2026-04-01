@@ -80,6 +80,15 @@ Frontend benchmark ownership also lives here now:
 - frontend flow/app fixtures are under `ai_evals/fixtures/frontend/`
 - the frontend benchmark runner is under `ai_evals/adapters/frontend/`
 - the frontend source tree no longer owns a separate AI chat benchmark suite
+- production frontend prompt builders, tool definitions, and `runChatLoop` are still reused
+- benchmark-only infrastructure also lives here:
+  - case loading
+  - variant loading
+  - judge scoring
+  - benchmark result shaping
+- file-backed helper adapters also live here:
+  - production helpers mutate UI/editor state
+  - benchmark helpers mutate temp-workspace files
 
 For the concrete workflow to benchmark a CLI skill change with frozen
 before/after variants, see [cli/README.md](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/cli/README.md).

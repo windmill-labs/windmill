@@ -20,6 +20,7 @@ What is true today:
 - the CLI surface is the first real benchmark adapter behind it
 - frontend flow and app are now exposed through that same benchmark CLI
 - frontend AI benchmark logic now lives under `ai_evals`, not under `frontend/__tests__`
+- frontend benchmarks reuse production prompt builders, tool definitions, and `runChatLoop`
 - CLI cases are now skill-sensitive rather than only artifact-sensitive
 - the benchmark harness and `wmill init` now share the same AI-guidance writer
 - variants can be frozen as named snapshots through the benchmark CLI
@@ -32,6 +33,7 @@ What is not true yet:
 
 - frontend `script` is not yet exposed through the benchmark CLI
 - frontend still has only baseline prompt variants wired by default
+- frontend still uses a thin Vitest bridge for module/runtime loading
 - CLI still needs broader case coverage and richer efficiency metrics
 - token and cost metrics are not implemented
 - no UI studio exists yet
@@ -198,6 +200,7 @@ Implemented:
 - frontend benchmark fixtures were moved under `ai_evals/fixtures/frontend/`
 - repo-level benchmark CLI support for `frontend-flow` and `frontend-app`
 - ai_evals-owned frontend benchmark runner and adapter executed through the frontend Vitest environment
+- frontend benchmark helpers now write to temp workspaces instead of mutating in-memory UI state
 - repeated runs for frontend flow/app through the shared benchmark CLI
 - frontend prompt variants loaded from files under `ai_evals/variants/frontend/`
 - frontend run/compare payloads aligned to the shared benchmark result shape
@@ -211,6 +214,7 @@ Still missing:
 - more than the baseline prompt variant for frontend flow/app
 - broader frontend reliability coverage across more cases in routine use
 - regular use of frontend history writes in routine benchmark workflows
+- optional future cleanup to remove or reduce the thin frontend Vitest bridge if production chat modules become directly importable
 
 ### Phase 6: Add CI tiers
 
@@ -270,6 +274,8 @@ The most important implemented changes so far are:
 - Validated frontend `run`, `compare`, and `compare --write-history` through the shared benchmark CLI
 - Moved frontend AI benchmark fixtures and runner ownership into `ai_evals`
 - Removed the old frontend AI benchmark test tree
+- Kept the production frontend chat loop and tool-definition path as the shared execution core
+- Swapped frontend benchmark helpers from in-memory state to temp-workspace files
 - Shared AI-guidance generation between:
   - benchmark temp workspaces
   - `wmill init`
@@ -295,6 +301,7 @@ The highest-priority remaining work is:
    - more filtering
 5. Add CI tiers.
 6. Build the UI last.
+7. Optionally reduce the thin frontend Vitest bridge once production chat modules are easier to load headlessly.
 
 ## Recommended Next Step
 
