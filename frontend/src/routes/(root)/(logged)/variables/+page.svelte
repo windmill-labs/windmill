@@ -73,8 +73,19 @@
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => variablesFilterSchema))
+	let itemFolders = $derived(
+		Array.from(
+			new Set(
+				(variables ?? [])
+					.map((x) => x.path.split('/').slice(0, 2).join('/'))
+					.filter((x) => x.startsWith('f/'))
+			)
+		)
+			.sort()
+			.map((f) => f.replace(/^f\//, ''))
+	)
 	let folderPresets = $derived([
-		...folders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
+		...itemFolders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
 		...allLabels.map((l) => ({ name: l, value: `label:\\ ${l}` })),
 		...(variablesFilterSchema.user_folders_only
 			? [
