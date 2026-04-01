@@ -44,13 +44,13 @@ use windmill_common::workspaces::{
     ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
+use windmill_common::PgDatabase;
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-use windmill_common::PgDatabase;
 use windmill_dep_map::scoped_dependency_map::{
     DependencyDependent, DependencyMap, ScopedDependencyMap,
 };
@@ -1920,11 +1920,21 @@ async fn edit_datatable_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
     Json(new_config): Json<EditDataTableConfig>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
-    let is_superadmin = require_super_admin(&db, &email).await.is_ok();
+    if !authed.is_admin {
+        // Allow workspace owner to edit datatable config (needed for fork setup)
+        let is_owner = sqlx::query_scalar!("SELECT owner FROM workspace WHERE id = $1", &w_id)
+            .fetch_optional(&db)
+            .await?
+            .map(|owner| owner == authed.email)
+            .unwrap_or(false);
+
+        if !is_owner {
+            require_admin(authed.is_admin, &authed.username)?;
+        }
+    }
+    let is_superadmin = require_super_admin(&db, &authed.email).await.is_ok();
 
     let mut tx = db.begin().await?;
 
