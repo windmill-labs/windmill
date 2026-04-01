@@ -874,19 +874,6 @@ async fn update_variable(
         }
         sqlb.set_str("is_secret", nbool);
     }
-    if let Some(nlabels) = &ns.labels {
-        sqlb.set(
-            "labels",
-            &format!(
-                "ARRAY[{}]::text[]",
-                nlabels
-                    .iter()
-                    .map(|l| format!("'{}'", l.replace('\'', "''")))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-        );
-    }
     sqlb.returning("path");
 
     // Get old account_id if we're updating the account field
@@ -980,6 +967,17 @@ async fn update_variable(
     let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
 
     let npath = not_found_if_none(npath_o, "Variable", path)?;
+
+    if let Some(nlabels) = &ns.labels {
+        sqlx::query!(
+            "UPDATE variable SET labels = $1 WHERE path = $2 AND workspace_id = $3",
+            nlabels as &[String],
+            &npath,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

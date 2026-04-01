@@ -1808,25 +1808,24 @@ async fn update_app_internal<'a>(
             );
         }
 
-        if let Some(nlabels) = &ns.labels {
-            sqlb.set(
-                "labels",
-                &format!(
-                    "ARRAY[{}]::text[]",
-                    nlabels
-                        .iter()
-                        .map(|l| format!("'{}'", l.replace('\'', "''")))
-                        .collect::<Vec<_>>()
-                        .join(",")
-                ),
-            );
-        }
-
         sqlb.returning("path");
 
         let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
         let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
-        not_found_if_none(npath_o, "App", path)?
+        let npath_val = not_found_if_none(npath_o, "App", path)?;
+
+        if let Some(nlabels) = &ns.labels {
+            sqlx::query!(
+                "UPDATE app SET labels = $1 WHERE path = $2 AND workspace_id = $3",
+                nlabels as &[String],
+                &npath_val,
+                w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        npath_val
     } else {
         path.to_owned()
     };

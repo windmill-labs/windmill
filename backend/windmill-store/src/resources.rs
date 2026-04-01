@@ -1202,20 +1202,6 @@ async fn update_resource(
     if let Some(ndesc) = ns.description {
         sqlb.set_str("description", ndesc);
     }
-    if let Some(nlabels) = &ns.labels {
-        sqlb.set(
-            "labels",
-            &format!(
-                "ARRAY[{}]::text[]",
-                nlabels
-                    .iter()
-                    .map(|l| format!("'{}'", l.replace('\'', "''")))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-        );
-    }
-
     sqlb.set_str("edited_at", "now()");
 
     sqlb.returning("path");
@@ -1281,6 +1267,17 @@ async fn update_resource(
     let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
 
     let npath = not_found_if_none(npath_o, "Resource", path)?;
+
+    if let Some(nlabels) = &ns.labels {
+        sqlx::query!(
+            "UPDATE resource SET labels = $1 WHERE path = $2 AND workspace_id = $3",
+            nlabels as &[String],
+            &npath,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
