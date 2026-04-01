@@ -1283,6 +1283,26 @@ def main(
   return result
 end
 `
+const R_INIT_CODE = `library(dplyr)
+library(jsonlite)
+
+main <- function(
+    x,
+    name = "default",
+    age = 25,
+    data = list(1, 2, 3),
+    flag = TRUE
+) {
+    # Use Windmill helpers:
+    # var <- get_variable("f/my_var")
+    # res <- get_resource("f/my_resource")
+
+    df <- tibble(name = name, age = age, x = x)
+    result <- df %>% mutate(greeting = paste("Hello", name))
+
+    return(toJSON(result, auto_unbox = TRUE))
+}
+`
 // for related places search: ADD_NEW_LANG
 export const INITIAL_CODE = {
 	bun: {
@@ -1377,6 +1397,9 @@ export const INITIAL_CODE = {
 	},
 	ruby: {
 		script: RUBY_INIT_CODE
+	},
+	rlang: {
+		script: R_INIT_CODE
 	},
 	claudesandbox: {
 		script: CLAUDE_SANDBOX_INIT_CODE
@@ -1507,6 +1530,8 @@ export function initialCode(
 		return INITIAL_CODE.java.script
 	} else if (language == 'ruby') {
 		return INITIAL_CODE.ruby.script
+	} else if (language == 'rlang') {
+		return INITIAL_CODE.rlang.script
 		// for related places search: ADD_NEW_LANG
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (subkind === 'claudesandbox') {
