@@ -1491,8 +1491,9 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
 }
 
 /// Resolve a source string to PgDatabase credentials with user-scoped permission checks.
-/// For `datatable://name`: accessible to everyone.
-/// For `$res:path`: uses UserDB (row-level security) to verify the user can see the resource.
+/// For `datatable://name`: accessible to everyone (variables are resolved internally).
+/// For `$res:path`: uses UserDB (row-level security) to verify the user can see the resource,
+/// then interpolates `$var:` references in the resource value.
 pub(crate) async fn resolve_pg_source_checked(
     db: &DB,
     user_db: &UserDB,
@@ -1503,16 +1504,20 @@ pub(crate) async fn resolve_pg_source_checked(
     let db_resource = if let Some(name) = source.strip_prefix("datatable://") {
         get_datatable_resource_from_db_unchecked(db, w_id, name).await?
     } else if let Some(path) = source.strip_prefix("$res:") {
-        let mut tx = user_db.clone().begin(authed).await?;
-        let value = sqlx::query_scalar!(
-            "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+        let db_with_authed = windmill_common::db::DbWithOptAuthed::from_authed(
+            authed,
+            db.clone(),
+            Some(user_db.clone()),
+        );
+        let value = windmill_store::resources::get_resource_value_interpolated_internal(
+            &db_with_authed,
+            w_id,
             path,
-            w_id
+            None,
+            None,
+            false,
         )
-        .fetch_optional(&mut *tx)
-        .await?
-        .flatten();
-        tx.commit().await?;
+        .await?;
 
         match value {
             Some(v) => v,
