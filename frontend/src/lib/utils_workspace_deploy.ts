@@ -254,12 +254,32 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 				})
 			}
 		} else if (kind === 'folder') {
-			await FolderService.createFolder({
-				workspace: workspaceTo,
-				requestBody: {
-					name: path
-				}
+			const folderName = path.replace(/^f\//, '')
+			const folder = await FolderService.getFolder({
+				workspace: workspaceFrom,
+				name: folderName
 			})
+			if (alreadyExists) {
+				await FolderService.updateFolder({
+					workspace: workspaceTo,
+					name: folderName,
+					requestBody: {
+						owners: folder.owners,
+						extra_perms: folder.extra_perms as any,
+						summary: folder.summary ?? undefined
+					}
+				})
+			} else {
+				await FolderService.createFolder({
+					workspace: workspaceTo,
+					requestBody: {
+						name: folderName,
+						owners: folder.owners,
+						extra_perms: folder.extra_perms as any,
+						summary: folder.summary ?? undefined
+					}
+				})
+			}
 		} else if (kind === 'trigger') {
 			if (additionalInformation?.triggers) {
 				const { data, createFn, updateFn } = await getTriggersDeployData(
@@ -340,7 +360,7 @@ export async function checkItemExists(
 	} else if (kind === 'folder') {
 		return await FolderService.existsFolder({
 			workspace: workspace,
-			name: path
+			name: path.replace(/^f\//, '')
 		})
 	} else if (kind === 'trigger') {
 		const triggersKind: TriggerKind[] = [
@@ -435,10 +455,13 @@ export async function getItemValue(
 		} else if (kind === 'folder') {
 			const folder = await FolderService.getFolder({
 				workspace: workspace,
-				name: path
+				name: path.replace(/^f\//, '')
 			})
 			return {
-				name: folder.name
+				name: folder.name,
+				owners: folder.owners,
+				extra_perms: folder.extra_perms,
+				summary: folder.summary
 			}
 		} else if (kind === 'trigger') {
 			if (additionalInformation?.triggers) {
