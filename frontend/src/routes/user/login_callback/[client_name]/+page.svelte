@@ -23,10 +23,11 @@
 	onMount(async () => {
 		// const closeCookie = getAndDeleteCookie('close')
 		// console.log('closeCookie', closeCookie)
-		const rd = localStorage.getItem('rd')
-		if (rd) {
+		const rawRd = localStorage.getItem('rd')
+		if (rawRd) {
 			localStorage.removeItem('rd')
 		}
+		const rd = rawRd?.startsWith('http') && !isValidLogoutRedirect(rawRd) ? null : rawRd
 		const cookieCloseUponLogin = getCookie('close') == 'true'
 		const closeUponLogin = cookieCloseUponLogin ?? localStorage.getItem('closeUponLogin') == 'true'
 		if (error) {
@@ -54,10 +55,8 @@
 					closeUponLoginSuccess()
 					return
 				}
-				if (isValidLogoutRedirect(rd)) {
-					window.location.href = rd
-					return
-				}
+				window.location.href = rd
+				return
 			}
 
 			// Check if this is a first-time user (individual user onboarding)
