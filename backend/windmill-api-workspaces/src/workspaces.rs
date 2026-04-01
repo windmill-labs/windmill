@@ -1549,7 +1549,29 @@ impl DumpFile {
         let dir = std::path::Path::new("/tmp/windmill");
         std::fs::create_dir_all(dir)
             .map_err(|e| Error::internal_err(format!("Failed to create /tmp/windmill: {}", e)))?;
+        // Set directory permissions to owner-only
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        }
         let path = dir.join(format!("datatable_dump_{}", uuid::Uuid::new_v4()));
+        // Create the file with restrictive permissions before pg_dump writes to it
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .mode(0o600)
+                .open(&path)
+                .map_err(|e| Error::internal_err(format!("Failed to create dump file: {}", e)))?;
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::File::create(&path)
+                .map_err(|e| Error::internal_err(format!("Failed to create dump file: {}", e)))?;
+        }
         Ok(Self { path })
     }
 }
@@ -1790,7 +1812,7 @@ async fn import_pg_database(
         resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
 
     if let Some(ref override_dbname) = req.target_dbname_override {
-        // Non-superadmin: restrict dbname to wm_fork_ prefix
+        windmill_common::validate_dbname(override_dbname)?;
         if !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
             if !override_dbname.starts_with("wm_fork_") {
                 return Err(Error::BadRequest(
@@ -4172,6 +4194,14 @@ async fn apply_forked_datatable(
     forked_w_id: &str,
     fdt: &ForkedDatatableInfo,
 ) -> Result<()> {
+    windmill_common::validate_dbname(&fdt.new_dbname)?;
+    if !fdt.new_dbname.starts_with("wm_fork_") {
+        return Err(Error::BadRequest(format!(
+            "Forked datatable database name '{}' must start with 'wm_fork_'",
+            fdt.new_dbname
+        )));
+    }
+
     // Snapshot the schema from the source (parent) datatable
     let schema = snapshot_datatable_schema(db, parent_w_id, &fdt.name).await?;
     let forked_from = serde_json::json!({ "schema": schema });

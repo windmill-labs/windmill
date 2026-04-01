@@ -854,6 +854,7 @@ pub struct DropForkedDatatableDatabasesRequest {
 }
 
 /// Drop forked datatable databases. Returns errors per datatable that failed.
+/// Same permission as delete_workspace: fork owner or super admin.
 pub async fn drop_forked_datatable_databases(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -861,6 +862,13 @@ pub async fn drop_forked_datatable_databases(
     Path(w_id): Path<String>,
     Json(req): Json<DropForkedDatatableDatabasesRequest>,
 ) -> Result<Json<Vec<String>>> {
+    // Same permission check as delete_workspace: fork owner or super admin
+    let mut tx = db.begin().await?;
+    if !(w_id.starts_with(WM_FORK_PREFIX) && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
+        require_super_admin(&db, &authed.email).await?;
+    }
+    tx.commit().await?;
+
     let parent_w_id = sqlx::query_scalar!(
         "SELECT parent_workspace_id FROM workspace WHERE id = $1",
         &w_id
