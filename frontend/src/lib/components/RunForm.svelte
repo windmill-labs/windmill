@@ -137,7 +137,7 @@
 		if (!schema?.properties) return args
 		const result = { ...args }
 		for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
-			if (prop?.disabled) {
+			if (prop?.disabled && 'default' in prop) {
 				result[key] = prop.default
 			}
 		}
