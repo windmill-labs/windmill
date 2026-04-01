@@ -50,7 +50,7 @@ use windmill_common::{
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-use windmill_common::{get_database_url, PgDatabase};
+use windmill_common::PgDatabase;
 use windmill_dep_map::scoped_dependency_map::{
     DependencyDependent, DependencyMap, ScopedDependencyMap,
 };

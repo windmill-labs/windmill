@@ -662,15 +662,11 @@ pub(crate) struct DeleteWorkspaceQuery {
     pub(crate) only_delete_forks: Option<bool>,
 }
 
-#[derive(Deserialize, Default)]
-pub(crate) struct DeleteWorkspaceBody {}
-
 pub(crate) async fn delete_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     authed: ApiAuthed,
     Query(dwq): Query<DeleteWorkspaceQuery>,
-    body: Option<Json<DeleteWorkspaceBody>>,
 ) -> Result<String> {
     let w_id = match w_id.as_str() {
         "starter" => Err(Error::BadRequest(
@@ -853,7 +849,7 @@ pub(crate) async fn delete_workspace(
 }
 
 #[derive(Deserialize)]
-struct DropForkedDatatableDatabasesRequest {
+pub struct DropForkedDatatableDatabasesRequest {
     datatable_names: Vec<String>,
 }
 
