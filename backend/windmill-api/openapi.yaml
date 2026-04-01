@@ -23754,10 +23754,6 @@ components:
               new_dbname:
                 type: string
                 description: "New database name for the fork"
-              schema:
-                type: object
-                description: "Schema snapshot from the source datatable"
-                additionalProperties: true
       required:
         - id
         - name

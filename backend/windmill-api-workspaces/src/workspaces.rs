@@ -402,9 +402,6 @@ struct CreateWorkspaceFork {
 struct ForkedDatatableInfo {
     name: String,
     new_dbname: String,
-    /// Schema snapshot from the source datatable (raw API format)
-    #[serde(default)]
-    schema: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -4137,11 +4134,43 @@ async fn create_workspace_fork_branch(
 /// Update a forked workspace's datatable config to point to the new database.
 /// For instance datatables: updates resource_path in the datatable config.
 /// For resource datatables: updates the resource's dbname and sets non_diffable.
+/// Snapshot the schema from the source datatable by connecting to its database.
+async fn snapshot_datatable_schema(
+    db: &DB,
+    parent_w_id: &str,
+    dt_name: &str,
+) -> Result<serde_json::Value> {
+    let pg = get_datatable_resource_from_db_unchecked(db, parent_w_id, dt_name).await?;
+    let pg: PgDatabase = serde_json::from_value(pg)
+        .map_err(|e| Error::internal_err(format!("Failed to parse db credentials: {}", e)))?;
+    let (client, connection) = pg.connect().await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+
+    let schema = windmill_common::query_builders::pg_get_full_schema(&client)
+        .await
+        .map_err(Error::internal_err)?;
+
+    drop(client);
+    join_handle
+        .await
+        .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
+        .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+
+    serde_json::to_value(schema)
+        .map_err(|e| Error::internal_err(format!("Failed to serialize schema: {}", e)))
+}
+
 async fn apply_forked_datatable(
+    db: &DB,
     tx: &mut Transaction<'_, Postgres>,
+    parent_w_id: &str,
     forked_w_id: &str,
     fdt: &ForkedDatatableInfo,
 ) -> Result<()> {
+    // Snapshot the schema from the source (parent) datatable
+    let schema = snapshot_datatable_schema(db, parent_w_id, &fdt.name).await?;
+    let forked_from = serde_json::json!({ "schema": schema });
+
     // Read the datatable config from the forked workspace
     let config_val = sqlx::query_scalar!(
         "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
@@ -4163,7 +4192,6 @@ async fn apply_forked_datatable(
 
     if dt.database.resource_type == DataTableCatalogResourceType::Instance {
         // Instance: update resource_path to the new dbname
-        let forked_from = serde_json::json!({ "schema": fdt.schema });
         sqlx::query!(
             r#"UPDATE workspace_settings
                SET datatable = jsonb_set(
@@ -4194,7 +4222,6 @@ async fn apply_forked_datatable(
         .await?;
 
         // Set forked_from on the datatable config
-        let forked_from = serde_json::json!({ "schema": fdt.schema });
         sqlx::query!(
             r#"UPDATE workspace_settings
                SET datatable = jsonb_set(datatable, ARRAY['datatables', $2, 'forked_from'], $3::jsonb)
@@ -4293,7 +4320,7 @@ async fn create_workspace_fork(
 
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
-        apply_forked_datatable(&mut tx, &forked_id, fdt).await?;
+        apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
     }
 
     audit_log(

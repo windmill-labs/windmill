@@ -197,8 +197,7 @@
 		const forkedDatatables = forkDatatableSection
 			? forkDatatableSection.getCompletedCloneJobs().map((job) => ({
 					name: job.name,
-					new_dbname: job._newDbName,
-					schema: job._schema ?? {}
+					new_dbname: job._newDbName
 				}))
 			: []
 
