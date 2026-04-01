@@ -145,7 +145,7 @@
 				const app = await AppService.getAppByPath({ workspace, path })
 				return app.summary
 			} else if (kind === 'folder') {
-				const folder = await FolderService.getFolder({ workspace, name: path.slice(2) })
+				const folder = await FolderService.getFolder({ workspace, name: path.replace(/^f\//, '') })
 				return folder.summary
 			}
 		} catch (error) {
@@ -362,7 +362,14 @@
 
 		const parent = parentWorkspaceId
 		const current = currentWorkspaceId
-		for (const itemKey of selectedItems) {
+		const sortedItems = [...selectedItems].sort((a, b) => {
+			const aIsFolder = a.startsWith('folder:')
+			const bIsFolder = b.startsWith('folder:')
+			if (aIsFolder && !bIsFolder) return -1
+			if (!aIsFolder && bIsFolder) return 1
+			return 0
+		})
+		for (const itemKey of sortedItems) {
 			const diff = selectableDiffs.find((d) => itemKey == getItemKey(d))
 
 			if (!diff) {
