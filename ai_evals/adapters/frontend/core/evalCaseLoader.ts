@@ -31,7 +31,7 @@ export interface AppEvalCase extends AppEvalCaseManifest {}
 
 function resolveRepoRoot(): string {
 	const currentDir = dirname(fileURLToPath(import.meta.url))
-	const repoRoot = resolve(currentDir, '../../../../../../../..')
+	const repoRoot = resolve(currentDir, '../../../..')
 
 	if (!existsSync(join(repoRoot, 'ai_evals'))) {
 		throw new Error(`Could not resolve repo root from: ${currentDir}`)

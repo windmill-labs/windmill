@@ -15,7 +15,7 @@ eval suite across both the Windmill CLI and the frontend.
 
 - `cli/`: repo-level benchmark CLI entrypoint and orchestration
 - `cases/`: benchmark case manifests
-- `fixtures/`: shared reusable starting states and assets
+- `fixtures/`: shared reusable starting states and assets, including frontend flow/app fixtures
 - `history/`: git-tracked benchmark summaries and chart rollups
 - `scripts/`: benchmark-history and reporting utilities
 - `variants/`: prompt or skill-bundle candidates
@@ -74,6 +74,12 @@ bun run cli -- history --view latest
 
 At the moment this is still intentionally small, but it is the only benchmark
 entrypoint.
+
+Frontend benchmark ownership also lives here now:
+
+- frontend flow/app fixtures are under `ai_evals/fixtures/frontend/`
+- the frontend benchmark runner is under `ai_evals/adapters/frontend/`
+- the frontend source tree no longer owns a separate AI chat benchmark suite
 
 For the concrete workflow to benchmark a CLI skill change with frozen
 before/after variants, see [cli/README.md](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/cli/README.md).

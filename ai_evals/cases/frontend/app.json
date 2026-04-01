@@ -8,37 +8,37 @@
     "id": "app-test2-counter-reset",
     "title": "test2: modifies existing counter app to add reset button",
     "userPrompt": "Add a reset button that sets the counter back to 0",
-    "initialAppFixturePath": "frontend/src/lib/components/copilot/chat/__tests__/app/initial/test1_counter_app"
+    "initialAppFixturePath": "ai_evals/fixtures/frontend/app/initial/test1_counter_app"
   },
   {
     "id": "app-test3-shopping-cart-quantity",
     "title": "test3: shopping cart - add quantity selector",
     "userPrompt": "Add a quantity selector (+ and - buttons) to each cart item so users can adjust quantities without removing and re-adding items",
-    "initialAppFixturePath": "frontend/src/lib/components/copilot/chat/__tests__/app/initial/shopping_cart"
+    "initialAppFixturePath": "ai_evals/fixtures/frontend/app/initial/shopping_cart"
   },
   {
     "id": "app-test4-shopping-cart-discount",
     "title": "test4: shopping cart - add discount code",
     "userPrompt": "Add a discount code input field in the cart. When the code \"SAVE10\" is entered, apply a 10% discount to the total",
-    "initialAppFixturePath": "frontend/src/lib/components/copilot/chat/__tests__/app/initial/shopping_cart"
+    "initialAppFixturePath": "ai_evals/fixtures/frontend/app/initial/shopping_cart"
   },
   {
     "id": "app-test5-file-manager-search",
     "title": "test5: file manager - add search bar",
     "userPrompt": "Add a search bar in the toolbar that filters files and folders by name as the user types",
-    "initialAppFixturePath": "frontend/src/lib/components/copilot/chat/__tests__/app/initial/file_manager"
+    "initialAppFixturePath": "ai_evals/fixtures/frontend/app/initial/file_manager"
   },
   {
     "id": "app-test6-file-manager-details",
     "title": "test6: file manager - show file details",
     "userPrompt": "Show file size (formatted as KB/MB) and modified date in the file list for each item",
-    "initialAppFixturePath": "frontend/src/lib/components/copilot/chat/__tests__/app/initial/file_manager"
+    "initialAppFixturePath": "ai_evals/fixtures/frontend/app/initial/file_manager"
   },
   {
     "id": "app-test7-file-manager-select-all",
     "title": "test7: file manager - add select all checkbox",
     "userPrompt": "Add a \"Select All\" checkbox in the file list header and individual checkboxes for each file. Add a \"Delete Selected\" button that appears when items are selected",
-    "initialAppFixturePath": "frontend/src/lib/components/copilot/chat/__tests__/app/initial/file_manager"
+    "initialAppFixturePath": "ai_evals/fixtures/frontend/app/initial/file_manager"
   },
   {
     "id": "app-test8-quiz-create",

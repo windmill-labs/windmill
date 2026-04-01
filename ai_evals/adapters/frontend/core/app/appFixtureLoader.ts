@@ -1,4 +1,8 @@
-import type { AppFiles, BackendRunnable, InlineScript } from '../../app/core'
+import type {
+	AppFiles,
+	BackendRunnable,
+	InlineScript
+} from '../../../../../frontend/src/lib/components/copilot/chat/app/core'
 
 /**
  * Backend runnable metadata stored in meta.json files.

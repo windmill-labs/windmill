@@ -5,8 +5,8 @@ import { dirname, join, resolve } from 'path'
 // @ts-ignore - Node.js url
 import { fileURLToPath } from 'url'
 import type { AIProvider } from '$lib/gen/types.gen'
-import { loadAppEvalCases, loadFlowEvalCases } from '../shared/evalCaseLoader'
-import type { VariantConfig } from '../shared'
+import { loadAppEvalCases, loadFlowEvalCases } from './core/evalCaseLoader'
+import type { VariantConfig } from './core/shared'
 
 export type FrontendBenchmarkSurface = 'flow' | 'app'
 
@@ -117,7 +117,7 @@ export async function runFrontendBenchmark(input: {
 
 function resolveRepoRoot(): string {
 	const currentDir = dirname(fileURLToPath(import.meta.url))
-	const repoRoot = resolve(currentDir, '../../../../../../../..')
+	const repoRoot = resolve(currentDir, '../../..')
 	return repoRoot
 }
 
@@ -127,7 +127,7 @@ async function runFlowBenchmark(input: {
 	variantIds: string[]
 	runs: number
 }): Promise<FrontendBenchmarkPayload> {
-	const { runFlowEval } = await import('../flow/flowEvalRunner')
+	const { runFlowEval } = await import('./core/flow/flowEvalRunner')
 	const allCases = loadFlowEvalCases()
 	const selectedCases =
 		input.caseIds.length === 0
@@ -215,8 +215,8 @@ async function runAppBenchmark(input: {
 	variantIds: string[]
 	runs: number
 }): Promise<FrontendBenchmarkPayload> {
-	const { runAppEval } = await import('../app/appEvalRunner')
-	const { loadAppFixtureForEval } = await import('../app/appFixtureLoader')
+	const { runAppEval } = await import('./core/app/appEvalRunner')
+	const { loadAppFixtureForEval } = await import('./core/app/appFixtureLoader')
 	const allCases = loadAppEvalCases()
 	const selectedCases =
 		input.caseIds.length === 0

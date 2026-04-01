@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 const execFile = promisify(execFileCallback)
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const FRONTEND_DIR = path.join(REPO_ROOT, 'frontend')
-const FRONTEND_BENCHMARK_TEST = 'src/lib/components/copilot/chat/__tests__/benchmarkCli/aiEvalsAdapter.test.ts'
+const FRONTEND_BENCHMARK_TEST = '../ai_evals/adapters/frontend/vitestAdapter.test.ts'
 
 export type FrontendSurfaceName = 'frontend-flow' | 'frontend-app'
 

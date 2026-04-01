@@ -1,5 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { AppFiles, BackendRunnable } from '../../app/core'
+import type {
+	AppFiles,
+	BackendRunnable
+} from '../../../../../frontend/src/lib/components/copilot/chat/app/core'
 import { BASE_EVALUATOR_RESPONSE_FORMAT } from '../shared'
 import type { EvaluationResult } from '../shared'
 

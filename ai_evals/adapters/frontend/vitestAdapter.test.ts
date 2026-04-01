@@ -36,7 +36,7 @@ const benchmarkIt = benchmarkOutputPath ? it : it.skip
 benchmarkIt(
 	'runs the frontend benchmark adapter from environment input',
 	async () => {
-		const { runFrontendBenchmarkFromEnv } = await import('./frontendBenchmarkRunner')
+		const { runFrontendBenchmarkFromEnv } = await import('./benchmarkRunner')
 		const payload = await runFrontendBenchmarkFromEnv()
 		const absoluteOutputPath = resolve(benchmarkOutputPath!)
 		await mkdir(dirname(absoluteOutputPath), { recursive: true })

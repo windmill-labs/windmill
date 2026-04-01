@@ -7,8 +7,11 @@ import type {
 import type { AIProvider, AIProviderModel } from '$lib/gen/types.gen'
 import type { TokenUsage, ToolCallDetail, EvalRunnerOptions } from './types'
 import type { Tool } from './baseVariants'
-import { runChatLoop, type ChatClients } from '../../chatLoop'
-import type { Tool as ProductionTool, ToolCallbacks } from '../../shared'
+import { runChatLoop, type ChatClients } from '../../../../../frontend/src/lib/components/copilot/chat/chatLoop'
+import type {
+	Tool as ProductionTool,
+	ToolCallbacks
+} from '../../../../../frontend/src/lib/components/copilot/chat/shared'
 
 /**
  * Result from a single eval run (before domain-specific evaluation).

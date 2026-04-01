@@ -202,9 +202,15 @@ official snapshot per compared variant into `ai_evals/history/` and rebuilds:
 The compare output also includes tool usage and invoked skills as diagnostics.
 
 For frontend surfaces, the benchmark CLI shells into a frontend-native Vitest
-adapter so the evaluation runs with the frontend project's own module
-resolution and test environment, while still producing the same benchmark
-result shape as the CLI surface.
+adapter owned by `ai_evals`, so the evaluation runs with the frontend
+project's module resolution and test environment while still producing the
+same benchmark result shape as the CLI surface.
+
+That means:
+
+- the benchmark entrypoint remains `ai_evals/cli`
+- frontend flow/app fixtures live under `ai_evals/fixtures/frontend/`
+- the frontend source tree no longer owns a separate AI chat benchmark suite
 
 By default, the repo only ships `baseline` frontend variants. To compare
 distinct prompt variants or write official history snapshots, add a second

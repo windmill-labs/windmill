@@ -19,6 +19,7 @@ What is true today:
 - there is one repo-level benchmark CLI under `ai_evals/cli`
 - the CLI surface is the first real benchmark adapter behind it
 - frontend flow and app are now exposed through that same benchmark CLI
+- frontend AI benchmark logic now lives under `ai_evals`, not under `frontend/__tests__`
 - CLI cases are now skill-sensitive rather than only artifact-sensitive
 - the benchmark harness and `wmill init` now share the same AI-guidance writer
 - variants can be frozen as named snapshots through the benchmark CLI
@@ -194,14 +195,15 @@ Status:
 Implemented:
 
 - shared frontend case scaffolding exists
-- current frontend flow/app evals were moved toward shared manifests earlier
+- frontend benchmark fixtures were moved under `ai_evals/fixtures/frontend/`
 - repo-level benchmark CLI support for `frontend-flow` and `frontend-app`
-- frontend-native adapter runner that executes headless through the frontend Vitest environment
+- ai_evals-owned frontend benchmark runner and adapter executed through the frontend Vitest environment
 - repeated runs for frontend flow/app through the shared benchmark CLI
 - frontend prompt variants loaded from files under `ai_evals/variants/frontend/`
 - frontend run/compare payloads aligned to the shared benchmark result shape
 - frontend judge score aggregation wired into compare output and official run generation
 - frontend official history writes validated through the shared benchmark CLI
+- legacy frontend AI chat eval tests removed from `frontend/src/lib/components/copilot/chat/__tests__`
 
 Still missing:
 
@@ -266,6 +268,8 @@ The most important implemented changes so far are:
 - Added frontend flow/app benchmark adapters behind the shared benchmark CLI
 - Added frontend run/compare support with shared aggregation and judge score reporting
 - Validated frontend `run`, `compare`, and `compare --write-history` through the shared benchmark CLI
+- Moved frontend AI benchmark fixtures and runner ownership into `ai_evals`
+- Removed the old frontend AI benchmark test tree
 - Shared AI-guidance generation between:
   - benchmark temp workspaces
   - `wmill init`
@@ -310,7 +314,8 @@ Reason:
 - Benchmark CLI: [index.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/cli/index.ts)
 - CLI adapter: [artifact-eval.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/adapters/cli/artifact-eval.ts)
 - Frontend adapter runtime: [runtime.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/adapters/frontend/runtime.ts)
-- Frontend benchmark runner: [frontendBenchmarkRunner.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/frontend/src/lib/components/copilot/chat/__tests__/benchmarkCli/frontendBenchmarkRunner.ts)
+- Frontend benchmark runner: [benchmarkRunner.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/adapters/frontend/benchmarkRunner.ts)
+- Frontend Vitest bridge: [vitestAdapter.test.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/adapters/frontend/vitestAdapter.test.ts)
 - CLI variants: [variants.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/adapters/cli/variants.ts)
 - Shared guidance writer: [writer.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/cli/src/guidance/writer.ts)
 - CLI benchmark docs: [README.md](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/cli/README.md)
