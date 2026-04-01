@@ -227,7 +227,6 @@
 		selectedFilterKind: 'schedule' | 'script_flow',
 		userFoldersOnly: boolean
 	) {
-		if ($workspaceStore == 'admins') return true
 		if (userFoldersOnly) {
 			if (selectedFilterKind === 'schedule') {
 				return (
