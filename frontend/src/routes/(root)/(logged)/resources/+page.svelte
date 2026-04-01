@@ -154,6 +154,7 @@
 	let filters = useUrlSyncedFilterInstance(untrack(() => resourcesFilterSchema))
 	let folderPresets = $derived([
 		...folders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
+		...allLabels.map((l) => ({ name: l, value: `label:\\ ${l}` })),
 		...(resourcesFilterSchema.user_folders_only
 			? [
 					{
