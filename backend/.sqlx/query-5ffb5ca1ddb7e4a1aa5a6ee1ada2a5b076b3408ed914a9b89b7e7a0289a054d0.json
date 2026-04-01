@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            COUNT(*) FILTER (WHERE status = 'success') AS succeeded,\n            COUNT(*) FILTER (WHERE status = 'failure') AS failed,\n            COUNT(*) FILTER (WHERE status = 'canceled') AS canceled\n         FROM v2_job_completed\n         JOIN v2_job USING (id)\n         WHERE v2_job.workspace_id = 'admins' AND v2_job.parent_job IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "succeeded",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "failed",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "canceled",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "5ffb5ca1ddb7e4a1aa5a6ee1ada2a5b076b3408ed914a9b89b7e7a0289a054d0"
+}

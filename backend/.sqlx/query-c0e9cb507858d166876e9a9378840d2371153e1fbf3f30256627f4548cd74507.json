@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_job_queue WHERE workspace_id = 'admins'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "c0e9cb507858d166876e9a9378840d2371153e1fbf3f30256627f4548cd74507"
+}
