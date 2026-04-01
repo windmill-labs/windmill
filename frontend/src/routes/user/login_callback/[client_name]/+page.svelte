@@ -8,6 +8,7 @@
 	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { logoutWithRedirect } from '$lib/logoutKit'
+	import { isValidLogoutRedirect } from '$lib/logoutRedirect'
 	import { parseQueryParams } from '$lib/utils'
 	import { page } from '$app/state'
 	import { isCloudHosted } from '$lib/cloud'
@@ -53,8 +54,10 @@
 					closeUponLoginSuccess()
 					return
 				}
-				window.location.href = rd
-				return
+				if (isValidLogoutRedirect(rd)) {
+					window.location.href = rd
+					return
+				}
 			}
 
 			// Check if this is a first-time user (individual user onboarding)
