@@ -44,13 +44,13 @@ use windmill_common::workspaces::{
     ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
+use windmill_common::PgDatabase;
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-use windmill_common::PgDatabase;
 use windmill_dep_map::scoped_dependency_map::{
     DependencyDependent, DependencyMap, ScopedDependencyMap,
 };
@@ -392,6 +392,19 @@ struct CreateWorkspaceFork {
     id: String,
     name: String,
     color: Option<String>,
+    /// Datatable names that were forked. For each, the backend will update the
+    /// forked workspace's datatable config to point to the new database.
+    #[serde(default)]
+    forked_datatables: Vec<ForkedDatatableInfo>,
+}
+
+#[derive(Deserialize)]
+struct ForkedDatatableInfo {
+    name: String,
+    new_dbname: String,
+    /// Schema snapshot from the source datatable (raw API format)
+    #[serde(default)]
+    schema: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -4121,6 +4134,82 @@ async fn create_workspace_fork_branch(
     ))
 }
 
+/// Update a forked workspace's datatable config to point to the new database.
+/// For instance datatables: updates resource_path in the datatable config.
+/// For resource datatables: updates the resource's dbname and sets non_diffable.
+async fn apply_forked_datatable(
+    tx: &mut Transaction<'_, Postgres>,
+    forked_w_id: &str,
+    fdt: &ForkedDatatableInfo,
+) -> Result<()> {
+    // Read the datatable config from the forked workspace
+    let config_val = sqlx::query_scalar!(
+        "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
+        forked_w_id,
+        &fdt.name
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten()
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "Datatable '{}' not found in workspace '{}'",
+            fdt.name, forked_w_id
+        ))
+    })?;
+
+    let dt: DataTable = serde_json::from_value(config_val)
+        .map_err(|e| Error::internal_err(format!("Failed to parse datatable config: {}", e)))?;
+
+    if dt.database.resource_type == DataTableCatalogResourceType::Instance {
+        // Instance: update resource_path to the new dbname
+        let forked_from = serde_json::json!({ "schema": fdt.schema });
+        sqlx::query!(
+            r#"UPDATE workspace_settings
+               SET datatable = jsonb_set(
+                   jsonb_set(datatable, ARRAY['datatables', $2, 'database', 'resource_path'], to_jsonb($3::text)),
+                   ARRAY['datatables', $2, 'forked_from'], $4::jsonb
+               )
+               WHERE workspace_id = $1"#,
+            forked_w_id,
+            &fdt.name,
+            &fdt.new_dbname,
+            forked_from,
+        )
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        // Resource: update the resource's dbname and set non_diffable
+        let resource_path = &dt.database.resource_path;
+        sqlx::query!(
+            r#"UPDATE resource
+               SET value = jsonb_set(value, '{dbname}', to_jsonb($3::text)),
+                   non_diffable = true
+               WHERE workspace_id = $1 AND path = $2"#,
+            forked_w_id,
+            resource_path,
+            &fdt.new_dbname,
+        )
+        .execute(&mut **tx)
+        .await?;
+
+        // Set forked_from on the datatable config
+        let forked_from = serde_json::json!({ "schema": fdt.schema });
+        sqlx::query!(
+            r#"UPDATE workspace_settings
+               SET datatable = jsonb_set(datatable, ARRAY['datatables', $2, 'forked_from'], $3::jsonb)
+               WHERE workspace_id = $1"#,
+            forked_w_id,
+            &fdt.name,
+            forked_from,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
 async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -4201,6 +4290,11 @@ async fn create_workspace_fork(
 
     // Clone all data from the parent workspace using Rust implementation
     clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id).await?;
+
+    // Update forked datatable settings to point to new databases
+    for fdt in &nw.forked_datatables {
+        apply_forked_datatable(&mut tx, &forked_id, fdt).await?;
+    }
 
     audit_log(
         &mut *tx,

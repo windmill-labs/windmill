@@ -193,13 +193,23 @@
 			return
 		}
 
+		// Build forked_datatables info from completed clone jobs
+		const forkedDatatables = forkDatatableSection
+			? forkDatatableSection.getCompletedCloneJobs().map((job) => ({
+					name: job.name,
+					new_dbname: job._newDbName,
+					schema: job._schema ?? {}
+				}))
+			: []
+
 		try {
 			await WorkspaceService.createWorkspaceFork({
 				workspace: $workspaceStore!,
 				requestBody: {
 					id: prefixed_id,
 					name,
-					color: colorEnabled && workspaceColor ? workspaceColor : undefined
+					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
+					forked_datatables: forkedDatatables
 				}
 			})
 		} catch (e) {
@@ -210,18 +220,6 @@
 			return
 		}
 
-		// Update forked workspace settings for cloned datatables
-		if (forkDatatableSection) {
-			const clonedJobs = forkDatatableSection.getCompletedCloneJobs()
-			if (clonedJobs.length > 0) {
-				try {
-					await applyPostForkDatatableUpdates(prefixed_id, clonedJobs)
-				} catch (e: any) {
-					sendUserToast(`Warning: datatable settings update failed: ${e?.body ?? e}`, true)
-				}
-			}
-		}
-
 		forkCreationLoading = false
 		sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
 
@@ -229,64 +227,6 @@
 		switchWorkspace(prefixed_id)
 
 		onFinish?.()
-	}
-
-	async function applyPostForkDatatableUpdates(
-		forkWorkspaceId: string,
-		clonedJobs: import('./ForkDatatableSection.svelte').DatatableCloneJob[]
-	): Promise<void> {
-		// First, get the current datatable settings from the forked workspace
-		const settings = await WorkspaceService.getSettings({ workspace: forkWorkspaceId })
-		const datatableConfig = settings.datatable ?? { datatables: {} }
-
-		for (const job of clonedJobs) {
-			if (job._isInstance) {
-				// Instance: update resource_path and set forked_from with schema snapshot
-				if (datatableConfig.datatables[job.name]) {
-					datatableConfig.datatables[job.name].database.resource_path = job._newDbName
-					datatableConfig.datatables[job.name].forked_from = {
-						schema: job._schema ?? {}
-					}
-				}
-			} else {
-				// Resource: update the resource's dbname and set non_diffable
-				const resourcePath = job._resourcePath
-				try {
-					const res = await ResourceService.getResource({
-						workspace: forkWorkspaceId,
-						path: resourcePath
-					})
-					const value = (res.value as Record<string, any>) ?? {}
-					const updatedValue = { ...value, dbname: job._newDbName }
-					await ResourceService.updateResource({
-						workspace: forkWorkspaceId,
-						path: resourcePath,
-						requestBody: {
-							value: updatedValue,
-							non_diffable: true
-						}
-					})
-				} catch (e: any) {
-					console.error(`Failed to update resource ${resourcePath}:`, e)
-				}
-
-				// Set forked_from on the datatable config
-				if (datatableConfig.datatables[job.name]) {
-					datatableConfig.datatables[job.name].forked_from = {
-						schema: job._schema ?? {}
-					}
-				}
-			}
-		}
-
-		// Save updated datatable settings (both instance and resource changes)
-		const hasChanges = clonedJobs.length > 0
-		if (hasChanges) {
-			await WorkspaceService.editDataTableConfig({
-				workspace: forkWorkspaceId,
-				requestBody: { settings: datatableConfig }
-			})
-		}
 	}
 
 	async function createWorkspace(): Promise<void> {

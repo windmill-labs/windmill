@@ -23742,6 +23742,22 @@ components:
           type: string
         color:
           type: string
+        forked_datatables:
+          type: array
+          items:
+            type: object
+            required: [name, new_dbname]
+            properties:
+              name:
+                type: string
+                description: "Datatable name"
+              new_dbname:
+                type: string
+                description: "New database name for the fork"
+              schema:
+                type: object
+                description: "Schema snapshot from the source datatable"
+                additionalProperties: true
       required:
         - id
         - name
