@@ -19,7 +19,7 @@
 		min = 0,
 		max = 100,
 		initialValue = 0,
-		value = $bindable(typeof initialValue === 'string' ? parseInt(initialValue) : initialValue),
+		value = $bindable(),
 		disabled = false,
 		defaultValue = undefined,
 		format = (v) => `${v}`,
@@ -36,8 +36,14 @@
 	}
 
 	run(() => {
-		if (value === null) {
-			value = 0
+		if (value === null || value === undefined || Number.isNaN(value)) {
+			const fallback =
+				initialValue !== undefined
+					? typeof initialValue === 'string'
+						? parseInt(initialValue)
+						: initialValue
+					: (min ?? 0)
+			value = Number.isNaN(fallback) ? (min ?? 0) : fallback
 		}
 	})
 
