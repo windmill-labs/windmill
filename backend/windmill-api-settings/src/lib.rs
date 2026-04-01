@@ -12,9 +12,7 @@ use std::{collections::HashMap, time::Duration};
 mod ee;
 pub mod ee_oss;
 
-#[cfg(feature = "enterprise")]
-use windmill_api_auth::require_devops_role;
-use windmill_api_auth::{require_super_admin, ApiAuthed};
+use windmill_api_auth::{require_devops_role, require_super_admin, ApiAuthed};
 use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 use windmill_common::DB;
 
@@ -671,7 +669,7 @@ async fn restart_worker_group(
     authed: ApiAuthed,
     Path(worker_group): Path<String>,
 ) -> error::Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
 
     sqlx::query!(
         "INSERT INTO notify_event (channel, payload) VALUES ('restart_worker_group', $1)",
