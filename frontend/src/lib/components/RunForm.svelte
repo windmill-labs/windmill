@@ -38,7 +38,7 @@
 	export async function run(overrideScheduledForStr?: string | undefined | null) {
 		let processedArgs: Record<string, any>
 		try {
-			processedArgs = await processSecretArgs(args ?? {}, runnable?.schema)
+			processedArgs = await processSecretArgs(enforceDisabledDefaults(args ?? {}), runnable?.schema)
 		} catch (e) {
 			sendUserToast('Failed to process sensitive args: ' + e, true)
 			return
@@ -130,6 +130,18 @@
 		} catch (e) {
 			console.error('Impossible to set hash in args', e)
 		}
+	}
+
+	function enforceDisabledDefaults(args: Record<string, any>): Record<string, any> {
+		const schema = runnable?.schema
+		if (!schema?.properties) return args
+		const result = { ...args }
+		for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
+			if (prop?.disabled) {
+				result[key] = prop.default
+			}
+		}
+		return result
 	}
 
 	export function setCode(code: string) {
@@ -249,7 +261,7 @@
 					bind:this={jsonEditor}
 					on:select={(e) => {
 						if (e.detail) {
-							args = e.detail
+							args = enforceDisabledDefaults(e.detail)
 						}
 					}}
 					updateOnBlur={false}
