@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE resource\n               SET value = jsonb_set(value, '{dbname}', to_jsonb($3::text)),\n                   ws_specific = true\n               WHERE workspace_id = $1 AND path = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ba09bbba6bd34ef52c702eddc7b0b047e71a171cf067fcd1e812681d8bd15005"
+}
