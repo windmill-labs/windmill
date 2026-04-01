@@ -18094,7 +18094,7 @@ paths:
                                 type: object
                                 description: The columns used (for tables)
                                 additionalProperties:
-                                  $ref: "#/components/schemas/AssetUsageAccessType"                 
+                                  $ref: "#/components/schemas/AssetUsageAccessType"
                               created_at:
                                 type: string
                                 format: date-time
@@ -18197,7 +18197,6 @@ paths:
                     path:
                       type: string
                       description: The asset path
-
 
   /w/{workspace}/volumes/list:
     get:
@@ -21075,7 +21074,7 @@ components:
         resource_type:
           type: string
           description: The new resource_type to be associated with the resource
-        non_diffable:
+        ws_specific:
           type: boolean
           description: When true, the resource is excluded from workspace diff comparisons
 
@@ -24966,7 +24965,15 @@ components:
         kind:
           type: string
           enum:
-            ["script", "flow", "app", "raw_app", "resource", "variable", "resource_type"]
+            [
+              "script",
+              "flow",
+              "app",
+              "raw_app",
+              "resource",
+              "variable",
+              "resource_type",
+            ]
           description: Type of the item
         path:
           type: string

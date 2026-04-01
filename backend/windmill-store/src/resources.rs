@@ -126,7 +126,7 @@ pub struct Resource {
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(default)]
-    pub non_diffable: bool,
+    pub ws_specific: bool,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -146,7 +146,7 @@ pub struct ListableResource {
     pub refresh_error: Option<String>,
     pub account: Option<i32>,
     #[serde(default)]
-    pub non_diffable: bool,
+    pub ws_specific: bool,
 }
 
 #[derive(Deserialize)]
@@ -156,14 +156,14 @@ pub struct CreateResource {
     pub description: Option<String>,
     pub resource_type: String,
     #[serde(default)]
-    pub non_diffable: Option<bool>,
+    pub ws_specific: Option<bool>,
 }
 #[derive(Deserialize)]
 struct EditResource {
     path: Option<String>,
     description: Option<String>,
     value: Option<Box<RawValue>>,
-    non_diffable: Option<bool>,
+    ws_specific: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -259,7 +259,7 @@ async fn list_resources(
             "account.refresh_error",
             "resource.created_by",
             "resource.edited_at",
-            "resource.non_diffable",
+            "resource.ws_specific",
         ])
         .left()
         .join("variable")
@@ -829,16 +829,16 @@ async fn create_resource(
     }
     sqlx::query!(
         "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type, created_by, edited_at, non_diffable)
+            (workspace_id, path, value, description, resource_type, created_by, edited_at, ws_specific)
             VALUES ($1, $2, $3, $4, $5, $6, now(), $7) ON CONFLICT (workspace_id, path)
-            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now(), non_diffable = EXCLUDED.non_diffable",
+            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now(), ws_specific = EXCLUDED.ws_specific",
         w_id,
         resource.path,
         raw_json as sqlx::types::Json<&RawValue>,
         resource.description,
         resource.resource_type,
         authed.username,
-        resource.non_diffable.unwrap_or(false)
+        resource.ws_specific.unwrap_or(false)
     )
     .execute(&mut *tx)
     .await?;
@@ -1205,8 +1205,8 @@ async fn update_resource(
     if let Some(ndesc) = ns.description {
         sqlb.set_str("description", ndesc);
     }
-    if let Some(nd) = ns.non_diffable {
-        sqlb.set_str("non_diffable", if nd { "true" } else { "false" });
+    if let Some(nd) = ns.ws_specific {
+        sqlb.set_str("ws_specific", if nd { "true" } else { "false" });
     }
 
     sqlb.set_str("edited_at", "now()");

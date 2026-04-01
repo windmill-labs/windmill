@@ -26,7 +26,7 @@ export interface ResourceFile {
   description?: string;
   resource_type: string;
   is_oauth?: boolean; // deprecated
-  non_diffable?: boolean;
+  ws_specific?: boolean;
 }
 
 async function readFilesetDirectory(dirPath: string): Promise<Record<string, string>> {

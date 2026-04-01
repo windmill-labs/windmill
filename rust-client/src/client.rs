@@ -416,7 +416,7 @@ impl Windmill {
                     description: None,
                     value: Some(value),
                     resource_type: Some(resource_type.to_owned()),
-                    non_diffable: None,
+                    ws_specific: None,
                 },
             )
             .await?;
