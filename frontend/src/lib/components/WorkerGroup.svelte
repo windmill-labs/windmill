@@ -384,10 +384,10 @@
 		try {
 			await SettingService.restartWorkerGroup({ workerGroup: name })
 			sendUserToast(`Restart signal sent to worker group '${name}'`)
+			dispatch('reload')
 		} catch (e) {
 			sendUserToast(`Failed to restart worker group: ${e}`, true)
 		}
-		dispatch('reload')
 		openRestart = false
 	}}
 >
