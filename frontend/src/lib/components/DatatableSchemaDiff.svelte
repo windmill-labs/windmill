@@ -9,6 +9,7 @@
 		type AlterTableValues,
 		makeAlterTableQueries
 	} from '$lib/components/apps/components/display/dbtable/queries/alterTable'
+	import { renderForeignKey } from '$lib/components/apps/components/display/dbtable/queries/dbQueriesUtils'
 	import type { GetDatatableFullSchemaResponse } from '$lib/gen'
 
 	export type DatabaseSchema = Record<string, Record<string, TableEditorValues>>
@@ -151,7 +152,18 @@
 				.join(',\n  ')
 			const pkCols = table.columns.filter((c) => c.primaryKey).map((c) => `"${c.name}"`)
 			const pkLine = pkCols.length > 0 ? `,\n  PRIMARY KEY (${pkCols.join(', ')})` : ''
-			return `BEGIN;\nCREATE TABLE "${change.schemaName}"."${change.tableName}" (\n  ${colDefs}${pkLine}\n);\nCOMMIT;`
+			const qualifiedName = `"${change.schemaName}"."${change.tableName}"`
+			let sql = `BEGIN;\nCREATE TABLE ${qualifiedName} (\n  ${colDefs}${pkLine}\n);`
+			for (const fk of table.foreignKeys ?? []) {
+				const fkSql = renderForeignKey(fk, {
+					useSchema: true,
+					dbType: 'postgresql',
+					tableName: change.tableName
+				})
+				sql += `\nALTER TABLE ${qualifiedName} ADD ${fkSql};`
+			}
+			sql += '\nCOMMIT;'
+			return sql
 		}
 		if (change.kind === 'removed') {
 			return `BEGIN;\nDROP TABLE IF EXISTS "${change.schemaName}"."${change.tableName}";\nCOMMIT;`
