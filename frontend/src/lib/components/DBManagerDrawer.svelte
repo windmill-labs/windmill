@@ -92,7 +92,7 @@
 		uriState.isDatatableInput ||
 			(uriState.input?.type === 'database' && uriState.input.resourceType === 'postgresql')
 	)
-	let enableImportExport = $derived(isPostgresqlInput && (!!$userStore?.is_admin || !!$superadmin))
+	let enableImportExport = $derived(isPostgresqlInput)
 
 	function toSourceIdentifier(raw: string): string {
 		if (raw.startsWith('datatable://') || raw.startsWith('$res:')) return raw
@@ -271,7 +271,9 @@
 				<Select
 					items={[
 						{ value: 'schema_only', label: 'Schema only' },
-						...(isCloudHosted() ? [] : [{ value: 'schema_and_data', label: 'Schema and data' }])
+						...(isCloudHosted() || (!$superadmin && !$userStore?.is_admin)
+							? []
+							: [{ value: 'schema_and_data', label: 'Schema and data' }])
 					]}
 					bind:value={importBehavior}
 				/>

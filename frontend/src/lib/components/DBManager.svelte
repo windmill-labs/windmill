@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type DBSchema } from '$lib/stores'
+	import { superadmin, userStore, type DBSchema } from '$lib/stores'
 	import {
 		ChevronDownIcon,
 		EditIcon,
@@ -551,15 +551,17 @@
 								Import schema from database
 							</span>
 						</button>
-						<button
-							onclick={() => onImport('schema_and_data')}
-							class="hover:opacity-70 transition-opacity rounded-md border aspect-square w-52 gap-4 p-4 center-center flex-col"
-						>
-							<UploadIcon size={64} class="text-secondary" />
-							<span class="text-center font-normal text-sm text-secondary">
-								Import schema and data from database
-							</span>
-						</button>
+						{#if !!$userStore?.is_admin || !!$superadmin}
+							<button
+								onclick={() => onImport('schema_and_data')}
+								class="hover:opacity-70 transition-opacity rounded-md border aspect-square w-52 gap-4 p-4 center-center flex-col"
+							>
+								<UploadIcon size={64} class="text-secondary" />
+								<span class="text-center font-normal text-sm text-secondary">
+									Import schema and data from database
+								</span>
+							</button>
+						{/if}
 					</div>
 				{/if}
 			</div>
@@ -613,7 +615,10 @@
 					computePreview={async ({ values }) => {
 						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
 							let diff = diffTableEditorValues(dbTableEditorAlterTableData.current, values)
-							let sql = await dbSchemaOps.previewAlterSql({ values: diff, schema: selected.schemaKey })
+							let sql = await dbSchemaOps.previewAlterSql({
+								values: diff,
+								schema: selected.schemaKey
+							})
 							let alert = !dbSupportsTransactionalDdl(dbType)
 								? {
 										title: capitalize(dbType) + ' does not support transactional DDL',
