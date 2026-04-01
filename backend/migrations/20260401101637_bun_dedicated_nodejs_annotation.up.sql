@@ -4,6 +4,7 @@
 -- so their behavior is preserved.
 UPDATE script
 SET content = '//nodejs
+// dedicated workers were previously running in nodejs mode by default, remove this annotation to use bun
 ' || content
 WHERE language = 'bun'
   AND dedicated_worker = true

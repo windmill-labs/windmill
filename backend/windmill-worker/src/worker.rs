@@ -2483,13 +2483,14 @@ pub async fn run_worker(
                         // Try flow path + step_id combinations for flow jobs, otherwise use runnable_path
                         let dedicated_worker_tx = if let Some(step_id) = job.flow_step_id.as_ref() {
                             dedicated_flow_paths.iter().find_map(|flow_path| {
-                                let key = format!("{}:{}", flow_path, step_id);
+                                let key = format!("{}:{}:{}", job.workspace_id, flow_path, step_id);
                                 dedicated_workers.get(&key)
                             })
                         } else {
-                            job.runnable_path
-                                .as_ref()
-                                .and_then(|path| dedicated_workers.get(path))
+                            job.runnable_path.as_ref().and_then(|path| {
+                                let key = format!("{}:{}", job.workspace_id, path);
+                                dedicated_workers.get(&key)
+                            })
                         };
                         if let Some(dedicated_worker_tx) = dedicated_worker_tx {
                             let dedicated_job = DedicatedWorkerJob {
@@ -5455,4 +5456,3 @@ pub fn get_worker_internal_server_inline_utils(
         )),
     }
 }
-

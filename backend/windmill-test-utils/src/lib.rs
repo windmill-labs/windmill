@@ -436,6 +436,130 @@ pub fn spawn_test_worker(
     (tx, tokio::task::spawn(future))
 }
 
+/// Spawn a test worker configured with dedicated workers.
+/// `dedicated_workers` should be in format `["workspace_id:path", ...]`.
+pub fn spawn_test_worker_dedicated(
+    conn: &Connection,
+    port: u16,
+    dedicated_workers: Vec<windmill_common::worker::WorkspacedPath>,
+) -> (KillpillSender, tokio::task::JoinHandle<()>) {
+    #[cfg(feature = "deno_core")]
+    windmill_runtime_nativets::setup_deno_runtime().expect("V8 init failed");
+
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .create(&*windmill_worker::GO_BIN_CACHE_DIR)
+        .expect("could not create initial worker dir");
+
+    let (tx, rx) = KillpillSender::new(1);
+    let worker_instance: &str = "test worker instance";
+    let worker_name: String = next_worker_name();
+    let ip: &str = Default::default();
+    let conn = conn.to_owned();
+
+    let tx2 = tx.clone();
+    let future = async move {
+        let base_internal_url = format!("http://localhost:{}", port);
+
+        // Insert dedicated worker config into the DB config table so that
+        // reload_worker_config (called by the monitor) picks it up consistently.
+        let dedicated_strs: Vec<String> = dedicated_workers
+            .iter()
+            .map(|dw| format!("{}:{}", dw.workspace_id, dw.path))
+            .collect();
+        // Include dedicated worker tags AND default tags in worker_tags so that
+        // the monitor reload (load_worker_config) doesn't clobber the pull query.
+        let mut all_tags = windmill_common::worker::DEFAULT_TAGS.clone();
+        for dw in &dedicated_workers {
+            all_tags.push(windmill_common::worker::dedicated_worker_tag(
+                &dw.workspace_id,
+                &dw.path,
+            ));
+        }
+        let config_value = serde_json::json!({
+            "dedicated_workers": dedicated_strs,
+            "worker_tags": all_tags,
+        });
+        sqlx::query("INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = $2")
+            .bind(format!("worker__{}", *windmill_common::worker::WORKER_GROUP))
+            .bind(&config_value)
+            .execute(match &conn {
+                Connection::Sql(db) => db,
+                _ => panic!("dedicated worker tests require SQL connection"),
+            })
+            .await
+            .expect("insert dedicated worker config");
+
+        {
+            let mut wc = WORKER_CONFIG.write().await;
+            let mut tags = windmill_common::worker::DEFAULT_TAGS.clone();
+            for dw in &dedicated_workers {
+                tags.push(windmill_common::worker::dedicated_worker_tag(
+                    &dw.workspace_id,
+                    &dw.path,
+                ));
+            }
+            wc.worker_tags = tags.clone();
+            wc.priority_tags_sorted =
+                vec![windmill_common::worker::PriorityTags { priority: 0, tags }];
+            wc.dedicated_workers = Some(dedicated_workers);
+            windmill_common::worker::store_suspended_pull_query(&wc).await;
+            windmill_common::worker::store_pull_query(&wc).await;
+        }
+        windmill_worker::run_worker(
+            &conn,
+            worker_instance,
+            worker_name,
+            1,
+            1,
+            ip,
+            rx,
+            tx2,
+            &base_internal_url,
+        )
+        .await
+    };
+
+    (tx, tokio::task::spawn(future))
+}
+
+/// Like `in_test_worker` but with dedicated worker configuration.
+pub async fn in_test_worker_dedicated<Fut: std::future::Future>(
+    conn: impl Into<Connection>,
+    inner: Fut,
+    port: u16,
+    dedicated_workers: Vec<windmill_common::worker::WorkspacedPath>,
+) -> <Fut as std::future::Future>::Output {
+    set_jwt_secret().await;
+    // Reset WORKER_CONFIG to avoid stale state from previous tests' monitor reloads.
+    {
+        let mut wc = WORKER_CONFIG.write().await;
+        wc.dedicated_worker = None;
+        wc.dedicated_workers = None;
+    }
+    let (quit, worker) = spawn_test_worker_dedicated(&conn.into(), port, dedicated_workers);
+    let worker = tokio::time::timeout(std::time::Duration::from_secs(90), worker);
+    tokio::pin!(worker);
+
+    let res = tokio::select! {
+        biased;
+        res = inner => res,
+        res = &mut worker => match
+            res.expect("worker timed out")
+               .expect("worker panicked") {
+            _ => panic!("worker quit early"),
+        },
+    };
+
+    quit.send();
+
+    let _: () = worker
+        .await
+        .expect("worker timed out")
+        .expect("worker panicked");
+    res
+}
+
 pub async fn listen_for_completed_jobs(db: &Pool<Postgres>) -> impl Stream<Item = Uuid> + Unpin {
     listen_for_uuid_on(db, "completed").await
 }

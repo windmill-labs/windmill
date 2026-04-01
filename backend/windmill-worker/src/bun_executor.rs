@@ -3545,9 +3545,6 @@ pub async fn start_worker(
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(Some(&base_internal_url)).await;
 
-    // NOTE: Bun dedicated workers used to force nodejs mode here for all non-native scripts.
-    // Existing scripts were migrated to include //nodejs in their content (migration 20260331000000).
-    // New dedicated worker scripts now run with bun by default.
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
     let context = variables::get_reserved_variables(
