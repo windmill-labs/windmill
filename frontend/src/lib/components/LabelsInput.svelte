@@ -19,7 +19,7 @@
 	}
 
 	function addLabel() {
-		const value = inputValue.trim()
+		const value = inputValue.trim().slice(0, 50)
 		if (!value) {
 			adding = false
 			return

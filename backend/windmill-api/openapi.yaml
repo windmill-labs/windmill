@@ -20489,6 +20489,10 @@ components:
         expires_at:
           type: string
           format: date-time
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - workspace_id
         - path
@@ -21007,6 +21011,10 @@ components:
         edited_at:
           type: string
           format: date-time
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - resource_type
@@ -21045,6 +21053,10 @@ components:
         edited_at:
           type: string
           format: date-time
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - resource_type

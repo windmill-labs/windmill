@@ -69,7 +69,7 @@
 			is_secret: getV.is_secret,
 			description: getV.description ?? ''
 		}
-		labels = (getV as any).labels ?? undefined
+		labels = getV.labels ?? undefined
 		initialPath = edit_path
 		path = edit_path
 		drawer?.openDrawer()

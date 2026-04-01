@@ -1,2 +1,32 @@
 ALTER TABLE resource DROP COLUMN IF EXISTS labels;
 ALTER TABLE variable DROP COLUMN IF EXISTS labels;
+
+UPDATE script SET labels = '{}' WHERE labels IS NULL;
+UPDATE flow SET labels = '{}' WHERE labels IS NULL;
+UPDATE app SET labels = '{}' WHERE labels IS NULL;
+UPDATE raw_app SET labels = '{}' WHERE labels IS NULL;
+UPDATE schedule SET labels = '{}' WHERE labels IS NULL;
+UPDATE http_trigger SET labels = '{}' WHERE labels IS NULL;
+UPDATE websocket_trigger SET labels = '{}' WHERE labels IS NULL;
+UPDATE kafka_trigger SET labels = '{}' WHERE labels IS NULL;
+UPDATE nats_trigger SET labels = '{}' WHERE labels IS NULL;
+UPDATE mqtt_trigger SET labels = '{}' WHERE labels IS NULL;
+UPDATE postgres_trigger SET labels = '{}' WHERE labels IS NULL;
+UPDATE sqs_trigger SET labels = '{}' WHERE labels IS NULL;
+UPDATE gcp_trigger SET labels = '{}' WHERE labels IS NULL;
+UPDATE email_trigger SET labels = '{}' WHERE labels IS NULL;
+
+ALTER TABLE script ALTER COLUMN labels SET NOT NULL, ALTER COLUMN labels SET DEFAULT '{}';
+ALTER TABLE flow ALTER COLUMN labels SET NOT NULL, ALTER COLUMN labels SET DEFAULT '{}';
+ALTER TABLE app ALTER COLUMN labels SET NOT NULL, ALTER COLUMN labels SET DEFAULT '{}';
+ALTER TABLE raw_app ALTER COLUMN labels SET NOT NULL, ALTER COLUMN labels SET DEFAULT '{}';
+ALTER TABLE schedule ALTER COLUMN labels SET NOT NULL, ALTER COLUMN labels SET DEFAULT '{}';
+ALTER TABLE http_trigger ALTER COLUMN labels SET NOT NULL, ALTER COLUMN labels SET DEFAULT '{}';
+ALTER TABLE websocket_trigger ALTER COLUMN labels SET NOT NULL, ALTER COLUMN labels SET DEFAULT '{}';
+ALTER TABLE kafka_trigger ALTER COLUMN labels SET NOT NULL, ALTER COLUMN labels SET DEFAULT '{}';
+ALTER TABLE nats_trigger ALTER COLUMN labels SET NOT NULL, ALTER COLUMN labels SET DEFAULT '{}';
+ALTER TABLE mqtt_trigger ALTER COLUMN labels SET NOT NULL, ALTER COLUMN labels SET DEFAULT '{}';
+ALTER TABLE postgres_trigger ALTER COLUMN labels SET NOT NULL, ALTER COLUMN labels SET DEFAULT '{}';
+ALTER TABLE sqs_trigger ALTER COLUMN labels SET NOT NULL, ALTER COLUMN labels SET DEFAULT '{}';
+ALTER TABLE gcp_trigger ALTER COLUMN labels SET NOT NULL, ALTER COLUMN labels SET DEFAULT '{}';
+ALTER TABLE email_trigger ALTER COLUMN labels SET NOT NULL, ALTER COLUMN labels SET DEFAULT '{}';
