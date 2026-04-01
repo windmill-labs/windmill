@@ -1656,7 +1656,6 @@ async fn create_pg_database(
     Path(w_id): Path<String>,
     Json(req): Json<CreatePgDatabaseRequest>,
 ) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
     windmill_common::validate_dbname(&req.target_dbname)?;
 
     // Non-superadmin: restrict dbname to wm_fork_ prefix
@@ -1749,7 +1748,7 @@ struct ImportPgDatabaseRequest {
     fork_behavior: DataTableForkBehavior,
 }
 
-/// Import (pg_dump/pg_import) from source to target. Does NOT create the target database.
+/// Import (pg_dump/pg_import) from source to target
 async fn import_pg_database(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -1776,6 +1775,15 @@ async fn import_pg_database(
         resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
 
     if let Some(ref override_dbname) = req.target_dbname_override {
+        // Non-superadmin: restrict dbname to wm_fork_ prefix
+        if !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+            if !override_dbname.starts_with("wm_fork_") {
+                return Err(Error::BadRequest(
+                    "Non-superadmin users can only override target dbname with names starting with 'wm_fork_'"
+                        .to_string(),
+                ));
+            }
+        }
         target_pg.dbname = override_dbname.clone();
     }
 
@@ -1800,8 +1808,6 @@ async fn export_pg_schema(
     Path(w_id): Path<String>,
     Json(req): Json<ExportPgSchemaRequest>,
 ) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-
     let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
     let dump_file = pg_dump_database(&pg, true).await?;
     tokio::fs::read_to_string(&dump_file.path)
@@ -1821,8 +1827,6 @@ async fn get_datatable_full_schema(
     Path(w_id): Path<String>,
     Json(req): Json<GetDatatableFullSchemaRequest>,
 ) -> JsonResult<windmill_common::query_builders::FullDatabaseSchema> {
-    require_admin(authed.is_admin, &authed.username)?;
-
     let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
     let (client, connection) = pg.connect().await?;
     let join_handle = tokio::spawn(async move { connection.await });

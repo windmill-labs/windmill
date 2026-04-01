@@ -865,8 +865,6 @@ pub async fn drop_forked_datatable_databases(
     Path(w_id): Path<String>,
     Json(req): Json<DropForkedDatatableDatabasesRequest>,
 ) -> Result<Json<Vec<String>>> {
-    require_admin(authed.is_admin, &authed.username)?;
-
     let parent_w_id = sqlx::query_scalar!(
         "SELECT parent_workspace_id FROM workspace WHERE id = $1",
         &w_id
@@ -932,6 +930,8 @@ pub async fn drop_forked_datatable_databases(
                     continue;
                 }
             };
+            // We cannot drop the current database, so we connect to the parent's version to run DROP DATABASE on
+            // the forked version
             let parent_pg = match crate::workspaces::resolve_pg_source_checked(
                 &db,
                 &user_db,

@@ -562,7 +562,7 @@ pub async fn get_ducklake_from_db_unchecked(
 
 // This does not check for any permission. Should never be displayed to a user.
 #[async_recursion]
-pub(crate) async fn transform_json_unchecked(
+async fn transform_json_unchecked(
     value: &serde_json::Value,
     w_id: &str,
     db: &DB,
