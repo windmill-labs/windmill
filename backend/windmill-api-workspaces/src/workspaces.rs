@@ -1480,32 +1480,6 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
     Ok(schema_map)
 }
 
-/// Resolve a source string to PgDatabase credentials (no permission check on $res:).
-/// For internal use (e.g. drop_forked_datatable_databases) where permissions are checked elsewhere.
-pub(crate) async fn resolve_pg_source(db: &DB, w_id: &str, source: &str) -> Result<PgDatabase> {
-    let db_resource = if let Some(name) = source.strip_prefix("datatable://") {
-        get_datatable_resource_from_db_unchecked(db, w_id, name).await?
-    } else if let Some(path) = source.strip_prefix("$res:") {
-        sqlx::query_scalar!(
-            "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
-            path,
-            w_id
-        )
-        .fetch_optional(db)
-        .await?
-        .flatten()
-        .ok_or_else(|| Error::NotFound(format!("Resource '{}' not found", path)))?
-    } else {
-        return Err(Error::BadRequest(format!(
-            "Invalid source format: '{}'. Expected 'datatable://name' or '$res:path'",
-            source
-        )));
-    };
-
-    serde_json::from_value(db_resource)
-        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
-}
-
 /// Resolve a source string to PgDatabase credentials with user-scoped permission checks.
 /// For `datatable://name`: accessible to everyone.
 /// For `$res:path`: uses UserDB (row-level security) to verify the user can see the resource.

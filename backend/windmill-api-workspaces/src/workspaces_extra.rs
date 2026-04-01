@@ -23,6 +23,7 @@ use windmill_common::worker::CLOUD_HOSTED;
 
 use windmill_common::{
     auth::is_super_admin_email,
+    db::UserDB,
     error::{Error, Result},
     utils::require_admin,
     workspaces::DataTable,
@@ -858,12 +859,13 @@ struct DropForkedDatatableDatabasesRequest {
 
 /// Drop forked datatable databases. Returns errors per datatable that failed.
 pub async fn drop_forked_datatable_databases(
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(req): Json<DropForkedDatatableDatabasesRequest>,
 ) -> Result<Json<Vec<String>>> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     let parent_w_id = sqlx::query_scalar!(
         "SELECT parent_workspace_id FROM workspace WHERE id = $1",
@@ -912,8 +914,10 @@ pub async fn drop_forked_datatable_databases(
                 ));
             }
         } else {
-            let fork_pg = match crate::workspaces::resolve_pg_source(
+            let fork_pg = match crate::workspaces::resolve_pg_source_checked(
                 &db,
+                &user_db,
+                &authed,
                 &w_id,
                 &format!("datatable://{}", dt_name),
             )
@@ -928,8 +932,10 @@ pub async fn drop_forked_datatable_databases(
                     continue;
                 }
             };
-            let parent_pg = match crate::workspaces::resolve_pg_source(
+            let parent_pg = match crate::workspaces::resolve_pg_source_checked(
                 &db,
+                &user_db,
+                &authed,
                 &parent_w_id,
                 &format!("datatable://{}", dt_name),
             )
