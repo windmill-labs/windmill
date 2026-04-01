@@ -18,12 +18,12 @@ import {
   filterWorkspaceDependenciesForScripts,
 } from "../../utils/metadata.ts";
 import { ScriptLanguage } from "../../utils/script_common.ts";
-import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { extractInlineScripts as extractInlineScriptsForFlows, extractCurrentMapping } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { newPathAssigner } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
 import { exts } from "../script/script.ts";
-import { FSFSElement } from "../sync/sync.ts";
+import { FSFSElement, yamlOptions } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { FlowFile } from "./flow.ts";
 import { FlowValue } from "../../../gen/types.gen.ts";
@@ -188,6 +188,17 @@ export async function generateFlowLockInternal(
       log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
     }
     const fileReader = async (path: string) => await readFile(folder + SEP + path, "utf-8");
+
+    // Capture existing module-ID-to-file-path mapping before replaceInlineScripts
+    // overwrites the !inline references with actual file content. This preserves
+    // the original filenames when re-extracting inline scripts after lock generation.
+    const currentMapping = extractCurrentMapping(
+      flowValue.value.modules,
+      {},
+      flowValue.value.failure_module,
+      flowValue.value.preprocessor_module,
+    );
+
     // In tree mode, use the tree's staleness info (which includes transitive dependency changes)
     // to determine which scripts need relocking, instead of only content-changed ones.
     const locksToRemove = (tree && !legacyBehaviour)
@@ -215,6 +226,12 @@ export async function generateFlowLockInternal(
 
     //removeChangedLocks
     const tempScriptRefs = tree?.getTempScriptRefs(folderNormalized);
+
+    // Preserve notes and groups — the backend round-trips through FlowValue
+    // which doesn't include these fields, so they'd be lost (#8641).
+    const savedNotes = flowValue.value.notes;
+    const savedGroups = flowValue.value.groups;
+
     flowValue.value = await updateFlow(
       workspace,
       flowValue.value,
@@ -223,21 +240,25 @@ export async function generateFlowLockInternal(
       tempScriptRefs
     );
 
+    // Restore notes and groups that the backend stripped
+    if (savedNotes !== undefined) flowValue.value.notes = savedNotes;
+    if (savedGroups !== undefined) flowValue.value.groups = savedGroups;
+
     const lockAssigner = newPathAssigner(opts.defaultTs ?? "bun", {
       skipInlineScriptSuffix: getNonDottedPaths(),
     });
     const inlineScripts = extractInlineScriptsForFlows(
       flowValue.value.modules,
-      {},
+      currentMapping,
       SEP,
       opts.defaultTs,
       lockAssigner
     );
     if (flowValue.value.failure_module) {
-      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.failure_module], {}, SEP, opts.defaultTs, lockAssigner));
+      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.failure_module], currentMapping, SEP, opts.defaultTs, lockAssigner));
     }
     if (flowValue.value.preprocessor_module) {
-      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.preprocessor_module], {}, SEP, opts.defaultTs, lockAssigner));
+      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.preprocessor_module], currentMapping, SEP, opts.defaultTs, lockAssigner));
     }
     inlineScripts.forEach((s) => {
       writeIfChanged(process.cwd() + SEP + folder + SEP + s.path, s.content);
@@ -246,7 +267,7 @@ export async function generateFlowLockInternal(
     // Overwrite `flow.yaml` with the new lockfile references
     writeIfChanged(
       process.cwd() + SEP + folder + SEP + "flow.yaml",
-      yamlStringify(flowValue as Record<string, any>)
+      yamlStringify(flowValue as Record<string, any>, yamlOptions)
     );
   }
 

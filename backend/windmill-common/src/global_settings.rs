@@ -1,6 +1,7 @@
 pub const CUSTOM_TAGS_SETTING: &str = "custom_tags";
 pub const DEFAULT_TAGS_PER_WORKSPACE_SETTING: &str = "default_tags_per_workspace";
 pub const DEFAULT_TAGS_WORKSPACES_SETTING: &str = "default_tags_workspaces";
+pub const PREVIEW_TAGS_OVERRIDE_SETTING: &str = "preview_tags_override";
 pub const BASE_URL_SETTING: &str = "base_url";
 pub const WS_BASE_URL_SETTING: &str = "ws_base_url";
 pub const OAUTH_SETTING: &str = "oauths";
@@ -64,6 +65,7 @@ pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
 pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
 pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
+pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -98,6 +100,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "BUNDLE_PATH",
     "GEM_PATH",
     "RUBY_CONCURRENT_DOWNLOADS",
+    "RSCRIPT_PATH",
     // for related places search: ADD_NEW_LANG
     "GOPRIVATE",
     "GOPROXY",

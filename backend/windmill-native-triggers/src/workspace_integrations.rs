@@ -964,22 +964,22 @@ async fn generate_instance_connect_url(
 pub fn workspaced_service() -> Router {
     let router = Router::new()
         .route("/list", get(list_integrations))
-        .route("/:service_name/exists", get(integration_exist))
-        .route("/:service_name/create", post(create_workspace_integration))
+        .route("/{service_name}/exists", get(integration_exist))
+        .route("/{service_name}/create", post(create_workspace_integration))
         .route(
-            "/:service_name/generate_connect_url",
+            "/{service_name}/generate_connect_url",
             post(generate_connect_url),
         )
         .route(
-            "/:service_name/instance_sharing_available",
+            "/{service_name}/instance_sharing_available",
             get(check_instance_sharing_available),
         )
         .route(
-            "/:service_name/generate_instance_connect_url",
+            "/{service_name}/generate_instance_connect_url",
             post(generate_instance_connect_url),
         )
-        .route("/:service_name/delete", delete(delete_integration))
-        .route("/:service_name/callback", post(oauth_callback));
+        .route("/{service_name}/delete", delete(delete_integration))
+        .route("/{service_name}/callback", post(oauth_callback));
 
     Router::new().nest("/integrations", router)
 }

@@ -11,9 +11,13 @@ export async function getUserExt(workspace: string): Promise<UserExt | undefined
 }
 
 function mapUserToUserExt(user: User): UserExt {
-	return {
+	const ext: UserExt = {
 		...user,
 		groups: user.groups!,
 		pgroups: user.groups!.map((x) => `g/${x}`)
 	}
+	if (ext.is_service_account && sessionStorage.getItem('pre_impersonation_token')) {
+		ext.impersonating_email = sessionStorage.getItem('pre_impersonation_email') ?? undefined
+	}
+	return ext
 }

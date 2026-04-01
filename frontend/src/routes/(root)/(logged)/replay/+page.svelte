@@ -51,14 +51,14 @@
 <div class="max-w-7xl mx-auto px-4 py-8 w-full">
 	{#if flowRecording}
 		<div class="flex justify-end mb-4">
-			<Button variant="border" size="xs" on:click={quit} startIcon={{ icon: Upload }}>
+			<Button variant="border" size="xs" onclick={quit} startIcon={{ icon: Upload }}>
 				Load another recording
 			</Button>
 		</div>
 		<FlowRecordingReplay recording={flowRecording} />
 	{:else if scriptRecording}
 		<div class="flex justify-end mb-4">
-			<Button variant="border" size="xs" on:click={quit} startIcon={{ icon: Upload }}>
+			<Button variant="border" size="xs" onclick={quit} startIcon={{ icon: Upload }}>
 				Load another recording
 			</Button>
 		</div>
@@ -70,12 +70,7 @@
 				<p class="text-xs text-secondary mb-2">
 					Upload a recording JSON file to replay a flow or script execution offline.
 				</p>
-				<FileInput
-					accept=".json"
-					convertTo="text"
-					class="w-full"
-					on:change={handleFileChange}
-				>
+				<FileInput accept=".json" convertTo="text" class="w-full" on:change={handleFileChange}>
 					Drag and drop a recording file
 				</FileInput>
 			</div>

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.665.0
+  version: 1.671.0
   title: Windmill API
 
   contact:
@@ -2125,6 +2125,87 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/create_service_account:
+    post:
+      summary: create a service account
+      operationId: createServiceAccount
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+              required:
+                - username
+      responses:
+        "201":
+          description: service account created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/users/impersonate_service_account:
+    post:
+      summary: impersonate a service account
+      operationId: impersonateServiceAccount
+      tags:
+        - user
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+              required:
+                - username
+      responses:
+        "201":
+          description: impersonation token
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/users/exit_impersonation:
+    post:
+      summary: exit service account impersonation
+      operationId: exitImpersonation
+      tags:
+        - user
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+              required:
+                - token
+      responses:
+        "200":
+          description: exited impersonation
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/delete_invite:
     post:
       summary: delete user invite
@@ -2713,6 +2794,30 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/DependencyDependent"
+
+  /w/{workspace}/workspaces/get_imports/{importer_path}:
+    get:
+      summary: get script imports for an importer path
+      operationId: getImports
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: importer_path
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The script path to get imports for
+      responses:
+        "200":
+          description: list of imported script paths
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/workspaces/get_dependents_amounts:
     post:
@@ -10493,6 +10598,7 @@ paths:
     get:
       summary: get job
       operationId: getJob
+      x-mcp-tool: true
       tags:
         - job
       parameters:
@@ -10534,7 +10640,8 @@ paths:
   /w/{workspace}/jobs_u/get_logs/{id}:
     get:
       summary: get job logs
-      operationId: getJob logs
+      operationId: getJobLogs
+      x-mcp-tool: true
       tags:
         - job
       parameters:
@@ -20099,6 +20206,8 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/UserSource"
+        is_service_account:
+          type: boolean
       required:
         - email
         - username
@@ -20596,6 +20705,7 @@ components:
           nu,
           java,
           ruby,
+          rlang,
           duckdb,
           bunnative,
           # for related places search: ADD_NEW_LANG
@@ -21707,6 +21817,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         initial_messages:
           type: array
           nullable: true
@@ -21768,6 +21885,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         initial_messages:
           type: array
           nullable: true
@@ -21836,6 +21960,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         initial_messages:
           type: array
           nullable: true
@@ -22712,6 +22843,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         auto_offset_reset:
           type: string
           enum:
@@ -22783,6 +22921,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         auto_offset_reset:
           type: string
           enum:
@@ -22846,6 +22991,13 @@ components:
             required:
               - key
               - value
+        filter_logic:
+          type: string
+          enum:
+            - and
+            - or
+          default: and
+          description: "Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match."
         auto_offset_reset:
           type: string
           enum:

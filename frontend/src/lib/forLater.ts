@@ -1,6 +1,7 @@
 import { get } from 'svelte/store'
 import { dbClockDrift } from './stores'
 import { JobService } from './gen'
+import { getActiveReplay } from './components/recording/flowRecording.svelte'
 import pLimit from 'p-limit'
 
 function subtractSeconds(date: Date, seconds: number): Date {
@@ -26,6 +27,9 @@ export function forLater(scheduledString: string): boolean {
 const limit = pLimit(1)
 
 export function getDbClockNow() {
+	if (getActiveReplay()) {
+		return new Date()
+	}
 	let drift = get(dbClockDrift)
 	if (drift == undefined) {
 		limit(() => computeDrift())

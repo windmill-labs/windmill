@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-worker-volumes/private", "windmill-queue/private"]
+private = ["windmill-worker-volumes/private", "windmill-queue/private", "windmill-common/private"]
 mcp = ["dep:windmill-mcp"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
 enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker-volumes/enterprise", "dep:pem", "dep:tokio-util", "dep:opentelemetry-proto", "dep:prost", "dep:hudsucker", "dep:rcgen", "dep:hyper-http-proxy", "dep:hyper-tls", "dep:hyper-util"]
@@ -36,6 +36,7 @@ rust = ["dep:windmill-parser-rust"]
 nu = ["dep:windmill-parser-nu"]
 java = ["dep:windmill-parser-java"]
 ruby = ["dep:windmill-parser-ruby"]
+rlang = ["dep:windmill-parser-r"]
 duckdb = ["dep:libloading"]
 quickjs = ["windmill-jseval/quickjs"]
 bedrock = ["dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config", "dep:aws-credential-types", "dep:aws-smithy-types"]
@@ -60,6 +61,7 @@ windmill-parser-csharp = { workspace = true, optional = true }
 windmill-parser-nu = { workspace = true, optional = true }
 windmill-parser-java = { workspace = true, optional = true }
 windmill-parser-ruby = { workspace = true, optional = true }
+windmill-parser-r = { workspace = true, optional = true }
 windmill-parser-py = { workspace = true, optional = true }
 windmill-parser-yaml.workspace = true
 windmill-parser-py-imports = { workspace = true, optional = true }
@@ -146,6 +148,7 @@ rcgen = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true
+x509-parser.workspace = true
 
 [build-dependencies]
 libffi-sys = { workspace = true, optional = true }

@@ -129,10 +129,16 @@ async function createWorkspaceFork(
   const newBranchName = `${WM_FORK_PREFIX}/${clonedBranchName}/${workspaceId}`
 
   log.info(`Created forked workspace ${trueWorkspaceId}. To start contributing to your fork, create and push edits to the branch \`${newBranchName}\` by using the command:
-    
+
 \t`+colors.white(`git checkout -b ${newBranchName}`) + `
-    
-When doing operations on the forked workspace, it will use the remote setup in gitBranches for the branch it was forked from.`);
+
+When doing operations on the forked workspace, it will use the remote setup in gitBranches for the branch it was forked from.
+
+To merge changes back to the parent workspace, you can:
+  - Use the Merge UI from the forked workspace home page
+  - Deploy individual items via the Deploy to staging/prod UI
+  - Use git: ` + colors.white(`git checkout ${clonedBranchName} && git merge ${newBranchName} && wmill sync push`) + `
+  See: https://www.windmill.dev/docs/advanced/workspace_forks`);
 }
 
 async function deleteWorkspaceFork(
@@ -141,54 +147,69 @@ async function deleteWorkspaceFork(
   },
   name: string,
 ) {
+  let forkWorkspaceId: string;
+  let token: string;
+  let remote: string;
+  let hasLocalProfile = false;
+
+  // Try local profile first (existing behavior)
   const orgWorkspaces = await allWorkspaces(opts.configDir);
-  const idxOf = orgWorkspaces.findIndex((x) => x.name === name) ;
-  if (idxOf === -1) {
-      log.info(
-        colors.red.bold(`! Workspace profile ${name} does not exist locally`)
-      );
-      log.info("available workspace profiles:");
-      await list(opts);
-    return;
-  }
+  const idxOf = orgWorkspaces.findIndex((x) => x.name === name);
 
-  const workspace = orgWorkspaces[idxOf];
-
-  if (!workspace.workspaceId.startsWith(WM_FORK_PREFIX)) {
+  if (idxOf !== -1) {
+    const workspace = orgWorkspaces[idxOf];
+    if (!workspace.workspaceId.startsWith(WM_FORK_PREFIX)) {
       throw new Error(
         `You can only delete forked workspaces where the workspace id starts with \`${WM_FORK_PREFIX}.\` Failed while attempting to delete \`${workspace.workspaceId}\``,
       );
+    }
+    forkWorkspaceId = workspace.workspaceId;
+    token = workspace.token;
+    remote = workspace.remote;
+    hasLocalProfile = true;
+  } else {
+    // Fallback: resolve parent workspace from branch config and construct fork ID
+    const parentWorkspace = await tryResolveBranchWorkspace(opts);
+    if (!parentWorkspace) {
+      throw new Error(
+        "Could not resolve parent workspace. Make sure you are in a git repo with gitBranches configured in wmill.yaml, or create a local workspace profile for the fork.",
+      );
+    }
+    forkWorkspaceId = name.startsWith(`${WM_FORK_PREFIX}-`) ? name : `${WM_FORK_PREFIX}-${name}`;
+    token = parentWorkspace.token;
+    remote = parentWorkspace.remote;
   }
 
   if (!opts.yes) {
-        const { Select } = await import("@cliffy/prompt/select");
-        const choice = await Select.prompt({
-          message: `Are you sure you want to delete the forked workspace with id: \`${workspace.workspaceId}\`? This action will delete the workspace `,
-          options: [
-            { name: "Yes", value: "confirm" },
-            { name: "No", value: "cancel" },
-          ],
-        });
+    const { Select } = await import("@cliffy/prompt/select");
+    const choice = await Select.prompt({
+      message: `Are you sure you want to delete the forked workspace \`${forkWorkspaceId}\`?`,
+      options: [
+        { name: "Yes", value: "confirm" },
+        { name: "No", value: "cancel" },
+      ],
+    });
 
-        if (choice === "cancel") {
-          log.info("Operation cancelled");
-          return;
-        }
+    if (choice === "cancel") {
+      log.info("Operation cancelled");
+      return;
+    }
   }
 
-  const remote = workspace.remote
   setClient(
-    workspace.token,
+    token,
     remote.endsWith("/") ? remote.substring(0, remote.length - 1) : remote
   );
 
   const result = await wmill.deleteWorkspace({
-    workspace: workspace.workspaceId
+    workspace: forkWorkspaceId
   });
   log.info(
-    colors.green(`✅ Forked workspace '${workspace.workspaceId}' deleted successfully!\n${result}`),
+    colors.green(`✅ Forked workspace '${forkWorkspaceId}' deleted successfully!\n${result}`),
   );
-  await removeWorkspace(name, false, opts);
+  if (hasLocalProfile) {
+    await removeWorkspace(name, false, opts);
+  }
 }
 
 export { createWorkspaceFork, deleteWorkspaceFork };

@@ -40,14 +40,14 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_folders))
         .route("/listnames", get(list_foldernames))
         .route("/create", post(create_folder))
-        .route("/get/:name", get(get_folder))
-        .route("/exists/:name", get(exists_folder))
-        .route("/update/:name", post(update_folder))
-        .route("/getusage/:name", get(get_folder_usage))
-        .route("/delete/:name", delete(delete_folder))
-        .route("/addowner/:name", post(add_owner))
-        .route("/removeowner/:name", post(remove_owner))
-        .route("/is_owner/*path", get(is_owner_api))
+        .route("/get/{name}", get(get_folder))
+        .route("/exists/{name}", get(exists_folder))
+        .route("/update/{name}", post(update_folder))
+        .route("/getusage/{name}", get(get_folder_usage))
+        .route("/delete/{name}", delete(delete_folder))
+        .route("/addowner/{name}", post(add_owner))
+        .route("/removeowner/{name}", post(remove_owner))
+        .route("/is_owner/{*path}", get(is_owner_api))
 }
 
 #[derive(FromRow, Serialize, Deserialize, Clone)]

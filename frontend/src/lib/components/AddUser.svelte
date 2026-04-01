@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { globalEmailInvite, superadmin, workspaceStore } from '$lib/stores'
+	import { globalEmailInvite, superadmin, workspaceStore, enterpriseLicense } from '$lib/stores'
 	import { SettingService, UserService, WorkspaceService } from '$lib/gen'
 	import { Button } from './common'
 	import Popover from './meltComponents/Popover.svelte'
@@ -32,45 +32,56 @@
 	getAutomateUsernameCreationSetting()
 
 	async function addUser() {
-		await WorkspaceService.addUser({
-			workspace: $workspaceStore!,
-			requestBody: {
-				email: email!,
-				username: automateUsernameCreation ? undefined : username,
-				is_admin: selected == 'admin',
-				operator: selected == 'operator'
-			}
-		})
-		sendUserToast(`Added ${email}`)
-		if (!(await UserService.existsEmail({ email: email! }))) {
-			let isSuperadmin = $superadmin
-			if (!isCloudHosted()) {
-				const emailCopy = email!
-				sendUserToast(
-					`User ${email} is not registered yet on the instance. ${
-						!isSuperadmin
-							? `If not using SSO, ask an administrator to add ${email} to the instance`
-							: ''
-					}`,
-					true,
-					isSuperadmin
-						? [
-								{
-									label: 'Add user to the instance',
-									callback: () => {
-										$globalEmailInvite = emailCopy
-										goto('#superadmin-settings')
+		if (selected === 'service_account') {
+			if (!username) return
+			await WorkspaceService.createServiceAccount({
+				workspace: $workspaceStore!,
+				requestBody: { username: username! }
+			})
+			sendUserToast(`Service account '${username}' created`)
+		} else {
+			await WorkspaceService.addUser({
+				workspace: $workspaceStore!,
+				requestBody: {
+					email: email!,
+					username: automateUsernameCreation ? undefined : username,
+					is_admin: selected == 'admin',
+					operator: selected == 'operator'
+				}
+			})
+			sendUserToast(`Added ${email}`)
+			if (!(await UserService.existsEmail({ email: email! }))) {
+				let isSuperadmin = $superadmin
+				if (!isCloudHosted()) {
+					const emailCopy = email!
+					sendUserToast(
+						`User ${email} is not registered yet on the instance. ${
+							!isSuperadmin
+								? `If not using SSO, ask an administrator to add ${email} to the instance`
+								: ''
+						}`,
+						true,
+						isSuperadmin
+							? [
+									{
+										label: 'Add user to the instance',
+										callback: () => {
+											$globalEmailInvite = emailCopy
+											goto('#superadmin-settings')
+										}
 									}
-								}
-							]
-						: []
-				)
+								]
+							: []
+					)
+				}
 			}
 		}
 		dispatch('new')
 	}
 
-	let selected: 'operator' | 'developer' | 'admin' = $state('developer')
+	type UserRole = 'operator' | 'developer' | 'admin' | 'service_account'
+	let selected: UserRole = $state('developer' as UserRole)
+	let isServiceAccount = $derived(selected === 'service_account')
 </script>
 
 <Popover placement="bottom-end">
@@ -80,15 +91,27 @@
 		</Button>
 	{/snippet}
 	{#snippet content()}
-		<div class="flex flex-col w-72 p-4">
+		<div class="flex flex-col w-[28rem] p-4">
 			<span class="text-sm mb-2 leading-6 font-semibold">Add a new user</span>
 
-			<span class="text-xs mb-1 leading-6">Email</span>
-			<input type="email mb-1" onkeyup={handleKeyUp} placeholder="email" bind:value={email} />
+			{#if isServiceAccount}
+				<span class="text-xs mb-1 leading-6">Username</span>
+				<input
+					type="text"
+					onkeyup={handleKeyUp}
+					placeholder="my_service_account"
+					autocomplete="off"
+					data-1p-ignore
+					bind:value={username}
+				/>
+			{:else}
+				<span class="text-xs mb-1 leading-6">Email</span>
+				<input type="email mb-1" onkeyup={handleKeyUp} placeholder="email" bind:value={email} />
 
-			{#if !automateUsernameCreation}
-				<span class="text-xs mb-1 pt-2 leading-6">Username</span>
-				<input type="text" onkeyup={handleKeyUp} placeholder="username" bind:value={username} />
+				{#if !automateUsernameCreation}
+					<span class="text-xs mb-1 pt-2 leading-6">Username</span>
+					<input type="text" onkeyup={handleKeyUp} placeholder="username" bind:value={username} />
+				{/if}
 			{/if}
 
 			<span class="text-xs mb-1 pt-6 leading-6">Role</span>
@@ -112,6 +135,13 @@
 						tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
 						{item}
 					/>
+					<ToggleButton
+						value="service_account"
+						label={$enterpriseLicense ? 'Service Account' : 'Service Account (EE)'}
+						tooltip="A service account is a workspace-scoped identity for automation. It cannot log in directly and can be impersonated by admins."
+						disabled={!$enterpriseLicense}
+						{item}
+					/>
 				{/snippet}
 			</ToggleButtonGroup>
 			<Button
@@ -125,7 +155,9 @@
 						username = undefined
 					})
 				}}
-				disabled={email === undefined || (!automateUsernameCreation && username === undefined)}
+				disabled={isServiceAccount
+					? username === undefined || username === ''
+					: email === undefined || (!automateUsernameCreation && username === undefined)}
 			>
 				Add
 			</Button>

@@ -285,7 +285,16 @@ pub async fn do_postgresql(
         annotations.result_collection
     };
 
-    let database_string = database.to_uri();
+    let use_iam_auth = database.use_iam_auth == Some(true);
+
+    // Include use_iam_auth in cache key to distinguish IAM vs non-IAM connections to the same host.
+    // The cache key is static (doesn't include the token), which is correct because PostgreSQL
+    // connections remain valid after initial auth — fresh tokens are generated on cache miss.
+    let database_string = if use_iam_auth {
+        format!("{}?iam=true", database.to_uri())
+    } else {
+        database.to_uri()
+    };
     let database_string_clone = database_string.clone();
 
     let mtex;
@@ -309,7 +318,20 @@ pub async fn do_postgresql(
         );
         (None, mtex)
     } else {
-        let (client, connection) = database.connect().await?;
+        let (client, connection) = if use_iam_auth {
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            {
+                database.connect_with_iam().await?
+            }
+            #[cfg(not(all(feature = "enterprise", feature = "private")))]
+            {
+                return Err(Error::ExecutionErr(
+                    "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
+                ));
+            }
+        } else {
+            database.connect().await?
+        };
         let handle = tokio::spawn(async move {
             if let Err(e) = connection.await {
                 let mut mtex = CONNECTION_CACHE.lock().await;

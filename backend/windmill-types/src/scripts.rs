@@ -65,6 +65,7 @@ pub enum ScriptLang {
     Nu,
     Java,
     Ruby,
+    Rlang,
     // for related places search: ADD_NEW_LANG
 }
 
@@ -94,6 +95,7 @@ impl ScriptLang {
             ScriptLang::Nu => "nu",
             ScriptLang::Java => "java",
             ScriptLang::Ruby => "ruby",
+            ScriptLang::Rlang => "rlang",
             // for related places search: ADD_NEW_LANG
         }
     }
@@ -132,7 +134,7 @@ impl ScriptLang {
         use ScriptLang::*;
         match self {
             Nativets | Bun | Bunnative | Deno | Go | Php | CSharp | Java => "//",
-            Python3 | Bash | Powershell | Graphql | Ansible | Nu | Ruby => "#",
+            Python3 | Bash | Powershell | Graphql | Ansible | Nu | Ruby | Rlang => "#",
             Postgresql | Mysql | Bigquery | Snowflake | Mssql | OracleDB | DuckDb => "--",
             Rust => "//!",
             // for related places search: ADD_NEW_LANG
@@ -167,6 +169,7 @@ impl FromStr for ScriptLang {
             "nu" => ScriptLang::Nu,
             "java" => ScriptLang::Java,
             "ruby" => ScriptLang::Ruby,
+            "rlang" => ScriptLang::Rlang,
             // for related places search: ADD_NEW_LANG
             language => return Err(anyhow::anyhow!("{} is currently not supported", language)),
         };
@@ -450,6 +453,8 @@ pub struct ScriptHistory {
     pub script_hash: ScriptHash,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Deserialize)]
@@ -510,6 +515,8 @@ pub struct NewScript {
     pub assets: Option<Vec<AssetWithAltAccessType>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modules: Option<HashMap<String, ScriptModule>>,
+    #[serde(default)]
+    pub auto_parent: Option<bool>,
 }
 
 // IMPORTANT: update this Hash impl when adding fields to NewScript

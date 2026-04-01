@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.665.0
+  version: 1.671.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -661,6 +661,7 @@ components:
             - nu
             - java
             - ruby
+            - rlang
             - duckdb
             # for related places search: ADD_NEW_LANG
         path:

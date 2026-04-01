@@ -90,7 +90,9 @@
 	async function loadCode(path: string, hash: string | undefined) {
 		try {
 			notFound = false
-			const script = hash
+			const script = path.startsWith('hub/')
+				? await getScriptByPath(path!)
+				: hash
 				? await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
 				: await getScriptByPath(path!)
 			code = script.content
