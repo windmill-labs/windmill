@@ -1053,12 +1053,12 @@ export async function parseMetadataFile(
     }
   }
   // no metadata file at all. Create it
+  metadataFilePath = scriptPath + ".script.yaml";
   log.info(
     (await blueColor())(
       `Creating script metadata file for ${metadataFilePath}`
     )
   );
-  metadataFilePath = scriptPath + ".script.yaml";
   let scriptInitialMetadata = defaultScriptMetadata();
   const lockPath = scriptPath + ".script.lock";
   scriptInitialMetadata.lock = "!inline " + lockPath;

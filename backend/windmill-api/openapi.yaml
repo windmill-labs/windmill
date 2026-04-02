@@ -1370,6 +1370,28 @@ paths:
               schema:
                 type: string
 
+  /settings/restart_worker_group/{worker_group}:
+    post:
+      summary: restart worker group
+      description: Send a restart signal to all workers in the specified worker group. Workers will gracefully shut down and are expected to be restarted by their supervisor. Requires devops role.
+      operationId: restartWorkerGroup
+      tags:
+        - setting
+      parameters:
+        - name: worker_group
+          in: path
+          required: true
+          schema:
+            type: string
+          description: the name of the worker group to restart
+      responses:
+        "200":
+          description: restart signal sent
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /settings/get_stats:
     get:
       summary: get telemetry stats with HMAC signature (EE only)
@@ -15674,6 +15696,64 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /configs/list_all_workspace_dependencies:
+    get:
+      summary: list all workspace dependencies
+      operationId: listAllWorkspaceDependencies
+      tags:
+        - config
+      responses:
+        "200":
+          description: a list of workspace dependency summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    workspace_id:
+                      type: string
+                    name:
+                      type: string
+                    language:
+                      $ref: "#/components/schemas/ScriptLang"
+                  required:
+                    - workspace_id
+                    - language
+
+  /configs/list_all_dedicated_with_deps:
+    get:
+      summary: list all dedicated scripts with their dependencies
+      operationId: listAllDedicatedWithDeps
+      tags:
+        - config
+      responses:
+        "200":
+          description: a list of dedicated scripts with workspace dependencies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    workspace_id:
+                      type: string
+                    path:
+                      type: string
+                    language:
+                      $ref: "#/components/schemas/ScriptLang"
+                    workspace_dep_names:
+                      type: array
+                      items:
+                        type: string
+                  required:
+                    - workspace_id
+                    - path
+                    - language
+                    - workspace_dep_names
 
   /agent_workers/create_agent_token:
     post:

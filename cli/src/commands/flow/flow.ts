@@ -15,7 +15,7 @@ import { buildFolderPath, getMetadataFileName, loadNonDottedPathsSetting } from 
 
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import { resolve, track_job } from "../script/script.ts";
+import { resolve, track_job, pollForJobResult } from "../script/script.ts";
 import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
@@ -574,32 +574,27 @@ async function preview(
 
   log.debug(`Flow value: ${JSON.stringify(localFlow.value, null, 2)}`);
 
-  // Run the flow preview
-  let result;
-  try {
-    result = await wmill.runFlowPreviewAndWaitResult({
-      workspace: workspace.workspaceId,
-      requestBody: {
-        value: localFlow.value,
-        path: flowPath.substring(0, flowPath.indexOf(".flow")).replaceAll(SEP, "/"),
-        args: input,
-      },
-    });
-  } catch (e: any) {
-    if (e.body) {
-      // If a failure_module ran, the body contains its result — not an error
-      if (e.body.result !== undefined) {
-        if (opts.silent) {
-          console.log(JSON.stringify(e.body.result));
-        } else {
-          log.info(colors.yellow.bold("Flow failed, error handler result:"));
-          log.info(JSON.stringify(e.body.result, null, 2));
-        }
-        process.exitCode = 1;
-        return;
-      }
+  // Run the flow preview — start the job, then poll for completion
+  const jobId = await wmill.runFlowPreview({
+    workspace: workspace.workspaceId,
+    requestBody: {
+      value: localFlow.value,
+      path: flowPath.substring(0, flowPath.indexOf(".flow")).replaceAll(SEP, "/"),
+      args: input,
+    },
+  });
+
+  const { result, success } = await pollForJobResult(workspace.workspaceId, jobId);
+
+  if (!success) {
+    if (opts.silent) {
+      console.log(JSON.stringify(result));
+    } else {
+      log.info(colors.yellow.bold("Flow failed, error handler result:"));
+      log.info(JSON.stringify(result, null, 2));
     }
-    throw e;
+    process.exitCode = 1;
+    return;
   }
 
   if (opts.silent) {

@@ -6,6 +6,7 @@
 		RotateCcw,
 		Settings,
 		Trash,
+		Power,
 		X,
 		ExternalLink,
 		FileCode
@@ -14,7 +15,13 @@
 	import Badge from './common/badge/Badge.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import { ConfigService, WorkspaceService, type WorkerPing, type Workspace } from '$lib/gen'
+	import {
+		ConfigService,
+		SettingService,
+		WorkspaceService,
+		type WorkerPing,
+		type Workspace
+	} from '$lib/gen'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -264,6 +271,7 @@
 	})
 	let openDelete = $state(false)
 	let openClean = $state(false)
+	let openRestart = $state(false)
 
 	// Compute hashed tags for display (actual tags used by the worker)
 	let hashedDedicatedTags: Map<string, string> = $state(new Map())
@@ -361,6 +369,32 @@
 		<span
 			>Are you sure you want to clean the cache of all workers of this worker group (will also
 			restart the workers and expect supervisor to restart them) ?</span
+		>
+	</div>
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={openRestart}
+	title="Restart workers"
+	confirmationText="Restart"
+	on:canceled={() => {
+		openRestart = false
+	}}
+	on:confirmed={async () => {
+		try {
+			await SettingService.restartWorkerGroup({ workerGroup: name })
+			sendUserToast(`Restart signal sent to worker group '${name}'`)
+			dispatch('reload')
+		} catch (e) {
+			sendUserToast(`Failed to restart worker group: ${e}`, true)
+		}
+		openRestart = false
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span
+			>Are you sure you want to restart all workers in worker group '{name}'? Workers will be
+			gracefully shut down and are expected to be restarted by their supervisor.</span
 		>
 	</div>
 </ConfirmationModal>
@@ -1236,6 +1270,17 @@
 						>
 							Clean cache
 						</Button>
+						<Button
+							unifiedSize="sm"
+							variant="subtle"
+							on:click={() => {
+								openRestart = true
+							}}
+							startIcon={{ icon: Power }}
+							destructive
+						>
+							Restart workers
+						</Button>
 					{:else}
 						<Dropdown
 							items={[
@@ -1246,6 +1291,13 @@
 										openClean = true
 									},
 									disabled: !config,
+									type: 'delete'
+								},
+								{
+									displayName: 'Restart workers',
+									action: () => {
+										openRestart = true
+									},
 									type: 'delete'
 								},
 								{
