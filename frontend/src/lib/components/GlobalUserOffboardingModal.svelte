@@ -4,7 +4,7 @@
 	import { classNames } from '$lib/utils'
 	import { AlertTriangle, CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import Select from '$lib/components/select/Select.svelte'
-	import { UserService, FolderService, GroupService } from '$lib/gen'
+	import { UserService, FolderService } from '$lib/gen'
 	import type { WorkspaceOffboardPreview } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -36,13 +36,8 @@
 			selectedUser: string | undefined
 			selectedFolder: string | undefined
 			selectedOperator: string | undefined
-			tokenAction: 'revoke' | 'reassign'
-			tokenTargetKind: 'user' | 'group'
-			selectedTokenUser: string | undefined
-			selectedTokenGroup: string | undefined
 			users: Array<{ label: string; value: string }>
 			folders: Array<{ label: string; value: string }>
-			groups: Array<{ label: string; value: string }>
 		}
 	> = $state({})
 
@@ -85,25 +80,19 @@
 					wp.preview.tokens > 0
 
 				if (hasObj) {
-					const [usernamesList, foldersList, groupsList] = await Promise.all([
+					const [usernamesList, foldersList] = await Promise.all([
 						UserService.listUsernames({ workspace: wp.workspace_id }),
-						FolderService.listFolders({ workspace: wp.workspace_id }),
-						GroupService.listGroupNames({ workspace: wp.workspace_id })
+						FolderService.listFolders({ workspace: wp.workspace_id })
 					])
 					wsConfigs[wp.workspace_id] = {
 						targetKind: 'user',
 						selectedUser: undefined,
 						selectedFolder: undefined,
 						selectedOperator: undefined,
-						tokenAction: 'revoke',
-						tokenTargetKind: 'user',
-						selectedTokenUser: undefined,
-						selectedTokenGroup: undefined,
 						users: usernamesList
 							.filter((u) => u !== wp.username)
 							.map((u) => ({ label: u, value: u })),
-						folders: foldersList.map((f) => ({ label: f.name, value: f.name })),
-						groups: groupsList.map((g) => ({ label: g, value: g }))
+						folders: foldersList.map((f) => ({ label: f.name, value: f.name }))
 					}
 				}
 			}
@@ -127,25 +116,12 @@
 				: undefined
 	}
 
-	function getTokenTarget(wId: string): string | undefined {
-		const cfg = wsConfigs[wId]
-		if (!cfg || cfg.tokenAction === 'revoke') return undefined
-		return cfg.tokenTargetKind === 'user'
-			? cfg.selectedTokenUser
-				? `u/${cfg.selectedTokenUser}`
-				: undefined
-			: cfg.selectedTokenGroup
-				? `g/${cfg.selectedTokenGroup}`
-				: undefined
-	}
-
 	let canSubmit = $derived(
 		workspacesWithObjects.every((wp) => {
 			const target = getReassignTo(wp.workspace_id)
 			const cfg = wsConfigs[wp.workspace_id]
 			if (!target) return false
 			if (cfg?.targetKind === 'folder' && !cfg.selectedOperator) return false
-			if (cfg?.tokenAction === 'reassign' && !getTokenTarget(wp.workspace_id)) return false
 			return true
 		})
 	)
@@ -153,18 +129,14 @@
 	async function submit() {
 		submitting = true
 		try {
-			const reassignments: Record<
-				string,
-				{ reassign_to: string; new_operator?: string; reassign_tokens_to?: string }
-			> = {}
+			const reassignments: Record<string, { reassign_to: string; new_operator?: string }> = {}
 			for (const wp of workspacesWithObjects) {
 				const target = getReassignTo(wp.workspace_id)
 				const cfg = wsConfigs[wp.workspace_id]
 				if (target) {
 					reassignments[wp.workspace_id] = {
 						reassign_to: target,
-						new_operator: cfg?.targetKind === 'folder' ? cfg.selectedOperator : undefined,
-						reassign_tokens_to: getTokenTarget(wp.workspace_id)
+						new_operator: cfg?.targetKind === 'folder' ? cfg.selectedOperator : undefined
 					}
 				}
 			}
@@ -328,76 +300,28 @@
 												{/if}
 											</div>
 
-											<!-- Token handling (only if tokens exist) -->
-											{#if wp.preview.tokens > 0}
-												<div>
-													<label class="text-xs font-medium text-secondary block mb-1"
-														>Tokens ({wp.preview.tokens})</label
-													>
-													<div class="flex items-center gap-2 mb-1">
-														<button
-															class={classNames(
-																'px-2 py-0.5 text-xs rounded border',
-																cfg.tokenAction === 'revoke'
-																	? 'bg-surface-selected border-border-selected text-primary'
-																	: 'border-border bg-surface text-secondary'
-															)}
-															onclick={() => (cfg.tokenAction = 'revoke')}
+											<!-- Warnings for operator references -->
+											{#if (wp.preview.schedules_as_operator ?? 0) > 0 || (wp.preview.triggers_as_operator ?? 0) > 0 || (wp.preview.scripts_as_operator ?? 0) > 0 || (wp.preview.flows_as_operator ?? 0) > 0 || (wp.preview.apps_as_operator ?? 0) > 0 || (wp.preview.tokens ?? 0) > 0}
+												<div class="text-xs text-yellow-600 dark:text-yellow-300 mt-1 space-y-0.5">
+													{#if (wp.preview.schedules_as_operator ?? 0) > 0}
+														<p
+															>{wp.preview.schedules_as_operator} schedule(s) running as this user</p
 														>
-															Revoke
-														</button>
-														<button
-															class={classNames(
-																'px-2 py-0.5 text-xs rounded border',
-																cfg.tokenAction === 'reassign'
-																	? 'bg-surface-selected border-border-selected text-primary'
-																	: 'border-border bg-surface text-secondary'
-															)}
-															onclick={() => (cfg.tokenAction = 'reassign')}
-														>
-															Reassign
-														</button>
-													</div>
-													{#if cfg.tokenAction === 'reassign'}
-														<div class="flex items-center gap-2 mb-1">
-															<button
-																class={classNames(
-																	'px-2 py-0.5 text-xs rounded border',
-																	cfg.tokenTargetKind === 'user'
-																		? 'bg-surface-selected border-border-selected text-primary'
-																		: 'border-border bg-surface text-secondary'
-																)}
-																onclick={() => (cfg.tokenTargetKind = 'user')}
-															>
-																User
-															</button>
-															<button
-																class={classNames(
-																	'px-2 py-0.5 text-xs rounded border',
-																	cfg.tokenTargetKind === 'group'
-																		? 'bg-surface-selected border-border-selected text-primary'
-																		: 'border-border bg-surface text-secondary'
-																)}
-																onclick={() => (cfg.tokenTargetKind = 'group')}
-															>
-																Group
-															</button>
-														</div>
-														{#if cfg.tokenTargetKind === 'user'}
-															<Select
-																items={cfg.users}
-																bind:value={cfg.selectedTokenUser}
-																placeholder="Select a user..."
-																size="sm"
-															/>
-														{:else}
-															<Select
-																items={cfg.groups}
-																bind:value={cfg.selectedTokenGroup}
-																placeholder="Select a group..."
-																size="sm"
-															/>
-														{/if}
+													{/if}
+													{#if (wp.preview.triggers_as_operator ?? 0) > 0}
+														<p>{wp.preview.triggers_as_operator} trigger(s) running as this user</p>
+													{/if}
+													{#if (wp.preview.scripts_as_operator ?? 0) > 0}
+														<p>{wp.preview.scripts_as_operator} script(s) with on_behalf_of</p>
+													{/if}
+													{#if (wp.preview.flows_as_operator ?? 0) > 0}
+														<p>{wp.preview.flows_as_operator} flow(s) with on_behalf_of</p>
+													{/if}
+													{#if (wp.preview.apps_as_operator ?? 0) > 0}
+														<p>{wp.preview.apps_as_operator} app(s) with on_behalf_of</p>
+													{/if}
+													{#if (wp.preview.tokens ?? 0) > 0}
+														<p>{wp.preview.tokens} token(s) (not handled)</p>
 													{/if}
 												</div>
 											{/if}

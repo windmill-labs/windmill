@@ -20383,6 +20383,22 @@ components:
           type: integer
         tokens:
           type: integer
+          description: "Warning: number of tokens owned by this user (not reassigned, shown for awareness)"
+        scripts_as_operator:
+          type: integer
+          description: "Scripts not under user's path but with on_behalf_of_email matching this user"
+        flows_as_operator:
+          type: integer
+          description: "Flows not under user's path but with on_behalf_of_email matching this user"
+        apps_as_operator:
+          type: integer
+          description: "Apps with policy.on_behalf_of matching this user (not under their path)"
+        schedules_as_operator:
+          type: integer
+          description: "Schedules not under user's path but with permissioned_as matching this user"
+        triggers_as_operator:
+          type: integer
+          description: "Triggers not under user's path but with permissioned_as matching this user"
       required:
         - scripts
         - flows
@@ -20392,6 +20408,11 @@ components:
         - schedules
         - triggers
         - tokens
+        - scripts_as_operator
+        - flows_as_operator
+        - apps_as_operator
+        - schedules_as_operator
+        - triggers_as_operator
 
     OffboardRequest:
       type: object
@@ -20406,9 +20427,6 @@ components:
           type: boolean
           default: true
           description: "Whether to also remove the user from the workspace"
-        reassign_tokens_to:
-          type: string
-          description: "Target for token reassignment: 'u/{username}' or 'g/{group}'. If omitted, tokens are revoked."
       required:
         - reassign_to
 
@@ -20440,8 +20458,6 @@ components:
           type: integer
         triggers_reassigned:
           type: integer
-        tokens_handled:
-          type: integer
         drafts_deleted:
           type: integer
       required:
@@ -20452,7 +20468,6 @@ components:
         - variables_reassigned
         - schedules_reassigned
         - triggers_reassigned
-        - tokens_handled
         - drafts_deleted
 
     GlobalOffboardPreview:
@@ -20501,9 +20516,6 @@ components:
         new_operator:
           type: string
           description: "Required when reassign_to is a folder. Username to use as permissioned_as."
-        reassign_tokens_to:
-          type: string
-          description: "Token target: 'u/{username}' or 'g/{group}'. If omitted, tokens are revoked."
       required:
         - reassign_to
 

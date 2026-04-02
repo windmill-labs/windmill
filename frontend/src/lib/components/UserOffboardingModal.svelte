@@ -4,7 +4,7 @@
 	import { classNames } from '$lib/utils'
 	import { AlertTriangle, CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import Select from '$lib/components/select/Select.svelte'
-	import { UserService, FolderService, GroupService } from '$lib/gen'
+	import { UserService, FolderService } from '$lib/gen'
 	import type { OffboardPreview } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -36,15 +36,10 @@
 	$effect(() => {
 		deleteUser = !reassignOnly
 	})
-	let tokenAction: string = $state('revoke')
-	let tokenTargetKind: 'user' | 'group' = $state('user')
-	let selectedTokenUser: string | undefined = $state(undefined)
-	let selectedTokenGroup: string | undefined = $state(undefined)
 
 	// Data for selectors
 	let users: Array<{ label: string; value: string }> = $state([])
 	let folders: Array<{ label: string; value: string }> = $state([])
-	let groups: Array<{ label: string; value: string }> = $state([])
 
 	function previewHasObjects(p: OffboardPreview | undefined): boolean {
 		if (!p) return false
@@ -72,22 +67,8 @@
 				: undefined
 	)
 
-	let reassignTokensTo = $derived(
-		tokenAction === 'reassign'
-			? tokenTargetKind === 'user'
-				? selectedTokenUser
-					? `u/${selectedTokenUser}`
-					: undefined
-				: selectedTokenGroup
-					? `g/${selectedTokenGroup}`
-					: undefined
-			: undefined
-	)
-
 	let canSubmit = $derived(
-		reassignTo != null &&
-			(tokenAction === 'revoke' || reassignTokensTo != null) &&
-			(targetKind === 'user' || selectedOperator != null)
+		reassignTo != null && (targetKind === 'user' || selectedOperator != null)
 	)
 
 	$effect(() => {
@@ -101,16 +82,14 @@
 		conflicts = []
 		try {
 			const workspace = $workspaceStore ?? ''
-			const [previewResult, usernamesList, foldersList, groupsList] = await Promise.all([
+			const [previewResult, usernamesList, foldersList] = await Promise.all([
 				UserService.offboardPreview({ workspace, username }),
 				UserService.listUsernames({ workspace }),
-				FolderService.listFolders({ workspace }),
-				GroupService.listGroupNames({ workspace })
+				FolderService.listFolders({ workspace })
 			])
 			preview = previewResult
 			users = usernamesList.filter((u) => u !== username).map((u) => ({ label: u, value: u }))
 			folders = foldersList.map((f) => ({ label: f.name, value: f.name }))
-			groups = groupsList.map((g) => ({ label: g, value: g }))
 		} catch (e) {
 			sendUserToast('Failed to load offboard preview', true)
 			onClose()
@@ -130,8 +109,7 @@
 				requestBody: {
 					reassign_to: reassignTo,
 					new_operator: targetKind === 'folder' ? selectedOperator : undefined,
-					delete_user: deleteUser,
-					reassign_tokens_to: reassignTokensTo
+					delete_user: deleteUser
 				}
 			})
 			if (result.conflicts && result.conflicts.length > 0) {
@@ -265,75 +243,43 @@
 									{/if}
 								</div>
 
-								<!-- Token handling -->
-								{#if preview.tokens > 0}
-									<div>
-										<label class="text-sm font-medium text-primary block mb-1"
-											>Token handling ({preview.tokens} tokens)</label
-										>
-										<div class="flex items-center gap-2 mb-2">
-											<button
-												class={classNames(
-													'px-3 py-1 text-sm rounded-md border',
-													tokenAction === 'revoke'
-														? 'bg-surface-selected border-border-selected text-primary'
-														: 'border-border bg-surface text-secondary'
-												)}
-												onclick={() => (tokenAction = 'revoke')}
-											>
-												Revoke
-											</button>
-											<button
-												class={classNames(
-													'px-3 py-1 text-sm rounded-md border',
-													tokenAction === 'reassign'
-														? 'bg-surface-selected border-border-selected text-primary'
-														: 'border-border bg-surface text-secondary'
-												)}
-												onclick={() => (tokenAction = 'reassign')}
-											>
-												Reassign
-											</button>
-										</div>
-										{#if tokenAction === 'reassign'}
-											<div class="flex items-center gap-2 mb-2">
-												<button
-													class={classNames(
-														'px-3 py-1 text-sm rounded-md border',
-														tokenTargetKind === 'user'
-															? 'bg-surface-selected border-border-selected text-primary'
-															: 'border-border bg-surface text-secondary'
-													)}
-													onclick={() => (tokenTargetKind = 'user')}
+								<!-- Warnings for operator references outside user's path -->
+								{#if (preview.scripts_as_operator ?? 0) > 0 || (preview.flows_as_operator ?? 0) > 0 || (preview.apps_as_operator ?? 0) > 0 || (preview.schedules_as_operator ?? 0) > 0 || (preview.triggers_as_operator ?? 0) > 0 || (preview.tokens ?? 0) > 0}
+									<div class="bg-yellow-50 dark:bg-yellow-900/20 rounded-md p-3">
+										<p class="text-sm font-medium text-yellow-700 dark:text-yellow-400 mb-1">
+											Additional references (will also be updated):
+										</p>
+										<div class="text-xs text-yellow-600 dark:text-yellow-300 space-y-0.5">
+											{#if (preview.scripts_as_operator ?? 0) > 0}
+												<p
+													>{preview.scripts_as_operator} script(s) with on_behalf_of set to this user</p
 												>
-													User
-												</button>
-												<button
-													class={classNames(
-														'px-3 py-1 text-sm rounded-md border',
-														tokenTargetKind === 'group'
-															? 'bg-surface-selected border-border-selected text-primary'
-															: 'border-border bg-surface text-secondary'
-													)}
-													onclick={() => (tokenTargetKind = 'group')}
-												>
-													Group
-												</button>
-											</div>
-											{#if tokenTargetKind === 'user'}
-												<Select
-													items={users}
-													bind:value={selectedTokenUser}
-													placeholder="Select a user..."
-												/>
-											{:else}
-												<Select
-													items={groups}
-													bind:value={selectedTokenGroup}
-													placeholder="Select a group..."
-												/>
 											{/if}
-										{/if}
+											{#if (preview.flows_as_operator ?? 0) > 0}
+												<p>{preview.flows_as_operator} flow(s) with on_behalf_of set to this user</p
+												>
+											{/if}
+											{#if (preview.apps_as_operator ?? 0) > 0}
+												<p>{preview.apps_as_operator} app(s) with on_behalf_of set to this user</p>
+											{/if}
+											{#if (preview.schedules_as_operator ?? 0) > 0}
+												<p
+													>{preview.schedules_as_operator} schedule(s) running as this user (not under
+													their path)</p
+												>
+											{/if}
+											{#if (preview.triggers_as_operator ?? 0) > 0}
+												<p
+													>{preview.triggers_as_operator} trigger(s) running as this user (not under
+													their path)</p
+												>
+											{/if}
+											{#if (preview.tokens ?? 0) > 0}
+												<p
+													>{preview.tokens} token(s) owned by this user (not handled, webhooks may break)</p
+												>
+											{/if}
+										</div>
 									</div>
 								{/if}
 

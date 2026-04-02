@@ -74,7 +74,6 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(summary["resources_reassigned"].as_i64().unwrap() > 0);
     assert!(summary["variables_reassigned"].as_i64().unwrap() > 0);
     assert!(summary["schedules_reassigned"].as_i64().unwrap() > 0);
-    assert!(summary["tokens_handled"].as_i64().unwrap() > 0);
 
     // Verify scripts moved
     let moved = sqlx::query_scalar!(
@@ -225,12 +224,12 @@ async fn test_offboard_conflicts(db: Pool<Postgres>) -> anyhow::Result<()> {
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base", "offboarding_test"))]
-async fn test_offboard_token_reassignment(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_offboard_tokens_deleted(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    // First remove conflict_script from test-user-2 so offboard can proceed
+    // Remove conflict_script so offboard can proceed
     sqlx::query!("DELETE FROM script WHERE hash = 1004 AND workspace_id = 'test-workspace'")
         .execute(&db)
         .await?;
@@ -238,24 +237,20 @@ async fn test_offboard_token_reassignment(db: Pool<Postgres>) -> anyhow::Result<
     let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
         .json(&json!({
             "reassign_to": "u/test-user",
-            "delete_user": true,
-            "reassign_tokens_to": "u/test-user"
+            "delete_user": true
         }))
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
 
-    let body: serde_json::Value = resp.json().await?;
-    assert!(body["conflicts"].as_array().map_or(true, |a| a.is_empty()));
-
-    // Verify token reassigned to test-user
+    // Verify tokens are deleted
     let token_count = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM token WHERE owner = 'u/test-user' AND workspace_id = 'test-workspace'"
+        "SELECT COUNT(*) FROM token WHERE owner = 'u/test-user-2' AND workspace_id = 'test-workspace'"
     )
     .fetch_one(&db)
     .await?
-    .unwrap_or(0);
-    assert!(token_count > 0, "token should be reassigned to test-user");
+    .unwrap_or(1);
+    assert_eq!(token_count, 0, "tokens should be deleted after offboarding");
 
     Ok(())
 }

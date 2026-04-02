@@ -30,6 +30,16 @@ pub(crate) struct OffboardPreview {
     schedules: i64,
     triggers: i64,
     tokens: i64,
+    /// Scripts NOT under user's path but with on_behalf_of_email matching departing user
+    scripts_as_operator: i64,
+    /// Flows NOT under user's path but with on_behalf_of_email matching departing user
+    flows_as_operator: i64,
+    /// Apps with policy.on_behalf_of = u/{username} (not under user's path)
+    apps_as_operator: i64,
+    /// Schedules NOT under user's path but running as this user (permissioned_as)
+    schedules_as_operator: i64,
+    /// Triggers NOT under user's path but running as this user (permissioned_as)
+    triggers_as_operator: i64,
 }
 
 #[derive(Deserialize)]
@@ -40,7 +50,6 @@ pub(crate) struct OffboardRequest {
     new_operator: Option<String>,
     #[serde(default = "default_true")]
     delete_user: bool,
-    reassign_tokens_to: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -64,7 +73,6 @@ struct OffboardSummary {
     variables_reassigned: i64,
     schedules_reassigned: i64,
     triggers_reassigned: i64,
-    tokens_handled: i64,
     drafts_deleted: i64,
 }
 
@@ -92,7 +100,6 @@ pub(crate) struct GlobalOffboardRequest {
 struct WorkspaceReassignment {
     reassign_to: String,
     new_operator: Option<String>,
-    reassign_tokens_to: Option<String>,
 }
 
 // ---- Preview helpers ----
@@ -101,6 +108,7 @@ async fn get_offboard_preview(
     db: impl sqlx::PgExecutor<'_> + Copy,
     w_id: &str,
     username: &str,
+    email: &str,
 ) -> Result<OffboardPreview> {
     let user_prefix = format!("u/{}/%", username);
     let user_owner = format!("u/{}", username);
@@ -179,7 +187,59 @@ async fn get_offboard_preview(
     .await?
     .unwrap_or(0);
 
-    Ok(OffboardPreview { scripts, flows, apps, resources, variables, schedules, triggers, tokens })
+    // Count schedules/triggers running as this user but NOT under their path
+    let schedules_as_operator = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM schedule WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3",
+        &user_owner, &user_prefix, w_id
+    ).fetch_one(db).await?.unwrap_or(0);
+
+    let triggers_as_operator = sqlx::query_scalar!(
+        r#"SELECT COALESCE(SUM(cnt)::bigint, 0) as "count!: i64" FROM (
+            SELECT COUNT(*) as cnt FROM http_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
+            UNION ALL SELECT COUNT(*) FROM websocket_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
+            UNION ALL SELECT COUNT(*) FROM kafka_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
+            UNION ALL SELECT COUNT(*) FROM postgres_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
+            UNION ALL SELECT COUNT(*) FROM mqtt_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
+            UNION ALL SELECT COUNT(*) FROM nats_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
+            UNION ALL SELECT COUNT(*) FROM sqs_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
+            UNION ALL SELECT COUNT(*) FROM gcp_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
+            UNION ALL SELECT COUNT(*) FROM email_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
+        ) t"#,
+        &user_owner, &user_prefix, w_id
+    ).fetch_one(db).await?;
+
+    // Scripts/flows with on_behalf_of_email = departing user (but not under their path)
+    let scripts_as_operator = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM script WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
+        email, &user_prefix, w_id
+    ).fetch_one(db).await?.unwrap_or(0);
+
+    let flows_as_operator = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM flow WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
+        email, &user_prefix, w_id
+    ).fetch_one(db).await?.unwrap_or(0);
+
+    // Apps with policy.on_behalf_of = u/{username} (not under their path)
+    let apps_as_operator = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM app WHERE policy->>'on_behalf_of' = $1 AND NOT path LIKE $2 AND workspace_id = $3",
+        &user_owner, &user_prefix, w_id
+    ).fetch_one(db).await?.unwrap_or(0);
+
+    Ok(OffboardPreview {
+        scripts,
+        flows,
+        apps,
+        resources,
+        variables,
+        schedules,
+        triggers,
+        tokens,
+        scripts_as_operator,
+        flows_as_operator,
+        apps_as_operator,
+        schedules_as_operator,
+        triggers_as_operator,
+    })
 }
 
 // ---- Workspace-level endpoints ----
@@ -190,7 +250,20 @@ pub(crate) async fn offboard_preview(
     Path((w_id, username)): Path<(String, String)>,
 ) -> JsonResult<OffboardPreview> {
     require_admin(authed.is_admin, &authed.username)?;
-    let preview = get_offboard_preview(&db, &w_id, &username).await?;
+    let email = sqlx::query_scalar!(
+        "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+        &username,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "user {} not found in workspace {}",
+            &username, &w_id
+        ))
+    })?;
+    let preview = get_offboard_preview(&db, &w_id, &username, &email).await?;
     Ok(Json(preview))
 }
 
@@ -213,10 +286,6 @@ pub(crate) async fn offboard_workspace_user(
         &w_id,
     )
     .await?;
-
-    if let Some(ref token_target) = req.reassign_tokens_to {
-        validate_token_target(&db, &w_id, token_target).await?;
-    }
 
     let conflicts = check_path_conflicts(&db, &w_id, &username, &req.reassign_to).await?;
     if !conflicts.is_empty() {
@@ -247,7 +316,6 @@ pub(crate) async fn offboard_workspace_user(
         &email,
         &req.reassign_to,
         &new_permissioned_as,
-        req.reassign_tokens_to.as_deref(),
     )
     .await?;
 
@@ -309,7 +377,7 @@ pub(crate) async fn global_offboard_preview(
 
     let mut previews = Vec::new();
     for w in workspaces {
-        let preview = get_offboard_preview(&db, &w.workspace_id, &w.username).await?;
+        let preview = get_offboard_preview(&db, &w.workspace_id, &w.username, &email).await?;
         previews.push(WorkspaceOffboardPreview {
             workspace_id: w.workspace_id,
             username: w.username,
@@ -349,9 +417,6 @@ pub(crate) async fn offboard_global_user(
         )
         .await?;
         resolved_permissioned_as.insert(w_id.clone(), perm_as);
-        if let Some(ref token_target) = reassignment.reassign_tokens_to {
-            validate_token_target(&db, w_id, token_target).await?;
-        }
     }
 
     // Check for conflicts in all workspaces
@@ -391,7 +456,6 @@ pub(crate) async fn offboard_global_user(
                 &email,
                 &reassignment.reassign_to,
                 perm_as,
-                reassignment.reassign_tokens_to.as_deref(),
             )
             .await?;
         }
@@ -506,45 +570,6 @@ async fn validate_target(db: &DB, w_id: &str, kind: &str, name: &str) -> Result<
     Ok(())
 }
 
-async fn validate_token_target(db: &DB, w_id: &str, target: &str) -> Result<()> {
-    if let Some(name) = target.strip_prefix("u/") {
-        let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 AND workspace_id = $2)",
-            name,
-            w_id
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false);
-        if !exists {
-            return Err(Error::NotFound(format!(
-                "token target user '{}' not found in workspace '{}'",
-                name, w_id
-            )));
-        }
-    } else if let Some(name) = target.strip_prefix("g/") {
-        let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM group_ WHERE name = $1 AND workspace_id = $2)",
-            name,
-            w_id
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false);
-        if !exists {
-            return Err(Error::NotFound(format!(
-                "token target group '{}' not found in workspace '{}'",
-                name, w_id
-            )));
-        }
-    } else {
-        return Err(Error::BadRequest(
-            "reassign_tokens_to must start with 'u/' (user) or 'g/' (group)".to_string(),
-        ));
-    }
-    Ok(())
-}
-
 /// Resolve the permissioned_as value for schedules/triggers.
 /// When target is a user, permissioned_as = "u/{user}".
 /// When target is a folder, new_operator must be provided — a username to run as.
@@ -630,7 +655,6 @@ async fn offboard_user_from_workspace<'c>(
     email: &str,
     reassign_to: &str,
     new_permissioned_as: &str,
-    reassign_tokens_to: Option<&str>,
 ) -> Result<OffboardSummary> {
     let new_prefix = reassign_to.to_string();
 
@@ -984,32 +1008,13 @@ async fn offboard_user_from_workspace<'c>(
 
     // ---- Tokens ----
     let user_owner = format!("u/{}", username);
-    let tokens_handled = if let Some(token_target) = reassign_tokens_to {
-        sqlx::query_scalar!(
-            r#"WITH updated AS (
-                UPDATE token SET owner = $1 WHERE owner = $2 AND workspace_id = $3
-                RETURNING 1
-            ) SELECT COUNT(*) FROM updated"#,
-            token_target,
-            &user_owner,
-            w_id
-        )
-        .fetch_one(&mut **tx)
-        .await?
-        .unwrap_or(0)
-    } else {
-        sqlx::query_scalar!(
-            r#"WITH deleted AS (
-                DELETE FROM token WHERE owner = $1 AND workspace_id = $2
-                RETURNING 1
-            ) SELECT COUNT(*) FROM deleted"#,
-            &user_owner,
-            w_id
-        )
-        .fetch_one(&mut **tx)
-        .await?
-        .unwrap_or(0)
-    };
+    sqlx::query!(
+        "DELETE FROM token WHERE owner = $1 AND workspace_id = $2",
+        &user_owner,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
 
     Ok(OffboardSummary {
         scripts_reassigned,
@@ -1019,7 +1024,6 @@ async fn offboard_user_from_workspace<'c>(
         variables_reassigned,
         schedules_reassigned,
         triggers_reassigned,
-        tokens_handled,
         drafts_deleted,
     })
 }
