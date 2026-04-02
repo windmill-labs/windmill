@@ -66,10 +66,14 @@
 				: undefined
 	)
 
-	let needsOperator = $derived(targetKind === 'folder' || onBehalfCount > 0)
-	let canSubmit = $derived(
-		(ownedCount === 0 || reassignTo != null) && (!needsOperator || selectedOperator != null)
-	)
+	// Auto-default selectedOperator to target user when switching to user target
+	$effect(() => {
+		if (targetKind === 'user' && selectedUser && !selectedOperator) {
+			selectedOperator = selectedUser
+		}
+	})
+
+	let canSubmit = $derived((ownedCount === 0 || reassignTo != null) && selectedOperator != null)
 
 	$effect(() => {
 		if (open) {
@@ -108,7 +112,7 @@
 				username,
 				requestBody: {
 					reassign_to: reassignTo,
-					new_on_behalf_of_user: needsOperator ? selectedOperator : undefined,
+					new_on_behalf_of_user: selectedOperator,
 					delete_user: deleteUser
 				}
 			})
@@ -129,42 +133,29 @@
 		}
 	}
 
-	function downloadAffectedList() {
+	function downloadAffectedCsv() {
 		if (!preview) return
-		const lines: string[] = ['# Affected items for user: ' + username, '']
+		const rows: string[][] = [['category', 'type', 'path']]
 
-		function addSection(title: string, paths: OffboardAffectedPaths | undefined) {
-			if (!paths || countPaths(paths) === 0) return
-			lines.push(`## ${title}`)
+		function addRows(category: string, paths: OffboardAffectedPaths | undefined) {
+			if (!paths) return
 			for (const [kind, list] of Object.entries(paths)) {
-				if (Array.isArray(list) && list.length > 0) {
-					lines.push(`### ${kind}`)
-					for (const p of list) lines.push(`- ${p}`)
+				if (Array.isArray(list)) {
+					for (const p of list) rows.push([category, kind, p])
 				}
 			}
-			lines.push('')
 		}
 
-		addSection('Owned (will be reassigned)', preview.owned)
-		addSection(
-			'Executing on behalf (permissioned_as/on_behalf_of will be updated)',
-			preview.executing_on_behalf
-		)
-		addSection(
-			'Referencing (content/values contain references to user paths — may break)',
-			preview.referencing
-		)
-		if (preview.tokens > 0) lines.push(`Tokens: ${preview.tokens} (will be deleted)`, '')
-		if (preview.http_triggers > 0)
-			lines.push(`HTTP triggers: ${preview.http_triggers} (webhook URLs will change)`, '')
-		if (preview.email_triggers > 0)
-			lines.push(`Email triggers: ${preview.email_triggers} (email addresses will change)`, '')
+		addRows('owned', preview.owned)
+		addRows('executing_on_behalf', preview.executing_on_behalf)
+		addRows('referencing', preview.referencing)
 
-		const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
+		const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n')
+		const blob = new Blob([csv], { type: 'text/csv' })
 		const url = URL.createObjectURL(blob)
 		const a = document.createElement('a')
 		a.href = url
-		a.download = `offboard-${username}.txt`
+		a.download = `offboard-${username}.csv`
 		a.click()
 		URL.revokeObjectURL(url)
 	}
@@ -214,54 +205,82 @@
 					{:else if preview}
 						<div class="mt-4 space-y-3">
 							{#if hasItems}
-								<!-- Export button -->
+								<!-- Summary boxes side by side -->
+								<div class="grid grid-cols-2 gap-2">
+									{#if ownedCount > 0}
+										<div class="bg-surface-secondary rounded-md p-3">
+											<p class="text-xs font-medium text-primary mb-1">Owned items ({ownedCount})</p
+											>
+											<p class="text-xs text-tertiary mb-1.5">Under u/{username}/, will be moved.</p
+											>
+											<div class="flex flex-col gap-0.5 text-xs text-secondary">
+												{#if (preview.owned.scripts?.length ?? 0) > 0}<span
+														>{preview.owned.scripts?.length} scripts</span
+													>{/if}
+												{#if (preview.owned.flows?.length ?? 0) > 0}<span
+														>{preview.owned.flows?.length} flows</span
+													>{/if}
+												{#if (preview.owned.apps?.length ?? 0) > 0}<span
+														>{preview.owned.apps?.length} apps</span
+													>{/if}
+												{#if (preview.owned.resources?.length ?? 0) > 0}<span
+														>{preview.owned.resources?.length} resources</span
+													>{/if}
+												{#if (preview.owned.variables?.length ?? 0) > 0}<span
+														>{preview.owned.variables?.length} variables</span
+													>{/if}
+												{#if (preview.owned.schedules?.length ?? 0) > 0}<span
+														>{preview.owned.schedules?.length} schedules</span
+													>{/if}
+												{#if (preview.owned.triggers?.length ?? 0) > 0}<span
+														>{preview.owned.triggers?.length} triggers</span
+													>{/if}
+												{#if preview.tokens > 0}<span>{preview.tokens} tokens (deleted)</span>{/if}
+											</div>
+										</div>
+									{/if}
+									{#if onBehalfCount > 0}
+										<div class="bg-surface-secondary rounded-md p-3">
+											<p class="text-xs font-medium text-primary mb-1"
+												>Running on behalf ({onBehalfCount})</p
+											>
+											<p class="text-xs text-tertiary mb-1.5"
+												>permissioned_as / on_behalf_of will be updated.</p
+											>
+											<div class="flex flex-col gap-0.5 text-xs text-secondary">
+												{#if (preview.executing_on_behalf.scripts?.length ?? 0) > 0}<span
+														>{preview.executing_on_behalf.scripts?.length} scripts</span
+													>{/if}
+												{#if (preview.executing_on_behalf.flows?.length ?? 0) > 0}<span
+														>{preview.executing_on_behalf.flows?.length} flows</span
+													>{/if}
+												{#if (preview.executing_on_behalf.apps?.length ?? 0) > 0}<span
+														>{preview.executing_on_behalf.apps?.length} apps</span
+													>{/if}
+												{#if (preview.executing_on_behalf.schedules?.length ?? 0) > 0}<span
+														>{preview.executing_on_behalf.schedules?.length} schedules</span
+													>{/if}
+												{#if (preview.executing_on_behalf.triggers?.length ?? 0) > 0}<span
+														>{preview.executing_on_behalf.triggers?.length} triggers</span
+													>{/if}
+											</div>
+										</div>
+									{/if}
+								</div>
+
 								<div class="flex justify-end">
 									<Button
 										variant="subtle"
 										size="xs2"
 										startIcon={{ icon: Download }}
-										onclick={downloadAffectedList}
+										onclick={downloadAffectedCsv}
 									>
-										Export list
+										Export CSV
 									</Button>
 								</div>
 
-								<!-- Section 1: Owned items -->
+								<!-- Reassign target for owned items -->
 								{#if ownedCount > 0}
-									<div class="bg-surface-secondary rounded-md p-3">
-										<p class="text-sm font-medium text-primary mb-1">
-											Owned items ({ownedCount})
-										</p>
-										<p class="text-xs text-tertiary mb-2">
-											Items under u/{username}/ that will be moved to the new path.
-										</p>
-										<div class="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-secondary">
-											{#if (preview.owned.scripts?.length ?? 0) > 0}<span
-													>{preview.owned.scripts?.length} scripts</span
-												>{/if}
-											{#if (preview.owned.flows?.length ?? 0) > 0}<span
-													>{preview.owned.flows?.length} flows</span
-												>{/if}
-											{#if (preview.owned.apps?.length ?? 0) > 0}<span
-													>{preview.owned.apps?.length} apps</span
-												>{/if}
-											{#if (preview.owned.resources?.length ?? 0) > 0}<span
-													>{preview.owned.resources?.length} resources</span
-												>{/if}
-											{#if (preview.owned.variables?.length ?? 0) > 0}<span
-													>{preview.owned.variables?.length} variables</span
-												>{/if}
-											{#if (preview.owned.schedules?.length ?? 0) > 0}<span
-													>{preview.owned.schedules?.length} schedules</span
-												>{/if}
-											{#if (preview.owned.triggers?.length ?? 0) > 0}<span
-													>{preview.owned.triggers?.length} triggers</span
-												>{/if}
-											{#if preview.tokens > 0}<span>{preview.tokens} tokens (deleted)</span>{/if}
-										</div>
-									</div>
-
-									<!-- Reassign target for owned items -->
 									<div>
 										<span class="text-sm font-medium text-primary block mb-1.5"
 											>Reassign owned items to</span
@@ -270,17 +289,13 @@
 											<Button
 												size="xs2"
 												variant={targetKind === 'user' ? 'accent' : 'default'}
-												onclick={() => (targetKind = 'user')}
+												onclick={() => (targetKind = 'user')}>User</Button
 											>
-												User
-											</Button>
 											<Button
 												size="xs2"
 												variant={targetKind === 'folder' ? 'accent' : 'default'}
-												onclick={() => (targetKind = 'folder')}
+												onclick={() => (targetKind = 'folder')}>Folder</Button
 											>
-												Folder
-											</Button>
 										</div>
 										{#if targetKind === 'user'}
 											<Select
@@ -298,55 +313,21 @@
 									</div>
 								{/if}
 
-								<!-- Section 2: Items executing on behalf -->
-								{#if onBehalfCount > 0}
-									<div class="bg-surface-secondary rounded-md p-3">
-										<p class="text-sm font-medium text-primary mb-1">
-											Items running on behalf ({onBehalfCount})
-										</p>
-										<p class="text-xs text-tertiary mb-2">
-											Schedules, triggers, scripts, flows and apps outside this user's path that
-											have their permissioned_as or on_behalf_of set to this user.
-										</p>
-										<div class="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-secondary">
-											{#if (preview.executing_on_behalf.scripts?.length ?? 0) > 0}<span
-													>{preview.executing_on_behalf.scripts?.length} scripts</span
-												>{/if}
-											{#if (preview.executing_on_behalf.flows?.length ?? 0) > 0}<span
-													>{preview.executing_on_behalf.flows?.length} flows</span
-												>{/if}
-											{#if (preview.executing_on_behalf.apps?.length ?? 0) > 0}<span
-													>{preview.executing_on_behalf.apps?.length} apps</span
-												>{/if}
-											{#if (preview.executing_on_behalf.schedules?.length ?? 0) > 0}<span
-													>{preview.executing_on_behalf.schedules?.length} schedules</span
-												>{/if}
-											{#if (preview.executing_on_behalf.triggers?.length ?? 0) > 0}<span
-													>{preview.executing_on_behalf.triggers?.length} triggers</span
-												>{/if}
-										</div>
-									</div>
-								{/if}
-
-								<!-- New operator selection (needed if folder target OR on-behalf items) -->
-								{#if targetKind === 'folder' || onBehalfCount > 0}
-									<div>
-										<span class="text-sm font-medium text-primary block mb-1.5">
-											{#if targetKind === 'folder' && onBehalfCount > 0}
-												Run schedules/triggers as and new on_behalf_of
-											{:else if targetKind === 'folder'}
-												Run schedules/triggers as
-											{:else}
-												Transfer on_behalf_of / permissioned_as to
-											{/if}
-										</span>
-										<Select
-											items={users}
-											bind:value={selectedOperator}
-											placeholder="Select operator user..."
-										/>
-									</div>
-								{/if}
+								<!-- New on_behalf_of user (always shown) -->
+								<div>
+									<span class="text-sm font-medium text-primary block mb-1.5"
+										>New on_behalf_of user</span
+									>
+									<p class="text-xs text-tertiary mb-1.5"
+										>User identity for permissioned_as on schedules/triggers and on_behalf_of on
+										scripts/flows/apps.</p
+									>
+									<Select
+										items={users}
+										bind:value={selectedOperator}
+										placeholder="Select a user..."
+									/>
+								</div>
 
 								<!-- Warnings -->
 								{#if countPaths(preview.referencing) > 0}

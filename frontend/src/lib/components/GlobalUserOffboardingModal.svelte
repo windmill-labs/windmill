@@ -114,7 +114,7 @@
 			const target = getReassignTo(wp.workspace_id)
 			const cfg = wsConfigs[wp.workspace_id]
 			if (!target) return false
-			if (cfg?.targetKind === 'folder' && !cfg.selectedOperator) return false
+			if (!cfg?.selectedOperator) return false
 			return true
 		})
 	)
@@ -155,48 +155,29 @@
 		}
 	}
 
-	function downloadAffectedList() {
-		const lines: string[] = ['# Affected items for user: ' + email, '']
+	function downloadAffectedCsv() {
+		const rows: string[][] = [['workspace', 'category', 'type', 'path']]
 
 		for (const wp of workspacePreviews) {
-			const ownedCount = countPaths(wp.preview.owned)
-			const obCount = countPaths(wp.preview.executing_on_behalf)
-			const refCount = countPaths(wp.preview.referencing)
-			if (ownedCount === 0 && obCount === 0 && refCount === 0) continue
-
-			lines.push(`## Workspace: ${wp.workspace_id} (${wp.username})`, '')
-
-			function addPaths(title: string, paths: OffboardAffectedPaths | undefined) {
-				if (!paths || countPaths(paths) === 0) return
-				lines.push(`### ${title}`)
+			function addRows(category: string, paths: OffboardAffectedPaths | undefined) {
+				if (!paths) return
 				for (const [kind, list] of Object.entries(paths)) {
-					if (Array.isArray(list) && list.length > 0) {
-						lines.push(`#### ${kind}`)
-						for (const p of list) lines.push(`- ${p}`)
+					if (Array.isArray(list)) {
+						for (const p of list) rows.push([wp.workspace_id, category, kind, p])
 					}
 				}
-				lines.push('')
 			}
-
-			addPaths('Owned (will be reassigned)', wp.preview.owned)
-			addPaths('Executing on behalf (will be updated)', wp.preview.executing_on_behalf)
-			addPaths(
-				'Referencing (content/values reference user paths — may break)',
-				wp.preview.referencing
-			)
-			if (wp.preview.tokens > 0) lines.push(`Tokens: ${wp.preview.tokens} (will be deleted)`)
-			if (wp.preview.http_triggers > 0)
-				lines.push(`HTTP triggers: ${wp.preview.http_triggers} (webhook URLs will change)`)
-			if (wp.preview.email_triggers > 0)
-				lines.push(`Email triggers: ${wp.preview.email_triggers} (addresses will change)`)
-			lines.push('')
+			addRows('owned', wp.preview.owned)
+			addRows('executing_on_behalf', wp.preview.executing_on_behalf)
+			addRows('referencing', wp.preview.referencing)
 		}
 
-		const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
+		const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n')
+		const blob = new Blob([csv], { type: 'text/csv' })
 		const url = URL.createObjectURL(blob)
 		const a = document.createElement('a')
 		a.href = url
-		a.download = `offboard-${email}.txt`
+		a.download = `offboard-${email}.csv`
 		a.click()
 		URL.revokeObjectURL(url)
 	}
@@ -260,9 +241,9 @@
 										variant="subtle"
 										size="xs2"
 										startIcon={{ icon: Download }}
-										onclick={downloadAffectedList}
+										onclick={downloadAffectedCsv}
 									>
-										Export full list
+										Export CSV
 									</Button>
 								</div>
 
@@ -315,17 +296,13 @@
 													<Button
 														size="xs2"
 														variant={cfg.targetKind === 'user' ? 'accent' : 'default'}
-														onclick={() => (cfg.targetKind = 'user')}
+														onclick={() => (cfg.targetKind = 'user')}>User</Button
 													>
-														User
-													</Button>
 													<Button
 														size="xs2"
 														variant={cfg.targetKind === 'folder' ? 'accent' : 'default'}
-														onclick={() => (cfg.targetKind = 'folder')}
+														onclick={() => (cfg.targetKind = 'folder')}>Folder</Button
 													>
-														Folder
-													</Button>
 												</div>
 												{#if cfg.targetKind === 'user'}
 													<Select
@@ -341,18 +318,18 @@
 														placeholder="Select a folder..."
 														size="sm"
 													/>
-													<div class="mt-1">
-														<span class="text-xs text-secondary block mb-0.5"
-															>Run schedules/triggers as</span
-														>
-														<Select
-															items={cfg.users}
-															bind:value={cfg.selectedOperator}
-															placeholder="Select operator user..."
-															size="sm"
-														/>
-													</div>
 												{/if}
+											</div>
+											<div>
+												<span class="text-xs font-medium text-secondary block mb-0.5"
+													>New on_behalf_of user</span
+												>
+												<Select
+													items={cfg.users}
+													bind:value={cfg.selectedOperator}
+													placeholder="Select a user..."
+													size="sm"
+												/>
 											</div>
 										{/if}
 									</div>

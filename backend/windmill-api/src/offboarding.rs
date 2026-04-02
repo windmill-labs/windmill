@@ -642,8 +642,8 @@ async fn validate_target(db: &DB, w_id: &str, kind: &str, name: &str) -> Result<
 }
 
 /// Resolve the permissioned_as value for schedules/triggers.
-/// When target is a user, permissioned_as = "u/{user}".
-/// When target is a folder, new_on_behalf_of_user must be provided — a username to run as.
+/// If new_on_behalf_of_user is provided, use that user.
+/// Otherwise, default to the target user (for user targets) or error (for folder targets).
 async fn resolve_new_permissioned_as(
     target_kind: &str,
     reassign_to: &str,
@@ -651,32 +651,37 @@ async fn resolve_new_permissioned_as(
     db: &DB,
     w_id: &str,
 ) -> Result<String> {
-    match target_kind {
-        "user" => Ok(reassign_to.to_string()),
-        "folder" => {
-            let operator = new_on_behalf_of_user.ok_or_else(|| {
-                Error::BadRequest(
+    let username = if let Some(user) = new_on_behalf_of_user {
+        user.to_string()
+    } else {
+        match target_kind {
+            "user" => reassign_to
+                .strip_prefix("u/")
+                .unwrap_or(reassign_to)
+                .to_string(),
+            "folder" => {
+                return Err(Error::BadRequest(
                     "new_on_behalf_of_user is required when reassigning to a folder".to_string(),
-                )
-            })?;
-            let exists = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 AND workspace_id = $2)",
-                operator,
-                w_id
-            )
-            .fetch_one(db)
-            .await?
-            .unwrap_or(false);
-            if !exists {
-                return Err(Error::NotFound(format!(
-                    "new_on_behalf_of_user user '{}' not found in workspace '{}'",
-                    operator, w_id
-                )));
+                ));
             }
-            Ok(format!("u/{}", operator))
+            _ => unreachable!(),
         }
-        _ => unreachable!(),
+    };
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 AND workspace_id = $2)",
+        &username,
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+    if !exists {
+        return Err(Error::NotFound(format!(
+            "new_on_behalf_of_user '{}' not found in workspace '{}'",
+            username, w_id
+        )));
     }
+    Ok(format!("u/{}", username))
 }
 
 async fn check_path_conflicts(
