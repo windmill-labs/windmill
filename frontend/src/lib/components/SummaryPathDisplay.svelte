@@ -36,17 +36,14 @@
 	let own = $state(false)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
 	let summaryInput: ReturnType<typeof TextInput> | undefined = $state()
-	let initialLabels: string | undefined = $state(undefined)
-	let labelsJson = $derived(JSON.stringify(labels ?? []))
-	let hasChanges = $derived(
-		editSummary !== (summary ?? '') || (own && dirtyPath) || labelsJson !== (initialLabels ?? '[]')
-	)
+	let labelsDirty = $state(false)
+	let hasChanges = $derived(editSummary !== (summary ?? '') || (own && dirtyPath) || labelsDirty)
 
 	$effect(() => {
 		if (popoverOpen && onSaved) {
 			editSummary = summary ?? ''
 			editPath = path ?? ''
-			initialLabels = JSON.stringify(labels ?? [])
+			labelsDirty = false
 			own = isOwner(path ?? '', $userStore, $workspaceStore)
 			onBehalfOfEmail = undefined
 			if (kind === 'flow' && $workspaceStore && path) {
@@ -71,7 +68,7 @@
 				labels
 			})
 			sendUserToast(`${kind === 'flow' ? 'Flow' : 'Script'} updated`)
-			initialLabels = JSON.stringify(labels ?? [])
+			labelsDirty = false
 			close()
 			onSaved?.(newPath)
 		} catch (e: any) {
@@ -135,7 +132,12 @@
 							bind:value={editSummary}
 						/>
 					</Label>
-					<LabelsInput bind:labels />
+					<LabelsInput
+						bind:labels
+						onchange={() => {
+							labelsDirty = true
+						}}
+					/>
 					<Label label="Path">
 						{#if own}
 							<Path

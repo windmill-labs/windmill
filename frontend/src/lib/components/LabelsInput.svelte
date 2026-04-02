@@ -4,9 +4,10 @@
 
 	interface Props {
 		labels: string[] | undefined
+		onchange?: () => void
 	}
 
-	let { labels = $bindable() }: Props = $props()
+	let { labels = $bindable(), onchange }: Props = $props()
 
 	let adding = $state(false)
 	let inputValue = $state('')
@@ -29,6 +30,7 @@
 		}
 		if (!labels.includes(value)) {
 			labels = [...labels, value]
+			onchange?.()
 		}
 		inputValue = ''
 		adding = false
@@ -37,6 +39,7 @@
 	function removeLabel(label: string) {
 		if (labels) {
 			labels = labels.filter((l) => l !== label)
+			onchange?.()
 		}
 	}
 
