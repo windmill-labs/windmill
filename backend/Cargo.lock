@@ -16568,6 +16568,7 @@ dependencies = [
  "argon2",
  "axum 0.8.4",
  "chrono",
+ "dashmap 6.1.0",
  "http 1.4.0",
  "hyper 1.9.0",
  "lazy_static",
