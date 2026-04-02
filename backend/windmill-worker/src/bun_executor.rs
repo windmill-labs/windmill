@@ -4022,4 +4022,33 @@ export function preprocessor(input: string, when: Date) { return { x: input, ts:
         assert!(cg.date_conversions.is_empty());
         assert!(cg.preprocessor_spread.is_none());
     }
+
+    #[test]
+    fn test_wrapper_contains_execd_protocol() {
+        let code = r#"export function main(x: number) { return x; }"#;
+        let cg = compute_ts_codegen(code);
+        let scripts =
+            vec![TsScriptEntry { import_name: "main", original_path: "test/script", codegen: &cg }];
+        let wrapper = generate_multi_script_wrapper(&scripts, "ts");
+        // Single-script wrapper must support execd: (direct, no path)
+        assert!(wrapper.contains(r#"line.startsWith("execd:")"#));
+        // Must also support exec: for backward compat / runner groups
+        assert!(wrapper.contains(r#"line.startsWith("exec:")"#));
+        // Must register the script in the map
+        assert!(wrapper.contains(r#"scripts.set("test/script""#));
+    }
+
+    #[test]
+    fn test_wrapper_contains_execd_preprocess_protocol() {
+        let code = r#"export function preprocessor(x: number) { return { x }; }
+export function main(x: number) { return x; }"#;
+        let cg = compute_ts_codegen(code);
+        let scripts =
+            vec![TsScriptEntry { import_name: "main", original_path: "test/script", codegen: &cg }];
+        let wrapper = generate_multi_script_wrapper(&scripts, "ts");
+        assert!(wrapper.contains(r#"line.startsWith("execd_preprocess:")"#));
+        assert!(wrapper.contains(r#"line.startsWith("execd:")"#));
+        assert!(wrapper.contains(r#"line.startsWith("exec_preprocess:")"#));
+        assert!(wrapper.contains(r#"line.startsWith("exec:")"#));
+    }
 }
