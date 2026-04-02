@@ -337,7 +337,7 @@ pub async fn handle_powershell_job(
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
-    let (pwsh_args, common_pwsh_args) = {
+    let (pwsh_args, ps_preferences, common_pwsh_args) = {
         let args = build_args_map(job, client, &db).await?.map(Json);
         let job_args = if args.is_some() {
             args.as_ref()
@@ -387,31 +387,35 @@ pub async fn handle_powershell_job(
             .join(" ");
 
         // Extract PowerShell common parameters (_wm_ps_* keys)
-        let mut common = Vec::new();
+        // Preference variables are injected into main.ps1 (not CLI args) to avoid
+        // affecting module loading/profile with verbose/debug noise.
+        let mut preference_lines = Vec::new();
+        let mut common_cli_args = Vec::new();
         if let Some(args_map) = job_args {
             if let Some(v) = args_map.get("_wm_ps_verbose") {
                 if serde_json::from_str::<bool>(v.get()).unwrap_or(false) {
-                    common.push("-Verbose".to_string());
+                    preference_lines.push("$VerbosePreference = 'Continue'");
                 }
             }
             if let Some(v) = args_map.get("_wm_ps_debug") {
                 if serde_json::from_str::<bool>(v.get()).unwrap_or(false) {
-                    common.push("-Debug".to_string());
+                    preference_lines.push("$DebugPreference = 'Continue'");
                 }
             }
             if let Some(v) = args_map.get("_wm_ps_error_action") {
                 if let Ok(action) = serde_json::from_str::<String>(v.get()) {
                     if matches!(action.as_str(), "Stop" | "Continue" | "SilentlyContinue") {
-                        common.push(format!("-ErrorAction {}", action));
+                        common_cli_args.push(format!("-ErrorAction {}", action));
                     }
                 }
             }
             // Note: -WhatIf is not supported because $PSCmdlet.ShouldProcess()
             // doesn't work when scripts are invoked through a wrapper
         }
-        let common_args = common.join(" ");
+        let ps_preferences = preference_lines.join("\n");
+        let common_args = common_cli_args.join(" ");
 
-        (user_args, common_args)
+        (user_args, ps_preferences, common_args)
     };
 
     // Resolve modules from workspace dependencies and/or script imports
@@ -597,12 +601,22 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         }\n";
 
     // make sure param() with its attributes is first
+    let preferences_section = if ps_preferences.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", ps_preferences)
+    };
     let content: String = if let Some((param_block, remaining_code)) =
         windmill_parser_bash::extract_powershell_param_block_with_attributes(&content, true)
     {
         format!(
-            "{}\n{}\n{}\n{}\n{}",
-            param_block, profile, strict_termination_start, remaining_code, strict_termination_end
+            "{}\n{}\n{}\n{}{}\n{}",
+            param_block,
+            profile,
+            strict_termination_start,
+            preferences_section,
+            remaining_code,
+            strict_termination_end
         )
     } else {
         format!("{}\n{}", profile, content)
