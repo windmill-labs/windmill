@@ -624,10 +624,10 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         &format!(
             "$ErrorActionPreference = 'Stop'\n\
     $pipe = New-TemporaryFile\n\
-    ./main.ps1 {all_pwsh_args} 2>&1 4>verbose.log 5>debug.log | Tee-Object -FilePath $pipe\n\
+    ./main.ps1 {all_pwsh_args} 4>verbose.log 5>debug.log 2>&1 > $pipe\n\
     $exitcode = $LASTEXITCODE\n\
-    if (Test-Path verbose.log) {{ Get-Content verbose.log | ForEach-Object {{ [Console]::Error.WriteLine(\"VERBOSE: $_\") }} }}\n\
-    if (Test-Path debug.log) {{ Get-Content debug.log | ForEach-Object {{ [Console]::Error.WriteLine(\"DEBUG: $_\") }} }}\n\
+    if (Test-Path verbose.log) {{ Get-Content verbose.log | ForEach-Object {{ Write-Output \"VERBOSE: $_\" }} }}\n\
+    if (Test-Path debug.log) {{ Get-Content debug.log | ForEach-Object {{ Write-Output \"DEBUG: $_\" }} }}\n\
     Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
     Remove-Item $pipe\n\
     exit $exitcode\n"
