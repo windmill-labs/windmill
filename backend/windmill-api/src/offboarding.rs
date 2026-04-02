@@ -27,6 +27,9 @@ pub(crate) struct OffboardPreview {
     /// Objects NOT under the user's path but that execute on behalf of this user
     /// (will have their permissioned_as/on_behalf_of updated)
     executing_on_behalf: OffboardAffectedPaths,
+    /// Scripts/flows/apps/resources whose content/value references u/{username}/ paths
+    /// (these references may break after path changes — admin should review)
+    referencing: OffboardAffectedPaths,
     /// Tokens owned by this user (will be deleted)
     tokens: i64,
     /// HTTP triggers under the user's path (webhook URLs will change)
@@ -237,6 +240,29 @@ async fn get_offboard_preview(
         op_triggers.extend(paths);
     }
 
+    // ---- Objects whose content/value references u/{username}/ paths ----
+    let ref_pattern = format!("%u/{}/%", username);
+
+    let ref_scripts = sqlx::query_scalar!(
+        "SELECT DISTINCT path FROM script WHERE content LIKE $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
+        &ref_pattern, &user_prefix, w_id
+    ).fetch_all(db).await?;
+
+    let ref_flows = sqlx::query_scalar!(
+        "SELECT DISTINCT path FROM flow WHERE value::text LIKE $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
+        &ref_pattern, &user_prefix, w_id
+    ).fetch_all(db).await?;
+
+    let ref_apps = sqlx::query_scalar!(
+        "SELECT DISTINCT path FROM app WHERE (policy::text LIKE $1 OR extra_perms::text LIKE $1) AND NOT path LIKE $2 AND workspace_id = $3",
+        &ref_pattern, &user_prefix, w_id
+    ).fetch_all(db).await?;
+
+    let ref_resources = sqlx::query_scalar!(
+        "SELECT DISTINCT path FROM resource WHERE value::text LIKE $1 AND NOT path LIKE $2 AND workspace_id = $3",
+        &ref_pattern, &user_prefix, w_id
+    ).fetch_all(db).await?;
+
     // ---- Specific trigger warnings ----
     let http_triggers = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM http_trigger WHERE path LIKE $1 AND workspace_id = $2",
@@ -272,6 +298,13 @@ async fn get_offboard_preview(
             apps: op_apps,
             schedules: op_schedules,
             triggers: op_triggers,
+            ..Default::default()
+        },
+        referencing: OffboardAffectedPaths {
+            scripts: ref_scripts,
+            flows: ref_flows,
+            apps: ref_apps,
+            resources: ref_resources,
             ..Default::default()
         },
         tokens,

@@ -20405,6 +20405,9 @@ components:
         executing_on_behalf:
           $ref: "#/components/schemas/OffboardAffectedPaths"
           description: "Objects not under the user's path but that execute on behalf of this user (permissioned_as/on_behalf_of will be updated)"
+        referencing:
+          $ref: "#/components/schemas/OffboardAffectedPaths"
+          description: "Scripts/flows/apps/resources whose content or value references this user's paths (may break after reassignment)"
         tokens:
           type: integer
           description: "Tokens owned by this user (will be deleted)"
@@ -20417,6 +20420,7 @@ components:
       required:
         - owned
         - executing_on_behalf
+        - referencing
         - tokens
         - http_triggers
         - email_triggers

@@ -148,6 +148,10 @@
 			'Executing on behalf (permissioned_as/on_behalf_of will be updated)',
 			preview.executing_on_behalf
 		)
+		addSection(
+			'Referencing (content/values contain references to user paths — may break)',
+			preview.referencing
+		)
 		if (preview.tokens > 0) lines.push(`Tokens: ${preview.tokens} (will be deleted)`, '')
 		if (preview.http_triggers > 0)
 			lines.push(`HTTP triggers: ${preview.http_triggers} (webhook URLs will change)`, '')
@@ -300,6 +304,16 @@
 											{countPaths(preview.executing_on_behalf)} object(s) outside this user's path have
 											their permissioned_as or on_behalf_of set to this user. These will be updated to
 											the new operator.
+										</p>
+									</Alert>
+								{/if}
+
+								{#if countPaths(preview.referencing) > 0}
+									<Alert type="warning" title="Content referencing this user's paths">
+										<p class="text-xs">
+											{countPaths(preview.referencing)} object(s) contain references to this user's paths
+											in their content or values. These references will break after reassignment. Use
+											the export list for details.
 										</p>
 									</Alert>
 								{/if}

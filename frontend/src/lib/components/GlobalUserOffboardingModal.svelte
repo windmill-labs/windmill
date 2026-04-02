@@ -158,7 +158,8 @@
 		for (const wp of workspacePreviews) {
 			const ownedCount = countPaths(wp.preview.owned)
 			const obCount = countPaths(wp.preview.executing_on_behalf)
-			if (ownedCount === 0 && obCount === 0) continue
+			const refCount = countPaths(wp.preview.referencing)
+			if (ownedCount === 0 && obCount === 0 && refCount === 0) continue
 
 			lines.push(`## Workspace: ${wp.workspace_id} (${wp.username})`, '')
 
@@ -176,6 +177,10 @@
 
 			addPaths('Owned (will be reassigned)', wp.preview.owned)
 			addPaths('Executing on behalf (will be updated)', wp.preview.executing_on_behalf)
+			addPaths(
+				'Referencing (content/values reference user paths — may break)',
+				wp.preview.referencing
+			)
 			if (wp.preview.tokens > 0) lines.push(`Tokens: ${wp.preview.tokens} (will be deleted)`)
 			if (wp.preview.http_triggers > 0)
 				lines.push(`HTTP triggers: ${wp.preview.http_triggers} (webhook URLs will change)`)
