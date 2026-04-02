@@ -1,4 +1,4 @@
-import { RawScript } from "../gen/types.gen.ts";
+import { RawScript } from "../gen/types.gen";
 
 const INLINE_SCRIPT_PREFIX = "inline_script";
 
@@ -35,6 +35,7 @@ export const LANGUAGE_EXTENSIONS: Record<SupportedLanguage, string> = {
   duckdb: "duckdb.sql",
   bunnative: "ts",
   ruby: "rb",
+  rlang: "r",
   // for related places search: ADD_NEW_LANG
 };
 
@@ -111,6 +112,28 @@ export function getLanguageFromExtension(
   return undefined;
 }
 
+/**
+ * Sanitizes a summary string for use as a filesystem-safe name.
+ * Removes or replaces characters that are invalid on common filesystems.
+ */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/;
+
+export function sanitizeForFilesystem(summary: string): string {
+  const name = summary
+    .toLowerCase()
+    .replaceAll(" ", "_")
+    // Remove characters invalid on Windows/Unix/Mac: / \ : * ? " < > |
+    // Also remove control characters (0x00-0x1F) and DEL (0x7F)
+    // deno-lint-ignore no-control-regex
+    .replace(/[/\\:*?"<>|\x00-\x1f\x7f]/g, "")
+    // Collapse consecutive underscores
+    .replace(/_+/g, "_")
+    // Trim leading/trailing dots and underscores (hidden files, Windows edge cases)
+    .replace(/^[._]+|[._]+$/g, "");
+  // Prefix Windows reserved device names (CON, PRN, AUX, NUL, COM0-9, LPT0-9)
+  return WINDOWS_RESERVED.test(name) ? `_${name}` : name;
+}
+
 export interface PathAssigner {
   assignPath(summary: string | undefined, language: SupportedLanguage): [string, string];
 }
@@ -144,7 +167,7 @@ export function newPathAssigner(defaultTs: "bun" | "deno" | PathAssignerOptions,
   ): [string, string] {
     let name;
 
-    name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
+    name = summary ? sanitizeForFilesystem(summary) : "";
 
     let original_name = name;
 
@@ -185,7 +208,7 @@ export function newRawAppPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
   ): [string, string] {
     let name;
 
-    name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
+    name = summary ? sanitizeForFilesystem(summary) : "";
 
     let original_name = name;
 

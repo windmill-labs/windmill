@@ -243,6 +243,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_tags_per_workspace: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_tags_override: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_hub: Option<bool>,
 
     // String settings
@@ -595,6 +597,7 @@ pub enum ScriptLang {
     Nu,
     Java,
     Ruby,
+    Rlang,
 }
 
 // ---------------------------------------------------------------------------
@@ -870,6 +873,7 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     "uid",
     "min_keep_alive_version",
     "automate_username_creation",
+    "_restart_coordination",
 ];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.

@@ -81,20 +81,29 @@ pub struct ApiServer {
 
 impl ApiServer {
     pub async fn start(db: Pool<Postgres>) -> anyhow::Result<Self> {
-        Self::start_inner(db, false).await
+        Self::start_inner(db, false, false).await
     }
 
     pub async fn start_agent_mode(db: Pool<Postgres>) -> anyhow::Result<Self> {
-        Self::start_inner(db, true).await
+        Self::start_inner(db, true, false).await
     }
 
     /// Start the API server with server_mode=true so trigger listeners are active.
     /// Alias for `start_agent_mode` with a clearer name for trigger e2e tests.
     pub async fn start_with_listeners(db: Pool<Postgres>) -> anyhow::Result<Self> {
-        Self::start_inner(db, true).await
+        Self::start_inner(db, true, false).await
     }
 
-    async fn start_inner(db: Pool<Postgres>, agent_mode: bool) -> anyhow::Result<Self> {
+    /// Start the API server with mcp_mode=true so MCP routes are active.
+    pub async fn start_mcp(db: Pool<Postgres>) -> anyhow::Result<Self> {
+        Self::start_inner(db, false, true).await
+    }
+
+    async fn start_inner(
+        db: Pool<Postgres>,
+        server_mode: bool,
+        mcp_mode: bool,
+    ) -> anyhow::Result<Self> {
         let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -114,8 +123,8 @@ impl ApiServer {
             listener,
             rx,
             port_tx,
-            agent_mode,
-            false,
+            server_mode,
+            mcp_mode,
             format!("http://localhost:{}", addr.port()),
             Some(name.clone()),
         ));
@@ -478,7 +487,7 @@ pub async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
     .unwrap()
 }
 
-#[axum::async_trait(?Send)]
+#[async_trait::async_trait(?Send)]
 pub trait StreamFind: futures::Stream + Unpin + Sized {
     async fn find(self, item: &Self::Item) -> Option<Self::Item>
     where

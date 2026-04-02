@@ -39,8 +39,13 @@ import queues from "./commands/queues/queues.ts";
 import dependencies from "./commands/dependencies/dependencies.ts";
 import init from "./commands/init/init.ts";
 import jobs from "./commands/jobs/jobs.ts";
+import job from "./commands/job/job.ts";
+import group from "./commands/group/group.ts";
+import audit from "./commands/audit/audit.ts";
+import token from "./commands/token/token.ts";
 import generateMetadata from "./commands/generate-metadata/generate-metadata.ts";
 import docs from "./commands/docs/docs.ts";
+import config from "./commands/config/config.ts";
 import { fetchVersion } from "./core/context.ts";
 
 export {
@@ -62,13 +67,18 @@ export {
   instance,
   dev,
   docs,
+  config,
   hubPull,
   pull,
   push,
   workspaceAdd,
+  job,
+  group,
+  audit,
+  token,
 };
 
-export const VERSION = "1.665.0";
+export const VERSION = "1.672.0";
 
 // Re-exported from constants.ts to maintain backwards compatibility
 export { WM_FORK_PREFIX } from "./core/constants.ts";
@@ -130,8 +140,13 @@ const command = new Command()
   .command("queues", queues)
   .command("dependencies", dependencies)
   .command("jobs", jobs)
+  .command("job", job)
+  .command("group", group)
+  .command("audit", audit)
+  .command("token", token)
   .command("generate-metadata", generateMetadata)
   .command("docs", docs)
+  .command("config", config)
   .command("version --version", "Show version information")
   .action(async (opts: any) => {
     console.log("CLI version: " + VERSION);
@@ -215,11 +230,24 @@ async function main() {
     await command.parse(args);
   } catch (e) {
     if (e && typeof e === "object" && "name" in e && e.name === "ApiError") {
-      console.log(
-        "Server failed. " + (e as any).statusText + ": " + (e as any).body
+      const body = (e as any).body;
+      let bodyStr = typeof body === "object" && body !== null ? JSON.stringify(body) : String(body ?? "");
+      // Strip backend source file references like (flows.rs:1400) or @scripts.rs:123:45
+      bodyStr = bodyStr.replace(/\s*[@(]\w+\.rs:\d+[:\d]*\)?/g, "");
+      log.error(
+        "Server failed. " + (e as any).statusText + ": " + bodyStr
       );
+    } else if (e instanceof Error) {
+      log.error(e.message);
+    } else if (e !== undefined && e !== null) {
+      log.error(String(e));
     }
-    throw e;
+    const isDebug =
+      process.argv.includes("--verbose") || process.argv.includes("--debug");
+    if (isDebug) {
+      throw e;
+    }
+    process.exitCode = 1;
   }
 }
 

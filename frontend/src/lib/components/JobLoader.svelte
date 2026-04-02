@@ -107,7 +107,7 @@
 	$effect(() => {
 		if (noLogs != lastNoLogs) {
 			lastNoLogs = noLogs
-			if (!noLogs) {
+			if (!noLogs && !getActiveReplay()) {
 				currentEventSource?.onerror?.(new Event(noLogsChangeRestartEvent))
 				const lastJobId = lastCompletedJobId
 				if (lastJobId && (job || lastCallbacks?.loadExtraLogs)) {
@@ -255,7 +255,7 @@
 		}
 	}
 	export async function getLogs() {
-		if (job) {
+		if (job && !getActiveReplay()) {
 			refreshLogOffset()
 			const getUpdate = await JobService.getJobUpdates({
 				workspace: workspace!,

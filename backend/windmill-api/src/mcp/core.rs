@@ -546,7 +546,7 @@ pub async fn setup_mcp_server(
     let service =
         StreamableHttpService::new(move || Ok(runner.clone()), session_manager, service_config);
 
-    let router = Router::new().nest_service("/", service);
+    let router = Router::new().route_service("/", service);
     Ok((router, cancellation_token))
 }
 

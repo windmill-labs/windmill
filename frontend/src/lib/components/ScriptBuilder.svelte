@@ -178,7 +178,7 @@
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
 	let args: Record<string, any> = $state(untrack(() => initialArgs)) // Test args input
-	let selectedInputTab: 'main' | 'preprocessor' = $state('main')
+	let selectedInputTab: 'main' | 'preprocessor' | 'diagram' = $state('main')
 	let hasPreprocessor = $state(false)
 	let preserveOnBehalfOf = $state(false)
 
@@ -1268,7 +1268,7 @@
 															} as ButtonType.Icon}
 														>
 															<span class="truncate">{label}</span>
-															{#if lang === 'ruby'}
+															{#if lang === 'rlang'}
 																<span class="text-primary !text-xs"> BETA </span>
 															{/if}
 														</Button>

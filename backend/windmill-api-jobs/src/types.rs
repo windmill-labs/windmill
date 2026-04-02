@@ -511,18 +511,14 @@ pub struct ResumeUrls {
 
 pub struct QueryOrBody<D>(pub Option<D>);
 
-#[axum::async_trait]
-impl<S, D> FromRequest<S, axum::body::Body> for QueryOrBody<D>
+impl<S, D> FromRequest<S> for QueryOrBody<D>
 where
     D: DeserializeOwned,
     S: Send + Sync,
 {
     type Rejection = Response;
 
-    async fn from_request(
-        req: Request<axum::body::Body>,
-        state: &S,
-    ) -> std::result::Result<Self, Self::Rejection> {
+    async fn from_request(req: Request, state: &S) -> std::result::Result<Self, Self::Rejection> {
         return if req.method() == axum::http::Method::GET {
             let Query(InPayload { payload }) = Query::from_request(req, state)
                 .await

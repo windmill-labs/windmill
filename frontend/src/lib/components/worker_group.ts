@@ -58,6 +58,7 @@ export const defaultTags = [
 	'nu',
 	'java',
 	'ruby',
+	'rlang',
 	'duckdb'
 	// for related places search: ADD_NEW_LANG
 ]

@@ -61,7 +61,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
         );
 
         let mut debouncing_settings = DebouncingSettings {
-            debounce_key: Some(format!("{w_id}:{importer_path}:dependency")),
+            debounce_key: Some(format!("{w_id}:{importer_path}:{importer_kind}:dependency")),
             debounce_delay_s: Some(5),
             ..Default::default()
         };

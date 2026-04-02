@@ -79,7 +79,16 @@
 		iconOnly?: boolean
 		validCode?: boolean
 		kind?: 'script' | 'trigger' | 'approval'
-		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' | 'claudesandbox' | 'wac_python' | 'wac_typescript'
+		template?:
+			| 'pgsql'
+			| 'mysql'
+			| 'script'
+			| 'docker'
+			| 'powershell'
+			| 'bunnative'
+			| 'claudesandbox'
+			| 'wac_python'
+			| 'wac_typescript'
 		collabMode?: boolean
 		collabLive?: boolean
 		collabUsers?: { name: string }[]
@@ -147,6 +156,7 @@
 			'nu',
 			'java',
 			'ruby',
+			'rlang',
 			'postgresql',
 			'mysql',
 			'bigquery',
@@ -173,7 +183,8 @@
 			'csharp',
 			'nu',
 			'java',
-			'ruby'
+			'ruby',
+			'rlang'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -193,7 +204,8 @@
 			'csharp',
 			'nu',
 			'java',
-			'ruby'
+			'ruby',
+			'rlang'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -506,6 +518,8 @@
 			// for related places search: ADD_NEW_LANG
 		} else if (lang == 'ruby') {
 			editor.insertAtCursor(`ENV['${name}']`)
+		} else if (lang == 'rlang') {
+			editor.insertAtCursor(`Sys.getenv("${name}")`)
 		} else if (
 			['postgresql', 'mysql', 'bigquery', 'mssql', 'oracledb', 'snowflake', 'duckdb'].includes(
 				lang ?? ''
@@ -573,6 +587,8 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 			if (!editor.getCode().includes("require 'windmill/mini'")) {
 				editor.insertAtBeginning("require 'windmill/mini'\n")
 			}
+			editor.insertAtCursor(`get_variable("${path}")`)
+		} else if (lang == 'rlang') {
 			editor.insertAtCursor(`get_variable("${path}")`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
@@ -652,6 +668,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			if (!editor.getCode().includes("require 'windmill/mini'")) {
 				editor.insertAtBeginning("require 'windmill/mini'\n")
 			}
+			editor.insertAtCursor(`get_resource("${path}")`)
+		} else if (lang == 'rlang') {
 			editor.insertAtCursor(`get_resource("${path}")`)
 		} else if (lang == 'duckdb') {
 			let t = { postgresql: 'postgres', mysql: 'mysql', bigquery: 'bigquery' }[resType]
@@ -739,7 +757,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Settings }}
 					target="_blank"
 					variant="accent"
-					href="{base}/workspace_settings?tab=windmill_lfs"
+					href="{base}/workspace_settings?tab=ducklake"
 				>
 					Go to settings
 				</Button>

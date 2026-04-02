@@ -157,17 +157,26 @@ export async function pushObj(
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
-    const appName = extractResourceName(p, "app")!;
+    const appName = extractResourceName(p, "app");
+    if (!appName) {
+      throw new Error(`Could not extract app name from path: ${p}`);
+    }
     await pushApp(workspace, appName, buildFolderPath(appName, "app"), message);
   } else if (typeEnding === "raw_app") {
-    const rawAppName = extractResourceName(p, "raw_app")!;
+    const rawAppName = extractResourceName(p, "raw_app");
+    if (!rawAppName) {
+      throw new Error(`Could not extract raw app name from path: ${p}`);
+    }
     await pushRawApp(workspace, rawAppName, buildFolderPath(rawAppName, "raw_app"), message);
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
     await pushVariable(workspace, p, befObj, newObj, plainSecrets);
   } else if (typeEnding === "flow") {
-    const flowName = extractResourceName(p, "flow")!;
+    const flowName = extractResourceName(p, "flow");
+    if (!flowName) {
+      throw new Error(`Could not extract flow name from path: ${p}`);
+    }
     await pushFlow(workspace, flowName, buildFolderPath(flowName, "flow"), message);
   } else if (typeEnding === "resource") {
     if (!alreadySynced.includes(p)) {
@@ -291,6 +300,7 @@ export function getTypeStrFromPath(
     parsed.ext == ".nu" ||
     parsed.ext == ".java" ||
     parsed.ext == ".rb" ||
+    parsed.ext == ".r" ||
     // for related places search: ADD_NEW_LANG
     (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
   ) {
@@ -349,12 +359,16 @@ export function removeType(str: string, type: string) {
   const normalizedStr = path.normalize(str).replaceAll(SEP, "/");
 
   if (
-    !normalizedStr.endsWith("." + type + ".yaml") &&
-    !normalizedStr.endsWith("." + type + ".json")
+    normalizedStr.endsWith("." + type + ".yaml") ||
+    normalizedStr.endsWith("." + type + ".json")
   ) {
-    throw new Error(str + " does not end with ." + type + ".(yaml|json)");
+    return normalizedStr.slice(0, normalizedStr.length - type.length - 6);
   }
-  return normalizedStr.slice(0, normalizedStr.length - type.length - 6);
+  // Accept clean paths without the type suffix (e.g. "f/folder/name" instead of "f/folder/name.schedule.yaml")
+  if (normalizedStr.includes("." + type)) {
+    log.debug(`Path '${str}' contains '.${type}' but doesn't end with '.${type}.(yaml|json)' — treating as clean path`);
+  }
+  return normalizedStr;
 }
 
 /**
