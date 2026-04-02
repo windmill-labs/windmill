@@ -337,7 +337,7 @@ pub async fn handle_powershell_job(
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
-    let (pwsh_args, ps_preferences, common_pwsh_args) = {
+    let (pwsh_args, ps_preferences) = {
         let args = build_args_map(job, client, &db).await?.map(Json);
         let job_args = if args.is_some() {
             args.as_ref()
@@ -387,35 +387,31 @@ pub async fn handle_powershell_job(
             .join(" ");
 
         // Extract PowerShell common parameters (_wm_ps_* keys)
-        // Preference variables are injected into main.ps1 (not CLI args) to avoid
-        // affecting module loading/profile with verbose/debug noise.
-        let mut preference_lines = Vec::new();
-        let mut common_cli_args = Vec::new();
+        // All common params are injected as preference variables into main.ps1
+        // (not CLI args) so they only affect user code, not module loading.
+        let mut preference_lines: Vec<String> = Vec::new();
         if let Some(args_map) = job_args {
             if let Some(v) = args_map.get("_wm_ps_verbose") {
                 if serde_json::from_str::<bool>(v.get()).unwrap_or(false) {
-                    preference_lines.push("$VerbosePreference = 'Continue'");
+                    preference_lines.push("$VerbosePreference = 'Continue'".to_string());
                 }
             }
             if let Some(v) = args_map.get("_wm_ps_debug") {
                 if serde_json::from_str::<bool>(v.get()).unwrap_or(false) {
-                    preference_lines.push("$DebugPreference = 'Continue'");
+                    preference_lines.push("$DebugPreference = 'Continue'".to_string());
                 }
             }
             if let Some(v) = args_map.get("_wm_ps_error_action") {
                 if let Ok(action) = serde_json::from_str::<String>(v.get()) {
                     if matches!(action.as_str(), "Stop" | "Continue" | "SilentlyContinue") {
-                        common_cli_args.push(format!("-ErrorAction {}", action));
+                        preference_lines.push(format!("$ErrorActionPreference = '{action}'"));
                     }
                 }
             }
-            // Note: -WhatIf is not supported because $PSCmdlet.ShouldProcess()
-            // doesn't work when scripts are invoked through a wrapper
         }
         let ps_preferences = preference_lines.join("\n");
-        let common_args = common_cli_args.join(" ");
 
-        (user_args, ps_preferences, common_args)
+        (user_args, ps_preferences)
     };
 
     // Resolve modules from workspace dependencies and/or script imports
@@ -624,21 +620,13 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
     write_file(job_dir, "main.ps1", content.as_str())?;
 
-    let all_pwsh_args = if common_pwsh_args.is_empty() {
-        pwsh_args
-    } else if pwsh_args.is_empty() {
-        common_pwsh_args
-    } else {
-        format!("{pwsh_args} {common_pwsh_args}")
-    };
-
     write_file(
         job_dir,
         "wrapper.ps1",
         &format!(
             "$ErrorActionPreference = 'Stop'\n\
     $pipe = New-TemporaryFile\n\
-    ./main.ps1 {all_pwsh_args} 4>verbose.log 5>debug.log 2>&1 | Tee-Object -FilePath $pipe\n\
+    ./main.ps1 {pwsh_args} 4>verbose.log 5>debug.log 2>&1 | Tee-Object -FilePath $pipe\n\
     Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
     if (Test-Path verbose.log) {{ Get-Content verbose.log | ForEach-Object {{ Write-Output \"VERBOSE: $_\" }} }}\n\
     if (Test-Path debug.log) {{ Get-Content debug.log | ForEach-Object {{ Write-Output \"DEBUG: $_\" }} }}\n\
