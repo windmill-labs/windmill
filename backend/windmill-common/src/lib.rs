@@ -726,6 +726,7 @@ pub async fn create_custom_instance_database(
     dbname: &str,
     tag: &str,
 ) -> error::Result<()> {
+    let dbname = dbname.trim();
     validate_dbname(dbname)?;
 
     let db_exists = sqlx::query_scalar!(
