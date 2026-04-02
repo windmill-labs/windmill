@@ -30,6 +30,7 @@ pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             args,
             auto_kind: None,
             has_preprocessor: None,
+            ..Default::default()
         })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
@@ -46,6 +47,7 @@ pub fn parse_oracledb_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             args,
             auto_kind: None,
             has_preprocessor: None,
+            ..Default::default()
         })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
@@ -67,6 +69,7 @@ pub fn parse_pgsql_sig_with_typed_schema(code: &str) -> anyhow::Result<(MainArgS
                 args,
                 auto_kind: None,
                 has_preprocessor: None,
+                ..Default::default()
             },
             typed_schema,
         ))
@@ -85,6 +88,7 @@ pub fn parse_bigquery_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             args,
             auto_kind: None,
             has_preprocessor: None,
+            ..Default::default()
         })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
@@ -100,6 +104,7 @@ pub fn parse_duckdb_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             args,
             auto_kind: None,
             has_preprocessor: None,
+            ..Default::default()
         })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
@@ -116,6 +121,7 @@ pub fn parse_snowflake_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             args,
             auto_kind: None,
             has_preprocessor: None,
+            ..Default::default()
         })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
@@ -132,6 +138,7 @@ pub fn parse_mssql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             args,
             auto_kind: None,
             has_preprocessor: None,
+            ..Default::default()
         })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
@@ -945,6 +952,7 @@ SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
                 ],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 
@@ -994,6 +1002,7 @@ SELECT $2::TEXT;
                 ],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 
@@ -1121,6 +1130,7 @@ SELECT ?, ?;
                 ],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 
@@ -1169,6 +1179,7 @@ SELECT :param2;
                 ],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 
@@ -1209,6 +1220,7 @@ SELECT @token;
                 ],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 
@@ -1257,6 +1269,7 @@ SELECT ?;
                 ],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 
@@ -1305,6 +1318,7 @@ SELECT @P2;
                 ],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 
@@ -1354,6 +1368,7 @@ SELECT * FROM table_name WHERE thing = :name4;
                 ],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 
@@ -1392,6 +1407,7 @@ SELECT * FROM users WHERE id = $1 AND email = $2::text;
                 ],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 
@@ -1430,6 +1446,7 @@ SELECT * FROM users LIMIT $1 OFFSET $2;
                 ],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 
@@ -1480,6 +1497,7 @@ WHERE id = $1
                 ],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 
@@ -1507,6 +1525,7 @@ SELECT * FROM users WHERE id = ANY($1);
                 },],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 
@@ -1536,6 +1555,7 @@ SELECT $1::integer;
                 },],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 
@@ -1568,6 +1588,7 @@ SELECT x
                 },],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 

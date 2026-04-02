@@ -21,6 +21,7 @@ pub fn parse_graphql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             args,
             auto_kind: None,
             has_preprocessor: None,
+            ..Default::default()
         })
     } else {
         Err(anyhow!("Error parsing sql".to_string()))
@@ -127,6 +128,7 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                 ],
                 auto_kind: None,
                 has_preprocessor: None
+                            ..Default::default()
             }
         );
 

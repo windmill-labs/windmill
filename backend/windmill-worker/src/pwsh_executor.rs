@@ -337,7 +337,7 @@ pub async fn handle_powershell_job(
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
-    let pwsh_args = {
+    let (pwsh_args, common_pwsh_args) = {
         let args = build_args_map(job, client, &db).await?.map(Json);
         let job_args = if args.is_some() {
             args.as_ref()
@@ -347,7 +347,7 @@ pub async fn handle_powershell_job(
 
         let parsed_sig = windmill_parser_bash::parse_powershell_sig(&content)?;
 
-        parsed_sig
+        let user_args = parsed_sig
             .args
             .iter()
             .filter_map(|arg| {
@@ -384,7 +384,37 @@ pub async fn handle_powershell_job(
                 }
             })
             .collect::<Vec<_>>()
-            .join(" ")
+            .join(" ");
+
+        // Extract PowerShell common parameters (_wm_ps_* keys)
+        let mut common = Vec::new();
+        if let Some(args_map) = job_args {
+            if let Some(v) = args_map.get("_wm_ps_verbose") {
+                if serde_json::from_str::<bool>(v.get()).unwrap_or(false) {
+                    common.push("-Verbose".to_string());
+                }
+            }
+            if let Some(v) = args_map.get("_wm_ps_debug") {
+                if serde_json::from_str::<bool>(v.get()).unwrap_or(false) {
+                    common.push("-Debug".to_string());
+                }
+            }
+            if let Some(v) = args_map.get("_wm_ps_error_action") {
+                if let Ok(action) = serde_json::from_str::<String>(v.get()) {
+                    if matches!(action.as_str(), "Stop" | "Continue" | "SilentlyContinue") {
+                        common.push(format!("-ErrorAction {}", action));
+                    }
+                }
+            }
+            if let Some(v) = args_map.get("_wm_ps_whatif") {
+                if serde_json::from_str::<bool>(v.get()).unwrap_or(false) {
+                    common.push("-WhatIf".to_string());
+                }
+            }
+        }
+        let common_args = common.join(" ");
+
+        (user_args, common_args)
     };
 
     // Resolve modules from workspace dependencies and/or script imports
@@ -583,13 +613,21 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
     write_file(job_dir, "main.ps1", content.as_str())?;
 
+    let all_pwsh_args = if common_pwsh_args.is_empty() {
+        pwsh_args
+    } else if pwsh_args.is_empty() {
+        common_pwsh_args
+    } else {
+        format!("{pwsh_args} {common_pwsh_args}")
+    };
+
     write_file(
         job_dir,
         "wrapper.ps1",
         &format!(
             "$ErrorActionPreference = 'Stop'\n\
     $pipe = New-TemporaryFile\n\
-    ./main.ps1 {pwsh_args} 2>&1 | Tee-Object -FilePath $pipe\n\
+    ./main.ps1 {all_pwsh_args} 2>&1 | Tee-Object -FilePath $pipe\n\
     Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
     Remove-Item $pipe\n\
     exit $LASTEXITCODE\n"

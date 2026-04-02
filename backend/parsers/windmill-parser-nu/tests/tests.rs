@@ -56,6 +56,7 @@ mod test {
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
+                ..Default::default()
             },
             sig
         );
@@ -83,6 +84,7 @@ mod test {
                 },],
                 auto_kind: None,
                 has_preprocessor: None,
+                ..Default::default()
             },
             sig
         );
@@ -120,6 +122,7 @@ mod test {
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
+                ..Default::default()
             },
             sig
         );
@@ -232,6 +235,7 @@ mod test {
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
+                ..Default::default()
             },
             sig
         );
@@ -279,6 +283,7 @@ mod test {
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
+                ..Default::default()
             },
             sig
         );
@@ -343,7 +348,8 @@ mod test {
     //             },],
     //             auto_kind: None,
     //             has_preprocessor: None,
-    //         },
+    //             ..Default::default()
+},
     //         sig
     //     );
     // }
@@ -373,6 +379,7 @@ mod test {
                 },],
                 auto_kind: None,
                 has_preprocessor: None,
+                ..Default::default()
             },
             sig
         );
@@ -420,6 +427,7 @@ mod test {
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
+                ..Default::default()
             },
             sig
         );
@@ -448,6 +456,7 @@ mod test {
                 },],
                 auto_kind: None,
                 has_preprocessor: None,
+                ..Default::default()
             },
             sig
         );
@@ -480,7 +489,8 @@ mod test {
     //             },],
     //             auto_kind: None,
     //             has_preprocessor: None,
-    //         },
+    //             ..Default::default()
+},
     //         sig
     //     );
     // }
@@ -542,6 +552,7 @@ mod test {
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
+                ..Default::default()
             },
             sig
         );
@@ -635,7 +646,8 @@ mod test {
     //             ],
     //             auto_kind: None,
     //             has_preprocessor: None,
-    //         },
+    //             ..Default::default()
+},
     //         sig
     //     );
     // }

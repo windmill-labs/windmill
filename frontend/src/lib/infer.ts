@@ -454,6 +454,20 @@ export async function inferArgs(
 			schema.required.push(arg.name)
 		}
 	}
+	// Store PowerShell CmdletBinding metadata as schema extensions
+	const psSchema = inferedSchema as MainArgSignature & {
+		has_cmd_binding?: boolean
+		supports_should_process?: boolean
+	}
+	if (language === 'powershell' && psSchema.has_cmd_binding) {
+		;(schema as any)['x-windmill-ps-cmd-binding'] = true
+		;(schema as any)['x-windmill-ps-supports-should-process'] =
+			psSchema.supports_should_process ?? false
+	} else {
+		delete (schema as any)['x-windmill-ps-cmd-binding']
+		delete (schema as any)['x-windmill-ps-supports-should-process']
+	}
+
 	await tick()
 
 	return {

@@ -22,22 +22,70 @@ pub fn parse_bash_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             args,
             auto_kind: None,
             has_preprocessor: None,
+            ..Default::default()
         })
     } else {
         Err(anyhow!("Error parsing bash script".to_string()))
     }
 }
 
+/// PowerShell common parameter names that are automatically added by [CmdletBinding()].
+/// These should be filtered from the parsed signature since they are not user-defined.
+const POWERSHELL_COMMON_PARAMS: &[&str] = &[
+    "verbose",
+    "debug",
+    "erroraction",
+    "errorvariable",
+    "informationaction",
+    "informationvariable",
+    "outvariable",
+    "outbuffer",
+    "pipelinevariable",
+    "warningaction",
+    "warningvariable",
+    "whatif",
+    "confirm",
+    "progressaction",
+];
+
+/// Detects whether the script uses [CmdletBinding()] and whether it declares SupportsShouldProcess.
+fn detect_cmdlet_binding(code: &str) -> (bool, bool) {
+    let attr_region = match extract_powershell_param_block_with_attributes(code, true) {
+        Some((region, _)) => region,
+        None => return (false, false),
+    };
+    let lower = attr_region.to_lowercase();
+    let has_cmd_binding = lower.contains("[cmdletbinding");
+    let supports_should_process = has_cmd_binding
+        && lower.contains("supportsshouldprocess")
+        && !lower.contains("supportsshouldprocess=$false")
+        && !lower.contains("supportsshouldprocess = $false");
+    (has_cmd_binding, supports_should_process)
+}
+
 pub fn parse_powershell_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_powershell_file(&code)?;
-    if let Some(x) = parsed {
-        let args = x;
+    if let Some(args) = parsed {
+        let (has_cmd_binding, supports_should_process) = detect_cmdlet_binding(code);
+
+        // Filter out common parameters that a user may have explicitly declared
+        let args = args
+            .into_iter()
+            .filter(|arg| !POWERSHELL_COMMON_PARAMS.contains(&arg.name.to_lowercase().as_str()))
+            .collect();
+
         Ok(MainArgSignature {
             star_args: false,
             star_kwargs: false,
             args,
             auto_kind: None,
             has_preprocessor: None,
+            has_cmd_binding: if has_cmd_binding { Some(true) } else { None },
+            supports_should_process: if supports_should_process {
+                Some(true)
+            } else {
+                None
+            },
         })
     } else {
         Err(anyhow!("Error parsing powershell script".to_string()))
@@ -96,7 +144,10 @@ fn parse_bash_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
 /// This function uses the existing extract_powershell_param_block validation, which already
 /// ensures that only comments, whitespace, and attributes appear before param. So we can
 /// simply return everything from the beginning to the end of the param block.
-pub fn extract_powershell_param_block_with_attributes(code: &str, include_attributes: bool) -> Option<(&str, &str)> {
+pub fn extract_powershell_param_block_with_attributes(
+    code: &str,
+    include_attributes: bool,
+) -> Option<(&str, &str)> {
     // First, use the existing function to validate and find the param block
     let param_block = extract_powershell_param_block(code, true)?;
 
@@ -450,11 +501,15 @@ fn parse_powershell_parameters(content: &str) -> anyhow::Result<Vec<Arg>> {
 
                                 // Check if this is a Parameter attribute with Mandatory (case-insensitive)
                                 let lower = bracket_content.to_lowercase();
-                                if lower.starts_with("parameter(") || lower.starts_with("parameter ") {
+                                if lower.starts_with("parameter(")
+                                    || lower.starts_with("parameter ")
+                                {
                                     // Check for Mandatory (case-insensitive)
                                     if lower.contains("mandatory") {
                                         // Check if it's explicitly set to false
-                                        if !lower.contains("mandatory=$false") && !lower.contains("mandatory = $false") {
+                                        if !lower.contains("mandatory=$false")
+                                            && !lower.contains("mandatory = $false")
+                                        {
                                             is_mandatory = true;
                                         }
                                     }
@@ -471,7 +526,11 @@ fn parse_powershell_parameters(content: &str) -> anyhow::Result<Vec<Arg>> {
                                 // Check if this looks like a type (simple word, possibly with [])
                                 let is_type = !bracket_content.contains('(')
                                     && !bracket_content.contains('=')
-                                    && (bracket_content.chars().next().unwrap_or(' ').is_alphabetic()
+                                    && (bracket_content
+                                        .chars()
+                                        .next()
+                                        .unwrap_or(' ')
+                                        .is_alphabetic()
                                         || bracket_content.starts_with('['));
 
                                 if is_type && !found_dollar {
@@ -529,7 +588,9 @@ fn parse_powershell_parameters(content: &str) -> anyhow::Result<Vec<Arg>> {
 
                         while let Some((i, ch)) = chars.peek().copied() {
                             if in_string {
-                                if ch == string_char && content.chars().nth(i.saturating_sub(1)) != Some('`') {
+                                if ch == string_char
+                                    && content.chars().nth(i.saturating_sub(1)) != Some('`')
+                                {
                                     in_string = false;
                                     default_end = i + 1;
                                     chars.next();
@@ -544,7 +605,9 @@ fn parse_powershell_parameters(content: &str) -> anyhow::Result<Vec<Arg>> {
                                 chars.next();
                             } else if ch == ',' {
                                 break;
-                            } else if ch.is_whitespace() && chars.clone().skip(1).next().map(|(_, c)| c) == Some(',') {
+                            } else if ch.is_whitespace()
+                                && chars.clone().skip(1).next().map(|(_, c)| c) == Some(',')
+                            {
                                 break;
                             } else {
                                 default_end = i + 1;
@@ -552,12 +615,19 @@ fn parse_powershell_parameters(content: &str) -> anyhow::Result<Vec<Arg>> {
                             }
                         }
 
-                        default_value = Some(content[default_start..default_end].trim().to_string());
+                        default_value =
+                            Some(content[default_start..default_end].trim().to_string());
                     }
                     ',' => {
                         // End of parameter, finalize it
                         if let Some(name) = var_name.take() {
-                            args.push(finalize_parameter(name, type_annotation.take(), default_value.take(), is_mandatory, validate_set.take())?);
+                            args.push(finalize_parameter(
+                                name,
+                                type_annotation.take(),
+                                default_value.take(),
+                                is_mandatory,
+                                validate_set.take(),
+                            )?);
                         }
 
                         // Reset for next parameter
@@ -576,7 +646,13 @@ fn parse_powershell_parameters(content: &str) -> anyhow::Result<Vec<Arg>> {
 
     // Finalize last parameter
     if let Some(name) = var_name {
-        args.push(finalize_parameter(name, type_annotation, default_value, is_mandatory, validate_set)?);
+        args.push(finalize_parameter(
+            name,
+            type_annotation,
+            default_value,
+            is_mandatory,
+            validate_set,
+        )?);
     }
 
     Ok(args)
@@ -722,7 +798,8 @@ non_required="${5:-}"
                     }
                 ],
                 auto_kind: None,
-                has_preprocessor: None
+                has_preprocessor: None,
+                ..Default::default()
             }
         );
 
@@ -813,14 +890,19 @@ non_required="${5:-}"
                     Arg {
                         otyp: Some("string".to_string()), // [string] (last type bracket with Mandatory and ValidateSet)
                         name: "Message".to_string(),
-                        typ: Typ::Str(Some(vec!["Green".to_string(), "Blue".to_string(), "Red".to_string()])), // ValidateSet enum
+                        typ: Typ::Str(Some(vec![
+                            "Green".to_string(),
+                            "Blue".to_string(),
+                            "Red".to_string()
+                        ])), // ValidateSet enum
                         default: None,
                         has_default: false, // Required (Mandatory attribute)
                         oidx: None
                     }
                 ],
                 auto_kind: None,
-                has_preprocessor: None
+                has_preprocessor: None,
+                ..Default::default()
             }
         );
         Ok(())
@@ -970,19 +1052,13 @@ non_required="${5:-}"
 
         // Valid: CmdletBinding with comments
         assert_eq!(
-            extract_powershell_param_block(
-                "# My function\n[CmdletBinding()]\nparam($Name)",
-                false
-            ),
+            extract_powershell_param_block("# My function\n[CmdletBinding()]\nparam($Name)", false),
             Some("$Name")
         );
 
         // Valid: CmdletBinding with whitespace variations
         assert_eq!(
-            extract_powershell_param_block(
-                "[CmdletBinding()]  \n  param($Name)",
-                false
-            ),
+            extract_powershell_param_block("[CmdletBinding()]  \n  param($Name)", false),
             Some("$Name")
         );
 
@@ -1204,17 +1280,32 @@ param(
         // Test with CmdletBinding with parameters
         let code3 = "[CmdletBinding(DefaultParameterSetName='ByName')]\nparam($Name, $Id)";
         let result3 = extract_powershell_param_block_with_attributes(code3, true);
-        assert_eq!(result3, Some(("[CmdletBinding(DefaultParameterSetName='ByName')]\nparam($Name, $Id)", "")));
+        assert_eq!(
+            result3,
+            Some((
+                "[CmdletBinding(DefaultParameterSetName='ByName')]\nparam($Name, $Id)",
+                ""
+            ))
+        );
 
         // Test with multiple attributes
         let code4 = "[CmdletBinding()]\n[OutputType([string])]\nparam($Value)";
         let result4 = extract_powershell_param_block_with_attributes(code4, true);
-        assert_eq!(result4, Some(("[CmdletBinding()]\n[OutputType([string])]\nparam($Value)", "")));
+        assert_eq!(
+            result4,
+            Some((
+                "[CmdletBinding()]\n[OutputType([string])]\nparam($Value)",
+                ""
+            ))
+        );
 
         // Test with comment before attributes
         let code5 = "# My function\n[CmdletBinding()]\nparam($Name)";
         let result5 = extract_powershell_param_block_with_attributes(code5, true);
-        assert_eq!(result5, Some(("# My function\n[CmdletBinding()]\nparam($Name)", "")));
+        assert_eq!(
+            result5,
+            Some(("# My function\n[CmdletBinding()]\nparam($Name)", ""))
+        );
 
         // Test with include_attributes = false (should only get param block, not attributes)
         let code6 = "[CmdletBinding()]\nparam($Name)";
@@ -1224,7 +1315,10 @@ param(
         // Test with code after param
         let code7 = "[CmdletBinding()]\nparam($Name)\nWrite-Host 'Hello'";
         let result7 = extract_powershell_param_block_with_attributes(code7, true);
-        assert_eq!(result7, Some(("[CmdletBinding()]\nparam($Name)", "\nWrite-Host 'Hello'")));
+        assert_eq!(
+            result7,
+            Some(("[CmdletBinding()]\nparam($Name)", "\nWrite-Host 'Hello'"))
+        );
 
         // Test with code after param (without attributes)
         let code8 = "[CmdletBinding()]\nparam($Name)\nWrite-Host 'Hello'";
@@ -1392,10 +1486,79 @@ param(
                     }
                 ],
                 auto_kind: None,
-                has_preprocessor: None
+                has_preprocessor: None,
+                ..Default::default()
             }
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_detect_cmdlet_binding() {
+        // Basic CmdletBinding
+        let (has_cb, has_ssp) = detect_cmdlet_binding("[CmdletBinding()]\nparam($Name)");
+        assert!(has_cb);
+        assert!(!has_ssp);
+
+        // CmdletBinding with SupportsShouldProcess
+        let (has_cb, has_ssp) =
+            detect_cmdlet_binding("[CmdletBinding(SupportsShouldProcess=$true)]\nparam($Path)");
+        assert!(has_cb);
+        assert!(has_ssp);
+
+        // CmdletBinding with SupportsShouldProcess=false
+        let (has_cb, has_ssp) =
+            detect_cmdlet_binding("[CmdletBinding(SupportsShouldProcess=$false)]\nparam($Path)");
+        assert!(has_cb);
+        assert!(!has_ssp);
+
+        // No CmdletBinding
+        let (has_cb, has_ssp) = detect_cmdlet_binding("param($Name)");
+        assert!(!has_cb);
+        assert!(!has_ssp);
+
+        // Case insensitive
+        let (has_cb, has_ssp) =
+            detect_cmdlet_binding("[cmdletbinding(supportsshouldprocess=$true)]\nparam($X)");
+        assert!(has_cb);
+        assert!(has_ssp);
+    }
+
+    #[test]
+    fn test_powershell_common_param_filtering() -> anyhow::Result<()> {
+        // Common parameters declared in param() should be filtered out
+        let code = r#"[CmdletBinding()]
+param(
+    [string]$Name,
+    [switch]$Verbose,
+    [string]$ErrorAction,
+    [int]$Age
+)"#;
+        let sig = parse_powershell_sig(code)?;
+        assert_eq!(sig.args.len(), 2);
+        assert_eq!(sig.args[0].name, "Name");
+        assert_eq!(sig.args[1].name, "Age");
+        assert_eq!(sig.has_cmd_binding, Some(true));
+        assert_eq!(sig.supports_should_process, None);
+        Ok(())
+    }
+
+    #[test]
+    fn test_powershell_sig_cmdlet_binding_metadata() -> anyhow::Result<()> {
+        // Script without CmdletBinding
+        let code = "param([string]$Name)";
+        let sig = parse_powershell_sig(code)?;
+        assert_eq!(sig.has_cmd_binding, None);
+        assert_eq!(sig.supports_should_process, None);
+
+        // Script with CmdletBinding + SupportsShouldProcess
+        let code = "[CmdletBinding(SupportsShouldProcess=$true)]\nparam([string]$Path)";
+        let sig = parse_powershell_sig(code)?;
+        assert_eq!(sig.has_cmd_binding, Some(true));
+        assert_eq!(sig.supports_should_process, Some(true));
+        assert_eq!(sig.args.len(), 1);
+        assert_eq!(sig.args[0].name, "Path");
         Ok(())
     }
 }
