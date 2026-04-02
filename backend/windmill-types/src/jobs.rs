@@ -357,6 +357,7 @@ pub enum JobPayload {
         apply_preprocessor: bool,
         concurrency_settings: ConcurrencySettings,
         debouncing_settings: DebouncingSettings,
+        labels: Option<Vec<String>>,
     },
     FlowNode {
         id: FlowNodeId,
@@ -410,6 +411,7 @@ pub enum JobPayload {
         dedicated_worker: Option<bool>,
         apply_preprocessor: bool,
         version: i64,
+        labels: Option<Vec<String>>,
     },
     RestartedFlow {
         completed_job_id: Uuid,

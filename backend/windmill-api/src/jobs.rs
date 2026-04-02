@@ -4593,6 +4593,7 @@ pub async fn run_wait_result_script_by_hash(
         has_preprocessor,
         on_behalf_of_email,
         created_by,
+        labels,
         runnable_settings:
             ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
         ..
@@ -4643,6 +4644,7 @@ pub async fn run_wait_result_script_by_hash(
             priority,
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
+            labels,
         },
         PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
@@ -6373,6 +6375,7 @@ pub async fn run_job_by_hash_inner(
         on_behalf_of_email,
         created_by,
         delete_after_use,
+        labels,
         ..
     } = get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash)
         .await?
@@ -6422,6 +6425,7 @@ pub async fn run_job_by_hash_inner(
             priority,
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
+            labels,
         },
         PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
