@@ -4,6 +4,8 @@
 	import { classNames } from '$lib/utils'
 	import { AlertTriangle, CornerDownLeft, Download, Loader2 } from 'lucide-svelte'
 	import Select from '$lib/components/select/Select.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { UserService, FolderService } from '$lib/gen'
 	import type { WorkspaceOffboardPreview, OffboardAffectedPaths } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -280,18 +282,18 @@
 												<span class="text-xs font-medium text-secondary block mb-1"
 													>Reassign to</span
 												>
-												<div class="flex items-center gap-1 mb-1.5">
-													<Button
-														size="xs2"
-														variant={cfg.targetKind === 'user' ? 'accent' : 'default'}
-														onclick={() => (cfg.targetKind = 'user')}>User</Button
-													>
-													<Button
-														size="xs2"
-														variant={cfg.targetKind === 'folder' ? 'accent' : 'default'}
-														onclick={() => (cfg.targetKind = 'folder')}>Folder</Button
-													>
-												</div>
+												<ToggleButtonGroup
+													selected={cfg.targetKind}
+													on:selected={(e) => {
+														cfg.targetKind = e.detail
+													}}
+													class="mb-1.5"
+												>
+													{#snippet children({ item })}
+														<ToggleButton value="user" label="User" small {item} />
+														<ToggleButton value="folder" label="Folder" small {item} />
+													{/snippet}
+												</ToggleButtonGroup>
 												{#if cfg.targetKind === 'user'}
 													<Select
 														items={cfg.users}

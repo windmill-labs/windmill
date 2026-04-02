@@ -4,6 +4,8 @@
 	import { classNames } from '$lib/utils'
 	import { AlertTriangle, CornerDownLeft, Download, Loader2 } from 'lucide-svelte'
 	import Select from '$lib/components/select/Select.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { UserService, FolderService } from '$lib/gen'
 	import type { OffboardAffectedPaths } from '$lib/gen'
 	import type { OffboardPreview } from '$lib/gen/types.gen'
@@ -26,6 +28,7 @@
 	let submitting = $state(false)
 	let conflicts: string[] = $state([])
 
+	let doReassign = $state(true)
 	let targetKind: 'user' | 'folder' = $state('user')
 	let selectedUser: string | undefined = $state(undefined)
 	let selectedFolder: string | undefined = $state(undefined)
@@ -77,7 +80,9 @@
 		}
 	})
 
-	let canSubmit = $derived((ownedCount === 0 || reassignTo != null) && selectedOperator != null)
+	let canSubmit = $derived(
+		!doReassign || ((ownedCount === 0 || reassignTo != null) && selectedOperator != null)
+	)
 
 	$effect(() => {
 		if (open) {
@@ -107,10 +112,17 @@
 	}
 
 	async function submit() {
-		if (!reassignTo) return
 		submitting = true
 		conflicts = []
 		try {
+			if (!doReassign) {
+				// Just delete without reassigning
+				await UserService.deleteUser({ workspace: $workspaceStore ?? '', username })
+				sendUserToast(`User ${username} removed`)
+				onComplete()
+				return
+			}
+			if (!reassignTo) return
 			const result = await UserService.offboardWorkspaceUser({
 				workspace: $workspaceStore ?? '',
 				username,
@@ -314,59 +326,61 @@
 									</Alert>
 								{/if}
 
-								{#if ownedCount > 0}
-									<div>
-										<span class="text-sm font-medium text-primary block mb-1.5"
-											>Reassign owned items to</span
-										>
-										<div class="flex items-center gap-1 mb-2">
-											<Button
-												size="xs2"
-												variant={targetKind === 'user' ? 'accent' : 'default'}
-												onclick={() => (targetKind = 'user')}>User</Button
-											>
-											<Button
-												size="xs2"
-												variant={targetKind === 'folder' ? 'accent' : 'default'}
-												onclick={() => (targetKind = 'folder')}>Folder</Button
-											>
-										</div>
-										{#if targetKind === 'user'}
-											<Select
-												items={users}
-												bind:value={selectedUser}
-												placeholder="Select a user..."
-											/>
-										{:else}
-											<Select
-												items={folders}
-												bind:value={selectedFolder}
-												placeholder="Select a folder..."
-											/>
-										{/if}
+								<!-- Reassign toggle (only when removing, not in reassign-only mode) -->
+								{#if !reassignOnly}
+									<div class="flex items-center gap-2">
+										<Toggle bind:checked={doReassign} size="xs" />
+										<span class="text-sm text-primary">Reassign items before removing</span>
 									</div>
 								{/if}
 
-								<div>
-									<span class="text-sm font-medium text-primary block mb-1.5"
-										>New on_behalf_of user</span
-									>
-									<p class="text-xs text-tertiary mb-1.5"
-										>User identity for permissioned_as on schedules/triggers and on_behalf_of on
-										scripts/flows/apps.</p
-									>
-									<Select
-										items={users}
-										bind:value={selectedOperator}
-										placeholder="Select a user..."
-									/>
-								</div>
+								{#if doReassign}
+									{#if ownedCount > 0}
+										<div>
+											<span class="text-sm font-medium text-primary block mb-1.5"
+												>Reassign owned items to</span
+											>
+											<ToggleButtonGroup
+												selected={targetKind}
+												on:selected={(e) => {
+													targetKind = e.detail
+												}}
+												class="mb-2"
+											>
+												{#snippet children({ item })}
+													<ToggleButton value="user" label="User" small {item} />
+													<ToggleButton value="folder" label="Folder" small {item} />
+												{/snippet}
+											</ToggleButtonGroup>
+											{#if targetKind === 'user'}
+												<Select
+													items={users}
+													bind:value={selectedUser}
+													placeholder="Select a user..."
+												/>
+											{:else}
+												<Select
+													items={folders}
+													bind:value={selectedFolder}
+													placeholder="Select a folder..."
+												/>
+											{/if}
+										</div>
+									{/if}
 
-								<!-- Delete user toggle -->
-								{#if !reassignOnly}
-									<div class="flex items-center gap-2 pt-1">
-										<Toggle bind:checked={deleteUser} size="xs" />
-										<span class="text-sm text-secondary">Also remove user from workspace</span>
+									<div>
+										<span class="text-sm font-medium text-primary block mb-1.5"
+											>New on_behalf_of user</span
+										>
+										<p class="text-xs text-tertiary mb-1.5"
+											>User identity for permissioned_as on schedules/triggers and on_behalf_of on
+											scripts/flows/apps.</p
+										>
+										<Select
+											items={users}
+											bind:value={selectedOperator}
+											placeholder="Select a user..."
+										/>
 									</div>
 								{/if}
 							{:else}
