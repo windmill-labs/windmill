@@ -17796,6 +17796,7 @@ dependencies = [
  "windmill-runtime-nativets",
  "windmill-types",
  "windmill-worker-volumes",
+ "windows 0.61.3",
  "x509-parser 0.16.0",
  "yaml-rust",
 ]
