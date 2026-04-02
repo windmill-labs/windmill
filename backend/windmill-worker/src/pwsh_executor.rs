@@ -337,7 +337,7 @@ pub async fn handle_powershell_job(
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
-    let (pwsh_args, common_pwsh_args) = {
+    let (pwsh_args, ps_preference_vars, common_pwsh_args) = {
         let args = build_args_map(job, client, &db).await?.map(Json);
         let job_args = if args.is_some() {
             args.as_ref()
@@ -387,34 +387,38 @@ pub async fn handle_powershell_job(
             .join(" ");
 
         // Extract PowerShell common parameters (_wm_ps_* keys)
-        let mut common = Vec::new();
+        // Preference variables are set in the wrapper scope (propagate to child scripts)
+        let mut preference_vars = Vec::new();
+        // Command-line args are passed directly to main.ps1
+        let mut common_cli_args = Vec::new();
         if let Some(args_map) = job_args {
             if let Some(v) = args_map.get("_wm_ps_verbose") {
                 if serde_json::from_str::<bool>(v.get()).unwrap_or(false) {
-                    common.push("-Verbose".to_string());
+                    preference_vars.push("$VerbosePreference = 'Continue'".to_string());
                 }
             }
             if let Some(v) = args_map.get("_wm_ps_debug") {
                 if serde_json::from_str::<bool>(v.get()).unwrap_or(false) {
-                    common.push("-Debug".to_string());
+                    preference_vars.push("$DebugPreference = 'Continue'".to_string());
                 }
             }
             if let Some(v) = args_map.get("_wm_ps_error_action") {
                 if let Ok(action) = serde_json::from_str::<String>(v.get()) {
                     if matches!(action.as_str(), "Stop" | "Continue" | "SilentlyContinue") {
-                        common.push(format!("-ErrorAction {}", action));
+                        common_cli_args.push(format!("-ErrorAction {}", action));
                     }
                 }
             }
             if let Some(v) = args_map.get("_wm_ps_whatif") {
                 if serde_json::from_str::<bool>(v.get()).unwrap_or(false) {
-                    common.push("-WhatIf".to_string());
+                    common_cli_args.push("-WhatIf".to_string());
                 }
             }
         }
-        let common_args = common.join(" ");
+        let preference_lines = preference_vars.join("\n");
+        let common_args = common_cli_args.join(" ");
 
-        (user_args, common_args)
+        (user_args, preference_lines, common_args)
     };
 
     // Resolve modules from workspace dependencies and/or script imports
@@ -621,11 +625,21 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         format!("{pwsh_args} {common_pwsh_args}")
     };
 
+    // Preference variables ($VerbosePreference, $DebugPreference) are set in the wrapper
+    // scope before calling main.ps1. They propagate to child scopes, and output goes
+    // through the host to stderr which Windmill captures as logs.
+    let preference_section = if ps_preference_vars.is_empty() {
+        String::new()
+    } else {
+        format!("{ps_preference_vars}\n")
+    };
+
     write_file(
         job_dir,
         "wrapper.ps1",
         &format!(
             "$ErrorActionPreference = 'Stop'\n\
+    {preference_section}\
     $pipe = New-TemporaryFile\n\
     ./main.ps1 {all_pwsh_args} 2>&1 | Tee-Object -FilePath $pipe\n\
     Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
