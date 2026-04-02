@@ -190,7 +190,7 @@
 	let jsonView = $state(false)
 	let schemaHeight = $state(0)
 	let psCommonParams: Record<string, any> = $state({})
-	let showPsCommonParams = $derived(lang === 'powershell' && /\[CmdletBinding/i.test(code))
+	let showPsCommonParams = $derived(lang === 'powershell' && /^\s*\[CmdletBinding/im.test(code))
 	let psSupportsShouldProcess = $derived(
 		showPsCommonParams &&
 			/SupportsShouldProcess/i.test(code) &&
