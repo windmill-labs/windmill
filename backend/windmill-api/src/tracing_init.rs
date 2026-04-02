@@ -26,9 +26,9 @@ impl<B> OnResponse<B> for MyOnResponse {
         self,
         response: &Response<B>,
         latency: std::time::Duration,
-        _span: &tracing::Span,
+        span: &tracing::Span,
     ) {
-        if *LOG_REQUESTS {
+        if *LOG_REQUESTS && !span.is_none() {
             let latency = latency.as_millis();
             let status = response.status().as_u16();
             if response.status().is_success() || response.status().is_redirection() {
@@ -60,6 +60,9 @@ pub struct MyMakeSpan {}
 
 impl<B> MakeSpan<B> for MyMakeSpan {
     fn make_span(&mut self, request: &hyper::Request<B>) -> Span {
+        if request.uri().path().contains("/s3_proxy/") {
+            return Span::none();
+        }
         let tracing_id = request
             .headers()
             .get(TRACING_HEADER.as_str())
