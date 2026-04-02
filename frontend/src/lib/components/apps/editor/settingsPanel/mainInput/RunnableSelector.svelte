@@ -8,10 +8,10 @@
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import type { Schema } from '$lib/common'
-	import { schemaToInputsSpec } from '$lib/components/apps/utils'
-	import { defaultIfEmptyString, emptySchema } from '$lib/utils'
+	import { emptySchema } from '$lib/utils'
 	import { loadSchema } from '$lib/infer'
 	import { workspaceStore } from '$lib/stores'
+	import { buildPathRunnableSelection } from './runnableSelectorUtils'
 
 	type TabType = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
@@ -62,51 +62,44 @@
 	}
 
 	async function pickScript(path: string) {
-		const schema = await loadSchemaFromTriggerable(path, 'script')
-		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
-		const runnable = {
-			type: 'path',
+		const selection = buildPathRunnableSelection(
 			path,
-			runType: 'script',
-			schema: schema.schema,
-			name: defaultIfEmptyString(schema.summary, path)
-		} as const
-
+			'script',
+			await loadSchemaFromTriggerable(path, 'script'),
+			defaultUserInput,
+			rawApps
+		)
 		dispatch('pick', {
-			runnable,
-			fields
+			runnable: selection.runnable,
+			fields: selection.fields
 		})
 	}
 
 	async function pickFlow(path: string) {
-		const schema = await loadSchemaFromTriggerable(path, 'flow')
-		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
-		const runnable = {
-			type: 'path',
+		const selection = buildPathRunnableSelection(
 			path,
-			runType: 'flow',
-			schema,
-			name: defaultIfEmptyString(schema.summary, path)
-		} as const
+			'flow',
+			await loadSchemaFromTriggerable(path, 'flow'),
+			defaultUserInput,
+			rawApps
+		)
 		dispatch('pick', {
-			runnable,
-			fields
+			runnable: selection.runnable,
+			fields: selection.fields
 		})
 	}
 
 	async function pickHubScript(path: string) {
-		const schema = await loadSchemaFromTriggerable(path, 'hubscript')
-		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
-		const runnable = {
-			type: 'path',
+		const selection = buildPathRunnableSelection(
 			path,
-			runType: 'hubscript',
-			schema: schema.schema,
-			name: defaultIfEmptyString(schema.summary, path)
-		} as const
+			'hubscript',
+			await loadSchemaFromTriggerable(path, 'hubscript'),
+			defaultUserInput,
+			rawApps
+		)
 		dispatch('pick', {
-			runnable,
-			fields
+			runnable: selection.runnable,
+			fields: selection.fields
 		})
 	}
 

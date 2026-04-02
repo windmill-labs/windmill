@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.672.0](https://github.com/windmill-labs/windmill/compare/v1.671.0...v1.672.0) (2026-04-01)
+
+
+### Features
+
+* add R language support ([#8263](https://github.com/windmill-labs/windmill/issues/8263)) ([a46aa64](https://github.com/windmill-labs/windmill/commit/a46aa641f9d72809c52a0eb11a877a0f2d587c32))
+
+
+### Bug Fixes
+
+* approval page freeze, stale state, and missing approval link ([#8653](https://github.com/windmill-labs/windmill/issues/8653)) ([7069202](https://github.com/windmill-labs/windmill/commit/70692021909443b86ed61fa621fe49f28742fb54))
+
 ## [1.671.0](https://github.com/windmill-labs/windmill/compare/v1.670.0...v1.671.0) (2026-03-31)
 
 
