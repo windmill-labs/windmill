@@ -250,20 +250,3 @@ E'export function main(x: number) { return x * 3; }',
 '', '',
 'f/system/dedicated_double', 300040, 'bun', E'{}\n//bun.lock\n<empty>', true);
 
--- Two scripts that sleep for 500ms each, used to test serialization across dedicated workers.
--- Each returns {start_ms, end_ms} so the test can verify non-overlapping execution.
-INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock, dedicated_worker) VALUES (
-'test-workspace',
-'system',
-E'export async function main(x: number) { const start_ms = Date.now(); await Bun.sleep(500); return { start_ms, end_ms: Date.now(), value: x + 1 }; }',
-'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"x":{"type":"number","description":""}},"required":["x"],"type":"object"}',
-'', '',
-'f/system/serial_a', 300020, 'bun', E'{}\n//bun.lock\n<empty>', true);
-
-INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock, dedicated_worker) VALUES (
-'test-workspace',
-'system',
-E'export async function main(x: number) { const start_ms = Date.now(); await Bun.sleep(500); return { start_ms, end_ms: Date.now(), value: x + 2 }; }',
-'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"x":{"type":"number","description":""}},"required":["x"],"type":"object"}',
-'', '',
-'f/system/serial_b', 300021, 'bun', E'{}\n//bun.lock\n<empty>', true);

@@ -319,7 +319,7 @@ mod dedicated_worker_tests {
         let server = ApiServer::start(db.clone()).await?;
         let port = server.addr.port();
 
-        let result = in_test_worker(
+        let job = in_test_worker(
             db.clone(),
             async {
                 RunJob::from(JobPayload::Flow {
@@ -330,15 +330,15 @@ mod dedicated_worker_tests {
                 })
                 .run_until_complete(&db, false, port)
                 .await
-                .json_result()
-                .unwrap()
             },
             port,
         )
         .await;
 
         // for-loop over [1, 2, 3], each * 10 = [10, 20, 30]
-        assert_eq!(result, json!([10, 20, 30]));
+        assert_eq!(job.json_result().unwrap(), json!([10, 20, 30]));
+        // Verify the loop iterations ran on dedicated worker subprocesses
+        assert_ran_on_dedicated_worker(&db, job.id, "bun").await;
         Ok(())
     }
 
@@ -478,95 +478,6 @@ mod dedicated_worker_tests {
         let job = completed_job(uuid, &db).await;
         assert_eq!(job.json_result().unwrap(), json!(105));
         assert_ran_on_dedicated_worker(&db, uuid, "nodejs").await;
-        Ok(())
-    }
-
-    /// Test that multiple dedicated worker subprocesses serialize job execution.
-    /// Two scripts each sleep 500ms. If they ran concurrently, total wall time would be ~500ms.
-    /// With serialization, it should be >= 1000ms and their execution intervals must not overlap.
-    #[sqlx::test(fixtures("base", "dedicated_flows"))]
-    #[serial]
-    async fn test_dedicated_serialization(db: Pool<Postgres>) -> anyhow::Result<()> {
-        initialize_tracing().await;
-        let server = ApiServer::start(db.clone()).await?;
-        let port = server.addr.port();
-
-        let uuid_a = RunJob::from(JobPayload::ScriptHash {
-            hash: windmill_common::scripts::ScriptHash(300020),
-            path: "f/system/serial_a".to_string(),
-            cache_ttl: None,
-            cache_ignore_s3_path: None,
-            dedicated_worker: Some(true),
-            language: windmill_common::scripts::ScriptLang::Bun,
-            priority: None,
-            apply_preprocessor: false,
-            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
-            ),
-            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
-        })
-        .arg("x", json!(10))
-        .push(&db)
-        .await;
-
-        let uuid_b = RunJob::from(JobPayload::ScriptHash {
-            hash: windmill_common::scripts::ScriptHash(300021),
-            path: "f/system/serial_b".to_string(),
-            cache_ttl: None,
-            cache_ignore_s3_path: None,
-            dedicated_worker: Some(true),
-            language: windmill_common::scripts::ScriptLang::Bun,
-            priority: None,
-            apply_preprocessor: false,
-            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
-            ),
-            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
-        })
-        .arg("x", json!(20))
-        .push(&db)
-        .await;
-
-        let listener = listen_for_completed_jobs(&db).await;
-        in_test_worker_dedicated(
-            db.clone(),
-            async {
-                listener.find(&uuid_a).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_b).await;
-            },
-            port,
-            vec![
-                wp("test-workspace", "f/system/serial_a"),
-                wp("test-workspace", "f/system/serial_b"),
-            ],
-        )
-        .await;
-
-        let job_a = completed_job(uuid_a, &db).await;
-        let job_b = completed_job(uuid_b, &db).await;
-        let result_a = job_a.json_result().unwrap();
-        let result_b = job_b.json_result().unwrap();
-        assert_eq!(result_a["value"], json!(11));
-        assert_eq!(result_b["value"], json!(22));
-
-        // Both should have run on dedicated workers
-        assert_ran_on_dedicated_worker(&db, uuid_a, "bun").await;
-        assert_ran_on_dedicated_worker(&db, uuid_b, "bun").await;
-
-        // Verify serialization: execution intervals must not overlap.
-        // Each script records its own start_ms/end_ms via Date.now(), so these
-        // reflect actual JS execution time, not queue pull time.
-        let start_a = result_a["start_ms"].as_i64().unwrap();
-        let end_a = result_a["end_ms"].as_i64().unwrap();
-        let start_b = result_b["start_ms"].as_i64().unwrap();
-        let end_b = result_b["end_ms"].as_i64().unwrap();
-
-        let overlap = start_a < end_b && start_b < end_a;
-        assert!(
-            !overlap,
-            "Dedicated worker jobs should not overlap! A: {}..{}, B: {}..{}",
-            start_a, end_a, start_b, end_b,
-        );
-
         Ok(())
     }
 

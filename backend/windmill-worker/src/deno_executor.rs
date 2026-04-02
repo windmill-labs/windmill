@@ -734,7 +734,6 @@ pub async fn start_worker(
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: windmill_common::client::AuthedClient,
-    serialization_semaphore: Option<std::sync::Arc<tokio::sync::Semaphore>>,
 ) -> Result<()> {
     use windmill_common::variables;
 
@@ -803,7 +802,6 @@ pub async fn start_worker(
         script_path,
         "deno",
         client,
-        serialization_semaphore,
     )
     .await
 }
