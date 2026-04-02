@@ -718,6 +718,8 @@ struct MemoryLimitedChild {
 #[cfg(windows)]
 struct Win32JobHandle(windows::Win32::Foundation::HANDLE);
 
+// SAFETY: Win32 HANDLEs are plain pointer-sized values with no thread affinity;
+// the kernel ref-counts the underlying object, so sending/sharing the handle is safe.
 #[cfg(windows)]
 unsafe impl Send for Win32JobHandle {}
 #[cfg(windows)]
