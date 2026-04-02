@@ -2451,6 +2451,10 @@ struct ApprovalInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    default_args: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    enums: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     approval_conditions: Option<ApprovalConditions>,
     can_approve: bool,
     user_auth_required: bool,
@@ -2505,90 +2509,112 @@ async fn get_approval_info(
     let is_wac = row.workflow_as_code_status.is_some();
 
     // Extract approval info based on WAC vs classic flow
-    let (form_schema, description, approval_conditions, hide_cancel) = if is_wac {
-        let approval_meta = row
-            .workflow_as_code_status
-            .as_ref()
-            .and_then(|v| v.get("_approval"));
-        let form = approval_meta.and_then(|m| m.get("form").cloned());
-        let ac = row
-            .flow_status
-            .as_ref()
-            .and_then(|v| v.get("approval_conditions"))
-            .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
-        (form, None, ac, None)
-    } else {
-        let fs = row
-            .flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
-        let ac = fs.as_ref().and_then(|s| s.approval_conditions.clone());
+    let (form_schema, description, default_args, enums, approval_conditions, hide_cancel) =
+        if is_wac {
+            let approval_meta = row
+                .workflow_as_code_status
+                .as_ref()
+                .and_then(|v| v.get("_approval"));
+            let form = approval_meta.and_then(|m| m.get("form").cloned());
+            let default_args = approval_meta.and_then(|m| m.get("default_args").cloned());
+            let enums = approval_meta.and_then(|m| m.get("enums").cloned());
+            let description = approval_meta.and_then(|m| m.get("description").cloned());
+            let ac = row
+                .flow_status
+                .as_ref()
+                .and_then(|v| v.get("approval_conditions"))
+                .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
+            (form, description, default_args, enums, ac, None)
+        } else {
+            let fs = row
+                .flow_status
+                .as_ref()
+                .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
+            let ac = fs.as_ref().and_then(|s| s.approval_conditions.clone());
 
-        // For classic flows, form/description come from the flow definition and step result
-        let approval_step = fs.as_ref().map(|s| (s.step as usize).saturating_sub(1));
+            // For classic flows, form/description come from the flow definition and step result
+            let approval_step = fs.as_ref().map(|s| (s.step as usize).saturating_sub(1));
 
-        // Fetch flow definition to get suspend settings (form schema, hide_cancel).
-        // Try raw_flow on the job first, fall back to flow_version for deployed flows.
-        let raw_flow: Option<FlowValue> = {
-            let from_job: Option<serde_json::Value> = sqlx::query_scalar(
-                "SELECT raw_flow FROM v2_job WHERE id = $1 AND workspace_id = $2",
-            )
-            .bind(&job_id)
-            .bind(&w_id)
-            .fetch_optional(&db)
-            .await?
-            .flatten();
-
-            if let Some(v) = from_job {
-                serde_json::from_value(v).ok()
-            } else {
-                // Deployed flow: fetch from flow_version using runnable_id
-                let from_version: Option<serde_json::Value> = sqlx::query_scalar(
-                    "SELECT fv.value FROM v2_job j JOIN flow_version fv ON fv.id = j.runnable_id \
-                     WHERE j.id = $1 AND j.workspace_id = $2",
+            // Fetch flow definition to get suspend settings (form schema, hide_cancel).
+            // Try raw_flow on the job first, fall back to flow_version for deployed flows,
+            // then flow_node for graph-based branch/loop sub-flows.
+            let raw_flow: Option<FlowValue> = {
+                let from_job: Option<serde_json::Value> = sqlx::query_scalar(
+                    "SELECT raw_flow FROM v2_job WHERE id = $1 AND workspace_id = $2",
                 )
                 .bind(&job_id)
                 .bind(&w_id)
                 .fetch_optional(&db)
                 .await?
                 .flatten();
-                from_version.and_then(|v| serde_json::from_value(v).ok())
-            }
+
+                if let Some(v) = from_job {
+                    serde_json::from_value(v).ok()
+                } else {
+                    // Deployed flow: fetch from flow_version using runnable_id
+                    let from_version: Option<serde_json::Value> = sqlx::query_scalar(
+                        "SELECT fv.value FROM v2_job j JOIN flow_version fv ON fv.id = j.runnable_id \
+                         WHERE j.id = $1 AND j.workspace_id = $2",
+                    )
+                    .bind(&job_id)
+                    .bind(&w_id)
+                    .fetch_optional(&db)
+                    .await?
+                    .flatten();
+                    if let Some(v) = from_version {
+                        serde_json::from_value(v).ok()
+                    } else {
+                        // FlowNode sub-flow (graph-based branch/loop): raw_flow is not stored
+                        // in v2_job for newer versions, fetch from flow_node table
+                        let from_node: Option<serde_json::Value> = sqlx::query_scalar(
+                            "SELECT fn.flow FROM v2_job j \
+                             JOIN flow_node fn ON fn.id = j.runnable_id \
+                             WHERE j.id = $1 AND j.workspace_id = $2",
+                        )
+                        .bind(&job_id)
+                        .bind(&w_id)
+                        .fetch_optional(&db)
+                        .await?
+                        .flatten();
+                        from_node.and_then(|v| serde_json::from_value(v).ok())
+                    }
+                }
+            };
+
+            let suspend_module = raw_flow
+                .as_ref()
+                .and_then(|rf| approval_step.and_then(|s| rf.modules.get(s)));
+            let suspend_settings = suspend_module.and_then(|m| m.suspend.as_ref());
+
+            let form = suspend_settings
+                .and_then(|s| s.resume_form.as_ref())
+                .map(|rf| serde_json::json!(rf));
+            let hc = suspend_settings.map(|s| s.hide_cancel.unwrap_or(false));
+
+            // Fetch description, default_args, and enums from the step's completed job result
+            let step_job_id = fs
+                .as_ref()
+                .and_then(|s| approval_step.and_then(|step| s.modules.get(step)))
+                .and_then(|m| m.job());
+            let (desc, default_args, enums) = if let Some(sjid) = step_job_id {
+                let result: Option<serde_json::Value> = sqlx::query_scalar(
+                    "SELECT result FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
+                )
+                .bind(sjid)
+                .bind(&w_id)
+                .fetch_optional(&db)
+                .await?
+                .flatten();
+                let desc = result.as_ref().and_then(|r| r.get("description").cloned());
+                let da = result.as_ref().and_then(|r| r.get("default_args").cloned());
+                let enums = result.as_ref().and_then(|r| r.get("enums").cloned());
+                (desc, da, enums)
+            } else {
+                (None, None, None)
+            };
+
+            (form, desc, default_args, enums, ac, hc)
         };
-
-        let suspend_module = raw_flow
-            .as_ref()
-            .and_then(|rf| approval_step.and_then(|s| rf.modules.get(s)));
-        let suspend_settings = suspend_module.and_then(|m| m.suspend.as_ref());
-
-        let form = suspend_settings
-            .and_then(|s| s.resume_form.as_ref())
-            .map(|rf| serde_json::json!(rf));
-        let hc = suspend_settings.map(|s| s.hide_cancel.unwrap_or(false));
-
-        // Fetch description and default_args from the step's completed job result
-        let step_job_id = fs
-            .as_ref()
-            .and_then(|s| approval_step.and_then(|step| s.modules.get(step)))
-            .and_then(|m| m.job());
-        let (desc, _default_args) = if let Some(sjid) = step_job_id {
-            let result: Option<serde_json::Value> = sqlx::query_scalar(
-                "SELECT result FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
-            )
-            .bind(sjid)
-            .bind(&w_id)
-            .fetch_optional(&db)
-            .await?
-            .flatten();
-            let desc = result.as_ref().and_then(|r| r.get("description").cloned());
-            let da = result.as_ref().and_then(|r| r.get("default_args").cloned());
-            (desc, da)
-        } else {
-            (None, None)
-        };
-
-        (form, desc, ac, hc)
-    };
 
     let user_auth_required = approval_conditions
         .as_ref()
@@ -2640,6 +2666,8 @@ async fn get_approval_info(
         flow_id: row.id,
         form_schema,
         description,
+        default_args,
+        enums,
         approval_conditions,
         can_approve,
         user_auth_required,

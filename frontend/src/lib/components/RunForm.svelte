@@ -3,7 +3,8 @@
 		computeSharableHash as computeSharableHash,
 		defaultIfEmptyString,
 		emptyString,
-		truncateHash
+		truncateHash,
+		sendUserToast
 	} from '$lib/utils'
 
 	import type { Schema } from '$lib/common'
@@ -21,6 +22,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { untrack } from 'svelte'
+	import { processSecretArgs } from './secretArgUtils'
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -33,8 +35,23 @@
 		reloadArgs++
 	}
 
-	export function run() {
-		runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)
+	export async function run(overrideScheduledForStr?: string | undefined | null) {
+		let processedArgs: Record<string, any>
+		try {
+			processedArgs = await processSecretArgs(
+				enforceDisabledDefaults(args ?? {}, true),
+				runnable?.schema
+			)
+		} catch (e) {
+			sendUserToast('Failed to process sensitive args: ' + e, true)
+			return
+		}
+		runAction(
+			overrideScheduledForStr === null ? undefined : (overrideScheduledForStr ?? scheduledForStr),
+			processedArgs,
+			invisible_to_owner,
+			overrideTag
+		)
 	}
 
 	interface Props {
@@ -116,6 +133,30 @@
 		} catch (e) {
 			console.error('Impossible to set hash in args', e)
 		}
+	}
+
+	function enforceDisabledDefaults(
+		args: Record<string, any>,
+		notify: boolean = false
+	): Record<string, any> {
+		const schema = runnable?.schema
+		if (!schema?.properties) return args
+		const result = { ...args }
+		const resetKeys: string[] = []
+		for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
+			if (prop?.disabled && 'default' in prop) {
+				if (notify && result[key] !== prop.default) {
+					resetKeys.push(key)
+				}
+				result[key] = prop.default
+			}
+		}
+		if (resetKeys.length > 0) {
+			sendUserToast(
+				`Disabled field${resetKeys.length > 1 ? 's' : ''} ${resetKeys.map((k) => `'${k}'`).join(', ')} reset to default value${resetKeys.length > 1 ? 's' : ''}`
+			)
+		}
+		return result
 	}
 
 	export function setCode(code: string) {
@@ -235,7 +276,7 @@
 					bind:this={jsonEditor}
 					on:select={(e) => {
 						if (e.detail) {
-							args = e.detail
+							args = enforceDisabledDefaults(e.detail)
 						}
 					}}
 					updateOnBlur={false}
@@ -276,7 +317,7 @@
 					unifiedSize="md"
 					btnClasses="!inline-flex"
 					disabled={!isValid && !jsonView}
-					on:click={() => runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)}
+					on:click={() => run()}
 					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 				>
 					{scheduledForStr ? 'Schedule to run later' : buttonText}
@@ -315,7 +356,7 @@
 			btnClasses="!px-6 !py-1 w-full"
 			variant="accent"
 			disabled={!isValid && !jsonView}
-			on:click={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
+			on:click={() => run(null)}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>
 			{buttonText}

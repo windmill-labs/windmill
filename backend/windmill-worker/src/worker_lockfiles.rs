@@ -61,6 +61,8 @@ use crate::csharp_executor::generate_nuget_lockfile;
 #[cfg(feature = "java")]
 use crate::java_executor;
 
+#[cfg(feature = "rlang")]
+use crate::r_executor;
 #[cfg(feature = "ruby")]
 use crate::ruby_executor;
 
@@ -2760,6 +2762,21 @@ async fn capture_dependency_job(
                 &Connection::Sql(db.clone()),
                 worker_name,
                 w_id,
+            )
+            .await?
+        }
+        #[cfg(feature = "rlang")]
+        ScriptLang::Rlang => {
+            r_executor::resolve(
+                job_id,
+                job_raw_code,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                &Connection::Sql(db.clone()),
+                worker_name,
+                w_id,
+                false,
             )
             .await?
         }

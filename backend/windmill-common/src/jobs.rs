@@ -14,6 +14,7 @@ use crate::{
     client::AuthedClient,
     db::{AuthedRef, UserDbWithAuthed, DB},
     error::{self, to_anyhow, Error},
+    flows::get_full_hub_flow_by_path,
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
@@ -154,15 +155,31 @@ pub async fn get_payload_tag_from_prefixed_path(
         .await?
     } else if path.starts_with("flow/") {
         let path = path.strip_prefix("flow/").unwrap().to_string();
-        let FlowVersionInfo { dedicated_worker, tag, version, .. } =
-            get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
-        (
-            JobPayload::Flow { path, dedicated_worker, apply_preprocessor: false, version },
-            tag,
-            None,
-            None,
-            None,
-        )
+        if path.starts_with("hub/flows/") {
+            let hub_flow =
+                get_full_hub_flow_by_path(StripPath(path.clone()), &HTTP_CLIENT, Some(db)).await?;
+            (
+                JobPayload::RawFlow {
+                    value: hub_flow.value,
+                    path: Some(path),
+                    restarted_from: None,
+                },
+                None,
+                None,
+                None,
+                None,
+            )
+        } else {
+            let FlowVersionInfo { dedicated_worker, tag, version, .. } =
+                get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
+            (
+                JobPayload::Flow { path, dedicated_worker, apply_preprocessor: false, version },
+                tag,
+                None,
+                None,
+                None,
+            )
+        }
     } else {
         return Err(Error::BadRequest(format!(
             "path must start with script/ or flow/ (got {})",

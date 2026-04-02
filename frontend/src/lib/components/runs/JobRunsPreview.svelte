@@ -197,6 +197,7 @@
 						workspaceId={job.workspace_id}
 						initialJob={job}
 						bind:isOwner
+						bind:suspendStatus
 						wideResults
 					/>
 				{:else if job?.type === 'CompletedJob'}
