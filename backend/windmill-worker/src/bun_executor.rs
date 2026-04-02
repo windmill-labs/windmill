@@ -3780,7 +3780,7 @@ pub async fn start_worker(
     }
 
     if annotation.nodejs {
-        let script_path = format!("{job_dir}/wrapper.mjs");
+        let wrapper_path = format!("{job_dir}/wrapper.mjs");
 
         handle_dedicated_process(
             &*NODE_BIN_PATH,
@@ -3789,14 +3789,14 @@ pub async fn start_worker(
             envs,
             context,
             common_bun_proc_envs,
-            vec![&script_path],
+            vec![&wrapper_path],
             killpill_rx,
             job_completed_tx,
             token,
             jobs_rx,
             worker_name,
             db,
-            &script_path,
+            script_path,
             "nodejs",
             client,
         )

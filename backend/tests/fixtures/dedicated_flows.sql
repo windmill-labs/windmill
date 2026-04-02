@@ -84,6 +84,82 @@ E'// extra_package_json: f/system/dedicated_double\nexport function main(x: numb
 '', '',
 'f/system/rg_script_b', 300011, 'bun', E'{}\n//bun.lock\n<empty>', true);
 
+-- Flow with a Deno inline RawScript step
+INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES (
+'test-workspace', '', '',
+'f/system/dedicated_deno_flow',
+'{3000000000000005}',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"x":{"type":"number","description":""}},"required":["x"],"type":"object"}',
+E'{"modules":[{"id":"a","value":{"type":"rawscript","content":"export function main(x: number) { return x + 100; }","language":"deno","input_transforms":{"x":{"expr":"flow_input.x","type":"javascript"}}}}]}',
+'system'
+);
+
+INSERT INTO public.flow_version(id, workspace_id, path, schema, value, created_by) VALUES (
+3000000000000005,
+'test-workspace',
+'f/system/dedicated_deno_flow',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"x":{"type":"number","description":""}},"required":["x"],"type":"object"}',
+E'{"modules":[{"id":"a","value":{"type":"rawscript","content":"export function main(x: number) { return x + 100; }","language":"deno","input_transforms":{"x":{"expr":"flow_input.x","type":"javascript"}}}}]}',
+'system'
+);
+
+-- Flow with a Python inline RawScript step
+INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES (
+'test-workspace', '', '',
+'f/system/dedicated_python_flow',
+'{3000000000000006}',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"x":{"type":"number","description":""}},"required":["x"],"type":"object"}',
+E'{"modules":[{"id":"a","value":{"type":"rawscript","content":"def main(x: int):\\n    return x + 100","language":"python3","input_transforms":{"x":{"expr":"flow_input.x","type":"javascript"}}}}]}',
+'system'
+);
+
+INSERT INTO public.flow_version(id, workspace_id, path, schema, value, created_by) VALUES (
+3000000000000006,
+'test-workspace',
+'f/system/dedicated_python_flow',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"x":{"type":"number","description":""}},"required":["x"],"type":"object"}',
+E'{"modules":[{"id":"a","value":{"type":"rawscript","content":"def main(x: int):\\n    return x + 100","language":"python3","input_transforms":{"x":{"expr":"flow_input.x","type":"javascript"}}}}]}',
+'system'
+);
+
+-- Flow with a Bunnative (//native) inline RawScript step
+INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES (
+'test-workspace', '', '',
+'f/system/dedicated_bunnative_flow',
+'{3000000000000007}',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"x":{"type":"number","description":""}},"required":["x"],"type":"object"}',
+E'{"modules":[{"id":"a","value":{"type":"rawscript","content":"//native\\nexport function main(x: number) { return x + 100; }","language":"bunnative","input_transforms":{"x":{"expr":"flow_input.x","type":"javascript"}},"lock":"{}\\n//bun.lock\\n<empty>"}}]}',
+'system'
+);
+
+INSERT INTO public.flow_version(id, workspace_id, path, schema, value, created_by) VALUES (
+3000000000000007,
+'test-workspace',
+'f/system/dedicated_bunnative_flow',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"x":{"type":"number","description":""}},"required":["x"],"type":"object"}',
+E'{"modules":[{"id":"a","value":{"type":"rawscript","content":"//native\\nexport function main(x: number) { return x + 100; }","language":"bunnative","input_transforms":{"x":{"expr":"flow_input.x","type":"javascript"}},"lock":"{}\\n//bun.lock\\n<empty>"}}]}',
+'system'
+);
+
+-- Flow with a Bun + //nodejs annotation inline RawScript step
+INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES (
+'test-workspace', '', '',
+'f/system/dedicated_nodejs_flow',
+'{3000000000000008}',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"x":{"type":"number","description":""}},"required":["x"],"type":"object"}',
+E'{"modules":[{"id":"a","value":{"type":"rawscript","content":"//nodejs\\nexport function main(x: number) { return x + 100; }","language":"bun","input_transforms":{"x":{"expr":"flow_input.x","type":"javascript"}},"lock":"{}\\n//bun.lock\\n<empty>"}}]}',
+'system'
+);
+
+INSERT INTO public.flow_version(id, workspace_id, path, schema, value, created_by) VALUES (
+3000000000000008,
+'test-workspace',
+'f/system/dedicated_nodejs_flow',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"x":{"type":"number","description":""}},"required":["x"],"type":"object"}',
+E'{"modules":[{"id":"a","value":{"type":"rawscript","content":"//nodejs\\nexport function main(x: number) { return x + 100; }","language":"bun","input_transforms":{"x":{"expr":"flow_input.x","type":"javascript"}},"lock":"{}\\n//bun.lock\\n<empty>"}}]}',
+'system'
+);
+
 -- Flow with a squashed for-loop for testing flow runners.
 -- The for-loop iterates over [1, 2, 3], each iteration runs a simple bun rawscript.
 -- squash=true triggers spawn_flow_module_runners to create dedicated subprocesses.

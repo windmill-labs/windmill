@@ -286,4 +286,143 @@ mod dedicated_worker_tests {
         assert_eq!(result, json!([10, 20, 30]));
         Ok(())
     }
+
+    /// Test a dedicated flow with a Deno inline RawScript step.
+    #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
+    async fn test_dedicated_flow_deno(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let uuid = RunJob::from(JobPayload::Flow {
+            path: "f/system/dedicated_deno_flow".to_string(),
+            dedicated_worker: Some(true),
+            apply_preprocessor: false,
+            version: 3000000000000005,
+        })
+        .arg("x", json!(5))
+        .push(&db)
+        .await;
+
+        let listener = listen_for_completed_jobs(&db).await;
+        in_test_worker_dedicated(
+            db.clone(),
+            listener.find(&uuid),
+            port,
+            vec![wp("test-workspace", "flow/f/system/dedicated_deno_flow")],
+        )
+        .await;
+
+        let job = completed_job(uuid, &db).await;
+        // x + 100 = 105
+        assert_eq!(job.json_result().unwrap(), json!(105));
+        Ok(())
+    }
+
+    /// Test a dedicated flow with a Python inline RawScript step.
+    #[cfg(feature = "python")]
+    #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
+    async fn test_dedicated_flow_python(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let uuid = RunJob::from(JobPayload::Flow {
+            path: "f/system/dedicated_python_flow".to_string(),
+            dedicated_worker: Some(true),
+            apply_preprocessor: false,
+            version: 3000000000000006,
+        })
+        .arg("x", json!(5))
+        .push(&db)
+        .await;
+
+        let listener = listen_for_completed_jobs(&db).await;
+        in_test_worker_dedicated(
+            db.clone(),
+            listener.find(&uuid),
+            port,
+            vec![wp("test-workspace", "flow/f/system/dedicated_python_flow")],
+        )
+        .await;
+
+        let job = completed_job(uuid, &db).await;
+        // x + 100 = 105
+        assert_eq!(job.json_result().unwrap(), json!(105));
+        Ok(())
+    }
+
+    /// Test a dedicated flow with a Bunnative (//native) inline RawScript step.
+    /// Bunnative uses the V8 PrewarmedIsolate path instead of a subprocess wrapper.
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
+    async fn test_dedicated_flow_bunnative(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let uuid = RunJob::from(JobPayload::Flow {
+            path: "f/system/dedicated_bunnative_flow".to_string(),
+            dedicated_worker: Some(true),
+            apply_preprocessor: false,
+            version: 3000000000000007,
+        })
+        .arg("x", json!(5))
+        .push(&db)
+        .await;
+
+        let listener = listen_for_completed_jobs(&db).await;
+        in_test_worker_dedicated(
+            db.clone(),
+            listener.find(&uuid),
+            port,
+            vec![wp(
+                "test-workspace",
+                "flow/f/system/dedicated_bunnative_flow",
+            )],
+        )
+        .await;
+
+        let job = completed_job(uuid, &db).await;
+        // x + 100 = 105
+        assert_eq!(job.json_result().unwrap(), json!(105));
+        Ok(())
+    }
+
+    /// Test a dedicated flow with a Bun script using the //nodejs annotation.
+    /// Validates that the annotation routes execution through Node.js instead of Bun.
+    #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
+    async fn test_dedicated_flow_bun_nodejs(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let uuid = RunJob::from(JobPayload::Flow {
+            path: "f/system/dedicated_nodejs_flow".to_string(),
+            dedicated_worker: Some(true),
+            apply_preprocessor: false,
+            version: 3000000000000008,
+        })
+        .arg("x", json!(5))
+        .push(&db)
+        .await;
+
+        let listener = listen_for_completed_jobs(&db).await;
+        in_test_worker_dedicated(
+            db.clone(),
+            listener.find(&uuid),
+            port,
+            vec![wp("test-workspace", "flow/f/system/dedicated_nodejs_flow")],
+        )
+        .await;
+
+        let job = completed_job(uuid, &db).await;
+        // x + 100 = 105
+        assert_eq!(job.json_result().unwrap(), json!(105));
+        Ok(())
+    }
 }
