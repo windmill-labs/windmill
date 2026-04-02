@@ -1370,6 +1370,28 @@ paths:
               schema:
                 type: string
 
+  /settings/restart_worker_group/{worker_group}:
+    post:
+      summary: restart worker group
+      description: Send a restart signal to all workers in the specified worker group. Workers will gracefully shut down and are expected to be restarted by their supervisor. Requires devops role.
+      operationId: restartWorkerGroup
+      tags:
+        - setting
+      parameters:
+        - name: worker_group
+          in: path
+          required: true
+          schema:
+            type: string
+          description: the name of the worker group to restart
+      responses:
+        "200":
+          description: restart signal sent
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /settings/get_stats:
     get:
       summary: get telemetry stats with HMAC signature (EE only)
