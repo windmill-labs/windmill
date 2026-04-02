@@ -1600,8 +1600,6 @@ mod dedicated_worker_protocol_deno {
     use windmill_test_utils::{parse_dedicated_worker_line, DedicatedWorkerResult};
     use windmill_worker::{generate_deno_dedicated_worker_wrapper, DENO_PATH};
 
-    const TEST_SCRIPT_PATH: &str = "f/test/script";
-
     fn run_deno_worker_test(
         script: &str,
         jobs: Vec<serde_json::Value>,
