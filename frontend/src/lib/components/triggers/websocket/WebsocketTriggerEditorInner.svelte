@@ -753,10 +753,8 @@
 					{#if heartbeat_enabled}
 						<Label label="Interval (seconds)">
 							<TextInput
-								type="number"
 								bind:value={heartbeat_interval_secs}
-								placeholder="41"
-								disabled={!can_write}
+								inputProps={{ type: 'number', placeholder: '41', disabled: !can_write, min: 1 }}
 							/>
 						</Label>
 
@@ -778,8 +776,10 @@
 						<Label label="State field (optional)">
 							<TextInput
 								bind:value={heartbeat_state_field}
-								placeholder="e.g. s (for Discord sequence number)"
-								disabled={!can_write}
+								inputProps={{
+									placeholder: 'e.g. s (for Discord sequence number)',
+									disabled: !can_write
+								}}
 							/>
 							<p class="text-2xs text-tertiary mt-1">
 								Top-level JSON field to extract from incoming messages. Replaces <code

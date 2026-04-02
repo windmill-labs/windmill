@@ -282,9 +282,13 @@ impl Listener for WebsocketTrigger {
 
                         tracing::debug!("Sending heartbeat to WebSocket {}: {}", url, msg);
 
-                        let tx = heartbeat_tx.as_ref().expect("heartbeat_tx must exist when heartbeat is configured");
-                        if let Err(err) = tx.send(msg).await {
-                            tracing::error!("Failed to send heartbeat to WebSocket {}: {}", url, err);
+                        if let Some(tx) = heartbeat_tx.as_ref() {
+                            if let Err(err) = tx.send(msg).await {
+                                tracing::error!("Failed to send heartbeat to WebSocket {}: {}", url, err);
+                                break;
+                            }
+                        } else {
+                            tracing::warn!("Heartbeat configured but no send channel available for WebSocket {}", url);
                             break;
                         }
                     }
