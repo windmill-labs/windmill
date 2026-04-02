@@ -252,7 +252,7 @@ pub struct ListableCompletedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<serde_json::Value>,
 }
@@ -293,7 +293,7 @@ pub struct UnifiedJob {
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
     pub priority: Option<i16>,
-    pub labels: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
     pub self_wait_time_ms: Option<i64>,
     pub aggregate_wait_time_ms: Option<i64>,
     pub preprocessed: Option<bool>,
@@ -334,7 +334,7 @@ const CJ_FIELDS: &[&str] = &[
     "null as concurrent_limit",
     "null as concurrency_time_window_s",
     "v2_job.priority",
-    "COALESCE(v2_job.labels, ARRAY[]::TEXT[]) || COALESCE(ARRAY(SELECT jsonb_array_elements_text(v2_job_completed.result->'wm_labels') WHERE jsonb_typeof(v2_job_completed.result->'wm_labels') = 'array'), ARRAY[]::TEXT[]) as labels",
+    "CASE WHEN v2_job.labels IS NOT NULL OR jsonb_typeof(v2_job_completed.result->'wm_labels') = 'array' THEN COALESCE(v2_job.labels, ARRAY[]::TEXT[]) || COALESCE(ARRAY(SELECT jsonb_array_elements_text(v2_job_completed.result->'wm_labels') WHERE jsonb_typeof(v2_job_completed.result->'wm_labels') = 'array'), ARRAY[]::TEXT[]) END as labels",
     "self_wait_time_ms",
     "aggregate_wait_time_ms",
     "v2_job.preprocessed",

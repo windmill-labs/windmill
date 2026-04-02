@@ -17,6 +17,7 @@
 	import { flowPathToHref } from '$lib/scripts'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	interface Props {
 		job: Job
@@ -425,6 +426,11 @@
 								showScriptHash={showScriptHashInBadges}
 								large={false}
 							/>
+							{#if job?.labels?.length}
+								{#each job.labels as label}
+									<Badge color="blue" small>{label}</Badge>
+								{/each}
+							{/if}
 						</div>
 					</div>
 				</div>
