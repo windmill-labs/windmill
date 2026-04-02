@@ -65,28 +65,14 @@ impl<B> MakeSpan<B> for MyMakeSpan {
             .get(TRACING_HEADER.as_str())
             .and_then(|x| x.to_str().map(|x| x.to_string()).ok())
             .unwrap_or(Uuid::new_v4().to_string());
-        if request.uri().path().contains("/s3_proxy/") {
-            // Use debug level for S3 proxy requests to avoid log spam from
-            // high-frequency range requests (e.g. DuckDB reading Parquet files)
-            tracing::debug_span!(
-                "request",
-                method = %request.method(),
-                uri = %request.uri(),
-                username = field::Empty,
-                workspace_id = field::Empty,
-                traceId = tracing_id,
-                email = field::Empty,
-            )
-        } else {
-            tracing::info_span!(
-                "request",
-                method = %request.method(),
-                uri = %request.uri(),
-                username = field::Empty,
-                workspace_id = field::Empty,
-                traceId = tracing_id,
-                email = field::Empty,
-            )
-        }
+        tracing::info_span!(
+            "request",
+            method = %request.method(),
+            uri = %request.uri(),
+            username = field::Empty,
+            workspace_id = field::Empty,
+            traceId = tracing_id,
+            email = field::Empty,
+        )
     }
 }
