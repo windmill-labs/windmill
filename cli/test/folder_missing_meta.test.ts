@@ -397,4 +397,39 @@ describe("sync push missing folder detection", () => {
       expect(output).not.toContain("Missing folder.meta.yaml");
     });
   });
+
+  test("no warning when branch-specific folder.meta.yaml exists", async () => {
+    await withIsolatedWorkspace(async ({ tempDir, runCLICommand }) => {
+      const uniqueId = Date.now();
+      const folderName = `branchmeta${uniqueId}`;
+
+      // wmill.yaml with branch-specific folders configured
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        `defaultTs: bun\nincludes:\n  - "**"\nexcludes: []\ngitBranches:\n  dev:\n    specificItems:\n      folders:\n        - "f/${folderName}"\n`,
+        "utf-8"
+      );
+
+      // Create folder with branch-specific meta only (no base folder.meta.yaml)
+      await mkdir(join(tempDir, "f", folderName), { recursive: true });
+      await writeFile(
+        join(tempDir, "f", folderName, "folder.dev.meta.yaml"),
+        `summary: ""\ndisplay_name: "${folderName}"\nowners: []\nextra_perms: {}\n`,
+        "utf-8"
+      );
+      await writeFile(
+        join(tempDir, "f", folderName, "test_script.ts"),
+        'export async function main() { return "hello"; }',
+        "utf-8"
+      );
+
+      const result = await runCLICommand(
+        ["sync", "push", "--yes", "--branch", "dev", "--includes", `f/${folderName}/**`],
+      );
+
+      expect(result.code).toEqual(0);
+      const output = result.stdout + result.stderr;
+      expect(output).not.toContain("Missing folder.meta.yaml");
+    });
+  });
 });

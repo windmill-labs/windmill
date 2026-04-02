@@ -99,6 +99,8 @@ export function extToLang(ext: string) {
 			return 'java'
 		case 'rb':
 			return 'ruby'
+		case 'r':
+			return 'r'
 		// for related places search: ADD_NEW_LANG
 		default:
 			return 'unknown'

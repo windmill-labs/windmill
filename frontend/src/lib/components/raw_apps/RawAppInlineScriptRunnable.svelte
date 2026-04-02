@@ -20,13 +20,15 @@
 	import SchemaForm from '../SchemaForm.svelte'
 	import RunnableJobPanelInner from '../apps/editor/RunnableJobPanelInner.svelte'
 	import JobLoader from '../JobLoader.svelte'
-	import type { Job, ScriptLang } from '$lib/gen'
+	import type { Job, OpenFlow, ScriptLang } from '$lib/gen'
 	import { slide } from 'svelte/transition'
 	import { DebugToolbar, DebugPanel, debugState } from '$lib/components/debug'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import RunButton from '$lib/components/RunButton.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { isHubFlowPath } from '$lib/utils'
+	import { sendUserToast } from '$lib/toast'
 
 	type RunnableWithInlineScript = RunnableWithFields & {
 		inlineScript?: InlineScript & { language: ScriptLang }
@@ -70,6 +72,7 @@
 
 	let selectedTab = $state('test')
 	let args = $state({})
+	let hubFlowPreview: OpenFlow | undefined = $state(undefined)
 
 	function getSchema(runnable: RunnableWithFields) {
 		if (isRunnableByPath(runnable)) {
@@ -162,7 +165,15 @@
 		} else if (isRunnableByPath(runnable)) {
 			if (jobLoader && isRunnableByPath(runnable)) {
 				if (runnable.runType == 'flow') {
-					await jobLoader.runFlowByPath(runnable.path, args)
+					if (isHubFlowPath(runnable.path)) {
+						if (!hubFlowPreview) {
+							sendUserToast('Hub flow preview is still loading', true)
+							return
+						}
+						await jobLoader.runFlowPreview(args, hubFlowPreview, undefined, runnable.path)
+					} else {
+						await jobLoader.runFlowByPath(runnable.path, args)
+					}
 				} else if (runnable.runType == 'script' || runnable.runType == 'hubscript') {
 					await jobLoader.runScriptByPath(runnable.path, args)
 				}
@@ -203,6 +214,7 @@
 					rawApps
 					bind:runnable
 					bind:fields={runnable.fields}
+					bind:hubFlowPreview
 					on:fork={(e) => fork(e.detail)}
 					on:delete
 					{id}
