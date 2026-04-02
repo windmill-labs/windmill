@@ -234,9 +234,7 @@
 	<DrawerContent title="Export Schemas" on:close={() => (exportDrawerOpen = false)}>
 		{#if exportResult}
 			<div class="flex flex-col gap-2 h-full relative">
-				<pre class="overflow-auto text-xs bg-surface-secondary p-4 rounded flex-1">
-					{exportResult}
-				</pre>
+				<pre class="overflow-auto text-xs bg-surface-secondary p-4 rounded flex-1">{exportResult}</pre>
 				<Button
 					size="xs"
 					color="light"
