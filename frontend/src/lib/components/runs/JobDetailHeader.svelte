@@ -428,9 +428,8 @@
 								large={false}
 							/>
 							{#if job?.labels?.length}
-								<Tag size={12} class="text-blue-500" />
 								{#each job.labels as label}
-									<Badge color="blue" small>{label}</Badge>
+									<Badge color="blue" small icon={{ icon: Tag }}>{label}</Badge>
 								{/each}
 							{/if}
 						</div>
