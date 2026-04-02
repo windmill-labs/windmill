@@ -248,10 +248,14 @@ impl Listener for WebsocketTrigger {
         // Shared heartbeat state: tracks the latest value of the configured state_field
         let heartbeat_state: Arc<RwLock<Option<serde_json::Value>>> = Arc::new(RwLock::new(None));
 
-        // Clone send channel for heartbeat use
-        let heartbeat_tx = return_message_channels
-            .as_ref()
-            .map(|c| c.send_message_tx.clone());
+        // Clone send channel for heartbeat use (only when heartbeat is configured)
+        let heartbeat_tx = if listening_trigger.trigger_config.heartbeat.is_some() {
+            return_message_channels
+                .as_ref()
+                .map(|c| c.send_message_tx.clone())
+        } else {
+            None
+        };
 
         tokio::select! {
             biased;
