@@ -1306,6 +1306,7 @@ export async function elementsToMap(
           "nu",
           "java",
           "rb",
+          "r",
           // for related places search: ADD_NEW_LANG
         ].includes(path.split(".").pop() ?? "")
       ) {
@@ -2800,9 +2801,32 @@ export async function push(
       }
     }
     for (const folderName of folderNames) {
-      try {
-        await stat(path.join("f", folderName, "folder.meta.yaml"));
-      } catch {
+      const basePath = path.join("f", folderName, "folder.meta.yaml");
+      const branchPath = getBranchSpecificPath(
+        `f/${folderName}/folder.meta.yaml`,
+        specificItems,
+        opts.branch,
+      );
+      let found = false;
+      // Check branch-specific variant first (e.g. folder.dev.meta.yaml)
+      if (branchPath) {
+        try {
+          await stat(branchPath);
+          found = true;
+        } catch {
+          // fall through to base path check
+        }
+      }
+      // Then check base path
+      if (!found) {
+        try {
+          await stat(basePath);
+          found = true;
+        } catch {
+          // not found
+        }
+      }
+      if (!found) {
         missingFolders.push(folderName);
       }
     }

@@ -590,7 +590,7 @@ pub(crate) async fn build_import_map(
 use crate::{dedicated_worker_oss::handle_dedicated_process, JobCompletedSender};
 /// Generate the dedicated worker wrapper for Deno.
 /// Parses the script signature and bakes in arg destructuring, date conversions,
-/// and preprocessor logic. Uses the `exec:<path>:<args>` protocol.
+/// and preprocessor logic. Uses the `execd:<args>` protocol (single-script, no path needed).
 #[cfg(any(feature = "private", test))]
 pub fn generate_dedicated_worker_wrapper(inner_content: &str) -> Result<String> {
     let args = windmill_parser_ts::parse_deno_signature(inner_content, true, false, None)?.args;
@@ -627,14 +627,8 @@ pub fn generate_dedicated_worker_wrapper(inner_content: &str) -> Result<String> 
     let preprocessor_logic = if let Some(ref pre_spread) = pre_spread {
         format!(
             r#"
-        if (line.startsWith("exec_preprocess:")) {{
-            const rest = line.slice("exec_preprocess:".length);
-            const colonIdx = rest.indexOf(":");
-            if (colonIdx === -1) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: "Malformed exec_preprocess command: missing colon separator", name: "Error" }}) + '\n');
-                continue;
-            }}
-            const argsJson = rest.slice(colonIdx + 1);
+        if (line.startsWith("execd_preprocess:")) {{
+            const argsJson = line.slice("execd_preprocess:".length);
             const parsedArgs = JSON.parse(argsJson);
             if (typeof preprocessor !== 'function') {{
                 console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}) + '\n');
@@ -686,14 +680,8 @@ for await (const chunk of Deno.stdin.readable) {{
             break;
         }}
         {preprocessor_logic}
-        if (line.startsWith("exec:")) {{
-            const rest = line.slice("exec:".length);
-            const colonIdx = rest.indexOf(":");
-            if (colonIdx === -1) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: "Malformed exec command: missing colon separator", name: "Error" }}) + '\n');
-                continue;
-            }}
-            const argsJson = rest.slice(colonIdx + 1);
+        if (line.startsWith("execd:")) {{
+            const argsJson = line.slice("execd:".length);
             try {{
                 let {{ {spread} }} = JSON.parse(argsJson)
                 {dates}
@@ -802,6 +790,7 @@ pub async fn start_worker(
         script_path,
         "deno",
         client,
+        false,
     )
     .await
 }

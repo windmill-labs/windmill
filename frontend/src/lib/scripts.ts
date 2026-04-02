@@ -2,7 +2,8 @@ import { get } from 'svelte/store'
 import { base } from '$lib/base'
 import type { Schema, SupportedLanguage } from './common'
 import { FlowService, type Script, ScriptService, ScheduleService } from './gen'
-import { workspaceStore } from './stores'
+import { hubBaseUrlStore, workspaceStore } from './stores'
+import { getHubFlowIdFromPath } from './utils'
 
 export function scriptLangToEditorLang(
 	lang:
@@ -60,6 +61,8 @@ export function scriptLangToEditorLang(
 		return 'nu'
 	} else if (lang == 'java') {
 		return 'java'
+	} else if (lang == 'rlang') {
+		return 'r'
 		// for related places search: ADD_NEW_LANG
 	} else if (lang == undefined) {
 		return 'typescript'
@@ -129,6 +132,15 @@ export function scriptPathToHref(path: string, hubBaseUrl: string): string {
 	}
 }
 
+export function flowPathToHref(path: string, hubBaseUrl: string = get(hubBaseUrlStore)): string {
+	if (path.startsWith('hub/flows/')) {
+		const hubFlowId = getHubFlowIdFromPath(path)
+		return hubFlowId ? `${hubBaseUrl}/flows/${hubFlowId}` : hubBaseUrl
+	}
+
+	return `${base}/flows/get/${path}?workspace=${get(workspaceStore)}`
+}
+
 const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string][] = [
 	['bun', 'TypeScript (Bun)'],
 	['python3', 'Python'],
@@ -153,7 +165,8 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['nu', 'Nu'],
 	['java', 'Java'],
 	['duckdb', 'DuckDB'],
-	['ruby', 'Ruby']
+	['ruby', 'Ruby'],
+	['rlang', 'R']
 	// for related places search: ADD_NEW_LANG
 ]
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
@@ -163,7 +176,7 @@ export function processLangs(selected: string | undefined, langs: string[]): str
 		let ls = langs.filter((lang) => lang !== 'nativets')
 
 		//those languages are newer and may not be in the saved list
-		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'ruby']
+		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'ruby', 'rlang']
 		// for related places search: ADD_NEW_LANG
 		nl.forEach((lang) => {
 			if (!ls.includes(lang)) {

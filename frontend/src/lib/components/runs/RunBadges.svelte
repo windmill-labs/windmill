@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
-	import { truncateHash } from '$lib/utils'
+	import { getJobKindDisplayLabel, truncateHash } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { truncateRev } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
@@ -46,7 +46,7 @@
 {/if}
 {#if job && 'job_kind' in job}
 	<div>
-		<Badge color="gray" {large}>Job kind: {job.job_kind}</Badge>
+		<Badge color="gray" {large}>Job kind: {getJobKindDisplayLabel(job.job_kind, job.script_path)}</Badge>
 	</div>
 {/if}
 {#if job && job.flow_status && job.job_kind === 'script'}
