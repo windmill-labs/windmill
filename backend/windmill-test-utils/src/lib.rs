@@ -252,7 +252,7 @@ impl RunJob {
 
     /// Push the job as a specific user (for testing permissions)
     pub async fn push_as(self, db: &Pool<Postgres>, username: &str, email: &str) -> Uuid {
-        let RunJob { payload, args, scheduled_for_o, job_id, .. } = self;
+        let RunJob { payload, args, scheduled_for_o, job_id, workspace_id, .. } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
@@ -262,7 +262,7 @@ impl RunJob {
         let (uuid, tx) = windmill_queue::push(
             db,
             tx,
-            "test-workspace",
+            &workspace_id,
             payload,
             windmill_queue::PushArgs::from(&hm_args),
             username,

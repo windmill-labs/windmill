@@ -3,7 +3,6 @@
 		ScriptService,
 		FlowService,
 		WorkspaceService,
-		WorkspaceDependenciesService,
 		ConfigService,
 		type FlowModule
 	} from '$lib/gen'
@@ -130,9 +129,9 @@
 
 		const newInfo = new SvelteMap<string, SelectedTagInfo>()
 
-		// Check if any tags need dep info fetched
-		let needsFetch = currentExistingDeps.size === 0
-		if (!needsFetch) {
+		// Fetch dep info only when not disabled (requires devops role)
+		let needsFetch = !disabled && currentExistingDeps.size === 0
+		if (!needsFetch && !disabled) {
 			for (const tag of tags) {
 				const existing = currentInfo.get(tag)
 				const existingRunnable = currentRunnables.find((r) => r.tag === tag)
@@ -146,80 +145,35 @@
 			}
 		}
 
-		// Fetch dep info across all workspaces in one call
+		// Fetch dep info across all workspaces (requires devops role)
 		const depsPerWorkspace = new Map<string, Map<string, { deps: string[]; language: string }>>()
 		if (needsFetch) {
-			try {
-				const [allDedicatedDeps, allWsDeps] = await Promise.all([
-					ConfigService.listAllDedicatedWithDeps().catch(() => []),
-					ConfigService.listAllWorkspaceDependencies().catch(() => [])
-				])
-				for (const d of allDedicatedDeps) {
-					if (d.workspace_dep_names.length > 0) {
-						let wsMap = depsPerWorkspace.get(d.workspace_id)
-						if (!wsMap) {
-							wsMap = new Map()
-							depsPerWorkspace.set(d.workspace_id, wsMap)
-						}
-						wsMap.set(d.path, {
-							deps: d.workspace_dep_names,
-							language: d.language
-						})
+			const [allDedicatedDeps, allWsDeps] = await Promise.all([
+				ConfigService.listAllDedicatedWithDeps().catch(() => []),
+				ConfigService.listAllWorkspaceDependencies().catch(() => [])
+			])
+			for (const d of allDedicatedDeps) {
+				if (d.workspace_dep_names.length > 0) {
+					let wsMap = depsPerWorkspace.get(d.workspace_id)
+					if (!wsMap) {
+						wsMap = new Map()
+						depsPerWorkspace.set(d.workspace_id, wsMap)
 					}
-				}
-				for (const d of allWsDeps) {
-					if (d.name) {
-						let wsSet = currentExistingDeps.get(d.name)
-						if (!wsSet) {
-							wsSet = new Set()
-							currentExistingDeps.set(d.name, wsSet)
-						}
-						wsSet.add(d.workspace_id)
-					}
-				}
-			} catch {
-				// Fallback to per-workspace calls if cross-workspace endpoint unavailable
-				const workspacesNeedingDeps = new Set<string>()
-				for (const tag of tags) {
-					const parsed = parseTag(tag)
-					if (parsed?.type === 'script') {
-						workspacesNeedingDeps.add(parsed.workspace)
-					}
-				}
-				await Promise.all(
-					Array.from(workspacesNeedingDeps).map(async (ws) => {
-						try {
-							const [dedicatedDeps, wsDeps] = await Promise.all([
-								ScriptService.listDedicatedWithDeps({ workspace: ws }).catch(() => []),
-								WorkspaceDependenciesService.listWorkspaceDependencies({
-									workspace: ws
-								}).catch(() => [])
-							])
-							const depsMap = new Map<string, { deps: string[]; language: string }>()
-							for (const d of dedicatedDeps) {
-								if (d.workspace_dep_names.length > 0) {
-									depsMap.set(d.path, {
-										deps: d.workspace_dep_names,
-										language: d.language
-									})
-								}
-							}
-							depsPerWorkspace.set(ws, depsMap)
-							for (const d of wsDeps) {
-								if (!d.archived && d.name) {
-									let wsSet = currentExistingDeps.get(d.name)
-									if (!wsSet) {
-										wsSet = new Set()
-										currentExistingDeps.set(d.name, wsSet)
-									}
-									wsSet.add(ws)
-								}
-							}
-						} catch {
-							// ignore
-						}
+					wsMap.set(d.path, {
+						deps: d.workspace_dep_names,
+						language: d.language
 					})
-				)
+				}
+			}
+			for (const d of allWsDeps) {
+				if (d.name) {
+					let wsSet = currentExistingDeps.get(d.name)
+					if (!wsSet) {
+						wsSet = new Set()
+						currentExistingDeps.set(d.name, wsSet)
+					}
+					wsSet.add(d.workspace_id)
+				}
 			}
 			existingDeps = new Map(currentExistingDeps)
 		}
@@ -451,13 +405,7 @@
 				ScriptService.listDedicatedWithDeps({
 					workspace: workspaceId
 				}).catch(() => []),
-				// Load workspace deps across all workspaces for accurate validation
-				ConfigService.listAllWorkspaceDependencies().catch(() =>
-					// Fallback to current workspace if cross-workspace endpoint unavailable
-					WorkspaceDependenciesService.listWorkspaceDependencies({
-						workspace: workspaceId
-					}).catch(() => [])
-				)
+				ConfigService.listAllWorkspaceDependencies().catch(() => [])
 			])
 
 			// Track existing workspace dep names with their workspaces for validation
@@ -578,16 +526,16 @@
 
 	let selectedCount = $derived(runnables.filter((r) => r.selected).length)
 
-	// Compute shared runner groups: scripts sharing a (dep_name, language) pair
+	// Compute shared runner groups: scripts sharing a (workspace, dep_name, language) tuple
 	interface RunnerGroup {
+		workspace: string
 		depName: string
 		language: string
 		tags: string[]
 	}
 
 	let runnerGroups: RunnerGroup[] = $derived.by(() => {
-		// Group by (workspace, dep_name, language) — runner groups are per-workspace
-		const groupMap = new Map<string, { depName: string; language: string; tags: string[] }>()
+		const groupMap = new Map<string, RunnerGroup>()
 		for (const tag of selectedTags) {
 			const info = selectedTagsInfo.get(tag)
 			if (info?.type === 'script' && info.workspaceDeps) {
@@ -598,7 +546,12 @@
 					if (existing) {
 						existing.tags.push(tag)
 					} else {
-						groupMap.set(key, { depName: dep, language: lang, tags: [tag] })
+						groupMap.set(key, {
+							workspace: info.workspace,
+							depName: dep,
+							language: lang,
+							tags: [tag]
+						})
 					}
 				}
 			}
@@ -652,10 +605,15 @@
 	{/if}
 {/snippet}
 
-{#snippet tagRow(tag: string, info: SelectedTagInfo | undefined)}
+{#snippet tagRow(tag: string, info: SelectedTagInfo | undefined, standalone: boolean)}
+	{@const hasChevron = info?.type === 'flow' && info.runners && info.runners.length > 0}
 	<div>
-		<div class="flex items-center">
-			{#if info?.type === 'flow' && info.runners && info.runners.length > 0}
+		<div
+			class="flex items-center {standalone
+				? (hasChevron ? 'pr-3' : 'px-3') + ' py-1.5 bg-surface-secondary'
+				: ''}"
+		>
+			{#if hasChevron}
 				<button
 					class="p-2 hover:bg-surface-hover transition-colors"
 					onclick={(e) => {
@@ -669,10 +627,10 @@
 						<ChevronRight class="h-3 w-3 text-tertiary" />
 					{/if}
 				</button>
-			{:else}
+			{:else if !standalone}
 				<div class="w-7"></div>
 			{/if}
-			<div class="flex-1 flex items-center gap-2 px-2 py-1.5 min-w-0">
+			<div class="flex-1 flex items-center gap-2 {standalone ? '' : 'px-2 py-1.5'} min-w-0">
 				{#if info}
 					{#if info.type === 'flow'}
 						<BarsStaggered size={14} class="flex-shrink-0 text-secondary" />
@@ -736,19 +694,19 @@
 		<div class="flex flex-col gap-2">
 			<div class="border rounded-md bg-surface divide-y">
 				<!-- Shared runner groups -->
-				{#each runnerGroups as group (`${group.depName}:${group.language}`)}
+				{#each runnerGroups as group (`${group.workspace}:${group.depName}:${group.language}`)}
 					<div>
 						<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary border-b">
 							<Layers size={12} class="flex-shrink-0 text-secondary" />
 							<span class="text-xs font-medium text-emphasis">Shared runner</span>
 							<span class="flex-1"></span>
-							{@render depBadge(group.depName, selectedTagsInfo.get(group.tags[0])?.workspace)}
+							{@render depBadge(group.depName, group.workspace)}
 							<Badge color="gray" small>{group.language}</Badge>
 						</div>
 						<div class="divide-y">
 							{#each group.tags as tag (tag)}
 								{@const info = selectedTagsInfo.get(tag)}
-								{@render tagRow(tag, info)}
+								{@render tagRow(tag, info, false)}
 							{/each}
 						</div>
 					</div>
@@ -757,39 +715,7 @@
 				<!-- Standalone scripts/flows -->
 				{#each standaloneTags as tag (tag)}
 					{@const info = selectedTagsInfo.get(tag)}
-					<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary min-w-0">
-						{#if info?.type === 'flow'}
-							<BarsStaggered size={12} class="flex-shrink-0 text-secondary" />
-						{:else}
-							<CodeXml size={12} class="flex-shrink-0 text-secondary" />
-						{/if}
-						<span class="text-xs truncate min-w-0">{info?.path ?? tag}</span>
-						<span class="text-xs text-tertiary flex-shrink-0">({info?.workspace ?? ''})</span>
-						<span class="flex-1"></span>
-						{#if info?.workspaceDeps}
-							{#each info.workspaceDeps as dep}
-								{@render depBadge(dep, info?.workspace)}
-							{/each}
-						{/if}
-						{#if info?.type === 'flow' && info.runners}
-							<Badge color="indigo" small>
-								{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
-							</Badge>
-						{:else if info?.language}
-							<Badge color="gray" small>{info.language}</Badge>
-						{/if}
-						{#if !disabled}
-							<button
-								class="hover:text-red-500 transition-colors flex-shrink-0"
-								onclick={(e) => {
-									e.stopPropagation()
-									removeTag(tag)
-								}}
-							>
-								<X class="h-3 w-3" />
-							</button>
-						{/if}
-					</div>
+					{@render tagRow(tag, info, true)}
 				{/each}
 			</div>
 		</div>
@@ -876,8 +802,6 @@
 														<ChevronRight class="h-3 w-3 text-tertiary" />
 													{/if}
 												</button>
-											{:else}
-												<div class="w-7"></div>
 											{/if}
 											<button
 												class="flex-1 flex items-center gap-2 px-2 py-1.5 hover:bg-surface-hover transition-colors text-left min-w-0"
