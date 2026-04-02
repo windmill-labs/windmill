@@ -793,7 +793,7 @@ pub async fn create_custom_instance_database(
     });
     sqlx::query!(
         r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
-        serde_json::json!({ dbname: status_json })
+        serde_json::json!({ (dbname): status_json })
     )
     .execute(db)
     .await?;
