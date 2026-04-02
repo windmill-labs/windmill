@@ -20399,6 +20399,9 @@ components:
         reassign_to:
           type: string
           description: "Target for reassignment: 'u/{username}' or 'f/{folder}'"
+        new_operator:
+          type: string
+          description: "Required when reassign_to is a folder. The username whose identity will be used as permissioned_as for schedules and triggers."
         delete_user:
           type: boolean
           default: true
@@ -20495,6 +20498,9 @@ components:
         reassign_to:
           type: string
           description: "Target: 'u/{username}' or 'f/{folder}'"
+        new_operator:
+          type: string
+          description: "Required when reassign_to is a folder. Username to use as permissioned_as."
         reassign_tokens_to:
           type: string
           description: "Token target: 'u/{username}' or 'g/{group}'. If omitted, tokens are revoked."

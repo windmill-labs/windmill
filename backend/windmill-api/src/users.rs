@@ -199,9 +199,11 @@ struct OffboardPreview {
 #[derive(Deserialize)]
 struct OffboardRequest {
     reassign_to: String,
+    /// Required when reassign_to is a folder (f/...). The username whose identity
+    /// will be used as permissioned_as for schedules and triggers.
+    new_operator: Option<String>,
     #[serde(default = "default_true")]
     delete_user: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     reassign_tokens_to: Option<String>,
 }
 
@@ -253,6 +255,7 @@ struct GlobalOffboardRequest {
 #[derive(Deserialize)]
 struct WorkspaceReassignment {
     reassign_to: String,
+    new_operator: Option<String>,
     reassign_tokens_to: Option<String>,
 }
 
@@ -370,6 +373,16 @@ async fn offboard_workspace_user(
     // Validate target exists
     validate_target(&db, &w_id, target_kind, target_name).await?;
 
+    // Resolve permissioned_as: when target is a user, use that user; when folder, require new_operator
+    let new_permissioned_as = resolve_new_permissioned_as(
+        target_kind,
+        &req.reassign_to,
+        req.new_operator.as_deref(),
+        &db,
+        &w_id,
+    )
+    .await?;
+
     // Validate token reassignment target if specified
     if let Some(ref token_target) = req.reassign_tokens_to {
         validate_token_target(&db, &w_id, token_target).await?;
@@ -403,6 +416,7 @@ async fn offboard_workspace_user(
         &w_id,
         &username,
         &req.reassign_to,
+        &new_permissioned_as,
         req.reassign_tokens_to.as_deref(),
     )
     .await?;
@@ -492,10 +506,20 @@ async fn offboard_global_user(
     .fetch_all(&db)
     .await?;
 
-    // Validate all targets upfront before making any changes
+    // Validate all targets and resolve permissioned_as upfront
+    let mut resolved_permissioned_as: HashMap<String, String> = HashMap::new();
     for (w_id, reassignment) in &req.reassignments {
         let (target_kind, target_name) = parse_reassign_target(&reassignment.reassign_to)?;
         validate_target(&db, w_id, target_kind, target_name).await?;
+        let perm_as = resolve_new_permissioned_as(
+            target_kind,
+            &reassignment.reassign_to,
+            reassignment.new_operator.as_deref(),
+            &db,
+            w_id,
+        )
+        .await?;
+        resolved_permissioned_as.insert(w_id.clone(), perm_as);
         if let Some(ref token_target) = reassignment.reassign_tokens_to {
             validate_token_target(&db, w_id, token_target).await?;
         }
@@ -526,12 +550,18 @@ async fn offboard_global_user(
     // Process each workspace
     for ws in &workspaces {
         if let Some(reassignment) = req.reassignments.get(&ws.workspace_id) {
+            let perm_as = resolved_permissioned_as
+                .get(&ws.workspace_id)
+                .ok_or_else(|| {
+                    Error::InternalErr("missing resolved permissioned_as".to_string())
+                })?;
             offboard_user_from_workspace(
                 &mut tx,
                 &db,
                 &ws.workspace_id,
                 &ws.username,
                 &reassignment.reassign_to,
+                perm_as,
                 reassignment.reassign_tokens_to.as_deref(),
             )
             .await?;
@@ -687,6 +717,45 @@ async fn validate_token_target(db: &DB, w_id: &str, target: &str) -> Result<()> 
     Ok(())
 }
 
+/// Resolve the permissioned_as value for schedules/triggers.
+/// When target is a user, permissioned_as = "u/{user}".
+/// When target is a folder, new_operator must be provided — a username to run as.
+async fn resolve_new_permissioned_as(
+    target_kind: &str,
+    reassign_to: &str,
+    new_operator: Option<&str>,
+    db: &DB,
+    w_id: &str,
+) -> Result<String> {
+    match target_kind {
+        "user" => Ok(reassign_to.to_string()), // already "u/{username}"
+        "folder" => {
+            let operator = new_operator.ok_or_else(|| {
+                Error::BadRequest(
+                    "new_operator is required when reassigning to a folder".to_string(),
+                )
+            })?;
+            // Validate that the operator user exists in this workspace
+            let exists = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 AND workspace_id = $2)",
+                operator,
+                w_id
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false);
+            if !exists {
+                return Err(Error::NotFound(format!(
+                    "new_operator user '{}' not found in workspace '{}'",
+                    operator, w_id
+                )));
+            }
+            Ok(format!("u/{}", operator))
+        }
+        _ => unreachable!(),
+    }
+}
+
 async fn check_path_conflicts(
     db: &DB,
     w_id: &str,
@@ -814,21 +883,11 @@ async fn offboard_user_from_workspace<'c>(
     w_id: &str,
     username: &str,
     reassign_to: &str,
+    new_permissioned_as: &str,
     reassign_tokens_to: Option<&str>,
 ) -> Result<OffboardSummary> {
     // reassign_to is "u/{name}" or "f/{name}"
     let new_prefix = reassign_to.to_string();
-
-    // Determine the permissioned_as value for schedules/triggers
-    let new_permissioned_as = if reassign_to.starts_with("u/") {
-        reassign_to.to_string()
-    } else if reassign_to.starts_with("f/") {
-        // For folders, use the folder name with g/ prefix since folder permissions use groups
-        let folder_name = &reassign_to[2..];
-        format!("g/f/{}", folder_name)
-    } else {
-        unreachable!()
-    };
 
     // ---- scripts ----
     let scripts_reassigned = sqlx::query_scalar!(

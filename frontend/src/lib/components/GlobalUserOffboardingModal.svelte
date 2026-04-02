@@ -35,6 +35,7 @@
 			targetKind: 'user' | 'folder'
 			selectedUser: string | undefined
 			selectedFolder: string | undefined
+			selectedOperator: string | undefined
 			tokenAction: 'revoke' | 'reassign'
 			tokenTargetKind: 'user' | 'group'
 			selectedTokenUser: string | undefined
@@ -93,6 +94,7 @@
 						targetKind: 'user',
 						selectedUser: undefined,
 						selectedFolder: undefined,
+						selectedOperator: undefined,
 						tokenAction: 'revoke',
 						tokenTargetKind: 'user',
 						selectedTokenUser: undefined,
@@ -142,6 +144,7 @@
 			const target = getReassignTo(wp.workspace_id)
 			const cfg = wsConfigs[wp.workspace_id]
 			if (!target) return false
+			if (cfg?.targetKind === 'folder' && !cfg.selectedOperator) return false
 			if (cfg?.tokenAction === 'reassign' && !getTokenTarget(wp.workspace_id)) return false
 			return true
 		})
@@ -150,12 +153,17 @@
 	async function submit() {
 		submitting = true
 		try {
-			const reassignments: Record<string, { reassign_to: string; reassign_tokens_to?: string }> = {}
+			const reassignments: Record<
+				string,
+				{ reassign_to: string; new_operator?: string; reassign_tokens_to?: string }
+			> = {}
 			for (const wp of workspacesWithObjects) {
 				const target = getReassignTo(wp.workspace_id)
+				const cfg = wsConfigs[wp.workspace_id]
 				if (target) {
 					reassignments[wp.workspace_id] = {
 						reassign_to: target,
+						new_operator: cfg?.targetKind === 'folder' ? cfg.selectedOperator : undefined,
 						reassign_tokens_to: getTokenTarget(wp.workspace_id)
 					}
 				}
@@ -306,6 +314,17 @@
 														placeholder="Select a folder..."
 														size="sm"
 													/>
+													<div class="mt-1">
+														<label class="text-xs text-secondary block mb-0.5"
+															>Run schedules/triggers as</label
+														>
+														<Select
+															items={cfg.users}
+															bind:value={cfg.selectedOperator}
+															placeholder="Select operator user..."
+															size="sm"
+														/>
+													</div>
 												{/if}
 											</div>
 

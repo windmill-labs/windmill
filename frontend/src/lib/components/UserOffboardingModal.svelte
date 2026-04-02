@@ -30,6 +30,7 @@
 	let targetKind: 'user' | 'folder' = $state('user')
 	let selectedUser: string | undefined = $state(undefined)
 	let selectedFolder: string | undefined = $state(undefined)
+	let selectedOperator: string | undefined = $state(undefined)
 	let deleteUser = $state(true)
 
 	$effect(() => {
@@ -84,7 +85,9 @@
 	)
 
 	let canSubmit = $derived(
-		reassignTo != null && (tokenAction === 'revoke' || reassignTokensTo != null)
+		reassignTo != null &&
+			(tokenAction === 'revoke' || reassignTokensTo != null) &&
+			(targetKind === 'user' || selectedOperator != null)
 	)
 
 	$effect(() => {
@@ -126,6 +129,7 @@
 				username,
 				requestBody: {
 					reassign_to: reassignTo,
+					new_operator: targetKind === 'folder' ? selectedOperator : undefined,
 					delete_user: deleteUser,
 					reassign_tokens_to: reassignTokensTo
 				}
@@ -248,6 +252,16 @@
 											bind:value={selectedFolder}
 											placeholder="Select a folder..."
 										/>
+										<div class="mt-2">
+											<label class="text-xs text-secondary block mb-1"
+												>Run schedules/triggers as</label
+											>
+											<Select
+												items={users}
+												bind:value={selectedOperator}
+												placeholder="Select operator user..."
+											/>
+										</div>
 									{/if}
 								</div>
 
