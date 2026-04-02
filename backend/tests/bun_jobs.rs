@@ -1013,8 +1013,8 @@ mod dedicated_worker_protocol {
         let mut results = Vec::new();
 
         for job_args in jobs {
-            // Protocol: exec:<script_path>:<json_args>
-            writeln!(stdin, "exec:{}:{}", TEST_SCRIPT_PATH, job_args.to_string()).unwrap();
+            // Protocol: execd:<json_args> (single-script, no path needed)
+            writeln!(stdin, "execd:{}", job_args.to_string()).unwrap();
             stdin.flush().unwrap();
 
             let mut response = String::new();
@@ -1651,7 +1651,7 @@ mod dedicated_worker_protocol_deno {
 
         let mut results = Vec::new();
         for job_args in jobs {
-            writeln!(stdin, "exec:{}:{}", TEST_SCRIPT_PATH, job_args.to_string()).unwrap();
+            writeln!(stdin, "execd:{}", job_args.to_string()).unwrap();
             stdin.flush().unwrap();
 
             loop {
@@ -1772,7 +1772,13 @@ export function main(msg: string): never {
         let mut results = Vec::new();
 
         for (cmd, args) in &commands {
-            writeln!(stdin, "{}:{}:{}", cmd, TEST_SCRIPT_PATH, args).unwrap();
+            // Single-script Deno wrapper uses execd:/execd_preprocess: (no path)
+            let direct_cmd = if *cmd == "exec_preprocess" {
+                "execd_preprocess"
+            } else {
+                "execd"
+            };
+            writeln!(stdin, "{}:{}", direct_cmd, args).unwrap();
             stdin.flush().unwrap();
 
             let expected_lines = if *cmd == "exec_preprocess" { 2 } else { 1 };
