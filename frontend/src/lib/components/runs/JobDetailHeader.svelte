@@ -18,6 +18,7 @@
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import { Tag } from 'lucide-svelte'
 
 	interface Props {
 		job: Job
@@ -427,6 +428,7 @@
 								large={false}
 							/>
 							{#if job?.labels?.length}
+								<Tag size={12} class="text-blue-500" />
 								{#each job.labels as label}
 									<Badge color="blue" small>{label}</Badge>
 								{/each}
