@@ -1,16 +1,21 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT has_preprocessor, language as \"language: _\", content, schema as \"schema: _\" FROM script WHERE workspace_id = $1 AND hash = $2",
+  "query": "SELECT DISTINCT ON (workspace_id, path)\n                  workspace_id, path, language AS \"language: windmill_common::scripts::ScriptLang\", content\n           FROM script\n           WHERE archived = false\n             AND dedicated_worker = true\n             AND language = ANY($1::text[]::SCRIPT_LANG[])\n           ORDER BY workspace_id, path, created_at DESC",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "has_preprocessor",
-        "type_info": "Bool"
+        "name": "workspace_id",
+        "type_info": "Varchar"
       },
       {
         "ordinal": 1,
-        "name": "language: _",
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "language: windmill_common::scripts::ScriptLang",
         "type_info": {
           "Custom": {
             "name": "script_lang",
@@ -46,28 +51,22 @@
         }
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "content",
         "type_info": "Text"
-      },
-      {
-        "ordinal": 3,
-        "name": "schema: _",
-        "type_info": "Json"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Int8"
+        "TextArray"
       ]
     },
     "nullable": [
-      true,
       false,
       false,
-      true
+      false,
+      false
     ]
   },
-  "hash": "a8bcae108af1eda6efe3a4b8c6f8807bc464a81c0883e68f5a69b89b94b0b34b"
+  "hash": "f0858450021df721d8a48b1b5dc887c5424562acd9769c80c5899193ef16b56b"
 }

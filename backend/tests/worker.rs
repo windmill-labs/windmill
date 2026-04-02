@@ -1107,6 +1107,7 @@ main <- function(msg) {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .arg("msg", json!("world"))
     .run_until_complete(&db, false, port)
@@ -1144,6 +1145,7 @@ main <- function() {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .run_until_complete(&db, false, port)
     .await
@@ -1180,6 +1182,7 @@ main <- function() {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
     }))
     .run_until_complete(&db, false, port)
     .await
