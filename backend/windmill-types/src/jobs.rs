@@ -194,6 +194,8 @@ pub struct QueuedJob {
     pub preprocessed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runnable_settings_handle: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 impl QueuedJob {
@@ -268,6 +270,7 @@ impl Default for QueuedJob {
             priority: None,
             preprocessed: None,
             runnable_settings_handle: None,
+            labels: None,
         }
     }
 }

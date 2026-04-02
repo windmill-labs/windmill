@@ -482,6 +482,7 @@ impl From<UnifiedJob> for Job {
                     priority: uj.priority,
                     preprocessed: uj.preprocessed,
                     runnable_settings_handle: uj.runnable_settings_handle,
+                    labels: uj.labels,
                 },
             )),
             t => panic!("job type {} not valid", t),
