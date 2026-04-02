@@ -216,8 +216,10 @@ impl Listener for WebsocketTrigger {
             }
         }
 
+        let needs_sender = listening_trigger.trigger_config.can_return_message
+            || listening_trigger.trigger_config.heartbeat.is_some();
         let (return_message_channels, message_sender_handle) = if listening_trigger.trigger_mode
-            && listening_trigger.trigger_config.can_return_message
+            && needs_sender
         {
             let (send_message_tx, mut rx) = tokio::sync::mpsc::channel::<String>(100);
             let w_id = listening_trigger.workspace_id.clone();
@@ -243,12 +245,54 @@ impl Listener for WebsocketTrigger {
             (None, None)
         };
 
+        // Shared heartbeat state: tracks the latest value of the configured state_field
+        let heartbeat_state: Arc<RwLock<Option<serde_json::Value>>> = Arc::new(RwLock::new(None));
+
+        // Clone send channel for heartbeat use
+        let heartbeat_tx = return_message_channels
+            .as_ref()
+            .map(|c| c.send_message_tx.clone());
+
         tokio::select! {
             biased;
             _ = killpill_rx.recv() => {
             },
             _ = self.loop_ping(db, listening_trigger, err_message.clone(), None) => {
             },
+            // Heartbeat timer
+            _ = async {
+                if let Some(ref hb) = listening_trigger.trigger_config.heartbeat {
+                    let interval_duration = std::time::Duration::from_secs(hb.interval_secs);
+                    let mut interval = tokio::time::interval(interval_duration);
+                    // Skip the first immediate tick
+                    interval.tick().await;
+
+                    loop {
+                        interval.tick().await;
+
+                        let msg = if hb.state_field.is_some() {
+                            let state_val = heartbeat_state.read().await;
+                            match &*state_val {
+                                Some(val) => hb.message.replace("{{state}}", &val.to_string()),
+                                None => hb.message.replace("{{state}}", "null"),
+                            }
+                        } else {
+                            hb.message.clone()
+                        };
+
+                        tracing::debug!("Sending heartbeat to WebSocket {}: {}", url, msg);
+
+                        let tx = heartbeat_tx.as_ref().expect("heartbeat_tx must exist when heartbeat is configured");
+                        if let Err(err) = tx.send(msg).await {
+                            tracing::error!("Failed to send heartbeat to WebSocket {}: {}", url, err);
+                            break;
+                        }
+                    }
+                } else {
+                    futures::future::pending::<()>().await;
+                }
+            } => {},
+            // Message reader
             _ = async {
                     let filters: Vec<Filter> = if listening_trigger.trigger_mode {
                         listening_trigger
@@ -267,6 +311,18 @@ impl Listener for WebsocketTrigger {
                                 match msg {
                                     tokio_tungstenite::tungstenite::Message::Text(text) => {
                                         tracing::debug!("Received text message from WebSocket {}: {}", url, text);
+
+                                        // Extract heartbeat state from every incoming message
+                                        if let Some(ref hb) = listening_trigger.trigger_config.heartbeat {
+                                            if let Some(ref field) = hb.state_field {
+                                                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
+                                                    if let Some(val) = parsed.get(field) {
+                                                        *heartbeat_state.write().await = Some(val.clone());
+                                                    }
+                                                }
+                                            }
+                                        }
+
                                         let use_or = listening_trigger.trigger_config.filter_logic == "or";
                                         let should_handle = check_filters(&text, &filters, use_or);
                                         if should_handle {
@@ -349,7 +405,8 @@ impl Listener for WebsocketTrigger {
             None => (None, None, None),
         };
         let trigger = TriggerMetadata::new(Some(path.to_owned()), Self::JOB_TRIGGER_KIND);
-        if *suspended_mode || extra.is_none() {
+        let can_return_message = trigger_config.can_return_message;
+        if *suspended_mode || extra.is_none() || !can_return_message {
             trigger_runnable(
                 db,
                 None,
