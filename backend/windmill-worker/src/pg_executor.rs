@@ -134,45 +134,45 @@ fn do_postgresql_inner<'a>(
     let result_f = async move {
         let mut res: Vec<Box<serde_json::value::RawValue>> = vec![];
 
-        let query_params = query_params
-            .iter()
-            .map(|p| &**p as &(dyn ToSql + Sync))
-            .collect_vec();
-
-        let statement = if typed_schema {
+        // Use query_typed_raw (unnamed prepared statement) when all param types are
+        // resolved. This avoids named prepared statements ("s0", "s1", ...) which break
+        // with transaction-mode connection poolers (e.g. PgBouncer/Supabase) since the
+        // prepare and query can land on different backend connections.
+        // Fall back to prepare + query_raw for custom/unsupported types.
+        let rows = if typed_schema {
+            let typed_params = query_params
+                .iter()
+                .zip(param_types.iter())
+                .map(|(p, t)| (&**p as &(dyn ToSql + Sync), t.clone()));
             client
-                .prepare_typed(&query, &param_types)
+                .query_typed_raw(&query, typed_params)
                 .await
                 .map_err(to_anyhow)?
         } else {
-            client.prepare(&query).await.map_err(to_anyhow)?
+            let query_params = query_params
+                .iter()
+                .map(|p| &**p as &(dyn ToSql + Sync))
+                .collect_vec();
+            let statement = client.prepare(&query).await.map_err(to_anyhow)?;
+            client
+                .query_raw(&statement, query_params)
+                .await
+                .map_err(to_anyhow)?
         };
 
         if skip_collect {
-            client
-                .execute_raw(&statement, query_params)
-                .await
-                .map_err(to_anyhow)?;
+            futures::pin_mut!(rows);
+            while rows.try_next().await.map_err(to_anyhow)?.is_some() {}
         } else if let Some(ref s3) = s3 {
-            let rows_stream = client
-                .query_raw(&statement, query_params)
-                .map_err(to_anyhow)
-                .await?
-                .map_err(to_anyhow)
-                .map(|row_result| {
-                    row_result.and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
-                });
+            let rows_stream = rows.map_err(to_anyhow).map(|row_result| {
+                row_result.and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
+            });
 
             let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
             s3.upload(stream.boxed()).await?;
 
             return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
         } else {
-            let rows = client
-                .query_raw(&statement, query_params)
-                .await
-                .map_err(to_anyhow)?;
-
             let rows = if first_row_only {
                 rows.take(1).boxed()
             } else {
