@@ -36,12 +36,18 @@
 	let own = $state(false)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
 	let summaryInput: ReturnType<typeof TextInput> | undefined = $state()
-	let hasChanges = $derived(editSummary !== (summary ?? '') || (own && dirtyPath))
+	let initialLabels: string[] | undefined = $state(undefined)
+	let hasChanges = $derived(
+		editSummary !== (summary ?? '') ||
+			(own && dirtyPath) ||
+			JSON.stringify(labels ?? []) !== JSON.stringify(initialLabels ?? [])
+	)
 
 	$effect(() => {
 		if (popoverOpen && onSaved) {
 			editSummary = summary ?? ''
 			editPath = path ?? ''
+			initialLabels = labels ? [...labels] : undefined
 			own = isOwner(path ?? '', $userStore, $workspaceStore)
 			onBehalfOfEmail = undefined
 			if (kind === 'flow' && $workspaceStore && path) {
