@@ -68,8 +68,20 @@ pub async fn get_email_from_permissioned_as(
             workspace_id
         )
         .fetch_optional(db)
-        .await?
-        .unwrap_or_else(|| format!("{}@unknown.windmill.dev", username));
+        .await?;
+        let email = match email {
+            Some(e) => e,
+            None => {
+                // User not in workspace — check instance-level password table.
+                // This handles super admins who can access any workspace without
+                // a usr record; without the real email, the super_admin check in
+                // fetch_authed_from_permissioned_as would fail.
+                sqlx::query_scalar!("SELECT email FROM password WHERE username = $1", username)
+                    .fetch_optional(db)
+                    .await?
+                    .unwrap_or_else(|| format!("{}@unknown.windmill.dev", username))
+            }
+        };
         let key = (workspace_id.to_string(), username.to_string());
         EMAIL_CACHE.insert(key, (email.clone(), std::time::Instant::now()));
         Ok(email)

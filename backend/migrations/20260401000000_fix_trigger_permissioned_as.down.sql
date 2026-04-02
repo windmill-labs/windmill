@@ -1,0 +1,1 @@
+-- No-op: the forward migration only fixes stale data; reverting is not meaningful.
