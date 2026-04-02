@@ -620,6 +620,33 @@ pub async fn handle_flow_dependency_job(
 
         tx = dependency_map.dissolve(tx).await;
 
+        // When triggered by a relative import, re-check that our version is still
+        // the latest before writing. Between reading the flow value and now (module
+        // locking can take significant time), another job may have created a newer
+        // version. If so, skip the update — the newer version's dep job will handle it.
+        if triggered_by_relative_import {
+            let current_latest = sqlx::query_scalar!(
+                "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+                job_path,
+                job.workspace_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            if current_latest != Some(version) {
+                tracing::info!(
+                    "Flow version changed during dependency locking ({} -> {:?}), skipping update to avoid overwriting newer version",
+                    version,
+                    current_latest
+                );
+                tx.commit().await?;
+                return Ok(to_raw_value_owned(json!({
+                    "status": "Skipped: newer flow version exists",
+                    "modified_ids": modified_ids,
+                })));
+            }
+        }
+
         sqlx::query!(
             "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
             &new_flow_value as &Json<Box<RawValue>>,
