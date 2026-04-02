@@ -118,6 +118,10 @@ impl JobKind {
             JobKind::FlowDependencies | JobKind::AppDependencies | JobKind::Dependencies
         )
     }
+
+    pub fn is_preview(&self) -> bool {
+        matches!(self, JobKind::Preview | JobKind::FlowPreview)
+    }
 }
 
 #[derive(sqlx::FromRow, Debug, Serialize, Clone)]

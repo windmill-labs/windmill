@@ -184,6 +184,7 @@ lazy_static::lazy_static! {
         "nu".to_string(),
         "java".to_string(),
         "ruby".to_string(),
+        "rlang".to_string(),
         "duckdb".to_string(),
         // for related places search: ADD_NEW_LANG
         "dependency".to_string(),
@@ -205,6 +206,7 @@ lazy_static::lazy_static! {
 
     pub static ref DEFAULT_TAGS_PER_WORKSPACE: AtomicBool = AtomicBool::new(false);
     pub static ref DEFAULT_TAGS_WORKSPACES: Arc<RwLock<Option<Vec<String>>>> = Arc::new(RwLock::new(None));
+    pub static ref PREVIEW_TAGS_OVERRIDE: AtomicBool = AtomicBool::new(false);
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()
@@ -725,6 +727,13 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
 #[annotations("#")]
 pub struct RubyAnnotations {
     pub verbose: bool,
+}
+
+#[annotations("#")]
+pub struct RlangAnnotations {
+    pub renv_verbose: bool,
+    pub renv_install_verbose: bool,
+    pub sandbox: bool,
 }
 
 #[annotations("#")]
