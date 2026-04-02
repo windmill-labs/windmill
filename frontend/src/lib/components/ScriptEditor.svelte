@@ -190,8 +190,11 @@
 	let jsonView = $state(false)
 	let schemaHeight = $state(0)
 	let psCommonParams: Record<string, any> = $state({})
-	let showPsCommonParams = $derived(
-		lang === 'powershell' && schema?.['x-windmill-ps-cmd-binding'] === true
+	let showPsCommonParams = $derived(lang === 'powershell' && /\[CmdletBinding/i.test(code))
+	let psSupportsShouldProcess = $derived(
+		showPsCommonParams &&
+			/SupportsShouldProcess/i.test(code) &&
+			!/SupportsShouldProcess\s*=\s*\$false/i.test(code)
 	)
 
 	// Module tab state
@@ -1631,7 +1634,7 @@
 										{#if showPsCommonParams}
 											<div class="mt-2">
 												<PowerShellCommonParams
-													supportsShouldProcess={schema?.['x-windmill-ps-supports-should-process'] === true}
+													supportsShouldProcess={psSupportsShouldProcess}
 													bind:args={psCommonParams}
 												/>
 											</div>
