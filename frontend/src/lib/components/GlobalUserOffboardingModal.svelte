@@ -160,20 +160,16 @@
 	}
 
 	function downloadAffectedCsv() {
-		const rows: string[][] = [['workspace', 'category', 'type', 'path']]
+		const rows: string[][] = [['workspace', 'type', 'path']]
 
 		for (const wp of workspacePreviews) {
-			function addRows(category: string, paths: OffboardAffectedPaths | undefined) {
-				if (!paths) return
-				for (const [kind, list] of Object.entries(paths)) {
+			if (wp.preview.referencing) {
+				for (const [kind, list] of Object.entries(wp.preview.referencing)) {
 					if (Array.isArray(list)) {
-						for (const p of list) rows.push([wp.workspace_id, category, kind, p])
+						for (const p of list) rows.push([wp.workspace_id, kind, p])
 					}
 				}
 			}
-			addRows('owned', wp.preview.owned)
-			addRows('executing_on_behalf', wp.preview.executing_on_behalf)
-			addRows('referencing', wp.preview.referencing)
 		}
 
 		const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n')
@@ -239,18 +235,6 @@
 									This user has no owned items in any workspace.
 								</p>
 							{:else}
-								<!-- Download button -->
-								<div class="flex justify-end">
-									<Button
-										variant="subtle"
-										size="xs2"
-										startIcon={{ icon: Download }}
-										onclick={downloadAffectedCsv}
-									>
-										Export CSV
-									</Button>
-								</div>
-
 								{#each workspacesWithItems as wp}
 									{@const cfg = wsConfigs[wp.workspace_id]}
 									{@const owned = countPaths(wp.preview.owned)}
@@ -338,6 +322,37 @@
 										{/if}
 									</div>
 								{/each}
+
+								<!-- Referencing items box -->
+								{@const totalReferencing = workspacePreviews.reduce(
+									(s, wp) => s + countPaths(wp.preview.referencing),
+									0
+								)}
+								{#if totalReferencing > 0}
+									<div
+										class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700/40 rounded-md p-3"
+									>
+										<div class="flex items-start justify-between gap-2">
+											<div>
+												<p
+													class="text-xs font-medium text-yellow-800 dark:text-yellow-100/90 mb-0.5"
+													>Referencing items ({totalReferencing})</p
+												>
+												<p class="text-xs text-yellow-700 dark:text-yellow-100/90"
+													>Content or values reference this user's paths across workspaces. These
+													may break after reassignment. Check the exported list and update them
+													manually.</p
+												>
+											</div>
+											<Button
+												variant="subtle"
+												size="xs2"
+												startIcon={{ icon: Download }}
+												onclick={downloadAffectedCsv}>Export CSV</Button
+											>
+										</div>
+									</div>
+								{/if}
 
 								<!-- Global warnings -->
 								{#if hasAnyWarnings}
