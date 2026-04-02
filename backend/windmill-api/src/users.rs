@@ -415,6 +415,7 @@ async fn offboard_workspace_user(
         &db,
         &w_id,
         &username,
+        &email,
         &req.reassign_to,
         &new_permissioned_as,
         req.reassign_tokens_to.as_deref(),
@@ -560,6 +561,7 @@ async fn offboard_global_user(
                 &db,
                 &ws.workspace_id,
                 &ws.username,
+                &email,
                 &reassignment.reassign_to,
                 perm_as,
                 reassignment.reassign_tokens_to.as_deref(),
@@ -882,12 +884,25 @@ async fn offboard_user_from_workspace<'c>(
     db: &DB,
     w_id: &str,
     username: &str,
+    email: &str,
     reassign_to: &str,
     new_permissioned_as: &str,
     reassign_tokens_to: Option<&str>,
 ) -> Result<OffboardSummary> {
     // reassign_to is "u/{name}" or "f/{name}"
     let new_prefix = reassign_to.to_string();
+
+    // Resolve the new operator's email for on_behalf_of_email on scripts/flows
+    let new_operator_username = new_permissioned_as
+        .strip_prefix("u/")
+        .unwrap_or(new_permissioned_as);
+    let new_operator_email = sqlx::query_scalar!(
+        "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+        new_operator_username,
+        w_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
 
     // ---- scripts ----
     let scripts_reassigned = sqlx::query_scalar!(
@@ -903,6 +918,18 @@ async fn offboard_user_from_workspace<'c>(
     .fetch_one(&mut **tx)
     .await?
     .unwrap_or(0);
+
+    // Update on_behalf_of_email on scripts where it matches the departing user
+    if let Some(ref new_email) = new_operator_email {
+        sqlx::query!(
+            "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND workspace_id = $3",
+            new_email,
+            email,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
 
     // ---- flows ----
     // Flows use INSERT + DELETE pattern due to path being a primary key
@@ -935,6 +962,18 @@ async fn offboard_user_from_workspace<'c>(
     )
     .execute(&mut **tx)
     .await?;
+
+    // Update on_behalf_of_email on flows where it matches the departing user
+    if let Some(ref new_email) = new_operator_email {
+        sqlx::query!(
+            "UPDATE flow SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND workspace_id = $3",
+            new_email,
+            email,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
 
     // ---- apps ----
     let apps_reassigned = sqlx::query_scalar!(
