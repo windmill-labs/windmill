@@ -122,14 +122,15 @@
 	async function submit() {
 		submitting = true
 		try {
-			const reassignments: Record<string, { reassign_to: string; new_operator?: string }> = {}
+			const reassignments: Record<string, { reassign_to: string; new_on_behalf_of_user?: string }> =
+				{}
 			for (const wp of workspacesWithItems) {
 				const target = getReassignTo(wp.workspace_id)
 				const cfg = wsConfigs[wp.workspace_id]
 				if (target) {
 					reassignments[wp.workspace_id] = {
 						reassign_to: target,
-						new_operator: cfg?.targetKind === 'folder' ? cfg.selectedOperator : undefined
+						new_on_behalf_of_user: cfg?.selectedOperator
 					}
 				}
 			}

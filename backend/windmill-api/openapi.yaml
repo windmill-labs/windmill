@@ -20431,7 +20431,7 @@ components:
         reassign_to:
           type: string
           description: "Target for reassignment: 'u/{username}' or 'f/{folder}'"
-        new_operator:
+        new_on_behalf_of_user:
           type: string
           description: "Required when reassign_to is a folder. The username whose identity will be used as permissioned_as for schedules and triggers."
         delete_user:
@@ -20524,7 +20524,7 @@ components:
         reassign_to:
           type: string
           description: "Target: 'u/{username}' or 'f/{folder}'"
-        new_operator:
+        new_on_behalf_of_user:
           type: string
           description: "Required when reassign_to is a folder. Username to use as permissioned_as."
       required:

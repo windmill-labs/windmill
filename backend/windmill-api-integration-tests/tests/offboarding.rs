@@ -221,7 +221,7 @@ async fn test_offboard_to_folder(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
         .json(&json!({
             "reassign_to": "f/test-folder",
-            "new_operator": "test-user",
+            "new_on_behalf_of_user": "test-user",
             "delete_user": true
         }))
         .send()
@@ -352,7 +352,7 @@ async fn test_offboard_folder_requires_operator(db: Pool<Postgres>) -> anyhow::R
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    // Missing new_operator when reassigning to folder should fail
+    // Missing new_on_behalf_of_user when reassigning to folder should fail
     let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
         .json(&json!({
             "reassign_to": "f/test-folder",

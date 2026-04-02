@@ -61,7 +61,7 @@ pub(crate) struct OffboardRequest {
     reassign_to: String,
     /// Required when reassign_to is a folder (f/...). The username whose identity
     /// will be used as permissioned_as for schedules and triggers.
-    new_operator: Option<String>,
+    new_on_behalf_of_user: Option<String>,
     #[serde(default = "default_true")]
     delete_user: bool,
 }
@@ -113,7 +113,7 @@ pub(crate) struct GlobalOffboardRequest {
 #[derive(Deserialize)]
 struct WorkspaceReassignment {
     reassign_to: String,
-    new_operator: Option<String>,
+    new_on_behalf_of_user: Option<String>,
 }
 
 // ---- Preview helpers ----
@@ -207,27 +207,27 @@ async fn get_offboard_preview(
     .unwrap_or(0);
 
     // ---- Operator references (not under user's path) ----
-    let op_scripts = sqlx::query_scalar!(
+    let obo_scripts = sqlx::query_scalar!(
         "SELECT path FROM script WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
         email, &user_prefix, w_id
     ).fetch_all(db).await?;
 
-    let op_flows = sqlx::query_scalar!(
+    let obo_flows = sqlx::query_scalar!(
         "SELECT path FROM flow WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
         email, &user_prefix, w_id
     ).fetch_all(db).await?;
 
-    let op_apps = sqlx::query_scalar!(
+    let obo_apps = sqlx::query_scalar!(
         "SELECT path FROM app WHERE policy->>'on_behalf_of' = $1 AND NOT path LIKE $2 AND workspace_id = $3",
         &user_owner, &user_prefix, w_id
     ).fetch_all(db).await?;
 
-    let op_schedules = sqlx::query_scalar!(
+    let obo_schedules = sqlx::query_scalar!(
         "SELECT path FROM schedule WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3",
         &user_owner, &user_prefix, w_id
     ).fetch_all(db).await?;
 
-    let mut op_triggers = Vec::new();
+    let mut obo_triggers = Vec::new();
     for table in &trigger_tables {
         let paths: Vec<String> = sqlx::query_scalar(&format!(
             "SELECT path FROM {table} WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3"
@@ -237,7 +237,7 @@ async fn get_offboard_preview(
         .bind(w_id)
         .fetch_all(db)
         .await?;
-        op_triggers.extend(paths);
+        obo_triggers.extend(paths);
     }
 
     // ---- Objects whose content/value references u/{username}/ paths ----
@@ -293,11 +293,11 @@ async fn get_offboard_preview(
             triggers,
         },
         executing_on_behalf: OffboardAffectedPaths {
-            scripts: op_scripts,
-            flows: op_flows,
-            apps: op_apps,
-            schedules: op_schedules,
-            triggers: op_triggers,
+            scripts: obo_scripts,
+            flows: obo_flows,
+            apps: obo_apps,
+            schedules: obo_schedules,
+            triggers: obo_triggers,
             ..Default::default()
         },
         referencing: OffboardAffectedPaths {
@@ -352,7 +352,7 @@ pub(crate) async fn offboard_workspace_user(
     let new_permissioned_as = resolve_new_permissioned_as(
         target_kind,
         &req.reassign_to,
-        req.new_operator.as_deref(),
+        req.new_on_behalf_of_user.as_deref(),
         &db,
         &w_id,
     )
@@ -482,7 +482,7 @@ pub(crate) async fn offboard_global_user(
         let perm_as = resolve_new_permissioned_as(
             target_kind,
             &reassignment.reassign_to,
-            reassignment.new_operator.as_deref(),
+            reassignment.new_on_behalf_of_user.as_deref(),
             &db,
             w_id,
         )
@@ -643,20 +643,20 @@ async fn validate_target(db: &DB, w_id: &str, kind: &str, name: &str) -> Result<
 
 /// Resolve the permissioned_as value for schedules/triggers.
 /// When target is a user, permissioned_as = "u/{user}".
-/// When target is a folder, new_operator must be provided — a username to run as.
+/// When target is a folder, new_on_behalf_of_user must be provided — a username to run as.
 async fn resolve_new_permissioned_as(
     target_kind: &str,
     reassign_to: &str,
-    new_operator: Option<&str>,
+    new_on_behalf_of_user: Option<&str>,
     db: &DB,
     w_id: &str,
 ) -> Result<String> {
     match target_kind {
         "user" => Ok(reassign_to.to_string()),
         "folder" => {
-            let operator = new_operator.ok_or_else(|| {
+            let operator = new_on_behalf_of_user.ok_or_else(|| {
                 Error::BadRequest(
-                    "new_operator is required when reassigning to a folder".to_string(),
+                    "new_on_behalf_of_user is required when reassigning to a folder".to_string(),
                 )
             })?;
             let exists = sqlx::query_scalar!(
@@ -669,7 +669,7 @@ async fn resolve_new_permissioned_as(
             .unwrap_or(false);
             if !exists {
                 return Err(Error::NotFound(format!(
-                    "new_operator user '{}' not found in workspace '{}'",
+                    "new_on_behalf_of_user user '{}' not found in workspace '{}'",
                     operator, w_id
                 )));
             }
@@ -730,12 +730,12 @@ async fn offboard_user_from_workspace<'c>(
     let new_prefix = reassign_to.to_string();
 
     // Resolve the new operator's email for on_behalf_of_email on scripts/flows
-    let new_operator_username = new_permissioned_as
+    let new_on_behalf_of_user_username = new_permissioned_as
         .strip_prefix("u/")
         .unwrap_or(new_permissioned_as);
-    let new_operator_email = sqlx::query_scalar!(
+    let new_on_behalf_of_user_email = sqlx::query_scalar!(
         "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
-        new_operator_username,
+        new_on_behalf_of_user_username,
         w_id
     )
     .fetch_optional(&mut **tx)
@@ -756,7 +756,7 @@ async fn offboard_user_from_workspace<'c>(
     .await?
     .unwrap_or(0);
 
-    if let Some(ref new_email) = new_operator_email {
+    if let Some(ref new_email) = new_on_behalf_of_user_email {
         sqlx::query!(
             "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND workspace_id = $3",
             new_email,
@@ -798,7 +798,7 @@ async fn offboard_user_from_workspace<'c>(
     .execute(&mut **tx)
     .await?;
 
-    if let Some(ref new_email) = new_operator_email {
+    if let Some(ref new_email) = new_on_behalf_of_user_email {
         sqlx::query!(
             "UPDATE flow SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND workspace_id = $3",
             new_email,
