@@ -42,6 +42,10 @@ VALUES ('test-workspace', 1005, 'f/test-folder/shared_script', 'Shared Script', 
 INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, permissioned_as, extra_perms)
 VALUES ('test-workspace', 'f/test-folder/sched_shared', 'test-user', NOW(), '0 * * * *', 'UTC', false, 'f/test-folder/shared_script', false, 'test@windmill.dev', 'u/test-user-2', '{}');
 
+-- HTTP trigger NOT under test-user-2 path but permissioned_as = u/test-user-2 (tests line 232 + 951)
+INSERT INTO http_trigger (workspace_id, path, route_path, route_path_key, script_path, is_flow, edited_by, permissioned_as, edited_at, extra_perms, http_method, authentication_method, mode)
+VALUES ('test-workspace', 'f/test-folder/webhook_shared', '/shared-webhook', 'shared-webhook', 'f/test-folder/shared_script', false, 'test-user', 'u/test-user-2', NOW(), '{"u/test-user-2": true}', 'post', 'none', 'enabled');
+
 -- For conflict test: script at the target path
 INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, schema, language, kind, lock, extra_perms)
 VALUES ('test-workspace', 1003, 'u/test-user/conflict_script', 'Conflict Script', '', 'print("conflict")', 'test-user', '{}', 'python3', 'script', '', '{}');

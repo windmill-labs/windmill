@@ -40,13 +40,21 @@ async fn test_offboard_preview(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(body["tokens"], 1); // OFFBOARD_TOKEN_1
     assert_eq!(body["http_triggers"], 1); // webhook_a
     assert_eq!(body["email_triggers"], 0);
-    // Operator references: schedule at f/test-folder/sched_shared runs as u/test-user-2
+    // Operator references: schedule + trigger at f/test-folder/ run as u/test-user-2
     assert_eq!(
         body["executing_on_behalf"]["schedules"]
             .as_array()
             .unwrap()
             .len(),
         1
+    );
+    assert_eq!(
+        body["executing_on_behalf"]["triggers"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "shared trigger permissioned_as should be detected"
     );
 
     Ok(())
@@ -173,6 +181,32 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
         shared_sched_perm.as_deref(),
         Some("u/test-user"),
         "shared schedule permissioned_as should be updated"
+    );
+
+    // Verify shared trigger permissioned_as updated (line 951 - dynamic query)
+    let shared_trigger_perm = sqlx::query_scalar!(
+        "SELECT permissioned_as FROM http_trigger WHERE path = 'f/test-folder/webhook_shared' AND workspace_id = 'test-workspace'"
+    )
+    .fetch_optional(&db)
+    .await?;
+    assert_eq!(
+        shared_trigger_perm.as_deref(),
+        Some("u/test-user"),
+        "shared trigger permissioned_as should be updated"
+    );
+
+    // Verify extra_perms cleaned on trigger (line 983 - dynamic query on trigger table)
+    let trigger_extra_perms = sqlx::query_scalar!(
+        "SELECT extra_perms::text FROM http_trigger WHERE path = 'f/test-folder/webhook_shared' AND workspace_id = 'test-workspace'"
+    )
+    .fetch_optional(&db)
+    .await?;
+    assert!(
+        !trigger_extra_perms
+            .unwrap_or_default()
+            .unwrap_or_default()
+            .contains("test-user-2"),
+        "trigger extra_perms should no longer reference test-user-2"
     );
 
     Ok(())

@@ -149,11 +149,6 @@
 			preview.executing_on_behalf
 		)
 		if (preview.tokens > 0) lines.push(`Tokens: ${preview.tokens} (will be deleted)`, '')
-		if (preview.broken_references > 0)
-			lines.push(
-				`Broken references: ${preview.broken_references} resource/variable values contain $var: or $res: references to this user's paths`,
-				''
-			)
 		if (preview.http_triggers > 0)
 			lines.push(`HTTP triggers: ${preview.http_triggers} (webhook URLs will change)`, '')
 		if (preview.email_triggers > 0)
@@ -317,15 +312,6 @@
 											{#if preview.email_triggers > 0}{preview.email_triggers} email trigger(s) will
 												have new addresses.{/if}
 											Update any external integrations that reference these endpoints.
-										</p>
-									</Alert>
-								{/if}
-
-								{#if preview.broken_references > 0}
-									<Alert type="warning" title="Broken references detected">
-										<p class="text-xs">
-											{preview.broken_references} resource/variable value(s) contain $var: or $res: references
-											to this user's paths. These references will break after reassignment.
 										</p>
 									</Alert>
 								{/if}

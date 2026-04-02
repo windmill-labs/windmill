@@ -177,8 +177,6 @@
 			addPaths('Owned (will be reassigned)', wp.preview.owned)
 			addPaths('Executing on behalf (will be updated)', wp.preview.executing_on_behalf)
 			if (wp.preview.tokens > 0) lines.push(`Tokens: ${wp.preview.tokens} (will be deleted)`)
-			if (wp.preview.broken_references > 0)
-				lines.push(`Broken references: ${wp.preview.broken_references}`)
 			if (wp.preview.http_triggers > 0)
 				lines.push(`HTTP triggers: ${wp.preview.http_triggers} (webhook URLs will change)`)
 			if (wp.preview.email_triggers > 0)
@@ -200,12 +198,7 @@
 	}
 
 	let hasAnyWarnings = $derived(
-		workspacePreviews.some(
-			(wp) =>
-				wp.preview.http_triggers > 0 ||
-				wp.preview.email_triggers > 0 ||
-				wp.preview.broken_references > 0
-		)
+		workspacePreviews.some((wp) => wp.preview.http_triggers > 0 || wp.preview.email_triggers > 0)
 	)
 </script>
 
@@ -368,26 +361,12 @@
 										(s, wp) => s + wp.preview.email_triggers,
 										0
 									)}
-									{@const totalBroken = workspacePreviews.reduce(
-										(s, wp) => s + wp.preview.broken_references,
-										0
-									)}
-
 									{#if totalHttp > 0 || totalEmail > 0}
 										<Alert type="warning" title="Webhook and email trigger URLs will change">
 											<p class="text-xs">
 												{#if totalHttp > 0}{totalHttp} HTTP trigger(s) will have new webhook URLs.{/if}
 												{#if totalEmail > 0}{totalEmail} email trigger(s) will have new addresses.{/if}
 												Update any external integrations that reference these endpoints.
-											</p>
-										</Alert>
-									{/if}
-
-									{#if totalBroken > 0}
-										<Alert type="warning" title="Broken references detected">
-											<p class="text-xs">
-												{totalBroken} resource/variable value(s) contain $var: or $res: references to
-												this user's paths. These references will break after reassignment.
 											</p>
 										</Alert>
 									{/if}

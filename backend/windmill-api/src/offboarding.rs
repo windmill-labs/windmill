@@ -27,9 +27,6 @@ pub(crate) struct OffboardPreview {
     /// Objects NOT under the user's path but that execute on behalf of this user
     /// (will have their permissioned_as/on_behalf_of updated)
     executing_on_behalf: OffboardAffectedPaths,
-    /// Resources/variables that contain $var: or $res: references
-    /// to the user's paths (these references will break after path changes)
-    broken_references: i64,
     /// Tokens owned by this user (will be deleted)
     tokens: i64,
     /// HTTP triggers under the user's path (webhook URLs will change)
@@ -240,18 +237,6 @@ async fn get_offboard_preview(
         op_triggers.extend(paths);
     }
 
-    // ---- Broken references: resources/variables containing $var:u/{user}/ or $res:u/{user}/ ----
-    let var_ref_pattern = format!("%$var:u/{}/%", username);
-    let res_ref_pattern = format!("%$res:u/{}/%", username);
-    let broken_references = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) FROM (
-            SELECT 1 FROM resource WHERE (value::text LIKE $1 OR value::text LIKE $2) AND workspace_id = $3
-            UNION ALL
-            SELECT 1 FROM variable WHERE (value LIKE $1 OR value LIKE $2) AND workspace_id = $3
-        ) t"#,
-        &var_ref_pattern, &res_ref_pattern, w_id
-    ).fetch_one(db).await?.unwrap_or(0);
-
     // ---- Specific trigger warnings ----
     let http_triggers = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM http_trigger WHERE path LIKE $1 AND workspace_id = $2",
@@ -289,7 +274,6 @@ async fn get_offboard_preview(
             triggers: op_triggers,
             ..Default::default()
         },
-        broken_references,
         tokens,
         http_triggers,
         email_triggers,
