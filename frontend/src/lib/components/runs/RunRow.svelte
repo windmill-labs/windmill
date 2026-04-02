@@ -9,6 +9,7 @@
 		isScriptPreview,
 		msToReadableTime,
 		isFlowPreview,
+		getJobKindDisplayLabel,
 		getJobKindIcon
 	} from '$lib/utils'
 	import { Button } from '../common'
@@ -155,12 +156,12 @@
 						{/if}
 						<JobKindIcon size={14} />
 					</div>
-					{#snippet text()}
-						<span>
-							{#if job && job.job_kind}
-								{job.job_kind}
-							{/if}
-							{#if job && job.is_flow_step && job.parent_job}
+						{#snippet text()}
+							<span>
+								{#if job && job.job_kind}
+									{getJobKindDisplayLabel(job.job_kind, job.script_path)}
+								{/if}
+								{#if job && job.is_flow_step && job.parent_job}
 								<br /> Step of flow
 								<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
 									{truncateRev(job.parent_job, 10)}

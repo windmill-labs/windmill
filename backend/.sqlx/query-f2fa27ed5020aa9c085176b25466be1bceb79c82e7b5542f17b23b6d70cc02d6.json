@@ -38,7 +38,8 @@
                 "nu",
                 "java",
                 "duckdb",
-                "ruby"
+                "ruby",
+                "rlang"
               ]
             }
           }
@@ -84,7 +85,8 @@
                       "nu",
                       "java",
                       "duckdb",
-                      "ruby"
+                      "ruby",
+                      "rlang"
                     ]
                   }
                 }

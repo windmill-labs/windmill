@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.669.1"
+version = "1.672.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -66,10 +66,13 @@ members = [
     "./parsers/windmill-parser-nu",
     "./parsers/windmill-parser-java",
     "./parsers/windmill-parser-ruby",
+    "./parsers/windmill-parser-r",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-asset",
     "./parsers/windmill-parser-py-imports",
+    # Uncomment to build wasm parsers:
+    # "./parsers/windmill-parser-wasm",
     "./parsers/windmill-parser-wac",
     "./parsers/windmill-parser-sql",
     "./parsers/windmill-parser-sql-asset",
@@ -82,7 +85,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.669.1"
+version = "1.672.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -163,7 +166,8 @@ csharp = ["windmill-worker/csharp"]
 nu = ["windmill-worker/nu"]
 java = ["windmill-worker/java"]
 ruby = ["windmill-worker/ruby"]
-all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-kerberos", "bigquery", "csharp", "nu", "php", "java", "ruby"]
+rlang = ["windmill-worker/rlang"]
+all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-kerberos", "bigquery", "csharp", "nu", "php", "java", "ruby", "rlang"]
 # For windows we have another set of languages enabled
 all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-winauth", "bigquery", "csharp", "nu", "php", "java"]
 # Edition meta-features: shared groups
@@ -263,6 +267,7 @@ windmill-types.workspace = true
 opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 windmill-trigger.workspace = true
+serial_test = "3"
 windmill-trigger-websocket.workspace = true
 windmill-trigger-postgres.workspace = true
 windmill-trigger-mqtt.workspace = true
@@ -347,6 +352,7 @@ windmill-parser-yaml = { path = "./parsers/windmill-parser-yaml" }
 windmill-parser-csharp = { path = "./parsers/windmill-parser-csharp" }
 windmill-parser-java = { path = "./parsers/windmill-parser-java" }
 windmill-parser-ruby = { path = "./parsers/windmill-parser-ruby" }
+windmill-parser-r = { path = "./parsers/windmill-parser-r" }
 windmill-parser-nu = { path = "./parsers/windmill-parser-nu" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
@@ -613,6 +619,7 @@ tree-sitter = { version = "0.23.0", features = [] }
 tree-sitter-c-sharp = "0.23.0"
 tree-sitter-java = "0.23.0"
 tree-sitter-ruby = "0.23.0"
+tree-sitter-r = "1.2.0"
 oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
 strum = { version = "0.27", features = ["derive"] }

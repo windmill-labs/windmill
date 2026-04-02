@@ -868,6 +868,9 @@ export async function inferSchema(
   } else if (language === "ruby") {
     const { parse_ruby } = await loadParser("windmill-parser-wasm-ruby");
     inferedSchema = JSON.parse(parse_ruby(content));
+  } else if (language === "rlang") {
+    const { parse_r } = await loadParser("windmill-parser-wasm-r");
+    inferedSchema = JSON.parse(parse_r(content));
     // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);
@@ -1050,12 +1053,12 @@ export async function parseMetadataFile(
     }
   }
   // no metadata file at all. Create it
+  metadataFilePath = scriptPath + ".script.yaml";
   log.info(
     (await blueColor())(
       `Creating script metadata file for ${metadataFilePath}`
     )
   );
-  metadataFilePath = scriptPath + ".script.yaml";
   let scriptInitialMetadata = defaultScriptMetadata();
   const lockPath = scriptPath + ".script.lock";
   scriptInitialMetadata.lock = "!inline " + lockPath;

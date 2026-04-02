@@ -145,7 +145,7 @@ pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::
 }
 
 lazy_static::lazy_static! {
-    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res|encrypted)\:"#).unwrap();
+    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|jsonvar|res|encrypted)\:"#).unwrap();
 }
 
 pub async fn transform_json<'a>(
@@ -254,6 +254,15 @@ pub async fn transform_json_value(
                 .map_err(|e| {
                     Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
                 })
+        }
+        Value::String(y) if y.starts_with("$jsonvar:") => {
+            let path = y.strip_prefix("$jsonvar:").unwrap();
+            let v = client.get_variable_value(path).await.map_err(|e| {
+                Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
+            })?;
+            serde_json::from_str::<serde_json::Value>(&v).map_err(|e| {
+                Error::internal_err(format!("Failed to parse $jsonvar value as JSON: {e}"))
+            })
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
@@ -693,6 +702,120 @@ lazy_static! {
     static ref DISABLE_PROCESS_GROUP: bool = std::env::var("DISABLE_PROCESS_GROUP").is_ok();
 }
 
+/// 2 GB memory limit in bytes for LIMIT_WINDOWS_TO_1CU
+#[cfg(windows)]
+const MEMORY_LIMIT_1CU: usize = 2 * 1024 * 1024 * 1024;
+
+/// Wrapper that holds a Windows Job Object handle alongside the child process.
+/// The job object enforces memory limits and is closed when the child is dropped.
+#[cfg(windows)]
+struct MemoryLimitedChild {
+    inner: Box<dyn TokioChildWrapper>,
+    _job_handle: Win32JobHandle,
+}
+
+#[cfg(windows)]
+impl std::fmt::Debug for MemoryLimitedChild {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryLimitedChild").finish()
+    }
+}
+
+/// RAII wrapper for a raw Win32 HANDLE that closes it on drop.
+#[cfg(windows)]
+struct Win32JobHandle(windows::Win32::Foundation::HANDLE);
+
+// SAFETY: Win32 HANDLEs are plain pointer-sized values with no thread affinity;
+// the kernel ref-counts the underlying object, so sending/sharing the handle is safe.
+#[cfg(windows)]
+unsafe impl Send for Win32JobHandle {}
+#[cfg(windows)]
+unsafe impl Sync for Win32JobHandle {}
+
+#[cfg(windows)]
+impl Drop for Win32JobHandle {
+    fn drop(&mut self) {
+        let _ = unsafe { windows::Win32::Foundation::CloseHandle(self.0) };
+    }
+}
+
+#[cfg(windows)]
+impl process_wrap::tokio::TokioChildWrapper for MemoryLimitedChild {
+    fn inner(&self) -> &tokio::process::Child {
+        self.inner.inner()
+    }
+    fn inner_mut(&mut self) -> &mut tokio::process::Child {
+        self.inner.inner_mut()
+    }
+    fn into_inner(self: Box<Self>) -> tokio::process::Child {
+        self.inner.into_inner()
+    }
+    fn start_kill(&mut self) -> std::io::Result<()> {
+        self.inner.start_kill()
+    }
+    fn wait(
+        &mut self,
+    ) -> Box<dyn std::future::Future<Output = std::io::Result<std::process::ExitStatus>> + Send + '_>
+    {
+        self.inner.wait()
+    }
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.inner.try_wait()
+    }
+}
+
+/// Create a Windows Job Object with a memory limit and assign the process to it.
+#[cfg(windows)]
+fn apply_job_memory_limit(pid: u32, memory_limit: usize) -> Result<Win32JobHandle, std::io::Error> {
+    use windows::Win32::System::JobObjects::*;
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
+
+    unsafe {
+        let job = CreateJobObjectW(None, None).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("CreateJobObjectW: {e}"))
+        })?;
+
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_JOB_MEMORY;
+        info.JobMemoryLimit = memory_limit;
+
+        SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as _,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )
+        .map_err(|e| {
+            let _ = windows::Win32::Foundation::CloseHandle(job);
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("SetInformationJobObject: {e}"),
+            )
+        })?;
+
+        let process_handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, false, pid)
+            .map_err(|e| {
+                let _ = windows::Win32::Foundation::CloseHandle(job);
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("OpenProcess({pid}): {e}"),
+                )
+            })?;
+
+        let assign_result = AssignProcessToJobObject(job, process_handle);
+        let _ = windows::Win32::Foundation::CloseHandle(process_handle);
+        assign_result.map_err(|e| {
+            let _ = windows::Win32::Foundation::CloseHandle(job);
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("AssignProcessToJobObject: {e}"),
+            )
+        })?;
+
+        Ok(Win32JobHandle(job))
+    }
+}
+
 pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
     use tokio::process::Command;
 
@@ -758,9 +881,31 @@ pub async fn start_child_process(
         }
     }
 
-    return cmd
+    let child: Box<dyn TokioChildWrapper> = cmd
         .spawn()
-        .map_err(|err| tentatively_improve_error(err.into(), executable));
+        .map_err(|err| tentatively_improve_error(err.into(), executable))?;
+
+    #[cfg(windows)]
+    if *windmill_common::worker::LIMIT_WINDOWS_TO_1CU {
+        if let Some(pid) = child.inner().id() {
+            match apply_job_memory_limit(pid, MEMORY_LIMIT_1CU) {
+                Ok(job_handle) => {
+                    tracing::info!(
+                        "Applied 2GB memory limit (LIMIT_WINDOWS_TO_1CU) to child process {pid}"
+                    );
+                    return Ok(Box::new(MemoryLimitedChild {
+                        inner: child,
+                        _job_handle: job_handle,
+                    }));
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to apply memory limit to child process {pid}: {e}");
+                }
+            }
+        }
+    }
+
+    Ok(child)
 }
 
 pub async fn resolve_job_timeout(

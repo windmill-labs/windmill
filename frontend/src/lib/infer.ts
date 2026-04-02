@@ -42,6 +42,7 @@ import initCSharpParser, { parse_csharp } from 'windmill-parser-wasm-csharp'
 import initNuParser, { parse_nu } from 'windmill-parser-wasm-nu'
 import initJavaParser, { parse_java } from 'windmill-parser-wasm-java'
 import initRubyParser, { parse_ruby } from 'windmill-parser-wasm-ruby'
+import initRParser, { parse_r } from 'windmill-parser-wasm-r'
 
 import wasmUrlTs from 'windmill-parser-wasm-ts/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRegex from 'windmill-parser-wasm-regex/windmill_parser_wasm_bg.wasm?url'
@@ -54,6 +55,7 @@ import wasmUrlCSharp from 'windmill-parser-wasm-csharp/windmill_parser_wasm_bg.w
 import wasmUrlNu from 'windmill-parser-wasm-nu/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlJava from 'windmill-parser-wasm-java/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlRuby from 'windmill-parser-wasm-ruby/windmill_parser_wasm_bg.wasm?url'
+import wasmUrlR from 'windmill-parser-wasm-r/windmill_parser_wasm_bg.wasm?url'
 import wasmUrlAsset from 'windmill-parser-wasm-asset/windmill_parser_wasm_bg.wasm?url'
 import initWacParser, { parse_workflow_as_code } from 'windmill-parser-wasm-wac'
 import wasmUrlWac from 'windmill-parser-wasm-wac/windmill_parser_wasm_bg.wasm?url'
@@ -100,6 +102,9 @@ async function initWasmJava() {
 }
 async function initWasmRuby() {
 	await initRubyParser(wasmUrlRuby)
+}
+async function initWasmR() {
+	await initRParser(wasmUrlR)
 }
 async function initWasmAsset() {
 	await initAssetParser(wasmUrlAsset)
@@ -211,6 +216,7 @@ function getCommentPrefix(language: SupportedLanguage | undefined): string | und
 		case 'powershell':
 		case 'ansible':
 		case 'ruby':
+		case 'rlang':
 			return '#'
 		case 'deno':
 		case 'bun':
@@ -418,6 +424,13 @@ export async function inferArgs(
 		} else if (language == 'ruby') {
 			await initWasmRuby()
 			inferedSchema = JSON.parse(parse_ruby(code))
+		} else if (language == 'rlang') {
+			try {
+				await initWasmR()
+				inferedSchema = JSON.parse(parse_r(code))
+			} catch {
+				inferedSchema = parseRSignatureFallback(code)
+			}
 			// for related places search: ADD_NEW_LANG
 		} else {
 			return null
@@ -549,4 +562,77 @@ export async function parseOutputs(
 		throw new Error(outputs.error)
 	}
 	return outputs.error ? [] : outputs.outputs
+}
+
+/** JS fallback parser for R main() signatures when WASM parser is unavailable. */
+function parseRSignatureFallback(code: string): MainArgSignature {
+	const result: MainArgSignature = {
+		type: 'Valid',
+		error: '',
+		star_args: false,
+		star_kwargs: false,
+		args: [],
+		has_preprocessor: null,
+		auto_kind: null
+	}
+
+	const mainMatch = code.match(/\bmain\s*(?:<-|=)\s*function\s*\(([^)]*)\)/)
+	if (!mainMatch) {
+		return result
+	}
+
+	const paramsStr = mainMatch[1].trim()
+	if (!paramsStr) return result
+
+	// Split params respecting nested parens
+	const params: string[] = []
+	let depth = 0
+	let current = ''
+	for (const ch of paramsStr) {
+		if ('([{'.includes(ch)) {
+			depth++
+			current += ch
+		} else if (')]}'.includes(ch)) {
+			depth--
+			current += ch
+		} else if (ch === ',' && depth === 0) {
+			params.push(current)
+			current = ''
+		} else {
+			current += ch
+		}
+	}
+	if (current.trim()) params.push(current)
+
+	for (const param of params) {
+		const trimmed = param.trim()
+		if (!trimmed) continue
+
+		const eqIndex = trimmed.indexOf('=')
+		if (eqIndex === -1) {
+			result.args.push({ name: trimmed, typ: 'unknown', has_default: false, default: undefined })
+		} else {
+			const name = trimmed.slice(0, eqIndex).trim()
+			const raw = trimmed.slice(eqIndex + 1).trim()
+			const parsed = parseRDefault(raw)
+			result.args.push({ name, typ: parsed.typ, has_default: true, default: parsed.value })
+		}
+	}
+
+	return result
+}
+
+function parseRDefault(raw: string): { value: unknown; typ: MainArgSignature['args'][0]['typ'] } {
+	if (raw === 'TRUE' || raw === 'true') return { value: true, typ: 'bool' }
+	if (raw === 'FALSE' || raw === 'false') return { value: false, typ: 'bool' }
+	if (raw === 'NULL') return { value: null, typ: 'unknown' }
+	if (/^-?\d+(\.\d+)?$/.test(raw)) {
+		const num = Number(raw)
+		if (Number.isInteger(num) && !raw.includes('.')) return { value: num, typ: 'int' }
+		return { value: num, typ: 'float' }
+	}
+	const strMatch = raw.match(/^"((?:[^"\\]|\\.)*)"$/) || raw.match(/^'((?:[^'\\]|\\.)*)'$/)
+	if (strMatch) return { value: strMatch[1], typ: { str: null } }
+	if (raw.startsWith('list(') || raw.startsWith('c(')) return { value: null, typ: { list: null } }
+	return { value: null, typ: 'unknown' }
 }

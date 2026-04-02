@@ -590,6 +590,16 @@ pub async fn transform_json_value(
                     .await?;
             Ok(Value::String(v))
         }
+        Value::String(y) if y.starts_with("$jsonvar:") => {
+            let path = y.strip_prefix("$jsonvar:").unwrap();
+
+            let v =
+                crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
+                    .await?;
+            serde_json::from_str::<Value>(&v).map_err(|e| {
+                Error::internal_err(format!("Failed to parse $jsonvar value as JSON: {e}"))
+            })
+        }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
             if path.split("/").count() < 2 {
