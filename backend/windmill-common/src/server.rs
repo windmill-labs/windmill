@@ -11,6 +11,7 @@ pub struct Smtp {
     pub from: String,
     pub tls_implicit: Option<bool>,
     pub disable_tls: Option<bool>,
+    pub clicktracking_off: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -22,6 +23,7 @@ pub struct SmtpConfigOpt {
     pub smtp_from: Option<String>,
     pub smtp_tls_implicit: Option<bool>,
     pub smtp_disable_tls: Option<bool>,
+    pub smtp_clicktracking_off: Option<bool>,
 }
 
 pub async fn load_smtp_config(db: &DB) -> error::Result<Option<Smtp>> {
@@ -46,6 +48,7 @@ pub async fn load_smtp_config(db: &DB) -> error::Result<Option<Smtp>> {
             from: config
                 .smtp_from
                 .unwrap_or_else(|| "noreply@getwindmill.com".to_string()),
+            clicktracking_off: config.smtp_clicktracking_off,
         })
     } else {
         None
@@ -72,6 +75,9 @@ pub async fn load_smtp_config(db: &DB) -> error::Result<Option<Smtp>> {
                     .unwrap_or(587),
                 from: std::env::var("SMTP_FROM")
                     .unwrap_or_else(|_| "noreply@getwindmill.com".to_string()),
+                clicktracking_off: std::env::var("SMTP_CLICKTRACKING_OFF")
+                    .ok()
+                    .and_then(|p| p.parse().ok()),
             })
         } else {
             None
@@ -94,6 +100,7 @@ impl Default for SmtpConfigOpt {
             smtp_tls_implicit: None,
             smtp_username: None,
             smtp_disable_tls: None,
+            smtp_clicktracking_off: None,
         }
     }
 }
