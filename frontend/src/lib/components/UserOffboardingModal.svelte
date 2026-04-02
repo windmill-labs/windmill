@@ -117,7 +117,7 @@
 				sendUserToast(
 					deleteUser
 						? `User ${username} offboarded successfully`
-						: `Objects reassigned from ${username} successfully`
+						: `Items reassigned from ${username} successfully`
 				)
 				onComplete()
 			}
@@ -130,7 +130,7 @@
 
 	function downloadAffectedList() {
 		if (!preview) return
-		const lines: string[] = ['# Affected objects for user: ' + username, '']
+		const lines: string[] = ['# Affected items for user: ' + username, '']
 
 		function addSection(title: string, paths: OffboardAffectedPaths | undefined) {
 			if (!paths || countPaths(paths) === 0) return
@@ -195,12 +195,12 @@
 						</div>
 						<div class="ml-4 text-left flex-1">
 							<h3 class="text-lg font-medium text-primary">
-								{reassignOnly ? 'Reassign user objects' : 'Offboard user'}
+								{reassignOnly ? 'Reassign user items' : 'Offboard user'}
 							</h3>
 							<p class="text-sm text-secondary mt-1">
 								{reassignOnly
-									? `Reassign objects owned by ${username}`
-									: `Remove ${username} and reassign their objects`}
+									? `Reassign items owned by ${username}`
+									: `Remove ${username} and reassign their items`}
 							</p>
 						</div>
 					</div>
@@ -213,7 +213,7 @@
 					{:else if preview}
 						<div class="mt-4 space-y-3">
 							{#if hasItems}
-								<!-- Owned objects summary -->
+								<!-- Owned items summary -->
 								<div class="bg-surface-secondary rounded-md p-3">
 									<div class="flex items-center justify-between mb-2">
 										<p class="text-sm font-medium text-primary">
@@ -300,7 +300,7 @@
 
 								<!-- Warnings -->
 								{#if countPaths(preview.executing_on_behalf) > 0}
-									<Alert type="info" title="Objects executing on behalf of this user">
+									<Alert type="info" title="Items executing on behalf of this user">
 										<p class="text-xs">
 											{countPaths(preview.executing_on_behalf)} item(s) outside this user's path have
 											their permissioned_as or on_behalf_of set to this user. These will be updated to

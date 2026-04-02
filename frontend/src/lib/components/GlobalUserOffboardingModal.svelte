@@ -144,7 +144,7 @@
 			sendUserToast(
 				deleteUser
 					? `User ${email} offboarded successfully`
-					: `Objects reassigned from ${email} successfully`
+					: `Items reassigned from ${email} successfully`
 			)
 			onComplete()
 		} catch (e) {
@@ -379,7 +379,7 @@
 								{/if}
 							{/if}
 
-							<!-- Workspaces without objects -->
+							<!-- Workspaces without items -->
 							{#if workspacePreviews.length > workspacesWithItems.length}
 								<p class="text-xs text-tertiary">
 									{workspacePreviews.length - workspacesWithItems.length} workspace(s) with no items
