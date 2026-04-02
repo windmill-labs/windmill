@@ -153,10 +153,8 @@ pub struct TsScriptEntry<'a> {
 /// Generate a wrapper for dedicated workers and runner groups.
 /// All scripts are baked in at codegen time with static imports and inline arg handling.
 /// Protocol:
-///   execd:<json_args>               -> execute the single registered script (non-runner-group)
-///   execd_preprocess:<json_args>    -> preprocess + execute the single registered script
-///   exec:<path>:<json_args>         -> execute script by path (runner groups with multiple scripts)
-///   exec_preprocess:<path>:<json>   -> preprocess + execute script by path
+///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
+///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
 ///   end                             -> exit
 #[cfg(any(feature = "private", test))]
 pub fn generate_multi_script_wrapper(scripts: &[TsScriptEntry<'_>], ext: &str) -> String {
@@ -242,43 +240,6 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
         process.exit(0);
     }}
 
-    // Direct execution: single-script dedicated workers (no path needed)
-    if (line.startsWith("execd_preprocess:")) {{
-        const argsJson = line.slice("execd_preprocess:".length);
-        const entry = scripts.values().next().value;
-
-        try {{
-            if (!entry.getPreArgs) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}));
-                continue;
-            }}
-            const preArgs = entry.getPreArgs(argsJson);
-            const preprocessedArgs = await entry.module.preprocessor(...preArgs);
-            console.log("wm_res[preprocessed_args]:" + JSON.stringify(preprocessedArgs ?? {{}}, (key, value) => typeof value === 'undefined' ? null : value));
-            const mainArgs = entry.getArgs(JSON.stringify(preprocessedArgs ?? {{}}));
-            const res = await entry.module.main(...mainArgs);
-            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
-        }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
-        }}
-        continue;
-    }}
-
-    if (line.startsWith("execd:")) {{
-        const argsJson = line.slice("execd:".length);
-        const entry = scripts.values().next().value;
-
-        try {{
-            const args = entry.getArgs(argsJson);
-            const res = await entry.module.main(...args);
-            console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
-        }} catch (e) {{
-            console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}));
-        }}
-        continue;
-    }}
-
-    // Path-based execution: runner groups with multiple scripts
     if (line.startsWith("exec_preprocess:")) {{
         const rest = line.slice("exec_preprocess:".length);
         const colonIdx = rest.indexOf(":");
@@ -3586,6 +3547,11 @@ pub async fn start_worker(
 
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
+    //TODO: remove this when bun dedicated workers work without issues
+    if !annotation.native {
+        annotation.nodejs = true;
+    }
+
     let context = variables::get_reserved_variables(
         &Connection::from(db.clone()),
         w_id,
@@ -3819,7 +3785,7 @@ pub async fn start_worker(
     }
 
     if annotation.nodejs {
-        let wrapper_path = format!("{job_dir}/wrapper.mjs");
+        let script_path = format!("{job_dir}/wrapper.mjs");
 
         handle_dedicated_process(
             &*NODE_BIN_PATH,
@@ -3828,17 +3794,16 @@ pub async fn start_worker(
             envs,
             context,
             common_bun_proc_envs,
-            vec![&wrapper_path],
+            vec![&script_path],
             killpill_rx,
             job_completed_tx,
             token,
             jobs_rx,
             worker_name,
             db,
-            script_path,
+            &script_path,
             "nodejs",
             client,
-            false,
         )
         .await
     } else {
@@ -3866,7 +3831,6 @@ pub async fn start_worker(
             script_path,
             "bun",
             client,
-            false,
         )
         .await
     }
@@ -4021,34 +3985,5 @@ export function preprocessor(input: string, when: Date) { return { x: input, ts:
         assert!(cg.spread.is_empty());
         assert!(cg.date_conversions.is_empty());
         assert!(cg.preprocessor_spread.is_none());
-    }
-
-    #[test]
-    fn test_wrapper_contains_execd_protocol() {
-        let code = r#"export function main(x: number) { return x; }"#;
-        let cg = compute_ts_codegen(code);
-        let scripts =
-            vec![TsScriptEntry { import_name: "main", original_path: "test/script", codegen: &cg }];
-        let wrapper = generate_multi_script_wrapper(&scripts, "ts");
-        // Single-script wrapper must support execd: (direct, no path)
-        assert!(wrapper.contains(r#"line.startsWith("execd:")"#));
-        // Must also support exec: for backward compat / runner groups
-        assert!(wrapper.contains(r#"line.startsWith("exec:")"#));
-        // Must register the script in the map
-        assert!(wrapper.contains(r#"scripts.set("test/script""#));
-    }
-
-    #[test]
-    fn test_wrapper_contains_execd_preprocess_protocol() {
-        let code = r#"export function preprocessor(x: number) { return { x }; }
-export function main(x: number) { return x; }"#;
-        let cg = compute_ts_codegen(code);
-        let scripts =
-            vec![TsScriptEntry { import_name: "main", original_path: "test/script", codegen: &cg }];
-        let wrapper = generate_multi_script_wrapper(&scripts, "ts");
-        assert!(wrapper.contains(r#"line.startsWith("execd_preprocess:")"#));
-        assert!(wrapper.contains(r#"line.startsWith("execd:")"#));
-        assert!(wrapper.contains(r#"line.startsWith("exec_preprocess:")"#));
-        assert!(wrapper.contains(r#"line.startsWith("exec:")"#));
     }
 }
