@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import { fade } from 'svelte/transition'
 	import { classNames } from '$lib/utils'
-	import { AlertTriangle, CornerDownLeft, Loader2 } from 'lucide-svelte'
+	import { AlertTriangle, CornerDownLeft, Download, Loader2 } from 'lucide-svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import { UserService, FolderService } from '$lib/gen'
-	import type { OffboardPreview } from '$lib/gen'
+	import type { OffboardAffectedPaths } from '$lib/gen'
+	import type { OffboardPreview } from '$lib/gen/types.gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -13,7 +14,6 @@
 	type Props = {
 		open: boolean
 		username: string
-		/** If true, the "delete user" checkbox defaults to unchecked */
 		reassignOnly?: boolean
 		onClose: () => void
 		onComplete: () => void
@@ -21,12 +21,11 @@
 
 	let { open = $bindable(), username, reassignOnly = false, onClose, onComplete }: Props = $props()
 
-	let preview: OffboardPreview | undefined = $state(undefined)
+	let preview = $state(undefined as OffboardPreview | undefined)
 	let loading = $state(false)
 	let submitting = $state(false)
 	let conflicts: string[] = $state([])
 
-	// Form state
 	let targetKind: 'user' | 'folder' = $state('user')
 	let selectedUser: string | undefined = $state(undefined)
 	let selectedFolder: string | undefined = $state(undefined)
@@ -37,25 +36,24 @@
 		deleteUser = !reassignOnly
 	})
 
-	// Data for selectors
 	let users: Array<{ label: string; value: string }> = $state([])
 	let folders: Array<{ label: string; value: string }> = $state([])
 
-	function previewHasObjects(p: OffboardPreview | undefined): boolean {
-		if (!p) return false
+	function countPaths(p: OffboardAffectedPaths | undefined | null): number {
+		if (!p) return 0
 		return (
-			p.scripts > 0 ||
-			p.flows > 0 ||
-			p.apps > 0 ||
-			p.resources > 0 ||
-			p.variables > 0 ||
-			p.schedules > 0 ||
-			p.triggers > 0 ||
-			p.tokens > 0
+			(p.scripts?.length ?? 0) +
+			(p.flows?.length ?? 0) +
+			(p.apps?.length ?? 0) +
+			(p.resources?.length ?? 0) +
+			(p.variables?.length ?? 0) +
+			(p.schedules?.length ?? 0) +
+			(p.triggers?.length ?? 0)
 		)
 	}
 
-	let hasObjects = $derived(previewHasObjects(preview))
+	let ownedCount = $derived(preview ? countPaths(preview.owned) : 0)
+	let hasObjects = $derived(ownedCount > 0)
 
 	let reassignTo = $derived(
 		targetKind === 'user'
@@ -129,6 +127,47 @@
 		}
 	}
 
+	function downloadAffectedList() {
+		if (!preview) return
+		const lines: string[] = ['# Affected objects for user: ' + username, '']
+
+		function addSection(title: string, paths: OffboardAffectedPaths | undefined) {
+			if (!paths || countPaths(paths) === 0) return
+			lines.push(`## ${title}`)
+			for (const [kind, list] of Object.entries(paths)) {
+				if (Array.isArray(list) && list.length > 0) {
+					lines.push(`### ${kind}`)
+					for (const p of list) lines.push(`- ${p}`)
+				}
+			}
+			lines.push('')
+		}
+
+		addSection('Owned (will be reassigned)', preview.owned)
+		addSection(
+			'Executing on behalf (permissioned_as/on_behalf_of will be updated)',
+			preview.executing_on_behalf
+		)
+		if (preview.tokens > 0) lines.push(`Tokens: ${preview.tokens} (will be deleted)`, '')
+		if (preview.broken_references > 0)
+			lines.push(
+				`Broken references: ${preview.broken_references} resource/variable values contain $var: or $res: references to this user's paths`,
+				''
+			)
+		if (preview.http_triggers > 0)
+			lines.push(`HTTP triggers: ${preview.http_triggers} (webhook URLs will change)`, '')
+		if (preview.email_triggers > 0)
+			lines.push(`Email triggers: ${preview.email_triggers} (email addresses will change)`, '')
+
+		const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
+		const url = URL.createObjectURL(blob)
+		const a = document.createElement('a')
+		a.href = url
+		a.download = `offboard-${username}.txt`
+		a.click()
+		URL.revokeObjectURL(url)
+	}
+
 	function fadeFast(node: HTMLElement) {
 		return fade(node, { duration: 100 })
 	}
@@ -146,7 +185,7 @@
 		<div class="fixed inset-0 z-10 overflow-y-auto">
 			<div class="flex min-h-full items-center justify-center p-4">
 				<div
-					class="relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6"
+					class="relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6 max-h-[80vh] overflow-y-auto"
 				>
 					<div class="flex">
 						<div
@@ -172,51 +211,67 @@
 							<span class="ml-2 text-sm text-secondary">Loading preview...</span>
 						</div>
 					{:else if preview}
-						<div class="mt-4 space-y-4">
-							<!-- Object counts -->
+						<div class="mt-4 space-y-3">
 							{#if hasObjects}
+								<!-- Owned objects summary -->
 								<div class="bg-surface-secondary rounded-md p-3">
-									<p class="text-sm font-medium text-primary mb-2">Owned objects:</p>
-									<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-secondary">
-										{#if preview.scripts > 0}<span>Scripts: {preview.scripts}</span>{/if}
-										{#if preview.flows > 0}<span>Flows: {preview.flows}</span>{/if}
-										{#if preview.apps > 0}<span>Apps: {preview.apps}</span>{/if}
-										{#if preview.resources > 0}<span>Resources: {preview.resources}</span>{/if}
-										{#if preview.variables > 0}<span>Variables: {preview.variables}</span>{/if}
-										{#if preview.schedules > 0}<span>Schedules: {preview.schedules}</span>{/if}
-										{#if preview.triggers > 0}<span>Triggers: {preview.triggers}</span>{/if}
-										{#if preview.tokens > 0}<span>Tokens: {preview.tokens}</span>{/if}
+									<div class="flex items-center justify-between mb-2">
+										<p class="text-sm font-medium text-primary">
+											{ownedCount} owned object{ownedCount !== 1 ? 's' : ''} will be reassigned
+										</p>
+										<Button
+											variant="subtle"
+											size="xs2"
+											startIcon={{ icon: Download }}
+											onclick={downloadAffectedList}
+										>
+											Export list
+										</Button>
+									</div>
+									<div class="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-secondary">
+										{#if (preview.owned.scripts?.length ?? 0) > 0}<span
+												>{preview.owned.scripts?.length} scripts</span
+											>{/if}
+										{#if (preview.owned.flows?.length ?? 0) > 0}<span
+												>{preview.owned.flows?.length} flows</span
+											>{/if}
+										{#if (preview.owned.apps?.length ?? 0) > 0}<span
+												>{preview.owned.apps?.length} apps</span
+											>{/if}
+										{#if (preview.owned.resources?.length ?? 0) > 0}<span
+												>{preview.owned.resources?.length} resources</span
+											>{/if}
+										{#if (preview.owned.variables?.length ?? 0) > 0}<span
+												>{preview.owned.variables?.length} variables</span
+											>{/if}
+										{#if (preview.owned.schedules?.length ?? 0) > 0}<span
+												>{preview.owned.schedules?.length} schedules</span
+											>{/if}
+										{#if (preview.owned.triggers?.length ?? 0) > 0}<span
+												>{preview.owned.triggers?.length} triggers</span
+											>{/if}
+										{#if preview.tokens > 0}<span>{preview.tokens} tokens (deleted)</span>{/if}
 									</div>
 								</div>
 
 								<!-- Reassign target -->
 								<div>
-									<label class="text-sm font-medium text-primary block mb-1"
-										>Reassign objects to</label
-									>
-									<div class="flex items-center gap-2 mb-2">
-										<button
-											class={classNames(
-												'px-3 py-1 text-sm rounded-md border',
-												targetKind === 'user'
-													? 'bg-surface-selected border-border-selected text-primary'
-													: 'border-border bg-surface text-secondary'
-											)}
+									<span class="text-sm font-medium text-primary block mb-1.5">Reassign to</span>
+									<div class="flex items-center gap-1 mb-2">
+										<Button
+											size="xs2"
+											variant={targetKind === 'user' ? 'accent' : 'default'}
 											onclick={() => (targetKind = 'user')}
 										>
 											User
-										</button>
-										<button
-											class={classNames(
-												'px-3 py-1 text-sm rounded-md border',
-												targetKind === 'folder'
-													? 'bg-surface-selected border-border-selected text-primary'
-													: 'border-border bg-surface text-secondary'
-											)}
+										</Button>
+										<Button
+											size="xs2"
+											variant={targetKind === 'folder' ? 'accent' : 'default'}
 											onclick={() => (targetKind = 'folder')}
 										>
 											Folder
-										</button>
+										</Button>
 									</div>
 									{#if targetKind === 'user'}
 										<Select
@@ -243,73 +298,61 @@
 									{/if}
 								</div>
 
-								<!-- Warnings for operator references outside user's path -->
-								{#if (preview.scripts_as_operator ?? 0) > 0 || (preview.flows_as_operator ?? 0) > 0 || (preview.apps_as_operator ?? 0) > 0 || (preview.schedules_as_operator ?? 0) > 0 || (preview.triggers_as_operator ?? 0) > 0 || (preview.tokens ?? 0) > 0}
-									<div class="bg-yellow-50 dark:bg-yellow-900/20 rounded-md p-3">
-										<p class="text-sm font-medium text-yellow-700 dark:text-yellow-400 mb-1">
-											Additional references (will also be updated):
+								<!-- Warnings -->
+								{#if countPaths(preview.executing_on_behalf) > 0}
+									<Alert type="info" title="Objects executing on behalf of this user">
+										<p class="text-xs">
+											{countPaths(preview.executing_on_behalf)} object(s) outside this user's path have
+											their permissioned_as or on_behalf_of set to this user. These will be updated to
+											the new operator.
 										</p>
-										<div class="text-xs text-yellow-600 dark:text-yellow-300 space-y-0.5">
-											{#if (preview.scripts_as_operator ?? 0) > 0}
-												<p
-													>{preview.scripts_as_operator} script(s) with on_behalf_of set to this user</p
-												>
-											{/if}
-											{#if (preview.flows_as_operator ?? 0) > 0}
-												<p>{preview.flows_as_operator} flow(s) with on_behalf_of set to this user</p
-												>
-											{/if}
-											{#if (preview.apps_as_operator ?? 0) > 0}
-												<p>{preview.apps_as_operator} app(s) with on_behalf_of set to this user</p>
-											{/if}
-											{#if (preview.schedules_as_operator ?? 0) > 0}
-												<p
-													>{preview.schedules_as_operator} schedule(s) running as this user (not under
-													their path)</p
-												>
-											{/if}
-											{#if (preview.triggers_as_operator ?? 0) > 0}
-												<p
-													>{preview.triggers_as_operator} trigger(s) running as this user (not under
-													their path)</p
-												>
-											{/if}
-											{#if (preview.tokens ?? 0) > 0}
-												<p
-													>{preview.tokens} token(s) owned by this user (not handled, webhooks may break)</p
-												>
-											{/if}
-										</div>
-									</div>
+									</Alert>
+								{/if}
+
+								{#if preview.http_triggers > 0 || preview.email_triggers > 0}
+									<Alert type="warning" title="Webhook and email trigger URLs will change">
+										<p class="text-xs">
+											{#if preview.http_triggers > 0}{preview.http_triggers} HTTP trigger(s) will have
+												new webhook URLs.{/if}
+											{#if preview.email_triggers > 0}{preview.email_triggers} email trigger(s) will
+												have new addresses.{/if}
+											Update any external integrations that reference these endpoints.
+										</p>
+									</Alert>
+								{/if}
+
+								{#if preview.broken_references > 0}
+									<Alert type="warning" title="Broken references detected">
+										<p class="text-xs">
+											{preview.broken_references} resource/variable value(s) contain $var: or $res: references
+											to this user's paths. These references will break after reassignment.
+										</p>
+									</Alert>
 								{/if}
 
 								<!-- Delete user toggle -->
 								{#if !reassignOnly}
-									<div class="flex items-center gap-2">
+									<div class="flex items-center gap-2 pt-1">
 										<Toggle bind:checked={deleteUser} size="xs" />
 										<span class="text-sm text-secondary">Also remove user from workspace</span>
 									</div>
 								{/if}
 							{:else}
 								<p class="text-sm text-secondary">
-									This user has no owned objects or tokens in this workspace.
+									This user has no owned objects in this workspace.
 								</p>
 							{/if}
 
 							<!-- Conflicts -->
 							{#if conflicts.length > 0}
-								<div class="bg-red-50 dark:bg-red-900/30 rounded-md p-3">
-									<p class="text-sm font-medium text-red-700 dark:text-red-400 mb-1">
-										Path conflicts detected - resolve before retrying:
-									</p>
-									<ul
-										class="text-xs text-red-600 dark:text-red-300 list-disc list-inside max-h-32 overflow-y-auto"
-									>
+								<Alert type="error" title="Path conflicts detected">
+									<p class="text-xs mb-1">Resolve these before retrying:</p>
+									<ul class="text-xs list-disc list-inside max-h-32 overflow-y-auto">
 										{#each conflicts as conflict}
 											<li>{conflict}</li>
 										{/each}
 									</ul>
-								</div>
+								</Alert>
 							{/if}
 						</div>
 					{/if}
@@ -332,16 +375,7 @@
 								</span>
 							</Button>
 						{:else if !loading}
-							<Button
-								onclick={() => {
-									// No objects — just delete directly if needed
-									onClose()
-								}}
-								variant="accent"
-								size="sm"
-							>
-								Close
-							</Button>
+							<Button onclick={onClose} variant="accent" size="sm">Close</Button>
 						{/if}
 						<Button
 							disabled={submitting}

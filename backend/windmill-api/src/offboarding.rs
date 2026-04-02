@@ -22,24 +22,38 @@ use windmill_git_sync::handle_deployment_metadata;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct OffboardPreview {
-    scripts: i64,
-    flows: i64,
-    apps: i64,
-    resources: i64,
-    variables: i64,
-    schedules: i64,
-    triggers: i64,
+    /// Objects under u/{username}/ that will be reassigned
+    owned: OffboardAffectedPaths,
+    /// Objects NOT under the user's path but that execute on behalf of this user
+    /// (will have their permissioned_as/on_behalf_of updated)
+    executing_on_behalf: OffboardAffectedPaths,
+    /// Resources/variables that contain $var: or $res: references
+    /// to the user's paths (these references will break after path changes)
+    broken_references: i64,
+    /// Tokens owned by this user (will be deleted)
     tokens: i64,
-    /// Scripts NOT under user's path but with on_behalf_of_email matching departing user
-    scripts_as_operator: i64,
-    /// Flows NOT under user's path but with on_behalf_of_email matching departing user
-    flows_as_operator: i64,
-    /// Apps with policy.on_behalf_of = u/{username} (not under user's path)
-    apps_as_operator: i64,
-    /// Schedules NOT under user's path but running as this user (permissioned_as)
-    schedules_as_operator: i64,
-    /// Triggers NOT under user's path but running as this user (permissioned_as)
-    triggers_as_operator: i64,
+    /// HTTP triggers under the user's path (webhook URLs will change)
+    http_triggers: i64,
+    /// Email triggers under the user's path (email addresses will change)
+    email_triggers: i64,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct OffboardAffectedPaths {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    scripts: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    flows: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    apps: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    resources: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    variables: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    schedules: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    triggers: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -113,71 +127,76 @@ async fn get_offboard_preview(
     let user_prefix = format!("u/{}/%", username);
     let user_owner = format!("u/{}", username);
 
+    // ---- Owned objects (under u/{username}/) ----
     let scripts = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM script WHERE path LIKE $1 AND workspace_id = $2 AND NOT archived AND NOT deleted",
+        "SELECT path FROM script WHERE path LIKE $1 AND workspace_id = $2 AND NOT archived AND NOT deleted",
         &user_prefix, w_id
-    ).fetch_one(db).await?.unwrap_or(0);
+    ).fetch_all(db).await?;
 
     let flows = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM flow WHERE path LIKE $1 AND workspace_id = $2 AND NOT archived",
+        "SELECT path FROM flow WHERE path LIKE $1 AND workspace_id = $2 AND NOT archived",
         &user_prefix,
         w_id
     )
-    .fetch_one(db)
-    .await?
-    .unwrap_or(0);
+    .fetch_all(db)
+    .await?;
 
     let apps = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM app WHERE path LIKE $1 AND workspace_id = $2",
+        "SELECT path FROM app WHERE path LIKE $1 AND workspace_id = $2",
         &user_prefix,
         w_id
     )
-    .fetch_one(db)
-    .await?
-    .unwrap_or(0);
+    .fetch_all(db)
+    .await?;
 
     let resources = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM resource WHERE path LIKE $1 AND workspace_id = $2",
+        "SELECT path FROM resource WHERE path LIKE $1 AND workspace_id = $2",
         &user_prefix,
         w_id
     )
-    .fetch_one(db)
-    .await?
-    .unwrap_or(0);
+    .fetch_all(db)
+    .await?;
 
     let variables = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM variable WHERE path LIKE $1 AND workspace_id = $2",
+        "SELECT path FROM variable WHERE path LIKE $1 AND workspace_id = $2",
         &user_prefix,
         w_id
     )
-    .fetch_one(db)
-    .await?
-    .unwrap_or(0);
+    .fetch_all(db)
+    .await?;
 
     let schedules = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM schedule WHERE path LIKE $1 AND workspace_id = $2",
+        "SELECT path FROM schedule WHERE path LIKE $1 AND workspace_id = $2",
         &user_prefix,
         w_id
     )
-    .fetch_one(db)
-    .await?
-    .unwrap_or(0);
+    .fetch_all(db)
+    .await?;
 
-    let triggers = sqlx::query_scalar!(
-        r#"SELECT COALESCE(SUM(cnt)::bigint, 0) as "count!: i64" FROM (
-            SELECT COUNT(*) as cnt FROM http_trigger WHERE path LIKE $1 AND workspace_id = $2
-            UNION ALL SELECT COUNT(*) FROM websocket_trigger WHERE path LIKE $1 AND workspace_id = $2
-            UNION ALL SELECT COUNT(*) FROM kafka_trigger WHERE path LIKE $1 AND workspace_id = $2
-            UNION ALL SELECT COUNT(*) FROM postgres_trigger WHERE path LIKE $1 AND workspace_id = $2
-            UNION ALL SELECT COUNT(*) FROM mqtt_trigger WHERE path LIKE $1 AND workspace_id = $2
-            UNION ALL SELECT COUNT(*) FROM nats_trigger WHERE path LIKE $1 AND workspace_id = $2
-            UNION ALL SELECT COUNT(*) FROM sqs_trigger WHERE path LIKE $1 AND workspace_id = $2
-            UNION ALL SELECT COUNT(*) FROM gcp_trigger WHERE path LIKE $1 AND workspace_id = $2
-            UNION ALL SELECT COUNT(*) FROM email_trigger WHERE path LIKE $1 AND workspace_id = $2
-        ) t"#,
-        &user_prefix, w_id
-    ).fetch_one(db).await?;
+    let trigger_tables = [
+        "http_trigger",
+        "websocket_trigger",
+        "kafka_trigger",
+        "postgres_trigger",
+        "mqtt_trigger",
+        "nats_trigger",
+        "sqs_trigger",
+        "gcp_trigger",
+        "email_trigger",
+    ];
+    let mut triggers = Vec::new();
+    for table in &trigger_tables {
+        let paths: Vec<String> = sqlx::query_scalar(&format!(
+            "SELECT path FROM {table} WHERE path LIKE $1 AND workspace_id = $2"
+        ))
+        .bind(&user_prefix)
+        .bind(w_id)
+        .fetch_all(db)
+        .await?;
+        triggers.extend(paths);
+    }
 
+    // ---- Tokens ----
     let tokens = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM token WHERE owner = $1 AND workspace_id = $2",
         &user_owner,
@@ -187,58 +206,93 @@ async fn get_offboard_preview(
     .await?
     .unwrap_or(0);
 
-    // Count schedules/triggers running as this user but NOT under their path
-    let schedules_as_operator = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM schedule WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3",
-        &user_owner, &user_prefix, w_id
-    ).fetch_one(db).await?.unwrap_or(0);
+    // ---- Operator references (not under user's path) ----
+    let op_scripts = sqlx::query_scalar!(
+        "SELECT path FROM script WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
+        email, &user_prefix, w_id
+    ).fetch_all(db).await?;
 
-    let triggers_as_operator = sqlx::query_scalar!(
-        r#"SELECT COALESCE(SUM(cnt)::bigint, 0) as "count!: i64" FROM (
-            SELECT COUNT(*) as cnt FROM http_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
-            UNION ALL SELECT COUNT(*) FROM websocket_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
-            UNION ALL SELECT COUNT(*) FROM kafka_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
-            UNION ALL SELECT COUNT(*) FROM postgres_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
-            UNION ALL SELECT COUNT(*) FROM mqtt_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
-            UNION ALL SELECT COUNT(*) FROM nats_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
-            UNION ALL SELECT COUNT(*) FROM sqs_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
-            UNION ALL SELECT COUNT(*) FROM gcp_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
-            UNION ALL SELECT COUNT(*) FROM email_trigger WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3
+    let op_flows = sqlx::query_scalar!(
+        "SELECT path FROM flow WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
+        email, &user_prefix, w_id
+    ).fetch_all(db).await?;
+
+    let op_apps = sqlx::query_scalar!(
+        "SELECT path FROM app WHERE policy->>'on_behalf_of' = $1 AND NOT path LIKE $2 AND workspace_id = $3",
+        &user_owner, &user_prefix, w_id
+    ).fetch_all(db).await?;
+
+    let op_schedules = sqlx::query_scalar!(
+        "SELECT path FROM schedule WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3",
+        &user_owner, &user_prefix, w_id
+    ).fetch_all(db).await?;
+
+    let mut op_triggers = Vec::new();
+    for table in &trigger_tables {
+        let paths: Vec<String> = sqlx::query_scalar(&format!(
+            "SELECT path FROM {table} WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3"
+        ))
+        .bind(&user_owner)
+        .bind(&user_prefix)
+        .bind(w_id)
+        .fetch_all(db)
+        .await?;
+        op_triggers.extend(paths);
+    }
+
+    // ---- Broken references: resources/variables containing $var:u/{user}/ or $res:u/{user}/ ----
+    let var_ref_pattern = format!("%$var:u/{}/%", username);
+    let res_ref_pattern = format!("%$res:u/{}/%", username);
+    let broken_references = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) FROM (
+            SELECT 1 FROM resource WHERE (value::text LIKE $1 OR value::text LIKE $2) AND workspace_id = $3
+            UNION ALL
+            SELECT 1 FROM variable WHERE (value LIKE $1 OR value LIKE $2) AND workspace_id = $3
         ) t"#,
-        &user_owner, &user_prefix, w_id
-    ).fetch_one(db).await?;
-
-    // Scripts/flows with on_behalf_of_email = departing user (but not under their path)
-    let scripts_as_operator = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM script WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
-        email, &user_prefix, w_id
+        &var_ref_pattern, &res_ref_pattern, w_id
     ).fetch_one(db).await?.unwrap_or(0);
 
-    let flows_as_operator = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM flow WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
-        email, &user_prefix, w_id
-    ).fetch_one(db).await?.unwrap_or(0);
+    // ---- Specific trigger warnings ----
+    let http_triggers = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM http_trigger WHERE path LIKE $1 AND workspace_id = $2",
+        &user_prefix,
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
 
-    // Apps with policy.on_behalf_of = u/{username} (not under their path)
-    let apps_as_operator = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM app WHERE policy->>'on_behalf_of' = $1 AND NOT path LIKE $2 AND workspace_id = $3",
-        &user_owner, &user_prefix, w_id
-    ).fetch_one(db).await?.unwrap_or(0);
+    let email_triggers = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM email_trigger WHERE path LIKE $1 AND workspace_id = $2",
+        &user_prefix,
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
 
     Ok(OffboardPreview {
-        scripts,
-        flows,
-        apps,
-        resources,
-        variables,
-        schedules,
-        triggers,
+        owned: OffboardAffectedPaths {
+            scripts,
+            flows,
+            apps,
+            resources,
+            variables,
+            schedules,
+            triggers,
+        },
+        executing_on_behalf: OffboardAffectedPaths {
+            scripts: op_scripts,
+            flows: op_flows,
+            apps: op_apps,
+            schedules: op_schedules,
+            triggers: op_triggers,
+            ..Default::default()
+        },
+        broken_references,
         tokens,
-        scripts_as_operator,
-        flows_as_operator,
-        apps_as_operator,
-        schedules_as_operator,
-        triggers_as_operator,
+        http_triggers,
+        email_triggers,
     })
 }
 

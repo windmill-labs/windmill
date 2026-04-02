@@ -20364,55 +20364,66 @@ components:
         disabled:
           type: boolean
 
-    OffboardPreview:
+    OffboardAffectedPaths:
       type: object
       properties:
         scripts:
-          type: integer
+          type: array
+          items:
+            type: string
         flows:
-          type: integer
+          type: array
+          items:
+            type: string
         apps:
-          type: integer
+          type: array
+          items:
+            type: string
         resources:
-          type: integer
+          type: array
+          items:
+            type: string
         variables:
-          type: integer
+          type: array
+          items:
+            type: string
         schedules:
-          type: integer
+          type: array
+          items:
+            type: string
         triggers:
+          type: array
+          items:
+            type: string
+
+    OffboardPreview:
+      type: object
+      properties:
+        owned:
+          $ref: "#/components/schemas/OffboardAffectedPaths"
+          description: "Objects under u/{username}/ that will be reassigned"
+        executing_on_behalf:
+          $ref: "#/components/schemas/OffboardAffectedPaths"
+          description: "Objects not under the user's path but that execute on behalf of this user (permissioned_as/on_behalf_of will be updated)"
+        broken_references:
           type: integer
+          description: "Resources/variables containing $var: or $res: references to this user's paths (will break after path changes)"
         tokens:
           type: integer
-          description: "Warning: number of tokens owned by this user (not reassigned, shown for awareness)"
-        scripts_as_operator:
+          description: "Tokens owned by this user (will be deleted)"
+        http_triggers:
           type: integer
-          description: "Scripts not under user's path but with on_behalf_of_email matching this user"
-        flows_as_operator:
+          description: "HTTP triggers under the user's path (webhook URLs will change)"
+        email_triggers:
           type: integer
-          description: "Flows not under user's path but with on_behalf_of_email matching this user"
-        apps_as_operator:
-          type: integer
-          description: "Apps with policy.on_behalf_of matching this user (not under their path)"
-        schedules_as_operator:
-          type: integer
-          description: "Schedules not under user's path but with permissioned_as matching this user"
-        triggers_as_operator:
-          type: integer
-          description: "Triggers not under user's path but with permissioned_as matching this user"
+          description: "Email triggers under the user's path (email addresses will change)"
       required:
-        - scripts
-        - flows
-        - apps
-        - resources
-        - variables
-        - schedules
-        - triggers
+        - owned
+        - executing_on_behalf
+        - broken_references
         - tokens
-        - scripts_as_operator
-        - flows_as_operator
-        - apps_as_operator
-        - schedules_as_operator
-        - triggers_as_operator
+        - http_triggers
+        - email_triggers
 
     OffboardRequest:
       type: object

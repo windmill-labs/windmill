@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import { fade } from 'svelte/transition'
 	import { classNames } from '$lib/utils'
-	import { AlertTriangle, CornerDownLeft, Loader2 } from 'lucide-svelte'
+	import { AlertTriangle, CornerDownLeft, Download, Loader2 } from 'lucide-svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import { UserService, FolderService } from '$lib/gen'
-	import type { WorkspaceOffboardPreview } from '$lib/gen'
+	import type { WorkspaceOffboardPreview, OffboardAffectedPaths } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
 
@@ -28,7 +28,6 @@
 		deleteUser = !reassignOnly
 	})
 
-	// Per-workspace reassignment config
 	let wsConfigs: Record<
 		string,
 		{
@@ -41,18 +40,21 @@
 		}
 	> = $state({})
 
-	let workspacesWithObjects = $derived(
-		workspacePreviews.filter(
-			(wp) =>
-				wp.preview.scripts > 0 ||
-				wp.preview.flows > 0 ||
-				wp.preview.apps > 0 ||
-				wp.preview.resources > 0 ||
-				wp.preview.variables > 0 ||
-				wp.preview.schedules > 0 ||
-				wp.preview.triggers > 0 ||
-				wp.preview.tokens > 0
+	function countPaths(p: OffboardAffectedPaths | undefined | null): number {
+		if (!p) return 0
+		return (
+			(p.scripts?.length ?? 0) +
+			(p.flows?.length ?? 0) +
+			(p.apps?.length ?? 0) +
+			(p.resources?.length ?? 0) +
+			(p.variables?.length ?? 0) +
+			(p.schedules?.length ?? 0) +
+			(p.triggers?.length ?? 0)
 		)
+	}
+
+	let workspacesWithObjects = $derived(
+		workspacePreviews.filter((wp) => countPaths(wp.preview.owned) > 0)
 	)
 
 	$effect(() => {
@@ -67,19 +69,8 @@
 			const result = await UserService.globalOffboardPreview({ email })
 			workspacePreviews = result.workspaces
 
-			// Load users/folders/groups for each workspace with objects
 			for (const wp of result.workspaces) {
-				const hasObj =
-					wp.preview.scripts > 0 ||
-					wp.preview.flows > 0 ||
-					wp.preview.apps > 0 ||
-					wp.preview.resources > 0 ||
-					wp.preview.variables > 0 ||
-					wp.preview.schedules > 0 ||
-					wp.preview.triggers > 0 ||
-					wp.preview.tokens > 0
-
-				if (hasObj) {
+				if (countPaths(wp.preview.owned) > 0) {
 					const [usernamesList, foldersList] = await Promise.all([
 						UserService.listUsernames({ workspace: wp.workspace_id }),
 						FolderService.listFolders({ workspace: wp.workspace_id })
@@ -161,15 +152,61 @@
 		}
 	}
 
+	function downloadAffectedList() {
+		const lines: string[] = ['# Affected objects for user: ' + email, '']
+
+		for (const wp of workspacePreviews) {
+			const ownedCount = countPaths(wp.preview.owned)
+			const obCount = countPaths(wp.preview.executing_on_behalf)
+			if (ownedCount === 0 && obCount === 0) continue
+
+			lines.push(`## Workspace: ${wp.workspace_id} (${wp.username})`, '')
+
+			function addPaths(title: string, paths: OffboardAffectedPaths | undefined) {
+				if (!paths || countPaths(paths) === 0) return
+				lines.push(`### ${title}`)
+				for (const [kind, list] of Object.entries(paths)) {
+					if (Array.isArray(list) && list.length > 0) {
+						lines.push(`#### ${kind}`)
+						for (const p of list) lines.push(`- ${p}`)
+					}
+				}
+				lines.push('')
+			}
+
+			addPaths('Owned (will be reassigned)', wp.preview.owned)
+			addPaths('Executing on behalf (will be updated)', wp.preview.executing_on_behalf)
+			if (wp.preview.tokens > 0) lines.push(`Tokens: ${wp.preview.tokens} (will be deleted)`)
+			if (wp.preview.broken_references > 0)
+				lines.push(`Broken references: ${wp.preview.broken_references}`)
+			if (wp.preview.http_triggers > 0)
+				lines.push(`HTTP triggers: ${wp.preview.http_triggers} (webhook URLs will change)`)
+			if (wp.preview.email_triggers > 0)
+				lines.push(`Email triggers: ${wp.preview.email_triggers} (addresses will change)`)
+			lines.push('')
+		}
+
+		const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
+		const url = URL.createObjectURL(blob)
+		const a = document.createElement('a')
+		a.href = url
+		a.download = `offboard-${email}.txt`
+		a.click()
+		URL.revokeObjectURL(url)
+	}
+
 	function fadeFast(node: HTMLElement) {
 		return fade(node, { duration: 100 })
 	}
 
-	function totalObjects(p: WorkspaceOffboardPreview['preview']): number {
-		return (
-			p.scripts + p.flows + p.apps + p.resources + p.variables + p.schedules + p.triggers + p.tokens
+	let hasAnyWarnings = $derived(
+		workspacePreviews.some(
+			(wp) =>
+				wp.preview.http_triggers > 0 ||
+				wp.preview.email_triggers > 0 ||
+				wp.preview.broken_references > 0
 		)
-	}
+	)
 </script>
 
 {#if open}
@@ -210,67 +247,85 @@
 							<span class="ml-2 text-sm text-secondary">Loading preview...</span>
 						</div>
 					{:else}
-						<div class="mt-4 space-y-4">
+						<div class="mt-4 space-y-3">
 							{#if workspacesWithObjects.length === 0}
 								<p class="text-sm text-secondary">
 									This user has no owned objects in any workspace.
 								</p>
 							{:else}
+								<!-- Download button -->
+								<div class="flex justify-end">
+									<Button
+										variant="subtle"
+										size="xs2"
+										startIcon={{ icon: Download }}
+										onclick={downloadAffectedList}
+									>
+										Export full list
+									</Button>
+								</div>
+
 								{#each workspacesWithObjects as wp}
 									{@const cfg = wsConfigs[wp.workspace_id]}
+									{@const owned = countPaths(wp.preview.owned)}
 									<div class="border border-border rounded-md p-3">
 										<div class="flex items-center justify-between mb-2">
 											<span class="text-sm font-medium text-primary">
 												{wp.workspace_id}
 												<span class="text-secondary font-normal">({wp.username})</span>
 											</span>
-											<span class="text-xs text-tertiary">{totalObjects(wp.preview)} objects</span>
+											<span class="text-xs text-tertiary"
+												>{owned} object{owned !== 1 ? 's' : ''}</span
+											>
 										</div>
 
 										<!-- Compact object summary -->
 										<div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-secondary mb-3">
-											{#if wp.preview.scripts > 0}<span>{wp.preview.scripts} scripts</span>{/if}
-											{#if wp.preview.flows > 0}<span>{wp.preview.flows} flows</span>{/if}
-											{#if wp.preview.apps > 0}<span>{wp.preview.apps} apps</span>{/if}
-											{#if wp.preview.resources > 0}<span>{wp.preview.resources} resources</span
+											{#if (wp.preview.owned.scripts?.length ?? 0) > 0}<span
+													>{wp.preview.owned.scripts?.length} scripts</span
 												>{/if}
-											{#if wp.preview.variables > 0}<span>{wp.preview.variables} variables</span
+											{#if (wp.preview.owned.flows?.length ?? 0) > 0}<span
+													>{wp.preview.owned.flows?.length} flows</span
 												>{/if}
-											{#if wp.preview.schedules > 0}<span>{wp.preview.schedules} schedules</span
+											{#if (wp.preview.owned.apps?.length ?? 0) > 0}<span
+													>{wp.preview.owned.apps?.length} apps</span
 												>{/if}
-											{#if wp.preview.triggers > 0}<span>{wp.preview.triggers} triggers</span>{/if}
+											{#if (wp.preview.owned.resources?.length ?? 0) > 0}<span
+													>{wp.preview.owned.resources?.length} resources</span
+												>{/if}
+											{#if (wp.preview.owned.variables?.length ?? 0) > 0}<span
+													>{wp.preview.owned.variables?.length} variables</span
+												>{/if}
+											{#if (wp.preview.owned.schedules?.length ?? 0) > 0}<span
+													>{wp.preview.owned.schedules?.length} schedules</span
+												>{/if}
+											{#if (wp.preview.owned.triggers?.length ?? 0) > 0}<span
+													>{wp.preview.owned.triggers?.length} triggers</span
+												>{/if}
 											{#if wp.preview.tokens > 0}<span>{wp.preview.tokens} tokens</span>{/if}
 										</div>
 
 										{#if cfg}
 											<!-- Reassign target -->
 											<div class="mb-2">
-												<label class="text-xs font-medium text-secondary block mb-1"
-													>Reassign to</label
+												<span class="text-xs font-medium text-secondary block mb-1"
+													>Reassign to</span
 												>
-												<div class="flex items-center gap-2 mb-1">
-													<button
-														class={classNames(
-															'px-2 py-0.5 text-xs rounded border',
-															cfg.targetKind === 'user'
-																? 'bg-surface-selected border-border-selected text-primary'
-																: 'border-border bg-surface text-secondary'
-														)}
+												<div class="flex items-center gap-1 mb-1.5">
+													<Button
+														size="xs2"
+														variant={cfg.targetKind === 'user' ? 'accent' : 'default'}
 														onclick={() => (cfg.targetKind = 'user')}
 													>
 														User
-													</button>
-													<button
-														class={classNames(
-															'px-2 py-0.5 text-xs rounded border',
-															cfg.targetKind === 'folder'
-																? 'bg-surface-selected border-border-selected text-primary'
-																: 'border-border bg-surface text-secondary'
-														)}
+													</Button>
+													<Button
+														size="xs2"
+														variant={cfg.targetKind === 'folder' ? 'accent' : 'default'}
 														onclick={() => (cfg.targetKind = 'folder')}
 													>
 														Folder
-													</button>
+													</Button>
 												</div>
 												{#if cfg.targetKind === 'user'}
 													<Select
@@ -287,8 +342,8 @@
 														size="sm"
 													/>
 													<div class="mt-1">
-														<label class="text-xs text-secondary block mb-0.5"
-															>Run schedules/triggers as</label
+														<span class="text-xs text-secondary block mb-0.5"
+															>Run schedules/triggers as</span
 														>
 														<Select
 															items={cfg.users}
@@ -299,35 +354,44 @@
 													</div>
 												{/if}
 											</div>
-
-											<!-- Warnings for operator references -->
-											{#if (wp.preview.schedules_as_operator ?? 0) > 0 || (wp.preview.triggers_as_operator ?? 0) > 0 || (wp.preview.scripts_as_operator ?? 0) > 0 || (wp.preview.flows_as_operator ?? 0) > 0 || (wp.preview.apps_as_operator ?? 0) > 0 || (wp.preview.tokens ?? 0) > 0}
-												<div class="text-xs text-yellow-600 dark:text-yellow-300 mt-1 space-y-0.5">
-													{#if (wp.preview.schedules_as_operator ?? 0) > 0}
-														<p
-															>{wp.preview.schedules_as_operator} schedule(s) running as this user</p
-														>
-													{/if}
-													{#if (wp.preview.triggers_as_operator ?? 0) > 0}
-														<p>{wp.preview.triggers_as_operator} trigger(s) running as this user</p>
-													{/if}
-													{#if (wp.preview.scripts_as_operator ?? 0) > 0}
-														<p>{wp.preview.scripts_as_operator} script(s) with on_behalf_of</p>
-													{/if}
-													{#if (wp.preview.flows_as_operator ?? 0) > 0}
-														<p>{wp.preview.flows_as_operator} flow(s) with on_behalf_of</p>
-													{/if}
-													{#if (wp.preview.apps_as_operator ?? 0) > 0}
-														<p>{wp.preview.apps_as_operator} app(s) with on_behalf_of</p>
-													{/if}
-													{#if (wp.preview.tokens ?? 0) > 0}
-														<p>{wp.preview.tokens} token(s) (not handled)</p>
-													{/if}
-												</div>
-											{/if}
 										{/if}
 									</div>
 								{/each}
+
+								<!-- Global warnings -->
+								{#if hasAnyWarnings}
+									{@const totalHttp = workspacePreviews.reduce(
+										(s, wp) => s + wp.preview.http_triggers,
+										0
+									)}
+									{@const totalEmail = workspacePreviews.reduce(
+										(s, wp) => s + wp.preview.email_triggers,
+										0
+									)}
+									{@const totalBroken = workspacePreviews.reduce(
+										(s, wp) => s + wp.preview.broken_references,
+										0
+									)}
+
+									{#if totalHttp > 0 || totalEmail > 0}
+										<Alert type="warning" title="Webhook and email trigger URLs will change">
+											<p class="text-xs">
+												{#if totalHttp > 0}{totalHttp} HTTP trigger(s) will have new webhook URLs.{/if}
+												{#if totalEmail > 0}{totalEmail} email trigger(s) will have new addresses.{/if}
+												Update any external integrations that reference these endpoints.
+											</p>
+										</Alert>
+									{/if}
+
+									{#if totalBroken > 0}
+										<Alert type="warning" title="Broken references detected">
+											<p class="text-xs">
+												{totalBroken} resource/variable value(s) contain $var: or $res: references to
+												this user's paths. These references will break after reassignment.
+											</p>
+										</Alert>
+									{/if}
+								{/if}
 							{/if}
 
 							<!-- Workspaces without objects -->
@@ -340,7 +404,7 @@
 
 							<!-- Delete user toggle -->
 							{#if !reassignOnly}
-								<div class="flex items-center gap-2">
+								<div class="flex items-center gap-2 pt-1">
 									<Toggle bind:checked={deleteUser} size="xs" />
 									<span class="text-sm text-secondary">Also remove user from instance</span>
 								</div>

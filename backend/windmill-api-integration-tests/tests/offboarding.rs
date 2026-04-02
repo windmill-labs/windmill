@@ -31,12 +31,14 @@ async fn test_offboard_preview(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(resp.status(), 200);
 
     let body: serde_json::Value = resp.json().await?;
-    assert_eq!(body["scripts"], 3); // script_a, script_b, conflict_script
-    assert_eq!(body["flows"], 1); // flow_a
-    assert_eq!(body["resources"], 1); // res_a
-    assert_eq!(body["variables"], 1); // var_a
-    assert_eq!(body["schedules"], 1); // sched_a
+    assert_eq!(body["owned"]["scripts"].as_array().unwrap().len(), 3); // script_a, script_b, conflict_script
+    assert_eq!(body["owned"]["flows"].as_array().unwrap().len(), 1); // flow_a
+    assert_eq!(body["owned"]["resources"].as_array().unwrap().len(), 1); // res_a
+    assert_eq!(body["owned"]["variables"].as_array().unwrap().len(), 1); // var_a
+    assert_eq!(body["owned"]["schedules"].as_array().unwrap().len(), 1); // sched_a
     assert_eq!(body["tokens"], 1); // OFFBOARD_TOKEN_1
+    assert_eq!(body["http_triggers"], 0);
+    assert_eq!(body["email_triggers"], 0);
 
     Ok(())
 }
@@ -292,7 +294,10 @@ async fn test_global_offboard_preview(db: Pool<Postgres>) -> anyhow::Result<()> 
     assert_eq!(workspaces.len(), 1);
     assert_eq!(workspaces[0]["workspace_id"], "test-workspace");
     assert_eq!(workspaces[0]["username"], "test-user-2");
-    assert!(workspaces[0]["preview"]["scripts"].as_i64().unwrap() > 0);
+    assert!(!workspaces[0]["preview"]["owned"]["scripts"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 
     Ok(())
 }
