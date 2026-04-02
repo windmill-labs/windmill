@@ -7,7 +7,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { ListFilter } from 'lucide-svelte'
+	import { ListFilter, Tag } from 'lucide-svelte'
 	import type { Job } from '$lib/gen'
 
 	interface Props {
@@ -46,7 +46,9 @@
 {/if}
 {#if job && 'job_kind' in job}
 	<div>
-		<Badge color="gray" {large}>Job kind: {getJobKindDisplayLabel(job.job_kind, job.script_path)}</Badge>
+		<Badge color="gray" {large}
+			>Job kind: {getJobKindDisplayLabel(job.job_kind, job.script_path)}</Badge
+		>
 	</div>
 {/if}
 {#if job && job.flow_status && job.job_kind === 'script'}
@@ -83,7 +85,7 @@
 {#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
 	{#each job?.['labels'] as label}
 		<div>
-			<Badge {large}>Label: {label}</Badge>
+			<Badge color="blue" {large} icon={{ icon: Tag }}>{label}</Badge>
 		</div>
 	{/each}
 {/if}

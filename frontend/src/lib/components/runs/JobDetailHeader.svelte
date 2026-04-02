@@ -427,11 +427,6 @@
 								showScriptHash={showScriptHashInBadges}
 								large={false}
 							/>
-							{#if job?.labels?.length}
-								{#each job.labels as label}
-									<Badge color="blue" small icon={{ icon: Tag }}>{label}</Badge>
-								{/each}
-							{/if}
 						</div>
 					</div>
 				</div>
