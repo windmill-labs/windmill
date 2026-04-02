@@ -53,7 +53,8 @@
 	}
 
 	let ownedCount = $derived(preview ? countPaths(preview.owned) : 0)
-	let hasObjects = $derived(ownedCount > 0)
+	let onBehalfCount = $derived(preview ? countPaths(preview.executing_on_behalf) : 0)
+	let hasItems = $derived(ownedCount > 0 || onBehalfCount > 0)
 
 	let reassignTo = $derived(
 		targetKind === 'user'
@@ -211,12 +212,12 @@
 						</div>
 					{:else if preview}
 						<div class="mt-4 space-y-3">
-							{#if hasObjects}
+							{#if hasItems}
 								<!-- Owned objects summary -->
 								<div class="bg-surface-secondary rounded-md p-3">
 									<div class="flex items-center justify-between mb-2">
 										<p class="text-sm font-medium text-primary">
-											{ownedCount} owned object{ownedCount !== 1 ? 's' : ''} will be reassigned
+											{ownedCount} owned item{ownedCount !== 1 ? 's' : ''} will be reassigned
 										</p>
 										<Button
 											variant="subtle"
@@ -301,7 +302,7 @@
 								{#if countPaths(preview.executing_on_behalf) > 0}
 									<Alert type="info" title="Objects executing on behalf of this user">
 										<p class="text-xs">
-											{countPaths(preview.executing_on_behalf)} object(s) outside this user's path have
+											{countPaths(preview.executing_on_behalf)} item(s) outside this user's path have
 											their permissioned_as or on_behalf_of set to this user. These will be updated to
 											the new operator.
 										</p>
@@ -311,7 +312,7 @@
 								{#if countPaths(preview.referencing) > 0}
 									<Alert type="warning" title="Content referencing this user's paths">
 										<p class="text-xs">
-											{countPaths(preview.referencing)} object(s) contain references to this user's paths
+											{countPaths(preview.referencing)} item(s) contain references to this user's paths
 											in their content or values. These references will break after reassignment. Use
 											the export list for details.
 										</p>
@@ -339,7 +340,7 @@
 								{/if}
 							{:else}
 								<p class="text-sm text-secondary">
-									This user has no owned objects in this workspace.
+									This user has no items to reassign in this workspace.
 								</p>
 							{/if}
 
@@ -358,7 +359,7 @@
 					{/if}
 
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-						{#if hasObjects}
+						{#if hasItems}
 							<Button
 								disabled={submitting || !canSubmit}
 								onclick={submit}

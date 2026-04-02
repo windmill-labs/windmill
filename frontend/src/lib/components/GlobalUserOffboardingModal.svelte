@@ -53,8 +53,10 @@
 		)
 	}
 
-	let workspacesWithObjects = $derived(
-		workspacePreviews.filter((wp) => countPaths(wp.preview.owned) > 0)
+	let workspacesWithItems = $derived(
+		workspacePreviews.filter(
+			(wp) => countPaths(wp.preview.owned) > 0 || countPaths(wp.preview.executing_on_behalf) > 0
+		)
 	)
 
 	$effect(() => {
@@ -108,7 +110,7 @@
 	}
 
 	let canSubmit = $derived(
-		workspacesWithObjects.every((wp) => {
+		workspacesWithItems.every((wp) => {
 			const target = getReassignTo(wp.workspace_id)
 			const cfg = wsConfigs[wp.workspace_id]
 			if (!target) return false
@@ -121,7 +123,7 @@
 		submitting = true
 		try {
 			const reassignments: Record<string, { reassign_to: string; new_operator?: string }> = {}
-			for (const wp of workspacesWithObjects) {
+			for (const wp of workspacesWithItems) {
 				const target = getReassignTo(wp.workspace_id)
 				const cfg = wsConfigs[wp.workspace_id]
 				if (target) {
@@ -153,7 +155,7 @@
 	}
 
 	function downloadAffectedList() {
-		const lines: string[] = ['# Affected objects for user: ' + email, '']
+		const lines: string[] = ['# Affected items for user: ' + email, '']
 
 		for (const wp of workspacePreviews) {
 			const ownedCount = countPaths(wp.preview.owned)
@@ -229,12 +231,12 @@
 						</div>
 						<div class="ml-4 text-left flex-1">
 							<h3 class="text-lg font-medium text-primary">
-								{reassignOnly ? 'Reassign user objects globally' : 'Offboard user globally'}
+								{reassignOnly ? 'Reassign user items globally' : 'Offboard user globally'}
 							</h3>
 							<p class="text-sm text-secondary mt-1">
 								{reassignOnly
-									? `Reassign objects owned by ${email} across all workspaces`
-									: `Remove ${email} from instance and reassign their objects`}
+									? `Reassign items owned by ${email} across all workspaces`
+									: `Remove ${email} from instance and reassign their items`}
 							</p>
 						</div>
 					</div>
@@ -246,9 +248,9 @@
 						</div>
 					{:else}
 						<div class="mt-4 space-y-3">
-							{#if workspacesWithObjects.length === 0}
+							{#if workspacesWithItems.length === 0}
 								<p class="text-sm text-secondary">
-									This user has no owned objects in any workspace.
+									This user has no owned items in any workspace.
 								</p>
 							{:else}
 								<!-- Download button -->
@@ -263,7 +265,7 @@
 									</Button>
 								</div>
 
-								{#each workspacesWithObjects as wp}
+								{#each workspacesWithItems as wp}
 									{@const cfg = wsConfigs[wp.workspace_id]}
 									{@const owned = countPaths(wp.preview.owned)}
 									<div class="border border-border rounded-md p-3">
@@ -272,12 +274,11 @@
 												{wp.workspace_id}
 												<span class="text-secondary font-normal">({wp.username})</span>
 											</span>
-											<span class="text-xs text-tertiary"
-												>{owned} object{owned !== 1 ? 's' : ''}</span
+											<span class="text-xs text-tertiary">{owned} item{owned !== 1 ? 's' : ''}</span
 											>
 										</div>
 
-										<!-- Compact object summary -->
+										<!-- Compact item summary -->
 										<div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-secondary mb-3">
 											{#if (wp.preview.owned.scripts?.length ?? 0) > 0}<span
 													>{wp.preview.owned.scripts?.length} scripts</span
@@ -379,9 +380,9 @@
 							{/if}
 
 							<!-- Workspaces without objects -->
-							{#if workspacePreviews.length > workspacesWithObjects.length}
+							{#if workspacePreviews.length > workspacesWithItems.length}
 								<p class="text-xs text-tertiary">
-									{workspacePreviews.length - workspacesWithObjects.length} workspace(s) with no objects
+									{workspacePreviews.length - workspacesWithItems.length} workspace(s) with no items
 									to reassign
 								</p>
 							{/if}
@@ -397,7 +398,7 @@
 					{/if}
 
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-						{#if workspacesWithObjects.length > 0}
+						{#if workspacesWithItems.length > 0}
 							<Button
 								disabled={submitting || !canSubmit}
 								onclick={submit}
