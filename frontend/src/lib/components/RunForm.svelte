@@ -296,10 +296,7 @@
 	{/if}
 	{#if showPsCommonParams}
 		<div class="mt-4">
-			<PowerShellCommonParams
-				supportsShouldProcess={runnable?.schema?.['x-windmill-ps-supports-should-process'] === true}
-				bind:args={psCommonParams}
-			/>
+			<PowerShellCommonParams bind:args={psCommonParams} />
 		</div>
 	{/if}
 	{#if schedulable}

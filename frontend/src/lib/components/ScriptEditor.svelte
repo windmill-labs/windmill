@@ -191,11 +191,6 @@
 	let schemaHeight = $state(0)
 	let psCommonParams: Record<string, any> = $state({})
 	let showPsCommonParams = $derived(lang === 'powershell' && /^\s*\[CmdletBinding/im.test(code))
-	let psSupportsShouldProcess = $derived(
-		showPsCommonParams &&
-			/SupportsShouldProcess/i.test(code) &&
-			!/SupportsShouldProcess\s*=\s*\$false/i.test(code)
-	)
 
 	// Module tab state
 	let activeModuleTab: string | null = $state(null)
@@ -1634,8 +1629,7 @@
 										{#if showPsCommonParams}
 											<div class="mt-2">
 												<PowerShellCommonParams
-													supportsShouldProcess={psSupportsShouldProcess}
-													bind:args={psCommonParams}
+														bind:args={psCommonParams}
 												/>
 											</div>
 										{/if}

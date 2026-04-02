@@ -406,11 +406,8 @@ pub async fn handle_powershell_job(
                     }
                 }
             }
-            if let Some(v) = args_map.get("_wm_ps_whatif") {
-                if serde_json::from_str::<bool>(v.get()).unwrap_or(false) {
-                    common.push("-WhatIf".to_string());
-                }
-            }
+            // Note: -WhatIf is not supported because $PSCmdlet.ShouldProcess()
+            // doesn't work when scripts are invoked through a wrapper
         }
         let common_args = common.join(" ");
 
@@ -627,7 +624,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         &format!(
             "$ErrorActionPreference = 'Stop'\n\
     $pipe = New-TemporaryFile\n\
-    ./main.ps1 {all_pwsh_args} 2>&1 | Tee-Object -FilePath $pipe\n\
+    ./main.ps1 {all_pwsh_args} 4>&1 5>&1 2>&1 | Tee-Object -FilePath $pipe\n\
     Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
     Remove-Item $pipe\n\
     exit $LASTEXITCODE\n"
