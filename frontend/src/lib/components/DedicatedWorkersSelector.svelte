@@ -4,6 +4,7 @@
 		FlowService,
 		WorkspaceService,
 		WorkspaceDependenciesService,
+		ConfigService,
 		type FlowModule
 	} from '$lib/gen'
 	import {
@@ -129,53 +130,87 @@
 
 		const newInfo = new SvelteMap<string, SelectedTagInfo>()
 
-		// Collect workspaces that need dep info fetched
-		const workspacesNeedingDeps = new Set<string>()
-		for (const tag of tags) {
-			const existing = currentInfo.get(tag)
-			const existingRunnable = currentRunnables.find((r) => r.tag === tag)
-			// If we don't have workspaceDeps cached, we need to fetch for this workspace
-			if (!existing?.workspaceDeps && !existingRunnable?.workspaceDeps) {
-				const parsed = parseTag(tag)
-				if (parsed?.type === 'script') {
-					workspacesNeedingDeps.add(parsed.workspace)
+		// Check if any tags need dep info fetched
+		let needsFetch = currentExistingDeps.size === 0
+		if (!needsFetch) {
+			for (const tag of tags) {
+				const existing = currentInfo.get(tag)
+				const existingRunnable = currentRunnables.find((r) => r.tag === tag)
+				if (!existing?.workspaceDeps && !existingRunnable?.workspaceDeps) {
+					const parsed = parseTag(tag)
+					if (parsed?.type === 'script') {
+						needsFetch = true
+						break
+					}
 				}
 			}
 		}
 
-		// Fetch workspace dep info for workspaces that need it
+		// Fetch dep info across all workspaces in one call
 		const depsPerWorkspace = new Map<string, Map<string, { deps: string[]; language: string }>>()
-		if (workspacesNeedingDeps.size > 0 || currentExistingDeps.size === 0) {
-			await Promise.all(
-				Array.from(workspacesNeedingDeps).map(async (ws) => {
-					try {
-						const [dedicatedDeps, wsDeps] = await Promise.all([
-							ScriptService.listDedicatedWithDeps({ workspace: ws }).catch(() => []),
-							WorkspaceDependenciesService.listWorkspaceDependencies({
-								workspace: ws
-							}).catch(() => [])
-						])
-						const depsMap = new Map<string, { deps: string[]; language: string }>()
-						for (const d of dedicatedDeps) {
-							if (d.workspace_dep_names.length > 0) {
-								depsMap.set(d.path, {
-									deps: d.workspace_dep_names,
-									language: d.language
-								})
-							}
+		if (needsFetch) {
+			try {
+				const [allDedicatedDeps, allWsDeps] = await Promise.all([
+					ConfigService.listAllDedicatedWithDeps().catch(() => []),
+					ConfigService.listAllWorkspaceDependencies().catch(() => [])
+				])
+				for (const d of allDedicatedDeps) {
+					if (d.workspace_dep_names.length > 0) {
+						let wsMap = depsPerWorkspace.get(d.workspace_id)
+						if (!wsMap) {
+							wsMap = new Map()
+							depsPerWorkspace.set(d.workspace_id, wsMap)
 						}
-						depsPerWorkspace.set(ws, depsMap)
-						// Merge into existingDeps
-						for (const d of wsDeps) {
-							if (!d.archived && d.name) {
-								currentExistingDeps.add(d.name)
-							}
-						}
-					} catch {
-						// ignore
+						wsMap.set(d.path, {
+							deps: d.workspace_dep_names,
+							language: d.language
+						})
 					}
-				})
-			)
+				}
+				for (const d of allWsDeps) {
+					if (d.name) {
+						currentExistingDeps.add(d.name)
+					}
+				}
+			} catch {
+				// Fallback to per-workspace calls if cross-workspace endpoint unavailable
+				const workspacesNeedingDeps = new Set<string>()
+				for (const tag of tags) {
+					const parsed = parseTag(tag)
+					if (parsed?.type === 'script') {
+						workspacesNeedingDeps.add(parsed.workspace)
+					}
+				}
+				await Promise.all(
+					Array.from(workspacesNeedingDeps).map(async (ws) => {
+						try {
+							const [dedicatedDeps, wsDeps] = await Promise.all([
+								ScriptService.listDedicatedWithDeps({ workspace: ws }).catch(() => []),
+								WorkspaceDependenciesService.listWorkspaceDependencies({
+									workspace: ws
+								}).catch(() => [])
+							])
+							const depsMap = new Map<string, { deps: string[]; language: string }>()
+							for (const d of dedicatedDeps) {
+								if (d.workspace_dep_names.length > 0) {
+									depsMap.set(d.path, {
+										deps: d.workspace_dep_names,
+										language: d.language
+									})
+								}
+							}
+							depsPerWorkspace.set(ws, depsMap)
+							for (const d of wsDeps) {
+								if (!d.archived && d.name) {
+									currentExistingDeps.add(d.name)
+								}
+							}
+						} catch {
+							// ignore
+						}
+					})
+				)
+			}
 			existingDeps = new Set(currentExistingDeps)
 		}
 
@@ -394,7 +429,7 @@
 			loading = true
 			runnables = []
 
-			const [scripts, flows, dedicatedDeps, wsDeps] = await Promise.all([
+			const [scripts, flows, dedicatedDeps, allWsDeps] = await Promise.all([
 				ScriptService.listScripts({
 					workspace: workspaceId,
 					dedicatedWorker: true
@@ -406,18 +441,17 @@
 				ScriptService.listDedicatedWithDeps({
 					workspace: workspaceId
 				}).catch(() => []),
-				WorkspaceDependenciesService.listWorkspaceDependencies({
-					workspace: workspaceId
-				}).catch(() => [])
+				// Load workspace deps across all workspaces for accurate validation
+				ConfigService.listAllWorkspaceDependencies().catch(() =>
+					// Fallback to current workspace if cross-workspace endpoint unavailable
+					WorkspaceDependenciesService.listWorkspaceDependencies({
+						workspace: workspaceId
+					}).catch(() => [])
+				)
 			])
 
-			// Track existing workspace dep names for validation
-			existingDeps = new Set(
-				wsDeps
-					.filter((d) => !d.archived)
-					.map((d) => d.name)
-					.filter((n): n is string => !!n)
-			)
+			// Track existing workspace dep names across all workspaces for validation
+			existingDeps = new Set(allWsDeps.map((d) => d.name).filter((n): n is string => !!n))
 
 			// Build a map from path -> workspace dep names
 			const depsMap = new Map<string, string[]>()
