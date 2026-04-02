@@ -620,10 +620,9 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
     write_file(job_dir, "main.ps1", content.as_str())?;
 
-    write_file(
-        job_dir,
-        "wrapper.ps1",
-        &format!(
+    let has_common_params = !ps_preferences.is_empty();
+    let wrapper_content = if has_common_params {
+        format!(
             "$ErrorActionPreference = 'Stop'\n\
     $pipe = New-TemporaryFile\n\
     ./main.ps1 {pwsh_args} 4>verbose.log 5>debug.log 2>&1 | Tee-Object -FilePath $pipe\n\
@@ -632,8 +631,18 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
     if (Test-Path debug.log) {{ Get-Content debug.log | ForEach-Object {{ Write-Output \"DEBUG: $_\" }} }}\n\
     Remove-Item $pipe\n\
     exit $LASTEXITCODE\n"
-        ),
-    )?;
+        )
+    } else {
+        format!(
+            "$ErrorActionPreference = 'Stop'\n\
+    $pipe = New-TemporaryFile\n\
+    ./main.ps1 {pwsh_args} 2>&1 | Tee-Object -FilePath $pipe\n\
+    Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
+    Remove-Item $pipe\n\
+    exit $LASTEXITCODE\n"
+        )
+    };
+    write_file(job_dir, "wrapper.ps1", &wrapper_content)?;
 
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;

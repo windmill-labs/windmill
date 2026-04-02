@@ -68,11 +68,15 @@ pub fn parse_powershell_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     if let Some(args) = parsed {
         let (has_cmd_binding, supports_should_process) = detect_cmdlet_binding(code);
 
-        // Filter out common parameters that a user may have explicitly declared
-        let args = args
-            .into_iter()
-            .filter(|arg| !POWERSHELL_COMMON_PARAMS.contains(&arg.name.to_lowercase().as_str()))
-            .collect();
+        // Filter out common parameters only when CmdletBinding is present
+        // (without CmdletBinding, $Verbose etc. are regular user-defined parameters)
+        let args = if has_cmd_binding {
+            args.into_iter()
+                .filter(|arg| !POWERSHELL_COMMON_PARAMS.contains(&arg.name.to_lowercase().as_str()))
+                .collect()
+        } else {
+            args
+        };
 
         Ok(MainArgSignature {
             star_args: false,
