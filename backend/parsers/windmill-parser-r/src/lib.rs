@@ -30,6 +30,7 @@ pub fn parse_r_sig_meta(code: &str) -> anyhow::Result<MainArgSignature> {
         args: args.unwrap_or_default(),
         has_preprocessor: None,
         auto_kind: None,
+        ..Default::default()
     };
 
     Ok(main_sig)
