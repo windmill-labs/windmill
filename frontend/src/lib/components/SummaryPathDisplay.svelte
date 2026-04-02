@@ -71,6 +71,7 @@
 				labels
 			})
 			sendUserToast(`${kind === 'flow' ? 'Flow' : 'Script'} updated`)
+			initialLabels = JSON.stringify(labels ?? [])
 			close()
 			onSaved?.(newPath)
 		} catch (e: any) {
