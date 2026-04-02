@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { Section, Badge } from './common'
+	import { Badge } from './common'
 	import Toggle from './Toggle.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import { untrack } from 'svelte'
+	import { ChevronRight } from 'lucide-svelte'
 
 	interface Props {
 		args?: Record<string, any>
@@ -13,6 +14,7 @@
 	let verbose = $state(false)
 	let debug = $state(false)
 	let errorAction = $state(undefined as string | undefined)
+	let collapsed = $state(true)
 	let initialized = false
 
 	const errorActionItems = [
@@ -51,30 +53,37 @@
 	})
 </script>
 
-<Section label="PowerShell Common Parameters" collapsable initiallyCollapsed>
-	{#snippet badge()}
-		{#if activeBadges.length > 0}
-			<div class="flex gap-1">
+<div class="flex flex-col">
+	<button
+		class="flex items-center gap-1 text-xs text-secondary hover:text-primary transition-colors"
+		onclick={() => (collapsed = !collapsed)}
+	>
+		<ChevronRight size={12} class="transition duration-200 {collapsed ? '' : 'rotate-90'}" />
+		Common parameters
+		{#if collapsed && activeBadges.length > 0}
+			<div class="flex gap-1 ml-1">
 				{#each activeBadges as label}
 					<Badge color="blue">{label}</Badge>
 				{/each}
 			</div>
 		{/if}
-	{/snippet}
-	<div class="flex flex-col gap-3">
-		<Toggle options={{ right: '-Verbose' }} bind:checked={verbose} size="xs" />
-		<Toggle options={{ right: '-Debug' }} bind:checked={debug} size="xs" />
-		<div class="flex items-center gap-2">
-			<span class="text-xs text-secondary">-ErrorAction</span>
-			<div class="w-48">
-				<Select
-					items={errorActionItems}
-					bind:value={errorAction}
-					placeholder="Default"
-					clearable
-					size="sm"
-				/>
+	</button>
+	{#if !collapsed}
+		<div class="flex flex-col gap-2 mt-2 ml-4">
+			<Toggle options={{ right: 'Verbose' }} bind:checked={verbose} size="xs" />
+			<Toggle options={{ right: 'Debug' }} bind:checked={debug} size="xs" />
+			<div class="flex items-center gap-2">
+				<span class="text-xs text-secondary">ErrorAction</span>
+				<div class="w-40">
+					<Select
+						items={errorActionItems}
+						bind:value={errorAction}
+						placeholder="Default"
+						clearable
+						size="sm"
+					/>
+				</div>
 			</div>
 		</div>
-	</div>
-</Section>
+	{/if}
+</div>
