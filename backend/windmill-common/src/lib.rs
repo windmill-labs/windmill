@@ -691,6 +691,26 @@ impl DatabaseUrl {
             DatabaseUrl::Static(_) => Ok(()),
         }
     }
+
+    pub async fn needs_refresh(&self) -> bool {
+        match self {
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            DatabaseUrl::IamRds(rds_url) => rds_url.read().await.needs_refresh(),
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            DatabaseUrl::EntraId(entra_url) => entra_url.read().await.needs_refresh(),
+            DatabaseUrl::Static(_) => false,
+        }
+    }
+
+    /// Double-checked refresh: read-lock to check, then write-lock to refresh if still needed.
+    pub async fn refresh_if_needed(&self) -> Result<(), Error> {
+        if self.needs_refresh().await {
+            self.refresh().await.map_err(|e| {
+                Error::InternalErr(format!("Failed to refresh database token: {}", e))
+            })?;
+        }
+        Ok(())
+    }
 }
 
 static DATABASE_URL_CACHE: tokio::sync::OnceCell<DatabaseUrl> = tokio::sync::OnceCell::const_new();
@@ -810,43 +830,7 @@ pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
         })
         .await?;
 
-    // Check if we need to refresh and do so if necessary
-    #[cfg(all(feature = "enterprise", feature = "private"))]
-    {
-        let needs_refresh_result = match database_url {
-            DatabaseUrl::IamRds(ref url_lock) => {
-                let guard = url_lock.read().await;
-                Some((guard.needs_refresh(), "IAM"))
-            }
-            DatabaseUrl::EntraId(ref url_lock) => {
-                let guard = url_lock.read().await;
-                Some((guard.needs_refresh(), "Entra ID"))
-            }
-            DatabaseUrl::Static(_) => None,
-        };
-
-        if let Some((true, label)) = needs_refresh_result {
-            match database_url {
-                DatabaseUrl::IamRds(ref url_lock) => {
-                    let mut write_guard = url_lock.write().await;
-                    if write_guard.needs_refresh() {
-                        write_guard.refresh().await.map_err(|e| {
-                            Error::InternalErr(format!("Failed to refresh {} token: {}", label, e))
-                        })?;
-                    }
-                }
-                DatabaseUrl::EntraId(ref url_lock) => {
-                    let mut write_guard = url_lock.write().await;
-                    if write_guard.needs_refresh() {
-                        write_guard.refresh().await.map_err(|e| {
-                            Error::InternalErr(format!("Failed to refresh {} token: {}", label, e))
-                        })?;
-                    }
-                }
-                DatabaseUrl::Static(_) => {}
-            }
-        }
-    }
+    database_url.refresh_if_needed().await?;
 
     Ok(database_url.clone())
 }

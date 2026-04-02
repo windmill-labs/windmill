@@ -63,12 +63,7 @@ pub async fn connect_db(
                             break;
                         }
                         _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {
-                            let needs_refresh = match &database_url2 {
-                                DatabaseUrl::IamRds(url_lock) => url_lock.read().await.needs_refresh(),
-                                DatabaseUrl::EntraId(url_lock) => url_lock.read().await.needs_refresh(),
-                                DatabaseUrl::Static(_) => false,
-                            };
-                            if !needs_refresh {
+                            if !database_url2.needs_refresh().await {
                                 continue;
                             }
                             let new_url = tokio::time::timeout(
