@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Section } from './common'
+	import { Section, Badge } from './common'
 	import Toggle from './Toggle.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import { untrack } from 'svelte'
@@ -20,6 +20,14 @@
 		{ label: 'Continue', value: 'Continue' },
 		{ label: 'SilentlyContinue', value: 'SilentlyContinue' }
 	]
+
+	let activeBadges = $derived.by(() => {
+		const badges: string[] = []
+		if (verbose) badges.push('Verbose')
+		if (debug) badges.push('Debug')
+		if (errorAction) badges.push(`ErrorAction: ${errorAction}`)
+		return badges
+	})
 
 	// Initialize toggles from pre-populated args (e.g. "Run again")
 	$effect(() => {
@@ -44,6 +52,15 @@
 </script>
 
 <Section label="PowerShell Common Parameters" collapsable initiallyCollapsed>
+	{#snippet badge()}
+		{#if activeBadges.length > 0}
+			<div class="flex gap-1">
+				{#each activeBadges as label}
+					<Badge color="blue">{label}</Badge>
+				{/each}
+			</div>
+		{/if}
+	{/snippet}
 	<div class="flex flex-col gap-3">
 		<Toggle options={{ right: '-Verbose' }} bind:checked={verbose} size="xs" />
 		<Toggle options={{ right: '-Debug' }} bind:checked={debug} size="xs" />
