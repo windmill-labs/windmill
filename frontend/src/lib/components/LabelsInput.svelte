@@ -76,7 +76,7 @@
 			class="text-tertiary hover:text-secondary text-2xs flex items-center gap-0.5"
 			onclick={startAdding}
 		>
-			<Tag size={10} /><Plus size={8} />Label
+			<Tag size={12} /><Plus size={8} />
 		</button>
 	{/if}
 </div>
