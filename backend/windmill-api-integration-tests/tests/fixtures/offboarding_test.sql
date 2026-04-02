@@ -30,6 +30,18 @@ VALUES ('test-workspace', 'u/test-user-2/sched_a', 'test-user-2', NOW(), '0 * * 
 INSERT INTO token (token_hash, token_prefix, token, email, label, workspace_id, owner)
 VALUES (encode(sha256('OFFBOARD_TOKEN_1'::bytea), 'hex'), 'OFFBOARD_T', 'OFFBOARD_TOKEN_1', 'test2@windmill.dev', 'offboard test', 'test-workspace', 'u/test-user-2');
 
+-- HTTP trigger under test-user-2's path (tests dynamic trigger queries)
+INSERT INTO http_trigger (workspace_id, path, route_path, route_path_key, script_path, is_flow, edited_by, permissioned_as, edited_at, extra_perms, http_method, authentication_method, mode)
+VALUES ('test-workspace', 'u/test-user-2/webhook_a', '/test-webhook', 'test-webhook', 'u/test-user-2/script_a', false, 'test-user-2', 'u/test-user-2', NOW(), '{}', 'post', 'none', 'enabled');
+
+-- Script with extra_perms referencing test-user-2 (tests extra_perms cleanup)
+INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, schema, language, kind, lock, extra_perms)
+VALUES ('test-workspace', 1005, 'f/test-folder/shared_script', 'Shared Script', '', 'print("shared")', 'test-user', '{}', 'python3', 'script', '', '{"u/test-user-2": true}');
+
+-- Schedule NOT under test-user-2 path but permissioned_as = u/test-user-2 (tests operator update)
+INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, email, permissioned_as, extra_perms)
+VALUES ('test-workspace', 'f/test-folder/sched_shared', 'test-user', NOW(), '0 * * * *', 'UTC', false, 'f/test-folder/shared_script', false, 'test@windmill.dev', 'u/test-user-2', '{}');
+
 -- For conflict test: script at the target path
 INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, schema, language, kind, lock, extra_perms)
 VALUES ('test-workspace', 1003, 'u/test-user/conflict_script', 'Conflict Script', '', 'print("conflict")', 'test-user', '{}', 'python3', 'script', '', '{}');

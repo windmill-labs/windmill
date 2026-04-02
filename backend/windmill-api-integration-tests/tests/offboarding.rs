@@ -36,9 +36,18 @@ async fn test_offboard_preview(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(body["owned"]["resources"].as_array().unwrap().len(), 1); // res_a
     assert_eq!(body["owned"]["variables"].as_array().unwrap().len(), 1); // var_a
     assert_eq!(body["owned"]["schedules"].as_array().unwrap().len(), 1); // sched_a
+    assert_eq!(body["owned"]["triggers"].as_array().unwrap().len(), 1); // webhook_a (dynamic trigger query)
     assert_eq!(body["tokens"], 1); // OFFBOARD_TOKEN_1
-    assert_eq!(body["http_triggers"], 0);
+    assert_eq!(body["http_triggers"], 1); // webhook_a
     assert_eq!(body["email_triggers"], 0);
+    // Operator references: schedule at f/test-folder/sched_shared runs as u/test-user-2
+    assert_eq!(
+        body["executing_on_behalf"]["schedules"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 
     Ok(())
 }
@@ -119,6 +128,52 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await?
     .unwrap_or(1);
     assert_eq!(token_count, 0, "tokens should be revoked");
+
+    // Verify HTTP trigger reassigned (dynamic trigger query)
+    let trigger_moved = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM http_trigger WHERE path = 'u/test-user/webhook_a' AND workspace_id = 'test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+    assert_eq!(trigger_moved, 1, "http trigger should be reassigned");
+
+    let trigger_perm = sqlx::query_scalar!(
+        "SELECT permissioned_as FROM http_trigger WHERE path = 'u/test-user/webhook_a' AND workspace_id = 'test-workspace'"
+    )
+    .fetch_optional(&db)
+    .await?;
+    assert_eq!(
+        trigger_perm.as_deref(),
+        Some("u/test-user"),
+        "trigger permissioned_as should be updated"
+    );
+
+    // Verify extra_perms cleaned up (dynamic extra_perms query)
+    let extra_perms = sqlx::query_scalar!(
+        "SELECT extra_perms::text FROM script WHERE path = 'f/test-folder/shared_script' AND workspace_id = 'test-workspace'"
+    )
+    .fetch_optional(&db)
+    .await?;
+    assert!(
+        !extra_perms
+            .unwrap_or_default()
+            .unwrap_or_default()
+            .contains("test-user-2"),
+        "extra_perms should no longer reference test-user-2"
+    );
+
+    // Verify operator schedule updated (schedule not under user's path)
+    let shared_sched_perm = sqlx::query_scalar!(
+        "SELECT permissioned_as FROM schedule WHERE path = 'f/test-folder/sched_shared' AND workspace_id = 'test-workspace'"
+    )
+    .fetch_optional(&db)
+    .await?;
+    assert_eq!(
+        shared_sched_perm.as_deref(),
+        Some("u/test-user"),
+        "shared schedule permissioned_as should be updated"
+    );
 
     Ok(())
 }
