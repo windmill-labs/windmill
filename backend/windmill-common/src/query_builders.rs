@@ -4676,8 +4676,11 @@ pub async fn pg_get_full_schema(
         });
     }
 
+    let mut fk_entries: Vec<_> = fk_map.into_iter().collect();
+    fk_entries.sort_by(|a, b| a.0.cmp(&b.0));
+
     for ((schema_name, table_name, fk_name), (target_table, columns, on_delete, on_update)) in
-        fk_map
+        fk_entries
     {
         if let Some(schema_tables) = result.get_mut(&schema_name) {
             if let Some(table) = schema_tables.get_mut(&table_name) {
