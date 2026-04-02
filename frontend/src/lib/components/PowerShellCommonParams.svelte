@@ -59,7 +59,7 @@
 		onclick={() => (collapsed = !collapsed)}
 	>
 		<ChevronRight size={12} class="transition duration-200 {collapsed ? '' : 'rotate-90'}" />
-		Common parameters
+		CmdletBinding parameters
 		{#if collapsed && activeBadges.length > 0}
 			<div class="flex gap-1 ml-1">
 				{#each activeBadges as label}
