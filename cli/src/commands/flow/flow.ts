@@ -15,7 +15,7 @@ import { buildFolderPath, getMetadataFileName, loadNonDottedPathsSetting } from 
 
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import { resolve, track_job } from "../script/script.ts";
+import { resolve, track_job, pollForJobResult } from "../script/script.ts";
 import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
@@ -340,31 +340,108 @@ async function run(
     requestBody: input,
   });
 
+  // Build step label map from raw_flow if available
+  const stepLabels = new Map<string, string>();
+  try {
+    const initialJob = await wmill.getJob({
+      workspace: workspace.workspaceId,
+      id,
+    });
+    const rawFlow = (initialJob as any).raw_flow;
+    if (rawFlow?.modules) {
+      for (const mod of rawFlow.modules) {
+        if (mod.id) {
+          const label = mod.summary ? `${mod.id}: ${mod.summary}` : mod.id;
+          stepLabels.set(mod.id, label);
+        }
+      }
+    }
+  } catch {
+    // Best-effort — fall back to module IDs
+  }
+
   let i = 0;
+  let lastStatus = "";
   while (true) {
     const jobInfo = await wmill.getJob({
       workspace: workspace.workspaceId,
       id,
     });
-    if (jobInfo.flow_status!.modules.length <= i) {
+
+    // Check if flow has completed (success or failure)
+    const isCompleted = (jobInfo as any).type === "CompletedJob";
+    const flowStatus = jobInfo.flow_status!;
+
+    if (flowStatus.modules.length <= i) {
       break;
     }
-    const module = jobInfo.flow_status!.modules[i];
+    const module = flowStatus.modules[i];
 
-    if (module.job) {
-      if (!opts.silent) {
-        log.info("====== Job " + (i + 1) + " ======");
+    // If a module has failed, track its job (to show error logs), then break
+    if (module.type === "Failure") {
+      if (module.job && !opts.silent) {
+        const label = stepLabels.get(module.id!) ?? `Step ${i + 1}`;
+        log.info("====== " + label + " ======");
         await track_job(workspace.workspaceId, module.job);
       }
+      break;
+    }
+
+    if (module.job) {
+      const label = stepLabels.get(module.id!) ?? `Step ${i + 1}`;
+      const isForLoop = (module as any).flow_jobs !== undefined;
+
+      if (isForLoop) {
+        // For-loop: track iterations as they appear, re-polling until module completes
+        let trackedIterations = 0;
+        let forLoopFailed = false;
+        while (true) {
+          const refreshed = await wmill.getJob({
+            workspace: workspace.workspaceId,
+            id,
+          });
+          const refreshedModule = refreshed.flow_status!.modules[i];
+          const flowJobs = ((refreshedModule as any).flow_jobs as string[] | undefined) ?? [];
+
+          // Track any new iterations
+          while (trackedIterations < flowJobs.length) {
+            if (!opts.silent) {
+              log.info(`====== ${label} (iteration ${trackedIterations}) ======`);
+              await track_job(workspace.workspaceId, flowJobs[trackedIterations]);
+            }
+            trackedIterations++;
+          }
+
+          if (refreshedModule.type === "Success" || refreshedModule.type === "Failure") {
+            forLoopFailed = refreshedModule.type === "Failure";
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        if (forLoopFailed) break;
+      } else {
+        if (!opts.silent) {
+          log.info("====== " + label + " ======");
+          await track_job(workspace.workspaceId, module.job);
+        }
+      }
     } else {
-      if (!opts.silent) {
-        log.info(module.type);
+      // Module not started yet — deduplicate status messages
+      const status = String(module.type);
+      if (!opts.silent && status !== lastStatus) {
+        log.info(colors.dim(status));
+        lastStatus = status;
       }
       await new Promise((resolve, _) =>
         setTimeout(() => resolve(undefined), 100)
       );
+
+      // If flow already completed while we were waiting, break out
+      if (isCompleted) break;
+
       continue;
     }
+    lastStatus = "";
     i++;
   }
 
@@ -379,7 +456,11 @@ async function run(
       });
 
       if (!opts.silent) {
-        log.info(colors.green.underline.bold("Flow ran to completion"));
+        if (jobInfo.success === false) {
+          log.info(colors.red.underline.bold("Flow failed"));
+        } else {
+          log.info(colors.green.underline.bold("Flow ran to completion"));
+        }
         log.info("\n");
       }
 
@@ -493,32 +574,27 @@ async function preview(
 
   log.debug(`Flow value: ${JSON.stringify(localFlow.value, null, 2)}`);
 
-  // Run the flow preview
-  let result;
-  try {
-    result = await wmill.runFlowPreviewAndWaitResult({
-      workspace: workspace.workspaceId,
-      requestBody: {
-        value: localFlow.value,
-        path: flowPath.substring(0, flowPath.indexOf(".flow")).replaceAll(SEP, "/"),
-        args: input,
-      },
-    });
-  } catch (e: any) {
-    if (e.body) {
-      // If a failure_module ran, the body contains its result — not an error
-      if (e.body.result !== undefined) {
-        if (opts.silent) {
-          console.log(JSON.stringify(e.body.result));
-        } else {
-          log.info(colors.yellow.bold("Flow failed, error handler result:"));
-          log.info(JSON.stringify(e.body.result, null, 2));
-        }
-        process.exitCode = 1;
-        return;
-      }
+  // Run the flow preview — start the job, then poll for completion
+  const jobId = await wmill.runFlowPreview({
+    workspace: workspace.workspaceId,
+    requestBody: {
+      value: localFlow.value,
+      path: flowPath.substring(0, flowPath.indexOf(".flow")).replaceAll(SEP, "/"),
+      args: input,
+    },
+  });
+
+  const { result, success } = await pollForJobResult(workspace.workspaceId, jobId);
+
+  if (!success) {
+    if (opts.silent) {
+      console.log(JSON.stringify(result));
+    } else {
+      log.info(colors.yellow.bold("Flow failed, error handler result:"));
+      log.info(JSON.stringify(result, null, 2));
     }
-    throw e;
+    process.exitCode = 1;
+    return;
   }
 
   if (opts.silent) {

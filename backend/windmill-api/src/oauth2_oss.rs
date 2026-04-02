@@ -159,13 +159,24 @@ pub async fn check_nb_of_user(db: &DB) -> error::Result<()> {
 #[derive(Clone, Debug)]
 #[cfg(not(feature = "private"))]
 pub struct SlackVerifier {
-    _mac: HmacSha256,
+    mac: HmacSha256,
 }
 #[cfg(not(feature = "private"))]
 impl SlackVerifier {
     pub fn new<S: AsRef<[u8]>>(secret: S) -> anyhow::Result<SlackVerifier> {
         HmacSha256::new_from_slice(secret.as_ref())
-            .map(|mac| SlackVerifier { _mac: mac })
+            .map(|mac| SlackVerifier { mac })
             .map_err(|_| anyhow::anyhow!("invalid secret"))
+    }
+
+    pub fn verify(&self, ts: &str, body: &str, exp_sig: &str) -> anyhow::Result<()> {
+        let basestring = format!("v0:{}:{}", ts, body);
+        let mut mac = self.mac.clone();
+        mac.update(basestring.as_bytes());
+        let sig = format!("v0={}", hex::encode(mac.finalize().into_bytes()));
+        if sig != exp_sig {
+            Err(anyhow::anyhow!("signature mismatch"))?;
+        }
+        Ok(())
     }
 }

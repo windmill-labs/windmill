@@ -1,7 +1,9 @@
 use axum::{
-    extract::{Form, Path, Query},
+    extract::{Path, Query},
     Extension,
 };
+use bytes::Bytes;
+use http::HeaderMap;
 use hyper::StatusCode;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -119,12 +121,41 @@ struct PrivateMetadata {
     hide_cancel: Option<bool>,
 }
 
+#[cfg(feature = "oauth2")]
+fn verify_slack_callback_signature(headers: &HeaderMap, body: &str) -> Result<(), Error> {
+    if let Some(sv) = crate::SLACK_SIGNING_SECRET.as_ref() {
+        let sig = headers
+            .get("X-Slack-Signature")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        let ts = headers
+            .get("X-Slack-Request-Timestamp")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        sv.verify(ts, body, sig)
+            .map_err(|_| Error::BadRequest("Slack signature verification failed".to_string()))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "oauth2"))]
+fn verify_slack_callback_signature(_headers: &HeaderMap, _body: &str) -> Result<(), Error> {
+    Ok(())
+}
+
 pub async fn slack_app_callback_handler(
     authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
-    Form(form_data): Form<SlackFormData>,
+    headers: HeaderMap,
+    body: Bytes,
 ) -> Result<StatusCode, Error> {
+    let body_str = String::from_utf8_lossy(&body);
+    verify_slack_callback_signature(&headers, &body_str)?;
+
+    let form_data: SlackFormData = serde_urlencoded::from_bytes(&body)
+        .map_err(|e| Error::BadRequest(format!("invalid form data: {}", e)))?;
+
     tracing::debug!("Form data: {:#?}", form_data);
     let payload: Payload = serde_json::from_str(&form_data.payload)?;
     tracing::debug!("Payload: {:#?}", payload);

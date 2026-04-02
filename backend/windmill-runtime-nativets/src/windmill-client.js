@@ -3000,6 +3000,7 @@ var $RawScript = {
         "nativets",
         "duckdb",
         "ruby",
+        "rlang",
         // for related places search: ADD_NEW_LANG
       ],
     },

@@ -153,7 +153,9 @@
 			} else if (hubId) {
 				const hub = await FlowService.getHubFlowById({ id: Number(hubId) })
 				delete hub['comments']
-				initialPath = `u/${$userStore?.username}/flow_${hubId}`
+				initialPath = `u/${$userStore?.username
+					.split('@')[0]
+					.replace(/[^a-zA-Z0-9_]/g, '')}/flow_${hubId}`
 				Object.assign(flow, hub.flow)
 				if (flow.value.preprocessor_module?.value.type === 'rawscript') {
 					flow.value.preprocessor_module.value.content = replaceScriptPlaceholderWithItsValues(

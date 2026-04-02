@@ -27,6 +27,16 @@
           extensions = [ "rust-src" "rust-analyzer" "rustfmt" ];
         };
 
+        patchedClang = pkgs.llvmPackages_18.clang.overrideAttrs (oldAttrs: {
+          postFixup = ''
+            # Copy the original postFixup logic but skip add-hardening.sh
+            ${oldAttrs.postFixup or ""}
+
+            # Remove the line that substitutes add-hardening.sh
+            sed -i 's/.*source.*add-hardening\.sh.*//' $out/bin/clang
+          '';
+        });
+
         # ---------------------------------------------------------------
         # Native C/C++ dependencies (required to compile the backend)
         # ---------------------------------------------------------------
@@ -72,14 +82,16 @@
           version = "130.0.7";
           target = stdenv.hostPlatform.rust.rustcTarget;
           sha256 = {
-            x86_64-linux = "sha256-pkdsuU6bAkcIHEZUJOt5PXdzK424CEgTLXjLtQ80t10=";
+            x86_64-linux =
+              "sha256-pkdsuU6bAkcIHEZUJOt5PXdzK424CEgTLXjLtQ80t10=";
             aarch64-linux = lib.fakeHash;
             x86_64-darwin = lib.fakeHash;
             aarch64-darwin = lib.fakeHash;
           }.${system};
         in pkgs.fetchurl {
           name = "librusty_v8-${version}";
-          url = "https://github.com/denoland/rusty_v8/releases/download/v${version}/librusty_v8_release_${target}.a.gz";
+          url =
+            "https://github.com/denoland/rusty_v8/releases/download/v${version}/librusty_v8_release_${target}.a.gz";
           inherit sha256;
         };
 
@@ -87,15 +99,28 @@
         # pkg-config search path for native libraries
         # ---------------------------------------------------------------
 
-        pkgConfigPath = lib.makeSearchPath "lib/pkgconfig"
-          (with pkgs; [ openssl.dev libxml2.dev xmlsec.dev libxslt.dev cyrus_sasl.dev krb5.dev ]);
+        pkgConfigPath = lib.makeSearchPath "lib/pkgconfig" (with pkgs; [
+          openssl.dev
+          libxml2.dev
+          xmlsec.dev
+          libxslt.dev
+          cyrus_sasl.dev
+          krb5.dev
+        ]);
 
         # ---------------------------------------------------------------
         # RPATH — embed Nix store library paths into compiled binaries
         # ---------------------------------------------------------------
 
         rpathLibs = lib.makeLibraryPath (with pkgs; [
-          openssl libffi cyrus_sasl krb5 libxml2 xmlsec libxslt stdenv.cc.cc.lib
+          openssl
+          libffi
+          cyrus_sasl
+          krb5
+          libxml2
+          xmlsec
+          libxslt
+          stdenv.cc.cc.lib
         ]);
 
         # ---------------------------------------------------------------
@@ -113,11 +138,17 @@
           (builtins.readFile "${stdenv.cc}/nix-support/libcxx-cxxflags")
           "-idirafter ${pkgs.libiconv}/include"
         ] ++ lib.optionals stdenv.cc.isClang [
-          "-idirafter ${stdenv.cc.cc}/lib/clang/${lib.getVersion stdenv.cc.cc}/include"
+          "-idirafter ${stdenv.cc.cc}/lib/clang/${
+            lib.getVersion stdenv.cc.cc
+          }/include"
         ] ++ lib.optionals stdenv.cc.isGNU [
           "-isystem ${stdenv.cc.cc}/include/c++/${lib.getVersion stdenv.cc.cc}"
-          "-isystem ${stdenv.cc.cc}/include/c++/${lib.getVersion stdenv.cc.cc}/${stdenv.hostPlatform.config}"
-          "-idirafter ${stdenv.cc.cc}/lib/gcc/${stdenv.hostPlatform.config}/${lib.getVersion stdenv.cc.cc}/include"
+          "-isystem ${stdenv.cc.cc}/include/c++/${
+            lib.getVersion stdenv.cc.cc
+          }/${stdenv.hostPlatform.config}"
+          "-idirafter ${stdenv.cc.cc}/lib/gcc/${stdenv.hostPlatform.config}/${
+            lib.getVersion stdenv.cc.cc
+          }/include"
         ]);
 
         # ---------------------------------------------------------------
@@ -131,12 +162,16 @@
           BINDGEN_EXTRA_CLANG_ARGS = bindgenClangArgs;
 
           # Force clang 18 as cargo linker (stdenv may bring a newer clang that causes SIGSEGV with mold)
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.llvmPackages_18.clang}/bin/clang";
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.llvmPackages_18.clang}/bin/clang";
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER =
+            "${pkgs.llvmPackages_18.clang}/bin/clang";
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER =
+            "${pkgs.llvmPackages_18.clang}/bin/clang";
 
           # Embed rpath so binaries find Nix store .so files at runtime
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${rpathLibs}";
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${rpathLibs}";
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS =
+            "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${rpathLibs}";
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS =
+            "-C link-arg=-fuse-ld=mold -C link-arg=-Wl,-rpath,${rpathLibs}";
           CARGO_HOST_RUSTFLAGS = "-C link-arg=-Wl,-rpath,${rpathLibs}";
 
           # https://github.com/NixOS/nixpkgs/issues/370494 — jemalloc build fix
@@ -197,6 +232,10 @@
           hash = "sha256-8E0WtDFc7RcqmftDigMyy1xXUkjgL4X4kpf7h1GdE48=";
         };
 
+        rWithPackages = pkgs.rWrapper.override {
+          packages = with pkgs.rPackages; [ renv ];
+        };
+
         extraRuntimes = with pkgs; [
           dotnet-sdk_9
           php
@@ -222,6 +261,7 @@
           ANSIBLE_PLAYBOOK_PATH = "${pkgs.ansible}/bin/ansible-playbook";
           ANSIBLE_GALAXY_PATH = "${pkgs.ansible}/bin/ansible-galaxy";
           CARGO_SWEEP_PATH = "${pkgs.cargo-sweep}/bin/cargo-sweep";
+          RSCRIPT_PATH = "${rWithPackages}/bin/Rscript";
         };
 
         # ---------------------------------------------------------------
@@ -251,13 +291,23 @@
           (pkgs.writeScriptBin "wm" ''
             cd ./frontend
             npm install
-            npm run ${if stdenv.isDarwin then "generate-backend-client-mac" else "generate-backend-client"}
+            npm run ${
+              if stdenv.isDarwin then
+                "generate-backend-client-mac"
+              else
+                "generate-backend-client"
+            }
             npm run dev "$@"
           '')
           (pkgs.writeScriptBin "wm-build" ''
             cd ./frontend
             npm install
-            npm run ${if stdenv.isDarwin then "generate-backend-client-mac" else "generate-backend-client"}
+            npm run ${
+              if stdenv.isDarwin then
+                "generate-backend-client-mac"
+              else
+                "generate-backend-client"
+            }
             npm run build "$@"
           '')
           (pkgs.writeScriptBin "wm-migrate" ''
@@ -322,22 +372,20 @@
         # Shared inputs and settings for default + full shells
         # ---------------------------------------------------------------
 
-        coreBuildInputs = nativeBuildDeps ++ commonRuntimes ++ [
-          rustStable
-          openapi-generator-cli
-        ] ++ (with pkgs; [
-          nodejs
-          git
-          sqlx-cli
-          cargo-watch
-          jq
-          gnused
+        coreBuildInputs = nativeBuildDeps ++ commonRuntimes
+          ++ [ rustStable openapi-generator-cli ] ++ (with pkgs; [
+            nodejs
+            git
+            sqlx-cli
+            cargo-watch
+            jq
+            gnused
 
-          # CLI tools (for AI agents and dev workflow)
-          gh
-          asciinema
-          mermaid-cli
-        ]);
+            # CLI tools (for AI agents and dev workflow)
+            gh
+            asciinema
+            mermaid-cli
+          ]);
 
         # Playwright: use Nix-provided browsers (version-matched to playwright-driver)
         # Mermaid/Puppeteer: point at Nix chromium (Puppeteer respects this env var)
@@ -380,16 +428,26 @@
 
         sandboxEnv = pkgs.buildEnv {
           name = "windmill-sandbox";
-          paths = coreBuildInputs ++ helperScriptsBase
-            ++ [ playwrightWrapper sandboxEnvScript pkgConfigWrapper pkgs.chromium ];
+          paths = coreBuildInputs ++ helperScriptsBase ++ [
+            playwrightWrapper
+            sandboxEnvScript
+            pkgConfigWrapper
+            pkgs.chromium
+          ];
         };
 
         sandboxFullEnv = pkgs.buildEnv {
           name = "windmill-sandbox-full";
-          paths = coreBuildInputs ++ extraRuntimes
-            ++ helperScriptsBase ++ helperScriptsFull
-            ++ [ playwrightWrapper sandboxEnvScript pkgConfigWrapper pkgs.chromium
-                 pkgs.cargo-sweep pkgs.xcaddy pkgs.nsjail ];
+          paths = coreBuildInputs ++ extraRuntimes ++ helperScriptsBase
+            ++ helperScriptsFull ++ [
+              playwrightWrapper
+              sandboxEnvScript
+              pkgConfigWrapper
+              pkgs.chromium
+              pkgs.cargo-sweep
+              pkgs.xcaddy
+              pkgs.nsjail
+            ];
         };
 
       in {
@@ -412,8 +470,8 @@
           shellHook = devShellHook;
           buildInputs = coreBuildInputs;
 
-          packages = helperScriptsBase ++ [ playwrightWrapper ];
-        });
+            packages = helperScriptsBase ++ [ playwrightWrapper ];
+          });
 
         # =============================================================
         # full — all language runtimes, k8s tooling, specialized scripts
@@ -428,27 +486,28 @@
             pyright
             openapi-python-client
 
-            # LSP / editor
-            svelte-language-server
-            taplo
+              # LSP / editor
+              svelte-language-server
+              taplo
 
-            # Extra dev tools
-            cargo-sweep
+              # Extra dev tools
+              cargo-sweep
 
-            # Kubernetes
-            minikube
-            kubectl
-            kubernetes-helm
-            conntrack-tools
-            cri-tools
+              # Kubernetes
+              minikube
+              kubectl
+              kubernetes-helm
+              conntrack-tools
+              cri-tools
 
-            # Extra
-            xcaddy
-            nsjail
-          ]);
+              # Extra
+              xcaddy
+              nsjail
+            ]);
 
-          packages = helperScriptsBase ++ helperScriptsFull ++ [ playwrightWrapper ];
-        });
+            packages = helperScriptsBase ++ helperScriptsFull
+              ++ [ playwrightWrapper ];
+          });
 
         # =============================================================
         # wasm — WASM target compilation (nightly Rust)
@@ -458,15 +517,23 @@
         devShells.wasm = pkgs.mkShell (buildEnvVars // {
           hardeningDisable = [ "all" ];
 
+          # Explicitly set paths for headers and linker
+          # DO NOT REMOVE - if absent, breaks wasm builds on NixOS.
+          shellHook = ''
+            export CC=${patchedClang}/bin/clang
+          '';
+
           buildInputs = nativeBuildDeps ++ (with pkgs; [
             (rust-bin.nightly.latest.default.override {
               extensions = [ "rust-src" "rust-analyzer" ];
-              targets = [ "wasm32-unknown-unknown" "wasm32-unknown-emscripten" ];
+              targets =
+                [ "wasm32-unknown-unknown" "wasm32-unknown-emscripten" ];
             })
             wasm-pack
             deno
             emscripten
             nushell
+            nodejs
             glibc_multi
           ]);
         });

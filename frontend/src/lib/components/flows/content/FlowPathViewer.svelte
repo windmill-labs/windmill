@@ -13,9 +13,10 @@
 	interface Props {
 		path: string;
 		noSide?: boolean;
+		fillAvailableHeight?: boolean;
 	}
 
-	let { path, noSide = false }: Props = $props();
+	let { path, noSide = false, fillAvailableHeight = false }: Props = $props();
 
 	let flow: Flow | undefined = $state(undefined)
 
@@ -41,7 +42,7 @@
 
 <div class="flex flex-col flex-1 h-full overflow-auto">
 	{#if flow}
-		<FlowGraphViewer triggerNode={true} {noSide} {flow} />
+		<FlowGraphViewer triggerNode={true} {noSide} {flow} {fillAvailableHeight} />
 	{:else}
 		<Skeleton layout={[[40]]} />
 	{/if}
