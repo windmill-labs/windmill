@@ -37,7 +37,8 @@ async fn test_offboard_preview(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(body["owned"]["variables"].as_array().unwrap().len(), 1); // var_a
     assert_eq!(body["owned"]["schedules"].as_array().unwrap().len(), 1); // sched_a
     assert_eq!(body["owned"]["triggers"].as_array().unwrap().len(), 1); // webhook_a (dynamic trigger query)
-    assert_eq!(body["tokens"], 1); // OFFBOARD_TOKEN_1
+    assert_eq!(body["tokens"].as_array().unwrap().len(), 1); // OFFBOARD_TOKEN_1
+    assert_eq!(body["tokens"][0]["label"], "offboard test");
     assert_eq!(body["http_triggers"], 1); // webhook_a
     assert_eq!(body["email_triggers"], 0);
     // Operator references: schedule + trigger at f/test-folder/ run as u/test-user-2

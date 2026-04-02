@@ -248,7 +248,8 @@
 												{#if (preview.owned.triggers?.length ?? 0) > 0}<span
 														>{pl(preview.owned.triggers?.length ?? 0, 'trigger')}</span
 													>{/if}
-												{#if preview.tokens > 0}<span>{pl(preview.tokens, 'token')} (deleted)</span
+												{#if (preview.tokens?.length ?? 0) > 0}<span
+														>{pl(preview.tokens?.length ?? 0, 'token')} (deleted)</span
 													>{/if}
 											</div>
 										</div>
@@ -307,6 +308,23 @@
 													startIcon={{ icon: Download }}
 													onclick={downloadAffectedCsv}>Export CSV</Button
 												>
+											</div>
+										</div>
+									{/if}
+									{#if (preview.tokens?.length ?? 0) > 0}
+										<div class="bg-surface-secondary rounded-md p-3">
+											<p class="text-xs font-medium text-primary mb-0.5"
+												>Tokens ({preview.tokens?.length ?? 0})</p
+											>
+											<p class="text-xs text-tertiary mb-1">These tokens will be deleted.</p>
+											<div class="flex flex-col gap-0.5 text-xs text-secondary">
+												{#each preview.tokens ?? [] as token}
+													<span
+														>{token.label || '(no label)'}{#if token.scopes?.length}: {token.scopes.join(
+																', '
+															)}{/if}</span
+													>
+												{/each}
 											</div>
 										</div>
 									{/if}

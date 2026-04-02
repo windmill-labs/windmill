@@ -31,7 +31,7 @@ pub(crate) struct OffboardPreview {
     /// (these references may break after path changes — admin should review)
     referencing: OffboardAffectedPaths,
     /// Tokens owned by this user (will be deleted)
-    tokens: i64,
+    tokens: Vec<OffboardTokenInfo>,
     /// HTTP triggers under the user's path (webhook URLs will change)
     http_triggers: i64,
     /// Email triggers under the user's path (email addresses will change)
@@ -54,6 +54,13 @@ struct OffboardAffectedPaths {
     schedules: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     triggers: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct OffboardTokenInfo {
+    label: String,
+    scopes: Vec<String>,
+    expiration: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -197,14 +204,22 @@ async fn get_offboard_preview(
     }
 
     // ---- Tokens ----
-    let tokens = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM token WHERE owner = $1 AND workspace_id = $2",
+    let token_rows = sqlx::query!(
+        "SELECT label, scopes, expiration FROM token WHERE owner = $1 AND workspace_id = $2",
         &user_owner,
         w_id
     )
-    .fetch_one(db)
-    .await?
-    .unwrap_or(0);
+    .fetch_all(db)
+    .await?;
+
+    let tokens: Vec<OffboardTokenInfo> = token_rows
+        .into_iter()
+        .map(|r| OffboardTokenInfo {
+            label: r.label.unwrap_or_default(),
+            scopes: r.scopes.unwrap_or_default(),
+            expiration: r.expiration.map(|e| e.to_string()),
+        })
+        .collect();
 
     // ---- Operator references (not under user's path) ----
     let obo_scripts = sqlx::query_scalar!(

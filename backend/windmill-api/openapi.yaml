@@ -20409,7 +20409,9 @@ components:
           $ref: "#/components/schemas/OffboardAffectedPaths"
           description: "Scripts/flows/apps/resources whose content or value references this user's paths (may break after reassignment)"
         tokens:
-          type: integer
+          type: array
+          items:
+            $ref: "#/components/schemas/OffboardTokenInfo"
           description: "Tokens owned by this user (will be deleted)"
         http_triggers:
           type: integer
@@ -20424,6 +20426,21 @@ components:
         - tokens
         - http_triggers
         - email_triggers
+
+    OffboardTokenInfo:
+      type: object
+      properties:
+        label:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        expiration:
+          type: string
+      required:
+        - label
+        - scopes
 
     OffboardRequest:
       type: object

@@ -273,7 +273,9 @@
 											{#if (wp.preview.owned.triggers?.length ?? 0) > 0}<span
 													>{pl(wp.preview.owned.triggers?.length ?? 0, 'trigger')}</span
 												>{/if}
-											{#if wp.preview.tokens > 0}<span>{pl(wp.preview.tokens, 'token')}</span>{/if}
+											{#if (wp.preview.tokens?.length ?? 0) > 0}<span
+													>{pl(wp.preview.tokens?.length ?? 0, 'token')} (deleted)</span
+												>{/if}
 										</div>
 
 										{#if cfg}
