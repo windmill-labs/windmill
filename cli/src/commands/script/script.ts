@@ -1118,6 +1118,27 @@ export async function track_job(workspace: string, id: string) {
   }
 }
 
+const POLL_INTERVAL_MS = 2000;
+
+export async function pollForJobResult(
+  workspace: string,
+  jobId: string,
+): Promise<{ result: unknown; success: boolean }> {
+  while (true) {
+    const maybeResult = await wmill.getCompletedJobResultMaybe({
+      workspace,
+      id: jobId,
+      getStarted: false,
+    });
+
+    if (maybeResult.completed) {
+      return { result: maybeResult.result, success: maybeResult.success ?? false };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+}
+
 async function show(opts: GlobalOptions, path: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -1532,8 +1553,8 @@ async function preview(
       }
     }
   } else {
-    // For regular scripts, use the standard preview API
-    const result = await wmill.runScriptPreviewAndWaitResult({
+    // For regular scripts, start the preview job then poll for completion
+    const jobId = await wmill.runScriptPreview({
       workspace: workspace.workspaceId,
       requestBody: {
         content,
@@ -1544,8 +1565,21 @@ async function preview(
       },
     });
 
+    const { result, success } = await pollForJobResult(workspace.workspaceId, jobId);
+
+    if (!success) {
+      if (opts.silent) {
+        console.log(JSON.stringify(result));
+      } else {
+        log.info(colors.red.bold("Preview failed"));
+        log.info(JSON.stringify(result, null, 2));
+      }
+      process.exitCode = 1;
+      return;
+    }
+
     if (opts.silent) {
-      console.log(JSON.stringify(result, null, 2));
+      console.log(JSON.stringify(result));
     } else {
       log.info(colors.bold.underline.green("Preview completed"));
       log.info(JSON.stringify(result, null, 2));
