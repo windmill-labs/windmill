@@ -670,7 +670,11 @@
 				path={script?.path}
 				onSaved={can_write
 					? async (newPath) => {
-							await goto(`/scripts/get/${newPath}?workspace=${$workspaceStore}`)
+							if (newPath !== script?.path) {
+								await goto(`/scripts/get/${newPath}?workspace=${$workspaceStore}`)
+							} else {
+								loadScript(newPath)
+							}
 						}
 					: undefined}
 			>
