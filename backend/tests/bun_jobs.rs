@@ -429,6 +429,59 @@ export function main() {
     Ok(())
 }
 
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_job_syntax_error_unclosed_bracket(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Reproduces the "Unexpected end of file at main.ts:0" error reported
+    // when a TS file has a missing closing bracket — Bun's bundler gives no
+    // useful location info.
+    let content = r#"
+export async function main() {
+    if (true) {
+        return "hello";
+    // missing closing bracket for the function
+"#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+    });
+
+    let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
+
+    assert!(!completed.success);
+    let result = completed
+        .result
+        .as_ref()
+        .and_then(|v| v.get("error"))
+        .and_then(|v| v.get("message"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert!(
+        result.contains("Unexpected end of file"),
+        "should contain bun parser error, got: {result}"
+    );
+    assert!(
+        result.contains("syntax error"),
+        "should contain helpful hint about syntax errors, got: {result}"
+    );
+    Ok(())
+}
+
 // ============================================================================
 // Annotation Mode Tests
 // ============================================================================

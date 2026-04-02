@@ -1597,6 +1597,12 @@ async fn process_notify_event(
                 tracing::debug!("config changed but did not target this server/worker");
             }
         }
+        "restart_worker_group" => {
+            if worker_mode && payload == *WORKER_GROUP {
+                tracing::info!("Restart requested for worker group '{payload}'");
+                spawn_graceful_killpill(tx, db, 10, "worker group restart requested").await;
+            }
+        }
         "notify_webhook_change" => {
             tracing::info!(
                 "Webhook change detected, invalidating webhook cache: {}",

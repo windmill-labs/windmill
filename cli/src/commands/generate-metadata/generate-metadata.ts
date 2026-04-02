@@ -333,8 +333,9 @@ async function generateMetadata(
 
   log.info("");
 
+  const isInteractive = process.stdin.isTTY ?? false;
   if (
-    !opts.yes &&
+    !opts.yes && isInteractive &&
     !(await Confirm.prompt({
       message: "Update metadata?",
       default: true,
