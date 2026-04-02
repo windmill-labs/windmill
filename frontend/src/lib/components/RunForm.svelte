@@ -32,8 +32,28 @@
 	let savedPreviousArgs: Record<string, any> | undefined = $state(undefined)
 	let psCommonParams: Record<string, any> = $state({})
 
+	function extractPsCommonParams(allArgs: Record<string, any>): {
+		scriptArgs: Record<string, any>
+		commonParams: Record<string, any>
+	} {
+		const scriptArgs: Record<string, any> = {}
+		const commonParams: Record<string, any> = {}
+		for (const [k, v] of Object.entries(allArgs)) {
+			if (k.startsWith('_wm_ps_')) {
+				commonParams[k] = v
+			} else {
+				scriptArgs[k] = v
+			}
+		}
+		return { scriptArgs, commonParams }
+	}
+
 	export async function setArgs(nargs: Record<string, any>) {
-		args = nargs
+		const { scriptArgs, commonParams } = extractPsCommonParams(nargs)
+		args = scriptArgs
+		if (Object.keys(commonParams).length > 0) {
+			psCommonParams = commonParams
+		}
 		reloadArgs++
 	}
 
@@ -123,6 +143,12 @@
 	$effect.pre(() => {
 		if (args == undefined) {
 			args = {}
+		}
+		// Extract _wm_ps_* keys from args on initial load (e.g. "Run again" via URL hash)
+		if (args && Object.keys(args).some((k) => k.startsWith('_wm_ps_'))) {
+			const { scriptArgs, commonParams } = extractPsCommonParams(args)
+			args = scriptArgs
+			psCommonParams = commonParams
 		}
 	})
 

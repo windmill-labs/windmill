@@ -2,6 +2,7 @@
 	import { Section } from './common'
 	import Toggle from './Toggle.svelte'
 	import Select from '$lib/components/select/Select.svelte'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		args?: Record<string, any>
@@ -12,6 +13,7 @@
 	let verbose = $state(false)
 	let debug = $state(false)
 	let errorAction = $state(undefined as string | undefined)
+	let initialized = false
 
 	const errorActionItems = [
 		{ label: 'Stop', value: 'Stop' },
@@ -19,6 +21,19 @@
 		{ label: 'SilentlyContinue', value: 'SilentlyContinue' }
 	]
 
+	// Initialize toggles from pre-populated args (e.g. "Run again")
+	$effect(() => {
+		if (!initialized && args && Object.keys(args).length > 0) {
+			initialized = true
+			untrack(() => {
+				verbose = args['_wm_ps_verbose'] === true
+				debug = args['_wm_ps_debug'] === true
+				errorAction = args['_wm_ps_error_action'] ?? undefined
+			})
+		}
+	})
+
+	// Sync toggles → args
 	$effect(() => {
 		const newArgs: Record<string, any> = {}
 		if (verbose) newArgs['_wm_ps_verbose'] = true
