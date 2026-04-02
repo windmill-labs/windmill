@@ -1994,9 +1994,8 @@ pub async fn run_worker(
     // Option<JoinHandle<()>>,
 
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    let (dedicated_workers, dedicated_flow_paths, dedicated_handles): (
+    let (dedicated_workers, dedicated_handles): (
         HashMap<String, Sender<DedicatedWorkerJob>>,
-        HashSet<String>,
         Vec<JoinHandle<()>>,
     ) = match conn {
         Connection::Sql(pool) => {
@@ -2011,15 +2010,14 @@ pub async fn run_worker(
             )
             .await
         }
-        Connection::Http(_) => (HashMap::new(), HashSet::new(), vec![]),
+        Connection::Http(_) => (HashMap::new(), vec![]),
     };
 
     #[cfg(any(not(feature = "private"), not(feature = "enterprise")))]
-    let (dedicated_workers, dedicated_flow_paths, dedicated_handles): (
+    let (dedicated_workers, dedicated_handles): (
         HashMap<String, Sender<DedicatedWorkerJob>>,
-        HashSet<String>,
         Vec<JoinHandle<()>>,
-    ) = (HashMap::new(), HashSet::new(), vec![]);
+    ) = (HashMap::new(), vec![]);
 
     if i_worker == 1 {
         // Initialize runtime asset inserter for batched database inserts
@@ -2480,18 +2478,10 @@ pub async fn run_worker(
                     JobKind::Script | JobKind::Preview | JobKind::FlowScript
                 ) {
                     if !dedicated_workers.is_empty() {
-                        // Try flow path + step_id combinations for flow jobs, otherwise use runnable_path
-                        let dedicated_worker_tx = if let Some(step_id) = job.flow_step_id.as_ref() {
-                            dedicated_flow_paths.iter().find_map(|flow_path| {
-                                let key = format!("{}:{}:{}", job.workspace_id, flow_path, step_id);
-                                dedicated_workers.get(&key)
-                            })
-                        } else {
-                            job.runnable_path.as_ref().and_then(|path| {
-                                let key = format!("{}:{}", job.workspace_id, path);
-                                dedicated_workers.get(&key)
-                            })
-                        };
+                        let dedicated_worker_tx = job.runnable_path.as_ref().and_then(|path| {
+                            let key = format!("{}:{}", job.workspace_id, path);
+                            dedicated_workers.get(&key)
+                        });
                         if let Some(dedicated_worker_tx) = dedicated_worker_tx {
                             let dedicated_job = DedicatedWorkerJob {
                                 job: Arc::new(job.job()),

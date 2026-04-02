@@ -160,6 +160,7 @@ pub struct RunJob {
     pub scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     pub email: String,
     pub job_id: Option<Uuid>,
+    pub workspace_id: String,
 }
 
 impl From<JobPayload> for RunJob {
@@ -170,6 +171,7 @@ impl From<JobPayload> for RunJob {
             scheduled_for_o: None,
             email: "test@windmill.dev".to_string(),
             job_id: None,
+            workspace_id: "test-workspace".to_string(),
         }
     }
 }
@@ -198,8 +200,13 @@ impl RunJob {
         self
     }
 
+    pub fn workspace(mut self, workspace_id: impl Into<String>) -> Self {
+        self.workspace_id = workspace_id.into();
+        self
+    }
+
     pub async fn push(self, db: &Pool<Postgres>) -> Uuid {
-        let RunJob { payload, args, scheduled_for_o, email, job_id } = self;
+        let RunJob { payload, args, scheduled_for_o, email, job_id, workspace_id } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
@@ -209,7 +216,7 @@ impl RunJob {
         let (uuid, tx) = windmill_queue::push(
             db,
             tx,
-            "test-workspace",
+            &workspace_id,
             payload,
             windmill_queue::PushArgs::from(&hm_args),
             /* user */ "test-user",
