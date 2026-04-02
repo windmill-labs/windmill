@@ -714,6 +714,13 @@ struct MemoryLimitedChild {
     _job_handle: Win32JobHandle,
 }
 
+#[cfg(windows)]
+impl std::fmt::Debug for MemoryLimitedChild {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryLimitedChild").finish()
+    }
+}
+
 /// RAII wrapper for a raw Win32 HANDLE that closes it on drop.
 #[cfg(windows)]
 struct Win32JobHandle(windows::Win32::Foundation::HANDLE);
@@ -760,7 +767,6 @@ impl process_wrap::tokio::TokioChildWrapper for MemoryLimitedChild {
 /// Create a Windows Job Object with a memory limit and assign the process to it.
 #[cfg(windows)]
 fn apply_job_memory_limit(pid: u32, memory_limit: usize) -> Result<Win32JobHandle, std::io::Error> {
-    use windows::Win32::Foundation::HANDLE;
     use windows::Win32::System::JobObjects::*;
     use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
 
