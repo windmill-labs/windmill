@@ -4,7 +4,6 @@
 		FlowService,
 		WorkspaceService,
 		WorkspaceDependenciesService,
-		ConfigService,
 		type FlowModule
 	} from '$lib/gen'
 	import {
@@ -67,8 +66,8 @@
 	let workspaces: { id: string; name: string }[] = $state([])
 	let workspacesLoading = $state(true)
 	let selectorExpanded = $state(false)
-	// Map of dep name → set of workspaces that have it (for cross-workspace validation)
-	let existingDeps: Map<string, Set<string>> = $state(new Map())
+	// Set of existing workspace dependency names for the current workspace (for validation)
+	let existingDeps: Set<string> = $state(new Set())
 
 	// Track detailed info for each selected tag (for displaying in summary)
 	interface SelectedTagInfo {
@@ -130,98 +129,54 @@
 
 		const newInfo = new SvelteMap<string, SelectedTagInfo>()
 
-		// Check if any tags need dep info fetched
-		let needsFetch = currentExistingDeps.size === 0
-		if (!needsFetch) {
-			for (const tag of tags) {
-				const existing = currentInfo.get(tag)
-				const existingRunnable = currentRunnables.find((r) => r.tag === tag)
-				if (!existing?.workspaceDeps && !existingRunnable?.workspaceDeps) {
-					const parsed = parseTag(tag)
-					if (parsed?.type === 'script') {
-						needsFetch = true
-						break
-					}
+		// Collect workspaces that need dep info fetched
+		const workspacesNeedingDeps = new Set<string>()
+		for (const tag of tags) {
+			const existing = currentInfo.get(tag)
+			const existingRunnable = currentRunnables.find((r) => r.tag === tag)
+			// If we don't have workspaceDeps cached, we need to fetch for this workspace
+			if (!existing?.workspaceDeps && !existingRunnable?.workspaceDeps) {
+				const parsed = parseTag(tag)
+				if (parsed?.type === 'script') {
+					workspacesNeedingDeps.add(parsed.workspace)
 				}
 			}
 		}
 
-		// Fetch dep info across all workspaces in one call
+		// Fetch workspace dep info for workspaces that need it
 		const depsPerWorkspace = new Map<string, Map<string, { deps: string[]; language: string }>>()
-		if (needsFetch) {
-			try {
-				const [allDedicatedDeps, allWsDeps] = await Promise.all([
-					ConfigService.listAllDedicatedWithDeps().catch(() => []),
-					ConfigService.listAllWorkspaceDependencies().catch(() => [])
-				])
-				for (const d of allDedicatedDeps) {
-					if (d.workspace_dep_names.length > 0) {
-						let wsMap = depsPerWorkspace.get(d.workspace_id)
-						if (!wsMap) {
-							wsMap = new Map()
-							depsPerWorkspace.set(d.workspace_id, wsMap)
-						}
-						wsMap.set(d.path, {
-							deps: d.workspace_dep_names,
-							language: d.language
-						})
-					}
-				}
-				for (const d of allWsDeps) {
-					if (d.name) {
-						let wsSet = currentExistingDeps.get(d.name)
-						if (!wsSet) {
-							wsSet = new Set()
-							currentExistingDeps.set(d.name, wsSet)
-						}
-						wsSet.add(d.workspace_id)
-					}
-				}
-			} catch {
-				// Fallback to per-workspace calls if cross-workspace endpoint unavailable
-				const workspacesNeedingDeps = new Set<string>()
-				for (const tag of tags) {
-					const parsed = parseTag(tag)
-					if (parsed?.type === 'script') {
-						workspacesNeedingDeps.add(parsed.workspace)
-					}
-				}
-				await Promise.all(
-					Array.from(workspacesNeedingDeps).map(async (ws) => {
-						try {
-							const [dedicatedDeps, wsDeps] = await Promise.all([
-								ScriptService.listDedicatedWithDeps({ workspace: ws }).catch(() => []),
-								WorkspaceDependenciesService.listWorkspaceDependencies({
-									workspace: ws
-								}).catch(() => [])
-							])
-							const depsMap = new Map<string, { deps: string[]; language: string }>()
-							for (const d of dedicatedDeps) {
-								if (d.workspace_dep_names.length > 0) {
-									depsMap.set(d.path, {
-										deps: d.workspace_dep_names,
-										language: d.language
-									})
-								}
+		if (workspacesNeedingDeps.size > 0 || currentExistingDeps.size === 0) {
+			await Promise.all(
+				Array.from(workspacesNeedingDeps).map(async (ws) => {
+					try {
+						const [dedicatedDeps, wsDeps] = await Promise.all([
+							ScriptService.listDedicatedWithDeps({ workspace: ws }).catch(() => []),
+							WorkspaceDependenciesService.listWorkspaceDependencies({
+								workspace: ws
+							}).catch(() => [])
+						])
+						const depsMap = new Map<string, { deps: string[]; language: string }>()
+						for (const d of dedicatedDeps) {
+							if (d.workspace_dep_names.length > 0) {
+								depsMap.set(d.path, {
+									deps: d.workspace_dep_names,
+									language: d.language
+								})
 							}
-							depsPerWorkspace.set(ws, depsMap)
-							for (const d of wsDeps) {
-								if (!d.archived && d.name) {
-									let wsSet = currentExistingDeps.get(d.name)
-									if (!wsSet) {
-										wsSet = new Set()
-										currentExistingDeps.set(d.name, wsSet)
-									}
-									wsSet.add(ws)
-								}
-							}
-						} catch {
-							// ignore
 						}
-					})
-				)
-			}
-			existingDeps = new Map(currentExistingDeps)
+						depsPerWorkspace.set(ws, depsMap)
+						// Merge into existingDeps
+						for (const d of wsDeps) {
+							if (!d.archived && d.name) {
+								currentExistingDeps.add(d.name)
+							}
+						}
+					} catch {
+						// ignore
+					}
+				})
+			)
+			existingDeps = new Set(currentExistingDeps)
 		}
 
 		try {
@@ -439,7 +394,7 @@
 			loading = true
 			runnables = []
 
-			const [scripts, flows, dedicatedDeps, allWsDeps] = await Promise.all([
+			const [scripts, flows, dedicatedDeps, wsDeps] = await Promise.all([
 				ScriptService.listScripts({
 					workspace: workspaceId,
 					dedicatedWorker: true
@@ -451,28 +406,18 @@
 				ScriptService.listDedicatedWithDeps({
 					workspace: workspaceId
 				}).catch(() => []),
-				// Load workspace deps across all workspaces for accurate validation
-				ConfigService.listAllWorkspaceDependencies().catch(() =>
-					// Fallback to current workspace if cross-workspace endpoint unavailable
-					WorkspaceDependenciesService.listWorkspaceDependencies({
-						workspace: workspaceId
-					}).catch(() => [])
-				)
+				WorkspaceDependenciesService.listWorkspaceDependencies({
+					workspace: workspaceId
+				}).catch(() => [])
 			])
 
-			// Track existing workspace dep names with their workspaces for validation
-			const newDeps = new Map<string, Set<string>>()
-			for (const d of allWsDeps) {
-				if (d.name) {
-					let wsSet = newDeps.get(d.name)
-					if (!wsSet) {
-						wsSet = new Set()
-						newDeps.set(d.name, wsSet)
-					}
-					wsSet.add(d.workspace_id)
-				}
-			}
-			existingDeps = newDeps
+			// Track existing workspace dep names for validation
+			existingDeps = new Set(
+				wsDeps
+					.filter((d) => !d.archived)
+					.map((d) => d.name)
+					.filter((n): n is string => !!n)
+			)
 
 			// Build a map from path -> workspace dep names
 			const depsMap = new Map<string, string[]>()
@@ -552,11 +497,7 @@
 	}
 
 	function updateSelectedTags() {
-		// Keep tags from other workspaces, update only the currently visible ones
-		const visibleTags = new Set(runnables.map((r) => r.tag))
-		const otherTags = selectedTags.filter((t) => !visibleTags.has(t))
-		const newVisibleTags = runnables.filter((r) => r.selected).map((r) => r.tag)
-		selectedTags = [...otherTags, ...newVisibleTags]
+		selectedTags = runnables.filter((r) => r.selected).map((r) => r.tag)
 		onchange?.(selectedTags)
 	}
 
@@ -586,14 +527,13 @@
 	}
 
 	let runnerGroups: RunnerGroup[] = $derived.by(() => {
-		// Group by (workspace, dep_name, language) — runner groups are per-workspace
 		const groupMap = new Map<string, { depName: string; language: string; tags: string[] }>()
 		for (const tag of selectedTags) {
 			const info = selectedTagsInfo.get(tag)
 			if (info?.type === 'script' && info.workspaceDeps) {
 				const lang = info.language ?? runnables.find((r) => r.tag === tag)?.language ?? 'unknown'
 				for (const dep of info.workspaceDeps) {
-					const key = `${info.workspace}:${dep}:${lang}`
+					const key = `${dep}:${lang}`
 					const existing = groupMap.get(key)
 					if (existing) {
 						existing.tags.push(tag)
@@ -622,28 +562,16 @@
 	let standaloneTags: string[] = $derived(selectedTags.filter((tag) => !tagRunnerGroup.has(tag)))
 </script>
 
-{#snippet depBadge(dep: string, workspace: string | undefined)}
-	{@const depWorkspaces = existingDeps.get(dep)}
-	{@const existsInWorkspace = depWorkspaces?.has(workspace ?? '')}
-	{@const existsElsewhere = depWorkspaces && depWorkspaces.size > 0 && !existsInWorkspace}
-	{#if existsInWorkspace}
-		<Badge color="indigo" small href="/workspace_settings?tab=dependencies&workspace={workspace}">
+{#snippet depBadge(dep: string)}
+	{#if existingDeps.has(dep)}
+		<Badge color="indigo" small href="/workspace_settings?tab=dependencies">
 			{dep}
 			<ExternalLink class="h-2.5 w-2.5" />
 		</Badge>
-	{:else if existsElsewhere}
-		<Tooltip small>
-			Workspace dependency '{dep}' exists in {[...(depWorkspaces ?? [])].join(', ')} but not in '{workspace}'.
-			Each workspace needs its own dependency.
-		</Tooltip>
-		<Badge color="yellow" small>
-			<TriangleAlert class="h-2.5 w-2.5" />
-			{dep} (not in {workspace})
-		</Badge>
 	{:else}
 		<Tooltip small>
-			Workspace dependency '{dep}' not found in any workspace. Create it in workspace settings to
-			enable shared runners.
+			Workspace dependency '{dep}' not found. Create it in workspace settings to enable shared
+			runners.
 		</Tooltip>
 		<Badge color="yellow" small>
 			<TriangleAlert class="h-2.5 w-2.5" />
@@ -685,7 +613,7 @@
 					{#if !tagRunnerGroup.has(tag)}
 						{#if info.workspaceDeps}
 							{#each info.workspaceDeps as dep}
-								{@render depBadge(dep, info?.workspace)}
+								{@render depBadge(dep)}
 							{/each}
 						{/if}
 						{#if info.type === 'flow' && info.runners}
@@ -742,7 +670,7 @@
 							<Layers size={12} class="flex-shrink-0 text-secondary" />
 							<span class="text-xs font-medium text-emphasis">Shared runner</span>
 							<span class="flex-1"></span>
-							{@render depBadge(group.depName, selectedTagsInfo.get(group.tags[0])?.workspace)}
+							{@render depBadge(group.depName)}
 							<Badge color="gray" small>{group.language}</Badge>
 						</div>
 						<div class="divide-y">
@@ -768,7 +696,7 @@
 						<span class="flex-1"></span>
 						{#if info?.workspaceDeps}
 							{#each info.workspaceDeps as dep}
-								{@render depBadge(dep, info?.workspace)}
+								{@render depBadge(dep)}
 							{/each}
 						{/if}
 						{#if info?.type === 'flow' && info.runners}
@@ -904,7 +832,7 @@
 												{/if}
 												{#if runnable.workspaceDeps}
 													{#each runnable.workspaceDeps as dep}
-														{@render depBadge(dep, selectedWorkspace)}
+														{@render depBadge(dep)}
 													{/each}
 												{/if}
 												<Badge color={runnable.type === 'flow' ? 'indigo' : 'gray'} small>
