@@ -132,10 +132,14 @@
 			}
 		})
 		for (const dep of sortedSet) {
-			allAlreadyExists[computeStatusPath(dep.kind, dep.path)] = await checkAlreadyExists(
-				dep.kind,
-				dep.path
-			)
+			try {
+				allAlreadyExists[computeStatusPath(dep.kind, dep.path)] = await checkAlreadyExists(
+					dep.kind,
+					dep.path
+				)
+			} catch {
+				allAlreadyExists[computeStatusPath(dep.kind, dep.path)] = false
+			}
 		}
 		dependencies = sortedSet.map((x) => ({
 			...x,
