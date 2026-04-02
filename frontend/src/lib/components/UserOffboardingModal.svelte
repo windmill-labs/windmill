@@ -39,6 +39,10 @@
 	let users: Array<{ label: string; value: string }> = $state([])
 	let folders: Array<{ label: string; value: string }> = $state([])
 
+	function pl(n: number, singular: string): string {
+		return `${n} ${singular}${n === 1 ? '' : 's'}`
+	}
+
 	function countPaths(p: OffboardAffectedPaths | undefined | null): number {
 		if (!p) return 0
 		return (
@@ -208,60 +212,67 @@
 								<!-- Summary boxes side by side -->
 								<div class="grid grid-cols-2 gap-2">
 									{#if ownedCount > 0}
-										<div class="bg-surface-secondary rounded-md p-3">
+										<div class="bg-surface-secondary rounded-md p-3 flex flex-col">
 											<p class="text-xs font-medium text-primary mb-1">Owned items ({ownedCount})</p
 											>
 											<p class="text-xs text-tertiary mb-1.5">Under u/{username}/, will be moved.</p
 											>
-											<div class="flex flex-col gap-0.5 text-xs text-secondary">
+											<div class="flex flex-col gap-0.5 text-xs text-secondary mt-auto">
 												{#if (preview.owned.scripts?.length ?? 0) > 0}<span
-														>{preview.owned.scripts?.length} scripts</span
+														>{pl(preview.owned.scripts?.length ?? 0, 'script')}</span
 													>{/if}
 												{#if (preview.owned.flows?.length ?? 0) > 0}<span
-														>{preview.owned.flows?.length} flows</span
+														>{pl(preview.owned.flows?.length ?? 0, 'flow')}</span
 													>{/if}
 												{#if (preview.owned.apps?.length ?? 0) > 0}<span
-														>{preview.owned.apps?.length} apps</span
+														>{pl(preview.owned.apps?.length ?? 0, 'app')}</span
 													>{/if}
 												{#if (preview.owned.resources?.length ?? 0) > 0}<span
-														>{preview.owned.resources?.length} resources</span
+														>{pl(preview.owned.resources?.length ?? 0, 'resource')}</span
 													>{/if}
 												{#if (preview.owned.variables?.length ?? 0) > 0}<span
-														>{preview.owned.variables?.length} variables</span
+														>{pl(preview.owned.variables?.length ?? 0, 'variable')}</span
 													>{/if}
 												{#if (preview.owned.schedules?.length ?? 0) > 0}<span
-														>{preview.owned.schedules?.length} schedules</span
+														>{pl(preview.owned.schedules?.length ?? 0, 'schedule')}</span
 													>{/if}
 												{#if (preview.owned.triggers?.length ?? 0) > 0}<span
-														>{preview.owned.triggers?.length} triggers</span
+														>{pl(preview.owned.triggers?.length ?? 0, 'trigger')}</span
 													>{/if}
-												{#if preview.tokens > 0}<span>{preview.tokens} tokens (deleted)</span>{/if}
+												{#if preview.tokens > 0}<span>{pl(preview.tokens, 'token')} (deleted)</span
+													>{/if}
 											</div>
 										</div>
 									{/if}
 									{#if onBehalfCount > 0}
-										<div class="bg-surface-secondary rounded-md p-3">
+										<div class="bg-surface-secondary rounded-md p-3 flex flex-col">
 											<p class="text-xs font-medium text-primary mb-1"
 												>Running on behalf ({onBehalfCount})</p
 											>
 											<p class="text-xs text-tertiary mb-1.5"
 												>permissioned_as / on_behalf_of will be updated.</p
 											>
-											<div class="flex flex-col gap-0.5 text-xs text-secondary">
+											<div class="flex flex-col gap-0.5 text-xs text-secondary mt-auto">
 												{#if (preview.executing_on_behalf.scripts?.length ?? 0) > 0}<span
-														>{preview.executing_on_behalf.scripts?.length} scripts</span
+														>{pl(preview.executing_on_behalf.scripts?.length ?? 0, 'script')}</span
 													>{/if}
 												{#if (preview.executing_on_behalf.flows?.length ?? 0) > 0}<span
-														>{preview.executing_on_behalf.flows?.length} flows</span
+														>{pl(preview.executing_on_behalf.flows?.length ?? 0, 'flow')}</span
 													>{/if}
 												{#if (preview.executing_on_behalf.apps?.length ?? 0) > 0}<span
-														>{preview.executing_on_behalf.apps?.length} apps</span
+														>{pl(preview.executing_on_behalf.apps?.length ?? 0, 'app')}</span
 													>{/if}
 												{#if (preview.executing_on_behalf.schedules?.length ?? 0) > 0}<span
-														>{preview.executing_on_behalf.schedules?.length} schedules</span
+														>{pl(
+															preview.executing_on_behalf.schedules?.length ?? 0,
+															'schedule'
+														)}</span
 													>{/if}
 												{#if (preview.executing_on_behalf.triggers?.length ?? 0) > 0}<span
-														>{preview.executing_on_behalf.triggers?.length} triggers</span
+														>{pl(
+															preview.executing_on_behalf.triggers?.length ?? 0,
+															'trigger'
+														)}</span
 													>{/if}
 											</div>
 										</div>

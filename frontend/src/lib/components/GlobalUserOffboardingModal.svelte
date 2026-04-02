@@ -40,6 +40,10 @@
 		}
 	> = $state({})
 
+	function pl(n: number, singular: string): string {
+		return `${n} ${singular}${n === 1 ? '' : 's'}`
+	}
+
 	function countPaths(p: OffboardAffectedPaths | undefined | null): number {
 		if (!p) return 0
 		return (
@@ -263,27 +267,27 @@
 										<!-- Compact item summary -->
 										<div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-secondary mb-3">
 											{#if (wp.preview.owned.scripts?.length ?? 0) > 0}<span
-													>{wp.preview.owned.scripts?.length} scripts</span
+													>{pl(wp.preview.owned.scripts?.length ?? 0, 'script')}</span
 												>{/if}
 											{#if (wp.preview.owned.flows?.length ?? 0) > 0}<span
-													>{wp.preview.owned.flows?.length} flows</span
+													>{pl(wp.preview.owned.flows?.length ?? 0, 'flow')}</span
 												>{/if}
 											{#if (wp.preview.owned.apps?.length ?? 0) > 0}<span
-													>{wp.preview.owned.apps?.length} apps</span
+													>{pl(wp.preview.owned.apps?.length ?? 0, 'app')}</span
 												>{/if}
 											{#if (wp.preview.owned.resources?.length ?? 0) > 0}<span
-													>{wp.preview.owned.resources?.length} resources</span
+													>{pl(wp.preview.owned.resources?.length ?? 0, 'resource')}</span
 												>{/if}
 											{#if (wp.preview.owned.variables?.length ?? 0) > 0}<span
-													>{wp.preview.owned.variables?.length} variables</span
+													>{pl(wp.preview.owned.variables?.length ?? 0, 'variable')}</span
 												>{/if}
 											{#if (wp.preview.owned.schedules?.length ?? 0) > 0}<span
-													>{wp.preview.owned.schedules?.length} schedules</span
+													>{pl(wp.preview.owned.schedules?.length ?? 0, 'schedule')}</span
 												>{/if}
 											{#if (wp.preview.owned.triggers?.length ?? 0) > 0}<span
-													>{wp.preview.owned.triggers?.length} triggers</span
+													>{pl(wp.preview.owned.triggers?.length ?? 0, 'trigger')}</span
 												>{/if}
-											{#if wp.preview.tokens > 0}<span>{wp.preview.tokens} tokens</span>{/if}
+											{#if wp.preview.tokens > 0}<span>{pl(wp.preview.tokens, 'token')}</span>{/if}
 										</div>
 
 										{#if cfg}
