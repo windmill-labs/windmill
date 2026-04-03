@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Badge from './common/badge/Badge.svelte'
 	import { Plus, Tag, X } from 'lucide-svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		labels: string[] | undefined
@@ -13,24 +14,45 @@
 	let adding = $state(false)
 	let inputValue = $state('')
 	let inputEl: HTMLInputElement | undefined = $state()
+	let existingLabels: string[] = $state([])
+	let selectedIdx = $state(-1)
+
+	let suggestions = $derived(
+		existingLabels
+			.filter(
+				(l) =>
+					(!inputValue || l.toLowerCase().includes(inputValue.toLowerCase())) &&
+					!(labels ?? []).includes(l)
+			)
+			.slice(0, 8)
+	)
+
+	async function loadExistingLabels() {
+		try {
+			const resp = await fetch(`/api/w/${$workspaceStore}/labels/list`)
+			if (resp.ok) existingLabels = await resp.json()
+		} catch {}
+	}
 
 	function startAdding() {
 		adding = true
 		inputValue = ''
+		selectedIdx = -1
+		loadExistingLabels()
 		setTimeout(() => inputEl?.focus(), 0)
 	}
 
-	function addLabel() {
-		const value = inputValue.trim().slice(0, 50)
-		if (!value) {
+	function addLabel(value?: string) {
+		const v = (value ?? inputValue).trim().slice(0, 50)
+		if (!v) {
 			adding = false
 			return
 		}
 		if (!labels) {
 			labels = []
 		}
-		if (!labels.includes(value)) {
-			labels = [...labels, value]
+		if (!labels.includes(v)) {
+			labels = [...labels, v]
 			onchange?.()
 		}
 		inputValue = ''
@@ -47,10 +69,27 @@
 	function onKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter') {
 			e.preventDefault()
-			addLabel()
+			if (selectedIdx >= 0 && selectedIdx < suggestions.length) {
+				addLabel(suggestions[selectedIdx])
+			} else {
+				addLabel()
+			}
 		} else if (e.key === 'Escape') {
 			adding = false
+		} else if (e.key === 'ArrowDown') {
+			e.preventDefault()
+			selectedIdx = Math.min(selectedIdx + 1, suggestions.length - 1)
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault()
+			selectedIdx = Math.max(selectedIdx - 1, -1)
 		}
+	}
+
+	function onBlur() {
+		// Delay to allow click on suggestion
+		setTimeout(() => {
+			if (adding) addLabel()
+		}, 150)
 	}
 </script>
 
@@ -64,14 +103,32 @@
 		</Badge>
 	{/each}
 	{#if adding}
-		<input
-			bind:this={inputEl}
-			bind:value={inputValue}
-			onkeydown={onKeydown}
-			onblur={addLabel}
-			class="text-2xs border border-blue-300 rounded px-1.5 py-0 h-5 max-w-32 outline-none focus:ring-1 focus:ring-blue-400"
-			placeholder="label"
-		/>
+		<div class="relative">
+			<input
+				bind:this={inputEl}
+				bind:value={inputValue}
+				onkeydown={onKeydown}
+				onblur={onBlur}
+				class="text-2xs border border-blue-300 rounded px-1.5 py-0 h-5 max-w-32 outline-none focus:ring-1 focus:ring-blue-400"
+				placeholder="label"
+			/>
+			{#if suggestions.length > 0}
+				<div
+					class="absolute top-6 left-0 z-50 bg-surface border border-light rounded shadow-md max-h-32 overflow-y-auto min-w-32"
+				>
+					{#each suggestions as suggestion, i}
+						<button
+							class="w-full text-left text-2xs px-2 py-1 hover:bg-surface-hover {i === selectedIdx
+								? 'bg-surface-hover'
+								: ''}"
+							onmousedown|preventDefault={() => addLabel(suggestion)}
+						>
+							{suggestion}
+						</button>
+					{/each}
+				</div>
+			{/if}
+		</div>
 	{:else}
 		<button
 			class="text-tertiary hover:text-secondary text-2xs flex items-center gap-0.5"
