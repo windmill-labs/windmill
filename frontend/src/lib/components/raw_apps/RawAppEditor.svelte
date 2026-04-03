@@ -18,7 +18,12 @@
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { onMount, untrack } from 'svelte'
-	import type { LintResult, DataTableSchema, InspectorElementInfo } from '../copilot/chat/app/core'
+	import type {
+		LintResult,
+		DataTableSchema,
+		InspectorElementInfo,
+		SelectedContext
+	} from '../copilot/chat/app/core'
 	import type { AppCodeSelectionElement } from '../copilot/chat/context'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
@@ -396,40 +401,7 @@
 					backend: aiChatManager.appAiChatHelpers?.getBackendRunnables() ?? {}
 				}
 			},
-			getSelectedContext: () => {
-				const baseContext = {
-					inspectorElement: inspectorElement,
-					selectionExcluded: selectionExcludedFromPrompt,
-					toggleSelectionExcluded: toggleSelectionExcluded,
-					clearInspector: clearInspectorSelection,
-					clearRunnable: handleClearRunnable,
-					codeSelection: codeSelection,
-					clearCodeSelection: () => {
-						codeSelection = undefined
-					}
-				}
-				if (selectedRunnable) {
-					const runnable = convertToBackendRunnable(selectedRunnable, runnables[selectedRunnable])
-					return {
-						type: 'backend' as const,
-						backendKey: selectedRunnable,
-						backendRunnable: runnable,
-						...baseContext
-					}
-				}
-				if (selectedDocument) {
-					return {
-						type: 'frontend' as const,
-						frontendPath: selectedDocument,
-						frontendContent: files?.[selectedDocument],
-						...baseContext
-					}
-				}
-				return {
-					type: 'none' as const,
-					...baseContext
-				}
-			},
+			getSelectedContext: () => getSelectedAppContext(),
 			snapshot: () => {
 				// Force create snapshot for AI - it needs a restore point
 				return (
@@ -589,14 +561,44 @@
 	let selectedRunnable: string | undefined = $state(undefined)
 	let selectedDocument: string | undefined = $state(undefined)
 	let inspectorElement: InspectorElementInfo | undefined = $state(undefined)
-	let selectionExcludedFromPrompt: boolean = $state(false)
 	let codeSelection: AppCodeSelectionElement | undefined = $state(undefined)
 
-	function toggleSelectionExcluded() {
-		selectionExcludedFromPrompt = !selectionExcludedFromPrompt
-	}
-
 	let modules = $state({}) as Modules
+
+	function getSelectedAppContext(): SelectedContext {
+		const baseContext = {
+			inspectorElement: inspectorElement,
+			clearInspector: clearInspectorSelection,
+			codeSelection: codeSelection,
+			clearCodeSelection: () => {
+				codeSelection = undefined
+			}
+		}
+
+		if (selectedRunnable) {
+			const runnable = convertToBackendRunnable(selectedRunnable, runnables[selectedRunnable])
+			return {
+				type: 'backend' as const,
+				backendKey: selectedRunnable,
+				backendRunnable: runnable,
+				...baseContext
+			}
+		}
+
+		if (selectedDocument) {
+			return {
+				type: 'frontend' as const,
+				frontendPath: selectedDocument,
+				frontendContent: files?.[selectedDocument],
+				...baseContext
+			}
+		}
+
+		return {
+			type: 'none' as const,
+			...baseContext
+		}
+	}
 
 	// Normalize Windows-style path separators to Linux-style
 	function normalizeFilePaths(
@@ -703,26 +705,32 @@
 		)
 	}
 
-	function handleClearRunnable() {
-		selectedRunnable = undefined
-	}
-
 	// Track previous values for change detection
 	let prevSelectedRunnable: string | undefined = undefined
 	let prevSelectedDocument: string | undefined = undefined
 
-	// Clear inspector and reset exclusion when selection changes
+	// Clear inspector when the active file/runnable changes
 	$effect(() => {
 		if (selectedRunnable !== prevSelectedRunnable || selectedDocument !== prevSelectedDocument) {
 			// Only clear if we're actually switching to something different
 			if (prevSelectedRunnable !== undefined || prevSelectedDocument !== undefined) {
 				clearInspectorSelection()
 			}
-			// Reset exclusion when switching files/runnables
-			selectionExcludedFromPrompt = false
 			prevSelectedRunnable = selectedRunnable
 			prevSelectedDocument = selectedDocument
 		}
+	})
+
+	$effect(() => {
+		const appSelection = selectedRunnable
+			? { type: 'backend' as const, backendKey: selectedRunnable }
+			: selectedDocument
+				? { type: 'frontend' as const, frontendPath: selectedDocument }
+				: { type: 'none' as const }
+
+		untrack(() => {
+			aiChatManager.syncAppSelection(appSelection)
+		})
 	})
 
 	function handleUndo() {

@@ -98,9 +98,7 @@
 		() => aiChatManager.contextManager.getSelectedContext(),
 		(sc) => aiChatManager.contextManager.setSelectedContext(sc)
 	}
-	availableContext={aiChatManager.mode === AIMode.APP
-		? aiChatManager.getAppAvailableContext()
-		: aiChatManager.contextManager.getAvailableContext()}
+	availableContext={aiChatManager.contextManager.getAvailableContext()}
 	messages={aiChatManager.currentReply
 		? [
 				...aiChatManager.displayMessages,

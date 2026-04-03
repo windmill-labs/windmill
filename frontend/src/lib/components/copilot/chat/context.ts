@@ -173,4 +173,5 @@ export type ContextElement = (
 	| WorkspaceFlowElement
 ) & {
 	deletable?: boolean
+	activeSelection?: boolean
 }

@@ -11,7 +11,8 @@ import {
 	getAppTools,
 	prepareAppSystemMessage,
 	prepareAppUserMessage,
-	type AppAIChatHelpers
+	type AppAIChatHelpers,
+	type SelectedContext
 } from './app/core'
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
@@ -627,7 +628,9 @@ class AIChatManager {
 					role: 'user',
 					content: this.instructions,
 					contextElements:
-						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW
+						this.mode === AIMode.SCRIPT ||
+						this.mode === AIMode.FLOW ||
+						this.mode === AIMode.APP
 							? oldSelectedContext
 							: undefined,
 					snapshot,
@@ -903,11 +906,30 @@ class AIChatManager {
 				!copilotSessionModel?.model.endsWith('/thinking'),
 				untrack(() => this.contextManager.getSelectedContext())
 			)
+		} else if (this.mode === AIMode.APP) {
+			this.contextManager.updateAvailableContextForApp(
+				this.getAppAvailableContext(),
+				untrack(() => this.contextManager.getSelectedContext())
+			)
 		}
 
 		if (this.scriptEditorOptions) {
 			this.contextManager.setScriptOptions(this.scriptEditorOptions)
 		}
+	}
+
+	syncAppSelection = (
+		selectedContext: Pick<SelectedContext, 'type' | 'frontendPath' | 'backendKey'> | undefined
+	) => {
+		const availableContext = this.getAppAvailableContext()
+		this.contextManager.updateAvailableContextForApp(
+			availableContext,
+			untrack(() => this.contextManager.getSelectedContext())
+		)
+		this.contextManager.setSelectedAppContext(
+			selectedContext,
+			availableContext
+		)
 	}
 
 	listenForDbSchemasChanges = (dbSchemas: DBSchemas) => {

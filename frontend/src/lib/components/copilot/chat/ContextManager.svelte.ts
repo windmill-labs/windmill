@@ -8,6 +8,7 @@ import type { FlowModule } from '$lib/gen'
 import type { DisplayMessage } from './shared'
 import { langToExt } from '$lib/editorLangUtils'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
+import type { SelectedContext } from './app/core'
 
 export interface ScriptOptions {
 	lang: ScriptLang | 'bunnative'
@@ -285,6 +286,40 @@ export default class ContextManager {
 		return this.availableContext
 	}
 
+	updateAvailableContextForApp(
+		availableContext: ContextElement[],
+		currentlySelectedContext: ContextElement[]
+	) {
+		const newSelectedContext: ContextElement[] = []
+
+		for (const context of currentlySelectedContext) {
+			if (context.type === 'app_code_selection') {
+				newSelectedContext.push(context)
+				continue
+			}
+
+			if (
+				context.type === 'app_frontend_file' ||
+				context.type === 'app_backend_runnable' ||
+				context.type === 'app_datatable'
+			) {
+				const refreshedContext = availableContext.find(
+					(available) => available.type === context.type && available.title === context.title
+				)
+
+				if (refreshedContext) {
+					newSelectedContext.push({
+						...refreshedContext,
+						activeSelection: context.activeSelection
+					})
+				}
+			}
+		}
+
+		this.availableContext = availableContext
+		this.selectedContext = newSelectedContext
+	}
+
 	setScriptOptions(scriptOptions: ScriptOptions) {
 		this.scriptOptions = scriptOptions
 	}
@@ -419,6 +454,48 @@ export default class ContextManager {
 			}
 		} else if (!moduleId) {
 			this.selectedContext = this.selectedContext.filter((c) => c.type !== 'flow_module')
+		}
+	}
+
+	setSelectedAppContext(
+		selectedContext: Pick<SelectedContext, 'type' | 'frontendPath' | 'backendKey'> | undefined,
+		availableContext: ContextElement[] | undefined
+	) {
+		this.selectedContext = this.selectedContext.filter(
+			(context) =>
+				!(
+					context.activeSelection &&
+					(context.type === 'app_frontend_file' || context.type === 'app_backend_runnable')
+				)
+		)
+
+		if (!availableContext) {
+			return
+		}
+
+		const selectedAppContext =
+			selectedContext?.type === 'frontend' && selectedContext.frontendPath
+				? availableContext.find(
+						(context) =>
+							context.type === 'app_frontend_file' &&
+							context.title === selectedContext.frontendPath
+				  )
+				: selectedContext?.type === 'backend' && selectedContext.backendKey
+					? availableContext.find(
+							(context) =>
+								context.type === 'app_backend_runnable' &&
+								context.title === selectedContext.backendKey
+					  )
+					: undefined
+
+		if (selectedAppContext) {
+			this.selectedContext = [
+				{ ...selectedAppContext, activeSelection: true },
+				...this.selectedContext.filter(
+					(context) =>
+						context.type !== selectedAppContext.type || context.title !== selectedAppContext.title
+				)
+			]
 		}
 	}
 
