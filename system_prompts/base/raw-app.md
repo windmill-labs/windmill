@@ -25,7 +25,7 @@ my_app__raw_app/
 ├── backend/               # Backend runnables (server-side scripts)
 │   ├── <id>.<ext>         # Code file (e.g., get_user.ts)
 │   ├── <id>.yaml          # Optional: config for fields, or to reference existing scripts
-│   └── <id>.lock          # Lock file (run 'wmill app generate-locks' to create)
+│   └── <id>.lock          # Lock file (run 'wmill generate-metadata <path_to_raw_app_folder> --yes --skip-scripts --skip-flows' to create/update)
 └── sql_to_apply/          # SQL migrations (dev only, not synced)
     └── *.sql              # SQL files to apply via dev server
 ```
@@ -81,7 +81,7 @@ export async function main(user_id: string) {
 
 After creating, tell the user they can generate lock files by running:
 ```bash
-wmill app generate-locks
+wmill generate-metadata <path_to_raw_app_folder> --yes --skip-scripts --skip-flows
 ```
 
 ### Optional YAML Configuration
@@ -239,7 +239,7 @@ Tell the user they can run these commands (do NOT run them yourself):
 | `wmill app new` | Create a new raw app interactively |
 | `wmill app dev` | Start dev server with live reload |
 | `wmill app generate-agents` | Refresh AGENTS.md and DATATABLES.md |
-| `wmill app generate-locks` | Generate lock files for backend runnables |
+| `wmill generate-metadata <path_to_raw_app_folder> --yes --skip-scripts --skip-flows` | Generate lock files for backend runnables |
 | `wmill sync push` | Deploy app to Windmill |
 | `wmill sync pull` | Pull latest from Windmill |
 
@@ -250,4 +250,4 @@ Tell the user they can run these commands (do NOT run them yourself):
 3. **Keep runnables focused** - one function per file
 4. **Use descriptive IDs** - `get_user.ts` not `a.ts`
 5. **Always whitelist tables** - add to `data.tables` before querying
-6. **Generate locks** - tell the user to run `wmill app generate-locks` after adding/modifying backend runnables
+6. **Generate locks** - tell the user to run `wmill generate-metadata <path_to_raw_app_folder> --yes --skip-scripts --skip-flows` after adding/modifying backend runnables

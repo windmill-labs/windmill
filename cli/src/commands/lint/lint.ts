@@ -334,7 +334,7 @@ async function checkRawAppRunnables(
         path: rawAppYamlPath,
         target: "raw_app_inline_script",
         errors: [
-          `Missing lock for ${language} runnable '${runnableId}'. Run 'wmill app generate-locks' to generate locks.`,
+          `Missing lock for ${language} runnable '${runnableId}'. Run 'wmill generate-metadata --skip-scripts --skip-flows --yes' to generate locks.`,
         ],
       });
     }
@@ -388,7 +388,7 @@ async function checkRawAppRunnables(
         path: rawAppYamlPath,
         target: "raw_app_inline_script",
         errors: [
-          `Missing lock for ${language} runnable '${runnableId}'. Run 'wmill app generate-locks' to generate locks.`,
+          `Missing lock for ${language} runnable '${runnableId}'. Run 'wmill generate-metadata --skip-scripts --skip-flows --yes' to generate locks.`,
         ],
       });
     }
@@ -509,7 +509,7 @@ export async function checkMissingLocks(
             path: yamlPath,
             target: "script",
             errors: [
-              `Missing lock for ${language} script. Run 'wmill script generate-metadata' to generate locks.`,
+              `Missing lock for ${language} script. Run 'wmill generate-metadata --skip-flows --skip-apps --yes' to generate locks.`,
             ],
           });
         }
@@ -540,7 +540,7 @@ export async function checkMissingLocks(
             path: flowYamlPath,
             target: "flow_inline_script",
             errors: [
-              `Missing lock for ${script.language} inline script '${script.id}'. Run 'wmill flow generate-locks' to generate locks.`,
+              `Missing lock for ${script.language} inline script '${script.id}'. Run 'wmill generate-metadata --skip-scripts --skip-apps --yes' to generate locks.`,
             ],
           });
         }
@@ -568,7 +568,7 @@ export async function checkMissingLocks(
             path: appYamlPath,
             target: "app_inline_script",
             errors: [
-              `Missing lock for ${script.language} inline script at '${script.path}'. Run 'wmill app generate-locks' to generate locks.`,
+              `Missing lock for ${script.language} inline script at '${script.path}'. Run 'wmill generate-metadata --skip-scripts --skip-flows --yes' to generate locks.`,
             ],
           });
         }

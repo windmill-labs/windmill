@@ -838,8 +838,11 @@ const command = new Command()
   .action(preview as any)
   .command(
     "generate-locks",
-    "re-generate the lock files of all inline scripts of all updated flows"
+    'DEPRECATED: re-generate flow lock files. Use "wmill generate-metadata" instead.'
   )
+  // Deprecated compatibility command. Keep it working for older repos, but
+  // exclude it from generated system prompt docs.
+  // @deprecated-in-system-prompts use `wmill generate-metadata`
   .arguments("[flow:file]")
   .option("--yes", "Skip confirmation prompt")
   .option("--dry-run", "Perform a dry run without making changes")

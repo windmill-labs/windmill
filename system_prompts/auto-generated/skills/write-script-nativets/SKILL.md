@@ -6,7 +6,7 @@ description: MUST use when writing Native TypeScript scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- `wmill script generate-metadata` - Generate .script.yaml and .lock files
+- `wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps` - Generate .script.yaml and .lock files
 - `wmill sync push` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
