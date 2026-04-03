@@ -246,7 +246,7 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                     },
                 ],
                 auto_kind: None,
-                has_preprocessor: None
+                has_preprocessor: None,
                             ..Default::default()
             }
         );

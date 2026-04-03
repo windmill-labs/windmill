@@ -90,6 +90,8 @@ pub fn parse_powershell_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             } else {
                 None
             },
+        
+            ..Default::default()
         })
     } else {
         Err(anyhow!("Error parsing powershell script".to_string()))
