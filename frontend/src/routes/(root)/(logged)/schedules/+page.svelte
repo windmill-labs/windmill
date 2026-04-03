@@ -354,10 +354,10 @@
 												const idx = arr.indexOf(label)
 												if (idx >= 0) arr.splice(idx, 1)
 												else arr.push(label)
-												filters.val = {
-													...filters.val,
-													label: arr.length ? arr.join(',') : undefined
-												}
+												const newFilters = { ...filters.val }
+												if (arr.length) newFilters.label = arr.join(',')
+												else delete newFilters.label
+												filters.val = newFilters
 											}}>{label}</Badge
 										>
 									{/each}
