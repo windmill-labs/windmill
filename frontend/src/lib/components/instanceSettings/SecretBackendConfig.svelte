@@ -278,7 +278,7 @@
 			$values['secret_backend'].vault_url?.trim() !== '' &&
 			$values['secret_backend'].tenant_id?.trim() !== '' &&
 			$values['secret_backend'].client_id?.trim() !== '' &&
-			!!$values['secret_backend'].client_secret?.trim()
+			(!!$values['secret_backend'].client_secret?.trim() || !!$values['secret_backend'].token?.trim())
 		)
 	}
 
@@ -638,6 +638,14 @@ vault write auth/jwt/role/windmill-secrets \
 					>
 					<span class="text-2xs text-secondary">The Azure AD application client secret for authentication</span>
 					<Password bind:password={$values['secret_backend'].client_secret} small {disabled} />
+				</div>
+
+				<div class="flex flex-col gap-1 p-3 bg-surface-secondary rounded-lg">
+					<label for="azure_token" class="block text-xs font-semibold text-emphasis"
+						>Token (optional)</label
+					>
+					<span class="text-2xs text-secondary">Static Bearer token for testing/development. If provided, OAuth2 authentication is skipped.</span>
+					<Password bind:password={$values['secret_backend'].token} small {disabled} />
 				</div>
 			</div>
 
