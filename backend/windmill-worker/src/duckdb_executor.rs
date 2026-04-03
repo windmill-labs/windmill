@@ -651,7 +651,6 @@ async fn transform_attach_ducklake(
 
 
     let extra_args = if let Some(default_extra_args) = ducklake.extra_args {
-        // premise : extra_args is always non empty (and doesn't end with a comma given it's valid)
         format!("{},{}", extra_args, default_extra_args)
     } else {
         extra_args
