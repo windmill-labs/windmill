@@ -34,6 +34,14 @@ fn default_filter_logic() -> String {
     "and".to_string()
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebsocketHeartbeat {
+    pub interval_secs: u64,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state_field: Option<String>,
+}
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct WebsocketConfig {
     pub url: String,
@@ -49,6 +57,8 @@ pub struct WebsocketConfig {
     pub can_return_message: bool,
     #[serde(default)]
     pub can_return_error_result: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heartbeat: Option<SqlxJson<WebsocketHeartbeat>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +71,7 @@ pub struct WebsocketConfigRequest {
     url_runnable_args: Option<serde_json::Value>,
     can_return_message: bool,
     can_return_error_result: bool,
+    pub heartbeat: Option<WebsocketHeartbeat>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
