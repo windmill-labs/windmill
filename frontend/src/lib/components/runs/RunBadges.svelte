@@ -85,9 +85,7 @@
 {#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
 	{#each job?.['labels'] as label}
 		<div>
-			<Badge color="blue" {large} icon={{ icon: Tag, position: 'left' }} title="Label: {label}"
-				>{label}</Badge
-			>
+			<Badge color="blue" {large} title="Label: {label}">{label}</Badge>
 		</div>
 	{/each}
 {/if}
