@@ -47,6 +47,7 @@ mod tests {
                 args: vec![],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -105,6 +106,7 @@ mod tests {
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -154,6 +156,7 @@ mod tests {
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -203,6 +206,7 @@ mod tests {
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -234,6 +238,7 @@ mod tests {
                 },],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -265,6 +270,7 @@ mod tests {
                 },],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -305,6 +311,7 @@ mod tests {
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -343,6 +350,7 @@ mod tests {
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -401,6 +409,7 @@ mod tests {
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -459,6 +468,7 @@ mod tests {
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -508,6 +518,7 @@ mod tests {
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -557,6 +568,7 @@ mod tests {
                 args: vec![],
                 auto_kind: Some("lib".to_string()),
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -584,6 +596,7 @@ mod tests {
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -613,6 +626,7 @@ mod tests {
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -642,6 +656,7 @@ mod tests {
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -691,6 +706,7 @@ mod tests {
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
+                ..Default::default()
             }
         );
     }
@@ -731,6 +747,7 @@ mod tests {
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(true),
+                ..Default::default()
             }
         );
     }
@@ -761,6 +778,7 @@ mod tests {
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(true),
+                ..Default::default()
             }
         );
     }
