@@ -1,21 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT workspace_id, name, language AS \"language: windmill_common::scripts::ScriptLang\"\n           FROM workspace_dependencies\n           WHERE archived = false\n           ORDER BY workspace_id, name",
+  "query": "\n                SELECT\n                    NULLIF(script_lang, 'other')::script_lang as \"language: _\",\n                    SUM(job_count)::BIGINT as \"count!\",\n                    SUM(total_duration_ms)::BIGINT as \"total_duration!\"\n                FROM worker_group_job_stats\n                WHERE hour >= $1\n                GROUP BY script_lang\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "workspace_id",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 1,
-        "name": "name",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 2,
-        "name": "language: windmill_common::scripts::ScriptLang",
+        "name": "language: _",
         "type_info": {
           "Custom": {
             "name": "script_lang",
@@ -49,16 +39,28 @@
             }
           }
         }
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "total_duration!",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Int8"
+      ]
     },
     "nullable": [
-      false,
-      true,
-      false
+      null,
+      null,
+      null
     ]
   },
-  "hash": "edd6c09b7f012588788fd3c572d20eb439a80d52ae75ebd25128ffce759cd313"
+  "hash": "5c0d0c7111b70b119b3182c9195361388ead36dc6ab03c6a7c17fb97d2b60a67"
 }

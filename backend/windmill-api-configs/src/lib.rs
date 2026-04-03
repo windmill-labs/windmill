@@ -43,14 +43,6 @@ pub fn global_service() -> Router {
             "/list_available_python_versions",
             get(list_available_python_versions),
         )
-        .route(
-            "/list_all_workspace_dependencies",
-            get(list_all_workspace_dependencies),
-        )
-        .route(
-            "/list_all_dedicated_with_deps",
-            get(list_all_dedicated_with_deps),
-        )
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
@@ -326,85 +318,4 @@ async fn list_configs() -> error::JsonResult<String> {
     Err(error::Error::BadRequest(
         "Config listing available only in the enterprise version".to_string(),
     ))
-}
-
-#[derive(Serialize)]
-struct WorkspaceDependencySummary {
-    workspace_id: String,
-    name: Option<String>,
-    language: windmill_common::scripts::ScriptLang,
-}
-
-async fn list_all_workspace_dependencies(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-) -> error::JsonResult<Vec<WorkspaceDependencySummary>> {
-    require_devops_role(&db, &authed.email).await?;
-    let deps = sqlx::query!(
-        r#"SELECT workspace_id, name, language AS "language: windmill_common::scripts::ScriptLang"
-           FROM workspace_dependencies
-           WHERE archived = false
-           ORDER BY workspace_id, name"#,
-    )
-    .fetch_all(&db)
-    .await?;
-    Ok(Json(
-        deps.into_iter()
-            .map(|r| WorkspaceDependencySummary {
-                workspace_id: r.workspace_id,
-                name: r.name,
-                language: r.language,
-            })
-            .collect(),
-    ))
-}
-
-#[derive(Serialize)]
-struct DedicatedScriptDepsWithWorkspace {
-    workspace_id: String,
-    path: String,
-    language: windmill_common::scripts::ScriptLang,
-    workspace_dep_names: Vec<String>,
-}
-
-async fn list_all_dedicated_with_deps(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-) -> error::JsonResult<Vec<DedicatedScriptDepsWithWorkspace>> {
-    require_devops_role(&db, &authed.email).await?;
-
-    let rows = sqlx::query!(
-        r#"SELECT DISTINCT ON (workspace_id, path)
-                  workspace_id, path, language AS "language: windmill_common::scripts::ScriptLang", content
-           FROM script
-           WHERE archived = false
-             AND dedicated_worker = true
-             AND language = ANY($1::text[]::SCRIPT_LANG[])
-           ORDER BY workspace_id, path, created_at DESC"#,
-        &["python3", "bun", "bunnative", "deno"] as &[&str],
-    )
-    .fetch_all(&db)
-    .await?;
-
-    let result = rows
-        .into_iter()
-        .map(|row| {
-            let dep_names =
-                windmill_common::scripts::extract_workspace_dependencies_annotated_refs(
-                    &row.language,
-                    &row.content,
-                    &row.path,
-                )
-                .map(|refs| refs.external)
-                .unwrap_or_default();
-            DedicatedScriptDepsWithWorkspace {
-                workspace_id: row.workspace_id,
-                path: row.path,
-                language: row.language,
-                workspace_dep_names: dep_names,
-            }
-        })
-        .collect();
-
-    Ok(Json(result))
 }

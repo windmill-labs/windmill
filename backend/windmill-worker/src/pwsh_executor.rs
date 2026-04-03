@@ -337,7 +337,7 @@ pub async fn handle_powershell_job(
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<Box<RawValue>, Error> {
-    let pwsh_args = {
+    let (pwsh_args, ps_preferences) = {
         let args = build_args_map(job, client, &db).await?.map(Json);
         let job_args = if args.is_some() {
             args.as_ref()
@@ -347,7 +347,7 @@ pub async fn handle_powershell_job(
 
         let parsed_sig = windmill_parser_bash::parse_powershell_sig(&content)?;
 
-        parsed_sig
+        let user_args = parsed_sig
             .args
             .iter()
             .filter_map(|arg| {
@@ -384,7 +384,34 @@ pub async fn handle_powershell_job(
                 }
             })
             .collect::<Vec<_>>()
-            .join(" ")
+            .join(" ");
+
+        // Extract PowerShell common parameters (_wm_ps_* keys)
+        // All common params are injected as preference variables into main.ps1
+        // (not CLI args) so they only affect user code, not module loading.
+        let mut preference_lines: Vec<String> = Vec::new();
+        if let Some(args_map) = job_args {
+            if let Some(v) = args_map.get("_wm_ps_verbose") {
+                if serde_json::from_str::<bool>(v.get()).unwrap_or(false) {
+                    preference_lines.push("$VerbosePreference = 'Continue'".to_string());
+                }
+            }
+            if let Some(v) = args_map.get("_wm_ps_debug") {
+                if serde_json::from_str::<bool>(v.get()).unwrap_or(false) {
+                    preference_lines.push("$DebugPreference = 'Continue'".to_string());
+                }
+            }
+            if let Some(v) = args_map.get("_wm_ps_error_action") {
+                if let Ok(action) = serde_json::from_str::<String>(v.get()) {
+                    if matches!(action.as_str(), "Stop" | "Continue" | "SilentlyContinue") {
+                        preference_lines.push(format!("$ErrorActionPreference = '{action}'"));
+                    }
+                }
+            }
+        }
+        let ps_preferences = preference_lines.join("\n");
+
+        (user_args, ps_preferences)
     };
 
     // Resolve modules from workspace dependencies and/or script imports
@@ -570,12 +597,22 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         }\n";
 
     // make sure param() with its attributes is first
+    let preferences_section = if ps_preferences.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", ps_preferences)
+    };
     let content: String = if let Some((param_block, remaining_code)) =
         windmill_parser_bash::extract_powershell_param_block_with_attributes(&content, true)
     {
         format!(
-            "{}\n{}\n{}\n{}\n{}",
-            param_block, profile, strict_termination_start, remaining_code, strict_termination_end
+            "{}\n{}\n{}\n{}{}\n{}",
+            param_block,
+            profile,
+            strict_termination_start,
+            preferences_section,
+            remaining_code,
+            strict_termination_end
         )
     } else {
         format!("{}\n{}", profile, content)
@@ -583,18 +620,29 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
     write_file(job_dir, "main.ps1", content.as_str())?;
 
-    write_file(
-        job_dir,
-        "wrapper.ps1",
-        &format!(
+    let has_common_params = !ps_preferences.is_empty();
+    let wrapper_content = if has_common_params {
+        format!(
+            "$ErrorActionPreference = 'Stop'\n\
+    $pipe = New-TemporaryFile\n\
+    ./main.ps1 {pwsh_args} 4>verbose.log 5>debug.log 2>&1 | Tee-Object -FilePath $pipe\n\
+    Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
+    if (Test-Path verbose.log) {{ Get-Content verbose.log | ForEach-Object {{ Write-Output \"VERBOSE: $_\" }} }}\n\
+    if (Test-Path debug.log) {{ Get-Content debug.log | ForEach-Object {{ Write-Output \"DEBUG: $_\" }} }}\n\
+    Remove-Item $pipe\n\
+    exit $LASTEXITCODE\n"
+        )
+    } else {
+        format!(
             "$ErrorActionPreference = 'Stop'\n\
     $pipe = New-TemporaryFile\n\
     ./main.ps1 {pwsh_args} 2>&1 | Tee-Object -FilePath $pipe\n\
     Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
     Remove-Item $pipe\n\
     exit $LASTEXITCODE\n"
-        ),
-    )?;
+        )
+    };
+    write_file(job_dir, "wrapper.ps1", &wrapper_content)?;
 
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, db, parent_runnable_path).await?;
