@@ -1034,19 +1034,17 @@ function formatAppContextElement(
 }
 
 function getAppContextElements(
-	selectedContext: SelectedContext | undefined,
-	additionalContext?: ContextElement[]
+	additionalContext: ContextElement[]
 ): {
 	activeContextElements: ActiveAppContextElement[]
 	additionalContextElements: AppContextElement[]
 } {
-	const appContext = additionalContext ?? []
-	const activeContextElements = appContext.filter(
+	const activeContextElements = additionalContext.filter(
 		(context) =>
 			context.activeSelection &&
 			(context.type === 'app_frontend_file' || context.type === 'app_backend_runnable')
 	) as ActiveAppContextElement[]
-	const additionalContextElements = appContext.filter(
+	const additionalContextElements = additionalContext.filter(
 		(context) =>
 			!context.activeSelection &&
 			(context.type === 'app_frontend_file' ||
@@ -1054,53 +1052,7 @@ function getAppContextElements(
 				context.type === 'app_datatable')
 	) as AppContextElement[]
 
-	if (activeContextElements.length > 0) {
-		return { activeContextElements, additionalContextElements }
-	}
-
-	if (additionalContext !== undefined) {
-		return { activeContextElements: [], additionalContextElements }
-	}
-
-	if (
-		selectedContext?.type === 'frontend' &&
-		selectedContext.frontendPath &&
-		selectedContext.frontendContent
-	) {
-		return {
-			activeContextElements: [
-				{
-					type: 'app_frontend_file',
-					path: selectedContext.frontendPath,
-					title: selectedContext.frontendPath,
-					content: selectedContext.frontendContent,
-					activeSelection: true
-				}
-			],
-			additionalContextElements
-		}
-	}
-
-	if (
-		selectedContext?.type === 'backend' &&
-		selectedContext.backendKey &&
-		selectedContext.backendRunnable
-	) {
-		return {
-			activeContextElements: [
-				{
-					type: 'app_backend_runnable',
-					key: selectedContext.backendKey,
-					title: selectedContext.backendKey,
-					runnable: selectedContext.backendRunnable,
-					activeSelection: true
-				}
-			],
-			additionalContextElements
-		}
-	}
-
-	return { activeContextElements: [], additionalContextElements }
+	return { activeContextElements, additionalContextElements }
 }
 
 export function prepareAppUserMessage(
@@ -1110,8 +1062,7 @@ export function prepareAppUserMessage(
 ): ChatCompletionUserMessageParam {
 	let content = ''
 	const { activeContextElements, additionalContextElements } = getAppContextElements(
-		selectedContext,
-		additionalContext
+		additionalContext ?? []
 	)
 
 	// Check if we have any context to add
