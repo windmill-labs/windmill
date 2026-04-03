@@ -1435,6 +1435,7 @@ async fn restart_job_if_perpetual_inner(
                 },
                 // TODO(debouncing): handle properly
                 debouncing_settings: DebouncingSettings::default(),
+                labels: None, // labels already set on original job
             },
             PushArgs::from(&args.0),
             &queued_job.created_by,
@@ -4739,6 +4740,7 @@ async fn push_inner<'c, 'd>(
         _low_level_priority: Option<i16>,
         concurrency_settings: ConcurrencySettings,
         debouncing_settings: DebouncingSettings,
+        labels: Option<Vec<String>>,
     }
     let mut preprocessed = None;
     #[allow(unused)]
@@ -4756,6 +4758,7 @@ async fn push_inner<'c, 'd>(
         _low_level_priority,
         mut concurrency_settings,
         debouncing_settings,
+        labels,
     } = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -4768,6 +4771,7 @@ async fn push_inner<'c, 'd>(
             apply_preprocessor,
             concurrency_settings,
             debouncing_settings,
+            labels,
         } => {
             if apply_preprocessor {
                 preprocessed = Some(false);
@@ -4784,6 +4788,7 @@ async fn push_inner<'c, 'd>(
                 cache_ignore_s3_path,
                 dedicated_worker,
                 _low_level_priority: priority,
+                labels,
                 ..Default::default()
             }
         }
@@ -5214,7 +5219,7 @@ async fn push_inner<'c, 'd>(
                 ..Default::default()
             }
         }
-        JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version } => {
+        JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version, labels } => {
             let mut ntx = tx.into_tx().await?;
             // Do not use the lite version unless all workers are updated.
             let data = if *DISABLE_FLOW_SCRIPT
@@ -5280,6 +5285,7 @@ async fn push_inner<'c, 'd>(
                 _low_level_priority: priority,
                 concurrency_settings,
                 debouncing_settings,
+                labels,
                 ..Default::default()
             }
         }
@@ -5719,10 +5725,11 @@ async fn push_inner<'c, 'd>(
                 priority, -- 26
                 trigger_kind, -- 39
                 script_entrypoint_override, -- 12
-                preprocessed -- 27,
+                preprocessed, -- 27,
+                labels -- 44
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $38, $21, $22, $23, $24, $25, $26, $39::job_trigger_kind,
-            ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27)
+            ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27, $44)
         ),
         inserted_runtime AS (
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
@@ -5778,6 +5785,7 @@ async fn push_inner<'c, 'd>(
         end_user_email,
         cache_ignore_s3_path,
         runnable_settings_handle,
+        labels.as_deref() as Option<&[String]>,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)

@@ -256,7 +256,12 @@
 			})
 		}
 
-		if (flow && !$userStore?.operator && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
+		if (
+			flow &&
+			!$userStore?.operator &&
+			!isCloudHosted() &&
+			!isRuleActive('DisableWorkspaceForking')
+		) {
 			buttons.push({
 				label: 'Edit in fork',
 				buttonProps: {
@@ -353,13 +358,12 @@
 			disabled: !can_write
 		})
 
-
 		if (showEditButtons) {
-		menuItems.push({
-			label: 'Move/Rename',
-			onclick: () => moveDrawer?.openDrawer(flow?.path ?? '', flow?.summary, 'flow'),
-			Icon: FolderOpen
-		})
+			menuItems.push({
+				label: 'Move/Rename',
+				onclick: () => moveDrawer?.openDrawer(flow?.path ?? '', flow?.summary, 'flow'),
+				Icon: FolderOpen
+			})
 		}
 
 		menuItems.push({
@@ -510,6 +514,7 @@
 			scriptOrFlowPath={flow?.path ?? ''}
 			errorHandlerKind="flow"
 			tag={flow?.tag ?? ''}
+			labels={flow?.labels}
 			summary={flow?.summary}
 			path={flow?.path}
 			onSaved={can_write

@@ -141,7 +141,8 @@ export function main(test1?: string, test2: string = \"burkina\",
                 }
             ],
             auto_kind: None,
-            has_preprocessor: Some(false)
+            has_preprocessor: Some(false),
+            ..Default::default()
         }
     );
 
@@ -220,7 +221,8 @@ export function main(test2 = \"burkina\",
                 }
             ],
             auto_kind: None,
-            has_preprocessor: Some(false)
+            has_preprocessor: Some(false),
+            ..Default::default()
         }
     );
 
@@ -271,7 +273,8 @@ export function main(foo: FooBar, {a, b}: FooBar, {c, d}: FooBar = {a: \"foo\", 
                 }
             ],
             auto_kind: None,
-            has_preprocessor: Some(false)
+            has_preprocessor: Some(false),
+            ..Default::default()
         }
     );
 
@@ -303,7 +306,8 @@ export function main(foo: (\"foo\" | \"bar\")[]) {
                 oidx: None
             }],
             auto_kind: None,
-            has_preprocessor: Some(false)
+            has_preprocessor: Some(false),
+            ..Default::default()
         }
     );
 
@@ -447,7 +451,8 @@ Write-Output 'Testing...'
                 }
             ],
             auto_kind: None,
-            has_preprocessor: None
+            has_preprocessor: None,
+            ..Default::default()
         }
     );
 

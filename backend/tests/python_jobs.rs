@@ -227,6 +227,8 @@ mod dedicated_worker_protocol_python {
     enum ProtocolCmd {
         Exec { path: String, args: serde_json::Value },
         ExecPreprocess { path: String, args: serde_json::Value },
+        Execd { args: serde_json::Value },
+        ExecdPreprocess { args: serde_json::Value },
     }
 
     /// Run a Python worker test with raw protocol commands
@@ -265,13 +267,15 @@ mod dedicated_worker_protocol_python {
                 ProtocolCmd::ExecPreprocess { path, args } => {
                     format!("exec_preprocess:{}:{}", path, args)
                 }
+                ProtocolCmd::Execd { args } => format!("execd:{}", args),
+                ProtocolCmd::ExecdPreprocess { args } => format!("execd_preprocess:{}", args),
             };
             writeln!(stdin, "{}", line).unwrap();
             stdin.flush().unwrap();
 
             let expected_lines = match cmd {
-                ProtocolCmd::ExecPreprocess { .. } => 2,
-                ProtocolCmd::Exec { .. } => 1,
+                ProtocolCmd::ExecPreprocess { .. } | ProtocolCmd::ExecdPreprocess { .. } => 2,
+                ProtocolCmd::Exec { .. } | ProtocolCmd::Execd { .. } => 1,
             };
 
             for _ in 0..expected_lines {
@@ -359,6 +363,93 @@ def main(x: int):
         );
         // preprocess: preprocessor(5) => {"x":10}, main(10) => 110
         // exec: main(7) => 107
+        assert_eq!(results.len(), 3);
+        assert_eq!(
+            results[0],
+            DedicatedWorkerResult::PreprocessedArgs(serde_json::json!({"x": 10}))
+        );
+        assert_eq!(
+            results[1],
+            DedicatedWorkerResult::Success(serde_json::json!(110))
+        );
+        assert_eq!(
+            results[2],
+            DedicatedWorkerResult::Success(serde_json::json!(107))
+        );
+    }
+
+    // ==================== execd / execd_preprocess Tests ====================
+
+    #[test]
+    fn test_python_execd_single_script() {
+        let results = run_py_raw_protocol_test(
+            &[(
+                "f/test/add",
+                "def main(a: int, b: int):\n    return a + b\n",
+            )],
+            vec![ProtocolCmd::Execd { args: serde_json::json!({"a": 3, "b": 4}) }],
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0],
+            DedicatedWorkerResult::Success(serde_json::json!(7))
+        );
+    }
+
+    #[test]
+    fn test_python_execd_preprocess() {
+        let script = r#"
+def preprocessor(x: int):
+    return {"x": x * 10}
+
+def main(x: int):
+    return x + 1
+"#;
+        let results = run_py_raw_protocol_test(
+            &[("f/test/pre", script)],
+            vec![ProtocolCmd::ExecdPreprocess { args: serde_json::json!({"x": 5}) }],
+        );
+        assert_eq!(results.len(), 2);
+        assert_eq!(
+            results[0],
+            DedicatedWorkerResult::PreprocessedArgs(serde_json::json!({"x": 50}))
+        );
+        // main(50) => 51
+        assert_eq!(
+            results[1],
+            DedicatedWorkerResult::Success(serde_json::json!(51))
+        );
+    }
+
+    #[test]
+    fn test_python_execd_preprocess_missing_preprocessor() {
+        let script = "def main(x: int):\n    return x\n";
+        let results = run_py_raw_protocol_test(
+            &[("f/test/nopre", script)],
+            vec![ProtocolCmd::ExecdPreprocess { args: serde_json::json!({"x": 5}) }],
+        );
+        assert_eq!(results.len(), 1);
+        assert!(matches!(results[0], DedicatedWorkerResult::Error(_)));
+    }
+
+    #[test]
+    fn test_python_execd_preprocess_then_execd() {
+        let script = r#"
+def preprocessor(x: int):
+    return {"x": x * 2}
+
+def main(x: int):
+    return x + 100
+"#;
+        let results = run_py_raw_protocol_test(
+            &[("f/test/mixed", script)],
+            vec![
+                ProtocolCmd::ExecdPreprocess { args: serde_json::json!({"x": 5}) },
+                ProtocolCmd::Execd { args: serde_json::json!({"x": 7}) },
+            ],
+        );
+        // preprocess: preprocessor(5) => {"x":10}, main(10) => 110
+        // execd: main(7) => 107
         assert_eq!(results.len(), 3);
         assert_eq!(
             results[0],

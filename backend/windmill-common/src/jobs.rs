@@ -95,6 +95,7 @@ pub async fn script_path_to_payload<'e>(
             has_preprocessor,
             on_behalf_of_email,
             created_by,
+            labels,
             ..
         } = get_latest_deployed_hash_for_path(db_authed, db.clone(), w_id, script_path)
             .await?
@@ -123,6 +124,7 @@ pub async fn script_path_to_payload<'e>(
                     && has_preprocessor.unwrap_or(false),
                 debouncing_settings,
                 concurrency_settings,
+                labels,
             },
             tag,
             delete_after_use,
@@ -170,10 +172,16 @@ pub async fn get_payload_tag_from_prefixed_path(
                 None,
             )
         } else {
-            let FlowVersionInfo { dedicated_worker, tag, version, .. } =
+            let FlowVersionInfo { dedicated_worker, tag, version, labels, .. } =
                 get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
             (
-                JobPayload::Flow { path, dedicated_worker, apply_preprocessor: false, version },
+                JobPayload::Flow {
+                    path,
+                    dedicated_worker,
+                    apply_preprocessor: false,
+                    version,
+                    labels,
+                },
                 tag,
                 None,
                 None,
