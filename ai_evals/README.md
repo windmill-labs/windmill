@@ -37,7 +37,7 @@ Later phases should add:
 - shared result schemas
 - repeated-run reliability reporting
 - official benchmark history snapshots and rollups
-- frontend `script` cases
+- broader frontend `script` coverage
 - frontend adapters aligned to the shared CLI-proven scoring model
 
 ## Current Entry Point
@@ -58,15 +58,19 @@ cd ai_evals
 bun run cli -- list-variants --surface cli
 bun run cli -- list-variants --surface frontend-flow
 bun run cli -- list-variants --surface frontend-app
+bun run cli -- list-variants --surface frontend-script
 bun run cli -- snapshot-variant --surface cli --variant candidate
 bun run cli -- list-cases --surface cli
 bun run cli -- list-cases --surface frontend-flow
 bun run cli -- list-cases --surface frontend-app
+bun run cli -- list-cases --surface frontend-script
 bun run cli -- run --surface cli --case bun-hello-script --variant baseline --runs 5
 bun run cli -- run --surface frontend-flow --case flow-test1-user-role-actions --variant baseline --runs 1
 bun run cli -- run --surface frontend-app --case app-test1-counter-create --variant baseline --runs 1
+bun run cli -- run --surface frontend-script --case script-test1-greet-user --variant baseline --runs 2
 bun run cli -- compare --surface frontend-flow --case flow-test1-user-role-actions --variant baseline --variant baseline --runs 1
 bun run cli -- compare --surface frontend-app --case app-test1-counter-create --variant baseline --variant baseline --runs 1
+bun run cli -- compare --surface frontend-script --case script-test1-greet-user --variant baseline --variant baseline --runs 1
 bun run cli -- compare --surface cli --case bun-hello-script --variant baseline --variant baseline --runs 5
 bun run cli -- compare --surface cli --case bun-hello-script --variant baseline-frozen --variant candidate --runs 5 --write-history
 bun run cli -- history --view latest
@@ -77,7 +81,7 @@ entrypoint.
 
 Frontend benchmark ownership also lives here now:
 
-- frontend flow/app fixtures are under `ai_evals/fixtures/frontend/`
+- frontend flow/app/script fixtures are under `ai_evals/fixtures/frontend/`
 - the frontend benchmark runner is under `ai_evals/adapters/frontend/`
 - the frontend source tree no longer owns a separate AI chat benchmark suite
 - production frontend prompt builders, tool definitions, and `runChatLoop` are still reused

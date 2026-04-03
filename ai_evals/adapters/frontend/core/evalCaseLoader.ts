@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
 // @ts-ignore - Node.js url
 import { fileURLToPath } from 'url'
+import type { ScriptLang } from '$lib/gen/types.gen'
 
 export interface FlowEvalCaseManifest {
 	id: string
@@ -28,6 +29,27 @@ export interface AppEvalCaseManifest {
 }
 
 export interface AppEvalCase extends AppEvalCaseManifest {}
+
+export interface ScriptEvalFixture {
+	code: string
+	lang: ScriptLang | 'bunnative'
+	path: string
+	args?: Record<string, any>
+}
+
+export interface ScriptEvalCaseManifest {
+	id: string
+	title: string
+	userPrompt: string
+	expectedScriptPath: string
+	initialScriptPath?: string
+	minJudgeScore?: number
+}
+
+export interface ScriptEvalCase extends ScriptEvalCaseManifest {
+	expectedScript: ScriptEvalFixture
+	initialScript?: ScriptEvalFixture
+}
 
 function resolveRepoRoot(): string {
 	const currentDir = dirname(fileURLToPath(import.meta.url))
@@ -67,6 +89,20 @@ export function loadAppEvalCases(): AppEvalCase[] {
 		...testCase,
 		initialAppFixturePath: testCase.initialAppFixturePath
 			? join(repoRoot, testCase.initialAppFixturePath)
+			: undefined
+	}))
+}
+
+export function loadScriptEvalCases(): ScriptEvalCase[] {
+	const repoRoot = resolveRepoRoot()
+	const manifestPath = join(repoRoot, 'ai_evals', 'cases', 'frontend', 'script.json')
+	const manifest = readJsonFile<ScriptEvalCaseManifest[]>(manifestPath)
+
+	return manifest.map((testCase) => ({
+		...testCase,
+		expectedScript: readJsonFile<ScriptEvalFixture>(join(repoRoot, testCase.expectedScriptPath)),
+		initialScript: testCase.initialScriptPath
+			? readJsonFile<ScriptEvalFixture>(join(repoRoot, testCase.initialScriptPath))
 			: undefined
 	}))
 }

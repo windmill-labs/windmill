@@ -156,7 +156,7 @@ The exact binary name can change, but the architecture should not:
 
 ## Temporary Bootstrap Code
 
-This bootstrap phase is now complete for frontend `flow` and `app`.
+This bootstrap phase is now complete for frontend `flow`, `app`, and `script`.
 
 Frontend AI benchmark ownership has moved into `ai_evals/`, and the frontend
 source tree no longer owns a separate AI benchmark suite under
@@ -182,7 +182,7 @@ They currently:
 - use benchmark-owned helper adapters that write to temp workspaces on disk
 - execute through the frontend module/runtime environment only as a loader bridge
 
-This means the current flow and app evals are now a proper benchmark adapter,
+This means the current frontend evals are now a proper benchmark adapter,
 not a frontend test suite.
 
 That is the correct direction.
@@ -214,8 +214,8 @@ state.
 
 ### Coverage gaps
 
-- There is no equivalent eval suite for `script` mode.
-- Existing coverage is concentrated on `flow` and `app`.
+- `script` is now exposed through the shared benchmark CLI, but it only has initial case coverage.
+- Existing frontend coverage is still too small relative to the target benchmark corpus.
 
 ### Reliability gaps
 

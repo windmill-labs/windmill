@@ -191,7 +191,8 @@ async function handleListCases(args: ParsedArgs) {
       return;
     }
     case "frontend-flow":
-    case "frontend-app": {
+    case "frontend-app":
+    case "frontend-script": {
       const cases = await loadFrontendCases(surface);
       const payload = {
         surface,
@@ -247,7 +248,8 @@ async function handleListVariants(args: ParsedArgs) {
       return;
     }
     case "frontend-flow":
-    case "frontend-app": {
+    case "frontend-app":
+    case "frontend-script": {
       const variants = await loadFrontendVariants(surface);
       const payload = {
         surface,
@@ -330,7 +332,8 @@ async function handleRun(args: ParsedArgs) {
       return;
     }
     case "frontend-flow":
-    case "frontend-app": {
+    case "frontend-app":
+    case "frontend-script": {
       if (args.keepWorkspace) {
         throw new Error("--keep-workspace is not supported for frontend benchmark surfaces");
       }
@@ -389,6 +392,7 @@ async function handleSnapshotVariant(args: ParsedArgs) {
     }
     case "frontend-flow":
     case "frontend-app":
+    case "frontend-script":
       throw new Error("snapshot-variant is currently supported for the cli surface only");
     default:
       assertNever(surface);
@@ -516,7 +520,8 @@ async function handleCompare(args: ParsedArgs) {
       return;
     }
     case "frontend-flow":
-    case "frontend-app": {
+    case "frontend-app":
+    case "frontend-script": {
       if (args.variantIds.length < 2) {
         throw new Error("compare requires at least two --variant values");
       }
@@ -971,7 +976,12 @@ function requireSurface(surface: string | undefined): SurfaceName {
   if (!surface) {
     throw new Error("Missing required --surface argument");
   }
-  if (surface !== "cli" && surface !== "frontend-flow" && surface !== "frontend-app") {
+  if (
+    surface !== "cli" &&
+    surface !== "frontend-flow" &&
+    surface !== "frontend-app" &&
+    surface !== "frontend-script"
+  ) {
     throw new Error(`Unsupported surface for now: ${surface}`);
   }
   return surface;
@@ -1416,16 +1426,18 @@ function printHelp() {
       "  cd ai_evals && bun run cli -- list-cases --surface cli [--json]",
       "  cd ai_evals && bun run cli -- list-cases --surface frontend-flow [--json]",
       "  cd ai_evals && bun run cli -- list-cases --surface frontend-app [--json]",
+      "  cd ai_evals && bun run cli -- list-cases --surface frontend-script [--json]",
       "  cd ai_evals && bun run cli -- list-variants --surface cli [--json]",
       "  cd ai_evals && bun run cli -- list-variants --surface frontend-flow [--json]",
       "  cd ai_evals && bun run cli -- list-variants --surface frontend-app [--json]",
+      "  cd ai_evals && bun run cli -- list-variants --surface frontend-script [--json]",
       "  cd ai_evals && bun run cli -- snapshot-variant --surface cli --variant <id> [--description <text>] [--json]",
-      "  cd ai_evals && bun run cli -- run --surface <cli|frontend-flow|frontend-app> --case <id> [--variant <id>] [--runs <n>] [--json] [--keep-workspace]",
-      "  cd ai_evals && bun run cli -- compare --surface <cli|frontend-flow|frontend-app> [--case <id> ...] [--variant <id> ...] [--runs <n>] [--write-history] [--history-dir <path>] [--json]",
+      "  cd ai_evals && bun run cli -- run --surface <cli|frontend-flow|frontend-app|frontend-script> --case <id> [--variant <id>] [--runs <n>] [--json] [--keep-workspace]",
+      "  cd ai_evals && bun run cli -- compare --surface <cli|frontend-flow|frontend-app|frontend-script> [--case <id> ...] [--variant <id> ...] [--runs <n>] [--write-history] [--history-dir <path>] [--json]",
       "  cd ai_evals && bun run cli -- history [--view latest|summary|surface|variant|model] [--limit <n>] [--history-dir <path>] [--json]",
       "",
       "Current support:",
-      "  surfaces: cli, frontend-flow, frontend-app"
+      "  surfaces: cli, frontend-flow, frontend-app, frontend-script"
     ].join("\n") + "\n"
   );
 }

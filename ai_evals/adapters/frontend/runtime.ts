@@ -10,7 +10,7 @@ const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const FRONTEND_DIR = path.join(REPO_ROOT, 'frontend')
 const FRONTEND_BENCHMARK_TEST = '../ai_evals/adapters/frontend/vitestAdapter.test.ts'
 
-export type FrontendSurfaceName = 'frontend-flow' | 'frontend-app'
+export type FrontendSurfaceName = 'frontend-flow' | 'frontend-app' | 'frontend-script'
 
 export interface FrontendAdapterAttempt {
 	attempt: number
@@ -40,7 +40,7 @@ export interface FrontendAdapterVariantResult {
 }
 
 export interface FrontendAdapterPayload {
-	surface: 'flow' | 'app'
+	surface: 'flow' | 'app' | 'script'
 	runs: number
 	variants: FrontendAdapterVariantResult[]
 }
@@ -92,6 +92,12 @@ export async function runFrontendBenchmarkAdapter(input: {
 	}
 }
 
-function frontendSurfaceToAdapterSurface(surface: FrontendSurfaceName): 'flow' | 'app' {
-	return surface === 'frontend-flow' ? 'flow' : 'app'
+function frontendSurfaceToAdapterSurface(surface: FrontendSurfaceName): 'flow' | 'app' | 'script' {
+	if (surface === 'frontend-flow') {
+		return 'flow'
+	}
+	if (surface === 'frontend-app') {
+		return 'app'
+	}
+	return 'script'
 }

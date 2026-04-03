@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export type FrontendSurfaceName = 'frontend-flow' | 'frontend-app'
+export type FrontendSurfaceName = 'frontend-flow' | 'frontend-app' | 'frontend-script'
 
 interface FrontendCaseManifest {
 	id: string
@@ -46,6 +46,12 @@ export async function loadFrontendVariants(
 	)
 }
 
-function surfaceToManifestName(surface: FrontendSurfaceName): 'flow' | 'app' {
-	return surface === 'frontend-flow' ? 'flow' : 'app'
+function surfaceToManifestName(surface: FrontendSurfaceName): 'flow' | 'app' | 'script' {
+	if (surface === 'frontend-flow') {
+		return 'flow'
+	}
+	if (surface === 'frontend-app') {
+		return 'app'
+	}
+	return 'script'
 }

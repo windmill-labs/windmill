@@ -18,7 +18,7 @@ What is true today:
 
 - there is one repo-level benchmark CLI under `ai_evals/cli`
 - the CLI surface is the first real benchmark adapter behind it
-- frontend flow and app are now exposed through that same benchmark CLI
+- frontend flow, app, and script are now exposed through that same benchmark CLI
 - frontend AI benchmark logic now lives under `ai_evals`, not under `frontend/__tests__`
 - frontend benchmarks reuse production prompt builders, tool definitions, and `runChatLoop`
 - CLI cases are now skill-sensitive rather than only artifact-sensitive
@@ -31,9 +31,10 @@ What is true today:
 
 What is not true yet:
 
-- frontend `script` is not yet exposed through the benchmark CLI
 - frontend still has only baseline prompt variants wired by default
 - frontend still uses a thin Vitest bridge for module/runtime loading
+- frontend `script` only has initial benchmark coverage today
+- frontend `script` still treats `test_run_script` usage as a diagnostic instead of a hard gate
 - CLI still needs broader case coverage and richer efficiency metrics
 - token and cost metrics are not implemented
 - no UI studio exists yet
@@ -92,11 +93,11 @@ Implemented:
 - `snapshot-variant`
 - `history`
 - CLI adapter selection through `--surface cli`
-- frontend adapter selection through `--surface frontend-flow|frontend-app`
+- frontend adapter selection through `--surface frontend-flow|frontend-app|frontend-script`
 
 Still missing:
 
-- frontend `script` adapter selection
+- no major CLI-shell gap remains here beyond broader ergonomics and docs polish
 
 ### Phase 3: Replace the CLI smoke suite with real artifact evaluation
 
@@ -198,21 +199,24 @@ Implemented:
 
 - shared frontend case scaffolding exists
 - frontend benchmark fixtures were moved under `ai_evals/fixtures/frontend/`
-- repo-level benchmark CLI support for `frontend-flow` and `frontend-app`
+- repo-level benchmark CLI support for `frontend-flow`, `frontend-app`, and `frontend-script`
 - ai_evals-owned frontend benchmark runner and adapter executed through the frontend Vitest environment
 - frontend benchmark helpers now write to temp workspaces instead of mutating in-memory UI state
-- repeated runs for frontend flow/app through the shared benchmark CLI
+- repeated runs for frontend flow/app/script through the shared benchmark CLI
 - frontend prompt variants loaded from files under `ai_evals/variants/frontend/`
 - frontend run/compare payloads aligned to the shared benchmark result shape
 - frontend judge score aggregation wired into compare output and official run generation
 - frontend official history writes validated through the shared benchmark CLI
 - legacy frontend AI chat eval tests removed from `frontend/src/lib/components/copilot/chat/__tests__`
+- frontend script benchmark helper now exercises the production script tools with a file-backed script workspace
+- validated a real `frontend-script` case end to end through `run` and `compare`
 
 Still missing:
 
-- frontend `script` support
-- more than the baseline prompt variant for frontend flow/app
+- more than the baseline prompt variant for frontend flow/app/script
 - broader frontend reliability coverage across more cases in routine use
+- stronger deterministic validators, especially for script execution semantics and deeper app/flow checks
+- stronger workflow-policy checks, such as consistent `test_run_script` usage in frontend script mode
 - regular use of frontend history writes in routine benchmark workflows
 - optional future cleanup to remove or reduce the thin frontend Vitest bridge if production chat modules become directly importable
 
@@ -270,12 +274,14 @@ The most important implemented changes so far are:
 - Made CLI evals skill-sensitive instead of allowing silent skill bypass
 - Added repeated-run CLI benchmarking with aggregate reporting
 - Added frontend flow/app benchmark adapters behind the shared benchmark CLI
+- Added the frontend script benchmark adapter behind the shared benchmark CLI
 - Added frontend run/compare support with shared aggregation and judge score reporting
 - Validated frontend `run`, `compare`, and `compare --write-history` through the shared benchmark CLI
 - Moved frontend AI benchmark fixtures and runner ownership into `ai_evals`
 - Removed the old frontend AI benchmark test tree
 - Kept the production frontend chat loop and tool-definition path as the shared execution core
 - Swapped frontend benchmark helpers from in-memory state to temp-workspace files
+- Added a file-backed script helper hook so `frontend-script` can benchmark production script tool usage without UI state
 - Shared AI-guidance generation between:
   - benchmark temp workspaces
   - `wmill init`
@@ -287,8 +293,8 @@ The most important implemented changes so far are:
 
 The highest-priority remaining work is:
 
-1. Add the missing frontend `script` surface behind the same benchmark CLI.
-2. Expand the frontend and CLI case corpora to cover more real prompt and skill behavior.
+1. Expand the frontend and CLI case corpora to cover more real prompt and skill behavior.
+2. Add stronger deterministic validators, especially for frontend script/app/flow artifact correctness.
 3. Add richer aggregate metrics:
    - pass rate
    - flake rate
@@ -307,13 +313,13 @@ The highest-priority remaining work is:
 
 The best next implementation step is:
 
-- add the frontend `script` adapter behind the existing benchmark CLI
+- harden validators and add more frontend/CLI benchmark cases
 
 Reason:
 
-- flow and app now already run through the shared benchmark CLI and can write official snapshots
-- `script` is the main frontend gap left before the frontend surface is structurally complete
-- the remaining CLI work should stay tracked as follow-up TODOs while the main implementation path moves to fuller frontend coverage
+- all three frontend surfaces now run through the shared benchmark CLI
+- the biggest remaining gap is benchmark depth, not benchmark plumbing
+- stronger validators and broader cases will improve signal faster than adding another interface layer
 
 ## Relevant Files
 
@@ -322,6 +328,7 @@ Reason:
 - CLI adapter: [artifact-eval.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/adapters/cli/artifact-eval.ts)
 - Frontend adapter runtime: [runtime.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/adapters/frontend/runtime.ts)
 - Frontend benchmark runner: [benchmarkRunner.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/adapters/frontend/benchmarkRunner.ts)
+- Frontend script runner: [scriptEvalRunner.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/adapters/frontend/core/script/scriptEvalRunner.ts)
 - Frontend Vitest bridge: [vitestAdapter.test.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/adapters/frontend/vitestAdapter.test.ts)
 - CLI variants: [variants.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/adapters/cli/variants.ts)
 - Shared guidance writer: [writer.ts](/home/farhad/windmill__worktrees/prompt-testing-plan/cli/src/guidance/writer.ts)

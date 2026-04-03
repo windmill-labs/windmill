@@ -5,10 +5,10 @@ import { dirname, join, resolve } from 'path'
 // @ts-ignore - Node.js url
 import { fileURLToPath } from 'url'
 import type { AIProvider } from '$lib/gen/types.gen'
-import { loadAppEvalCases, loadFlowEvalCases } from './core/evalCaseLoader'
+import { loadAppEvalCases, loadFlowEvalCases, loadScriptEvalCases } from './core/evalCaseLoader'
 import type { VariantConfig } from './core/shared'
 
-export type FrontendBenchmarkSurface = 'flow' | 'app'
+export type FrontendBenchmarkSurface = 'flow' | 'app' | 'script'
 
 interface VariantPromptConfigDefault {
 	type: 'default'
@@ -110,6 +110,8 @@ export async function runFrontendBenchmark(input: {
 			return await runFlowBenchmark(input)
 		case 'app':
 			return await runAppBenchmark(input)
+		case 'script':
+			return await runScriptBenchmark(input)
 		default:
 			throw new Error(`Unsupported frontend benchmark surface: ${String(input.surface)}`)
 	}
@@ -188,7 +190,7 @@ async function runFlowBenchmark(input: {
 
 							return {
 								attempt,
-								passed: checks.every((check) => check.passed),
+								passed: allRequiredChecksPassed(checks),
 								durationMs: Date.now() - startedAt,
 								assistantMessageCount: result.iterations,
 								toolCallCount: result.toolCallsCount,
@@ -280,7 +282,7 @@ async function runAppBenchmark(input: {
 
 								return {
 									attempt,
-									passed: checks.every((check) => check.passed),
+									passed: allRequiredChecksPassed(checks),
 									durationMs: Date.now() - startedAt,
 									assistantMessageCount: result.iterations,
 									toolCallCount: result.toolCallsCount,
@@ -296,6 +298,116 @@ async function runAppBenchmark(input: {
 							})
 						}
 					})
+				)
+			}))
+		)
+	}
+}
+
+async function runScriptBenchmark(input: {
+	surface: 'script'
+	caseIds: string[]
+	variantIds: string[]
+	runs: number
+}): Promise<FrontendBenchmarkPayload> {
+	const { runScriptEval } = await import('./core/script/scriptEvalRunner')
+	const allCases = loadScriptEvalCases()
+	const selectedCases =
+		input.caseIds.length === 0
+			? allCases
+			: input.caseIds.map((caseId) => {
+					const testCase = allCases.find((entry) => entry.id === caseId)
+					if (!testCase) {
+						throw new Error(`Unknown frontend script case: ${caseId}`)
+					}
+					return testCase
+				})
+
+	const variants = await Promise.all(
+		input.variantIds.map((variantId) => loadFrontendVariant('script', variantId))
+	)
+
+	return {
+		surface: input.surface,
+		runs: input.runs,
+		variants: await Promise.all(
+			variants.map(async (variant) => ({
+				variant: variant.id,
+				provider: variant.provider,
+				model: variant.model,
+				judgeModel: FRONTEND_JUDGE_MODEL,
+				caseResults: await Promise.all(
+					selectedCases.map(async (testCase) => ({
+						caseId: testCase.id,
+						attempts: await runRepeated(input.runs, async (attempt) => {
+							const startedAt = Date.now()
+							const result = await runScriptEval(
+								testCase.userPrompt,
+								getApiKeyForProvider(variant.provider),
+								{
+									initialScript: testCase.initialScript ?? testCase.expectedScript,
+									expectedScript: testCase.expectedScript,
+									variant: variant.config,
+									provider: variant.provider,
+									model: variant.model
+								}
+							)
+
+							const minJudgeScore = testCase.minJudgeScore ?? DEFAULT_MIN_JUDGE_SCORE
+							const checks = [
+								{ name: 'chat run succeeded', passed: result.success, required: true },
+								{
+									name: 'script exports entrypoint',
+									passed:
+										/export\s+(async\s+)?function\s+(main|preprocessor)\s*\(/.test(
+											result.script.code
+										),
+									required: true
+								},
+								{
+									name: 'edit_code used',
+									passed: result.toolsCalled.includes('edit_code'),
+									required: true
+								},
+								{
+									name: 'get_lint_errors used',
+									passed: result.toolsCalled.includes('get_lint_errors'),
+									required: true
+								},
+								{
+									name: 'test_run_script used',
+									passed: result.toolsCalled.includes('test_run_script'),
+									required: false
+								},
+								{
+									name: 'judge evaluation succeeded',
+									passed: Boolean(result.evaluationResult?.success),
+									required: true
+								},
+								{
+									name: `judge score >= ${minJudgeScore}`,
+									passed: (result.evaluationResult?.resemblanceScore ?? 0) >= minJudgeScore,
+									required: true
+								}
+							]
+
+							return {
+								attempt,
+								passed: allRequiredChecksPassed(checks),
+								durationMs: Date.now() - startedAt,
+								assistantMessageCount: result.iterations,
+								toolCallCount: result.toolCallsCount,
+								toolsUsed: uniqueStrings(result.toolsCalled),
+								checks,
+								requiredFailedChecks: checks
+									.filter((check) => check.required !== false && !check.passed)
+									.map((check) => check.name),
+								judgeScore: result.evaluationResult?.resemblanceScore ?? null,
+								judgeStatement: result.evaluationResult?.statement ?? null,
+								error: result.error ?? result.evaluationResult?.error ?? null
+							} satisfies FrontendBenchmarkAttempt
+						})
+					}))
 				)
 			}))
 		)
@@ -421,10 +533,10 @@ function parseJsonStringArray(value: string | undefined, envName: string): strin
 }
 
 function parseSurface(value: string | undefined): FrontendBenchmarkSurface {
-	if (value === 'flow' || value === 'app') {
+	if (value === 'flow' || value === 'app' || value === 'script') {
 		return value
 	}
-	throw new Error('WMILL_FRONTEND_AI_EVAL_SURFACE must be "flow" or "app"')
+	throw new Error('WMILL_FRONTEND_AI_EVAL_SURFACE must be "flow", "app", or "script"')
 }
 
 function parsePositiveInteger(value: string | undefined, envName: string): number {
@@ -437,4 +549,10 @@ function parsePositiveInteger(value: string | undefined, envName: string): numbe
 
 function uniqueStrings(values: string[]): string[] {
 	return [...new Set(values)].sort((left, right) => left.localeCompare(right))
+}
+
+function allRequiredChecksPassed(
+	checks: Array<{ name: string; passed: boolean; required?: boolean }>
+): boolean {
+	return checks.every((check) => check.required === false || check.passed)
 }

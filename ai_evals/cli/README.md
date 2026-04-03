@@ -11,7 +11,7 @@ The current implementation is intentionally small:
 - `compare` command
 - `history` command
 - `list-cases` and `list-variants` discovery commands
-- `cli`, `frontend-flow`, and `frontend-app` surfaces
+- `cli`, `frontend-flow`, `frontend-app`, and `frontend-script` surfaces
 
 This is the benchmark entrypoint for prompt and artifact evaluation.
 
@@ -41,6 +41,7 @@ List available frontend cases:
 cd ai_evals
 bun run cli -- list-cases --surface frontend-flow
 bun run cli -- list-cases --surface frontend-app
+bun run cli -- list-cases --surface frontend-script
 ```
 
 List available CLI variants:
@@ -56,6 +57,7 @@ List available frontend variants:
 cd ai_evals
 bun run cli -- list-variants --surface frontend-flow
 bun run cli -- list-variants --surface frontend-app
+bun run cli -- list-variants --surface frontend-script
 ```
 
 Snapshot the current guidance bundle into a named CLI variant:
@@ -84,6 +86,13 @@ Run one frontend app case:
 ```bash
 cd ai_evals
 bun run cli -- run --surface frontend-app --case app-test1-counter-create --variant baseline --runs 1
+```
+
+Run one frontend script case:
+
+```bash
+cd ai_evals
+bun run cli -- run --surface frontend-script --case script-test1-greet-user --variant baseline --runs 2
 ```
 
 Keep the temp workspace for inspection:
@@ -126,6 +135,7 @@ Compare frontend prompt variants:
 ```bash
 cd ai_evals
 bun run cli -- compare --surface frontend-flow --case flow-test1-user-role-actions --variant baseline --variant candidate --runs 3
+bun run cli -- compare --surface frontend-script --case script-test1-greet-user --variant baseline --variant candidate --runs 3
 ```
 
 Write official history snapshots for frontend variants:
@@ -209,7 +219,7 @@ same benchmark result shape as the CLI surface.
 That means:
 
 - the benchmark entrypoint remains `ai_evals/cli`
-- frontend flow/app fixtures live under `ai_evals/fixtures/frontend/`
+- frontend flow/app/script fixtures live under `ai_evals/fixtures/frontend/`
 - the frontend source tree no longer owns a separate AI chat benchmark suite
 - production frontend prompt builders, tool definitions, and `runChatLoop` are still reused
 - benchmark-only infrastructure and file-backed helper adapters live under `ai_evals`
@@ -257,5 +267,5 @@ Later iterations should add:
 - variant cleanup and diff helpers
 - token and cost metrics in compare output
 - richer history views and filtering
-- frontend `script` surface
+- broader frontend `script` case coverage and stronger validators
 - optional reduction of the thin frontend Vitest bridge
