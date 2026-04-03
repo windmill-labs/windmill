@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::s3_log_batching::{record_s3_log, S3ProxyRequest};
 use ::tracing::{field, Span};
 use hyper::Response;
 use tower_http::trace::{MakeSpan, OnFailure, OnResponse};
@@ -29,6 +30,12 @@ impl<B> OnResponse<B> for MyOnResponse {
         _span: &tracing::Span,
     ) {
         if *LOG_REQUESTS {
+            if let Some(s3req) = response.extensions().get::<S3ProxyRequest>() {
+                let status = response.status().as_u16();
+                record_s3_log(&s3req.uri, &s3req.method, status, latency.as_millis());
+                return;
+            }
+
             let latency = latency.as_millis();
             let status = response.status().as_u16();
             if response.status().is_success() || response.status().is_redirection() {

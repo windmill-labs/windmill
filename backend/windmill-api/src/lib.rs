@@ -24,6 +24,7 @@ use tower_http::catch_panic::CatchPanicLayer;
 
 use crate::tracing_init::MyOnFailure;
 use crate::{
+    s3_log_batching::s3_proxy_log_middleware,
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::OptAuthed,
     webhook_util::WebhookShared,
@@ -154,6 +155,7 @@ mod teams_approvals_oss;
 pub mod native_triggers;
 mod public_app_layer;
 mod public_app_rate_limit;
+mod s3_log_batching;
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
 pub mod stripe_ee;
@@ -947,11 +949,21 @@ pub async fn run_server(
             get(windmill_api_settings::get_jwks),
         )
         .fallback(static_assets::static_handler)
-        .layer(middleware_stack);
+        .layer(middleware_stack)
+        .layer(axum::middleware::from_fn(s3_proxy_log_middleware));
 
     let app = if disable_response_logs {
         app
     } else {
+        tokio::spawn(async {
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                crate::s3_log_batching::flush_s3_batches();
+            }
+        });
+
         app.layer(
             TraceLayer::new_for_http()
                 .on_response(MyOnResponse {})
