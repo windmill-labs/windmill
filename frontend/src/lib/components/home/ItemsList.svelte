@@ -19,7 +19,8 @@
 		Code2,
 		LayoutDashboard,
 		ListFilterPlus,
-		SearchCode
+		SearchCode,
+		Tag
 	} from 'lucide-svelte'
 
 	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
@@ -467,11 +468,12 @@
 						small
 						clickable
 						selected={label === labelFilter}
+						title="Label: {label}"
 						onclick={() => {
 							labelFilter = labelFilter === label ? undefined : label
 						}}
 					>
-						{label}
+						<Tag size={10} class="inline -mt-px" />{label}
 						{#if label === labelFilter}&cross;{/if}
 					</Badge>
 				{/each}
