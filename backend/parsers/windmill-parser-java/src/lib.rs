@@ -81,6 +81,7 @@ pub fn parse_java_sig_meta(code: &str) -> anyhow::Result<JavaMainSigMeta> {
         args,
         has_preprocessor: None,
         auto_kind,
+        ..Default::default()
     };
 
     Ok(JavaMainSigMeta { returns_void, class_name, main_sig, is_public })
