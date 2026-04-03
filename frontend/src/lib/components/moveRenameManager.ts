@@ -69,7 +69,8 @@ export async function updateItemPathAndSummary(opts: {
 			path: initialPath,
 			requestBody: {
 				path: newPath !== initialPath ? newPath : undefined,
-				summary: newSummary
+				summary: newSummary,
+				labels
 			}
 		})
 	}

@@ -353,7 +353,8 @@ pub async fn fetch_script_for_update<'a>(
             has_preprocessor,
             on_behalf_of_email,
             assets,
-            modules
+            modules,
+            labels
          FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
     )
     .bind(path)

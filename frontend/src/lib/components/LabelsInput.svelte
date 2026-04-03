@@ -81,6 +81,7 @@
 				addLabel() // either "Create new" selected or free text
 			}
 		} else if (e.key === 'Escape') {
+			inputValue = ''
 			adding = false
 		} else if (e.key === 'ArrowDown') {
 			e.preventDefault()

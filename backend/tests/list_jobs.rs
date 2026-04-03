@@ -1029,14 +1029,15 @@ async fn test_job_label_filter(db: Pool<Postgres>) -> anyhow::Result<()> {
         "SECRET_TOKEN".to_string(),
     );
 
-    // Push two jobs: one with "prod" label, one with "staging"
-    let _job_prod = RunJob::from(JobPayload::ScriptHash {
+    // Push two jobs with different labels, then complete them via SQL
+    // Label filtering only works on completed jobs
+    let job_prod_id = RunJob::from(JobPayload::ScriptHash {
         hash: windmill_common::scripts::ScriptHash(0),
         path: "u/admin/prod_script".to_string(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        language: ScriptLang::Python3,
+        language: ScriptLang::Bun,
         priority: None,
         apply_preprocessor: false,
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
@@ -1047,13 +1048,13 @@ async fn test_job_label_filter(db: Pool<Postgres>) -> anyhow::Result<()> {
     .push(&db)
     .await;
 
-    let _job_staging = RunJob::from(JobPayload::ScriptHash {
+    let job_staging_id = RunJob::from(JobPayload::ScriptHash {
         hash: windmill_common::scripts::ScriptHash(0),
         path: "u/admin/staging_script".to_string(),
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        language: ScriptLang::Python3,
+        language: ScriptLang::Bun,
         priority: None,
         apply_preprocessor: false,
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
@@ -1063,6 +1064,16 @@ async fn test_job_label_filter(db: Pool<Postgres>) -> anyhow::Result<()> {
     })
     .push(&db)
     .await;
+
+    // Complete both jobs directly via SQL so label filter can find them
+    for job_id in &[job_prod_id, job_staging_id] {
+        sqlx::query(
+            "INSERT INTO v2_job_completed (workspace_id, id, result, status, duration_ms) VALUES ('test-workspace', $1, '{}'::jsonb, 'success', 0)",
+        )
+        .bind(job_id)
+        .execute(&db)
+        .await?;
+    }
 
     // Filter by label=prod
     let response = client
@@ -1080,7 +1091,7 @@ async fn test_job_label_filter(db: Pool<Postgres>) -> anyhow::Result<()> {
     // Should find the prod job
     assert!(
         jobs.iter()
-            .any(|j| j["id"].as_str() == Some(&_job_prod.to_string())),
+            .any(|j| j["id"].as_str() == Some(&job_prod_id.to_string())),
         "prod job should appear in label=prod filter"
     );
 
@@ -1088,8 +1099,85 @@ async fn test_job_label_filter(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(
         !jobs
             .iter()
-            .any(|j| j["id"].as_str() == Some(&_job_staging.to_string())),
+            .any(|j| j["id"].as_str() == Some(&job_staging_id.to_string())),
         "staging job should not appear in label=prod filter"
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_wm_labels_from_result_merged_with_static_labels(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    // Use Code(RawCode) to run a Bun script that returns wm_labels,
+    // then set static labels on the job row before execution
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content: r#"export async function main() { return { wm_labels: ["runtime-label"] }; }"#
+            .to_string(),
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
+    }));
+
+    let completed = job
+        .run_until_complete_with(&db, false, port, |uuid| {
+            let db = db.clone();
+            async move {
+                // Set static labels before the worker picks up the job
+                sqlx::query(
+                    "UPDATE v2_job SET labels = ARRAY['static-label']::text[] WHERE id = $1",
+                )
+                .bind(uuid)
+                .execute(&db)
+                .await
+                .expect("should set labels");
+            }
+        })
+        .await;
+
+    // Fetch the job via API and check labels
+    let response = client
+        .client()
+        .get(format!(
+            "{}/w/test-workspace/jobs_u/get/{}",
+            client.baseurl(),
+            completed.id
+        ))
+        .send()
+        .await?;
+
+    assert!(response.status().is_success());
+    let job: serde_json::Value = response.json().await?;
+    let labels = job["labels"].as_array().expect("labels should be an array");
+
+    // Should contain both the static label and runtime label from wm_labels
+    assert!(
+        labels.contains(&json!("static-label")),
+        "should contain static label set at push time, got: {:?}",
+        labels
+    );
+    assert!(
+        labels.contains(&json!("runtime-label")),
+        "should contain runtime label from wm_labels in result, got: {:?}",
+        labels
     );
 
     Ok(())
