@@ -21809,6 +21809,27 @@ components:
         google_count:
           type: number
 
+    WebsocketHeartbeat:
+      type: object
+      properties:
+        interval_secs:
+          type: integer
+          minimum: 1
+          description: Interval in seconds between heartbeat messages
+        message:
+          type: string
+          description: >-
+            Message to send as heartbeat. Use {{state}} as a placeholder
+            for a value extracted from incoming messages (see state_field).
+        state_field:
+          type: string
+          description: >-
+            Optional. Top-level JSON field to extract from incoming messages.
+            The extracted value replaces {{state}} in the heartbeat message.
+      required:
+        - interval_secs
+        - message
+
     WebsocketTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -21862,6 +21883,10 @@ components:
         can_return_error_result:
           type: boolean
           description: If true, error results are sent back through the WebSocket
+        heartbeat:
+          $ref: "#/components/schemas/WebsocketHeartbeat"
+          nullable: true
+          description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
           description: Path to a script or flow to run when the triggered job fails
@@ -21930,6 +21955,10 @@ components:
         can_return_error_result:
           type: boolean
           description: If true, error results are sent back through the WebSocket
+        heartbeat:
+          $ref: "#/components/schemas/WebsocketHeartbeat"
+          nullable: true
+          description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
           description: Path to a script or flow to run when the triggered job fails
@@ -22005,6 +22034,10 @@ components:
         can_return_error_result:
           type: boolean
           description: If true, error results are sent back through the WebSocket
+        heartbeat:
+          $ref: "#/components/schemas/WebsocketHeartbeat"
+          nullable: true
+          description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
           description: Path to a script or flow to run when the triggered job fails
