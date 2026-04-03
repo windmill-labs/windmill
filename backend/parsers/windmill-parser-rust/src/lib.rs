@@ -30,6 +30,7 @@ pub fn parse_rust_signature(code: &str) -> anyhow::Result<MainArgSignature> {
             args,
             auto_kind: None,
             has_preprocessor: None,
+            ..Default::default()
         })
     } else {
         Ok(MainArgSignature {
@@ -38,6 +39,7 @@ pub fn parse_rust_signature(code: &str) -> anyhow::Result<MainArgSignature> {
             args: vec![],
             auto_kind: Some("lib".to_string()),
             has_preprocessor: None,
+            ..Default::default()
         })
     }
 }

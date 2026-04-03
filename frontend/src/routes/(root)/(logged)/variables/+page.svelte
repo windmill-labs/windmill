@@ -2,6 +2,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { OauthService, VariableService, WorkspaceService } from '$lib/gen'
 	import ContextualVariableEditor from '$lib/components/ContextualVariableEditor.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -22,7 +23,6 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import type { ContextualVariable, ListableVariable, WorkspaceDeployUISettings } from '$lib/gen'
-	import { FolderService, OauthService, VariableService, WorkspaceService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'
@@ -51,7 +51,7 @@
 	// Collect unique values for filter autocomplete
 	let allPaths: string[] = $state([])
 	let allOwners: string[] = $state([])
-	let folders: string[] = $state([])
+	let allLabels: string[] = $state([])
 
 	// FilterSearchbar setup
 	let userFoldersFilterType = $derived(
@@ -65,14 +65,27 @@
 		buildVariablesFilterSchema({
 			paths: allPaths,
 			owners: allOwners,
+			labels: allLabels,
 			showUserFoldersFilter: userFoldersFilterType !== undefined,
 			userFoldersLabel:
 				userFoldersFilterType === 'only f/*' ? 'Only f/*' : `Only u/${$userStore?.username} and f/*`
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => variablesFilterSchema))
+	let itemFolders = $derived(
+		Array.from(
+			new Set(
+				(variables ?? [])
+					.map((x) => x.path.split('/').slice(0, 2).join('/'))
+					.filter((x) => x.startsWith('f/'))
+			)
+		)
+			.sort()
+			.map((f) => f.replace(/^f\//, ''))
+	)
 	let folderPresets = $derived([
-		...folders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
+		...itemFolders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
+		...allLabels.map((l) => ({ name: l, value: `label:\\ ${l}` })),
 		...(variablesFilterSchema.user_folders_only
 			? [
 					{
@@ -135,6 +148,9 @@
 		if (currentFilters._default_) {
 			apiParams.broadFilter = currentFilters._default_
 		}
+		if (currentFilters.label) {
+			apiParams.label = currentFilters.label
+		}
 
 		const result = (await VariableService.listVariable(apiParams)).map((x) => {
 			return {
@@ -148,6 +164,7 @@
 		allOwners = Array.from(
 			new Set(result.map((x) => x.path.split('/').slice(0, 2).join('/')))
 		).sort()
+		allLabels = Array.from(new Set(result.flatMap((x) => x.labels ?? []))).sort()
 
 		variables = result
 	}
@@ -188,16 +205,11 @@
 		sendUserToast(`Variable ${path} was deleted`)
 	}
 
-	async function loadFolders() {
-		folders = await FolderService.listFolderNames({ workspace: $workspaceStore! })
-	}
-
 	$effect(() => {
 		if ($workspaceStore && $userStore) {
 			untrack(() => {
 				loadVariables()
 				loadContextualVariables()
-				loadFolders()
 			})
 		}
 	})
@@ -334,20 +346,43 @@
 							</tr>
 						</Head>
 						<tbody class="divide-y">
-							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked }}
+							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels }}
 								<Row>
 									<Cell class="!px-0 text-center w-12" first>
 										<SharedBadge {canWrite} extraPerms={extra_perms} />
 									</Cell>
 									<Cell>
-										<a
-											class="break-all"
-											id="edit-{path}"
-											onclick={() => variableEditor?.editVariable(path)}
-											href="#{path}"
-										>
-											{path}
-										</a>
+										<div class="flex items-center gap-2">
+											<a
+												class="break-all"
+												id="edit-{path}"
+												onclick={() => variableEditor?.editVariable(path)}
+												href="#{path}"
+											>
+												{path}
+											</a>
+											{#if labels?.length}
+												{#each labels as label}
+													<Badge
+														color="blue"
+														small
+														class="px-1"
+														title="Label: {label}"
+														clickable
+														onclick={() => {
+															const arr = (filters.val.label ?? '').split(',').filter(Boolean)
+															const idx = arr.indexOf(label)
+															if (idx >= 0) arr.splice(idx, 1)
+															else arr.push(label)
+															const newFilters = { ...filters.val }
+															if (arr.length) newFilters.label = arr.join(',')
+															else delete newFilters.label
+															filters.val = newFilters
+														}}>{label}</Badge
+													>
+												{/each}
+											{/if}
+										</div>
 									</Cell>
 									<Cell>
 										<span class="inline-flex flex-row items-center gap-2">

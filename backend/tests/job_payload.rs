@@ -49,7 +49,7 @@ mod job_payload {
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default().into(),
                 debouncing_settings:
-                    windmill_common::runnable_settings::DebouncingSettings::default(),
+                    windmill_common::runnable_settings::DebouncingSettings::default(), labels: None,
                 cache_ttl: None,
                 cache_ignore_s3_path: None,
                 dedicated_worker: None,
@@ -89,7 +89,7 @@ mod job_payload {
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
-                    windmill_common::runnable_settings::DebouncingSettings::default(),
+                    windmill_common::runnable_settings::DebouncingSettings::default(), labels: None,
             })
             .run_until_complete_with(db, false, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
@@ -424,7 +424,7 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: false,
-                version: 1443253234253454,
+                version: 1443253234253454, labels: None,
             })
             .run_until_complete(&db, false, port)
             .await
@@ -473,7 +473,7 @@ mod job_payload {
                 path: "f/system/hello_with_preprocessor".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: true,
-                version: 1443253234253456,
+                version: 1443253234253456, labels: None,
             })
             .run_until_complete_with(db, false, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
@@ -543,7 +543,7 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: true,
-                version: 1443253234253454,
+                version: 1443253234253454, labels: None,
             })
             .run_until_complete(&db, false, port)
             .await
@@ -789,7 +789,7 @@ mod job_payload {
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
-                    windmill_common::runnable_settings::DebouncingSettings::default(),
+                    windmill_common::runnable_settings::DebouncingSettings::default(), labels: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))
@@ -839,7 +839,7 @@ mod job_payload {
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
-                    windmill_common::runnable_settings::DebouncingSettings::default(),
+                    windmill_common::runnable_settings::DebouncingSettings::default(), labels: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))
@@ -889,7 +889,7 @@ mod job_payload {
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
-                    windmill_common::runnable_settings::DebouncingSettings::default(),
+                    windmill_common::runnable_settings::DebouncingSettings::default(), labels: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))
@@ -939,7 +939,7 @@ mod job_payload {
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
-                    windmill_common::runnable_settings::DebouncingSettings::default(),
+                    windmill_common::runnable_settings::DebouncingSettings::default(), labels: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))
@@ -991,7 +991,7 @@ mod job_payload {
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
-                    windmill_common::runnable_settings::DebouncingSettings::default(),
+                    windmill_common::runnable_settings::DebouncingSettings::default(), labels: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))

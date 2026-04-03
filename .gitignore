@@ -29,3 +29,4 @@ frontend/.svelte-kit
 backend/chrome_profiler.json
 .fast-check/
 __pycache__/
+.playwright-mcp/

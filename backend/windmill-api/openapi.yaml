@@ -4435,6 +4435,12 @@ paths:
             type: string
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - name: label
+          description: Filter by label
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: variable list
@@ -5558,6 +5564,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          description: Filter by label
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: resource list
@@ -6531,6 +6543,12 @@ paths:
             If false, show only scripts with dedicated_worker disabled.
           schema:
             type: boolean
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
 
       responses:
         "200":
@@ -8113,6 +8131,12 @@ paths:
             If false, show only flows with dedicated_worker disabled.
           schema:
             type: boolean
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: All flow
@@ -8636,6 +8660,12 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: All raw apps
@@ -8735,6 +8765,12 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: All apps
@@ -8787,6 +8823,10 @@ paths:
                 preserve_on_behalf_of:
                   type: boolean
                   description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                labels:
+                  type: array
+                  items:
+                    type: string
               required:
                 - path
                 - value
@@ -8835,6 +8875,10 @@ paths:
                     preserve_on_behalf_of:
                       type: boolean
                       description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                    labels:
+                      type: array
+                      items:
+                        type: string
                   required:
                     - path
                     - value
@@ -9149,6 +9193,10 @@ paths:
                 preserve_on_behalf_of:
                   type: boolean
                   description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                labels:
+                  type: array
+                  items:
+                    type: string
       responses:
         "200":
           description: app updated
@@ -9191,6 +9239,10 @@ paths:
                     preserve_on_behalf_of:
                       type: boolean
                       description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                    labels:
+                      type: array
+                      items:
+                        type: string
                 js:
                   type: string
                 css:
@@ -11976,6 +12028,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: schedule list
@@ -12219,6 +12277,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: http trigger list
@@ -12414,6 +12478,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: websocket trigger list
@@ -12608,6 +12678,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: kafka trigger list
@@ -12843,6 +12919,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: nats trigger list
@@ -13032,6 +13114,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: sqs trigger list
@@ -13476,6 +13564,12 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: native triggers list
@@ -13786,6 +13880,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: mqtt trigger list
@@ -13975,6 +14075,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: gcp trigger list
@@ -14479,6 +14585,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: postgres trigger list
@@ -14668,6 +14780,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: email trigger list
@@ -15759,6 +15877,64 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /configs/list_all_workspace_dependencies:
+    get:
+      summary: list all workspace dependencies
+      operationId: listAllWorkspaceDependencies
+      tags:
+        - config
+      responses:
+        "200":
+          description: a list of workspace dependency summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    workspace_id:
+                      type: string
+                    name:
+                      type: string
+                    language:
+                      $ref: "#/components/schemas/ScriptLang"
+                  required:
+                    - workspace_id
+                    - language
+
+  /configs/list_all_dedicated_with_deps:
+    get:
+      summary: list all dedicated scripts with their dependencies
+      operationId: listAllDedicatedWithDeps
+      tags:
+        - config
+      responses:
+        "200":
+          description: a list of dedicated scripts with workspace dependencies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    workspace_id:
+                      type: string
+                    path:
+                      type: string
+                    language:
+                      $ref: "#/components/schemas/ScriptLang"
+                    workspace_dep_names:
+                      type: array
+                      items:
+                        type: string
+                  required:
+                    - workspace_id
+                    - path
+                    - language
+                    - workspace_dep_names
 
   /agent_workers/create_agent_token:
     post:
@@ -19500,6 +19676,11 @@ components:
           description: "Additional script modules keyed by relative file path"
           additionalProperties:
             $ref: "#/components/schemas/ScriptModule"
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
 
       required:
         - hash
@@ -19517,6 +19698,7 @@ components:
         - kind
         - starred
         - has_preprocessor
+
 
     NewScript:
       type: object
@@ -19623,6 +19805,10 @@ components:
           description: "Additional script modules keyed by relative file path"
           additionalProperties:
             $ref: "#/components/schemas/ScriptModule"
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -20469,6 +20655,10 @@ components:
         expires_at:
           type: string
           format: date-time
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - workspace_id
         - path
@@ -20517,6 +20707,10 @@ components:
           type: string
           description: The expiration date of the variable
           format: date-time
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - value
@@ -20538,6 +20732,10 @@ components:
         description:
           type: string
           description: The new description of the variable
+        labels:
+          type: array
+          items:
+            type: string
 
     AuditLog:
       type: object
@@ -20930,6 +21128,10 @@ components:
         resource_type:
           type: string
           description: The resource_type associated with the resource
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - value
@@ -20948,6 +21150,10 @@ components:
         resource_type:
           type: string
           description: The new resource_type to be associated with the resource
+        labels:
+          type: array
+          items:
+            type: string
 
     Resource:
       type: object
@@ -20972,6 +21178,10 @@ components:
         edited_at:
           type: string
           format: date-time
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - resource_type
@@ -21010,6 +21220,10 @@ components:
         edited_at:
           type: string
           format: date-time
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - resource_type
@@ -21161,6 +21375,11 @@ components:
           type: string
           nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
       required:
         - path
         - edited_by
@@ -21173,6 +21392,7 @@ components:
         - enabled
         - email
         - permissioned_as
+
 
     ScheduleWJobs:
       allOf:
@@ -21300,6 +21520,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - schedule
@@ -21395,6 +21619,10 @@ components:
           type: boolean
           nullable: true
           description: "If true and user is admin/wm_deployers, preserve the provided permissioned_as instead of using the deploying user's identity"
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - schedule
         - timezone
@@ -21459,6 +21687,11 @@ components:
         mode:
           $ref: "#/components/schemas/TriggerMode"
           description: Trigger mode (enabled/disabled)
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
       required:
         - path
         - script_path
@@ -21469,6 +21702,7 @@ components:
         - edited_at
         - is_flow
         - mode
+
 
     AuthenticationMethod:
       type: string
@@ -21757,6 +21991,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -21849,6 +22087,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -22060,6 +22302,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -22139,6 +22385,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -22314,6 +22564,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -22374,6 +22628,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -22516,6 +22774,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -22684,6 +22946,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - queue_url
         - aws_resource_path
@@ -22736,6 +23002,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - queue_url
         - aws_resource_path
@@ -22900,6 +23170,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -22948,6 +23222,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -23097,6 +23375,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -23174,6 +23456,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -23281,6 +23567,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -23336,6 +23626,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -23390,6 +23684,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -23422,6 +23720,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -23832,12 +24134,18 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
       required:
         - path
         - edited_by
         - edited_at
         - archived
         - extra_perms
+
 
     OpenFlowWPath:
       allOf:
@@ -23863,6 +24171,10 @@ components:
             preserve_on_behalf_of:
               type: boolean
               description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+            labels:
+              type: array
+              items:
+                type: string
           required:
             - path
 
@@ -23957,6 +24269,11 @@ components:
           enum: [viewer, publisher, anonymous]
         raw_app:
           type: boolean
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
       required:
         - id
         - workspace_id
@@ -23966,6 +24283,7 @@ components:
         - extra_perms
         - edited_at
         - execution_mode
+
 
     ScopeDefinition:
       type: object
@@ -24020,6 +24338,11 @@ components:
         edited_at:
           type: string
           format: date-time
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
       required:
         - workspace_id
         - path
@@ -24027,6 +24350,7 @@ components:
         - extra_perms
         - version
         - edited_at
+
 
     AppWithLastVersion:
       type: object
@@ -24064,6 +24388,11 @@ components:
           type: boolean
         bundle_secret:
           type: string
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
       required:
         - id
         - workspace_id
@@ -24077,6 +24406,7 @@ components:
         - execution_mode
         - extra_perms
         - raw_app
+
 
     AppWithLastVersionWDraft:
       allOf:

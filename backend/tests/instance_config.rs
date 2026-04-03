@@ -240,7 +240,10 @@ async fn test_from_db_worker_config_prefix_stripping(db: Pool<Postgres>) {
         config.worker_configs.contains_key("my_group_name"),
         "worker__ prefix should be stripped"
     );
-    assert_eq!(config.worker_configs["my_group_name"].extra["cache_clear"], serde_json::json!(5));
+    assert_eq!(
+        config.worker_configs["my_group_name"].extra["cache_clear"],
+        serde_json::json!(5)
+    );
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -400,12 +403,11 @@ async fn test_apply_settings_diff_complex_json(db: Pool<Postgres>) {
 
 #[sqlx::test(fixtures("base"))]
 async fn test_apply_settings_diff_delete_nonexistent_is_noop(db: Pool<Postgres>) {
-    let diff =
-        SettingsDiff {
-            upserts: BTreeMap::new(),
-            deletes: vec!["does_not_exist".to_string()],
-            ..Default::default()
-        };
+    let diff = SettingsDiff {
+        upserts: BTreeMap::new(),
+        deletes: vec!["does_not_exist".to_string()],
+        ..Default::default()
+    };
 
     // Should not error
     apply_settings_diff(&db, &diff).await.unwrap();
@@ -657,11 +659,8 @@ async fn test_roundtrip_to_settings_map_from_db_consistency(db: Pool<Postgres>) 
     };
 
     let map = original.to_settings_map();
-    let diff = SettingsDiff {
-        upserts: map.into_iter().collect(),
-        deletes: vec![],
-        ..Default::default()
-    };
+    let diff =
+        SettingsDiff { upserts: map.into_iter().collect(), deletes: vec![], ..Default::default() };
 
     apply_settings_diff(&db, &diff).await.unwrap();
 
@@ -866,7 +865,10 @@ async fn test_full_config_roundtrip(db: Pool<Postgres>) {
     assert_eq!(otel.tracing_enabled, Some(true));
 
     assert_eq!(config.worker_configs.len(), 2);
-    assert_eq!(config.worker_configs["default"].extra["cache_clear"], serde_json::json!(7));
+    assert_eq!(
+        config.worker_configs["default"].extra["cache_clear"],
+        serde_json::json!(7)
+    );
     let gpu_auto = config.worker_configs["gpu"].autoscaling.as_ref().unwrap();
     assert!(gpu_auto.enabled);
     assert_eq!(gpu_auto.min_workers, Some(0));
@@ -1005,4 +1007,147 @@ async fn test_replace_mode_protects_settings_in_integration(db: Pool<Postgres>) 
         get_global_setting(&db, "keep_me").await,
         Some(serde_json::json!("yes"))
     );
+}
+
+// ========================================================================
+// jwt_secret and rsa_keys declarative roundtrip
+// ========================================================================
+
+#[sqlx::test(fixtures("base"))]
+async fn test_jwt_secret_roundtrip_as_string_or_secret_ref(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    // Simulate what the operator does: parse a GlobalSettings with jwt_secret
+    // as a resolved StringOrSecretRef::Literal, write to DB, read back.
+    let settings = windmill_common::instance_config::GlobalSettings {
+        jwt_secret: Some(
+            windmill_common::instance_config::StringOrSecretRef::Literal(
+                "my-jwt-secret-from-k8s".to_string(),
+            ),
+        ),
+        ..Default::default()
+    };
+
+    let map = settings.to_settings_map();
+
+    // The serialized form should be a plain JSON string (not an object)
+    assert_eq!(
+        map["jwt_secret"],
+        serde_json::json!("my-jwt-secret-from-k8s")
+    );
+
+    let diff =
+        SettingsDiff { upserts: map.into_iter().collect(), deletes: vec![], ..Default::default() };
+    apply_settings_diff(&db, &diff).await.unwrap();
+
+    // Read back from DB — jwt_secret should survive the roundtrip
+    let config = InstanceConfig::from_db(&db).await.unwrap();
+    assert_eq!(
+        config
+            .global_settings
+            .jwt_secret
+            .as_ref()
+            .and_then(|v| v.as_literal()),
+        Some("my-jwt-secret-from-k8s")
+    );
+
+    // Verify the raw DB value is a plain string (not wrapped in an object)
+    let raw = get_global_setting(&db, "jwt_secret").await.unwrap();
+    assert!(
+        raw.is_string(),
+        "jwt_secret in DB should be a plain JSON string"
+    );
+    assert_eq!(raw.as_str().unwrap(), "my-jwt-secret-from-k8s");
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_rsa_keys_roundtrip_via_extra(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    // rsa_keys is not a typed field — it flows through GlobalSettings.extra.
+    // Simulate a resolved secretKeyRef: the operator resolves the ref and
+    // writes the plain value to extra before syncing to DB.
+    let json_str = r#"{
+        "rsa_keys": {
+            "private_key": "-----BEGIN RSA PRIVATE KEY-----\ntest-key-data\n-----END RSA PRIVATE KEY-----"
+        }
+    }"#;
+    let settings: windmill_common::instance_config::GlobalSettings =
+        serde_json::from_str(json_str).unwrap();
+
+    // rsa_keys should land in extra
+    assert!(settings.extra.contains_key("rsa_keys"));
+
+    let map = settings.to_settings_map();
+    let diff =
+        SettingsDiff { upserts: map.into_iter().collect(), deletes: vec![], ..Default::default() };
+    apply_settings_diff(&db, &diff).await.unwrap();
+
+    // Read back from DB
+    let config = InstanceConfig::from_db(&db).await.unwrap();
+    assert_eq!(
+        config.global_settings.extra["rsa_keys"]["private_key"],
+        "-----BEGIN RSA PRIVATE KEY-----\ntest-key-data\n-----END RSA PRIVATE KEY-----"
+    );
+
+    // Verify the raw DB value is a JSON object with private_key
+    let raw = get_global_setting(&db, "rsa_keys").await.unwrap();
+    assert!(raw.is_object());
+    assert_eq!(
+        raw["private_key"].as_str().unwrap(),
+        "-----BEGIN RSA PRIVATE KEY-----\ntest-key-data\n-----END RSA PRIVATE KEY-----"
+    );
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_replace_mode_protects_jwt_secret_and_rsa_keys(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    // Seed jwt_secret and rsa_keys (both are PROTECTED_SETTINGS)
+    insert_global_setting(&db, "jwt_secret", serde_json::json!("existing-secret")).await;
+    insert_global_setting(
+        &db,
+        "rsa_keys",
+        serde_json::json!({"private_key": "existing-rsa-key"}),
+    )
+    .await;
+    insert_global_setting(&db, "normal_setting", serde_json::json!("will-go")).await;
+
+    let config = InstanceConfig::from_db(&db).await.unwrap();
+    let current_map = config.global_settings.to_settings_map();
+
+    // Desired state: only base_url — jwt_secret and rsa_keys should survive
+    let mut desired_map = BTreeMap::new();
+    desired_map.insert(
+        "base_url".to_string(),
+        serde_json::json!("https://example.com"),
+    );
+
+    let diff = diff_global_settings(&current_map, &desired_map, ApplyMode::Replace);
+
+    assert!(
+        !diff.deletes.contains(&"jwt_secret".to_string()),
+        "jwt_secret is protected from deletion"
+    );
+    assert!(
+        !diff.deletes.contains(&"rsa_keys".to_string()),
+        "rsa_keys is protected from deletion"
+    );
+    assert!(
+        diff.deletes.contains(&"normal_setting".to_string()),
+        "normal_setting should be deleted"
+    );
+
+    apply_settings_diff(&db, &diff).await.unwrap();
+
+    // Both protected settings survive
+    assert_eq!(
+        get_global_setting(&db, "jwt_secret").await,
+        Some(serde_json::json!("existing-secret"))
+    );
+    assert_eq!(
+        get_global_setting(&db, "rsa_keys").await,
+        Some(serde_json::json!({"private_key": "existing-rsa-key"}))
+    );
+    assert!(get_global_setting(&db, "normal_setting").await.is_none());
 }

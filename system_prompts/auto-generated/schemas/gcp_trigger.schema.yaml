@@ -9,6 +9,10 @@ properties:
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
   gcp_resource_path:
     type: string
     description: Path to the GCP resource containing service account credentials for

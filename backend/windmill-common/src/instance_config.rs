@@ -259,7 +259,7 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hub_api_secret: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub jwt_secret: Option<String>,
+    pub jwt_secret: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scim_token: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]

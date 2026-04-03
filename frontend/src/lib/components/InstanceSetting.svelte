@@ -602,32 +602,16 @@
 									for="OTEL_EXPORTER_OTLP_PROTOCOL"
 									class="block text-xs font-semibold text-emphasis">Protocol</label
 								>
-								<span class="text-primary font-normal text-xs">gRPC</span>
+								<select
+									id="OTEL_EXPORTER_OTLP_PROTOCOL"
+									class="!text-xs"
+									disabled={!$enterpriseLicense}
+									bind:value={$values[setting.key].otel_exporter_otlp_protocol}
+								>
+									<option value={undefined}>grpc (default)</option>
+									<option value="http/protobuf">http/protobuf</option>
+								</select>
 							</div>
-							<!-- <div>
-							<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-semibold"
-								>Protocol<span class="text-2xs text-primary ml-4"
-									>grpc, http/protobuf, http/json</span
-								></label
-							>
-							<input
-								type="text"
-								id="OTEL_EXPORTER_OTLP_PROTOCOL"
-								placeholder="grpc"
-								bind:value={$values[setting.key].otel_exporter_otlp_protocol}
-							/>
-						</div>
-						<div>
-							<label for="OTEL_EXPORTER_OTLP_COMPRESSION" class="block text-sm font-semibold"
-								>Compression <span class="text-2xs text-primary ml-4">none, gzip</span></label
-							>
-							<input
-								type="text"
-								id="OTEL_EXPORTER_OTLP_COMPRESSION"
-								placeholder="none"
-								bind:value={$values[setting.key].otel_exporter_otlp_compression}
-							/>
-						</div> -->
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'otel_tracing_proxy'}

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT unnest(labels) as \"label!\" FROM (\n            SELECT labels FROM script WHERE workspace_id = $1 AND labels IS NOT NULL\n            UNION ALL SELECT labels FROM flow WHERE workspace_id = $1 AND labels IS NOT NULL\n            UNION ALL SELECT labels FROM resource WHERE workspace_id = $1 AND labels IS NOT NULL\n            UNION ALL SELECT labels FROM variable WHERE workspace_id = $1 AND labels IS NOT NULL\n            UNION ALL SELECT labels FROM schedule WHERE workspace_id = $1 AND labels IS NOT NULL\n            UNION ALL SELECT labels FROM app WHERE workspace_id = $1 AND labels IS NOT NULL\n        ) t ORDER BY 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "label!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b782179261b4054289a1a595f6e06ee2035ae9811bc49abce903a04439baf800"
+}
