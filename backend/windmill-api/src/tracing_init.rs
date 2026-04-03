@@ -32,8 +32,11 @@ impl<B> OnResponse<B> for MyOnResponse {
         if *LOG_REQUESTS {
             if let Some(s3req) = response.extensions().get::<S3ProxyRequest>() {
                 let status = response.status().as_u16();
-                record_s3_log(&s3req.uri, &s3req.method, status, latency.as_millis());
-                return;
+                if response.status().is_success() || response.status().is_redirection() {
+                    record_s3_log(&s3req.uri, &s3req.method, status, latency.as_millis());
+                    return;
+                }
+                // 4xx/5xx errors are rare and shouldn't be batched
             }
 
             let latency = latency.as_millis();
