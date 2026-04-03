@@ -46,8 +46,7 @@
 {/if}
 {#if job && 'job_kind' in job}
 	<div>
-		<Badge color="gray" {large}
-			>Job kind: {getJobKindDisplayLabel(job.job_kind, job.script_path)}</Badge
+		<Badge color="gray" {large}>Kind: {getJobKindDisplayLabel(job.job_kind, job.script_path)}</Badge
 		>
 	</div>
 {/if}
