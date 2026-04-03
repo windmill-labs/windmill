@@ -1,0 +1,39 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE\n                    capture_config\n                SET\n                    error = $1,\n                    server_id = NULL,\n                    last_server_ping = NULL\n                WHERE\n                    workspace_id = $2 AND\n                    path = $3 AND\n                    is_flow = $4 AND\n                    trigger_kind = $5\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        {
+          "Custom": {
+            "name": "trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "postgres",
+                "sqs",
+                "mqtt",
+                "gcp",
+                "default_email",
+                "nextcloud",
+                "google"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d495c94b580fd34d5ae90615ef21a8a9cc35f362197c0766a5787436af141106"
+}

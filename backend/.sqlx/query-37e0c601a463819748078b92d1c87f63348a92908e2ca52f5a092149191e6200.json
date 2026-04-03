@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE variable SET value = $1 WHERE path = $2 AND workspace_id = $3 AND is_secret = true",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "37e0c601a463819748078b92d1c87f63348a92908e2ca52f5a092149191e6200"
+}

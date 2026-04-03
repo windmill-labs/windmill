@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO v2_job_runtime (id, ping, memory_peak)\n                VALUES ($1, $2, $3)\n                ON CONFLICT (id) DO NOTHING\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fe71d74e996511ab7331c52704f2f03f5972394fd927b3da216de66dab9e3e5a"
+}

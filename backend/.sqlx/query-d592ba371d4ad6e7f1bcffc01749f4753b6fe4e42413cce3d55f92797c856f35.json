@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM app_version av\n        JOIN app a ON a.id = av.app_id\n        WHERE a.workspace_id = $1 AND av.id != a.versions[array_upper(a.versions, 1)]",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d592ba371d4ad6e7f1bcffc01749f4753b6fe4e42413cce3d55f92797c856f35"
+}
