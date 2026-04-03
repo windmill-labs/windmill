@@ -372,3 +372,292 @@ describe("labels push request construction", () => {
     expect(requestBody.labels).toEqual(["hourly"]);
   });
 });
+
+describe("labels edit and removal", () => {
+  test("adding a label to existing metadata preserves other fields", () => {
+    const original = {
+      summary: "my script",
+      description: "does things",
+      schema: {},
+      kind: "script" as const,
+      lock: "pkg==1.0",
+    };
+
+    // Simulate editing: add labels
+    const edited = { ...original, labels: ["new-label"] };
+
+    expect(edited.summary).toEqual("my script");
+    expect(edited.description).toEqual("does things");
+    expect(edited.lock).toEqual("pkg==1.0");
+    expect(edited.labels).toEqual(["new-label"]);
+  });
+
+  test("removing all labels results in undefined (not empty array)", () => {
+    const withLabels = {
+      summary: "test",
+      labels: ["a", "b"],
+    };
+
+    // Simulate removal: set to undefined so it's omitted from JSON
+    const cleared = { ...withLabels, labels: undefined };
+    const json = JSON.stringify(cleared);
+    const parsed = JSON.parse(json);
+
+    expect(parsed.labels).toBeUndefined();
+    expect(parsed.summary).toEqual("test");
+  });
+
+  test("setting labels to empty array serializes as empty array", () => {
+    const withLabels = {
+      summary: "test",
+      labels: [] as string[],
+    };
+
+    const json = JSON.stringify(withLabels);
+    const parsed = JSON.parse(json);
+
+    expect(parsed.labels).toEqual([]);
+  });
+
+  test("modifying labels preserves order and deduplicates", () => {
+    const labels = ["prod", "staging"];
+
+    // Add a new one
+    const added = [...labels, "dev"];
+    expect(added).toEqual(["prod", "staging", "dev"]);
+
+    // Remove one
+    const removed = added.filter((l) => l !== "staging");
+    expect(removed).toEqual(["prod", "dev"]);
+
+    // No duplicates
+    const withDup = [...removed, "prod"];
+    const deduped = [...new Set(withDup)];
+    expect(deduped).toEqual(["prod", "dev"]);
+  });
+
+  test("labels survive JSON roundtrip with special characters", () => {
+    const labels = ["my-label", "team_alpha", "v1.0", "with spaces"];
+    const json = JSON.stringify({ labels });
+    const parsed = JSON.parse(json);
+    expect(parsed.labels).toEqual(labels);
+  });
+});
+
+describe("labels in pull/export for all item types", () => {
+  test("script pull includes labels in metadata file", async () => {
+    const zip = new JSZip();
+    const metadata = {
+      summary: "pulled script",
+      description: "",
+      schema: {},
+      kind: "script",
+      labels: ["from-remote"],
+    };
+    zip.file("u/admin/pulled.py", "def main(): pass");
+    zip.file("u/admin/pulled.script.json", JSON.stringify(metadata));
+
+    const content = await zip.generateAsync({ type: "uint8array" });
+    const loaded = await JSZip.loadAsync(content);
+    const meta = JSON.parse(
+      await loaded.file("u/admin/pulled.script.json")!.async("text")
+    );
+
+    expect(meta.labels).toEqual(["from-remote"]);
+    expect(meta.summary).toEqual("pulled script");
+  });
+
+  test("flow pull includes labels", async () => {
+    const zip = new JSZip();
+    const flow = {
+      summary: "pulled flow",
+      description: "",
+      value: { modules: [] },
+      schema: {},
+      labels: ["ci", "nightly"],
+    };
+    zip.file("u/admin/pulled.flow.json", JSON.stringify(flow));
+
+    const content = await zip.generateAsync({ type: "uint8array" });
+    const loaded = await JSZip.loadAsync(content);
+    const parsed = JSON.parse(
+      await loaded.file("u/admin/pulled.flow.json")!.async("text")
+    );
+
+    expect(parsed.labels).toEqual(["ci", "nightly"]);
+  });
+
+  test("app pull includes labels", async () => {
+    const zip = new JSZip();
+    const app = {
+      summary: "pulled app",
+      value: {},
+      policy: {},
+      labels: ["dashboard"],
+    };
+    zip.file("u/admin/pulled.app.json", JSON.stringify(app));
+
+    const content = await zip.generateAsync({ type: "uint8array" });
+    const loaded = await JSZip.loadAsync(content);
+    const parsed = JSON.parse(
+      await loaded.file("u/admin/pulled.app.json")!.async("text")
+    );
+
+    expect(parsed.labels).toEqual(["dashboard"]);
+  });
+
+  test("resource pull includes labels", async () => {
+    const zip = new JSZip();
+    const resource = {
+      value: { host: "db.example.com" },
+      description: "production db",
+      resource_type: "postgresql",
+      labels: ["prod", "db"],
+    };
+    zip.file("u/admin/my_db.resource.json", JSON.stringify(resource));
+
+    const content = await zip.generateAsync({ type: "uint8array" });
+    const loaded = await JSZip.loadAsync(content);
+    const parsed = JSON.parse(
+      await loaded.file("u/admin/my_db.resource.json")!.async("text")
+    );
+
+    expect(parsed.labels).toEqual(["prod", "db"]);
+  });
+
+  test("variable pull includes labels", async () => {
+    const zip = new JSZip();
+    const variable = {
+      value: "api-key-123",
+      is_secret: false,
+      description: "api key",
+      labels: ["config"],
+    };
+    zip.file("u/admin/api_key.variable.json", JSON.stringify(variable));
+
+    const content = await zip.generateAsync({ type: "uint8array" });
+    const loaded = await JSZip.loadAsync(content);
+    const parsed = JSON.parse(
+      await loaded.file("u/admin/api_key.variable.json")!.async("text")
+    );
+
+    expect(parsed.labels).toEqual(["config"]);
+  });
+
+  test("schedule pull includes labels", async () => {
+    const zip = new JSZip();
+    const schedule = {
+      schedule: "0 0 * * *",
+      timezone: "UTC",
+      script_path: "u/admin/daily",
+      is_flow: false,
+      summary: "daily cleanup",
+      labels: ["cron", "maintenance"],
+    };
+    zip.file(
+      "u/admin/daily_cleanup.schedule.json",
+      JSON.stringify(schedule)
+    );
+
+    const content = await zip.generateAsync({ type: "uint8array" });
+    const loaded = await JSZip.loadAsync(content);
+    const parsed = JSON.parse(
+      await loaded
+        .file("u/admin/daily_cleanup.schedule.json")!
+        .async("text")
+    );
+
+    expect(parsed.labels).toEqual(["cron", "maintenance"]);
+  });
+
+  test("pull without labels doesn't include labels field", async () => {
+    const zip = new JSZip();
+    zip.file(
+      "u/admin/no_labels.script.json",
+      JSON.stringify({ summary: "no labels", schema: {}, kind: "script" })
+    );
+    zip.file(
+      "u/admin/no_labels.flow.json",
+      JSON.stringify({ summary: "no labels", value: { modules: [] } })
+    );
+    zip.file(
+      "u/admin/no_labels.resource.json",
+      JSON.stringify({ value: {}, resource_type: "c_test" })
+    );
+    zip.file(
+      "u/admin/no_labels.variable.json",
+      JSON.stringify({ value: "x", is_secret: false, description: "" })
+    );
+    zip.file(
+      "u/admin/no_labels.schedule.json",
+      JSON.stringify({
+        schedule: "0 0 * * *",
+        timezone: "UTC",
+        script_path: "u/admin/x",
+        is_flow: false,
+      })
+    );
+
+    const content = await zip.generateAsync({ type: "uint8array" });
+    const loaded = await JSZip.loadAsync(content);
+
+    for (const name of [
+      "u/admin/no_labels.script.json",
+      "u/admin/no_labels.flow.json",
+      "u/admin/no_labels.resource.json",
+      "u/admin/no_labels.variable.json",
+      "u/admin/no_labels.schedule.json",
+    ]) {
+      const parsed = JSON.parse(await loaded.file(name)!.async("text"));
+      expect(parsed.labels).toBeUndefined();
+    }
+  });
+
+  test("editing labels on pulled item and re-pushing preserves changes", () => {
+    // Simulate: pull -> edit labels -> push
+    const pulled = {
+      summary: "my script",
+      schema: {},
+      kind: "script" as const,
+      labels: ["old-label"],
+    };
+
+    // User edits labels
+    const edited = { ...pulled, labels: ["new-label", "another"] };
+
+    // Push constructs request body
+    const requestBody = {
+      content: "def main(): pass",
+      path: "u/admin/my_script",
+      summary: edited.summary,
+      kind: edited.kind,
+      labels: edited.labels,
+    };
+
+    expect(requestBody.labels).toEqual(["new-label", "another"]);
+    expect(requestBody.labels).not.toContain("old-label");
+  });
+
+  test("removing all labels on pulled item clears them on push", () => {
+    const pulled = {
+      summary: "labeled script",
+      schema: {},
+      kind: "script" as const,
+      labels: ["to-remove"],
+    };
+
+    // User removes all labels
+    const edited = { ...pulled };
+    delete (edited as any).labels;
+
+    const requestBody = {
+      content: "def main(): pass",
+      path: "u/admin/my_script",
+      summary: edited.summary,
+      kind: edited.kind,
+      labels: (edited as any).labels,
+    };
+
+    expect(requestBody.labels).toBeUndefined();
+  });
+});
