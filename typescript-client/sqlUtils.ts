@@ -171,7 +171,7 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
 
     // Arg declarations (SQL comments consumed by the executor)
     let argDecls = valueInfos
-      .filter((info) => !info.raw)
+      .filter((info): info is Extract<(typeof valueInfos)[number], { raw: false }> => !info.raw)
       .map((info) => {
         let argType =
           parseTypeAnnotation(
@@ -211,7 +211,7 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
     const args = {
       ...Object.fromEntries(
         valueInfos
-          .filter((info) => !info.raw)
+          .filter((info): info is Extract<(typeof valueInfos)[number], { raw: false }> => !info.raw)
           .map((info) => [`arg${info.argNum}`, info.value])
       ),
       ...provider.extraArgs,
