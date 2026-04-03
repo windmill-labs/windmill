@@ -107,9 +107,11 @@
 						{emptyString(summary) ? 'Add a summary...' : summary}
 					</span>
 					{#if labels?.length}
-						{#each labels as label}
-							<Badge color="blue" verySmall>{label}</Badge>
-						{/each}
+						<div class="flex items-center gap-0.5">
+							{#each labels as label}
+								<Badge color="blue" verySmall class="px-0.5">{label}</Badge>
+							{/each}
+						</div>
 					{/if}
 				</div>
 			</div>

@@ -985,9 +985,11 @@
 													>{#if marked}{@html marked}{:else}{path}{/if}</a
 												>
 												{#if labels?.length}
+										<div class="flex items-center gap-0.5">
 													{#each labels as label}
-														<Badge color="blue" small>{label}</Badge>
+														<Badge color="blue" small class="px-0.5">{label}</Badge>
 													{/each}
+										</div>
 												{/if}
 											</div>
 										</Cell>
