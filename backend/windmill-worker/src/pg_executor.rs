@@ -56,6 +56,12 @@ lazy_static! {
     pub static ref CONNECTION_COUNTER: Arc<RwLock<HashMap<String, u64>>> =
         Arc::new(RwLock::new(HashMap::new()));
     pub static ref LAST_QUERY: AtomicU64 = AtomicU64::new(0);
+    pub static ref CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+}
+
+pub async fn clear_pg_cache() {
+    *CONNECTION_CACHE.lock().await = None;
+    CONNECTION_COUNTER.write().await.clear();
 }
 
 fn otyp_to_pg_type(otyp: &str) -> error::Result<Type> {
@@ -297,50 +303,58 @@ pub async fn do_postgresql(
     };
     let database_string_clone = database_string.clone();
 
-    let mtex;
+    let cached_client;
+    let new_client;
     if !*CLOUD_HOSTED {
-        mtex = CONNECTION_CACHE.try_lock().ok();
+        let mut guard = CONNECTION_CACHE.try_lock().ok();
         increment_connection_counter(&database_string).await;
+
+        if guard
+            .as_ref()
+            .is_some_and(|x| x.as_ref().is_some_and(|y| y.0 == database_string))
+        {
+            tracing::info!("Using cached connection");
+            CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            LAST_QUERY.store(
+                chrono::Utc::now().timestamp().try_into().unwrap_or(0),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            cached_client = guard;
+            new_client = None;
+        } else {
+            // Release the lock before connecting so the post-query caching
+            // code can re-acquire it.
+            drop(guard);
+            let (client, connection) = if use_iam_auth {
+                #[cfg(all(feature = "enterprise", feature = "private"))]
+                {
+                    database.connect_with_iam().await?
+                }
+                #[cfg(not(all(feature = "enterprise", feature = "private")))]
+                {
+                    return Err(Error::ExecutionErr(
+                        "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
+                    ));
+                }
+            } else {
+                database.connect().await?
+            };
+            let handle = tokio::spawn(async move {
+                if let Err(e) = connection.await {
+                    let mut mtex = CONNECTION_CACHE.lock().await;
+                    *mtex = None;
+                    tracing::error!("connection error: {}", e);
+                }
+            });
+            cached_client = None;
+            new_client = Some((client, handle));
+        }
     } else {
-        mtex = None;
+        cached_client = None;
+        new_client = None;
     }
 
-    let has_cached_con = mtex
-        .as_ref()
-        .is_some_and(|x| x.as_ref().is_some_and(|y| y.0 == database_string));
-
-    // tracing::error!("HAS CACHED CON: {}", has_cached_con);
-    let (new_client, mtex) = if has_cached_con {
-        tracing::info!("Using cached connection");
-        LAST_QUERY.store(
-            chrono::Utc::now().timestamp().try_into().unwrap_or(0),
-            std::sync::atomic::Ordering::Relaxed,
-        );
-        (None, mtex)
-    } else {
-        let (client, connection) = if use_iam_auth {
-            #[cfg(all(feature = "enterprise", feature = "private"))]
-            {
-                database.connect_with_iam().await?
-            }
-            #[cfg(not(all(feature = "enterprise", feature = "private")))]
-            {
-                return Err(Error::ExecutionErr(
-                    "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
-                ));
-            }
-        } else {
-            database.connect().await?
-        };
-        let handle = tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                let mut mtex = CONNECTION_CACHE.lock().await;
-                *mtex = None;
-                tracing::error!("connection error: {}", e);
-            }
-        });
-        (Some((client, handle)), None)
-    };
+    let has_cached_con = cached_client.is_some();
 
     let (sig, typed_schema) = parse_pgsql_sig_with_typed_schema(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?;
@@ -356,7 +370,7 @@ pub async fn do_postgresql(
     let (client, handle) = if let Some((client, handle)) = new_client.as_ref() {
         (client, Some(handle))
     } else {
-        let (_, client) = mtex.as_ref().unwrap().as_ref().unwrap();
+        let (_, client) = cached_client.as_ref().unwrap().as_ref().unwrap();
         (client, None)
     };
 
@@ -465,17 +479,16 @@ pub async fn do_postgresql(
         .await?
     };
 
-    // drop the mtex to avoid holding the lock for too long, result has been returned
-    drop(mtex);
+    // Release the cache lock now that we have the result — allows the
+    // post-query caching code below to re-acquire it if needed.
+    drop(cached_client);
 
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
     if let Some(handle) = handle {
         if !*CLOUD_HOSTED {
-            // tracing::error!("Found handle");
             if let Ok(mut mtex) = CONNECTION_CACHE.try_lock() {
                 if mtex.as_ref().is_none_or(|x| x.0 != database_string) {
-                    // tracing::error!("Locked conn cached");
                     let abort_handler = handle.abort_handle();
 
                     let mut cache_new_con = false;

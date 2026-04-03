@@ -1509,6 +1509,7 @@ export async function main(a: Date) {
 #[serial(pg_cache)]
 async fn test_postgresql_job(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
+    windmill_worker::pg_executor::clear_pg_cache().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
@@ -1551,9 +1552,18 @@ SELECT 'hello ' || $1::text AS result;
 async fn test_postgresql_cached_connection_resets_session(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
+    use std::sync::atomic::Ordering;
+    use windmill_worker::pg_executor::{clear_pg_cache, CACHE_HITS};
+
     initialize_tracing().await;
+
+    // Clear stale connections from prior tests.
+    clear_pg_cache().await;
+
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
+
+    let hits_before = CACHE_HITS.load(Ordering::Relaxed);
 
     let db_arg = json!({"host": "localhost", "port": 5432, "dbname": "windmill", "user": "postgres", "password": "changeme"});
 
@@ -1602,8 +1612,7 @@ async fn test_postgresql_cached_connection_resets_session(
     );
 
     // Job 3: read search_path — RESET ALL (on cached conn) should have restored
-    // the default. Even if caching did not kick in (fresh conn), the default
-    // search_path is NOT pg_catalog, so this assertion holds either way.
+    // the default.
     let result3 = make_pg_job("SELECT current_setting('search_path') as sp;".into())
         .run_until_complete(&db, false, port)
         .await
@@ -1613,6 +1622,13 @@ async fn test_postgresql_cached_connection_resets_session(
     assert_ne!(
         sp, "pg_catalog",
         "search_path must be reset between jobs, got: {sp}"
+    );
+
+    // Verify the cached-connection path was actually exercised.
+    let hits_after = CACHE_HITS.load(Ordering::Relaxed);
+    assert!(
+        hits_after > hits_before,
+        "expected at least one cache hit across the 3 jobs, got {hits_before} -> {hits_after}"
     );
 
     Ok(())
