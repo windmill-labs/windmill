@@ -53,7 +53,7 @@
 	}
 </script>
 
-<div class="inline-flex items-center gap-1 -mt-3 ml-0.5">
+<div class="inline-flex items-center gap-1 -mt-3 ml-0.5 h-5">
 	{#each labels ?? [] as label (label)}
 		<Badge color="blue" small>
 			{label}
@@ -68,7 +68,7 @@
 			bind:value={inputValue}
 			onkeydown={onKeydown}
 			onblur={addLabel}
-			class="text-xs border border-blue-300 rounded px-1.5 py-0.5 max-w-32 outline-none focus:ring-1 focus:ring-blue-400"
+			class="text-2xs border border-blue-300 rounded px-1.5 py-0 h-5 max-w-32 outline-none focus:ring-1 focus:ring-blue-400"
 			placeholder="label"
 		/>
 	{:else}
