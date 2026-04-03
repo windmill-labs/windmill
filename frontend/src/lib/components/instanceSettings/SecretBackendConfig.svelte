@@ -4,7 +4,7 @@
 	import { SettingService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '../text_input/TextInput.svelte'
-	import { Database, Lock, Server, ArrowLeft, ArrowRight } from 'lucide-svelte'
+	import { Database, Lock, Server, ArrowLeft, ArrowRight, Cloud } from 'lucide-svelte'
 	import type { Writable } from 'svelte/store'
 	import { enterpriseLicense } from '$lib/stores'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -26,7 +26,7 @@
 		}
 	})
 
-	let selectedType: 'Database' | 'HashiCorpVault' = $derived(
+	let selectedType: 'Database' | 'HashiCorpVault' | 'AzureKeyVault' = $derived(
 		$values['secret_backend']?.type ?? 'Database'
 	)
 
@@ -45,6 +45,12 @@
 	let migratingToDatabase = $state(false)
 	let migrateToVaultModalOpen = $state(false)
 	let migrateToDatabaseModalOpen = $state(false)
+
+	let testingAzureKvConnection = $state(false)
+	let migratingToAzureKv = $state(false)
+	let migratingFromAzureKv = $state(false)
+	let migrateToAzureKvModalOpen = $state(false)
+	let migrateFromAzureKvModalOpen = $state(false)
 
 	// Check if Vault option should be disabled (non-EE)
 	let vaultDisabled = $derived(!$enterpriseLicense)
@@ -65,6 +71,15 @@
 				jwt_role: $values['secret_backend']?.jwt_role ?? 'windmill-secrets',
 				namespace: $values['secret_backend']?.namespace ?? null,
 				token: $values['secret_backend']?.token ?? null
+			}
+		} else if (type === 'AzureKeyVault') {
+			if (vaultDisabled) return
+			$values['secret_backend'] = {
+				type: 'AzureKeyVault',
+				vault_url: $values['secret_backend']?.vault_url ?? '',
+				tenant_id: $values['secret_backend']?.tenant_id ?? '',
+				client_id: $values['secret_backend']?.client_id ?? '',
+				client_secret: $values['secret_backend']?.client_secret ?? null
 			}
 		}
 	}
@@ -194,6 +209,77 @@
 	}
 
 	// Get the base URL for JWKS endpoint instructions (from instance settings)
+
+	function getAzureKvSettings() {
+		return {
+			vault_url: $values['secret_backend'].vault_url,
+			tenant_id: $values['secret_backend'].tenant_id,
+			client_id: $values['secret_backend'].client_id,
+			client_secret: $values['secret_backend'].client_secret || undefined
+		}
+	}
+
+	async function testAzureKvConnection() {
+		if (!$values['secret_backend'] || $values['secret_backend'].type !== 'AzureKeyVault') return
+		testingAzureKvConnection = true
+		try {
+			await SettingService.testAzureKvBackend({ requestBody: getAzureKvSettings() })
+			sendUserToast('Successfully connected to Azure Key Vault')
+		} catch (error: any) {
+			sendUserToast('Failed to connect to Azure Key Vault: ' + error.message, true)
+		} finally {
+			testingAzureKvConnection = false
+		}
+	}
+
+	async function migrateSecretsToAzureKv() {
+		if (!$values['secret_backend'] || $values['secret_backend'].type !== 'AzureKeyVault') return
+		migratingToAzureKv = true
+		try {
+			const report = await SettingService.migrateSecretsToAzureKv({ requestBody: getAzureKvSettings() })
+			if (report.failed_count > 0) {
+				sendUserToast(`Migration completed with errors: ${report.migrated_count}/${report.total_secrets} secrets migrated, ${report.failed_count} failed`, true)
+				console.error('Migration failures:', report.failures)
+			} else {
+				sendUserToast(`Successfully migrated ${report.migrated_count}/${report.total_secrets} secrets to Azure Key Vault`)
+			}
+		} catch (error: any) {
+			sendUserToast('Failed to migrate secrets to Azure Key Vault: ' + error.message, true)
+		} finally {
+			migratingToAzureKv = false
+			migrateToAzureKvModalOpen = false
+		}
+	}
+
+	async function migrateSecretsFromAzureKv() {
+		if (!$values['secret_backend'] || $values['secret_backend'].type !== 'AzureKeyVault') return
+		migratingFromAzureKv = true
+		try {
+			const report = await SettingService.migrateSecretsFromAzureKv({ requestBody: getAzureKvSettings() })
+			if (report.failed_count > 0) {
+				sendUserToast(`Migration completed with errors: ${report.migrated_count}/${report.total_secrets} secrets migrated, ${report.failed_count} failed`, true)
+				console.error('Migration failures:', report.failures)
+			} else {
+				sendUserToast(`Successfully migrated ${report.migrated_count}/${report.total_secrets} secrets to database`)
+			}
+		} catch (error: any) {
+			sendUserToast('Failed to migrate secrets to database: ' + error.message, true)
+		} finally {
+			migratingFromAzureKv = false
+			migrateFromAzureKvModalOpen = false
+		}
+	}
+
+	function isAzureKvConfigValid(): boolean {
+		if (!$values['secret_backend'] || $values['secret_backend'].type !== 'AzureKeyVault') return false
+		return (
+			$values['secret_backend'].vault_url?.trim() !== '' &&
+			$values['secret_backend'].tenant_id?.trim() !== '' &&
+			$values['secret_backend'].client_id?.trim() !== '' &&
+			!!$values['secret_backend'].client_secret?.trim()
+		)
+	}
+
 	let baseUrl = $derived($values['base_url'] ?? 'https://your-windmill-instance.com')
 </script>
 
@@ -217,11 +303,20 @@
 					item={toggleButton}
 					disabled={vaultDisabled}
 				/>
+				<ToggleButton
+					value="AzureKeyVault"
+					label="Azure Key Vault"
+					tooltip={vaultDisabled
+						? 'Azure Key Vault integration requires Enterprise Edition'
+						: 'Store secrets in Azure Key Vault'}
+					item={toggleButton}
+					disabled={vaultDisabled}
+				/>
 			{/snippet}
 		</ToggleButtonGroup>
 		{#if vaultDisabled}
 			<div class="flex items-center gap-1">
-				<EEOnly>HashiCorp Vault integration requires Enterprise Edition</EEOnly>
+				<EEOnly>HashiCorp Vault and Azure Key Vault integrations require Enterprise Edition</EEOnly>
 			</div>
 		{/if}
 	</div>
@@ -474,8 +569,213 @@ vault write auth/jwt/role/windmill-secrets \
 				</div>
 			</div>
 		</div>
+	{:else if selectedType === 'AzureKeyVault'}
+		<!-- Azure Key Vault Configuration -->
+		<div class="space-y-4 p-4 border rounded-lg">
+			<div class="flex items-center gap-2 mb-4">
+				<Cloud class="text-primary" size={20} />
+				<div>
+					<p class="text-sm font-medium text-emphasis">Azure Key Vault Configuration</p>
+					<p class="text-xs text-secondary">
+						Store secrets in an Azure Key Vault instance.
+					</p>
+				</div>
+			</div>
+
+			<div class="grid grid-cols-1 gap-4">
+				<div class="flex flex-col gap-1">
+					<label for="azure_vault_url" class="block text-xs font-semibold text-emphasis"
+						>Vault URL</label
+					>
+					<TextInput
+						inputProps={{
+							type: 'text',
+							id: 'azure_vault_url',
+							placeholder: 'https://my-vault.vault.azure.net',
+							disabled: disabled
+						}}
+						bind:value={$values['secret_backend'].vault_url}
+					/>
+				</div>
+
+				<div class="flex flex-col gap-1">
+					<label for="azure_tenant_id" class="block text-xs font-semibold text-emphasis"
+						>Tenant ID</label
+					>
+					<span class="text-2xs text-secondary">The Azure Active Directory tenant ID</span>
+					<TextInput
+						inputProps={{
+							type: 'text',
+							id: 'azure_tenant_id',
+							placeholder: '00000000-0000-0000-0000-000000000000',
+							disabled: disabled
+						}}
+						bind:value={$values['secret_backend'].tenant_id}
+					/>
+				</div>
+
+				<div class="flex flex-col gap-1">
+					<label for="azure_client_id" class="block text-xs font-semibold text-emphasis"
+						>Client ID</label
+					>
+					<span class="text-2xs text-secondary">The Azure AD application (service principal) client ID</span>
+					<TextInput
+						inputProps={{
+							type: 'text',
+							id: 'azure_client_id',
+							placeholder: '00000000-0000-0000-0000-000000000000',
+							disabled: disabled
+						}}
+						bind:value={$values['secret_backend'].client_id}
+					/>
+				</div>
+
+				<div class="flex flex-col gap-1 p-3 bg-surface-secondary rounded-lg">
+					<label for="azure_client_secret" class="block text-xs font-semibold text-emphasis"
+						>Client Secret</label
+					>
+					<span class="text-2xs text-secondary">The Azure AD application client secret for authentication</span>
+					<Password bind:password={$values['secret_backend'].client_secret} small {disabled} />
+				</div>
+			</div>
+
+			<!-- Action Buttons -->
+			<div class="flex flex-col gap-4 pt-4 border-t">
+				<div class="flex gap-2">
+					<Button
+						unifiedSize="md"
+						variant="accent"
+						onclick={testAzureKvConnection}
+						disabled={disabled || !isAzureKvConfigValid() || testingAzureKvConnection}
+						loading={testingAzureKvConnection}
+						startIcon={{ icon: Server }}
+					>
+						Test Connection
+					</Button>
+				</div>
+
+				<!-- Migration Section -->
+				<div class="flex flex-col gap-4 pt-4 border-t">
+					<span class="block text-xs font-semibold text-emphasis">Secret Migration</span>
+					<span class="text-2xs text-secondary">
+						Migrate secrets between the database and Azure Key Vault. Original values are NOT
+						deleted to allow for rollback.
+					</span>
+
+					<div class="flex gap-4">
+						<!-- Database to Azure KV -->
+						<div class="flex-1 p-3 border rounded-lg">
+							<div class="flex items-center gap-2 mb-2">
+								<Database size={16} />
+								<ArrowRight size={16} />
+								<Cloud size={16} />
+							</div>
+							<p class="text-xs font-medium mb-2">Database → Azure Key Vault</p>
+							<p class="text-2xs text-secondary mb-3">
+								Decrypt secrets from database and store in Azure Key Vault
+							</p>
+							<Button
+								unifiedSize="sm"
+								variant="default"
+								onclick={() => (migrateToAzureKvModalOpen = true)}
+								disabled={disabled || !isAzureKvConfigValid() || migratingToAzureKv}
+								startIcon={{ icon: ArrowRight }}
+							>
+								Migrate to Azure Key Vault
+							</Button>
+						</div>
+
+						<!-- Azure KV to Database -->
+						<div class="flex-1 p-3 border rounded-lg">
+							<div class="flex items-center gap-2 mb-2">
+								<Cloud size={16} />
+								<ArrowLeft size={16} />
+								<Database size={16} />
+							</div>
+							<p class="text-xs font-medium mb-2">Azure Key Vault → Database</p>
+							<p class="text-2xs text-secondary mb-3">
+								Read secrets from Azure Key Vault and encrypt in database
+							</p>
+							<Button
+								unifiedSize="sm"
+								variant="default"
+								onclick={() => (migrateFromAzureKvModalOpen = true)}
+								disabled={disabled || !isAzureKvConfigValid() || migratingFromAzureKv}
+								startIcon={{ icon: ArrowLeft }}
+							>
+								Migrate to Database
+							</Button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	
 	{/if}
 </div>
+
+<!-- Migrate to Azure Key Vault Modal -->
+<ConfirmationModal
+	title="Migrate Secrets to Azure Key Vault"
+	confirmationText="Migrate"
+	open={migrateToAzureKvModalOpen}
+	loading={migratingToAzureKv}
+	type="reload"
+	onCanceled={() => {
+		migrateToAzureKvModalOpen = false
+	}}
+	onConfirmed={migrateSecretsToAzureKv}
+>
+	{#snippet children()}
+		<div class="flex flex-col gap-2">
+			<p>
+				This will migrate all existing secrets from the database to Azure Key Vault. The process
+				will:
+			</p>
+			<ol class="list-decimal list-inside text-sm space-y-1">
+				<li>Read all encrypted secrets from the database</li>
+				<li>Decrypt them using the workspace encryption keys</li>
+				<li>Store them in Azure Key Vault</li>
+			</ol>
+			<p class="text-yellow-600 dark:text-yellow-400 text-sm mt-2">
+				Note: Database values are NOT deleted automatically. You can manually clear them after
+				verifying the migration was successful.
+			</p>
+			<p>Are you sure you want to proceed?</p>
+		</div>
+	{/snippet}
+</ConfirmationModal>
+
+<!-- Migrate from Azure Key Vault to Database Modal -->
+<ConfirmationModal
+	title="Migrate Secrets to Database"
+	confirmationText="Migrate"
+	open={migrateFromAzureKvModalOpen}
+	loading={migratingFromAzureKv}
+	type="reload"
+	onCanceled={() => {
+		migrateFromAzureKvModalOpen = false
+	}}
+	onConfirmed={migrateSecretsFromAzureKv}
+>
+	{#snippet children()}
+		<div class="flex flex-col gap-2">
+			<p>
+				This will migrate all secrets from Azure Key Vault back to the database. The process will:
+			</p>
+			<ol class="list-decimal list-inside text-sm space-y-1">
+				<li>List all secrets in Azure Key Vault for each workspace</li>
+				<li>Read each secret value from Azure Key Vault</li>
+				<li>Encrypt and store them in the database</li>
+			</ol>
+			<p class="text-yellow-600 dark:text-yellow-400 text-sm mt-2">
+				Note: Azure Key Vault values are NOT deleted automatically. Only secrets that already exist in the
+				database will be updated.
+			</p>
+			<p>Are you sure you want to proceed?</p>
+		</div>
+	{/snippet}
+</ConfirmationModal>
 
 <!-- Migrate to Vault Modal -->
 <ConfirmationModal
