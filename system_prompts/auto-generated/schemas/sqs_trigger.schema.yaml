@@ -9,6 +9,10 @@ properties:
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
   queue_url:
     type: string
     description: The full URL of the AWS SQS queue to poll for messages

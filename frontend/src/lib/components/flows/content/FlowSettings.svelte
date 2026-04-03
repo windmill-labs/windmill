@@ -20,6 +20,7 @@
 	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
 	import Badge from '$lib/components/Badge.svelte'
+	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import AIFormSettings from '$lib/components/copilot/AIFormSettings.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { inputBaseClass, inputBorderClass } from '$lib/components/text_input/TextInput.svelte'
@@ -124,6 +125,7 @@
 						}}
 					/>
 				</Label>
+				<LabelsInput bind:labels={(flowStore.val as any).labels} class="-mt-4" />
 
 				{#if !noEditor}
 					<Label label="Path">

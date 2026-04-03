@@ -478,6 +478,7 @@ export async function handleFile(
       on_behalf_of_email: typed?.on_behalf_of_email,
       envs: typed?.envs,
       modules: modules,
+      labels: typed?.labels,
     };
 
     // console.log(requestBodyCommon.codebase);

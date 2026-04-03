@@ -662,6 +662,7 @@
 				errorHandlerKind="script"
 				scriptOrFlowPath={script?.path ?? ''}
 				tag={script?.tag ?? ''}
+				labels={script?.labels}
 				on:seeTriggers={() => {
 					rightPaneSelected = 'triggers'
 				}}
@@ -672,7 +673,7 @@
 							if (newPath !== script?.path) {
 								await goto(`/scripts/get/${newPath}?workspace=${$workspaceStore}`)
 							} else {
-								loadScript(page.params.hash ?? '')
+								loadScript(newPath)
 							}
 						}
 					: undefined}

@@ -5660,6 +5660,10 @@ properties:
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
   gcp_resource_path:
     type: string
     description: Path to the GCP resource containing service account credentials for
@@ -5757,6 +5761,10 @@ properties:
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
   route_path:
     type: string
     description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint').
@@ -5887,6 +5895,10 @@ properties:
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
   kafka_resource_path:
     type: string
     description: Path to the Kafka resource containing connection configuration
@@ -5986,6 +5998,10 @@ properties:
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
   mqtt_resource_path:
     type: string
     description: Path to the MQTT resource containing broker connection configuration
@@ -6076,6 +6092,10 @@ properties:
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
   nats_resource_path:
     type: string
     description: Path to the NATS resource containing connection configuration
@@ -6153,6 +6173,10 @@ properties:
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
   postgres_resource_path:
     type: string
     description: Path to the PostgreSQL resource containing connection configuration
@@ -6331,6 +6355,10 @@ properties:
     type: string
     description: Path to a script that validates scheduled datetimes. Receives scheduled_for
       datetime and returns boolean to skip (true) or run (false)
+  labels:
+    type: array
+    items:
+      type: string
 required:
 - schedule
 - script_path
@@ -6350,6 +6378,10 @@ properties:
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
   queue_url:
     type: string
     description: The full URL of the AWS SQS queue to poll for messages
@@ -6426,6 +6458,10 @@ properties:
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
   url:
     type: string
     description: The WebSocket URL to connect to (can be a static URL or computed
