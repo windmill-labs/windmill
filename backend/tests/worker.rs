@@ -1,4 +1,5 @@
 use serde::de::DeserializeOwned;
+use serial_test::serial;
 
 #[cfg(feature = "enterprise")]
 use chrono::Timelike;
@@ -1505,6 +1506,7 @@ export async function main(a: Date) {
 }
 
 #[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
 async fn test_postgresql_job(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
@@ -1541,6 +1543,78 @@ SELECT 'hello ' || $1::text AS result;
     .unwrap();
 
     assert_eq!(result, json!([{"result": "hello world"}]));
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
+async fn test_postgresql_cached_connection_resets_session(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let db_arg = json!({"host": "localhost", "port": 5432, "dbname": "windmill", "user": "postgres", "password": "changeme"});
+
+    let make_pg_job = |content: String| {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+        }))
+        .arg("database", db_arg.clone())
+    };
+
+    // Run 3 jobs against the same database resource so that at least the
+    // second→third transition exercises the cached-connection path.
+    //
+    // Job 1: warm up — creates and (if eligible) caches the connection.
+    let result1 = make_pg_job("SELECT 1 as n;".into())
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+    assert_eq!(result1, json!([{"n": 1}]));
+
+    // Job 2: mutate session state — set a custom search_path.
+    let result2 = make_pg_job(
+        "SET search_path TO pg_catalog;\nSELECT current_setting('search_path') as sp;".into(),
+    )
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+    assert_eq!(
+        result2,
+        json!([{"sp": "pg_catalog"}]),
+        "second job should see the custom search_path it just set"
+    );
+
+    // Job 3: read search_path — RESET ALL (on cached conn) should have restored
+    // the default. Even if caching did not kick in (fresh conn), the default
+    // search_path is NOT pg_catalog, so this assertion holds either way.
+    let result3 = make_pg_job("SELECT current_setting('search_path') as sp;".into())
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+    let sp = result3[0]["sp"].as_str().unwrap();
+    assert_ne!(
+        sp, "pg_catalog",
+        "search_path must be reset between jobs, got: {sp}"
+    );
+
     Ok(())
 }
 
