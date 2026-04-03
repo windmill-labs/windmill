@@ -24,6 +24,7 @@ use tower_http::catch_panic::CatchPanicLayer;
 
 use crate::tracing_init::MyOnFailure;
 use crate::{
+    s3_log_batching::{s3_proxy_log_middleware, FLUSH_INTERVAL_MS},
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::OptAuthed,
     webhook_util::WebhookShared,
@@ -154,6 +155,7 @@ mod teams_approvals_oss;
 pub mod native_triggers;
 mod public_app_layer;
 mod public_app_rate_limit;
+mod s3_log_batching;
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
 pub mod stripe_ee;
@@ -561,6 +563,7 @@ pub async fn run_server(
                         .nest("/groups_history", group_history::workspaced_service())
                         .nest("/inputs", windmill_api_inputs::workspaced_service())
                         .nest("/internal_db", internal_db::workspaced_service())
+                        .route("/labels/list", get(list_workspace_labels))
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
@@ -952,13 +955,24 @@ pub async fn run_server(
     let app = if disable_response_logs {
         app
     } else {
-        app.layer(
-            TraceLayer::new_for_http()
-                .on_response(MyOnResponse {})
-                .make_span_with(MyMakeSpan {})
-                .on_request(())
-                .on_failure(MyOnFailure {}),
-        )
+        tokio::spawn(async {
+            let mut interval =
+                tokio::time::interval(std::time::Duration::from_millis(FLUSH_INTERVAL_MS));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                crate::s3_log_batching::flush_s3_batches();
+            }
+        });
+
+        app.layer(axum::middleware::from_fn(s3_proxy_log_middleware))
+            .layer(
+                TraceLayer::new_for_http()
+                    .on_response(MyOnResponse {})
+                    .make_span_with(MyMakeSpan {})
+                    .on_request(())
+                    .on_failure(MyOnFailure {}),
+            )
     };
 
     let app = if let Some(domain) = public_app_layer::PUBLIC_APP_DOMAIN.as_ref() {
@@ -1075,6 +1089,26 @@ async fn min_keep_alive_version() -> Json<serde_json::Value> {
 #[cfg(not(feature = "enterprise"))]
 async fn ee_license() -> &'static str {
     ""
+}
+
+async fn list_workspace_labels(
+    Extension(db): Extension<DB>,
+    axum::extract::Path(w_id): axum::extract::Path<String>,
+) -> windmill_common::error::JsonResult<Vec<String>> {
+    let labels = sqlx::query_scalar!(
+        "SELECT DISTINCT unnest(labels) as \"label!\" FROM (
+            SELECT labels FROM script WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM flow WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM resource WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM variable WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM schedule WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM app WHERE workspace_id = $1 AND labels IS NOT NULL
+        ) t ORDER BY 1",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(axum::Json(labels))
 }
 
 #[cfg(feature = "enterprise")]

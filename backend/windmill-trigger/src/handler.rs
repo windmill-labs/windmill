@@ -148,6 +148,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "edited_at",
             "extra_perms",
             "mode",
+            "labels",
         ];
 
         if Self::SUPPORTS_SERVER_STATE {
@@ -327,6 +328,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "edited_at",
             "extra_perms",
             "mode",
+            "labels",
         ];
 
         if Self::SUPPORTS_SERVER_STATE {
@@ -355,6 +357,12 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
             if let Some(path_start) = &query.path_start {
                 sqlb.and_where_like_left("path", path_start);
+            }
+
+            if let Some(label) = &query.label {
+                for l in label.split(',') {
+                    sqlb.and_where("labels @> ARRAY[?]".bind(&l.trim()));
+                }
             }
 
             sqlb.offset(offset).limit(per_page);
@@ -417,6 +425,7 @@ async fn create_trigger<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     let new_path = new_trigger.base.path.clone();
+    let labels = new_trigger.base.labels.clone();
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         new_trigger.base.permissioned_as.as_deref(),
         new_trigger.base.preserve_permissioned_as.unwrap_or(false),
@@ -427,6 +436,18 @@ async fn create_trigger<T: TriggerCrud>(
     handler
         .create_trigger(&db, &mut *tx, &authed, &workspace_id, new_trigger)
         .await?;
+
+    if let Some(ref labels) = labels {
+        sqlx::query(&format!(
+            "UPDATE {} SET labels = $1 WHERE workspace_id = $2 AND path = $3",
+            T::TABLE_NAME
+        ))
+        .bind(labels)
+        .bind(&workspace_id)
+        .bind(&new_path)
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -535,6 +556,7 @@ async fn update_trigger<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     let new_path = edit_trigger.base.path.to_string();
+    let labels = edit_trigger.base.labels.clone();
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         edit_trigger.base.permissioned_as.as_deref(),
         edit_trigger.base.preserve_permissioned_as.unwrap_or(false),
@@ -545,6 +567,18 @@ async fn update_trigger<T: TriggerCrud>(
     handler
         .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)
         .await?;
+
+    if let Some(ref labels) = labels {
+        sqlx::query(&format!(
+            "UPDATE {} SET labels = $1 WHERE workspace_id = $2 AND path = $3",
+            T::TABLE_NAME
+        ))
+        .bind(labels)
+        .bind(&workspace_id)
+        .bind(&new_path)
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

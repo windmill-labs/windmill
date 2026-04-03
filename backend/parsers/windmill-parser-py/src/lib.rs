@@ -366,6 +366,7 @@ pub fn parse_python_signature(
                 Some("lib".to_string())
             },
             has_preprocessor: Some(has_preprocessor),
+            ..Default::default()
         });
     }
 
@@ -477,6 +478,7 @@ pub fn parse_python_signature(
                 .collect(),
             auto_kind: None,
             has_preprocessor: Some(has_preprocessor),
+            ..Default::default()
         })
     } else {
         Ok(MainArgSignature {
@@ -489,6 +491,7 @@ pub fn parse_python_signature(
                 None
             },
             has_preprocessor: Some(has_preprocessor),
+            ..Default::default()
         })
     }
 }
@@ -755,7 +758,8 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                     },
                 ],
                 auto_kind: None,
-                has_preprocessor: Some(false)
+                has_preprocessor: Some(false),
+                            ..Default::default()
             }
         );
 
@@ -820,7 +824,8 @@ def main(test1: str,
                     }
                 ],
                 auto_kind: None,
-                has_preprocessor: Some(false)
+                has_preprocessor: Some(false),
+                            ..Default::default()
             }
         );
 
@@ -880,7 +885,8 @@ def main(test1: str,
                     }
                 ],
                 auto_kind: None,
-                has_preprocessor: Some(false)
+                has_preprocessor: Some(false),
+                            ..Default::default()
             }
         );
 
@@ -924,7 +930,8 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                     }
                 ],
                 auto_kind: None,
-                has_preprocessor: Some(false)
+                has_preprocessor: Some(false),
+                            ..Default::default()
             }
         );
 
@@ -955,7 +962,8 @@ def main(test1: DynSelect_foo): return
                     oidx: None
                 }],
                 auto_kind: None,
-                has_preprocessor: Some(false)
+                has_preprocessor: Some(false),
+                            ..Default::default()
             }
         );
 
@@ -979,7 +987,8 @@ def hello(): return
                 star_kwargs: false,
                 args: vec![],
                 auto_kind: Some("lib".to_string()),
-                has_preprocessor: Some(false)
+                has_preprocessor: Some(false),
+                            ..Default::default()
             }
         );
 
@@ -1007,7 +1016,8 @@ def main(): return
                 star_kwargs: false,
                 args: vec![],
                 auto_kind: None,
-                has_preprocessor: Some(true)
+                has_preprocessor: Some(true),
+                            ..Default::default()
             }
         );
 
@@ -1072,7 +1082,8 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                     }
                 ],
                 auto_kind: None,
-                has_preprocessor: Some(false)
+                has_preprocessor: Some(false),
+                            ..Default::default()
             }
         );
 
@@ -1121,7 +1132,8 @@ def main(a: str, b: Optional[str], c: str | None): return
                     },
                 ],
                 auto_kind: None,
-                has_preprocessor: Some(false)
+                has_preprocessor: Some(false),
+                            ..Default::default()
             }
         );
 
