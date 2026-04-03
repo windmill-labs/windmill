@@ -375,8 +375,6 @@ pub async fn do_postgresql(
         new_client = None;
     }
 
-    let has_cached_con = cached_client.is_some();
-
     let (sig, typed_schema) = parse_pgsql_sig_with_typed_schema(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?;
 
