@@ -8,10 +8,13 @@
 	import { sendUserToast } from '$lib/toast'
 	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
 	import Label from './Label.svelte'
+	import LabelsInput from './LabelsInput.svelte'
+	import Badge from './common/badge/Badge.svelte'
 
 	interface Props {
 		summary?: string
 		path?: string
+		labels?: string[] | undefined
 		editable?: boolean
 		onSaved?: (newPath: string) => void
 		kind?: 'flow' | 'script'
@@ -20,6 +23,7 @@
 	let {
 		summary = $bindable(''),
 		path = $bindable(''),
+		labels = $bindable(),
 		editable = false,
 		onSaved,
 		kind = 'flow'
@@ -32,12 +36,14 @@
 	let own = $state(false)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
 	let summaryInput: ReturnType<typeof TextInput> | undefined = $state()
-	let hasChanges = $derived(editSummary !== (summary ?? '') || (own && dirtyPath))
+	let labelsDirty = $state(false)
+	let hasChanges = $derived(editSummary !== (summary ?? '') || (own && dirtyPath) || labelsDirty)
 
 	$effect(() => {
 		if (popoverOpen && onSaved) {
 			editSummary = summary ?? ''
 			editPath = path ?? ''
+			labelsDirty = false
 			own = isOwner(path ?? '', $userStore, $workspaceStore)
 			onBehalfOfEmail = undefined
 			if (kind === 'flow' && $workspaceStore && path) {
@@ -58,9 +64,11 @@
 				kind,
 				initialPath,
 				newPath,
-				newSummary: editSummary
+				newSummary: editSummary,
+				labels
 			})
 			sendUserToast(`${kind === 'flow' ? 'Flow' : 'Script'} updated`)
+			labelsDirty = false
 			close()
 			onSaved?.(newPath)
 		} catch (e: any) {
@@ -90,13 +98,22 @@
 				<span class="text-2xs leading-tight text-tertiary font-mono font-normal truncate max-w-full"
 					>{path}</span
 				>
-				<span
-					class="text-sm font-semibold truncate max-w-full {emptyString(summary)
-						? 'text-tertiary italic font-normal'
-						: 'text-emphasis'}"
-				>
-					{emptyString(summary) ? 'Add a summary...' : summary}
-				</span>
+				<div class="flex items-center gap-3 max-w-full">
+					<span
+						class="text-sm font-semibold truncate {emptyString(summary)
+							? 'text-tertiary italic font-normal'
+							: 'text-emphasis'}"
+					>
+						{emptyString(summary) ? 'Add a summary...' : summary}
+					</span>
+					{#if labels?.length}
+						<div class="flex items-center gap-0.5">
+							{#each labels as label}
+								<Badge color="blue" verySmall class="px-1" title="Label: {label}">{label}</Badge>
+							{/each}
+						</div>
+					{/if}
+				</div>
 			</div>
 		{/snippet}
 		{#snippet content({ close })}
@@ -117,6 +134,13 @@
 							bind:value={editSummary}
 						/>
 					</Label>
+					<LabelsInput
+						bind:labels
+						class="-mt-4"
+						onchange={() => {
+							labelsDirty = true
+						}}
+					/>
 					<Label label="Path">
 						{#if own}
 							<Path

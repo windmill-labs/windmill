@@ -1,14 +1,16 @@
-import { FileCode, FileText, Clock, Braces, Users } from 'lucide-svelte'
+import { FileCode, FileText, Clock, Braces, Tag, Users } from 'lucide-svelte'
 import type { FilterSchemaRec } from '../FilterSearchbar.svelte'
 
 export function buildSchedulesFilterSchema({
 	paths,
 	scriptPaths,
+	labels,
 	showUserFoldersFilter,
 	userFoldersLabel
 }: {
 	paths: string[]
 	scriptPaths: string[]
+	labels?: string[]
 	showUserFoldersFilter?: boolean
 	userFoldersLabel?: string
 }) {
@@ -61,6 +63,15 @@ export function buildSchedulesFilterSchema({
 			label: 'Args subset',
 			icon: Braces,
 			description: 'Filter by JSON args subset match (e.g., {"param": "value"})'
+		},
+		label: {
+			type: 'oneof' as const,
+			options: (labels ?? []).map((s) => ({ label: s, value: s })),
+			allowNegative: false,
+			allowMultiple: true,
+			label: 'Label',
+			icon: Tag,
+			description: 'Filter by label (comma-separated for multiple)'
 		},
 		...(showUserFoldersFilter
 			? {

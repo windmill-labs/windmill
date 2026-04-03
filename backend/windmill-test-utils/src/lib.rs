@@ -606,7 +606,7 @@ pub async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
          j.flow_step_id IS NOT NULL AS is_flow_step, j.script_lang AS language, c.started_at,
          c.status = 'skipped' AS is_skipped, j.raw_lock, j.permissioned_as_email AS email, j.visible_to_owner,
          c.memory_peak AS mem_peak, j.tag, j.priority, NULL::TEXT AS logs, c.result_columns,
-         j.script_entrypoint_override, j.preprocessed, c.result->'wm_labels' as labels
+         j.script_entrypoint_override, j.preprocessed, j.labels
          FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1",
     )
     .bind(uuid)
@@ -896,6 +896,7 @@ pub async fn run_deployed_relative_imports(
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
                     windmill_common::runnable_settings::DebouncingSettings::default(),
+                labels: None,
             })
             .push(&db2)
             .await;

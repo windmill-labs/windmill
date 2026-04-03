@@ -1,16 +1,18 @@
-import { Boxes, FileCode, FileText, FolderIcon, Braces, Users } from 'lucide-svelte'
+import { Boxes, FileCode, FileText, FolderIcon, Braces, Users, Tag } from 'lucide-svelte'
 import type { FilterSchemaRec } from '../FilterSearchbar.svelte'
 
 export function buildResourcesFilterSchema({
 	paths,
 	resourceTypes,
 	owners,
+	labels,
 	showUserFoldersFilter,
 	userFoldersLabel
 }: {
 	paths: string[]
 	resourceTypes: string[]
 	owners: string[]
+	labels?: string[]
 	showUserFoldersFilter?: boolean
 	userFoldersLabel?: string
 }) {
@@ -64,6 +66,15 @@ export function buildResourcesFilterSchema({
 			label: 'Value subset',
 			icon: Braces,
 			description: 'Filter by JSON subset match (e.g., {"bucket": "my-bucket"})'
+		},
+		label: {
+			type: 'oneof' as const,
+			options: (labels ?? []).map((s) => ({ label: s, value: s })),
+			allowNegative: false,
+			allowMultiple: true,
+			label: 'Label',
+			icon: Tag,
+			description: 'Filter by label (comma-separated for multiple)'
 		},
 		...(showUserFoldersFilter
 			? {

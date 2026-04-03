@@ -867,6 +867,7 @@ pub struct ScriptHashInfo<SR> {
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
     pub created_by: String,
+    pub labels: Option<Vec<String>>,
     #[sqlx(flatten)]
     pub runnable_settings: SR,
 }
@@ -896,6 +897,7 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
             has_preprocessor: self.has_preprocessor,
             on_behalf_of_email: self.on_behalf_of_email,
             created_by: self.created_by,
+            labels: self.labels,
             runnable_settings: ScriptRunnableSettingsInline {
                 concurrency_settings: concurrency_settings.maybe_fallback(
                     self.runnable_settings.concurrency_key,
@@ -1064,6 +1066,7 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
                 has_preprocessor,
                 on_behalf_of_email,
                 created_by,
+                labels,
                 path
             FROM script WHERE hash = $1 AND workspace_id = $2",
     )
@@ -1083,6 +1086,7 @@ pub struct FlowVersionInfo {
     pub on_behalf_of_email: Option<String>,
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
+    pub labels: Option<Vec<String>>,
 }
 
 struct CachedFlowPath(String);
@@ -1210,7 +1214,8 @@ pub fn get_flow_version_info_from_version<
                                     flow.tag,
                                     flow.dedicated_worker,
                                     flow.on_behalf_of_email,
-                                    flow.edited_by
+                                    flow.edited_by,
+                                    flow.labels
                                 FROM
                                     flow_version
                                 INNER JOIN flow
@@ -1291,9 +1296,10 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<String>,
     String,
     Option<i64>,
+    Option<Vec<String>>,
 )> {
     let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by, labels FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
             script_path,
@@ -1322,6 +1328,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         script.on_behalf_of_email,
         script.created_by,
         script.runnable_settings_handle,
+        script.labels,
     ))
 }
 

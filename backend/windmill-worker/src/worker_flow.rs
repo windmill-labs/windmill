@@ -5090,8 +5090,13 @@ async fn flow_to_payload(
     } else {
         None
     };
-    let payload =
-        JobPayload::Flow { path, dedicated_worker: None, apply_preprocessor: false, version };
+    let payload = JobPayload::Flow {
+        path,
+        dedicated_worker: None,
+        apply_preprocessor: false,
+        version,
+        labels: None,
+    };
     Ok(JobPayloadWithTag { payload, tag, delete_after_use, timeout: None, on_behalf_of })
 }
 
@@ -5167,6 +5172,7 @@ pub async fn script_to_payload(
                 dedicated_worker,
                 priority,
                 apply_preprocessor: apply_preprocessor.unwrap_or(false),
+                labels: None,
             },
             tag_override.to_owned().or(tag),
             delete_after_use,
