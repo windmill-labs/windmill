@@ -53,7 +53,7 @@
 	}
 </script>
 
-<div class="inline-flex items-center gap-1 -mt-3 ml-0.5 h-5">
+<div class="inline-flex items-center gap-1 -mt-1 ml-0.5 h-5">
 	{#each labels ?? [] as label (label)}
 		<Badge color="blue" small>
 			{label}
