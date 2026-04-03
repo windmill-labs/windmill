@@ -334,7 +334,7 @@ const CJ_FIELDS: &[&str] = &[
     "null as concurrent_limit",
     "null as concurrency_time_window_s",
     "v2_job.priority",
-    "CASE WHEN v2_job.labels IS NOT NULL OR jsonb_typeof(v2_job_completed.result->'wm_labels') = 'array' THEN COALESCE(v2_job.labels, ARRAY[]::TEXT[]) || COALESCE(ARRAY(SELECT jsonb_array_elements_text(v2_job_completed.result->'wm_labels') WHERE jsonb_typeof(v2_job_completed.result->'wm_labels') = 'array'), ARRAY[]::TEXT[]) END as labels",
+    "v2_job.labels",
     "self_wait_time_ms",
     "aggregate_wait_time_ms",
     "v2_job.preprocessed",

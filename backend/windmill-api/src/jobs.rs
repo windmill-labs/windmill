@@ -970,7 +970,7 @@ macro_rules! get_job_query {
         get_job_query!(
             @impl "v2_job_completed", ($($opts)*),
             "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, \
-            CASE WHEN v2_job.labels IS NOT NULL OR jsonb_typeof(result->'wm_labels') = 'array' THEN COALESCE(v2_job.labels, ARRAY[]::TEXT[]) || COALESCE(ARRAY(SELECT jsonb_array_elements_text(result->'wm_labels') WHERE jsonb_typeof(result->'wm_labels') = 'array'), ARRAY[]::TEXT[]) END as labels, \
+            v2_job.labels, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
             "",
         )
@@ -7278,7 +7278,7 @@ async fn list_completed_jobs(
             "v2_job_completed.memory_peak as mem_peak",
             "v2_job.tag",
             "v2_job.priority",
-            "CASE WHEN v2_job.labels IS NOT NULL OR jsonb_typeof(v2_job_completed.result->'wm_labels') = 'array' THEN COALESCE(v2_job.labels, ARRAY[]::TEXT[]) || COALESCE(ARRAY(SELECT jsonb_array_elements_text(v2_job_completed.result->'wm_labels') WHERE jsonb_typeof(v2_job_completed.result->'wm_labels') = 'array'), ARRAY[]::TEXT[]) END as labels",
+            "v2_job.labels",
             args_field,
             "'CompletedJob' as type",
         ],

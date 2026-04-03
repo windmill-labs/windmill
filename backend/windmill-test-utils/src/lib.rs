@@ -478,7 +478,7 @@ pub async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
          j.flow_step_id IS NOT NULL AS is_flow_step, j.script_lang AS language, c.started_at,
          c.status = 'skipped' AS is_skipped, j.raw_lock, j.permissioned_as_email AS email, j.visible_to_owner,
          c.memory_peak AS mem_peak, j.tag, j.priority, NULL::TEXT AS logs, c.result_columns,
-         j.script_entrypoint_override, j.preprocessed, CASE WHEN j.labels IS NOT NULL OR jsonb_typeof(c.result->'wm_labels') = 'array' THEN COALESCE(j.labels, ARRAY[]::TEXT[]) || COALESCE(ARRAY(SELECT jsonb_array_elements_text(c.result->'wm_labels') WHERE jsonb_typeof(c.result->'wm_labels') = 'array'), ARRAY[]::TEXT[]) END as labels
+         j.script_entrypoint_override, j.preprocessed, j.labels
          FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1",
     )
     .bind(uuid)
