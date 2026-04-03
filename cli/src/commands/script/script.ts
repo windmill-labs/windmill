@@ -1274,7 +1274,7 @@ export async function generateMetadata(
     colors.yellow('This command is deprecated. Use "wmill generate-metadata" instead.')
   );
   log.info(
-    "This command only works for workspace scripts, for flows inline scripts use `wmill flow generate-locks`"
+    "This command only works for workspace scripts. For flows or apps, run `wmill generate-metadata` from the affected folder."
   );
   if (scriptPath == "") {
     scriptPath = undefined;
@@ -1695,8 +1695,11 @@ const command = new Command()
   .action(bootstrap as any)
   .command(
     "generate-metadata",
-    "re-generate the metadata file updating the lock and the script schema (for flows, use `wmill flow generate-locks`)"
+    'DEPRECATED: re-generate script metadata. Use top-level "wmill generate-metadata" instead.'
   )
+  // Deprecated compatibility command. Keep it working for older repos, but
+  // exclude it from generated system prompt docs.
+  // @deprecated use `wmill generate-metadata`
   .arguments("[script:file]")
   .option("--yes", "Skip confirmation prompt")
   .option("--dry-run", "Perform a dry run without making changes")
