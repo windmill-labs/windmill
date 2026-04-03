@@ -52,7 +52,6 @@
 	let allPaths: string[] = $state([])
 	let allOwners: string[] = $state([])
 	let allLabels: string[] = $state([])
-	let folders: string[] = $state([])
 
 	// FilterSearchbar setup
 	let userFoldersFilterType = $derived(
@@ -207,7 +206,6 @@
 	}
 
 	async function loadFolders() {
-		folders = await FolderService.listFolderNames({ workspace: $workspaceStore! })
 	}
 
 	$effect(() => {
@@ -369,7 +367,7 @@
 											</a>
 											{#if labels?.length}
 												{#each labels as label}
-													<Badge color="blue" small class="px-0.5">{label}</Badge>
+													<Badge color="blue" small class="px-1">{label}</Badge>
 												{/each}
 											{/if}
 										</div>

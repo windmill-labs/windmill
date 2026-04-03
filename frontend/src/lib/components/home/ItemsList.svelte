@@ -252,11 +252,6 @@
 			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
 		).sort()
 	)
-	let allLabels = $derived(
-		Array.from(
-			new Set(combinedItems?.flatMap((x) => ('labels' in x && x.labels) || []) ?? [])
-		).sort()
-	)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
 			;[archived, includeWithoutMain]
@@ -301,6 +296,11 @@
 				].sort((a, b) =>
 					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
 				)
+	)
+	let allLabels = $derived(
+		Array.from(
+			new Set(combinedItems?.flatMap((x) => ('labels' in x && x.labels) || []) ?? [])
+		).sort()
 	)
 	$effect(() => {
 		if ($workspaceStore) {

@@ -7,7 +7,6 @@
 	import { userStore } from '$lib/stores'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
-	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import type { TriggerContext } from '../triggers'
 	import { Calendar } from 'lucide-svelte'
 

@@ -328,7 +328,7 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
-						labels: flow.labels
+						labels: (flow as any).labels
 					}
 				})
 			}
@@ -501,7 +501,7 @@
 						on_behalf_of_email: flow.on_behalf_of_email,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
-						labels: flow.labels
+						labels: (flow as any).labels
 					}
 				})
 				await CaptureService.moveCapturesAndConfigs({
@@ -555,7 +555,7 @@
 						on_behalf_of_email: flow.on_behalf_of_email,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
-						labels: flow.labels
+						labels: (flow as any).labels
 					}
 				})
 			}

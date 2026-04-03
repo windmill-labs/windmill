@@ -343,7 +343,7 @@
 								</a>
 								{#if labels?.length}
 									{#each labels as label}
-										<Badge color="blue" small class="px-0.5">{label}</Badge>
+										<Badge color="blue" small class="px-1">{label}</Badge>
 									{/each}
 								{/if}
 

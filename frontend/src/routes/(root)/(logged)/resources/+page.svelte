@@ -130,7 +130,6 @@
 	})
 
 	let showCreateButtons = $state(false)
-	let folders: string[] = $state([])
 
 	// FilterSearchbar setup
 	let userFoldersFilterType = $derived(
@@ -570,16 +569,11 @@
 			})
 		}
 	})
-	async function loadFolders() {
-		folders = await FolderService.listFolderNames({ workspace: $workspaceStore! })
-	}
-
 	$effect(() => {
 		if ($workspaceStore && $userStore) {
 			untrack(() => {
 				loadResources()
 				loadResourceTypes()
-				loadFolders()
 			})
 		}
 	})
@@ -985,11 +979,11 @@
 													>{#if marked}{@html marked}{:else}{path}{/if}</a
 												>
 												{#if labels?.length}
-										<div class="flex items-center gap-0.5">
-													{#each labels as label}
-														<Badge color="blue" small class="px-0.5">{label}</Badge>
-													{/each}
-										</div>
+													<div class="flex items-center gap-0.5">
+														{#each labels as label}
+															<Badge color="blue" small class="px-1">{label}</Badge>
+														{/each}
+													</div>
 												{/if}
 											</div>
 										</Cell>

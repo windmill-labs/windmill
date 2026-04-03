@@ -125,7 +125,7 @@
 						}}
 					/>
 				</Label>
-				<LabelsInput bind:labels={flowStore.val.labels} />
+				<LabelsInput bind:labels={(flowStore.val as any).labels} />
 
 				{#if !noEditor}
 					<Label label="Path">

@@ -99,10 +99,10 @@
 		{#if app.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each app.labels.slice(0, 3) as label}
-					<Badge color="blue" small class="px-0.5">{label}</Badge>
+					<Badge color="blue" small class="px-1">{label}</Badge>
 				{/each}
 				{#if app.labels.length > 3}
-					<Badge color="blue" small class="px-0.5">+{app.labels.length - 3}</Badge>
+					<Badge color="blue" small class="px-1">+{app.labels.length - 3}</Badge>
 				{/if}
 			</div>
 		{/if}

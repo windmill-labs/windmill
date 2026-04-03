@@ -90,7 +90,7 @@
 				small
 				icon={{ icon: Tag, position: 'left' }}
 				title="Label: {label}"
-				class="px-0.5">{label}</Badge
+				class="px-1">{label}</Badge
 			>
 		</div>
 	{/each}
