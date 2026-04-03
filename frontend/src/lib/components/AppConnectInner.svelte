@@ -2,6 +2,7 @@
 	import { run } from 'svelte/legacy'
 
 	import { userStore, workspaceStore } from '$lib/stores'
+	import LabelsInput from './LabelsInput.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
 		OauthService,
@@ -109,6 +110,7 @@
 	let responseExtra: Record<string, string> = $state({})
 	let path: string = $state('')
 	let description = $state('')
+	let labels: string[] | undefined = $state(undefined)
 
 	/**
 	 * Client credentials OAuth flow support
@@ -144,6 +146,7 @@
 		step = 1 //express && !manual ? 3 : 1
 		value = ''
 		description = ''
+		labels = undefined
 		resourceType = rt ?? ''
 		valueToken = undefined
 
@@ -568,7 +571,8 @@
 					resource_type: resourceType,
 					path,
 					value: resourceValue,
-					description
+					description,
+					labels
 				}
 			})
 			dispatch('refresh', path)
@@ -932,6 +936,7 @@
 			bind:path
 			kind="resource"
 		/>
+		<LabelsInput bind:labels />
 		{#if apiTokenApps[resourceType] || !manual}
 			<ul class="mt-6">
 				<li class="text-xs text-primary font-normal">
