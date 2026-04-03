@@ -369,12 +369,6 @@ pub async fn do_postgresql(
     let size = AtomicUsize::new(0);
     let size_ref = &size;
     let result_f = async move {
-        // Reset all session state (role, search_path, statement_timeout, etc.) to defaults
-        // to prevent state leaking between unrelated script executions sharing this cached connection.
-        if has_cached_con {
-            let _ = client.simple_query("RESET ALL").await;
-        }
-
         let mut results = vec![];
         for (i, query) in queries.iter().enumerate() {
             if annotations.prepare {
@@ -405,7 +399,7 @@ pub async fn do_postgresql(
                 continue;
             }
 
-            let result = do_postgresql_inner(
+            let inner_fut = do_postgresql_inner(
                 query.to_string(),
                 &param_idx_to_arg_and_value,
                 client,
@@ -424,8 +418,23 @@ pub async fn do_postgresql(
                 collection_strategy.collect_first_row_only(),
                 s3.clone(),
                 typed_schema,
-            )?
-            .await?;
+            )?;
+
+            // For cached connections, pipeline RESET ALL with the first query using
+            // tokio::join! so both messages are sent on the wire before either response
+            // is read — zero additional round-trip latency. This resets session state
+            // (role, search_path, statement_timeout, etc.) to prevent leaking between
+            // unrelated script executions sharing this cached connection.
+            let result = if i == 0 && has_cached_con {
+                let (reset_result, query_result) =
+                    tokio::join!(client.simple_query("RESET ALL"), inner_fut);
+                if let Err(e) = reset_result {
+                    tracing::warn!("Failed to RESET ALL on cached pg connection: {e}");
+                }
+                query_result?
+            } else {
+                inner_fut.await?
+            };
             results.push(result);
         }
 
