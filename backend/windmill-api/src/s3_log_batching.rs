@@ -51,7 +51,15 @@ fn extract_workspace_and_object_key(uri: &str) -> (&str, &str) {
     (workspace, object_key)
 }
 
+const MAX_BATCH_ENTRIES: usize = 10_000;
+
 pub(crate) fn record_s3_log(uri: &str, method: &str, status: u16, latency_ms: u128) {
+    // Prevent DOS by limiting the number of entries in the batch
+    if S3_LOG_BATCHES.len() >= MAX_BATCH_ENTRIES {
+        tracing::info!(latency = latency_ms, status = status, "response");
+        return;
+    }
+
     let (workspace, object_key) = extract_workspace_and_object_key(uri);
     let key = S3ProxyKey {
         workspace: workspace.to_string(),
