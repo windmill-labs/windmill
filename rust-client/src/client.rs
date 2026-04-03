@@ -241,6 +241,7 @@ impl Windmill {
                     account: None,
                     is_oauth: None,
                     expires_at: None,
+                    labels: None,
                 },
                 None,
             )
@@ -255,6 +256,7 @@ impl Windmill {
                     value: Some(value),
                     is_secret: None,
                     description: None,
+                    labels: None,
                 },
                 None,
             )
@@ -400,7 +402,7 @@ impl Windmill {
                     value,
                     description: None,
                     resource_type: resource_type.to_owned(),
-                    // resource_type: "any".to_owned(),
+                    labels: None,
                 },
                 // Some(true),
                 None,
@@ -416,6 +418,7 @@ impl Windmill {
                     description: None,
                     value: Some(value),
                     resource_type: Some(resource_type.to_owned()),
+                    labels: None,
                 },
             )
             .await?;

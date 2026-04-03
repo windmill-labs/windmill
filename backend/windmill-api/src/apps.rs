@@ -158,6 +158,8 @@ pub struct ListableApp {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub raw_app: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -190,6 +192,8 @@ pub struct AppWithLastVersion {
     #[sqlx(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bundle_secret: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -288,6 +292,8 @@ pub struct CreateApp {
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -299,6 +305,8 @@ pub struct EditApp {
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -354,6 +362,7 @@ async fn list_apps(
             "draft.path IS NOT NULL as has_draft",
             "draft_only",
             "app_version.raw_app",
+            "app.labels",
         ])
         .left()
         .join("favorite")
@@ -392,6 +401,12 @@ async fn list_apps(
 
     if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
         sqlb.and_where("app.draft_only IS NOT TRUE");
+    }
+
+    if let Some(label) = &lq.label {
+        for l in label.split(',') {
+            sqlb.and_where("app.labels @> ARRAY[?]".bind(&l.trim()));
+        }
     }
 
     if lq.with_deployment_msg.unwrap_or(false) {
@@ -543,8 +558,8 @@ async fn get_app(
     let app_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-            app.extra_perms, app_version.value, 
-            app_version.created_at, app_version.created_by, favorite.path IS NOT NULL as starred, app_version.raw_app
+            app.extra_perms, app_version.value,
+            app_version.created_at, app_version.created_by, favorite.path IS NOT NULL as starred, app_version.raw_app, app.labels
             FROM app
             JOIN app_version
             ON app_version.id = app.versions[array_upper(app.versions, 1)]
@@ -563,8 +578,8 @@ async fn get_app(
     } else {
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-            app.extra_perms, app_version.value, 
-            app_version.created_at, app_version.created_by, NULL as starred, app_version.raw_app
+            app.extra_perms, app_version.value,
+            app_version.created_at, app_version.created_by, NULL as starred, app_version.raw_app, app.labels
             FROM app, app_version
             WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
         )
@@ -590,8 +605,8 @@ async fn get_app_lite(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-        app.extra_perms, coalesce(app_version_lite.value::json, app_version.value) as value, 
-        app_version.created_at, app_version.created_by, NULL as starred, app_version.raw_app
+        app.extra_perms, coalesce(app_version_lite.value::json, app_version.value) as value,
+        app_version.created_at, app_version.created_by, NULL as starred, app_version.raw_app, app.labels
         FROM app, app_version
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
@@ -631,7 +646,8 @@ async fn get_app_w_draft(
             app_version.created_by,
             app.draft_only,
             draft.value AS "draft",
-            app_version.raw_app
+            app_version.raw_app,
+            app.labels
         FROM app
         INNER JOIN app_version 
             ON app_version.id = app.versions[array_upper(app.versions, 1)]
@@ -773,9 +789,9 @@ async fn get_app_by_id(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-        app.extra_perms, app_version.value, 
-        app_version.created_at, app_version.created_by, app_version.raw_app
-        FROM app, app_version 
+        app.extra_perms, app_version.value,
+        app_version.created_at, app_version.created_by, app_version.raw_app, app.labels
+        FROM app, app_version
         WHERE app_version.id = $1 AND app.id = app_version.app_id AND app.workspace_id = $2",
     )
     .bind(&id)
@@ -802,7 +818,7 @@ async fn get_public_app_by_secret(
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
         null as extra_perms, coalesce(app_version_lite.value::json, app_version.value::json) as value,
-        app_version.created_at, app_version.created_by, app_version.raw_app
+        app_version.created_at, app_version.created_by, app_version.raw_app, app.labels
         FROM app, app_version
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]")
@@ -1270,8 +1286,8 @@ async fn create_app_internal<'a>(
     .await?;
     let id = sqlx::query_scalar!(
         "INSERT INTO app
-            (workspace_id, path, summary, policy, versions, draft_only, custom_path)
-            VALUES ($1, $2, $3, $4, '{}', $5, $6) RETURNING id",
+            (workspace_id, path, summary, policy, versions, draft_only, custom_path, labels)
+            VALUES ($1, $2, $3, $4, '{}', $5, $6, $7) RETURNING id",
         w_id,
         app.path,
         app.summary,
@@ -1280,7 +1296,8 @@ async fn create_app_internal<'a>(
         app.custom_path
             .as_ref()
             .map(|s| if s.is_empty() { None } else { Some(s) })
-            .flatten()
+            .flatten(),
+        app.labels.as_deref() as Option<&[String]>
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -1707,6 +1724,7 @@ async fn update_app_internal<'a>(
         || ns.path.is_some()
         || ns.summary.is_some()
         || ns.custom_path.is_some()
+        || ns.labels.is_some()
     {
         let mut sqlb = SqlBuilder::update_table("app");
         sqlb.and_where_eq("path", "?".bind(&path));
@@ -1794,7 +1812,20 @@ async fn update_app_internal<'a>(
 
         let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
         let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
-        not_found_if_none(npath_o, "App", path)?
+        let npath_val = not_found_if_none(npath_o, "App", path)?;
+
+        if let Some(nlabels) = &ns.labels {
+            sqlx::query!(
+                "UPDATE app SET labels = $1 WHERE path = $2 AND workspace_id = $3",
+                nlabels as &[String],
+                &npath_val,
+                w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        npath_val
     } else {
         path.to_owned()
     };

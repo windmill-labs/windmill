@@ -563,6 +563,7 @@ pub async fn run_server(
                         .nest("/groups_history", group_history::workspaced_service())
                         .nest("/inputs", windmill_api_inputs::workspaced_service())
                         .nest("/internal_db", internal_db::workspaced_service())
+                        .route("/labels/list", get(list_workspace_labels))
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
@@ -1088,6 +1089,26 @@ async fn min_keep_alive_version() -> Json<serde_json::Value> {
 #[cfg(not(feature = "enterprise"))]
 async fn ee_license() -> &'static str {
     ""
+}
+
+async fn list_workspace_labels(
+    Extension(db): Extension<DB>,
+    axum::extract::Path(w_id): axum::extract::Path<String>,
+) -> windmill_common::error::JsonResult<Vec<String>> {
+    let labels = sqlx::query_scalar!(
+        "SELECT DISTINCT unnest(labels) as \"label!\" FROM (
+            SELECT labels FROM script WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM flow WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM resource WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM variable WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM schedule WHERE workspace_id = $1 AND labels IS NOT NULL
+            UNION ALL SELECT labels FROM app WHERE workspace_id = $1 AND labels IS NOT NULL
+        ) t ORDER BY 1",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(axum::Json(labels))
 }
 
 #[cfg(feature = "enterprise")]

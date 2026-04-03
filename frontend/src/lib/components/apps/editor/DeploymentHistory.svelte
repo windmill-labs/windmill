@@ -4,17 +4,28 @@
 	const bubble = createBubbler()
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
-	import { classNames, displayDate, emptyString } from '$lib/utils'
+	import {
+		classNames,
+		cleanValueProperties,
+		displayDate,
+		emptyString,
+		orderedYamlStringify,
+		replaceFalseWithUndefined,
+		type Value
+	} from '$lib/utils'
 	import { AppService, type AppWithLastVersion, type AppHistory } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { Pencil, ArrowRight, X, Loader2 } from 'lucide-svelte'
+	import Select from '$lib/components/select/Select.svelte'
 
 	interface Props {
 		appPath: string | undefined
 	}
+
+	type HistoryApp = AppWithLastVersion & { value: any }
 
 	let { appPath }: Props = $props()
 	let loading: boolean = $state(false)
@@ -22,10 +33,25 @@
 	let versions: AppHistory[] = $state([])
 
 	let selectedVersion: AppHistory | undefined = $state(undefined)
-	let selected: (AppWithLastVersion & { value: any }) | undefined = $state(undefined)
+	let selected: HistoryApp | undefined = $state(undefined)
+	let previousVersion: HistoryApp | undefined = $state(undefined)
+	let selectedVersionIndex: number | undefined = $state(undefined)
+	let previousVersionId: number | undefined = $state(undefined)
+	let versionCache: Record<number, HistoryApp> = $state({})
 
 	let deploymentMsgUpdateMode = $state(false)
 	let deploymentMsgUpdate: string | undefined = $state(undefined)
+
+	async function getVersionApp(version: number): Promise<HistoryApp> {
+		const cached = versionCache[version]
+		if (cached) {
+			return cached
+		}
+
+		const app = await AppService.getAppByVersion({ workspace: $workspaceStore!, id: version })
+		versionCache[version] = app
+		return app
+	}
 
 	async function loadVersions() {
 		if (appPath === undefined) {
@@ -40,10 +66,18 @@
 		loading = false
 	}
 
-	async function loadValue(version: number) {
-		let app = await AppService.getAppByVersion({ workspace: $workspaceStore!, id: version })
+	async function loadSelectedVersion(version: number) {
+		const app = await getVersionApp(version)
+		if (selectedVersion?.version === version) {
+			selected = app
+		}
+	}
 
-		selected = app
+	async function loadPreviousVersion(version: number) {
+		const app = await getVersionApp(version)
+		if (previousVersionId === version) {
+			previousVersion = app
+		}
 	}
 
 	async function updateDeploymentMsg(appId: number | undefined, appVersion: number | undefined) {
@@ -68,13 +102,67 @@
 		loadVersions()
 	}
 
+	function toComparableVersionValue(app: HistoryApp): Value {
+		return app.value as Value
+	}
+
+	function toVersionLabel(version: AppHistory): string {
+		return emptyString(version.deployment_msg) ? `Version ${version.version}` : version.deployment_msg!
+	}
+
+	let availableVersions = $derived(
+		selectedVersionIndex !== undefined ? versions.slice(selectedVersionIndex + 1) : []
+	)
+
+	let compareVersionItems = $derived(
+		availableVersions.map((version) => ({
+			label: toVersionLabel(version),
+			value: version.version
+		}))
+	)
+
+	let selectedVersionYaml = $derived.by(() => {
+		if (!selected) return undefined
+		return orderedYamlStringify(
+			replaceFalseWithUndefined(cleanValueProperties(toComparableVersionValue(selected)))
+		)
+	})
+
+	let previousVersionYaml = $derived.by(() => {
+		if (!previousVersion) return undefined
+		return orderedYamlStringify(
+			replaceFalseWithUndefined(cleanValueProperties(toComparableVersionValue(previousVersion)))
+		)
+	})
+
 	const dispatch = createEventDispatcher()
 	loadVersions()
 	$effect(() => {
 		selectedVersion?.version !== undefined &&
 			untrack(() => {
-				selectedVersion && loadValue(selectedVersion.version!)
+				selectedVersion && loadSelectedVersion(selectedVersion.version!)
 			})
+	})
+	$effect(() => {
+		if (previousVersionId === undefined) {
+			previousVersion = undefined
+			return
+		}
+
+		const version = previousVersionId
+		untrack(() => {
+			loadPreviousVersion(version)
+		})
+	})
+	$effect(() => {
+		if (availableVersions.length === 0) {
+			previousVersionId = undefined
+			return
+		}
+
+		if (!availableVersions.some((version) => version.version === previousVersionId)) {
+			previousVersionId = availableVersions[0]?.version
+		}
 	})
 </script>
 
@@ -85,7 +173,7 @@
 				{#if !loading}
 					{#if versions.length > 0}
 						<div class="flex gap-2 flex-col">
-							{#each versions ?? [] as version}
+							{#each versions ?? [] as version, versionIndex}
 								<!-- svelte-ignore a11y_click_events_have_key_events -->
 								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div
@@ -95,12 +183,14 @@
 									)}
 									onclick={() => {
 										selectedVersion = version
+										selectedVersionIndex = versionIndex
+										previousVersionId = versions[versionIndex + 1]?.version
 										deploymentMsgUpdateMode = false
 										deploymentMsgUpdate = undefined
 									}}
 								>
 									<span class="text-xs truncate">
-										{#if emptyString(version.deployment_msg)}Version {version.version}{:else}{version.deployment_msg}{/if}
+										{toVersionLabel(version)}
 									</span>
 								</div>
 							{/each}
@@ -182,7 +272,10 @@
 						<div class="flex p-1 gap-2">
 							<Button
 								size="xs"
-								on:click={() => window.open(`/apps/add?template_id=${selectedVersion?.version}`)}
+								on:click={() =>
+									window.open(
+										`${selected?.raw_app ? '/apps_raw' : '/apps'}/add?template_id=${selectedVersion?.version}`
+									)}
 							>
 								Restore as fork
 							</Button>
@@ -192,11 +285,43 @@
 						</div>
 					</div>
 
-					{#await import('$lib/components/apps/editor/AppPreview.svelte')}
-						<Loader2 class="animate-spin" />
-					{:then Module}
-						<Module.default noBackend app={selected.value} context={{}} />
-					{/await}
+					<div class="flex flex-col gap-2">
+						{#if availableVersions.length > 0}
+							<div class="flex flex-row items-center gap-2 py-2">
+								<div class="text-xs">Compare with:</div>
+								<Select
+									items={compareVersionItems}
+									bind:value={previousVersionId}
+									class="w-56"
+									size="sm"
+								/>
+							</div>
+
+							<div class="h-[calc(100vh-260px)] min-h-[420px]">
+								{#if previousVersionYaml && selectedVersionYaml}
+									{#await import('$lib/components/DiffEditor.svelte')}
+										<Loader2 class="animate-spin" />
+									{:then Module}
+										<Module.default
+											open={true}
+											automaticLayout
+											className="h-full"
+											defaultLang="yaml"
+											defaultOriginal={previousVersionYaml}
+											defaultModified={selectedVersionYaml}
+											readOnly
+										/>
+									{/await}
+								{:else}
+									<Loader2 class="animate-spin" />
+								{/if}
+							</div>
+						{:else}
+							<div class="text-sm p-2 text-primary">
+								No older deployment is available to compare with this version.
+							</div>
+						{/if}
+					</div>
 				{:else}
 					<Skeleton layout={[[40]]} />
 				{/if}
