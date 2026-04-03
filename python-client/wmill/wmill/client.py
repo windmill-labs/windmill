@@ -66,6 +66,11 @@ class Windmill:
             f"workspace required as an argument or as WM_WORKSPACE environment variable"
         )
 
+    def worker_has_internal_server(self) -> bool:
+        return bool(
+            re.match(r"^https?://(localhost|127\.0\.0\.1)(:|/|$)", self.base_url or "")
+        )
+
     def get_mocked_api(self) -> Optional[dict]:
         mocked_path = os.environ.get("WM_MOCKED_API_FILE")
         if not mocked_path:
@@ -326,8 +331,15 @@ class Windmill:
         language: str,
         args: dict = None,
     ) -> Any:
-        """Run a script on the current worker without creating a job"""
-        endpoint = f"/w/{self.workspace}/jobs/run_inline/preview"
+        """Run a script on the current worker without creating a job.
+
+        On agent workers (no internal server), falls back to running a normal
+        preview job and waiting for the result.
+        """
+        if self.worker_has_internal_server():
+            endpoint = f"/w/{self.workspace}/jobs/run_inline/preview"
+        else:
+            endpoint = f"/w/{self.workspace}/jobs/run_wait_result/preview"
         body = {
             "content": content,
             "language": language,

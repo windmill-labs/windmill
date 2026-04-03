@@ -1,4 +1,4 @@
-import { getWorkspace } from "./client";
+import { getWorkspace, workerHasInternalServer } from "./client";
 import { JobService } from "./services.gen";
 
 type ResultCollection =
@@ -223,10 +223,18 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
       if (resultCollection)
         content = `-- result_collection=${resultCollection}\n${content}`;
       try {
-        let result = await JobService.runScriptPreviewInline({
-          workspace: getWorkspace(),
-          requestBody: { args, content, language: provider.language },
-        });
+        let result;
+        if (workerHasInternalServer()) {
+          result = await JobService.runScriptPreviewInline({
+            workspace: getWorkspace(),
+            requestBody: { args, content, language: provider.language },
+          });
+        } else {
+          result = await JobService.runScriptPreviewAndWaitResult({
+            workspace: getWorkspace(),
+            requestBody: { args, content, language: provider.language },
+          });
+        }
         return result as SqlResult<any, ResultCollectionT>;
       } catch (e: any) {
         let err = e;

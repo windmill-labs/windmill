@@ -2,6 +2,8 @@
 
 Import: import * as wmill from 'windmill-client'
 
+workerHasInternalServer(): boolean
+
 /**
  * Initialize the Windmill client with authentication token and base URL
  * @param token - Authentication token (defaults to WM_TOKEN env variable)

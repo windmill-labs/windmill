@@ -43,6 +43,10 @@ export const SHARED_FOLDER = "/shared";
 
 let mockedApi: MockedApi | undefined = undefined;
 
+export function workerHasInternalServer(): boolean {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(OpenAPI.BASE ?? "");
+}
+
 /**
  * Initialize the Windmill client with authentication token and base URL
  * @param token - Authentication token (defaults to WM_TOKEN env variable)
