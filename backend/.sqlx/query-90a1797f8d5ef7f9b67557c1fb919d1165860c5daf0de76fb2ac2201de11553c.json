@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_diff (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)\n            SELECT $1, unnest($2::varchar[]), $3, $4, 0, 1, NULL\n            ON CONFLICT (source_workspace_id, fork_workspace_id, path, kind)\n            DO UPDATE SET\n                behind = workspace_diff.behind + 1,\n                has_changes = NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "VarcharArray",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "90a1797f8d5ef7f9b67557c1fb919d1165860c5daf0de76fb2ac2201de11553c"
+}

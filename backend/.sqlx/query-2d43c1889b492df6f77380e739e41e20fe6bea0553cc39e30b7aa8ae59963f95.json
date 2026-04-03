@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock)\n        VALUES ('test-workspace', 1234567890, 'f/test/success_handler', $1, 'deno', 'script', 'test-user', '{}', 'Success handler script', 'Handles successful job completions', '')\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2d43c1889b492df6f77380e739e41e20fe6bea0553cc39e30b7aa8ae59963f95"
+}

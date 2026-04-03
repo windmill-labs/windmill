@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('7 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = EXCLUDED.lockfile, expiration = EXCLUDED.expiration",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a860dd9722f608184c4b1ef5e609b20cd61f9967a2012fc1c8fe352ee7596358"
+}
