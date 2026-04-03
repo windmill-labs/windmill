@@ -218,6 +218,17 @@
 					const parsed = parseTag(tag)
 					if (!parsed) return
 
+					if (disabled) {
+						// Read-only: just show path info, skip API calls
+						newInfo.set(tag, {
+							tag,
+							workspace: parsed.workspace,
+							type: parsed.type,
+							path: parsed.path
+						})
+						return
+					}
+
 					if (parsed.type === 'script') {
 						const depInfo = depsPerWorkspace.get(parsed.workspace)?.get(parsed.path)
 						let scriptLang = depInfo?.language
@@ -650,7 +661,7 @@
 								{@render depBadge(dep, info?.workspace)}
 							{/each}
 						{/if}
-						{#if info.type === 'flow' && info.runners}
+						{#if info.type === 'flow' && info.runners && info.runners.length > 0}
 							<Badge color="indigo" small>
 								{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
 							</Badge>
@@ -725,159 +736,162 @@
 		</div>
 	{/if}
 
-	<!-- Collapsible selector section -->
-	<div class="border rounded-md">
-		<button
-			class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-hover transition-colors"
-			onclick={() => (selectorExpanded = !selectorExpanded)}
-			{disabled}
-		>
+	<!-- Collapsible selector section (hidden for read-only users) -->
+	{#if !disabled}
+		<div class="border rounded-md">
+			<button
+				class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-hover transition-colors"
+				onclick={() => (selectorExpanded = !selectorExpanded)}
+			>
+				{#if selectorExpanded}
+					<ChevronDown class="h-4 w-4 text-secondary" />
+				{:else}
+					<ChevronRight class="h-4 w-4 text-secondary" />
+				{/if}
+				<span class="text-sm">
+					{selectedTags.length > 0 ? 'Add more scripts/flows' : 'Select scripts/flows'}
+				</span>
+			</button>
+
 			{#if selectorExpanded}
-				<ChevronDown class="h-4 w-4 text-secondary" />
-			{:else}
-				<ChevronRight class="h-4 w-4 text-secondary" />
-			{/if}
-			<span class="text-sm">
-				{selectedTags.length > 0 ? 'Add more scripts/flows' : 'Select scripts/flows'}
-			</span>
-		</button>
+				<div class="border-t px-3 py-3 flex flex-col gap-3">
+					<!-- Workspace selector -->
+					<div class="flex flex-col gap-1">
+						<span class="text-xs text-secondary">Workspace</span>
+						<Select
+							bind:value={selectedWorkspace}
+							items={workspaces.map((w) => ({ value: w.id, label: `${w.name} (${w.id})` }))}
+							placeholder="Select workspace..."
+							disabled={disabled || workspacesLoading}
+						/>
+					</div>
 
-		{#if selectorExpanded}
-			<div class="border-t px-3 py-3 flex flex-col gap-3">
-				<!-- Workspace selector -->
-				<div class="flex flex-col gap-1">
-					<span class="text-xs text-secondary">Workspace</span>
-					<Select
-						bind:value={selectedWorkspace}
-						items={workspaces.map((w) => ({ value: w.id, label: `${w.name} (${w.id})` }))}
-						placeholder="Select workspace..."
-						disabled={disabled || workspacesLoading}
-					/>
-				</div>
+					<!-- Scripts/flows list -->
+					{#if selectedWorkspace}
+						<div class="flex flex-col gap-2">
+							<div class="flex items-center justify-between">
+								<span class="text-xs text-secondary"
+									>Scripts/flows with dedicated worker enabled</span
+								>
+								{#if !loading && runnables.length > 0}
+									<div class="flex gap-1">
+										<Button size="xs2" color="light" on:click={selectAll} {disabled}>All</Button>
+										<Button size="xs2" color="light" on:click={deselectAll} {disabled}>None</Button>
+										<Button
+											size="xs2"
+											color="light"
+											iconOnly
+											startIcon={{ icon: RefreshCcw }}
+											on:click={() => selectedWorkspace && loadRunnables(selectedWorkspace)}
+											{disabled}
+										/>
+									</div>
+								{/if}
+							</div>
 
-				<!-- Scripts/flows list -->
-				{#if selectedWorkspace}
-					<div class="flex flex-col gap-2">
-						<div class="flex items-center justify-between">
-							<span class="text-xs text-secondary">Scripts/flows with dedicated worker enabled</span
-							>
-							{#if !loading && runnables.length > 0}
-								<div class="flex gap-1">
-									<Button size="xs2" color="light" on:click={selectAll} {disabled}>All</Button>
-									<Button size="xs2" color="light" on:click={deselectAll} {disabled}>None</Button>
-									<Button
-										size="xs2"
-										color="light"
-										iconOnly
-										startIcon={{ icon: RefreshCcw }}
-										on:click={() => selectedWorkspace && loadRunnables(selectedWorkspace)}
-										{disabled}
-									/>
+							{#if loading}
+								<div class="flex items-center justify-center py-4">
+									<RefreshCcw class="animate-spin h-4 w-4 text-secondary" />
+									<span class="ml-2 text-xs text-secondary">Loading...</span>
 								</div>
-							{/if}
-						</div>
-
-						{#if loading}
-							<div class="flex items-center justify-center py-4">
-								<RefreshCcw class="animate-spin h-4 w-4 text-secondary" />
-								<span class="ml-2 text-xs text-secondary">Loading...</span>
-							</div>
-						{:else if runnables.length === 0}
-							<div class="text-xs text-tertiary py-3 text-center">
-								No scripts or flows with dedicated worker enabled found.
-							</div>
-						{:else}
-							<div class="border rounded-md divide-y max-h-64 overflow-y-auto bg-surface">
-								{#each runnables as runnable (runnable.tag)}
-									<div>
-										<div class="flex items-center">
-											{#if runnable.type === 'flow' && runnable.runners && runnable.runners.length > 0}
+							{:else if runnables.length === 0}
+								<div class="text-xs text-tertiary py-3 text-center">
+									No scripts or flows with dedicated worker enabled found.
+								</div>
+							{:else}
+								<div class="border rounded-md divide-y max-h-64 overflow-y-auto bg-surface">
+									{#each runnables as runnable (runnable.tag)}
+										<div>
+											<div class="flex items-center">
+												{#if runnable.type === 'flow' && runnable.runners && runnable.runners.length > 0}
+													<button
+														class="p-2 hover:bg-surface-hover transition-colors"
+														onclick={(e) => {
+															e.stopPropagation()
+															toggleExpanded(runnable)
+														}}
+														{disabled}
+													>
+														{#if runnable.expanded}
+															<ChevronDown class="h-3 w-3 text-tertiary" />
+														{:else}
+															<ChevronRight class="h-3 w-3 text-tertiary" />
+														{/if}
+													</button>
+												{/if}
 												<button
-													class="p-2 hover:bg-surface-hover transition-colors"
+													class="flex-1 flex items-center gap-2 px-2 py-1.5 hover:bg-surface-hover transition-colors text-left min-w-0"
 													onclick={(e) => {
 														e.stopPropagation()
-														toggleExpanded(runnable)
+														if (!disabled) toggleRunnable(runnable)
 													}}
 													{disabled}
 												>
-													{#if runnable.expanded}
-														<ChevronDown class="h-3 w-3 text-tertiary" />
-													{:else}
-														<ChevronRight class="h-3 w-3 text-tertiary" />
+													<div
+														class="w-4 h-4 border rounded flex items-center justify-center flex-shrink-0"
+														class:bg-blue-500={runnable.selected}
+														class:border-blue-500={runnable.selected}
+													>
+														{#if runnable.selected}
+															<Check class="h-3 w-3 text-white" />
+														{/if}
+													</div>
+													<span class="flex-1 text-xs truncate min-w-0">{runnable.displayName}</span
+													>
+													{#if runnable.type === 'flow' && runnable.runners}
+														<span class="text-xs text-tertiary flex-shrink-0">
+															{runnable.runners.length}
+														</span>
 													{/if}
+													{#if runnable.workspaceDeps}
+														{#each runnable.workspaceDeps as dep}
+															{@render depBadge(dep, selectedWorkspace)}
+														{/each}
+													{/if}
+													<Badge color={runnable.type === 'flow' ? 'indigo' : 'gray'} small>
+														{runnable.type === 'flow' ? 'flow' : runnable.language}
+													</Badge>
 												</button>
-											{/if}
-											<button
-												class="flex-1 flex items-center gap-2 px-2 py-1.5 hover:bg-surface-hover transition-colors text-left min-w-0"
-												onclick={(e) => {
-													e.stopPropagation()
-													if (!disabled) toggleRunnable(runnable)
-												}}
-												{disabled}
-											>
-												<div
-													class="w-4 h-4 border rounded flex items-center justify-center flex-shrink-0"
-													class:bg-blue-500={runnable.selected}
-													class:border-blue-500={runnable.selected}
-												>
-													{#if runnable.selected}
-														<Check class="h-3 w-3 text-white" />
+											</div>
+
+											{#if runnable.type === 'flow' && runnable.expanded && runnable.runners}
+												<div class="bg-surface-secondary border-t">
+													{#if runnable.runners.length === 0}
+														<div class="px-9 py-1.5 text-xs text-tertiary italic">
+															No eligible steps (python3/bun/bunnative/deno)
+														</div>
+													{:else}
+														{#each runnable.runners as runner (runner.stepId)}
+															<div
+																class="flex items-center gap-2 px-9 py-1 text-xs border-t first:border-t-0 min-w-0"
+															>
+																<span class="font-mono text-tertiary flex-shrink-0"
+																	>{runner.stepId}</span
+																>
+																{#if runner.stepSummary}
+																	<span class="text-secondary truncate flex-1 min-w-0">
+																		{runner.stepSummary}
+																	</span>
+																{/if}
+																<Badge color="gray" small>
+																	{runner.isInline ? runner.language : runner.scriptPath}
+																</Badge>
+															</div>
+														{/each}
 													{/if}
 												</div>
-												<span class="flex-1 text-xs truncate min-w-0">{runnable.displayName}</span>
-												{#if runnable.type === 'flow' && runnable.runners}
-													<span class="text-xs text-tertiary flex-shrink-0">
-														{runnable.runners.length}
-													</span>
-												{/if}
-												{#if runnable.workspaceDeps}
-													{#each runnable.workspaceDeps as dep}
-														{@render depBadge(dep, selectedWorkspace)}
-													{/each}
-												{/if}
-												<Badge color={runnable.type === 'flow' ? 'indigo' : 'gray'} small>
-													{runnable.type === 'flow' ? 'flow' : runnable.language}
-												</Badge>
-											</button>
+											{/if}
 										</div>
-
-										{#if runnable.type === 'flow' && runnable.expanded && runnable.runners}
-											<div class="bg-surface-secondary border-t">
-												{#if runnable.runners.length === 0}
-													<div class="px-9 py-1.5 text-xs text-tertiary italic">
-														No eligible steps (python3/bun/bunnative/deno)
-													</div>
-												{:else}
-													{#each runnable.runners as runner (runner.stepId)}
-														<div
-															class="flex items-center gap-2 px-9 py-1 text-xs border-t first:border-t-0 min-w-0"
-														>
-															<span class="font-mono text-tertiary flex-shrink-0"
-																>{runner.stepId}</span
-															>
-															{#if runner.stepSummary}
-																<span class="text-secondary truncate flex-1 min-w-0">
-																	{runner.stepSummary}
-																</span>
-															{/if}
-															<Badge color="gray" small>
-																{runner.isInline ? runner.language : runner.scriptPath}
-															</Badge>
-														</div>
-													{/each}
-												{/if}
-											</div>
-										{/if}
-									</div>
-								{/each}
-							</div>
-							<div class="text-xs text-tertiary">
-								{selectedCount} selected
-							</div>
-						{/if}
-					</div>
-				{/if}
-			</div>
-		{/if}
-	</div>
+									{/each}
+								</div>
+								<div class="text-xs text-tertiary">
+									{selectedCount} selected
+								</div>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{/if}
+		</div>
+	{/if}
 </div>
