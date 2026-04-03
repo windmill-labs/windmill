@@ -1,0 +1,21 @@
+services:
+  inngest:
+    image: inngest/inngest:latest
+    command: ["inngest", "dev", "-u", "http://app:3000/api/inngest", "--no-discovery", "--tick", "10", "--retry-interval", "0", "--poll-interval", "1", "--queue-workers", "10"]
+    ports:
+      - "8288:8288"
+    environment:
+      - INNGEST_EVENT_KEY=bench-event-key
+      - INNGEST_SIGNING_KEY=signkey-bench-000000000000000000000000000000000000000000000000
+
+  app:
+    image: inngest-benchmark-app
+    depends_on:
+      - inngest
+    environment:
+      - INNGEST_DEV=1
+      - INNGEST_EVENT_KEY=bench-event-key
+      - INNGEST_SIGNING_KEY=signkey-bench-000000000000000000000000000000000000000000000000
+      - INNGEST_BASE_URL=http://inngest:8288
+    ports:
+      - "3010:3000"
