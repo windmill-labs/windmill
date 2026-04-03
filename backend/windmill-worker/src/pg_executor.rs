@@ -370,19 +370,16 @@ pub async fn do_postgresql(
     let size_ref = &size;
     let result_f = async move {
         let mut results = vec![];
-        // When reusing a cached connection, reset session state (search_path,
-        // GUCs, prepared statements, temp tables, advisory locks) by pipelining
-        // DISCARD ALL with the first query to avoid an extra round-trip.
+        // When reusing a cached connection, reset runtime parameters
+        // (search_path, statement_timeout, etc.) by pipelining RESET ALL
+        // with the first query to avoid an extra round-trip.
         let mut needs_session_reset = has_cached_con;
 
         for (i, query) in queries.iter().enumerate() {
             if annotations.prepare {
                 if needs_session_reset {
                     needs_session_reset = false;
-                    client
-                        .batch_execute("DISCARD ALL")
-                        .await
-                        .map_err(to_anyhow)?;
+                    client.batch_execute("RESET ALL").await.map_err(to_anyhow)?;
                 }
                 let query = remove_comments(query);
                 // Used by the data table typechecker to set default schemas
@@ -438,7 +435,7 @@ pub async fn do_postgresql(
                 // the tokio_postgres channel before the query's request. The
                 // connection task flushes both to the socket in one write,
                 // and PostgreSQL processes them in wire order.
-                let reset = client.batch_execute("DISCARD ALL");
+                let reset = client.batch_execute("RESET ALL");
                 let (reset_result, query_result) = futures::future::join(reset, inner).await;
                 reset_result.map_err(to_anyhow)?;
                 results.push(query_result?);
