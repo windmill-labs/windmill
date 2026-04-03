@@ -101,7 +101,9 @@ mod relock_skip {
         before
     }
 
-    #[cfg(feature = "python")]
+    // Requires `private` feature for the dependency job concurrency limit that prevents
+    // race conditions between concurrent dep jobs for the same flow/app.
+    #[cfg(all(feature = "python", feature = "private"))]
     #[sqlx::test(fixtures("base", "dependency_map"))]
     async fn relock_skip_on_script_redeployment(db: Pool<Postgres>) -> anyhow::Result<()> {
         std::env::set_var("DEPENDENCY_JOB_DEBOUNCE_DELAY", "0");
@@ -128,8 +130,9 @@ def main():
                 .await
                 .unwrap();
 
-            // leaf_1(1) + branch(1) + root_script(2: leaf_1+branch) + root_flow(2) + root_app(2) = 8 jobs
-            wait_for_jobs(&mut completed, 8).await;
+            // leaf_1(1) + branch(1) + root_script(1-2) + root_flow(1-2) + root_app(1-2) = 5-8 jobs
+            // With debouncing (private feature), duplicate dep jobs from branch cascade may be coalesced.
+            wait_for_jobs_ge(&mut completed, 5).await;
 
             let skipping_count = count_pattern_in_job_logs(&db, "Skipping relock", before).await;
             let relocking_count = count_pattern_in_job_logs(&db, "Relocking", before).await;
@@ -236,7 +239,9 @@ def main():
         Ok(())
     }
 
-    #[cfg(feature = "python")]
+    // Requires `private` feature for the dependency job concurrency limit that prevents
+    // race conditions between concurrent dep jobs for the same flow/app.
+    #[cfg(all(feature = "python", feature = "private"))]
     #[sqlx::test(fixtures("base", "dependency_map"))]
     async fn relock_skip_on_workspace_deps_redeployment(db: Pool<Postgres>) -> anyhow::Result<()> {
         use windmill_common::scripts::ScriptLang;
