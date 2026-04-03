@@ -417,8 +417,6 @@ async fn edit_schedule(
         validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
     }
 
-    clear_schedule(&mut tx, path, &w_id).await?;
-
     let resolved_edited_by = resolve_edited_by(&authed);
 
     let resolved_permissioned_as = resolve_permissioned_as(
@@ -544,6 +542,11 @@ async fn edit_schedule(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("updating schedule in {w_id}: {e:#}")))?;
+
+    // clear_schedule must come AFTER UPDATE schedule to maintain consistent lock ordering
+    // (schedule row first, then v2_job_queue) and avoid deadlocks with concurrent operations
+    // like set_enabled, flow updates, and worker job completions.
+    clear_schedule(&mut tx, path, &w_id).await?;
 
     audit_log(
         &mut *tx,
