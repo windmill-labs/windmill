@@ -27,6 +27,7 @@ What is true today:
 - repeated-run CLI benchmarking exists through `--runs`
 - basic CLI reliability metrics now exist
 - benchmark history writing and reading now exist in the benchmark CLI
+- the first official git-tracked `frontend-flow` benchmark snapshot has been recorded
 - the CLI base is strong enough to stop blocking the frontend adapter
 
 What is not true yet:
@@ -173,6 +174,7 @@ Implemented:
 - history rollups rebuilt from real benchmark writes
 - shared history writing path generalized so frontend surfaces can use the same official run format
 - frontend history writes validated through `compare --write-history` on `frontend-app`
+- first official tracked `frontend-flow` snapshot written into `ai_evals/history/`
 
 Still missing:
 

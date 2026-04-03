@@ -123,6 +123,13 @@ cd ai_evals
 bun run cli -- compare --surface cli --case bun-hello-script --variant baseline --variant baseline --json
 ```
 
+Record an official benchmark snapshot for a single variant:
+
+```bash
+cd ai_evals
+bun run cli -- compare --surface frontend-flow --variant baseline --runs 1 --write-history --json
+```
+
 Write official benchmark snapshots while comparing distinct variants:
 
 ```bash

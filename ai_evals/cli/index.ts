@@ -416,8 +416,8 @@ async function handleCompare(args: ParsedArgs) {
               return evalCase;
             });
 
-      if (args.variantIds.length < 2) {
-        throw new Error("compare requires at least two --variant values");
+      if (args.variantIds.length < 1) {
+        throw new Error("compare requires at least one --variant value");
       }
 
       const variants = await Promise.all(
@@ -522,8 +522,8 @@ async function handleCompare(args: ParsedArgs) {
     case "frontend-flow":
     case "frontend-app":
     case "frontend-script": {
-      if (args.variantIds.length < 2) {
-        throw new Error("compare requires at least two --variant values");
+      if (args.variantIds.length < 1) {
+        throw new Error("compare requires at least one --variant value");
       }
       if (args.writeHistory && new Set(args.variantIds).size !== args.variantIds.length) {
         throw new Error(

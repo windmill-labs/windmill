@@ -1,0 +1,184 @@
+{
+  "timestamp": "2026-04-03T16:13:24.771Z",
+  "git_sha": "8c9603a01fa48a3e45b3380daac7814b9ed46acf",
+  "suite_version": "cli-benchmark-v1",
+  "scoring_version": "cli-deterministic-v1",
+  "surface": "frontend-flow",
+  "variant_name": "baseline",
+  "provider": "anthropic",
+  "model": "claude-haiku-4-5-20251001",
+  "judge_model": "claude-sonnet-4-6",
+  "runs_per_case": 1,
+  "case_count": 7,
+  "metrics": {
+    "quality": {
+      "pass_rate": 0.8571428571428571,
+      "deterministic_pass_rate": 0.8571428571428571,
+      "judge_score_mean": 85.42857142857143,
+      "judge_score_median": 88,
+      "judge_score_p10": 72,
+      "quality_score": 85.71428571428571
+    },
+    "reliability": {
+      "runs_per_case": 1,
+      "flake_rate": 0,
+      "path_consistency": 1
+    },
+    "efficiency": {
+      "latency_ms_mean": 143566.42857142858,
+      "latency_ms_median": 147598,
+      "tokens_total_mean": 0,
+      "tool_calls_mean": 11.714285714285714,
+      "iterations_mean": 12.714285714285714,
+      "estimated_cost_mean": 0,
+      "cost_per_success": 0,
+      "latency_per_success": 141550.33333333334,
+      "efficiency_score": 34.1017456040819,
+      "value_score": 29.230067660641627
+    }
+  },
+  "cases": [
+    {
+      "id": "flow-test1-user-role-actions",
+      "pass_rate": 1,
+      "average_duration_ms": 144460,
+      "median_duration_ms": 144460,
+      "latency_per_success_ms": 144460,
+      "average_assistant_messages": 11,
+      "average_tool_calls": 10,
+      "average_skill_invocations": 0,
+      "path_consistency": 1,
+      "distinct_skills_invoked": [],
+      "distinct_tools_used": [
+        "get_instructions_for_code_generation",
+        "get_lint_errors",
+        "set_flow_json",
+        "test_run_flow"
+      ],
+      "required_failure_counts": []
+    },
+    {
+      "id": "flow-test2-order-processing",
+      "pass_rate": 0,
+      "average_duration_ms": 155663,
+      "median_duration_ms": 155663,
+      "latency_per_success_ms": 0,
+      "average_assistant_messages": 11,
+      "average_tool_calls": 12,
+      "average_skill_invocations": 0,
+      "path_consistency": 1,
+      "distinct_skills_invoked": [],
+      "distinct_tools_used": [
+        "get_instructions_for_code_generation",
+        "get_lint_errors",
+        "set_flow_json",
+        "test_run_flow"
+      ],
+      "required_failure_counts": [
+        {
+          "name": "judge score >= 80",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "id": "flow-test3-data-pipeline",
+      "pass_rate": 1,
+      "average_duration_ms": 109670,
+      "median_duration_ms": 109670,
+      "latency_per_success_ms": 109670,
+      "average_assistant_messages": 15,
+      "average_tool_calls": 14,
+      "average_skill_invocations": 0,
+      "path_consistency": 1,
+      "distinct_skills_invoked": [],
+      "distinct_tools_used": [
+        "get_instructions_for_code_generation",
+        "get_lint_errors",
+        "set_flow_json",
+        "test_run_flow"
+      ],
+      "required_failure_counts": []
+    },
+    {
+      "id": "flow-test4-ai-agent-tools",
+      "pass_rate": 1,
+      "average_duration_ms": 153811,
+      "median_duration_ms": 153811,
+      "latency_per_success_ms": 153811,
+      "average_assistant_messages": 11,
+      "average_tool_calls": 7,
+      "average_skill_invocations": 0,
+      "path_consistency": 1,
+      "distinct_skills_invoked": [],
+      "distinct_tools_used": [
+        "get_instructions_for_code_generation",
+        "get_lint_errors",
+        "set_flow_json",
+        "test_run_flow"
+      ],
+      "required_failure_counts": []
+    },
+    {
+      "id": "flow-test5-simple-modification",
+      "pass_rate": 1,
+      "average_duration_ms": 143197,
+      "median_duration_ms": 143197,
+      "latency_per_success_ms": 143197,
+      "average_assistant_messages": 15,
+      "average_tool_calls": 10,
+      "average_skill_invocations": 0,
+      "path_consistency": 1,
+      "distinct_skills_invoked": [],
+      "distinct_tools_used": [
+        "get_lint_errors",
+        "inspect_inline_script",
+        "set_flow_json",
+        "set_module_code",
+        "test_run_flow"
+      ],
+      "required_failure_counts": []
+    },
+    {
+      "id": "flow-test6-branching-in-loop",
+      "pass_rate": 1,
+      "average_duration_ms": 147598,
+      "median_duration_ms": 147598,
+      "latency_per_success_ms": 147598,
+      "average_assistant_messages": 13,
+      "average_tool_calls": 13,
+      "average_skill_invocations": 0,
+      "path_consistency": 1,
+      "distinct_skills_invoked": [],
+      "distinct_tools_used": [
+        "get_instructions_for_code_generation",
+        "get_lint_errors",
+        "inspect_inline_script",
+        "set_flow_json",
+        "test_run_flow"
+      ],
+      "required_failure_counts": []
+    },
+    {
+      "id": "flow-test7-parallel-refactor",
+      "pass_rate": 1,
+      "average_duration_ms": 150566,
+      "median_duration_ms": 150566,
+      "latency_per_success_ms": 150566,
+      "average_assistant_messages": 13,
+      "average_tool_calls": 16,
+      "average_skill_invocations": 0,
+      "path_consistency": 1,
+      "distinct_skills_invoked": [],
+      "distinct_tools_used": [
+        "get_instructions_for_code_generation",
+        "get_lint_errors",
+        "inspect_inline_script",
+        "set_flow_json",
+        "test_run_flow"
+      ],
+      "required_failure_counts": []
+    }
+  ],
+  "run_id": "2026-04-03t16-13-24-771z__frontend-flow__baseline__anthropic__claude-haiku-4-5-20251001__8c9603a01fa4"
+}

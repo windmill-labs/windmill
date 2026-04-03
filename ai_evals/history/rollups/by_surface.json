@@ -1,5 +1,50 @@
 {
-  "generatedAt": null,
+  "generatedAt": "2026-04-03T16:13:24.774Z",
   "groupKey": "surface",
-  "groups": {}
+  "groups": {
+    "frontend-flow": [
+      {
+        "run_id": "2026-04-03t16-13-24-771z__frontend-flow__baseline__anthropic__claude-haiku-4-5-20251001__8c9603a01fa4",
+        "timestamp": "2026-04-03T16:13:24.771Z",
+        "git_sha": "8c9603a01fa48a3e45b3380daac7814b9ed46acf",
+        "suite_version": "cli-benchmark-v1",
+        "scoring_version": "cli-deterministic-v1",
+        "surface": "frontend-flow",
+        "variant_name": "baseline",
+        "provider": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "judge_model": "claude-sonnet-4-6",
+        "runs_per_case": 1,
+        "case_count": 7,
+        "run_path": "runs/2026-04-03t16-13-24-771z__frontend-flow__baseline__anthropic__claude-haiku-4-5-20251001__8c9603a01fa4.json",
+        "metrics": {
+          "quality": {
+            "pass_rate": 0.8571428571428571,
+            "deterministic_pass_rate": 0.8571428571428571,
+            "judge_score_mean": 85.42857142857143,
+            "judge_score_median": 88,
+            "judge_score_p10": 72,
+            "quality_score": 85.71428571428571
+          },
+          "reliability": {
+            "runs_per_case": 1,
+            "flake_rate": 0,
+            "path_consistency": 1
+          },
+          "efficiency": {
+            "latency_ms_mean": 143566.42857142858,
+            "latency_ms_median": 147598,
+            "tokens_total_mean": 0,
+            "tool_calls_mean": 11.714285714285714,
+            "iterations_mean": 12.714285714285714,
+            "estimated_cost_mean": 0,
+            "cost_per_success": 0,
+            "latency_per_success": 141550.33333333334,
+            "efficiency_score": 34.1017456040819,
+            "value_score": 29.230067660641627
+          }
+        }
+      }
+    ]
+  }
 }
