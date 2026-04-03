@@ -980,7 +980,7 @@
 												{#if labels?.length}
 													<div class="flex items-center gap-0.5">
 														{#each labels as label}
-															<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+															<Badge color="blue" small class="px-1" title="Label: {label}" clickable onclick={() => { const cur = filters.val.label; filters.val = { ...filters.val, label: cur?.includes(label) ? cur.split(",").filter(l => l !== label).join(",") || undefined : cur ? cur + "," + label : label }; }}>{label}</Badge>
 														{/each}
 													</div>
 												{/if}
