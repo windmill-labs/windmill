@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT\n                    script_lang as \"language: _\",\n                    COUNT(*) as \"count!\",\n                    SUM(duration_ms)::BIGINT as \"total_duration!\"\n                FROM\n                    v2_job_completed\n                JOIN\n                    v2_job\n                ON\n                    v2_job.id = v2_job_completed.id\n                WHERE\n                    created_at > NOW() - INTERVAL '48 hours'\n                GROUP BY\n                    script_lang\n            ",
+  "query": "\n                SELECT\n                    NULLIF(script_lang, 'other')::script_lang as \"language: _\",\n                    SUM(job_count)::BIGINT as \"count!\",\n                    SUM(total_duration_ms)::BIGINT as \"total_duration!\"\n                FROM worker_group_job_stats\n                WHERE hour >= $1\n                GROUP BY script_lang\n            ",
   "describe": {
     "columns": [
       {
@@ -52,13 +52,15 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Int8"
+      ]
     },
     "nullable": [
-      true,
+      null,
       null,
       null
     ]
   },
-  "hash": "464895f217536bf713ec381b6c3b7c0417161bf69e596e2e34fc8d9384824776"
+  "hash": "5c0d0c7111b70b119b3182c9195361388ead36dc6ab03c6a7c17fb97d2b60a67"
 }
