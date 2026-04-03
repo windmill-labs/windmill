@@ -440,3 +440,45 @@ E'//native\nexport function preprocessor(x: number) { return { x: x * 2 }; }\nex
 '', '',
 'f/system/bunnative_preprocess_script', 300058, 'bunnative', E'{}\n//bun.lock\n<empty>', true);
 
+-- ============================================================
+-- Test: Bun dedicated worker with relative imports
+-- Helper script at f/system/dedicated_helper (returns x * 10).
+-- Dedicated script imports from it using a relative path.
+-- ============================================================
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'system',
+E'export function helper(x: number) { return x * 10; }',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
+'', '',
+'f/system/dedicated_helper', 300060, 'bun', E'{}\n//bun.lock\n<empty>');
+
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock, dedicated_worker) VALUES (
+'test-workspace',
+'system',
+E'import { helper } from "./dedicated_helper.ts";\n\nexport function main(x: number) { return helper(x) + 1; }',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"x":{"type":"number","description":""}},"required":["x"],"type":"object"}',
+'', '',
+'f/system/dedicated_with_import', 300061, 'bun', E'{}\n//bun.lock\n<empty>', true);
+
+-- ============================================================
+-- Test: Python dedicated worker with relative imports
+-- Helper script at f/system/py_dedicated_helper (returns x * 10).
+-- Dedicated script imports from it using a relative path.
+-- ============================================================
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'system',
+E'def helper(x: int):\n    return x * 10',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
+'', '',
+'f/system/py_dedicated_helper', 300062, 'python3', '');
+
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock, dedicated_worker) VALUES (
+'test-workspace',
+'system',
+E'from .py_dedicated_helper import helper\n\ndef main(x: int):\n    return helper(x) + 1',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"x":{"type":"number","description":""}},"required":["x"],"type":"object"}',
+'', '',
+'f/system/py_dedicated_with_import', 300063, 'python3', '', true);
+

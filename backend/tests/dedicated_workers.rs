@@ -1246,4 +1246,89 @@ mod dedicated_worker_tests {
         assert_ran_on_dedicated_worker(&db, uuid_ws2, "bun").await;
         Ok(())
     }
+
+    /// Test a dedicated worker script that uses a relative import to another workspace script.
+    /// Verifies that build_loader's CURRENT_PATH resolves imports correctly.
+    #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
+    async fn test_dedicated_bun_relative_import(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let uuid = RunJob::from(JobPayload::ScriptHash {
+            hash: windmill_common::scripts::ScriptHash(300061),
+            path: "f/system/dedicated_with_import".to_string(),
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: Some(true),
+            language: windmill_common::scripts::ScriptLang::Bun,
+            priority: None,
+            apply_preprocessor: false,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            ),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        })
+        .arg("x", json!(5))
+        .push(&db)
+        .await;
+
+        let listener = listen_for_completed_jobs(&db).await;
+        in_test_worker_dedicated(
+            db.clone(),
+            listener.find(&uuid),
+            port,
+            vec![wp("test-workspace", "f/system/dedicated_with_import")],
+        )
+        .await;
+
+        let job = completed_job(uuid, &db).await;
+        // helper(5) = 50, main = 50 + 1 = 51
+        assert_eq!(job.json_result().unwrap(), json!(51));
+        assert_ran_on_dedicated_worker(&db, uuid, "bun").await;
+        Ok(())
+    }
+
+    /// Test a dedicated Python worker script that uses a relative import.
+    /// Verifies that the Python loader resolves relative imports correctly.
+    #[cfg(feature = "python")]
+    #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
+    async fn test_dedicated_python_relative_import(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let uuid = RunJob::from(JobPayload::ScriptHash {
+            hash: windmill_common::scripts::ScriptHash(300063),
+            path: "f/system/py_dedicated_with_import".to_string(),
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: Some(true),
+            language: windmill_common::scripts::ScriptLang::Python3,
+            priority: None,
+            apply_preprocessor: false,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            ),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        })
+        .arg("x", json!(5))
+        .push(&db)
+        .await;
+
+        let listener = listen_for_completed_jobs(&db).await;
+        in_test_worker_dedicated(
+            db.clone(),
+            listener.find(&uuid),
+            port,
+            vec![wp("test-workspace", "f/system/py_dedicated_with_import")],
+        )
+        .await;
+
+        let job = completed_job(uuid, &db).await;
+        // helper(5) = 50, main = 50 + 1 = 51
+        assert_eq!(job.json_result().unwrap(), json!(51));
+        assert_ran_on_dedicated_worker(&db, uuid, "python").await;
+        Ok(())
+    }
 }
