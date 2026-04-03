@@ -578,7 +578,7 @@ async-stream = "^0"
 opentelemetry = "0.30.0"
 tracing-opentelemetry = "0.31.0"
 opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio", "testing"] }
-opentelemetry-otlp = { version = "0.30.0", features = ["grpc-tonic", "tls"] }
+opentelemetry-otlp = { version = "0.30.0", features = ["grpc-tonic", "tls", "http-proto"] }
 opentelemetry-appender-tracing = "0.30.0"
 opentelemetry-semantic-conventions = { version = "0.30.0", features = ["semconv_experimental"] }
 opentelemetry-proto = { version = "0.30.0", features = ["with-serde", "gen-tonic"] }
