@@ -768,6 +768,7 @@ pub async fn run_deployed_relative_imports(
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
                     windmill_common::runnable_settings::DebouncingSettings::default(),
+                labels: None,
             })
             .push(&db2)
             .await;
