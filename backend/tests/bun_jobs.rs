@@ -1066,8 +1066,8 @@ mod dedicated_worker_protocol {
         let mut results = Vec::new();
 
         for job_args in jobs {
-            // Protocol: execd:<json_args> (single-script, no path needed)
-            writeln!(stdin, "execd:{}", job_args.to_string()).unwrap();
+            // Protocol: exec:<script_path>:<json_args>
+            writeln!(stdin, "exec:{}:{}", TEST_SCRIPT_PATH, job_args.to_string()).unwrap();
             stdin.flush().unwrap();
 
             let mut response = String::new();
@@ -1653,6 +1653,8 @@ mod dedicated_worker_protocol_deno {
     use windmill_test_utils::{parse_dedicated_worker_line, DedicatedWorkerResult};
     use windmill_worker::{generate_deno_dedicated_worker_wrapper, DENO_PATH};
 
+    const TEST_SCRIPT_PATH: &str = "f/test/script";
+
     fn run_deno_worker_test(
         script: &str,
         jobs: Vec<serde_json::Value>,
@@ -1702,7 +1704,7 @@ mod dedicated_worker_protocol_deno {
 
         let mut results = Vec::new();
         for job_args in jobs {
-            writeln!(stdin, "execd:{}", job_args.to_string()).unwrap();
+            writeln!(stdin, "exec:{}:{}", TEST_SCRIPT_PATH, job_args.to_string()).unwrap();
             stdin.flush().unwrap();
 
             loop {
@@ -1823,13 +1825,7 @@ export function main(msg: string): never {
         let mut results = Vec::new();
 
         for (cmd, args) in &commands {
-            // Single-script Deno wrapper uses execd:/execd_preprocess: (no path)
-            let direct_cmd = if *cmd == "exec_preprocess" {
-                "execd_preprocess"
-            } else {
-                "execd"
-            };
-            writeln!(stdin, "{}:{}", direct_cmd, args).unwrap();
+            writeln!(stdin, "{}:{}:{}", cmd, TEST_SCRIPT_PATH, args).unwrap();
             stdin.flush().unwrap();
 
             let expected_lines = if *cmd == "exec_preprocess" { 2 } else { 1 };

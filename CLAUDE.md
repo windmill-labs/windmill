@@ -26,7 +26,6 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **DB**: `psql postgres://postgres:changeme@localhost:5432/windmill`
 - **Login**: `admin@windmill.dev` / `changeme`
 - **Instance settings**: navigate to `/#superadmin-settings`
-- **Migrations**: use `cargo sqlx migrate add -r <name>` from `backend/` to create new migrations (never generate timestamps manually)
 
 ## Banned Patterns
 
