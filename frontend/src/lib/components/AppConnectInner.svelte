@@ -738,6 +738,7 @@
 				namePlaceholder={resourceType}
 				kind="resource"
 			/>
+			<LabelsInput bind:labels />
 
 			{#if apiTokenApps[resourceType]}
 				<h2 class="mt-4 mb-2">Instructions</h2>
@@ -839,6 +840,8 @@
 						</div>
 					</div>
 				{/if}
+
+				<LabelsInput bind:labels />
 
 				{#if supportsClientCredentials}
 					<div>
