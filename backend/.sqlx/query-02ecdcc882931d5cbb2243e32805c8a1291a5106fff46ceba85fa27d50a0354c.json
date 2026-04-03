@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT jsonb_object_keys(ws.ducklake->'ducklakes') AS ducklake_name\n            FROM workspace_settings ws\n            WHERE ws.workspace_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ducklake_name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "02ecdcc882931d5cbb2243e32805c8a1291a5106fff46ceba85fa27d50a0354c"
+}

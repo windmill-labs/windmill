@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id, imported_lockfile_hash)\n                VALUES ($1, $2, $3::text::IMPORTER_KIND, $4, $5, $6)\n                ON CONFLICT (workspace_id, importer_node_id, importer_kind, importer_path, imported_path)\n                DO UPDATE SET imported_lockfile_hash = EXCLUDED.imported_lockfile_hash",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Varchar",
+        "Varchar",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "55a7460901c8ccdb478a2b7a3d4bd9d367838fe80844b5a14d2ef66452f36297"
+}
