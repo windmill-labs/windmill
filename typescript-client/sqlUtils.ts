@@ -227,12 +227,12 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
         if (workerHasInternalServer()) {
           result = await JobService.runScriptPreviewInline({
             workspace: getWorkspace(),
-            requestBody: { args, content, language },
+            requestBody: { args, content, language: provider.language },
           });
         } else {
           result = await JobService.runScriptPreviewAndWaitResult({
             workspace: getWorkspace(),
-            requestBody: { args, content, language },
+            requestBody: { args, content, language: provider.language },
           });
         }
         return result as SqlResult<any, ResultCollectionT>;
