@@ -1634,6 +1634,111 @@ async fn test_postgresql_cached_connection_resets_session(
     Ok(())
 }
 
+/// Runs multiple PG jobs through a SINGLE worker (like production) to verify
+/// that SET ROLE / search_path changes do not leak across jobs.
+#[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
+async fn test_postgresql_single_worker_session_isolation(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use std::sync::atomic::Ordering;
+    use windmill_common::worker::Connection;
+    use windmill_worker::pg_executor::{clear_pg_cache, CACHE_HITS};
+
+    initialize_tracing().await;
+    clear_pg_cache().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let hits_before = CACHE_HITS.load(Ordering::Relaxed);
+
+    let db_arg = json!({"host": "localhost", "port": 5432, "dbname": "windmill", "user": "postgres", "password": "changeme"});
+
+    let make_pg_job = |content: String| {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+        }))
+        .arg("database", db_arg.clone())
+    };
+
+    // Push all 3 jobs into the queue BEFORE starting the worker, so a single
+    // worker processes them all sequentially — matching production behaviour.
+    let id1 = make_pg_job("SELECT current_user as cu;".into())
+        .push(&db)
+        .await;
+    let id2 = make_pg_job("SET ROLE postgres;\nSET search_path TO pg_catalog;\nSELECT current_user as cu, current_setting('search_path') as sp;".into())
+        .push(&db)
+        .await;
+    let id3 =
+        make_pg_job("SELECT current_user as cu, current_setting('search_path') as sp;".into())
+            .push(&db)
+            .await;
+
+    // Run ONE worker that processes all three jobs.
+    let ids = [id1, id2, id3];
+    let listener = listen_for_completed_jobs(&db).await;
+    in_test_worker(
+        Connection::Sql(db.clone()),
+        async {
+            use futures::StreamExt;
+            let mut remaining = ids
+                .iter()
+                .copied()
+                .collect::<std::collections::HashSet<_>>();
+            let mut listener = listener;
+            while !remaining.is_empty() {
+                if let Some(id) = listener.next().await {
+                    remaining.remove(&id);
+                }
+            }
+        },
+        port,
+    )
+    .await;
+
+    let r1 = completed_job(id1, &db).await.json_result().unwrap();
+    let r2 = completed_job(id2, &db).await.json_result().unwrap();
+    let r3 = completed_job(id3, &db).await.json_result().unwrap();
+
+    // Job 1: baseline — should be the connecting user (postgres)
+    assert_eq!(r1[0]["cu"], "postgres");
+
+    // Job 2: SET ROLE + SET search_path took effect within the job
+    assert_eq!(r2[0]["sp"], "pg_catalog");
+
+    // Job 3: neither the role nor the search_path should leak from job 2
+    let cu3 = r3[0]["cu"].as_str().unwrap();
+    let sp3 = r3[0]["sp"].as_str().unwrap();
+    assert_eq!(
+        cu3, "postgres",
+        "SET ROLE must not leak across jobs, got: {cu3}"
+    );
+    assert_ne!(
+        sp3, "pg_catalog",
+        "search_path must not leak across jobs, got: {sp3}"
+    );
+
+    // Verify caching actually happened (jobs 2 and 3 should hit the cache).
+    let hits_after = CACHE_HITS.load(Ordering::Relaxed);
+    assert!(
+        hits_after > hits_before,
+        "expected cache hits, got {hits_before} -> {hits_after}"
+    );
+
+    Ok(())
+}
+
 #[cfg(feature = "mysql")]
 #[sqlx::test(fixtures("base"))]
 async fn test_mysql_job(db: Pool<Postgres>) -> anyhow::Result<()> {
