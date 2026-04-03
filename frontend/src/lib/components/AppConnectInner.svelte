@@ -738,7 +738,7 @@
 				namePlaceholder={resourceType}
 				kind="resource"
 			/>
-			<LabelsInput bind:labels />
+			<LabelsInput bind:labels class="-mt-5" />
 
 			{#if apiTokenApps[resourceType]}
 				<h2 class="mt-4 mb-2">Instructions</h2>
@@ -841,7 +841,7 @@
 					</div>
 				{/if}
 
-				<LabelsInput bind:labels />
+				<LabelsInput bind:labels class="-mt-5" />
 
 				{#if supportsClientCredentials}
 					<div>
@@ -939,7 +939,7 @@
 			bind:path
 			kind="resource"
 		/>
-		<LabelsInput bind:labels />
+		<LabelsInput bind:labels class="-mt-5" />
 		{#if apiTokenApps[resourceType] || !manual}
 			<ul class="mt-6">
 				<li class="text-xs text-primary font-normal">

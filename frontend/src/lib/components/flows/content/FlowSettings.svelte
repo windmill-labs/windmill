@@ -125,7 +125,7 @@
 						}}
 					/>
 				</Label>
-				<LabelsInput bind:labels={(flowStore.val as any).labels} />
+				<LabelsInput bind:labels={(flowStore.val as any).labels} class="-mt-4" />
 
 				{#if !noEditor}
 					<Label label="Path">

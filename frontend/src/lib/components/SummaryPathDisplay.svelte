@@ -136,6 +136,7 @@
 					</Label>
 					<LabelsInput
 						bind:labels
+						class="-mt-4"
 						onchange={() => {
 							labelsDirty = true
 						}}

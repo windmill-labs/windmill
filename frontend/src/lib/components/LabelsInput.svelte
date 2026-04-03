@@ -5,9 +5,10 @@
 	interface Props {
 		labels: string[] | undefined
 		onchange?: () => void
+		class?: string
 	}
 
-	let { labels = $bindable(), onchange }: Props = $props()
+	let { labels = $bindable(), onchange, class: clazz = '' }: Props = $props()
 
 	let adding = $state(false)
 	let inputValue = $state('')
@@ -53,7 +54,7 @@
 	}
 </script>
 
-<div class="inline-flex items-center gap-1 -mt-1 ml-0.5 h-5">
+<div class="inline-flex items-center gap-1 ml-0.5 h-5 {clazz}">
 	{#each labels ?? [] as label (label)}
 		<Badge color="blue" small>
 			{label}

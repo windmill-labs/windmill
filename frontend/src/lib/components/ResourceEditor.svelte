@@ -227,7 +227,7 @@
 				/>
 			</div>
 		{/if}
-		<LabelsInput bind:labels />
+		<LabelsInput bind:labels class="-mt-4" />
 
 		{#if !emptyString(resourceTypeInfo?.description)}
 			<div class="flex flex-col gap-1">

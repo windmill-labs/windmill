@@ -1198,7 +1198,7 @@
 													}}
 												/>
 											</Label>
-											<LabelsInput bind:labels={script.labels} />
+											<LabelsInput bind:labels={script.labels} class="-mt-4" />
 											<Label label="Path">
 												{#snippet header()}
 													<Tooltip
