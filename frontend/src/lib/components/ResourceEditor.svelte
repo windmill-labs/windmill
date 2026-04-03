@@ -225,9 +225,9 @@
 					namePlaceholder="resource"
 					kind="resource"
 				/>
-				<LabelsInput bind:labels />
 			</div>
 		{/if}
+		<LabelsInput bind:labels />
 
 		{#if !emptyString(resourceTypeInfo?.description)}
 			<div class="flex flex-col gap-1">
