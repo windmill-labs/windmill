@@ -1,4 +1,4 @@
-import { getWorkspace } from "./client";
+import { getWorkspace, workerHasInternalServer } from "./client";
 import { JobService } from "./services.gen";
 
 type ResultCollection =
@@ -191,10 +191,18 @@ function sqlProviderImpl(
       if (resultCollection)
         content = `-- result_collection=${resultCollection}\n${content}`;
       try {
-        let result = await JobService.runScriptPreviewInline({
-          workspace: getWorkspace(),
-          requestBody: { args, content, language },
-        });
+        let result;
+        if (workerHasInternalServer()) {
+          result = await JobService.runScriptPreviewInline({
+            workspace: getWorkspace(),
+            requestBody: { args, content, language },
+          });
+        } else {
+          result = await JobService.runScriptPreviewAndWaitResult({
+            workspace: getWorkspace(),
+            requestBody: { args, content, language },
+          });
+        }
         return result as SqlResult<any, ResultCollectionT>;
       } catch (e: any) {
         let err = e;

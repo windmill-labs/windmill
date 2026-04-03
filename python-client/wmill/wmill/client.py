@@ -49,6 +49,9 @@ class Windmill:
             or os.environ.get("WM_BASE_URL")
         )
 
+        self.worker_has_internal_server = not bool(
+            re.match(r"^(https?://)?localhost", base or "")
+        )
         self.base_url = f"{base}/api"
         self.token = token or os.environ.get("WM_TOKEN")
         self.headers = {
@@ -326,8 +329,15 @@ class Windmill:
         language: str,
         args: dict = None,
     ) -> Any:
-        """Run a script on the current worker without creating a job"""
-        endpoint = f"/w/{self.workspace}/jobs/run_inline/preview"
+        """Run a script on the current worker without creating a job.
+
+        On agent workers (no internal server), falls back to running a normal
+        preview job and waiting for the result.
+        """
+        if self.worker_has_internal_server:
+            endpoint = f"/w/{self.workspace}/jobs/run_inline/preview"
+        else:
+            endpoint = f"/w/{self.workspace}/jobs/run_wait_result/preview"
         body = {
             "content": content,
             "language": language,
