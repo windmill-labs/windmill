@@ -363,7 +363,23 @@
 											</a>
 											{#if labels?.length}
 												{#each labels as label}
-													<Badge color="blue" small class="px-1" title="Label: {label}" clickable onclick={() => { const cur = filters.val.label; filters.val = { ...filters.val, label: cur?.includes(label) ? cur.split(",").filter(l => l !== label).join(",") || undefined : cur ? cur + "," + label : label }; }}>{label}</Badge>
+													<Badge
+														color="blue"
+														small
+														class="px-1"
+														title="Label: {label}"
+														clickable
+														onclick={() => {
+															const arr = (filters.val.label ?? '').split(',').filter(Boolean)
+															const idx = arr.indexOf(label)
+															if (idx >= 0) arr.splice(idx, 1)
+															else arr.push(label)
+															filters.val = {
+																...filters.val,
+																label: arr.length ? arr.join(',') : undefined
+															}
+														}}>{label}</Badge
+													>
 												{/each}
 											{/if}
 										</div>

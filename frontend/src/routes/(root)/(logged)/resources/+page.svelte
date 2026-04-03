@@ -30,12 +30,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
-	import {
-		OauthService,
-		ResourceService,
-		WorkspaceService,
-		type ListableResource
-	} from '$lib/gen'
+	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import {
@@ -980,7 +975,23 @@
 												{#if labels?.length}
 													<div class="flex items-center gap-0.5">
 														{#each labels as label}
-															<Badge color="blue" small class="px-1" title="Label: {label}" clickable onclick={() => { const cur = filters.val.label; filters.val = { ...filters.val, label: cur?.includes(label) ? cur.split(",").filter(l => l !== label).join(",") || undefined : cur ? cur + "," + label : label }; }}>{label}</Badge>
+															<Badge
+																color="blue"
+																small
+																class="px-1"
+																title="Label: {label}"
+																clickable
+																onclick={() => {
+																	const arr = (filters.val.label ?? '').split(',').filter(Boolean)
+																	const idx = arr.indexOf(label)
+																	if (idx >= 0) arr.splice(idx, 1)
+																	else arr.push(label)
+																	filters.val = {
+																		...filters.val,
+																		label: arr.length ? arr.join(',') : undefined
+																	}
+																}}>{label}</Badge
+															>
 														{/each}
 													</div>
 												{/if}
