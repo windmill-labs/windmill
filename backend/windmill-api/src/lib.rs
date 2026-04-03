@@ -949,8 +949,7 @@ pub async fn run_server(
             get(windmill_api_settings::get_jwks),
         )
         .fallback(static_assets::static_handler)
-        .layer(middleware_stack)
-        .layer(axum::middleware::from_fn(s3_proxy_log_middleware));
+        .layer(middleware_stack);
 
     let app = if disable_response_logs {
         app
@@ -964,13 +963,14 @@ pub async fn run_server(
             }
         });
 
-        app.layer(
-            TraceLayer::new_for_http()
-                .on_response(MyOnResponse {})
-                .make_span_with(MyMakeSpan {})
-                .on_request(())
-                .on_failure(MyOnFailure {}),
-        )
+        app.layer(axum::middleware::from_fn(s3_proxy_log_middleware))
+            .layer(
+                TraceLayer::new_for_http()
+                    .on_response(MyOnResponse {})
+                    .make_span_with(MyMakeSpan {})
+                    .on_request(())
+                    .on_failure(MyOnFailure {}),
+            )
     };
 
     let app = if let Some(domain) = public_app_layer::PUBLIC_APP_DOMAIN.as_ref() {
