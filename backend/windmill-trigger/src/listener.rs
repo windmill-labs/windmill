@@ -69,6 +69,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "error_handler_path",
             "error_handler_args",
             "retry",
+            "labels",
         ];
 
         fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
