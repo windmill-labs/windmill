@@ -44,7 +44,7 @@ export const SHARED_FOLDER = "/shared";
 let mockedApi: MockedApi | undefined = undefined;
 
 export function workerHasInternalServer(): boolean {
-  return /^https?:\/\/127\.0\.0\.1(:|\/|$)/.test(OpenAPI.BASE ?? "");
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(OpenAPI.BASE ?? "");
 }
 
 /**

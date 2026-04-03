@@ -66,9 +66,9 @@ class Windmill:
             f"workspace required as an argument or as WM_WORKSPACE environment variable"
         )
 
-    def worker_has_internal_server(self):
+    def worker_has_internal_server(self) -> bool:
         return bool(
-            re.match(r"^(https?://)?localhost", self.base_url or "")
+            re.match(r"^(https?://)?(localhost|127\.0\.0\.1)", self.base_url or "")
         )
 
     def get_mocked_api(self) -> Optional[dict]:
