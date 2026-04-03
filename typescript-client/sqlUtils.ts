@@ -86,104 +86,136 @@ export type SqlStatement<T> = {
 };
 
 /**
+ * Wrapper for raw SQL fragments that should be inlined without parameterization.
+ * Created via `sql.raw(value)`.
+ */
+export class RawSql {
+  readonly __brand = "RawSql" as const;
+  constructor(public readonly value: string) { }
+}
+
+/**
  * Template tag function for creating SQL statements with parameterized values
  */
 export interface SqlTemplateFunction {
   <T = any>(strings: TemplateStringsArray, ...values: any[]): SqlStatement<T>;
+  /** Create a raw SQL fragment that will be inlined without parameterization */
+  raw(value: string): RawSql;
 }
 
 export interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
   query<T = any>(sql: string, ...params: any[]): SqlStatement<T>;
 }
 
-/**
- * Create a SQL template function for PostgreSQL/datatable queries
- * @param name - Database/datatable name (default: "main")
- * @returns SQL template function for building parameterized queries
- * @example
- * let sql = wmill.datatable()
- * let name = 'Robin'
- * let age = 21
- * await sql`
- *   SELECT * FROM friends
- *     WHERE name = ${name} AND age = ${age}::int
- * `.fetch()
- */
-export function datatable(name: string = "main"): DatatableSqlTemplateFunction {
-  return sqlProviderImpl(
-    "datatable",
-    parseName(name)
-  ) as DatatableSqlTemplateFunction;
+// ---------------------------------------------------------------------------
+// Provider interface — captures what differs between datatable and ducklake
+// ---------------------------------------------------------------------------
+
+interface SqlProvider {
+  formatArgDecl(argNum: number, argType: string): string;
+  formatArgUsage(
+    argNum: number,
+    explicitType: string | undefined,
+    inferredType: string
+  ): string;
+  preamble(): string;
+  language: "postgresql" | "duckdb";
+  extraArgs: Record<string, any>;
+  providerName: string;
 }
 
-/**
- * Create a SQL template function for DuckDB/ducklake queries
- * @param name - DuckDB database name (default: "main")
- * @returns SQL template function for building parameterized queries
- * @example
- * let sql = wmill.ducklake()
- * let name = 'Robin'
- * let age = 21
- * await sql`
- *   SELECT * FROM friends
- *     WHERE name = ${name} AND age = ${age}
- * `.fetch()
- */
-export function ducklake(name: string = "main"): SqlTemplateFunction {
-  return sqlProviderImpl("ducklake", { name });
+function datatableProvider(name: string, schema?: string): SqlProvider {
+  return {
+    providerName: "datatable",
+    language: "postgresql",
+    extraArgs: { database: `datatable://${name}` },
+    formatArgDecl: (argNum) => `-- $${argNum} arg${argNum}`,
+    formatArgUsage: (argNum, explicitType, inferredType) =>
+      explicitType !== undefined
+        ? `$${argNum}`
+        : `$${argNum}::${inferredType}`,
+    preamble: () => (schema ? `SET search_path TO "${schema}";\n` : ""),
+  };
 }
 
-function sqlProviderImpl(
-  provider: "datatable" | "ducklake",
-  { name, schema }: { name: string; schema?: string }
-): SqlTemplateFunction {
-  let sqlFn: SqlTemplateFunction = (
-    strings: TemplateStringsArray,
-    ...values: any[]
-  ) => {
-    let formatArgDecl = {
-      datatable: (i: number) => `-- $${i + 1} arg${i + 1}`,
-      ducklake: (i: number) => {
+function ducklakeProvider(name: string): SqlProvider {
+  return {
+    providerName: "ducklake",
+    language: "duckdb",
+    extraArgs: {},
+    formatArgDecl: (argNum, argType) => `-- $arg${argNum} (${argType})`,
+    formatArgUsage: (argNum) => `$arg${argNum}`,
+    preamble: () => `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Shared template function builder
+// ---------------------------------------------------------------------------
+
+function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
+  let sqlFn = ((strings: TemplateStringsArray, ...values: any[]) => {
+    // Separate raw vs parameterized values, assigning arg indices only to params
+    let argIndex = 0;
+    const valueInfos = values.map((v, i) => {
+      if (v instanceof RawSql)
+        return { raw: true as const, value: v.value, originalIndex: i };
+      argIndex++;
+      return {
+        raw: false as const,
+        value: v,
+        originalIndex: i,
+        argNum: argIndex,
+      };
+    });
+
+    // Arg declarations (SQL comments consumed by the executor)
+    let argDecls = valueInfos
+      .filter((info) => !info.raw)
+      .map((info) => {
         let argType =
-          parseTypeAnnotation(strings[i], strings[i + 1]) ||
-          inferSqlType(values[i]);
-        return `-- $arg${i + 1} (${argType})`;
-      },
-    }[provider];
+          parseTypeAnnotation(
+            strings[info.originalIndex],
+            strings[info.originalIndex + 1]
+          ) || inferSqlType(info.value);
+        return provider.formatArgDecl(info.argNum, argType);
+      });
 
-    let formatArgUsage = {
-      datatable: (i: number) => {
-        const parsedType = parseTypeAnnotation(strings[i], strings[i + 1]);
-        if (parsedType !== undefined) return `$${i + 1}`;
-        let argType = inferSqlType(values[i]);
-        return `$${i + 1}::${argType}`;
-      },
-      ducklake: (i: number) => `$arg${i + 1}`,
-    }[provider];
+    let content = argDecls.length ? argDecls.join("\n") + "\n" : "";
+    content += provider.preamble();
 
-    let content = values.map((_, i) => formatArgDecl(i)).join("\n") + "\n";
-    if (provider === "ducklake")
-      content += `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`;
-
-    if (schema && provider === "datatable") {
-      content += `SET search_path TO "${schema}";\n`;
-    }
-
+    // SQL body — inline raw values, reference params via provider syntax
     let contentBody = "";
     for (let i = 0; i < strings.length; i++) {
       contentBody += strings[i];
-      if (i !== strings.length - 1) contentBody += formatArgUsage(i);
+      if (i < valueInfos.length) {
+        let info = valueInfos[i];
+        if (info.raw) {
+          contentBody += info.value;
+        } else {
+          let explicitType = parseTypeAnnotation(
+            strings[info.originalIndex],
+            strings[info.originalIndex + 1]
+          );
+          let inferredType = inferSqlType(info.value);
+          contentBody += provider.formatArgUsage(
+            info.argNum,
+            explicitType,
+            inferredType
+          );
+        }
+      }
     }
     content += contentBody;
 
     const args = {
-      ...Object.fromEntries(values.map((v, i) => [`arg${i + 1}`, v])),
-      ...(provider === "datatable" ? { database: `datatable://${name}` } : {}),
+      ...Object.fromEntries(
+        valueInfos
+          .filter((info) => !info.raw)
+          .map((info) => [`arg${info.argNum}`, info.value])
+      ),
+      ...provider.extraArgs,
     };
-    const language = {
-      datatable: "postgresql" as const,
-      ducklake: "duckdb" as const,
-    }[provider];
 
     async function fetch<ResultCollectionT extends ResultCollection>({
       resultCollection,
@@ -193,7 +225,7 @@ function sqlProviderImpl(
       try {
         let result = await JobService.runScriptPreviewInline({
           workspace: getWorkspace(),
-          requestBody: { args, content, language },
+          requestBody: { args, content, language: provider.language },
         });
         return result as SqlResult<any, ResultCollectionT>;
       } catch (e: any) {
@@ -207,7 +239,7 @@ function sqlProviderImpl(
           if (body.startsWith("Internal:")) body = body.slice(9).trim();
           if (body.startsWith("Error:")) body = body.slice(6).trim();
           if (body.startsWith("datatable")) body = body.slice(9).trim();
-          err = Error(`${provider} ${body}`);
+          err = Error(`${provider.providerName} ${body}`);
           err.query = contentBody;
           err.request = e.request;
         }
@@ -228,20 +260,61 @@ function sqlProviderImpl(
         }),
       execute: (params) => fetch(params),
     } satisfies SqlStatement<any>;
-  };
-  if (provider === "datatable") {
-    (sqlFn as DatatableSqlTemplateFunction).query = (
-      sqlString: string,
-      ...params: any[]
-    ) => {
-      // This is less than ideal, did that quickly for a client need.
-      // TODO: break down the SqlTemplateFunction impl and reuse here properly.
-      let arr = Object.assign([sqlString], { raw: [sqlString] });
-      return sqlFn(arr, ...params);
-    };
-  }
+  }) as SqlTemplateFunction;
+
+  sqlFn.raw = (value: string) => new RawSql(value);
   return sqlFn;
 }
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a SQL template function for PostgreSQL/datatable queries
+ * @param name - Database/datatable name (default: "main")
+ * @returns SQL template function for building parameterized queries
+ * @example
+ * let sql = wmill.datatable()
+ * let name = 'Robin'
+ * let age = 21
+ * await sql`
+ *   SELECT * FROM friends
+ *     WHERE name = ${name} AND age = ${age}::int
+ * `.fetch()
+ */
+export function datatable(name: string = "main"): DatatableSqlTemplateFunction {
+  let { name: n, schema } = parseName(name);
+  let sqlFn = buildSqlTemplateFunction(
+    datatableProvider(n, schema)
+  ) as DatatableSqlTemplateFunction;
+  sqlFn.query = (sqlString: string, ...params: any[]) => {
+    let arr = Object.assign([sqlString], { raw: [sqlString] });
+    return sqlFn(arr, ...params);
+  };
+  return sqlFn;
+}
+
+/**
+ * Create a SQL template function for DuckDB/ducklake queries
+ * @param name - DuckDB database name (default: "main")
+ * @returns SQL template function for building parameterized queries
+ * @example
+ * let sql = wmill.ducklake()
+ * let name = 'Robin'
+ * let age = 21
+ * await sql`
+ *   SELECT * FROM friends
+ *     WHERE name = ${name} AND age = ${age}
+ * `.fetch()
+ */
+export function ducklake(name: string = "main"): SqlTemplateFunction {
+  return buildSqlTemplateFunction(ducklakeProvider(name));
+}
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
 
 // DuckDB executor requires explicit argument types at declaration
 // And postgres at argument usage.

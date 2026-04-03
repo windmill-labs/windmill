@@ -1936,7 +1936,11 @@
 		// The worker will inject type parameters into the code that TypeScript analyzes
 
 		// Worker async function call freezes if we pass a Proxy, $state.snapshot() is very important here
-		updateSqlQueriesInWorker(uri, $state.snapshot(preparedAssetsSqlQueries))
+		// Filter out queries with raw interpolations — they can't be type-checked
+		let queriesToSend = $state
+			.snapshot(preparedAssetsSqlQueries)
+			.filter((q) => !q.has_raw_interpolation)
+		updateSqlQueriesInWorker(uri, queriesToSend)
 	}, 250)
 
 	watch([() => preparedAssetsSqlQueries, () => lang, () => isTsWorkerInitialized.current], () => {
