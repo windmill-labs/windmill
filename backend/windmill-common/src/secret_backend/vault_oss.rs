@@ -72,6 +72,13 @@ pub async fn create_secret_backend(
             );
             Ok(Arc::new(DatabaseBackend::new(db)))
         }
+        SecretBackendConfig::AzureKeyVault(_) => {
+            tracing::warn!(
+                "Azure Key Vault is configured but requires Enterprise Edition. \
+                 Falling back to database backend."
+            );
+            Ok(Arc::new(DatabaseBackend::new(db)))
+        }
     }
 }
 
