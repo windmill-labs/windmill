@@ -30,6 +30,7 @@ export async function saveWebsocketTriggerFromCfg(
 		url_runnable_args: triggerCfg.url_runnable_args,
 		can_return_message: triggerCfg.can_return_message,
 		can_return_error_result: triggerCfg.can_return_error_result,
+		heartbeat: triggerCfg.heartbeat,
 		...errorHandlerAndRetries,
 		permissioned_as: triggerCfg.permissioned_as,
 		preserve_permissioned_as: triggerCfg.preserve_permissioned_as
