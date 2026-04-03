@@ -357,6 +357,11 @@ pub async fn do_postgresql(
         (client, Some(handle))
     } else {
         let (_, client) = mtex.as_ref().unwrap().as_ref().unwrap();
+        // Reset all session state (role, search_path, statement_timeout, etc.) to defaults
+        // to prevent state leaking between unrelated script executions sharing this cached connection.
+        if let Err(e) = client.simple_query("RESET ALL").await {
+            tracing::warn!("Failed to RESET ALL on cached connection: {}", e);
+        }
         (client, None)
     };
 
