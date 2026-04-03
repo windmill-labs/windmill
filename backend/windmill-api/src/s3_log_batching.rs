@@ -23,6 +23,7 @@ pub(crate) struct S3ProxyRequest {
 
 #[derive(Hash, Eq, PartialEq)]
 struct S3ProxyKey {
+    workspace: String,
     object_key: String,
     method: String,
     status: u16,
@@ -36,15 +37,28 @@ struct BatchState {
     uri: String,
 }
 
-fn extract_object_key(uri: &str) -> &str {
-    uri.find("/s3_proxy/")
+// URI format: /api/w/{workspace}/s3_proxy/{object_key}
+fn extract_workspace_and_object_key(uri: &str) -> (&str, &str) {
+    // Extract workspace from /api/w/{workspace}/...
+    let workspace = uri
+        .strip_prefix("/api/w/")
+        .and_then(|s| s.split('/').next())
+        .unwrap_or("");
+    let object_key = uri
+        .find("/s3_proxy/")
         .map(|i| &uri[i + "/s3_proxy/".len()..])
-        .unwrap_or(uri)
+        .unwrap_or(uri);
+    (workspace, object_key)
 }
 
 pub(crate) fn record_s3_log(uri: &str, method: &str, status: u16, latency_ms: u128) {
-    let object_key = extract_object_key(uri).to_string();
-    let key = S3ProxyKey { object_key, method: method.to_string(), status };
+    let (workspace, object_key) = extract_workspace_and_object_key(uri);
+    let key = S3ProxyKey {
+        workspace: workspace.to_string(),
+        object_key: object_key.to_string(),
+        method: method.to_string(),
+        status,
+    };
 
     let mut entry = S3_LOG_BATCHES.entry(key).or_insert_with(|| BatchState {
         total_count: 0,
