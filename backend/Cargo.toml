@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.672.0"
+version = "1.673.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -85,7 +85,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.672.0"
+version = "1.673.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -267,7 +267,6 @@ windmill-types.workspace = true
 opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 windmill-trigger.workspace = true
-serial_test = "3"
 windmill-trigger-websocket.workspace = true
 windmill-trigger-postgres.workspace = true
 windmill-trigger-mqtt.workspace = true
