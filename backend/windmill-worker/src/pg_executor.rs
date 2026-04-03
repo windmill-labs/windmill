@@ -357,11 +357,6 @@ pub async fn do_postgresql(
         (client, Some(handle))
     } else {
         let (_, client) = mtex.as_ref().unwrap().as_ref().unwrap();
-        // Reset all session state (role, search_path, statement_timeout, etc.) to defaults
-        // to prevent state leaking between unrelated script executions sharing this cached connection.
-        if let Err(e) = client.simple_query("RESET ALL").await {
-            tracing::warn!("Failed to RESET ALL on cached connection: {}", e);
-        }
         (client, None)
     };
 
@@ -374,6 +369,12 @@ pub async fn do_postgresql(
     let size = AtomicUsize::new(0);
     let size_ref = &size;
     let result_f = async move {
+        // Reset all session state (role, search_path, statement_timeout, etc.) to defaults
+        // to prevent state leaking between unrelated script executions sharing this cached connection.
+        if has_cached_con {
+            let _ = client.simple_query("RESET ALL").await;
+        }
+
         let mut results = vec![];
         for (i, query) in queries.iter().enumerate() {
             if annotations.prepare {
