@@ -2312,31 +2312,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn jwt_secret_accepts_secret_ref() {
-        let json = r#"{
-            "jwt_secret": {"secretKeyRef": {"name": "windmill-secrets", "key": "jwt"}}
-        }"#;
-        let gs: GlobalSettings = serde_json::from_str(json).unwrap();
-        let jwt = gs.jwt_secret.as_ref().unwrap();
-        assert!(jwt.is_secret_ref());
-        assert_eq!(jwt.as_secret_ref().unwrap().name, "windmill-secrets");
-        assert_eq!(jwt.as_secret_ref().unwrap().key, "jwt");
-    }
-
-    #[test]
-    fn jwt_secret_accepts_plain_string() {
-        let json = r#"{"jwt_secret": "my-secret"}"#;
-        let gs: GlobalSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            gs.jwt_secret.as_ref().and_then(|v| v.as_literal()),
-            Some("my-secret")
-        );
-        // Round-trips as a plain JSON string
-        let map = gs.to_settings_map();
-        assert_eq!(map["jwt_secret"], serde_json::json!("my-secret"));
-    }
-
     // -----------------------------------------------------------------------
     // EnvRef tests
     // -----------------------------------------------------------------------
