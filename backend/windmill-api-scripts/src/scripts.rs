@@ -843,7 +843,11 @@ async fn create_script_internal<'c>(
         })
     };
 
-    let needs_lock_gen = lock.is_none() && codebase.is_none();
+    // Always generate a lock for dedicated worker scripts, even if a lock was provided.
+    // The dependency job runs on the dedicated worker and triggers a restart so it picks
+    // up the new script version (see result_processor.rs: is_dependency_job && is_dedicated_worker).
+    let needs_lock_gen =
+        (lock.is_none() && codebase.is_none()) || ns.dedicated_worker.is_some_and(|x| x);
     let envs = ns.envs.as_ref().map(|x| x.as_slice());
     let envs = if ns.envs.is_none() || ns.envs.as_ref().unwrap().is_empty() {
         None
