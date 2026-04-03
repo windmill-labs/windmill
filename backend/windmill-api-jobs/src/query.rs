@@ -295,11 +295,11 @@ pub fn filter_list_completed_query(
                     let p = v.replace("*", "%");
                     if label.negated {
                         format!(
-                            "NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl LIKE {}) AND NOT EXISTS (SELECT 1 FROM unnest(v2_job.labels) lbl WHERE lbl LIKE {})", quote(&p), quote(&p)
+                            "NOT EXISTS (SELECT 1 FROM unnest(v2_job.labels) lbl WHERE lbl LIKE {})", quote(&p)
                         )
                     } else {
                         format!(
-                            "(EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl LIKE {}) OR EXISTS (SELECT 1 FROM unnest(v2_job.labels) lbl WHERE lbl LIKE {}))", quote(&p), quote(&p)
+                            "EXISTS (SELECT 1 FROM unnest(v2_job.labels) lbl WHERE lbl LIKE {})", quote(&p)
                         )
                     }
                 })
@@ -310,26 +310,14 @@ pub fn filter_list_completed_query(
             let clauses: Vec<_> = label
                 .values
                 .iter()
-                .map(|v| {
-                    format!(
-                        "NOT (result->'wm_labels' ? {}) AND NOT (v2_job.labels @> ARRAY[{}])",
-                        quote(v),
-                        quote(v)
-                    )
-                })
+                .map(|v| format!("NOT (v2_job.labels @> ARRAY[{}])", quote(v)))
                 .collect();
             sqlb.and_where(format!("({})", clauses.join(" AND ")));
         } else {
             let clauses: Vec<_> = label
                 .values
                 .iter()
-                .map(|v| {
-                    format!(
-                        "(result->'wm_labels' ? {} OR v2_job.labels @> ARRAY[{}])",
-                        quote(v),
-                        quote(v)
-                    )
-                })
+                .map(|v| format!("v2_job.labels @> ARRAY[{}]", quote(v)))
                 .collect();
             sqlb.and_where(format!("({})", clauses.join(" OR ")));
         }
@@ -553,9 +541,8 @@ pub fn filter_list_completed_query(
         let pat = format!("%{}%", escape_ilike_pattern(bf));
         sqlb.and_where(
             "(runnable_path ILIKE ? OR v2_job.tag ILIKE ? OR trigger ILIKE ? OR trigger_kind::text ILIKE ? \
-             OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl ILIKE ?) \
              OR EXISTS (SELECT 1 FROM unnest(v2_job.labels) lbl WHERE lbl ILIKE ?))"
-                .bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+                .bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat)
         );
     }
 
@@ -955,7 +942,7 @@ mod tests {
             false,
         );
         let sql = build_sql(sqlb);
-        assert!(sql.contains("wm_labels"));
+        assert!(sql.contains("v2_job.labels"));
     }
 
     #[test]
