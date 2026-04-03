@@ -22,7 +22,6 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import type { ContextualVariable, ListableVariable, WorkspaceDeployUISettings } from '$lib/gen'
-	import { FolderService, OauthService, VariableService, WorkspaceService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'

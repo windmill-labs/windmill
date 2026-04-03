@@ -31,7 +31,6 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
 	import {
-		FolderService,
 		OauthService,
 		ResourceService,
 		WorkspaceService,
