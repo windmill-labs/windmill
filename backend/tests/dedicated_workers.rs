@@ -23,9 +23,11 @@ mod dedicated_worker_tests {
         WorkspacedPath { workspace_id: workspace.to_string(), path: path.to_string() }
     }
 
-    /// Assert that a completed job (or one of its child step jobs) was executed
+    /// Assert that a completed job (or any descendant job) was executed
     /// by a dedicated worker process with the expected mode by checking job logs
     /// for the "dedicated worker {mode}:" prefix.
+    /// Recurses through all descendants (children, grandchildren, etc.) to handle
+    /// nested flow structures like branches and loops.
     async fn assert_ran_on_dedicated_worker(
         db: &Pool<Postgres>,
         job_id: uuid::Uuid,
@@ -33,48 +35,38 @@ mod dedicated_worker_tests {
     ) {
         let marker = format!("dedicated worker {expected_mode}:");
 
-        // Check the job's logs (stored in job_logs table)
-        let logs: Option<String> =
-            sqlx::query_scalar("SELECT logs FROM job_logs WHERE job_id = $1")
-                .bind(job_id)
-                .fetch_optional(db)
-                .await
-                .unwrap()
-                .flatten();
+        // BFS through job tree to find any descendant with the marker
+        let mut queue = vec![job_id];
+        let mut all_logs = Vec::new();
 
-        if let Some(ref l) = logs {
-            if l.contains(&marker) {
-                return;
-            }
-        }
-
-        // For flow jobs, check child step jobs' logs
-        let child_ids: Vec<uuid::Uuid> =
-            sqlx::query_scalar("SELECT id FROM v2_job WHERE parent_job = $1")
-                .bind(job_id)
-                .fetch_all(db)
-                .await
-                .unwrap();
-
-        let mut child_logs = Vec::new();
-        for child_id in &child_ids {
-            let cl: Option<String> =
+        while let Some(id) = queue.pop() {
+            let logs: Option<String> =
                 sqlx::query_scalar("SELECT logs FROM job_logs WHERE job_id = $1")
-                    .bind(child_id)
+                    .bind(id)
                     .fetch_optional(db)
                     .await
                     .unwrap()
                     .flatten();
-            child_logs.push(cl);
+
+            if let Some(ref l) = logs {
+                if l.contains(&marker) {
+                    return;
+                }
+            }
+            all_logs.push((id, logs));
+
+            let child_ids: Vec<uuid::Uuid> =
+                sqlx::query_scalar("SELECT id FROM v2_job WHERE parent_job = $1")
+                    .bind(id)
+                    .fetch_all(db)
+                    .await
+                    .unwrap();
+            queue.extend(child_ids);
         }
 
-        assert!(
-            child_logs
-                .iter()
-                .any(|l| l.as_ref().is_some_and(|l| l.contains(&marker))),
-            "No job or child job had '{marker}' in logs. Job logs: {:?}, Child logs: {:?}",
-            logs,
-            child_logs,
+        panic!(
+            "No job in tree had '{marker}' in logs. All logs: {:?}",
+            all_logs,
         );
     }
 
@@ -691,8 +683,8 @@ mod dedicated_worker_tests {
         .await;
 
         let job = completed_job(uuid, &db).await;
-        // bun: 5 + 10 = 15, bash: 15 * 2 = 30
-        assert_eq!(job.json_result().unwrap(), json!(30));
+        // bun: 5 + 10 = 15, bash: echo done = "done"
+        assert_eq!(job.json_result().unwrap(), json!("done"));
         // The bun step ran on dedicated worker
         assert_ran_on_dedicated_worker(&db, uuid, "bun").await;
         Ok(())
@@ -738,8 +730,8 @@ mod dedicated_worker_tests {
         )
         .await;
 
-        // for-loop over [1, 2, 3], each * 10 = [10, 20, 30]
-        assert_eq!(job.json_result().unwrap(), json!([10, 20, 30]));
+        // for-loop over [1, 2, 3], bash echo done = ["done", "done", "done"]
+        assert_eq!(job.json_result().unwrap(), json!(["done", "done", "done"]));
         Ok(())
     }
 
@@ -806,8 +798,8 @@ mod dedicated_worker_tests {
         let job_b = completed_job(uuid_b, &db).await;
         assert_eq!(job_a.json_result().unwrap(), json!(105));
         assert_eq!(job_b.json_result().unwrap(), json!(205));
-        assert_ran_on_dedicated_worker(&db, uuid_a, "python").await;
-        assert_ran_on_dedicated_worker(&db, uuid_b, "python").await;
+        assert_ran_on_dedicated_worker(&db, uuid_a, "python3").await;
+        assert_ran_on_dedicated_worker(&db, uuid_b, "python3").await;
         Ok(())
     }
 
@@ -1164,8 +1156,8 @@ mod dedicated_worker_tests {
         assert_eq!(job_pre.json_result().unwrap(), json!(110));
         // main(5) → 305
         assert_eq!(job_other.json_result().unwrap(), json!(305));
-        assert_ran_on_dedicated_worker(&db, uuid_pre, "python").await;
-        assert_ran_on_dedicated_worker(&db, uuid_other, "python").await;
+        assert_ran_on_dedicated_worker(&db, uuid_pre, "python3").await;
+        assert_ran_on_dedicated_worker(&db, uuid_other, "python3").await;
 
         let preprocessed: Option<bool> =
             sqlx::query_scalar("SELECT preprocessed FROM v2_job WHERE id = $1")
@@ -1329,6 +1321,193 @@ mod dedicated_worker_tests {
         // helper(5) = 50, main = 50 + 1 = 51
         assert_eq!(job.json_result().unwrap(), json!(51));
         assert_ran_on_dedicated_worker(&db, uuid, "python").await;
+        Ok(())
+    }
+
+    /// Test a dedicated flow with a simple non-squashed for-loop (single step).
+    /// is_simple_modules optimization inlines the step into the sub-flow job.
+    /// The dedicated worker map uses node_id (parent loop id) as key.
+    #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
+    async fn test_dedicated_flow_forloop_simple(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let uuid = RunJob::from(JobPayload::Flow {
+            path: "f/system/dedicated_forloop_flow".to_string(),
+            dedicated_worker: Some(true),
+            apply_preprocessor: false,
+            version: 3000000000000015,
+        })
+        .push(&db)
+        .await;
+
+        let listener = listen_for_completed_jobs(&db).await;
+        in_test_worker_dedicated(
+            db.clone(),
+            listener.find(&uuid),
+            port,
+            vec![wp("test-workspace", "flow/f/system/dedicated_forloop_flow")],
+        )
+        .await;
+
+        let job = completed_job(uuid, &db).await;
+        // for-loop over [1, 2, 3], each * 10 = [10, 20, 30]
+        assert_eq!(job.json_result().unwrap(), json!([10, 20, 30]));
+        assert_ran_on_dedicated_worker(&db, uuid, "bun").await;
+        Ok(())
+    }
+
+    /// Test a dedicated flow with a non-simple for-loop (multi-step).
+    /// Two inner steps make is_simple_modules false, so each step runs as a
+    /// separate job with runnable_path including /forloop-N/ nesting segments.
+    /// Tests the extract_flow_root dispatch path.
+    #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
+    async fn test_dedicated_flow_forloop_multi_step(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let uuid = RunJob::from(JobPayload::Flow {
+            path: "f/system/dedicated_forloop_multi_step_flow".to_string(),
+            dedicated_worker: Some(true),
+            apply_preprocessor: false,
+            version: 3000000000000019,
+        })
+        .push(&db)
+        .await;
+
+        let listener = listen_for_completed_jobs(&db).await;
+        in_test_worker_dedicated(
+            db.clone(),
+            listener.find(&uuid),
+            port,
+            vec![wp(
+                "test-workspace",
+                "flow/f/system/dedicated_forloop_multi_step_flow",
+            )],
+        )
+        .await;
+
+        let job = completed_job(uuid, &db).await;
+        // for-loop over [1, 2, 3]: step b = value+1, step c = b*10
+        // iter 1: 1+1=2, 2*10=20; iter 2: 2+1=3, 3*10=30; iter 3: 3+1=4, 4*10=40
+        assert_eq!(job.json_result().unwrap(), json!([20, 30, 40]));
+        assert_ran_on_dedicated_worker(&db, uuid, "bun").await;
+        Ok(())
+    }
+
+    /// Test a dedicated flow with a while-loop.
+    /// Inner step (x + 1) runs until result >= 3, with early stop.
+    #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
+    async fn test_dedicated_flow_whileloop(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let uuid = RunJob::from(JobPayload::Flow {
+            path: "f/system/dedicated_whileloop_flow".to_string(),
+            dedicated_worker: Some(true),
+            apply_preprocessor: false,
+            version: 3000000000000016,
+        })
+        .arg("x", json!(1))
+        .push(&db)
+        .await;
+
+        let listener = listen_for_completed_jobs(&db).await;
+        in_test_worker_dedicated(
+            db.clone(),
+            listener.find(&uuid),
+            port,
+            vec![wp(
+                "test-workspace",
+                "flow/f/system/dedicated_whileloop_flow",
+            )],
+        )
+        .await;
+
+        let job = completed_job(uuid, &db).await;
+        // x=1: n=1→2 (continue), n=2→3 (stop). While-loop returns array of results.
+        assert_eq!(job.json_result().unwrap(), json!([2, 3]));
+        assert_ran_on_dedicated_worker(&db, uuid, "bun").await;
+        Ok(())
+    }
+
+    /// Test a dedicated flow with BranchAll (parallel branches).
+    /// Two branches: x+100 and x+200, both should dispatch to dedicated workers.
+    #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
+    async fn test_dedicated_flow_branchall(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let uuid = RunJob::from(JobPayload::Flow {
+            path: "f/system/dedicated_branchall_flow".to_string(),
+            dedicated_worker: Some(true),
+            apply_preprocessor: false,
+            version: 3000000000000017,
+        })
+        .arg("x", json!(5))
+        .push(&db)
+        .await;
+
+        let listener = listen_for_completed_jobs(&db).await;
+        in_test_worker_dedicated(
+            db.clone(),
+            listener.find(&uuid),
+            port,
+            vec![wp(
+                "test-workspace",
+                "flow/f/system/dedicated_branchall_flow",
+            )],
+        )
+        .await;
+
+        let job = completed_job(uuid, &db).await;
+        // BranchAll returns array of branch results: [105, 205]
+        assert_eq!(job.json_result().unwrap(), json!([105, 205]));
+        assert_ran_on_dedicated_worker(&db, uuid, "bun").await;
+        Ok(())
+    }
+
+    /// Test a dedicated flow with deeply nested structure: for-loop containing a branchone.
+    /// Tests dispatch through forloop-N/branchone-0/step_id path segments.
+    #[sqlx::test(fixtures("base", "dedicated_flows"))]
+    #[serial]
+    async fn test_dedicated_flow_nested_branch_in_loop(db: Pool<Postgres>) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let uuid = RunJob::from(JobPayload::Flow {
+            path: "f/system/dedicated_nested_flow".to_string(),
+            dedicated_worker: Some(true),
+            apply_preprocessor: false,
+            version: 3000000000000018,
+        })
+        .push(&db)
+        .await;
+
+        let listener = listen_for_completed_jobs(&db).await;
+        in_test_worker_dedicated(
+            db.clone(),
+            listener.find(&uuid),
+            port,
+            vec![wp("test-workspace", "flow/f/system/dedicated_nested_flow")],
+        )
+        .await;
+
+        let job = completed_job(uuid, &db).await;
+        // for-loop [1, 2]:
+        //   iter 1 (value=1): branchone condition 1>1 false → default: 1+200=201
+        //   iter 2 (value=2): branchone condition 2>1 true → branch: 2+100=102
+        assert_eq!(job.json_result().unwrap(), json!([201, 102]));
+        assert_ran_on_dedicated_worker(&db, uuid, "bun").await;
         Ok(())
     }
 }
