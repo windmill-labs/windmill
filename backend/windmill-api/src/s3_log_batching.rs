@@ -52,6 +52,9 @@ fn extract_workspace_and_object_key(uri: &str) -> (&str, &str) {
 }
 
 const MAX_BATCH_ENTRIES: usize = 10_000;
+pub const FLUSH_INTERVAL_MS: u64 = 250;
+const IDLE_TIMEOUT_MS: u128 = 500;
+const MAX_BATCH_AGE_SECS: u64 = 5;
 
 pub(crate) fn record_s3_log(uri: &str, method: &str, status: u16, latency_ms: u128) {
     // Prevent DOS by limiting the number of entries in the batch
@@ -88,8 +91,8 @@ pub(crate) fn record_s3_log(uri: &str, method: &str, status: u16, latency_ms: u1
 pub fn flush_s3_batches() {
     let now = Instant::now();
     S3_LOG_BATCHES.retain(|key, batch| {
-        let idle = now.duration_since(batch.last_seen).as_millis() > 500;
-        let max_age = now.duration_since(batch.first_seen).as_secs() > 5;
+        let idle = now.duration_since(batch.last_seen).as_millis() > IDLE_TIMEOUT_MS;
+        let max_age = now.duration_since(batch.first_seen).as_secs() > MAX_BATCH_AGE_SECS;
 
         if idle || max_age {
             if batch.total_count > 1 {
