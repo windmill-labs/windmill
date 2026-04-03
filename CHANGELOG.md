@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.673.0](https://github.com/windmill-labs/windmill/compare/v1.672.0...v1.673.0) (2026-04-02)
+
+
+### Features
+
+* add endpoint to restart workers in a worker group ([#8659](https://github.com/windmill-labs/windmill/issues/8659)) ([f0437eb](https://github.com/windmill-labs/windmill/commit/f0437eba1925a9aa4c430008027d637a0c89ee39))
+* add Entra ID (Azure Workload Identity) database auth ([#8526](https://github.com/windmill-labs/windmill/issues/8526)) ([6a5cfbc](https://github.com/windmill-labs/windmill/commit/6a5cfbc159a0ad7925fd7ce5eefc8eaa21bbb70b))
+* add LIMIT_WINDOWS_TO_1CU env var for Windows worker memory limits ([#8681](https://github.com/windmill-labs/windmill/issues/8681)) ([d2d6810](https://github.com/windmill-labs/windmill/commit/d2d6810db954114f3333853bd3476cb8fc735f92))
+* restore bun for dedicated workers, fix dispatch & serialization, cross-workspace deps ([#8645](https://github.com/windmill-labs/windmill/issues/8645)) ([619ebb6](https://github.com/windmill-labs/windmill/commit/619ebb65ce8dce8264add31c3147919802a8286a))
+
+
+### Bug Fixes
+
+* add HMAC signature verification to Slack interactive callback endpoint ([#8611](https://github.com/windmill-labs/windmill/issues/8611)) ([55e8a5c](https://github.com/windmill-labs/windmill/commit/55e8a5cff1f185b1dbd332d37b877972efa1ed7d))
+* correct raw app flow inputs ([#8667](https://github.com/windmill-labs/windmill/issues/8667)) ([28c0730](https://github.com/windmill-labs/windmill/commit/28c073056c65d4ed1600e39679497e5af964347f))
+* pass selected language to AI agent when generating flow scripts ([#8680](https://github.com/windmill-labs/windmill/issues/8680)) ([381011a](https://github.com/windmill-labs/windmill/commit/381011a4a8e48454e9c146c64db502293e646b99))
+* poll for preview results to avoid undici headers timeout ([#8682](https://github.com/windmill-labs/windmill/issues/8682)) ([ff5fa9f](https://github.com/windmill-labs/windmill/commit/ff5fa9f64fe4aaf33e06b20f02373894b5df0f95))
+* pre-fix trigger edited_by for superadmins not in workspace ([#8669](https://github.com/windmill-labs/windmill/issues/8669)) ([350ffdc](https://github.com/windmill-labs/windmill/commit/350ffdce297ba5b84f9dd247eede6da0c6b0956c))
+* resolve race condition where flow sync push reverts to stale version ([#8673](https://github.com/windmill-labs/windmill/issues/8673)) ([d569e9e](https://github.com/windmill-labs/windmill/commit/d569e9e29c588243a90b1cd25f866efb0d178640))
+* respect disabled fields in JSON input mode ([#8663](https://github.com/windmill-labs/windmill/issues/8663)) ([7fd0bf9](https://github.com/windmill-labs/windmill/commit/7fd0bf974d2ba2644bb01dd5e9ddc84749e166f5))
+* Run typed pg queries in a single protocol conversation ([#8679](https://github.com/windmill-labs/windmill/issues/8679)) ([8581a33](https://github.com/windmill-labs/windmill/commit/8581a3300d056040b7e3ab77d629c74f034c9c97))
+* sanitize MCP tool schemas for JSON Schema draft 2020-12 compliance ([#8666](https://github.com/windmill-labs/windmill/issues/8666)) ([8c3c97f](https://github.com/windmill-labs/windmill/commit/8c3c97f7a670d47019cc666219f8187f48499672))
+* skip generate-metadata confirmation prompt in non-interactive CI ([#8678](https://github.com/windmill-labs/windmill/issues/8678)) ([39af1b7](https://github.com/windmill-labs/windmill/commit/39af1b75afc8458f85dec4fe51dfaed3d0cb000d))
+* strip f/ prefix from folder paths when deploying from workspace forks ([#8662](https://github.com/windmill-labs/windmill/issues/8662)) ([7ab0ea5](https://github.com/windmill-labs/windmill/commit/7ab0ea581d349fbfdb56d22cf9903a90efa045bb))
+* support branch-specific folder.meta.yaml in missing-meta check ([#8661](https://github.com/windmill-labs/windmill/issues/8661)) ([c87a6a0](https://github.com/windmill-labs/windmill/commit/c87a6a0f2c1346bf5e21f128d32d89bdca039243))
+* validate rd redirect on login with same rules as logout ([#8655](https://github.com/windmill-labs/windmill/issues/8655)) ([bcce627](https://github.com/windmill-labs/windmill/commit/bcce62738791a4e9b9f4dbc64731eef163230172))
+
 ## [1.672.0](https://github.com/windmill-labs/windmill/compare/v1.671.0...v1.672.0) (2026-04-01)
 
 
