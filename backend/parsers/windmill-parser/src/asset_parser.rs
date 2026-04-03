@@ -39,6 +39,8 @@ pub struct SqlQueryDetails {
     pub source_name: String,  // e.g., "main", "dt"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_schema: Option<String>, // e.g., Some("public"), None
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub has_raw_interpolation: bool, // true if any ${sql.raw(...)} was used
 }
 
 #[derive(Serialize, Debug, Default)]
