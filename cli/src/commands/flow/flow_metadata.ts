@@ -70,7 +70,6 @@ export async function generateFlowLockInternal(
   },
   justUpdateMetadataLock?: boolean,
   noStaleMessage?: boolean,
-  legacyBehaviour?: boolean,
   tree?: DoubleLinkedDependencyTree
 ): Promise<string | FlowLocksResult | void> {
   if (folder.endsWith(SEP)) {
@@ -96,7 +95,7 @@ export async function generateFlowLockInternal(
   let filteredDeps: Record<string, string> = {};
   const conf = await readLockfile();
 
-  if (!legacyBehaviour && tree) {
+  if (tree) {
     if (dryRun) {
       const inlineScriptPaths: string[] = [];
       for (const script of inlineScriptsForTree) {
@@ -201,7 +200,7 @@ export async function generateFlowLockInternal(
 
     // In tree mode, use the tree's staleness info (which includes transitive dependency changes)
     // to determine which scripts need relocking, instead of only content-changed ones.
-    const locksToRemove = (tree && !legacyBehaviour)
+    const locksToRemove = tree
       ? Object.keys(hashes).filter(k => {
           if (k === TOP_HASH) return false;
           const treePath = fileToTreePath.get(k)
@@ -271,8 +270,8 @@ export async function generateFlowLockInternal(
     );
   }
 
-  // Non-legacy mode excludes workspace deps from hash (tracked via tree instead)
-  const depsForHash = (tree && !legacyBehaviour) ? {} : filteredDeps;
+  // In tree mode, workspace deps are tracked via the tree — exclude from hash
+  const depsForHash = tree ? {} : filteredDeps;
   const finalHashes = await generateFlowHash(
     depsForHash,
     folder,
@@ -288,7 +287,7 @@ export async function generateFlowLockInternal(
 
   // Return the list of updated scripts (extract just the filename from the path)
   // In tree mode, use the same staleness-aware list we used for lock removal
-  const relocked = (tree && !legacyBehaviour)
+  const relocked = tree
     ? Object.keys(finalHashes).filter(k => {
         if (k === TOP_HASH) return false;
         const treePath = fileToTreePath.get(k)

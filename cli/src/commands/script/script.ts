@@ -24,12 +24,13 @@ import {
 import { Workspace } from "../workspace/workspace.ts";
 import {
   checkifMetadataUptodate,
+  generateScriptHash,
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   parseMetadataFile,
   readLockfile,
 } from "../../utils/metadata.ts";
-import { generateHash, validateRequiredArgs } from "../../utils/utils.ts";
+import { validateRequiredArgs } from "../../utils/utils.ts";
 import {
   WorkspaceDependenciesLanguage,
   ScriptLanguage,
@@ -105,6 +106,16 @@ export function isFlowInlineScriptPath(filePath: string): boolean {
 }
 
 type PushOptions = GlobalOptions & { message?: string };
+export async function computePushMetadataHash(
+  filePath: string,
+  content: string
+): Promise<string> {
+  const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
+  const metadataWithType = await parseMetadataFile(remotePath, undefined);
+  const metadataContent = await readFile(metadataWithType.path, "utf-8");
+  return await generateScriptHash({}, content, metadataContent);
+}
+
 async function push(opts: PushOptions, filePath: string) {
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
@@ -130,7 +141,7 @@ async function push(opts: PushOptions, filePath: string) {
   try {
     const content = await readFile(filePath, "utf-8");
     const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
-    const contentHash = await generateHash(content + remotePath);
+    const contentHash = await computePushMetadataHash(filePath, content);
     const conf = await readLockfile();
     const hasLockEntry = conf.locks && (conf.locks[remotePath] !== undefined || conf.locks[`${remotePath}.ts`] !== undefined);
     if (!hasLockEntry) {
