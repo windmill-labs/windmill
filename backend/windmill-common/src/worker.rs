@@ -445,39 +445,42 @@ fn format_pull_query(peek: String) -> String {
                 started_at = coalesce(started_at, now()),
                 suspend_until = null,
                 worker = $1
-            WHERE id = (SELECT id FROM peek)
+            WHERE id IN (SELECT id FROM peek)
             RETURNING
-                started_at, scheduled_for,
+                id, started_at, scheduled_for,
                 canceled_by, canceled_reason, worker, cache_ignore_s3_path, runnable_settings_handle
         ), r AS NOT MATERIALIZED (
             UPDATE v2_job_runtime SET
                 ping = now()
-            WHERE id = (SELECT id FROM peek)
+            WHERE id IN (SELECT id FROM peek)
         ), j AS NOT MATERIALIZED (
             SELECT
                 id, workspace_id, parent_job, created_by, created_at, runnable_id,
                 runnable_path, args, kind, trigger, trigger_kind,
                 permissioned_as, permissioned_as_email, script_lang,
                 flow_innermost_root_job, root_job, flow_step_id,
-                same_worker, pre_run_error, visible_to_owner, tag, concurrent_limit,
-                concurrency_time_window_s, timeout, cache_ttl, priority, raw_code, raw_lock,
+                same_worker, pre_run_error, visible_to_owner, tag,
+                timeout, cache_ttl, priority, raw_code, raw_lock,
                 raw_flow, script_entrypoint_override, preprocessed
             FROM v2_job
-            WHERE id = (SELECT id FROM peek)
+            WHERE id IN (SELECT id FROM peek)
         ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
             j.runnable_id, j.runnable_path, j.args, canceled_by,
             canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
             flow_status, j.script_lang,
             j.same_worker, j.pre_run_error, j.visible_to_owner,
-            j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
+            j.tag, cs.concurrent_limit, cs.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
             j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
             j.script_entrypoint_override, j.preprocessed, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
-        FROM q, j
-            LEFT JOIN v2_job_status f USING (id)
+        FROM q
+            JOIN j ON j.id = q.id
+            LEFT JOIN v2_job_status f ON f.id = j.id
             LEFT JOIN job_perms p ON p.job_id = j.id
             LEFT JOIN v2_job pj ON j.parent_job = pj.id
+            LEFT JOIN runnable_settings rs ON rs.hash = q.runnable_settings_handle
+            LEFT JOIN concurrency_settings cs ON cs.hash = rs.concurrency_settings
             ",
         peek
     );
@@ -486,14 +489,20 @@ fn format_pull_query(peek: String) -> String {
 }
 
 pub fn make_suspended_pull_query(tags: &[String]) -> String {
+    let ts = tags.iter().map(|x| format!("'{x}'")).join(", ");
+    let condition = if ts.is_empty() {
+        "1=0".to_string()
+    } else {
+        format!("tag IN ({})", ts)
+    };
     format_pull_query(format!(
         "SELECT id
         FROM v2_job_queue
-        WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag IN ({})
+        WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND {}
         ORDER BY priority DESC NULLS LAST, created_at
         FOR UPDATE SKIP LOCKED
-        LIMIT 1",
-        tags.iter().map(|x| format!("'{x}'")).join(", ")
+        LIMIT 32",
+        condition
     ))
 }
 // pub async fn make_suspended
@@ -508,14 +517,20 @@ pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
 }
 
 pub fn make_pull_query(tags: &[String]) -> String {
+    let ts = tags.iter().map(|x| format!("'{x}'")).join(", ");
+    let condition = if ts.is_empty() {
+        "1=0".to_string()
+    } else {
+        format!("tag IN ({})", ts)
+    };
     let query = format_pull_query(format!(
         "SELECT id
         FROM v2_job_queue
-        WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
+        WHERE running = false AND {} AND scheduled_for <= now()
         ORDER BY priority DESC NULLS LAST, scheduled_for
         FOR UPDATE SKIP LOCKED
-        LIMIT 1",
-        tags.iter().map(|x| format!("'{x}'")).join(", ")
+        LIMIT 32",
+        condition
     ));
     query
 }

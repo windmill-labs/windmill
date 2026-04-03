@@ -218,6 +218,10 @@ pub fn start_background_processor(
     tokio::spawn(async move {
         let mut has_been_killed = false;
 
+        // Start noop batch flush background task (use cloned db)
+        let db_for_flush = db.clone();
+        windmill_queue::start_noop_batch_flush_task(db_for_flush);
+
         let JobCompletedReceiver { bounded_rx, mut killpill_rx, unbounded_rx } = job_completed_rx;
 
         #[cfg(feature = "benchmark")]

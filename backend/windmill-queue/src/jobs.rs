@@ -7,7 +7,8 @@
  */
 
 use std::future::Future;
-use std::time::Duration;
+use std::sync::LazyLock;
+use std::time::{Duration, Instant};
 use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
@@ -814,6 +815,105 @@ lazy_static::lazy_static! {
 
 const WORKSPACE_HANDLER_CACHE_TTL_SECONDS: i64 = 60;
 
+struct NoopBatch {
+    jobs: Vec<(Uuid, String)>, // (job_id, workspace_id)
+    last_flush: Instant,
+}
+
+impl NoopBatch {
+    const MAX_SIZE: usize = 1024;
+    const TIMEOUT_MS: u64 = 20;
+
+    fn should_flush(&self) -> bool {
+        self.jobs.len() >= Self::MAX_SIZE
+            || self.last_flush.elapsed() > Duration::from_millis(Self::TIMEOUT_MS)
+    }
+}
+
+static NOOP_BATCH: LazyLock<tokio::sync::Mutex<NoopBatch>> = LazyLock::new(|| {
+    tokio::sync::Mutex::new(NoopBatch {
+        jobs: Vec::with_capacity(1024),
+        last_flush: Instant::now(),
+    })
+});
+
+pub fn start_noop_batch_flush_task(db: Pool<Postgres>) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_millis(30));
+        loop {
+            interval.tick().await;
+            let jobs = {
+                let mut batch = NOOP_BATCH.lock().await;
+                if batch.jobs.is_empty() {
+                    continue;
+                }
+                if batch.last_flush.elapsed() < Duration::from_millis(12) {
+                    continue;
+                }
+                let jobs: Vec<(Uuid, String)> = batch.jobs.drain(..).collect();
+                batch.last_flush = Instant::now();
+                jobs
+            };
+
+            if !jobs.is_empty() {
+                let db = db.clone();
+                if let Err(e) = add_completed_noop_insert(&db, jobs).await {
+                    tracing::error!("noop batch flush task failed: {}", e);
+                }
+            }
+        }
+    });
+}
+
+pub async fn add_completed_noop_insert(
+    db: &Pool<Postgres>,
+    jobs: Vec<(Uuid, String)>,
+) -> Result<(), Error> {
+    if jobs.is_empty() {
+        return Ok(());
+    }
+
+    let mut tx = db.begin().await?;
+
+    let job_ids: Vec<Uuid> = jobs.iter().map(|(id, _)| *id).collect();
+    let workspace_ids: Vec<String> = jobs.iter().map(|(_, w)| w.clone()).collect();
+
+    sqlx::query!(
+        r#"
+        INSERT INTO v2_job_completed 
+            (id, workspace_id, started_at, duration_ms, result, status)
+        SELECT id, workspace_id, now(), 0, 'null'::jsonb, 'success'::job_status
+        FROM UNNEST($1::uuid[], $2::text[]) AS t(id, workspace_id)
+        ON CONFLICT (id) DO UPDATE SET status = 'success'::job_status
+        "#,
+        &job_ids,
+        &workspace_ids
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    tracing::debug!("batch inserted {} noop jobs", jobs.len());
+    Ok(())
+}
+
+pub async fn flush_noop_batches(db: &Pool<Postgres>) {
+    let jobs = {
+        let mut batch = NOOP_BATCH.lock().await;
+        if batch.jobs.is_empty() {
+            return;
+        }
+        let jobs: Vec<(Uuid, String)> = batch.jobs.drain(..).collect();
+        batch.last_flush = Instant::now();
+        jobs
+    };
+
+    if let Err(e) = add_completed_noop_insert(db, jobs).await {
+        tracing::error!("noop batch flush on shutdown failed: {}", e);
+    }
+}
+
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
     completed_job: &MiniCompletedJob,
@@ -914,6 +1014,42 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // let start = std::time::Instant::now();
 
     let mut tx = db.begin().warn_after_seconds(10).await?;
+    // Noop jobs bypass all complex logic 
+    if matches!(completed_job.kind, JobKind::Noop) {
+        let job_id = completed_job.id;
+        let workspace_id = completed_job.workspace_id.clone();
+
+        // Immediate DELETE from queue to prevent zombie job detection
+        sqlx::query!("DELETE FROM v2_job_queue WHERE id = $1", job_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!("Could not delete noop job from queue: {}", e))
+            })?;
+
+        tx.commit().await?;
+
+        // Buffer for batch INSERT to v2_job_completed
+        let db = db.clone();
+        {
+            let mut batch = NOOP_BATCH.lock().await;
+            batch.jobs.push((job_id, workspace_id));
+
+            if batch.should_flush() {
+                let jobs: Vec<(Uuid, String)> = batch.jobs.drain(..).collect();
+                batch.last_flush = Instant::now();
+                drop(batch);
+
+                tokio::spawn(async move {
+                    if let Err(e) = add_completed_noop_insert(&db, jobs).await {
+                        tracing::error!("noop batch insert failed: {}", e);
+                    }
+                });
+            }
+        }
+
+        return Ok((None, 0, false, None));
+    }
 
     let job_id = completed_job.id;
     // tracing::error!("1 {:?}", start.elapsed());
@@ -3247,116 +3383,93 @@ async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
 
 // TODO: Factorize
 /// Pull the job from queue
-pub async fn pull(
+pub async fn pull_batch(
     db: &Pool<Postgres>,
-    // Whether or not try to pull from suspended jobs first
     suspend_first: bool,
     worker_name: &str,
-    // Execute queries supplied by caller instead of generic one
     query_o: Option<&(String, String)>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
-) -> windmill_common::error::Result<PulledJobResult> {
-    let mut pull_loop_count = 0;
-    loop {
-        pull_loop_count += 1;
-        if pull_loop_count % 10 == 0 {
-            tracing::warn!("Pull job loop count: {}", pull_loop_count);
-            tokio::task::yield_now().await;
-        }
-        if pull_loop_count > 1000 {
-            tracing::error!("Pull job loop count exceeded 1000, breaking");
-            return Ok(PulledJobResult {
-                job: None,
-                suspended: false,
-                missing_concurrency_key: false,
-                error_while_preprocessing: None,
-            });
-        }
+) -> windmill_common::error::Result<Vec<PulledJobResult>> {
+    if let Some((query_suspended, query_no_suspend)) = query_o {
+        let njobs = {
+            let mut jobs = if query_suspended.is_empty() {
+                vec![]
+            } else {
+                timeout(
+                    Duration::from_secs(15),
+                    sqlx::query_as::<_, PulledJob>(query_suspended)
+                        .bind(worker_name)
+                        .fetch_all(db),
+                )
+                .await??
+            };
 
-        if let Some((query_suspended, query_no_suspend)) = query_o {
-            let njob = {
-                let job = if query_suspended.is_empty() {
-                    None
-                } else {
-                    timeout(
-                        Duration::from_secs(15),
-                        sqlx::query_as::<_, PulledJob>(query_suspended)
-                            .bind(worker_name)
-                            .fetch_optional(db),
+            let mut suspended = true;
+            if jobs.is_empty() {
+                jobs = timeout(
+                    Duration::from_secs(15),
+                    sqlx::query_as::<_, PulledJob>(query_no_suspend)
+                        .bind(worker_name)
+                        .fetch_all(db),
+                )
+                .await??;
+                suspended = false;
+            }
+
+            let mut res = vec![];
+
+            for job in jobs {
+                if (job.is_flow() || job.is_dependency())
+                    && !(job.kind.is_preview()
+                        && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed))
+                {
+                    let per_workspace = per_workspace_tag(&job.workspace_id).await;
+                    let base_tag = if job.is_flow() {
+                        "flow".to_string()
+                    } else {
+                        "dependency".to_string()
+                    };
+                    let tag = if per_workspace {
+                        format!("{}-{}", base_tag, job.workspace_id)
+                    } else {
+                        base_tag
+                    };
+                    sqlx::query!(
+                        "UPDATE v2_job_queue SET tag = $1, running = false WHERE id = $2",
+                        tag,
+                        job.id
                     )
-                    .await??
-                };
-
-                let (job, suspended) = if let Some(job) = job {
-                    (Some(job), true)
-                } else {
-                    let job = timeout(
-                        Duration::from_secs(15),
-                        sqlx::query_as::<_, PulledJob>(query_no_suspend)
-                            .bind(worker_name)
-                            .fetch_optional(db),
-                    )
-                    .await??;
-
-                    (job, false)
-                };
-
-                if let Some(job) = job.as_ref() {
-                    if (job.is_flow() || job.is_dependency())
-                        && !(job.kind.is_preview()
-                            && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed))
-                    {
-                        let per_workspace = per_workspace_tag(&job.workspace_id).await;
-                        let base_tag = if job.is_flow() {
-                            "flow".to_string()
-                        } else {
-                            "dependency".to_string()
-                        };
-                        let tag = if per_workspace {
-                            format!("{}-{}", base_tag, job.workspace_id)
-                        } else {
-                            base_tag
-                        };
-                        sqlx::query!(
-                            "UPDATE v2_job_queue SET tag = $1, running = false WHERE id = $2",
-                            tag,
-                            job.id
-                        )
-                        .execute(db)
-                        .await?;
-                        continue;
-                    }
+                    .execute(db)
+                    .await?;
+                    continue;
                 }
 
                 #[cfg(feature = "private")]
-                let concurrency_settings = if let Some(ref j) = job {
+                let concurrency_settings = {
                     windmill_common::runnable_settings::prefetch_cached_from_handle(
-                        j.runnable_settings_handle,
+                        job.runnable_settings_handle,
                         db,
                     )
                     .await?
                     .1
                     .maybe_fallback(
                         None,
-                        j.concurrent_limit,
-                        j.concurrency_time_window_s,
+                        job.concurrent_limit,
+                        job.concurrency_time_window_s,
                     )
-                } else {
-                    Default::default()
                 };
 
                 let pulled_job_result = match job {
                     #[cfg(feature = "private")]
-                    Some(job)
-                        if concurrency_settings.concurrent_limit.is_some()
-                            // Concurrency limit is available for either enterprise job or dependency job
-                            && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING)) =>
+                    job if concurrency_settings.concurrent_limit.is_some()
+                        && (cfg!(feature = "enterprise")
+                            || (job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING)) =>
                     {
                         timeout(
                             Duration::from_secs(15),
                             crate::jobs_ee::apply_concurrency_limit(
                                 db,
-                                pull_loop_count,
+                                1, // pull_loop_count
                                 suspended,
                                 job,
                                 &concurrency_settings,
@@ -3371,39 +3484,37 @@ pub async fn pull(
                         })
                     }
                     _ => PulledJobResult {
-                        job,
+                        job: Some(job),
                         suspended,
                         missing_concurrency_key: false,
                         error_while_preprocessing: None,
                     },
                 };
-
-                Ok::<_, Error>(pulled_job_result)
-            }?;
-
-            return Ok(njob);
+                res.push(pulled_job_result);
+            }
+            res
         };
+        return Ok(njobs);
+    }
 
-        let (job, suspended) = timeout(
-            Duration::from_secs(15),
-            pull_single_job_and_mark_as_running_no_concurrency_limit(
-                db,
-                suspend_first,
-                worker_name,
-                #[cfg(feature = "benchmark")]
-                bench,
-            ),
-        )
-        .await??;
-        let Some(job) = job else {
-            return Ok(PulledJobResult {
-                job: None,
-                suspended,
-                missing_concurrency_key: false,
-                error_while_preprocessing: None,
-            });
-        };
+    let (jobs, suspended) = timeout(
+        Duration::from_secs(15),
+        pull_jobs_and_mark_as_running_no_concurrency_limit(
+            db,
+            suspend_first,
+            worker_name,
+            #[cfg(feature = "benchmark")]
+            bench,
+        ),
+    )
+    .await??;
 
+    if jobs.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut res = vec![];
+    for job in jobs {
         let concurrency_settings = windmill_common::runnable_settings::prefetch_cached_from_handle(
             job.runnable_settings_handle,
             db,
@@ -3424,118 +3535,97 @@ pub async fn pull(
             && job.concurrent_limit.is_some()
             && cfg!(feature = "private")
             && !*WMDEBUG_NO_DEBOUNCING;
-        // if we don't have private flag, we don't have concurrency limit
 
-        // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
-        let pulled_job = job;
-        if pulled_job.runnable_path.is_none()
-            || !has_concurent_limit
-            || pulled_job.canceled_by.is_some()
-        {
+        if job.runnable_path.is_none() || !has_concurent_limit || job.canceled_by.is_some() {
             #[cfg(feature = "prometheus")]
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
             otel_incr_queue_pull_count();
-            return Ok(PulledJobResult {
-                job: Some(pulled_job),
+            res.push(PulledJobResult {
+                job: Some(job),
                 suspended,
                 missing_concurrency_key: false,
                 error_while_preprocessing: None,
             });
+            continue;
         }
 
         #[cfg(feature = "private")]
-        if cfg!(feature = "enterprise") || (pulled_job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING) {
+        if cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING) {
             if let Some(pulled_job_res) = timeout(
                 Duration::from_secs(15),
                 crate::jobs_ee::apply_concurrency_limit(
                     db,
-                    pull_loop_count,
+                    1,
                     suspended,
-                    pulled_job,
+                    job,
                     &concurrency_settings,
                 ),
             )
             .await??
             {
-                return Ok(pulled_job_res);
+                res.push(pulled_job_res);
+                continue;
             }
         }
     }
+    Ok(res)
 }
 
-async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
+pub async fn pull_jobs_and_mark_as_running_no_concurrency_limit<'c>(
     db: &Pool<Postgres>,
     suspend_first: bool,
     worker_name: &str,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
-) -> windmill_common::error::Result<(Option<PulledJob>, bool)> {
-    let job_and_suspended: (Option<PulledJob>, bool) = {
-        /* Jobs can be started if they:
-         * - haven't been started before,
-         *   running = false
-         * - are flows with a step that needed resume,
-         *   suspend_until is non-null
-         *   and suspend = 0 when the resume messages are received
-         *   or suspend_until <= now() if it has timed out */
+) -> windmill_common::error::Result<(Vec<PulledJob>, bool)> {
+    let job_and_suspended: (Vec<PulledJob>, bool) = {
         let query = WORKER_SUSPENDED_PULL_QUERY.read().await;
 
         if query.is_empty() {
             tracing::warn!("No suspended pull queries available");
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            return Ok((None, false));
+            return Ok((vec![], false));
         }
         let r = if suspend_first {
-            // tracing::info!("Pulling job with query: {}", query);
             sqlx::query_as::<_, PulledJob>(&query)
                 .bind(worker_name)
-                .fetch_optional(db)
+                .fetch_all(db)
                 .await?
         } else {
-            None
+            vec![]
         };
 
-        if r.is_none() {
-            // #[cfg(feature = "benchmark")]
-            // let instant = Instant::now();
-            let mut highest_priority_job: Option<PulledJob> = None;
+        if r.is_empty() {
+            let mut highest_priority_jobs: Vec<PulledJob> = vec![];
 
             let queries = WORKER_PULL_QUERIES.read().await;
 
             if queries.is_empty() {
                 tracing::warn!("No pull queries available");
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                return Ok((None, false));
+                return Ok((vec![], false));
             }
 
             for query in queries.iter() {
-                // tracing::info!("Pulling job with query: {}", query);
-                // let instant = std::time::Instant::now();
-
                 #[cfg(feature = "benchmark")]
                 add_time!(bench, "pre pull");
 
                 let r = sqlx::query_as::<_, PulledJob>(query)
                     .bind(worker_name)
-                    .fetch_optional(db)
+                    .fetch_all(db)
                     .await?;
 
                 #[cfg(feature = "benchmark")]
                 add_time!(bench, "post pull");
 
-                if let Some(pulled_job) = r {
-                    // tracing::info!("pulled job: {:?}", instant.elapsed().as_micros());
-
-                    highest_priority_job = Some(pulled_job);
+                if !r.is_empty() {
+                    highest_priority_jobs = r;
                     break;
                 }
-                // else continue pulling for lower priority tags
             }
 
-            // #[cfg(feature = "benchmark")]
-            // println!("pull query: {:?}", instant.elapsed());
-            (highest_priority_job, false)
+            (highest_priority_jobs, false)
         } else {
             (r, true)
         }
