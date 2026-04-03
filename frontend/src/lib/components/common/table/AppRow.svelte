@@ -99,10 +99,18 @@
 		{#if app.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each app.labels.slice(0, 3) as label}
-					<Badge color="blue" small class="px-1">{label}</Badge>
+					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
 				{/each}
 				{#if app.labels.length > 3}
-					<Badge color="blue" small class="px-1">+{app.labels.length - 3}</Badge>
+					<Badge
+						color="blue"
+						small
+						class="px-1"
+						title={app.labels
+							.slice(3)
+							.map((l) => 'Label: ' + l)
+							.join('\n')}>+{app.labels.length - 3}</Badge
+					>
 				{/if}
 			</div>
 		{/if}

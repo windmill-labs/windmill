@@ -122,10 +122,18 @@
 		{#if flow.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each flow.labels.slice(0, 3) as label}
-					<Badge color="blue" small class="px-1">{label}</Badge>
+					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
 				{/each}
 				{#if flow.labels.length > 3}
-					<Badge color="blue" small class="px-1">+{flow.labels.length - 3}</Badge>
+					<Badge
+						color="blue"
+						small
+						class="px-1"
+						title={flow.labels
+							.slice(3)
+							.map((l) => 'Label: ' + l)
+							.join('\n')}>+{flow.labels.length - 3}</Badge
+					>
 				{/if}
 			</div>
 		{/if}
