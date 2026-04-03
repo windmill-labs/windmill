@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, workspace_id, path, value, schema, created_by, created_at\n         FROM flow_version\n         WHERE workspace_id = $1\n         ORDER BY path, created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "schema",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "c98a28cdeced035b21b8893041c4f94e2564a609eb5b8b9c562a0dbded4d5b96"
+}

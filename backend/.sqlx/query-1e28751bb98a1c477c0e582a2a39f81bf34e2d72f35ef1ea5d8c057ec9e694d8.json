@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO email_trigger (\n            path, local_part, workspaced_local_part, script_path,\n            is_flow, workspace_id, edited_by, permissioned_as\n        )\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1e28751bb98a1c477c0e582a2a39f81bf34e2d72f35ef1ea5d8c057ec9e694d8"
+}

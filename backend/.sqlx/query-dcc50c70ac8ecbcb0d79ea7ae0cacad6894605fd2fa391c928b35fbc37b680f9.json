@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                importer_path,\n                importer_kind::text as \"importer_kind!\",\n                array_agg(importer_node_id) as importer_node_ids\n            FROM dependency_map\n            WHERE workspace_id = $1 AND imported_path = $2\n            GROUP BY importer_path, importer_kind\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "importer_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "importer_kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "importer_node_ids",
+        "type_info": "VarcharArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "dcc50c70ac8ecbcb0d79ea7ae0cacad6894605fd2fa391c928b35fbc37b680f9"
+}

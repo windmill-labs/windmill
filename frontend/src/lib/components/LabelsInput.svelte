@@ -26,6 +26,12 @@
 			)
 			.slice(0, 8)
 	)
+	let trimmedInput = $derived(inputValue.trim())
+	let showCreateNew = $derived(
+		trimmedInput.length > 0 &&
+			!suggestions.some((s) => s.toLowerCase() === trimmedInput.toLowerCase()) &&
+			!(labels ?? []).includes(trimmedInput)
+	)
 
 	async function loadExistingLabels() {
 		try {
@@ -72,13 +78,14 @@
 			if (selectedIdx >= 0 && selectedIdx < suggestions.length) {
 				addLabel(suggestions[selectedIdx])
 			} else {
-				addLabel()
+				addLabel() // either "Create new" selected or free text
 			}
 		} else if (e.key === 'Escape') {
 			adding = false
 		} else if (e.key === 'ArrowDown') {
 			e.preventDefault()
-			selectedIdx = Math.min(selectedIdx + 1, suggestions.length - 1)
+			const maxIdx = suggestions.length + (showCreateNew ? 1 : 0) - 1
+			selectedIdx = Math.min(selectedIdx + 1, maxIdx)
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault()
 			selectedIdx = Math.max(selectedIdx - 1, -1)
@@ -112,7 +119,7 @@
 				class="text-2xs border border-blue-300 rounded px-1.5 py-0 h-5 max-w-32 outline-none focus:ring-1 focus:ring-blue-400"
 				placeholder="label"
 			/>
-			{#if suggestions.length > 0}
+			{#if suggestions.length > 0 || showCreateNew}
 				<div
 					class="absolute top-6 left-0 z-50 bg-surface border border-light rounded shadow-md max-h-32 overflow-y-auto min-w-32"
 				>
@@ -129,6 +136,20 @@
 							{suggestion}
 						</button>
 					{/each}
+					{#if showCreateNew}
+						<button
+							class="w-full text-left text-2xs px-2 py-1 hover:bg-surface-hover text-blue-600 {selectedIdx ===
+							suggestions.length
+								? 'bg-surface-hover'
+								: ''}"
+							onmousedown={(e) => {
+								e.preventDefault()
+								addLabel()
+							}}
+						>
+							+ Create "{trimmedInput}"
+						</button>
+					{/if}
 				</div>
 			{/if}
 		</div>

@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT j.created_by AS \"created_by!\", j.args as \"args: sqlx::types::Json<Box<RawValue>>\"\n            FROM v2_job j\n            WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_by!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "args: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "848c5e2c26f77341d3f3bbb49c5d90b8bca91ce425bfbe39b1c1c6520ad38419"
+}

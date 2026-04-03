@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO usr (workspace_id, username, email, is_admin, operator)\n             VALUES ('ws-multi-group', 'alice', 'alice@example.com', true, false)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "6f941e4454f736b32eaef80cdfb9582d6e75af3dc159e7c5f12497d3957f1eef"
+}

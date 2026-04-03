@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SET LOCAL ROLE NONE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "ab3f8ebcebf0088c1104be4014c43dab1c08d88c9bcc40b62f2e6bbbbc234ff3"
+}
