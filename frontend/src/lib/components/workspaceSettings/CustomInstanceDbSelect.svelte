@@ -27,9 +27,7 @@
 		tag
 	}: Props = $props()
 
-	let openedDbNameWizard = $state(false)
-
-	let status = $derived(customInstanceDbs.current?.[value ?? ''])
+	let openedDbNameWizard: string | undefined = $state(undefined)
 
 	let onlySelectedTags = $derived(
 		safeSelectItems(
@@ -38,12 +36,13 @@
 				.map(([name, _]) => name)
 		)
 	)
-	let currentIsAlreadyUsedElsewhere = $derived(tag && status && status.tag !== tag)
+	let open = $state(false)
 </script>
 
 <div class="flex relative items-center {className}">
 	<Select
 		class="flex-1"
+		bind:open
 		bind:value
 		onCreateItem={(i) => (value = i)}
 		placeholder="Search or create..."
@@ -53,35 +52,12 @@
 		disabled={!$isCustomInstanceDbEnabled}
 	>
 		{#snippet endSnippet({ item })}
-			{#if !customInstanceDbs.current?.[item.value]?.success}
-				<div class="w-1.5 h-1.5 rounded-full bg-red-400"></div>
-			{:else}
-				<div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
-			{/if}
+			{@render customInstanceDbWizardButton(item.value)}
 		{/snippet}
 	</Select>
-
-	<Button
-		spacingSize="xs2"
-		variant="default"
-		wrapperClasses={'absolute right-1.5 h-6 bg-surface-input'}
-		onClick={() => (openedDbNameWizard = true)}
-		disabled={currentIsAlreadyUsedElsewhere}
-	>
-		{#if !status}
-			<span class="text-yellow-600 dark:text-yellow-400">
-				Setup <ArrowRight class="inline" size={14} />
-			</span>
-		{:else if currentIsAlreadyUsedElsewhere}
-			<span class="text-red-400 flex gap-1">Already used as {status.tag}</span>
-		{:else if !status.success}
-			<span class="text-red-400 flex gap-1">
-				Error <TriangleAlert class="inline" size={16} />
-			</span>
-		{:else}
-			<div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
-		{/if}
-	</Button>
+	{#if value}
+		{@render customInstanceDbWizardButton(value, 'absolute right-1.5')}
+	{/if}
 </div>
 
 <CustomInstanceDbWizardModal
@@ -90,7 +66,32 @@
 	{tag}
 	bottomHint={wizardBottomHint}
 	bind:opened={
-		() => (openedDbNameWizard ? { dbname: value ?? '', status: status! } : undefined),
-		(v) => !v && (openedDbNameWizard = false)
+		() =>
+			openedDbNameWizard
+				? { dbname: openedDbNameWizard, status: customInstanceDbs.current?.[openedDbNameWizard] }
+				: undefined,
+		(v) => !v && (openedDbNameWizard = undefined)
 	}
 />
+
+{#snippet customInstanceDbWizardButton(dbname: string, clazz: string = '')}
+	{@const status = customInstanceDbs.current?.[dbname]}
+	<Button
+		spacingSize="xs2"
+		variant="default"
+		wrapperClasses="bg-surface-input h-6 -my-2 {clazz}"
+		onClick={() => ((openedDbNameWizard = dbname), (open = false))}
+	>
+		{#if !status}
+			<span class="text-yellow-600 dark:text-yellow-400">
+				Setup <ArrowRight class="inline" size={14} />
+			</span>
+		{:else if !status.success}
+			<span class="text-red-400 flex gap-1">
+				Error <TriangleAlert class="inline" size={16} />
+			</span>
+		{:else}
+			<div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
+		{/if}
+	</Button>
+{/snippet}

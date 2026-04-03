@@ -16630,6 +16630,7 @@ dependencies = [
  "windmill-git-sync",
  "windmill-object-store",
  "windmill-queue",
+ "windmill-store",
  "windmill-types",
 ]
 

@@ -40,8 +40,8 @@ use windmill_common::workspaces::GitRepositorySettings;
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
     check_user_against_rule, get_datatable_resource_from_db_unchecked, DataTable,
-    DataTableCatalogResourceType, ProtectionRuleKind, ProtectionRules, ProtectionRuleset,
-    RuleCheckResult, WorkspaceGitSyncSettings,
+    DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
+    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -157,6 +157,17 @@ pub fn workspaced_service() -> Router {
             post(reset_workspace_diffs),
         )
         .route("/compare/{target_workspace_id}", get(compare_workspaces))
+        .route("/create_pg_database", post(create_pg_database))
+        .route("/import_pg_database", post(import_pg_database))
+        .route("/export_pg_schema", post(export_pg_schema))
+        .route(
+            "/drop_forked_datatable_databases",
+            post(crate::workspaces_extra::drop_forked_datatable_databases),
+        )
+        .route(
+            "/get_datatable_full_schema",
+            post(get_datatable_full_schema),
+        )
         .route("/protection_rules", get(list_protection_rules))
         .route("/protection_rules", post(create_protection_rule))
         .route(
@@ -381,6 +392,16 @@ struct CreateWorkspaceFork {
     id: String,
     name: String,
     color: Option<String>,
+    /// Datatable names that were forked. For each, the backend will update the
+    /// forked workspace's datatable config to point to the new database.
+    #[serde(default)]
+    forked_datatables: Vec<ForkedDatatableInfo>,
+}
+
+#[derive(Deserialize)]
+struct ForkedDatatableInfo {
+    name: String,
+    new_dbname: String,
 }
 
 #[derive(Deserialize)]
@@ -1273,26 +1294,40 @@ async fn list_ducklakes(
     Ok(Json(ducklakes))
 }
 
+#[derive(Serialize)]
+struct DataTableListItem {
+    name: String,
+    resource_type: String,
+    resource_path: String,
+}
+
 async fn list_datatables(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<Vec<String>> {
-    let datatables = sqlx::query_scalar!(
-        r#"
-            SELECT jsonb_object_keys(ws.datatable->'datatables') AS datatable_name
-            FROM workspace_settings ws
-            WHERE ws.workspace_id = $1
-        "#,
+) -> JsonResult<Vec<DataTableListItem>> {
+    let config = sqlx::query_scalar!(
+        "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
-    .fetch_all(&db)
-    .await?
-    .into_iter()
-    .filter_map(|s| s)
-    .collect();
+    .fetch_one(&db)
+    .await?;
 
-    Ok(Json(datatables))
+    let items: Vec<DataTableListItem> = match config {
+        Some(val) => {
+            let map: HashMap<String, DataTable> = serde_json::from_value(val).unwrap_or_default();
+            map.into_iter()
+                .map(|(name, dt)| DataTableListItem {
+                    name,
+                    resource_type: dt.database.resource_type.as_ref().to_string(),
+                    resource_path: dt.database.resource_path,
+                })
+                .collect()
+        }
+        None => vec![],
+    };
+
+    Ok(Json(items))
 }
 
 /// Compact column representation: "type" or "type?" for nullable, with "=default" suffix if has default
@@ -1453,6 +1488,397 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
     }
 
     Ok(schema_map)
+}
+
+/// Resolve a source string to PgDatabase credentials with user-scoped permission checks.
+/// For `datatable://name`: accessible to everyone (variables are resolved internally).
+/// For `$res:path`: uses UserDB (row-level security) to verify the user can see the resource,
+/// then interpolates `$var:` references in the resource value.
+pub(crate) async fn resolve_pg_source_checked(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    source: &str,
+) -> Result<PgDatabase> {
+    let db_resource = if let Some(name) = source.strip_prefix("datatable://") {
+        get_datatable_resource_from_db_unchecked(db, w_id, name).await?
+    } else if let Some(path) = source.strip_prefix("$res:") {
+        let db_with_authed = windmill_common::db::DbWithOptAuthed::from_authed(
+            authed,
+            db.clone(),
+            Some(user_db.clone()),
+        );
+        let value = windmill_store::resources::get_resource_value_interpolated_internal(
+            &db_with_authed,
+            w_id,
+            path,
+            None,
+            None,
+            false,
+        )
+        .await?;
+
+        match value {
+            Some(v) => v,
+            None => {
+                return Err(Error::NotAuthorized(format!(
+                    "Resource '{}' not found or you do not have access to it",
+                    path
+                )));
+            }
+        }
+    } else {
+        return Err(Error::BadRequest(format!(
+            "Invalid source format: '{}'. Expected 'datatable://name' or '$res:path'",
+            source
+        )));
+    };
+
+    serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
+}
+
+/// A temporary file for pg_dump output that is automatically deleted when dropped.
+struct DumpFile {
+    path: std::path::PathBuf,
+}
+
+impl DumpFile {
+    fn new() -> Result<Self> {
+        let dir = std::path::Path::new("/tmp/windmill");
+        std::fs::create_dir_all(dir)
+            .map_err(|e| Error::internal_err(format!("Failed to create /tmp/windmill: {}", e)))?;
+        // Set directory permissions to owner-only
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        }
+        let path = dir.join(format!("datatable_dump_{}", uuid::Uuid::new_v4()));
+        // Create the file with restrictive permissions before pg_dump writes to it
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .mode(0o600)
+                .open(&path)
+                .map_err(|e| Error::internal_err(format!("Failed to create dump file: {}", e)))?;
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::File::create(&path)
+                .map_err(|e| Error::internal_err(format!("Failed to create dump file: {}", e)))?;
+        }
+        Ok(Self { path })
+    }
+}
+
+impl Drop for DumpFile {
+    fn drop(&mut self) {
+        if self.path.exists() {
+            if let Err(e) = std::fs::remove_file(&self.path) {
+                tracing::warn!("Failed to remove dump file {:?}: {}", self.path, e);
+            }
+        }
+    }
+}
+
+/// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
+/// Returns a DumpFile handle; the file is deleted when the handle is dropped.
+async fn pg_dump_database(pg_db: &PgDatabase, schema_only: bool) -> Result<DumpFile> {
+    let dump_file = DumpFile::new()?;
+
+    let host = &pg_db.host;
+    let port = pg_db.port.unwrap_or(5432).to_string();
+    let user = pg_db.user.as_deref().unwrap_or("postgres");
+    let dbname = &pg_db.dbname;
+
+    let mut cmd = tokio::process::Command::new("pg_dump");
+    cmd.arg("--format=plain").arg("--file").arg(&dump_file.path);
+    if schema_only {
+        cmd.arg("--schema-only");
+    }
+    cmd.arg("--host")
+        .arg(host)
+        .arg("--port")
+        .arg(&port)
+        .arg("--username")
+        .arg(user)
+        .arg(dbname);
+
+    if let Some(ref password) = pg_db.password {
+        cmd.env("PGPASSWORD", password);
+    }
+
+    if let Some(ref sslmode) = pg_db.sslmode {
+        cmd.env("PGSSLMODE", sslmode);
+    }
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute pg_dump: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::internal_err(format!("pg_dump failed: {}", stderr)));
+    }
+
+    Ok(dump_file)
+}
+
+/// Import a pg_dump file into a target database using psql.
+async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
+    let host = &target_db.host;
+    let port = target_db.port.unwrap_or(5432).to_string();
+    let user = target_db.user.as_deref().unwrap_or("postgres");
+    let dbname = &target_db.dbname;
+
+    let mut cmd = tokio::process::Command::new("psql");
+    cmd.arg("--host")
+        .arg(host)
+        .arg("--port")
+        .arg(&port)
+        .arg("--username")
+        .arg(user)
+        .arg("--dbname")
+        .arg(dbname)
+        .arg("--no-psqlrc")
+        .arg("--file")
+        .arg(&dump_file.path)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    if let Some(ref password) = target_db.password {
+        cmd.env("PGPASSWORD", password);
+    }
+
+    if let Some(ref sslmode) = target_db.sslmode {
+        cmd.env("PGSSLMODE", sslmode);
+    }
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute psql: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::internal_err(format!(
+            "psql import failed: {}",
+            stderr
+        )));
+    }
+
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct CreatePgDatabaseRequest {
+    /// The datatable source to determine connection info: 'datatable://name' or '$res:path'
+    source: String,
+    /// Name for the new database
+    target_dbname: String,
+}
+
+/// Create a new PostgreSQL database. For instance datatables, creates on the Windmill PG instance.
+/// For resource datatables, creates on the same server as the source.
+async fn create_pg_database(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<CreatePgDatabaseRequest>,
+) -> Result<String> {
+    windmill_common::validate_dbname(&req.target_dbname)?;
+
+    // Non-superadmin: restrict dbname to wm_fork_ prefix
+    if !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+        if !req.target_dbname.starts_with("wm_fork_") {
+            return Err(Error::BadRequest(
+                "Non-superadmin users can only create databases with names starting with 'wm_fork_'"
+                    .to_string(),
+            ));
+        }
+    }
+
+    // Determine if this is an instance or resource-backed datatable
+    let is_instance_datatable = if let Some(dt_name) = req.source.strip_prefix("datatable://") {
+        let config = sqlx::query_scalar!(
+            "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
+            &w_id,
+            dt_name
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten();
+        config
+            .and_then(|v| {
+                v.get("database")
+                    .and_then(|d| d.get("resource_type"))
+                    .and_then(|r| r.as_str())
+                    .map(|s| s == "instance")
+            })
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
+    if is_instance_datatable {
+        windmill_common::create_custom_instance_database(&db, &req.target_dbname, "datatable")
+            .await?;
+    } else {
+        let source_pg =
+            resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
+        let (client, connection) = source_pg.connect().await?;
+        let join_handle = tokio::spawn(async move { connection.await });
+
+        let row = client
+            .query_one(
+                "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+                &[&req.target_dbname],
+            )
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!("Failed to check database existence: {}", e))
+            })?;
+        let db_exists: bool = row.get(0);
+
+        if db_exists {
+            drop(client);
+            let _ = join_handle.await;
+            return Err(Error::BadRequest(format!(
+                "Database '{}' already exists on the resource server",
+                req.target_dbname
+            )));
+        }
+
+        client
+            .execute(&format!("CREATE DATABASE \"{}\"", &req.target_dbname), &[])
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to create database '{}': {}",
+                    req.target_dbname, e
+                ))
+            })?;
+
+        drop(client);
+        join_handle
+            .await
+            .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
+            .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+    }
+
+    Ok(format!("Created database '{}'", req.target_dbname))
+}
+
+#[derive(Deserialize)]
+struct ImportPgDatabaseRequest {
+    source: String,
+    target: String,
+    #[serde(default)]
+    target_dbname_override: Option<String>,
+    fork_behavior: DataTableForkBehavior,
+}
+
+/// Import (pg_dump/pg_import) from source to target
+async fn import_pg_database(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<ImportPgDatabaseRequest>,
+) -> Result<String> {
+    if req.fork_behavior == DataTableForkBehavior::KeepOriginal {
+        return Ok("No action needed for KeepOriginal behavior".to_string());
+    }
+
+    if req.fork_behavior == DataTableForkBehavior::SchemaAndData {
+        require_admin(authed.is_admin, &authed.username)?;
+        if *CLOUD_HOSTED {
+            return Err(Error::BadRequest(
+                "Importing schema and data is not available on cloud".to_string(),
+            ));
+        }
+    }
+
+    let schema_only = req.fork_behavior == DataTableForkBehavior::SchemaOnly;
+    let source_pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
+    let mut target_pg =
+        resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
+
+    if let Some(ref override_dbname) = req.target_dbname_override {
+        if !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+            if !override_dbname.starts_with("wm_fork_") {
+                return Err(Error::BadRequest(
+                    "Non-superadmin users can only override target dbname with names starting with 'wm_fork_'"
+                        .to_string(),
+                ));
+            }
+        }
+        target_pg.dbname = override_dbname.clone();
+    }
+    windmill_common::validate_dbname(&target_pg.dbname)?;
+
+    let dump_file = pg_dump_database(&source_pg, schema_only).await?;
+    pg_import_dump(&target_pg, &dump_file).await?;
+
+    Ok(format!(
+        "Imported from '{}' into '{}'",
+        req.source, target_pg.dbname
+    ))
+}
+
+#[derive(Deserialize)]
+struct ExportPgSchemaRequest {
+    source: String,
+}
+
+async fn export_pg_schema(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<ExportPgSchemaRequest>,
+) -> Result<String> {
+    let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
+    let dump_file = pg_dump_database(&pg, true).await?;
+    tokio::fs::read_to_string(&dump_file.path)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to read dump file: {}", e)))
+}
+
+#[derive(Deserialize)]
+struct GetDatatableFullSchemaRequest {
+    source: String,
+}
+
+async fn get_datatable_full_schema(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<GetDatatableFullSchemaRequest>,
+) -> JsonResult<windmill_common::query_builders::FullDatabaseSchema> {
+    let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
+    let (client, connection) = pg.connect().await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+
+    let result = windmill_common::query_builders::pg_get_full_schema(&client)
+        .await
+        .map_err(Error::internal_err)?;
+
+    drop(client);
+    join_handle
+        .await
+        .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
+        .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+
+    Ok(Json(result))
 }
 
 async fn edit_ducklake_config(
@@ -3732,6 +4158,120 @@ async fn create_workspace_fork_branch(
     ))
 }
 
+/// Update a forked workspace's datatable config to point to the new database.
+/// For instance datatables: updates resource_path in the datatable config.
+/// For resource datatables: updates the resource's dbname and sets ws_specific.
+/// Snapshot the schema from the source datatable by connecting to its database.
+async fn snapshot_datatable_schema(
+    db: &DB,
+    parent_w_id: &str,
+    dt_name: &str,
+) -> Result<serde_json::Value> {
+    let pg = get_datatable_resource_from_db_unchecked(db, parent_w_id, dt_name).await?;
+    let pg: PgDatabase = serde_json::from_value(pg)
+        .map_err(|e| Error::internal_err(format!("Failed to parse db credentials: {}", e)))?;
+    let (client, connection) = pg.connect().await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+
+    let schema = windmill_common::query_builders::pg_get_full_schema(&client)
+        .await
+        .map_err(Error::internal_err)?;
+
+    drop(client);
+    join_handle
+        .await
+        .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
+        .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+
+    serde_json::to_value(schema)
+        .map_err(|e| Error::internal_err(format!("Failed to serialize schema: {}", e)))
+}
+
+async fn apply_forked_datatable(
+    db: &DB,
+    tx: &mut Transaction<'_, Postgres>,
+    parent_w_id: &str,
+    forked_w_id: &str,
+    fdt: &ForkedDatatableInfo,
+) -> Result<()> {
+    windmill_common::validate_dbname(&fdt.new_dbname)?;
+    if !fdt.new_dbname.starts_with("wm_fork_") {
+        return Err(Error::BadRequest(format!(
+            "Forked datatable database name '{}' must start with 'wm_fork_'",
+            fdt.new_dbname
+        )));
+    }
+
+    // Snapshot the schema from the source (parent) datatable
+    let schema = snapshot_datatable_schema(db, parent_w_id, &fdt.name).await?;
+    let forked_from = serde_json::json!({ "schema": schema });
+
+    // Read the datatable config from the forked workspace
+    let config_val = sqlx::query_scalar!(
+        "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
+        forked_w_id,
+        &fdt.name
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten()
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "Datatable '{}' not found in workspace '{}'",
+            fdt.name, forked_w_id
+        ))
+    })?;
+
+    let dt: DataTable = serde_json::from_value(config_val)
+        .map_err(|e| Error::internal_err(format!("Failed to parse datatable config: {}", e)))?;
+
+    if dt.database.resource_type == DataTableCatalogResourceType::Instance {
+        // Instance: update resource_path to the new dbname
+        sqlx::query!(
+            r#"UPDATE workspace_settings
+               SET datatable = jsonb_set(
+                   jsonb_set(datatable, ARRAY['datatables', $2, 'database', 'resource_path'], to_jsonb($3::text)),
+                   ARRAY['datatables', $2, 'forked_from'], $4::jsonb
+               )
+               WHERE workspace_id = $1"#,
+            forked_w_id,
+            &fdt.name,
+            &fdt.new_dbname,
+            forked_from,
+        )
+        .execute(&mut **tx)
+        .await?;
+    } else {
+        // Resource: update the resource's dbname and set ws_specific
+        let resource_path = &dt.database.resource_path;
+        sqlx::query!(
+            r#"UPDATE resource
+               SET value = jsonb_set(value, '{dbname}', to_jsonb($3::text)),
+                   ws_specific = true
+               WHERE workspace_id = $1 AND path = $2"#,
+            forked_w_id,
+            resource_path,
+            &fdt.new_dbname,
+        )
+        .execute(&mut **tx)
+        .await?;
+
+        // Set forked_from on the datatable config
+        sqlx::query!(
+            r#"UPDATE workspace_settings
+               SET datatable = jsonb_set(datatable, ARRAY['datatables', $2, 'forked_from'], $3::jsonb)
+               WHERE workspace_id = $1"#,
+            forked_w_id,
+            &fdt.name,
+            forked_from,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
 async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -3813,6 +4353,11 @@ async fn create_workspace_fork(
     // Clone all data from the parent workspace using Rust implementation
     clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id).await?;
 
+    // Update forked datatable settings to point to new databases
+    for fdt in &nw.forked_datatables {
+        apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -3824,6 +4369,7 @@ async fn create_workspace_fork(
     )
     .await?;
     tx.commit().await?;
+
     Ok(format!("Created forked workspace {}", &forked_id))
 }
 
@@ -5520,7 +6066,7 @@ async fn compare_two_resources(
 ) -> Result<ItemComparison> {
     // Get resource from each workspace
     let source_resource = sqlx::query!(
-        "SELECT value, description, resource_type
+        "SELECT value, description, resource_type, ws_specific
          FROM resource
          WHERE workspace_id = $1 AND path = $2",
         source_workspace_id,
@@ -5530,7 +6076,7 @@ async fn compare_two_resources(
     .await?;
 
     let target_resource = sqlx::query!(
-        "SELECT value, description, resource_type
+        "SELECT value, description, resource_type, ws_specific
          FROM resource
          WHERE workspace_id = $1 AND path = $2",
         fork_workspace_id,
@@ -5538,6 +6084,17 @@ async fn compare_two_resources(
     )
     .fetch_optional(db)
     .await?;
+
+    // If either side is ws_specific, consider unchanged
+    let source_ws_specific = source_resource.as_ref().map_or(false, |r| r.ws_specific);
+    let target_ws_specific = target_resource.as_ref().map_or(false, |r| r.ws_specific);
+    if source_ws_specific || target_ws_specific {
+        return Ok(ItemComparison {
+            has_changes: false,
+            exists_in_source: source_resource.is_some(),
+            exists_in_fork: target_resource.is_some(),
+        });
+    }
 
     let mut has_changes = false;
 

@@ -45,6 +45,7 @@
 		itemButtonWrapperClasses,
 		size = 'md',
 		showPlaceholderOnOpen = false,
+		dropdownClass,
 		transformInputSelectedText,
 		groupBy,
 		sortBy,
@@ -80,6 +81,7 @@
 		itemButtonWrapperClasses?: string
 		size?: 'sm' | 'md' | 'lg'
 		showPlaceholderOnOpen?: boolean
+		dropdownClass?: string
 		transformInputSelectedText?: (text: string, value: Value) => string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
@@ -203,6 +205,7 @@
 		{id}
 	/>
 	<SelectDropdown
+		class={dropdownClass}
 		{disablePortal}
 		onSelectValue={setValue}
 		{open}

@@ -192,15 +192,13 @@
 				</div>
 
 				<div class="flex items-center gap-2">
-					{#if comparison && comparison.summary.total_diffs > 0}
-						<Button size="xs" color="blue" on:click={openComparisonDrawer}>
-							{#if comparison.summary.total_ahead > 0}
-								Review & Deploy Changes
-							{:else}
-								Review & Update fork
-							{/if}
-						</Button>
-					{/if}
+					<Button size="xs" color="blue" on:click={openComparisonDrawer}>
+						{#if (comparison?.summary.total_ahead ?? 0) > 0}
+							Review & Deploy Changes
+						{:else}
+							Review & Update fork
+						{/if}
+					</Button>
 				</div>
 			</div>
 		</div>

@@ -94,6 +94,10 @@ pub fn global_service() -> Router {
             post(setup_custom_instance_pg_database),
         )
         .route(
+            "/drop_custom_instance_pg_database/{name}",
+            post(drop_custom_instance_pg_database),
+        )
+        .route(
             "/critical_alerts/acknowledge_all",
             post(acknowledge_all_critical_alerts),
         )
@@ -1104,6 +1108,18 @@ async fn setup_custom_instance_pg_database_inner(
         })?;
 
     Ok(())
+}
+
+async fn drop_custom_instance_pg_database(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(dbname): Path<String>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    windmill_common::drop_custom_instance_database(&db, &dbname).await?;
+
+    Ok(format!("Database '{}' dropped successfully", dbname))
 }
 
 // ============================================================================

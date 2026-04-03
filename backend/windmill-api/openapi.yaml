@@ -1079,6 +1079,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/CustomInstanceDb"
 
+  /settings/drop_custom_instance_pg_database/{name}:
+    post:
+      summary: Drops a custom instance database (superadmin only, irreversible)
+      operationId: dropCustomInstanceDb
+      tags:
+        - setting
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+          description: The name of the database to drop
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /settings/global/{key}:
     get:
       summary: get global settings
@@ -3486,7 +3507,16 @@ paths:
               schema:
                 type: array
                 items:
-                  type: string
+                  type: object
+                  required: [name, resource_type, resource_path]
+                  properties:
+                    name:
+                      type: string
+                    resource_type:
+                      type: string
+                      enum: [postgres, instance]
+                    resource_path:
+                      type: string
 
   /w/{workspace}/workspaces/list_datatable_schemas:
     get:
@@ -3558,6 +3588,211 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/workspaces/create_pg_database:
+    post:
+      summary: create a new PostgreSQL database for a datatable
+      operationId: createPgDatabase
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Create pg database request
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, target_dbname]
+              properties:
+                source:
+                  type: string
+                  description: "Datatable source to determine connection info: 'datatable://name' or '$res:path'"
+                target_dbname:
+                  type: string
+                  description: "Name for the new database"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/drop_forked_datatable_databases:
+    post:
+      summary: drop forked datatable databases
+      operationId: dropForkedDatatableDatabases
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [datatable_names]
+              properties:
+                datatable_names:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: list of errors (empty if all succeeded)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/workspaces/import_pg_database:
+    post:
+      summary: import a PostgreSQL database from source to target via pg_dump
+      operationId: importPgDatabase
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Import pg database request
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, target, fork_behavior]
+              properties:
+                source:
+                  type: string
+                  description: "Source database: 'datatable://name' or '$res:path'"
+                target:
+                  type: string
+                  description: "Target database: 'datatable://name' or '$res:path'"
+                target_dbname_override:
+                  type: string
+                  description: "Override the target database name"
+                fork_behavior:
+                  type: string
+                  enum:
+                    - schema_only
+                    - schema_and_data
+                    - keep_original
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/export_pg_schema:
+    post:
+      summary: export the schema of a PostgreSQL database
+      operationId: exportPgSchema
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Export pg schema request
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source]
+              properties:
+                source:
+                  type: string
+                  description: "Source database: 'datatable://name' or '$res:path'"
+      responses:
+        "200":
+          description: schema dump
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/get_datatable_full_schema:
+    post:
+      summary: get the full schema of a datatable database as TableEditorValues
+      operationId: getDatatableFullSchema
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source]
+              properties:
+                source:
+                  type: string
+                  description: "Source datatable, e.g. 'datatable://main'"
+      responses:
+        "200":
+          description: "Schema as { schema_name: { table_name: TableEditorValues } }"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    required: [name, columns, foreign_keys]
+                    properties:
+                      name:
+                        type: string
+                      columns:
+                        type: array
+                        items:
+                          type: object
+                          required: [name, datatype]
+                          properties:
+                            name:
+                              type: string
+                            datatype:
+                              type: string
+                            primary_key:
+                              type: boolean
+                            default_value:
+                              type: string
+                            nullable:
+                              type: boolean
+                      foreign_keys:
+                        type: array
+                        items:
+                          type: object
+                          required: [columns, on_delete, on_update]
+                          properties:
+                            target_table:
+                              type: string
+                            columns:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  source_column:
+                                    type: string
+                                  target_column:
+                                    type: string
+                            on_delete:
+                              type: string
+                            on_update:
+                              type: string
+                            fk_constraint_name:
+                              type: string
+                      pk_constraint_name:
+                        type: string
 
   /w/{workspace}/workspaces/git_sync_enabled:
     get:
@@ -17881,7 +18116,7 @@ paths:
                                 type: object
                                 description: The columns used (for tables)
                                 additionalProperties:
-                                  $ref: "#/components/schemas/AssetUsageAccessType"                 
+                                  $ref: "#/components/schemas/AssetUsageAccessType"
                               created_at:
                                 type: string
                                 format: date-time
@@ -17984,7 +18219,6 @@ paths:
                     path:
                       type: string
                       description: The asset path
-
 
   /w/{workspace}/volumes/list:
     get:
@@ -20862,6 +21096,9 @@ components:
         resource_type:
           type: string
           description: The new resource_type to be associated with the resource
+        ws_specific:
+          type: boolean
+          description: When true, the resource is excluded from workspace diff comparisons
 
     Resource:
       type: object
@@ -23559,6 +23796,18 @@ components:
           type: string
         color:
           type: string
+        forked_datatables:
+          type: array
+          items:
+            type: object
+            required: [name, new_dbname]
+            properties:
+              name:
+                type: string
+                description: "Datatable name"
+              new_dbname:
+                type: string
+                description: "New database name for the fork"
       required:
         - id
         - name
@@ -24182,7 +24431,14 @@ components:
                     type: string
                 required:
                   - resource_type
-
+              forked_from:
+                type: object
+                description: Fork origin info with schema snapshot
+                properties:
+                  schema:
+                    type: object
+                    description: Schema snapshot at fork time
+                    additionalProperties: true
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]
@@ -24764,7 +25020,15 @@ components:
         kind:
           type: string
           enum:
-            ["script", "flow", "app", "raw_app", "resource", "variable", "resource_type"]
+            [
+              "script",
+              "flow",
+              "app",
+              "raw_app",
+              "resource",
+              "variable",
+              "resource_type",
+            ]
           description: Type of the item
         path:
           type: string

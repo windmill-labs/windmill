@@ -13,7 +13,7 @@ export function createDatatablesResource(getWorkspace: () => string | undefined)
 		const workspace = getWorkspace()
 		if (!workspace) return []
 		try {
-			return await WorkspaceService.listDataTables({ workspace })
+			return (await WorkspaceService.listDataTables({ workspace })).map((d) => d.name)
 		} catch (e) {
 			console.error('Failed to load datatables:', e)
 			return []

@@ -128,7 +128,7 @@
 		() => $workspaceStore,
 		() =>
 			WorkspaceService.listDataTables({ workspace: $workspaceStore! }).then((d) =>
-				d.map((d) => ({ label: d == 'main' ? 'Main data table' : d, value: d }))
+				d.map((d) => d.name).map((d) => ({ label: d == 'main' ? 'Main data table' : d, value: d }))
 			)
 	)
 	let allVolumes = resource(

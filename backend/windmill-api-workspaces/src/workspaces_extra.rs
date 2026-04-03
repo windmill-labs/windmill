@@ -23,8 +23,10 @@ use windmill_common::worker::CLOUD_HOSTED;
 
 use windmill_common::{
     auth::is_super_admin_email,
+    db::UserDB,
     error::{Error, Result},
     utils::require_admin,
+    workspaces::DataTable,
 };
 use windmill_queue::schedule::{get_schedule_opt, push_scheduled_job};
 
@@ -844,6 +846,157 @@ pub(crate) async fn delete_workspace(
     tx.commit().await?;
 
     Ok(format!("Deleted workspace {}", &w_id))
+}
+
+#[derive(Deserialize)]
+pub struct DropForkedDatatableDatabasesRequest {
+    datatable_names: Vec<String>,
+}
+
+/// Drop forked datatable databases. Returns errors per datatable that failed.
+/// Same permission as delete_workspace: fork owner or super admin.
+pub async fn drop_forked_datatable_databases(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<DropForkedDatatableDatabasesRequest>,
+) -> Result<Json<Vec<String>>> {
+    // Same permission check as delete_workspace: fork owner or super admin
+    let mut tx = db.begin().await?;
+    if !(w_id.starts_with(WM_FORK_PREFIX) && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
+        require_super_admin(&db, &authed.email).await?;
+    }
+    tx.commit().await?;
+
+    let parent_w_id = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten()
+    .ok_or_else(|| Error::BadRequest("No parent workspace found".to_string()))?;
+
+    let datatable_config = sqlx::query_scalar!(
+        "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten()
+    .unwrap_or(serde_json::json!({}));
+
+    let datatables: HashMap<String, DataTable> =
+        serde_json::from_value(datatable_config).unwrap_or_default();
+
+    let mut errors: Vec<String> = Vec::new();
+
+    for dt_name in &req.datatable_names {
+        let dt = match datatables.get(dt_name) {
+            Some(dt) if dt.forked_from.is_some() => dt,
+            _ => continue,
+        };
+
+        if dt.database.resource_type
+            == windmill_common::workspaces::DataTableCatalogResourceType::Instance
+        {
+            let db_to_drop = &dt.database.resource_path;
+            if !db_to_drop.starts_with("wm_fork_") {
+                errors.push(format!(
+                    "Refusing to drop instance database '{}' for datatable://{}:  name does not start with 'wm_fork_'",
+                    db_to_drop, dt_name
+                ));
+                continue;
+            }
+            if let Err(e) = windmill_common::drop_custom_instance_database(&db, db_to_drop).await {
+                errors.push(format!(
+                    "Could not drop instance database '{}' for datatable://{}: {}",
+                    db_to_drop, dt_name, e
+                ));
+            }
+        } else {
+            let fork_pg = match crate::workspaces::resolve_pg_source_checked(
+                &db,
+                &user_db,
+                &authed,
+                &w_id,
+                &format!("datatable://{}", dt_name),
+            )
+            .await
+            {
+                Ok(pg) => pg,
+                Err(e) => {
+                    errors.push(format!(
+                        "Could not resolve fork resource for datatable://{}: {}",
+                        dt_name, e
+                    ));
+                    continue;
+                }
+            };
+            // We cannot drop the current database, so we connect to the parent's version to run DROP DATABASE on
+            // the forked version
+            let parent_pg = match crate::workspaces::resolve_pg_source_checked(
+                &db,
+                &user_db,
+                &authed,
+                &parent_w_id,
+                &format!("datatable://{}", dt_name),
+            )
+            .await
+            {
+                Ok(pg) => pg,
+                Err(e) => {
+                    errors.push(format!(
+                        "Could not resolve parent resource for datatable://{}: {}",
+                        dt_name, e
+                    ));
+                    continue;
+                }
+            };
+
+            let db_to_drop = &fork_pg.dbname;
+            if let Err(e) = windmill_common::validate_dbname(db_to_drop) {
+                errors.push(format!(
+                    "Invalid database name '{}' for datatable://{}: {}",
+                    db_to_drop, dt_name, e
+                ));
+                continue;
+            }
+            if !db_to_drop.starts_with("wm_fork_") {
+                errors.push(format!(
+                    "Refusing to drop resource database '{}' for datatable://{}: name does not start with 'wm_fork_'",
+                    db_to_drop, dt_name
+                ));
+                continue;
+            }
+
+            match parent_pg.connect().await {
+                Ok((client, connection)) => {
+                    let join_handle = tokio::spawn(async move { connection.await });
+                    if let Err(e) = client
+                        .execute(&format!("DROP DATABASE \"{}\"", db_to_drop), &[])
+                        .await
+                    {
+                        errors.push(format!(
+                            "Could not drop database '{}' for datatable://{}: {}",
+                            db_to_drop, dt_name, e
+                        ));
+                    }
+                    drop(client);
+                    let _ = join_handle.await;
+                }
+                Err(e) => {
+                    errors.push(format!(
+                        "Could not connect to drop database for datatable://{}: {}",
+                        dt_name, e
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(Json(errors))
 }
 
 async fn is_workspace_owner(

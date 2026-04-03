@@ -135,7 +135,7 @@
 			!Object.values(ducklakeIsDirty).every((v) => v === false)
 	)
 
-	const customInstanceDbs = resource([], SettingService.listCustomInstanceDbs)
+	const customInstanceDbs = resource([() => $workspaceStore], SettingService.listCustomInstanceDbs)
 
 	async function onSave() {
 		try {
