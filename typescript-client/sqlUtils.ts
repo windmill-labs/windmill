@@ -86,10 +86,21 @@ export type SqlStatement<T> = {
 };
 
 /**
+ * Wrapper for raw SQL fragments that should be inlined without parameterization.
+ * Created via `sql.raw(value)`.
+ */
+export class RawSql {
+  readonly __brand = "RawSql" as const;
+  constructor(public readonly value: string) {}
+}
+
+/**
  * Template tag function for creating SQL statements with parameterized values
  */
 export interface SqlTemplateFunction {
   <T = any>(strings: TemplateStringsArray, ...values: any[]): SqlStatement<T>;
+  /** Create a raw SQL fragment that will be inlined without parameterization */
+  raw(value: string): RawSql;
 }
 
 export interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
@@ -137,31 +148,58 @@ function sqlProviderImpl(
   provider: "datatable" | "ducklake",
   { name, schema }: { name: string; schema?: string }
 ): SqlTemplateFunction {
-  let sqlFn: SqlTemplateFunction = (
+  let sqlFn = ((
     strings: TemplateStringsArray,
     ...values: any[]
   ) => {
+    // Separate raw vs parameterized values, assigning arg indices only to params
+    let argIndex = 0;
+    const valueInfos = values.map((v, i) => {
+      if (v instanceof RawSql) {
+        return { raw: true as const, value: v.value, originalIndex: i };
+      }
+      argIndex++;
+      return {
+        raw: false as const,
+        value: v,
+        originalIndex: i,
+        argNum: argIndex,
+      };
+    });
+
     let formatArgDecl = {
-      datatable: (i: number) => `-- $${i + 1} arg${i + 1}`,
-      ducklake: (i: number) => {
+      datatable: (info: (typeof valueInfos)[number]) =>
+        info.raw ? null : `-- $${info.argNum} arg${info.argNum}`,
+      ducklake: (info: (typeof valueInfos)[number]) => {
+        if (info.raw) return null;
         let argType =
-          parseTypeAnnotation(strings[i], strings[i + 1]) ||
-          inferSqlType(values[i]);
-        return `-- $arg${i + 1} (${argType})`;
+          parseTypeAnnotation(
+            strings[info.originalIndex],
+            strings[info.originalIndex + 1]
+          ) || inferSqlType(info.value);
+        return `-- $arg${info.argNum} (${argType})`;
       },
     }[provider];
 
     let formatArgUsage = {
-      datatable: (i: number) => {
-        const parsedType = parseTypeAnnotation(strings[i], strings[i + 1]);
-        if (parsedType !== undefined) return `$${i + 1}`;
-        let argType = inferSqlType(values[i]);
-        return `$${i + 1}::${argType}`;
+      datatable: (info: (typeof valueInfos)[number]) => {
+        if (info.raw) return info.value;
+        const parsedType = parseTypeAnnotation(
+          strings[info.originalIndex],
+          strings[info.originalIndex + 1]
+        );
+        if (parsedType !== undefined) return `$${info.argNum}`;
+        let argType = inferSqlType(info.value);
+        return `$${info.argNum}::${argType}`;
       },
-      ducklake: (i: number) => `$arg${i + 1}`,
+      ducklake: (info: (typeof valueInfos)[number]) =>
+        info.raw ? info.value : `$arg${info.argNum}`,
     }[provider];
 
-    let content = values.map((_, i) => formatArgDecl(i)).join("\n") + "\n";
+    let argDecls = valueInfos
+      .map((info) => formatArgDecl(info))
+      .filter(Boolean);
+    let content = argDecls.length ? argDecls.join("\n") + "\n" : "";
     if (provider === "ducklake")
       content += `ATTACH 'ducklake://${name}' AS dl;USE dl;\n`;
 
@@ -172,12 +210,16 @@ function sqlProviderImpl(
     let contentBody = "";
     for (let i = 0; i < strings.length; i++) {
       contentBody += strings[i];
-      if (i !== strings.length - 1) contentBody += formatArgUsage(i);
+      if (i < valueInfos.length) contentBody += formatArgUsage(valueInfos[i]);
     }
     content += contentBody;
 
     const args = {
-      ...Object.fromEntries(values.map((v, i) => [`arg${i + 1}`, v])),
+      ...Object.fromEntries(
+        valueInfos
+          .filter((info) => !info.raw)
+          .map((info) => [`arg${info.argNum}`, info.value])
+      ),
       ...(provider === "datatable" ? { database: `datatable://${name}` } : {}),
     };
     const language = {
@@ -228,7 +270,8 @@ function sqlProviderImpl(
         }),
       execute: (params) => fetch(params),
     } satisfies SqlStatement<any>;
-  };
+  }) as SqlTemplateFunction;
+  sqlFn.raw = (value: string) => new RawSql(value);
   if (provider === "datatable") {
     (sqlFn as DatatableSqlTemplateFunction).query = (
       sqlString: string,
