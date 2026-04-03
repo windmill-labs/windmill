@@ -629,12 +629,12 @@ pub fn generate_dedicated_worker_wrapper(inner_content: &str) -> Result<String> 
             r#"
         if (line.startsWith("execd_preprocess:")) {{
             const argsJson = line.slice("execd_preprocess:".length);
-            const parsedArgs = JSON.parse(argsJson);
             if (typeof preprocessor !== 'function') {{
                 console.log("wm_res[error]:" + JSON.stringify({{ message: "preprocessor function is missing", name: "Error" }}) + '\n');
                 continue;
             }}
             try {{
+                const parsedArgs = JSON.parse(argsJson);
                 function preArgsObjToArr({{ {pre_spread} }}: any) {{
                     return [ {pre_spread} ];
                 }}

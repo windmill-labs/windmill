@@ -402,10 +402,14 @@
 					workspace: workspaceId,
 					dedicatedWorker: true
 				}),
-				ScriptService.listDedicatedWithDeps({
-					workspace: workspaceId
-				}).catch(() => []),
-				ConfigService.listAllWorkspaceDependencies().catch(() => [])
+				disabled
+					? Promise.resolve([])
+					: ScriptService.listDedicatedWithDeps({
+							workspace: workspaceId
+						}).catch(() => []),
+				disabled
+					? Promise.resolve([])
+					: ConfigService.listAllWorkspaceDependencies().catch(() => [])
 			])
 
 			// Track existing workspace dep names with their workspaces for validation
