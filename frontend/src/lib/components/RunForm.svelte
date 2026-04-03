@@ -51,9 +51,7 @@
 	export async function setArgs(nargs: Record<string, any>) {
 		const { scriptArgs, commonParams } = extractPsCommonParams(nargs)
 		args = scriptArgs
-		if (Object.keys(commonParams).length > 0) {
-			psCommonParams = commonParams
-		}
+		psCommonParams = commonParams
 		reloadArgs++
 	}
 

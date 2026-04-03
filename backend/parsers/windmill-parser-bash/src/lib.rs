@@ -54,7 +54,13 @@ fn detect_cmdlet_binding(code: &str) -> (bool, bool) {
         Some((region, _)) => region,
         None => return (false, false),
     };
-    let lower = attr_region.to_lowercase();
+    // Strip comment lines to avoid false positives from commented-out [CmdletBinding()]
+    let uncommented: String = attr_region
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let lower = uncommented.to_lowercase();
     let has_cmd_binding = lower.contains("[cmdletbinding");
     let supports_should_process = has_cmd_binding
         && lower.contains("supportsshouldprocess")
@@ -90,7 +96,7 @@ pub fn parse_powershell_sig(code: &str) -> anyhow::Result<MainArgSignature> {
             } else {
                 None
             },
-        
+
             ..Default::default()
         })
     } else {
@@ -1529,6 +1535,12 @@ param(
             detect_cmdlet_binding("[cmdletbinding(supportsshouldprocess=$true)]\nparam($X)");
         assert!(has_cb);
         assert!(has_ssp);
+
+        // Commented out CmdletBinding should NOT be detected
+        let (has_cb, has_ssp) =
+            detect_cmdlet_binding("# [CmdletBinding(SupportsShouldProcess=$true)]\nparam($Path)");
+        assert!(!has_cb);
+        assert!(!has_ssp);
     }
 
     #[test]
