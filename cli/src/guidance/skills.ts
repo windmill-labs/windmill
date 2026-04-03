@@ -3441,7 +3441,7 @@ result: S3Object = wmill.write_s3_file(
 
 Import: import wmill
 
-def worker_has_internal_server()
+def worker_has_internal_server() -> bool
 
 def get_mocked_api() -> Optional[dict]
 
