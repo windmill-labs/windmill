@@ -103,13 +103,17 @@ pub fn flush_s3_batches() {
 }
 
 pub async fn s3_proxy_log_middleware(request: Request, next: Next) -> Response {
-    let uri = request.uri().to_string();
-    let method = request.method().to_string();
+    let s3_info = if request.uri().path().contains("/s3_proxy/") {
+        Some(S3ProxyRequest {
+            uri: request.uri().to_string(),
+            method: request.method().to_string(),
+        })
+    } else {
+        None
+    };
     let mut response = next.run(request).await;
-    if uri.contains("/s3_proxy/") {
-        response
-            .extensions_mut()
-            .insert(S3ProxyRequest { uri, method });
+    if let Some(info) = s3_info {
+        response.extensions_mut().insert(info);
     }
     response
 }
