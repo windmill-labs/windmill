@@ -64,6 +64,34 @@ pub async fn clear_pg_cache() {
     CONNECTION_COUNTER.write().await.clear();
 }
 
+async fn new_pg_connection(
+    database: &PgDatabase,
+    _use_iam_auth: bool,
+) -> error::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>)> {
+    let (client, connection) = if _use_iam_auth {
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        {
+            database.connect_with_iam().await?
+        }
+        #[cfg(not(all(feature = "enterprise", feature = "private")))]
+        {
+            return Err(Error::ExecutionErr(
+                "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
+            ));
+        }
+    } else {
+        database.connect().await?
+    };
+    let handle = tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            let mut mtex = CONNECTION_CACHE.lock().await;
+            *mtex = None;
+            tracing::error!("connection error: {}", e);
+        }
+    });
+    Ok((client, handle))
+}
+
 fn otyp_to_pg_type(otyp: &str) -> error::Result<Type> {
     let base = otyp.trim_end_matches("[]");
     let is_array = otyp.ends_with("[]");
@@ -313,41 +341,34 @@ pub async fn do_postgresql(
             .as_ref()
             .is_some_and(|x| x.as_ref().is_some_and(|y| y.0 == database_string))
         {
-            tracing::info!("Using cached connection");
-            CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            LAST_QUERY.store(
-                chrono::Utc::now().timestamp().try_into().unwrap_or(0),
-                std::sync::atomic::Ordering::Relaxed,
-            );
-            cached_client = guard;
-            new_client = None;
+            // Probe the cached connection with DISCARD ALL before using it.
+            // This resets the full session (role, GUCs, temp tables, prepared
+            // statements, advisory locks) and also detects broken connections.
+            let probe_client = &guard.as_ref().unwrap().as_ref().unwrap().1;
+            if probe_client.batch_execute("DISCARD ALL").await.is_ok() {
+                tracing::info!("Using cached connection");
+                CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                LAST_QUERY.store(
+                    chrono::Utc::now().timestamp().try_into().unwrap_or(0),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                cached_client = guard;
+                new_client = None;
+            } else {
+                tracing::info!("Cached connection is stale, creating new one");
+                if let Some(ref mut g) = guard {
+                    **g = None;
+                }
+                drop(guard);
+                cached_client = None;
+                new_client = Some(new_pg_connection(&database, use_iam_auth).await?);
+            }
         } else {
             // Release the lock before connecting so the post-query caching
             // code can re-acquire it.
             drop(guard);
-            let (client, connection) = if use_iam_auth {
-                #[cfg(all(feature = "enterprise", feature = "private"))]
-                {
-                    database.connect_with_iam().await?
-                }
-                #[cfg(not(all(feature = "enterprise", feature = "private")))]
-                {
-                    return Err(Error::ExecutionErr(
-                        "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
-                    ));
-                }
-            } else {
-                database.connect().await?
-            };
-            let handle = tokio::spawn(async move {
-                if let Err(e) = connection.await {
-                    let mut mtex = CONNECTION_CACHE.lock().await;
-                    *mtex = None;
-                    tracing::error!("connection error: {}", e);
-                }
-            });
             cached_client = None;
-            new_client = Some((client, handle));
+            new_client = Some(new_pg_connection(&database, use_iam_auth).await?);
         }
     } else {
         cached_client = None;
@@ -384,21 +405,11 @@ pub async fn do_postgresql(
     let size_ref = &size;
     let result_f = async move {
         let mut results = vec![];
-        // When reusing a cached connection, reset the session role and
-        // all runtime parameters (search_path, statement_timeout, etc.)
-        // by pipelining with the first query to avoid an extra round-trip.
-        // RESET ROLE is needed separately because RESET ALL does not undo SET ROLE.
-        let mut needs_session_reset = has_cached_con;
+        // Session reset (DISCARD ALL) is now handled eagerly when validating
+        // the cached connection — no per-query reset needed here.
 
         for (i, query) in queries.iter().enumerate() {
             if annotations.prepare {
-                if needs_session_reset {
-                    needs_session_reset = false;
-                    client
-                        .batch_execute("RESET ROLE; RESET ALL")
-                        .await
-                        .map_err(to_anyhow)?;
-                }
                 let query = remove_comments(query);
                 // Used by the data table typechecker to set default schemas
                 if query.starts_with("SET search_path") || query.starts_with("RESET search_path") {
@@ -426,7 +437,7 @@ pub async fn do_postgresql(
                 continue;
             }
 
-            let inner = do_postgresql_inner(
+            let result = do_postgresql_inner(
                 query.to_string(),
                 &param_idx_to_arg_and_value,
                 client,
@@ -445,21 +456,9 @@ pub async fn do_postgresql(
                 collection_strategy.collect_first_row_only(),
                 s3.clone(),
                 typed_schema,
-            )?;
-
-            if needs_session_reset {
-                needs_session_reset = false;
-                // Pipeline: create the reset future first so its request enters
-                // the tokio_postgres channel before the query's request. The
-                // connection task flushes both to the socket in one write,
-                // and PostgreSQL processes them in wire order.
-                let reset = client.batch_execute("RESET ROLE; RESET ALL");
-                let (reset_result, query_result) = futures::future::join(reset, inner).await;
-                reset_result.map_err(to_anyhow)?;
-                results.push(query_result?);
-            } else {
-                results.push(inner.await?);
-            }
+            )?
+            .await?;
+            results.push(result);
         }
 
         collection_strategy.collect(results)
