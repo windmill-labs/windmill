@@ -49,9 +49,6 @@ class Windmill:
             or os.environ.get("WM_BASE_URL")
         )
 
-        self.worker_has_internal_server = not bool(
-            re.match(r"^(https?://)?localhost", base or "")
-        )
         self.base_url = f"{base}/api"
         self.token = token or os.environ.get("WM_TOKEN")
         self.headers = {
@@ -67,6 +64,11 @@ class Windmill:
 
         assert self.workspace, (
             f"workspace required as an argument or as WM_WORKSPACE environment variable"
+        )
+
+    def worker_has_internal_server(self):
+        return bool(
+            re.match(r"^(https?://)?localhost", self.base_url or "")
         )
 
     def get_mocked_api(self) -> Optional[dict]:
@@ -334,7 +336,7 @@ class Windmill:
         On agent workers (no internal server), falls back to running a normal
         preview job and waiting for the result.
         """
-        if self.worker_has_internal_server:
+        if self.worker_has_internal_server():
             endpoint = f"/w/{self.workspace}/jobs/run_inline/preview"
         else:
             endpoint = f"/w/{self.workspace}/jobs/run_wait_result/preview"

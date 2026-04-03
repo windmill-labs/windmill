@@ -43,10 +43,8 @@ export const SHARED_FOLDER = "/shared";
 
 let mockedApi: MockedApi | undefined = undefined;
 
-let WORKER_HAS_INTERNAL_SERVER = true;
-
 export function workerHasInternalServer(): boolean {
-  return WORKER_HAS_INTERNAL_SERVER;
+  return /^(https?:\/\/)?localhost/.test(OpenAPI.BASE ?? "");
 }
 
 /**
@@ -64,7 +62,6 @@ export function setClient(token?: string, baseUrl?: string) {
   if (token === undefined) {
     token = getEnv("WM_TOKEN") ?? "no_token";
   }
-  WORKER_HAS_INTERNAL_SERVER = !/^(https?:\/\/)?localhost/.test(baseUrl ?? "");
   OpenAPI.WITH_CREDENTIALS = true;
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";
