@@ -7278,7 +7278,7 @@ async fn list_completed_jobs(
             "v2_job_completed.memory_peak as mem_peak",
             "v2_job.tag",
             "v2_job.priority",
-            "v2_job_completed.result->'wm_labels' as labels",
+            "CASE WHEN v2_job.labels IS NOT NULL OR jsonb_typeof(v2_job_completed.result->'wm_labels') = 'array' THEN COALESCE(v2_job.labels, ARRAY[]::TEXT[]) || COALESCE(ARRAY(SELECT jsonb_array_elements_text(v2_job_completed.result->'wm_labels') WHERE jsonb_typeof(v2_job_completed.result->'wm_labels') = 'array'), ARRAY[]::TEXT[]) END as labels",
             args_field,
             "'CompletedJob' as type",
         ],
