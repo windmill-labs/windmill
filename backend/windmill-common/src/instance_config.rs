@@ -899,7 +899,7 @@ const SENSITIVE_SETTINGS: &[&str] = &[
 /// Maps a top-level key to the sub-field names that must be redacted.
 const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("smtp_settings", &["smtp_password"]),
-    ("secret_backend", &["token"]),
+    ("secret_backend", &["token", "client_secret"]),
     (
         "object_store_cache_config",
         &["secret_key", "serviceAccountKey"],

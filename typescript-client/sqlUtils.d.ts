@@ -71,8 +71,15 @@ export type SqlStatement<T> = {
   ): Promise<void>;
 };
 
+export declare class RawSql {
+  readonly __brand: "RawSql";
+  readonly value: string;
+  constructor(value: string);
+}
+
 export interface SqlTemplateFunction {
   <T = any>(strings: TemplateStringsArray, ...values: any[]): SqlStatement<T>;
+  raw(value: string): RawSql;
 }
 export interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
   query<T = any>(sql: string, ...params: any[]): SqlStatement<T>;

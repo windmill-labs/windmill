@@ -34,7 +34,9 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 #[cfg(all(feature = "private", feature = "enterprise"))]
-use windmill_common::secret_backend::{SecretMigrationReport, VaultSettings};
+use windmill_common::secret_backend::{
+    AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
+};
 use windmill_common::{
     ai_cache::bump_instance_ai_config_revision,
     email_oss::send_email_plain_text,
@@ -106,7 +108,7 @@ pub fn global_service() -> Router {
             post(restart_worker_group),
         );
 
-    // Vault integration routes (EE only - requires both private and enterprise features)
+    // Vault/Azure KV integration routes (EE only - requires both private and enterprise features)
     #[cfg(all(feature = "private", feature = "enterprise"))]
     let r = r
         .route("/test_secret_backend", post(test_secret_backend))
@@ -114,6 +116,15 @@ pub fn global_service() -> Router {
         .route(
             "/migrate_secrets_to_database",
             post(migrate_secrets_to_database),
+        )
+        .route("/test_azure_kv_backend", post(test_azure_kv_backend))
+        .route(
+            "/migrate_secrets_to_azure_kv",
+            post(migrate_secrets_to_azure_kv),
+        )
+        .route(
+            "/migrate_secrets_from_azure_kv",
+            post(migrate_secrets_from_azure_kv),
         );
 
     #[cfg(feature = "parquet")]
@@ -1166,6 +1177,56 @@ pub async fn migrate_secrets_to_database(
 
     let report =
         windmill_common::secret_backend::migrate_secrets_to_database(&db, &settings).await?;
+
+    Ok(Json(report))
+}
+
+/// Test connection to Azure Key Vault
+///
+/// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn test_azure_kv_backend(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AzureKeyVaultSettings>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    windmill_common::secret_backend::test_azure_kv_connection(&settings).await?;
+
+    Ok("Successfully connected to Azure Key Vault".to_string())
+}
+
+/// Migrate existing secrets from database to Azure Key Vault
+///
+/// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_to_azure_kv(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AzureKeyVaultSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let report =
+        windmill_common::secret_backend::migrate_secrets_to_azure_kv(&db, &settings).await?;
+
+    Ok(Json(report))
+}
+
+/// Migrate secrets from Azure Key Vault back to database
+///
+/// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_from_azure_kv(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AzureKeyVaultSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let report =
+        windmill_common::secret_backend::migrate_secrets_from_azure_kv(&db, &settings).await?;
 
     Ok(Json(report))
 }

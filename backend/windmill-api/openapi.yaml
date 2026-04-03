@@ -1646,6 +1646,69 @@ paths:
               schema:
                 $ref: "#/components/schemas/SecretMigrationReport"
 
+  /settings/test_azure_kv_backend:
+    post:
+      summary: test Azure Key Vault connection
+      operationId: testAzureKvBackend
+      tags:
+        - setting
+      requestBody:
+        description: Azure Key Vault settings to test
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AzureKeyVaultSettings"
+      responses:
+        "200":
+          description: connection successful
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/migrate_secrets_to_azure_kv:
+    post:
+      summary: migrate secrets from database to Azure Key Vault
+      operationId: migrateSecretsToAzureKv
+      tags:
+        - setting
+      requestBody:
+        description: Azure Key Vault settings for migration target
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AzureKeyVaultSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
+  /settings/migrate_secrets_from_azure_kv:
+    post:
+      summary: migrate secrets from Azure Key Vault to database
+      operationId: migrateSecretsFromAzureKv
+      tags:
+        - setting
+      requestBody:
+        description: Azure Key Vault settings for migration source
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AzureKeyVaultSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
   /users/email:
     get:
       summary: get current user email (if logged in)
@@ -19143,6 +19206,29 @@ components:
         token:
           type: string
           description: Static Vault token for testing/development (optional, if provided this is used instead of JWT authentication)
+
+    AzureKeyVaultSettings:
+      type: object
+      required:
+        - vault_url
+        - tenant_id
+        - client_id
+      properties:
+        vault_url:
+          type: string
+          description: Azure Key Vault URL (e.g., https://myvault.vault.azure.net)
+        tenant_id:
+          type: string
+          description: Azure AD tenant ID
+        client_id:
+          type: string
+          description: Azure AD application (client) ID
+        client_secret:
+          type: string
+          description: Azure AD client secret
+        token:
+          type: string
+          description: Static Bearer token for testing/development (optional, if provided this is used instead of OAuth2 authentication)
 
     SecretMigrationFailure:
       type: object
