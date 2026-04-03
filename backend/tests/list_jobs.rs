@@ -64,8 +64,8 @@ async fn test_list_jobs_without_include_args(db: Pool<Postgres>) -> anyhow::Resu
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -121,8 +121,8 @@ async fn test_list_jobs_with_include_args(db: Pool<Postgres>) -> anyhow::Result<
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -192,8 +192,8 @@ async fn test_list_jobs_completed_with_include_args(db: Pool<Postgres>) -> anyho
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -265,8 +265,8 @@ async fn test_list_jobs_mixed_queue_and_completed(db: Pool<Postgres>) -> anyhow:
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -286,8 +286,8 @@ async fn test_list_jobs_mixed_queue_and_completed(db: Pool<Postgres>) -> anyhow:
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -349,7 +349,9 @@ async fn test_list_jobs_mixed_queue_and_completed(db: Pool<Postgres>) -> anyhow:
 
 /// Test list_jobs with multiple queued jobs and include_args
 #[sqlx::test(fixtures("base"))]
-async fn test_list_jobs_multiple_queued_with_include_args(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_list_jobs_multiple_queued_with_include_args(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
@@ -369,8 +371,8 @@ async fn test_list_jobs_multiple_queued_with_include_args(db: Pool<Postgres>) ->
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -387,8 +389,8 @@ async fn test_list_jobs_multiple_queued_with_include_args(db: Pool<Postgres>) ->
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -411,9 +413,13 @@ async fn test_list_jobs_multiple_queued_with_include_args(db: Pool<Postgres>) ->
     let jobs: Vec<ListJobsResponse> = response.json().await?;
 
     // Find both jobs
-    let job1 = jobs.iter().find(|j| j.id == job1_id.to_string())
+    let job1 = jobs
+        .iter()
+        .find(|j| j.id == job1_id.to_string())
         .expect("should find job1");
-    let job2 = jobs.iter().find(|j| j.id == job2_id.to_string())
+    let job2 = jobs
+        .iter()
+        .find(|j| j.id == job2_id.to_string())
         .expect("should find job2");
 
     // Both should have args
@@ -461,8 +467,8 @@ async fn test_queue_list_without_include_args(db: Pool<Postgres>) -> anyhow::Res
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -480,10 +486,7 @@ async fn test_queue_list_without_include_args(db: Pool<Postgres>) -> anyhow::Res
         .send()
         .await?;
 
-    assert!(
-        response.status().is_success(),
-        "queue/list should succeed"
-    );
+    assert!(response.status().is_success(), "queue/list should succeed");
 
     let jobs: Vec<QueueJobResponse> = response.json().await?;
 
@@ -524,8 +527,8 @@ async fn test_queue_list_with_include_args(db: Pool<Postgres>) -> anyhow::Result
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -594,8 +597,8 @@ async fn test_queue_list_multiple_jobs_with_include_args(db: Pool<Postgres>) -> 
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -612,8 +615,8 @@ async fn test_queue_list_multiple_jobs_with_include_args(db: Pool<Postgres>) -> 
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -631,10 +634,7 @@ async fn test_queue_list_multiple_jobs_with_include_args(db: Pool<Postgres>) -> 
         .send()
         .await?;
 
-    assert!(
-        response.status().is_success(),
-        "queue/list should succeed"
-    );
+    assert!(response.status().is_success(), "queue/list should succeed");
 
     let jobs: Vec<QueueJobResponse> = response.json().await?;
 
@@ -694,8 +694,8 @@ async fn test_completed_list_without_include_args(db: Pool<Postgres>) -> anyhow:
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -760,8 +760,8 @@ async fn test_completed_list_with_include_args(db: Pool<Postgres>) -> anyhow::Re
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -835,8 +835,8 @@ async fn test_completed_list_multiple_jobs_with_include_args(
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -856,8 +856,8 @@ async fn test_completed_list_multiple_jobs_with_include_args(
         cache_ttl: None,
         cache_ignore_s3_path: None,
         dedicated_worker: None,
-        concurrency_settings:
-            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
     }))
@@ -908,6 +908,276 @@ async fn test_completed_list_multiple_jobs_with_include_args(
         job2.args.as_ref().unwrap().get("b"),
         Some(&json!("completed_b")),
         "job2 should have correct args"
+    );
+
+    Ok(())
+}
+
+// =============================================================================
+// Labels integration tests
+// =============================================================================
+
+#[sqlx::test(fixtures("base"))]
+async fn test_job_labels_propagated_at_push_time(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    // Push a script job with labels
+    let job_id = RunJob::from(JobPayload::ScriptHash {
+        hash: windmill_common::scripts::ScriptHash(0),
+        path: "u/admin/test_labels_script".to_string(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        language: ScriptLang::Python3,
+        priority: None,
+        apply_preprocessor: false,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        labels: Some(vec!["prod".to_string(), "deploy".to_string()]),
+    })
+    .push(&db)
+    .await;
+
+    // Verify labels in queue listing
+    let response = client
+        .client()
+        .get(format!("{}/w/test-workspace/jobs/list", client.baseurl()))
+        .send()
+        .await?;
+
+    assert!(response.status().is_success());
+    let jobs: Vec<serde_json::Value> = response.json().await?;
+    let job = jobs
+        .iter()
+        .find(|j| j["id"].as_str() == Some(&job_id.to_string()))
+        .expect("should find job");
+
+    let labels = job["labels"].as_array().expect("labels should be an array");
+    assert!(labels.contains(&json!("prod")));
+    assert!(labels.contains(&json!("deploy")));
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_job_without_labels_has_no_labels_field(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    // Push a job without labels
+    let job_id = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content: "def main(): return 1".to_string(),
+        path: None,
+        language: ScriptLang::Python3,
+        lock: None,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
+    }))
+    .push(&db)
+    .await;
+
+    let response = client
+        .client()
+        .get(format!("{}/w/test-workspace/jobs/list", client.baseurl()))
+        .send()
+        .await?;
+
+    assert!(response.status().is_success());
+    let jobs: Vec<serde_json::Value> = response.json().await?;
+    let job = jobs
+        .iter()
+        .find(|j| j["id"].as_str() == Some(&job_id.to_string()))
+        .expect("should find job");
+
+    // Labels should be null/missing for jobs without labels
+    assert!(
+        job.get("labels").is_none() || job["labels"].is_null(),
+        "job without labels should not have labels field"
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_job_label_filter(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    // Push two jobs with different labels, then complete them via SQL
+    // Label filtering only works on completed jobs
+    let job_prod_id = RunJob::from(JobPayload::ScriptHash {
+        hash: windmill_common::scripts::ScriptHash(0),
+        path: "u/admin/prod_script".to_string(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        language: ScriptLang::Bun,
+        priority: None,
+        apply_preprocessor: false,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        labels: Some(vec!["prod".to_string()]),
+    })
+    .push(&db)
+    .await;
+
+    let job_staging_id = RunJob::from(JobPayload::ScriptHash {
+        hash: windmill_common::scripts::ScriptHash(0),
+        path: "u/admin/staging_script".to_string(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        language: ScriptLang::Bun,
+        priority: None,
+        apply_preprocessor: false,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        labels: Some(vec!["staging".to_string()]),
+    })
+    .push(&db)
+    .await;
+
+    // Complete both jobs directly via SQL so label filter can find them
+    for job_id in &[job_prod_id, job_staging_id] {
+        sqlx::query(
+            "INSERT INTO v2_job_completed (workspace_id, id, result, status, duration_ms) VALUES ('test-workspace', $1, '{}'::jsonb, 'success', 0)",
+        )
+        .bind(job_id)
+        .execute(&db)
+        .await?;
+    }
+
+    // Filter by label=prod
+    let response = client
+        .client()
+        .get(format!(
+            "{}/w/test-workspace/jobs/list?label=prod",
+            client.baseurl()
+        ))
+        .send()
+        .await?;
+
+    assert!(response.status().is_success());
+    let jobs: Vec<serde_json::Value> = response.json().await?;
+
+    // Should find the prod job
+    assert!(
+        jobs.iter()
+            .any(|j| j["id"].as_str() == Some(&job_prod_id.to_string())),
+        "prod job should appear in label=prod filter"
+    );
+
+    // Should NOT find the staging job
+    assert!(
+        !jobs
+            .iter()
+            .any(|j| j["id"].as_str() == Some(&job_staging_id.to_string())),
+        "staging job should not appear in label=prod filter"
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_wm_labels_from_result_merged_with_static_labels(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    // Use Code(RawCode) to run a Bun script that returns wm_labels,
+    // then set static labels on the job row before execution
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content: r#"export async function main() { return { wm_labels: ["runtime-label"] }; }"#
+            .to_string(),
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
+    }));
+
+    let completed = job
+        .run_until_complete_with(&db, false, port, |uuid| {
+            let db = db.clone();
+            async move {
+                // Set static labels before the worker picks up the job
+                sqlx::query(
+                    "UPDATE v2_job SET labels = ARRAY['static-label']::text[] WHERE id = $1",
+                )
+                .bind(uuid)
+                .execute(&db)
+                .await
+                .expect("should set labels");
+            }
+        })
+        .await;
+
+    // Fetch the job via API and check labels
+    let response = client
+        .client()
+        .get(format!(
+            "{}/w/test-workspace/jobs_u/get/{}",
+            client.baseurl(),
+            completed.id
+        ))
+        .send()
+        .await?;
+
+    assert!(response.status().is_success());
+    let job: serde_json::Value = response.json().await?;
+    let labels = job["labels"].as_array().expect("labels should be an array");
+
+    // Should contain both the static label and runtime label from wm_labels
+    assert!(
+        labels.contains(&json!("static-label")),
+        "should contain static label set at push time, got: {:?}",
+        labels
+    );
+    assert!(
+        labels.contains(&json!("runtime-label")),
+        "should contain runtime label from wm_labels in result, got: {:?}",
+        labels
     );
 
     Ok(())

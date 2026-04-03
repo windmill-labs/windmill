@@ -1,6 +1,6 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		AppService,
@@ -19,7 +19,8 @@
 		Code2,
 		LayoutDashboard,
 		ListFilterPlus,
-		SearchCode
+		SearchCode,
+		Tag
 	} from 'lucide-svelte'
 
 	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
@@ -155,6 +156,7 @@
 	}
 
 	let ownerFilter: string | undefined = $state(undefined)
+	let labelFilter: string | undefined = $state(undefined)
 
 	const cmp = new Intl.Collator('en').compare
 
@@ -296,9 +298,15 @@
 					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
 				)
 	)
+	let allLabels = $derived(
+		Array.from(
+			new Set(combinedItems?.flatMap((x) => ('labels' in x && x.labels) || []) ?? [])
+		).sort()
+	)
 	$effect(() => {
 		if ($workspaceStore) {
 			ownerFilter = undefined
+			labelFilter = undefined
 		}
 	})
 	let preFilteredItems = $derived(
@@ -307,12 +315,14 @@
 					(x) =>
 						x.path.startsWith(ownerFilter + '/') &&
 						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
+						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
+						(labelFilter == undefined || ('labels' in x && x.labels?.includes(labelFilter)))
 				)
 			: combinedItems?.filter(
 					(x) =>
 						(x.type == itemKind || itemKind == 'all') &&
-						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
+						filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType) &&
+						(labelFilter == undefined || ('labels' in x && x.labels?.includes(labelFilter)))
 				)
 	)
 	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)
@@ -450,6 +460,25 @@
 			filters={owners}
 			bottomMargin={false}
 		/>
+		{#if allLabels.length > 0}
+			<div class="gap-1.5 w-full flex flex-wrap mt-2">
+				{#each allLabels as label (label)}
+					<Badge
+						color="blue"
+						small
+						clickable
+						selected={label === labelFilter}
+						title="Label: {label}"
+						onclick={() => {
+							labelFilter = labelFilter === label ? undefined : label
+						}}
+					>
+						<Tag size={10} class="inline -mt-px" />{label}
+						{#if label === labelFilter}&cross;{/if}
+					</Badge>
+				{/each}
+			</div>
+		{/if}
 		{#if filteredItems?.length == 0}
 			<div class="mt-10"></div>
 		{/if}

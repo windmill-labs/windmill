@@ -194,6 +194,8 @@ pub struct QueuedJob {
     pub preprocessed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runnable_settings_handle: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 impl QueuedJob {
@@ -268,6 +270,7 @@ impl Default for QueuedJob {
             priority: None,
             preprocessed: None,
             runnable_settings_handle: None,
+            labels: None,
         }
     }
 }
@@ -320,7 +323,7 @@ pub struct CompletedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
 }
@@ -357,6 +360,7 @@ pub enum JobPayload {
         apply_preprocessor: bool,
         concurrency_settings: ConcurrencySettings,
         debouncing_settings: DebouncingSettings,
+        labels: Option<Vec<String>>,
     },
     FlowNode {
         id: FlowNodeId,
@@ -410,6 +414,7 @@ pub enum JobPayload {
         dedicated_worker: Option<bool>,
         apply_preprocessor: bool,
         version: i64,
+        labels: Option<Vec<String>>,
     },
     RestartedFlow {
         completed_job_id: Uuid,

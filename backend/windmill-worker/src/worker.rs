@@ -2479,7 +2479,18 @@ pub async fn run_worker(
                 ) {
                     if !dedicated_workers.is_empty() {
                         let dedicated_worker_tx = job.runnable_path.as_ref().and_then(|path| {
-                            let key = format!("{}:{}", job.workspace_id, path);
+                            // For flow steps inside branches/loops, runnable_path includes
+                            // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
+                            // worker map is keyed by flow_root/step_id (e.g. f/flow/a).
+                            // When nesting segments are present, use flow_root + flow_step_id
+                            // to construct the correct key.
+                            let key =
+                                if let Some(flow_root) = crate::common::extract_flow_root(path) {
+                                    let step_id = job.flow_step_id.as_deref().unwrap_or("");
+                                    format!("{}:{}/{}", job.workspace_id, flow_root, step_id)
+                                } else {
+                                    format!("{}:{}", job.workspace_id, path)
+                                };
                             dedicated_workers.get(&key)
                         });
                         if let Some(dedicated_worker_tx) = dedicated_worker_tx {

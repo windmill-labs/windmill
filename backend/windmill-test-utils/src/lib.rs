@@ -252,7 +252,7 @@ impl RunJob {
 
     /// Push the job as a specific user (for testing permissions)
     pub async fn push_as(self, db: &Pool<Postgres>, username: &str, email: &str) -> Uuid {
-        let RunJob { payload, args, scheduled_for_o, job_id, .. } = self;
+        let RunJob { payload, args, scheduled_for_o, job_id, workspace_id, .. } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
@@ -262,7 +262,7 @@ impl RunJob {
         let (uuid, tx) = windmill_queue::push(
             db,
             tx,
-            "test-workspace",
+            &workspace_id,
             payload,
             windmill_queue::PushArgs::from(&hm_args),
             username,
@@ -606,7 +606,7 @@ pub async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
          j.flow_step_id IS NOT NULL AS is_flow_step, j.script_lang AS language, c.started_at,
          c.status = 'skipped' AS is_skipped, j.raw_lock, j.permissioned_as_email AS email, j.visible_to_owner,
          c.memory_peak AS mem_peak, j.tag, j.priority, NULL::TEXT AS logs, c.result_columns,
-         j.script_entrypoint_override, j.preprocessed, c.result->'wm_labels' as labels
+         j.script_entrypoint_override, j.preprocessed, j.labels
          FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1",
     )
     .bind(uuid)
@@ -896,6 +896,7 @@ pub async fn run_deployed_relative_imports(
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
                     windmill_common::runnable_settings::DebouncingSettings::default(),
+                labels: None,
             })
             .push(&db2)
             .await;

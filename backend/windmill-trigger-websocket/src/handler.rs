@@ -41,6 +41,7 @@ impl TriggerCrud for WebsocketTrigger {
         "url_runnable_args",
         "can_return_message",
         "can_return_error_result",
+        "heartbeat",
     ];
     const IS_ALLOWED_ON_CLOUD: bool = false;
 
@@ -64,6 +65,19 @@ impl TriggerCrud for WebsocketTrigger {
             if !args.is_object() {
                 return Err(Error::BadRequest(
                     "url_runnable_args must be an object".to_string(),
+                ));
+            }
+        }
+
+        if let Some(ref hb) = config.heartbeat {
+            if hb.interval_secs < 1 {
+                return Err(Error::BadRequest(
+                    "heartbeat interval_secs must be at least 1".to_string(),
+                ));
+            }
+            if hb.message.is_empty() {
+                return Err(Error::BadRequest(
+                    "heartbeat message cannot be empty".to_string(),
                 ));
             }
         }
@@ -114,9 +128,10 @@ impl TriggerCrud for WebsocketTrigger {
                 edited_at,
                 error_handler_path,
                 error_handler_args,
-                retry
+                retry,
+                heartbeat
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), $15, $16, $17
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), $15, $16, $17, $18
             )
             "#,
             w_id,
@@ -138,7 +153,8 @@ impl TriggerCrud for WebsocketTrigger {
             resolved_permissioned_as,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
-            trigger.error_handling.retry as _
+            trigger.error_handling.retry as _,
+            trigger.config.heartbeat.map(SqlxJson) as _
         )
         .execute(&mut *tx)
         .await?;
@@ -193,7 +209,8 @@ impl TriggerCrud for WebsocketTrigger {
             error = NULL,
             error_handler_path = $15,
             error_handler_args = $16,
-            retry = $17
+            retry = $17,
+            heartbeat = $18
         WHERE
             workspace_id = $13 AND path = $14
     ",
@@ -217,7 +234,8 @@ impl TriggerCrud for WebsocketTrigger {
             path,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
-            trigger.error_handling.retry as _
+            trigger.error_handling.retry as _,
+            trigger.config.heartbeat.map(SqlxJson) as _
         )
         .execute(&mut *tx)
         .await?;
