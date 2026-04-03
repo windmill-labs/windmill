@@ -68,7 +68,7 @@ class Windmill:
 
     def worker_has_internal_server(self) -> bool:
         return bool(
-            re.match(r"^(https?://)?(localhost|127\.0\.0\.1)", self.base_url or "")
+            re.match(r"^https?://(localhost|127\.0\.0\.1)(:|/|$)", self.base_url or "")
         )
 
     def get_mocked_api(self) -> Optional[dict]:
