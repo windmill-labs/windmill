@@ -127,8 +127,8 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                     }
                 ],
                 auto_kind: None,
-                has_preprocessor: None
-                            ..Default::default()
+                has_preprocessor: None,
+                ..Default::default()
             }
         );
 
