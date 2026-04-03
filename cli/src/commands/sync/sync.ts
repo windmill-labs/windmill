@@ -375,7 +375,7 @@ ${tables.length > 0 ? tables.map(t => `    - ${t}`).join('\n') : '    # Add tabl
 
 ## Quick Reference
 
-**Backend runnable:** Add \`backend/<name>.ts\` (or .py, etc.), then run \`wmill generate-metadata <path_to_raw_app_folder> --yes --skip-scripts --skip-flows\`
+**Backend runnable:** Add \`backend/<name>.ts\` (or .py, etc.), then run \`wmill generate-metadata\`
 
 **Call from frontend:**
 \`\`\`typescript
@@ -2668,7 +2668,7 @@ export async function push(
       log.info("Auto-regenerated metadata for stale scripts:");
     } else {
       log.warn(
-        "Stale scripts metadata found, you may want to update them using 'wmill generate-metadata --skip-flows --skip-apps --yes' before pushing:",
+        "Stale scripts metadata found, you may want to update them using 'wmill generate-metadata' before pushing:",
       );
     }
     for (const stale of staleScripts) {
@@ -2701,7 +2701,7 @@ export async function push(
       log.info("Auto-regenerated locks for stale flows:");
     } else {
       log.warn(
-        "Stale flows locks found, you may want to update them using 'wmill generate-metadata --skip-scripts --skip-apps --yes' before pushing:",
+        "Stale flows locks found, you may want to update them using 'wmill generate-metadata' before pushing:",
       );
     }
     for (const stale of staleFlows) {
@@ -2749,7 +2749,7 @@ export async function push(
       log.info("Auto-regenerated locks for stale apps:");
     } else {
       log.warn(
-        "Stale apps locks found, you may want to update them using 'wmill generate-metadata --skip-scripts --skip-flows --yes' before pushing:",
+        "Stale apps locks found, you may want to update them using 'wmill generate-metadata' before pushing:",
       );
     }
     for (const stale of staleApps) {

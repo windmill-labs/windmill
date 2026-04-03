@@ -353,7 +353,7 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
 
         # Explicit source marker for backwards-compatible CLI commands that
         # should not be suggested in generated system prompts.
-        if '@deprecated-in-system-prompts' in section:
+        if '@deprecated' in section:
             continue
 
         cmd_name = cmd_match.group(1)
@@ -962,7 +962,7 @@ def generate_skills(
     script_cli_intro = """## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- `wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps` - Generate .script.yaml and .lock files
+- `wmill generate-metadata` - Generate .script.yaml and .lock files
 - `wmill sync push` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.

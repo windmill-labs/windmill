@@ -45,7 +45,7 @@ description: MUST use when writing Bash scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -110,7 +110,7 @@ description: MUST use when writing BigQuery queries.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -137,7 +137,7 @@ description: MUST use when writing Bun/TypeScript scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -802,7 +802,7 @@ description: MUST use when writing Bun Native scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -1465,7 +1465,7 @@ description: MUST use when writing C# scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -1522,7 +1522,7 @@ description: MUST use when writing Deno/TypeScript scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -2191,7 +2191,7 @@ description: MUST use when writing DuckDB queries.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -2258,7 +2258,7 @@ description: MUST use when writing Go scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -2332,7 +2332,7 @@ description: MUST use when writing GraphQL queries.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -2393,7 +2393,7 @@ description: MUST use when writing Java scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -2447,7 +2447,7 @@ description: MUST use when writing MS SQL Server queries.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -2474,7 +2474,7 @@ description: MUST use when writing MySQL queries.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -2501,7 +2501,7 @@ description: MUST use when writing Native TypeScript scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -3131,7 +3131,7 @@ description: MUST use when writing PHP scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -3204,7 +3204,7 @@ description: MUST use when writing PostgreSQL queries.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -3231,7 +3231,7 @@ description: MUST use when writing PowerShell scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -3302,7 +3302,7 @@ description: MUST use when writing Python scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -4123,7 +4123,7 @@ description: MUST use when writing R scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -4224,7 +4224,7 @@ description: MUST use when writing Rust scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -4315,7 +4315,7 @@ description: MUST use when writing Snowflake queries.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_script_or_folder> --yes --skip-flows --skip-apps\` - Generate .script.yaml and .lock files
+- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -4346,7 +4346,7 @@ description: MUST use when creating flows.
 Create a folder ending with \`{{FLOW_SUFFIX}}\` and add a \`flow.yaml\` file with the flow definition.
 For rawscript modules, use \`!inline path/to/script.ts\` for the content key. {{INLINE_SCRIPT_NAMING}}
 After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_flow_folder> --yes --skip-scripts --skip-apps\` - Generate lock files for the specific flow you modified (e.g. \`wmill generate-metadata f/my_folder/my_flow{{FLOW_SUFFIX}} --yes --skip-scripts --skip-apps\`)
+- \`wmill generate-metadata\` - Generate lock files for the flow you modified
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -4494,7 +4494,7 @@ my_app{{RAW_APP_SUFFIX}}/
 ├── backend/               # Backend runnables (server-side scripts)
 │   ├── <id>.<ext>         # Code file (e.g., get_user.ts)
 │   ├── <id>.yaml          # Optional: config for fields, or to reference existing scripts
-│   └── <id>.lock          # Lock file (run 'wmill generate-metadata <path_to_raw_app_folder> --yes --skip-scripts --skip-flows' to create/update)
+│   └── <id>.lock          # Lock file (run 'wmill generate-metadata' to create/update)
 └── sql_to_apply/          # SQL migrations (dev only, not synced)
     └── *.sql              # SQL files to apply via dev server
 \`\`\`
@@ -4550,7 +4550,7 @@ export async function main(user_id: string) {
 
 After creating, tell the user they can generate lock files by running:
 \`\`\`bash
-wmill generate-metadata <path_to_raw_app_folder> --yes --skip-scripts --skip-flows
+wmill generate-metadata
 \`\`\`
 
 ### Optional YAML Configuration
@@ -4708,7 +4708,7 @@ Tell the user they can run these commands (do NOT run them yourself):
 | \`wmill app new\` | Create a new raw app interactively |
 | \`wmill app dev\` | Start dev server with live reload |
 | \`wmill app generate-agents\` | Refresh AGENTS.md and DATATABLES.md |
-| \`wmill generate-metadata <path_to_raw_app_folder> --yes --skip-scripts --skip-flows\` | Generate lock files for backend runnables |
+| \`wmill generate-metadata\` | Generate lock files for backend runnables |
 | \`wmill sync push\` | Deploy app to Windmill |
 | \`wmill sync pull\` | Pull latest from Windmill |
 
@@ -4719,7 +4719,7 @@ Tell the user they can run these commands (do NOT run them yourself):
 3. **Keep runnables focused** - one function per file
 4. **Use descriptive IDs** - \`get_user.ts\` not \`a.ts\`
 5. **Always whitelist tables** - add to \`data.tables\` before querying
-6. **Generate locks** - tell the user to run \`wmill generate-metadata <path_to_raw_app_folder> --yes --skip-scripts --skip-flows\` after adding/modifying backend runnables
+6. **Generate locks** - tell the user to run \`wmill generate-metadata\` after adding/modifying backend runnables
 `,
   "triggers": `---
 name: triggers

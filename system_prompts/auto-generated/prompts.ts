@@ -36,7 +36,7 @@ export const FLOW_BASE = `# Windmill Flow Building Guide
 Create a folder ending with \`__flow\` and add a \`flow.yaml\` file with the flow definition.
 For rawscript modules, use \`!inline path/to/script.ts\` for the content key. Inline script files should NOT include \`.inline_script.\` in their names (e.g. use \`a.ts\`, not \`a.inline_script.ts\`).
 After writing, tell the user they can run:
-- \`wmill generate-metadata <path_to_flow_folder> --yes --skip-scripts --skip-apps\` - Generate lock files for the specific flow you modified (e.g. \`wmill generate-metadata f/my_folder/my_flow__flow --yes --skip-scripts --skip-apps\`)
+- \`wmill generate-metadata\` - Generate lock files for the flow you modified
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
