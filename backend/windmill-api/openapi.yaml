@@ -19050,6 +19050,9 @@ components:
         client_secret:
           type: string
           description: Azure AD client secret
+        token:
+          type: string
+          description: Static Bearer token for testing/development (optional, if provided this is used instead of OAuth2 authentication)
 
     SecretMigrationFailure:
       type: object

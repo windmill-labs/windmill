@@ -79,7 +79,8 @@
 				vault_url: $values['secret_backend']?.vault_url ?? '',
 				tenant_id: $values['secret_backend']?.tenant_id ?? '',
 				client_id: $values['secret_backend']?.client_id ?? '',
-				client_secret: $values['secret_backend']?.client_secret ?? null
+				client_secret: $values['secret_backend']?.client_secret ?? null,
+				token: $values['secret_backend']?.token ?? null
 			}
 		}
 	}
@@ -215,7 +216,8 @@
 			vault_url: $values['secret_backend'].vault_url,
 			tenant_id: $values['secret_backend'].tenant_id,
 			client_id: $values['secret_backend'].client_id,
-			client_secret: $values['secret_backend'].client_secret || undefined
+			client_secret: $values['secret_backend'].client_secret || undefined,
+			token: $values['secret_backend'].token || undefined
 		}
 	}
 

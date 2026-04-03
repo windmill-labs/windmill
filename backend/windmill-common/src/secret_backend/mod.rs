@@ -130,6 +130,10 @@ pub struct AzureKeyVaultSettings {
     /// Azure AD client secret
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
+    /// Static Bearer token for testing/development (optional)
+    /// If provided, this is used instead of OAuth2 client credentials authentication
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
 }
 
 /// Result of a secret migration operation
