@@ -2,6 +2,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { OauthService, VariableService, WorkspaceService } from '$lib/gen'
 	import ContextualVariableEditor from '$lib/components/ContextualVariableEditor.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -204,15 +205,11 @@
 		sendUserToast(`Variable ${path} was deleted`)
 	}
 
-	async function loadFolders() {
-	}
-
 	$effect(() => {
 		if ($workspaceStore && $userStore) {
 			untrack(() => {
 				loadVariables()
 				loadContextualVariables()
-				loadFolders()
 			})
 		}
 	})
