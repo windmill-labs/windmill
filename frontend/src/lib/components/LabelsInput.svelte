@@ -121,7 +121,10 @@
 							class="w-full text-left text-2xs px-2 py-1 hover:bg-surface-hover {i === selectedIdx
 								? 'bg-surface-hover'
 								: ''}"
-							onmousedown|preventDefault={() => addLabel(suggestion)}
+							onmousedown={(e) => {
+								e.preventDefault()
+								addLabel(suggestion)
+							}}
 						>
 							{suggestion}
 						</button>
