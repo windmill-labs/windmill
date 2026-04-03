@@ -153,6 +153,8 @@ export const SDK_TYPESCRIPT = `# TypeScript SDK (windmill-client)
 
 Import: import * as wmill from 'windmill-client'
 
+workerHasInternalServer(): boolean
+
 /**
  * Initialize the Windmill client with authentication token and base URL
  * @param token - Authentication token (defaults to WM_TOKEN env variable)
@@ -690,6 +692,8 @@ export const SDK_PYTHON = `# Python SDK (wmill)
 
 Import: import wmill
 
+def worker_has_internal_server()
+
 def get_mocked_api() -> Optional[dict]
 
 # Get the HTTP client instance.
@@ -754,7 +758,10 @@ def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int
 # Run script by hash synchronously and return its result.
 def run_script_by_hash(hash_: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
 
-# Run a script on the current worker without creating a job
+# Run a script on the current worker without creating a job.
+# 
+# On agent workers (no internal server), falls back to running a normal
+# preview job and waiting for the result.
 def run_inline_script_preview(content: str, language: str, args: dict = None) -> Any
 
 # Wait for a job to complete and return its result.
