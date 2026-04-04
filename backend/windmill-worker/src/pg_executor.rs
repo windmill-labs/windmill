@@ -372,7 +372,7 @@ pub async fn do_postgresql(
         }
     } else {
         cached_client = None;
-        new_client = None;
+        new_client = Some(new_pg_connection(&database, use_iam_auth).await?);
     }
 
     let (sig, typed_schema) = parse_pgsql_sig_with_typed_schema(&query)
