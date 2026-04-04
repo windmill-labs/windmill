@@ -2009,7 +2009,7 @@ async fn count_completed_jobs_detail(
     sqlb.join("v2_job USING (id)");
     sqlb.field("COUNT(*) as count");
 
-    if !query.all_workspaces.unwrap_or(false) {
+    if !(w_id == "admins" && query.all_workspaces.unwrap_or(false)) {
         sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
     }
 
