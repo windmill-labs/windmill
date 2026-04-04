@@ -3305,6 +3305,49 @@ Please check your worker logs for more details and feel free to report it to the
         }
     }
 
+    // Detect flows with NULL pings that have been running longer than the retention period.
+    // This catches parent flows/flownodes waiting for a suspended child (e.g. approval step)
+    // where no worker is actively processing them. The normal zombie detection above requires
+    // ping IS NOT NULL so these flows would otherwise stay in the queue indefinitely.
+    let job_retention_secs = *JOB_RETENTION_SECS.read().await;
+    if job_retention_secs > 0 {
+        let stale_null_ping_flows = sqlx::query!(
+            r#"
+            SELECT j.id AS "id!", j.workspace_id AS "workspace_id!"
+            FROM v2_job_queue q
+            JOIN v2_job j USING (id)
+            LEFT JOIN v2_job_runtime r USING (id)
+            WHERE q.running = true
+                AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode')
+                AND r.ping IS NULL
+                AND j.parent_job IS NULL
+                AND j.created_at < NOW() - ($1::bigint::text || ' s')::interval
+                AND q.canceled_by IS NULL
+            "#,
+            job_retention_secs
+        )
+        .fetch_all(db)
+        .await?;
+
+        for flow in &stale_null_ping_flows {
+            let base_url = BASE_URL.read().await;
+            let reason = format!(
+                "Flow {} ({}/run/{}?workspace={}) has been running with no active worker (NULL ping) for longer than the retention period ({}s). \
+                 This typically happens when a sub-flow is suspended (e.g. approval step) and the parent flow's worker was interrupted before recording a ping.",
+                flow.id, base_url, flow.id, flow.workspace_id, job_retention_secs
+            );
+            report_critical_error(reason.clone(), db.clone(), Some(&flow.workspace_id), None).await;
+            cancel_zombie_flow_job(db, flow.id, &flow.workspace_id, reason).await?;
+        }
+
+        if !stale_null_ping_flows.is_empty() {
+            tracing::info!(
+                "Cancelled {} stale flows with NULL pings older than retention period",
+                stale_null_ping_flows.len()
+            );
+        }
+    }
+
     let flows2 = sqlx::query!(
         r#"
         DELETE
