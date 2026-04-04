@@ -20,6 +20,10 @@ where
 
 lazy_static::lazy_static! {
     static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
+    static ref ALLOW_PRIVATE_AI_BASE_URLS: bool = std::env::var("ALLOW_PRIVATE_AI_BASE_URLS")
+        .ok()
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
 }
 
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
@@ -60,6 +64,9 @@ impl AIProvider {
     /// Get the base URL for the AI provider
     pub async fn get_base_url(&self, resource_base_url: Option<String>, db: &DB) -> Result<String> {
         if let Some(base_url) = resource_base_url {
+            if !*ALLOW_PRIVATE_AI_BASE_URLS {
+                crate::ssrf::validate_url_for_ssrf(&base_url).await?;
+            }
             return Ok(base_url);
         }
 
