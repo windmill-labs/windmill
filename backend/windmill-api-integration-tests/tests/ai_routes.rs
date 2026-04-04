@@ -37,6 +37,8 @@ async fn start_mock_ai_api() -> u16 {
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_ai_proxy_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
+    // Allow the mock AI API on 127.0.0.1 to pass the SSRF check
+    std::env::set_var("ALLOW_PRIVATE_AI_BASE_URLS", "true");
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
