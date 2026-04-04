@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::db::{Authable, UserDB};
 use crate::error::{self, Error};
 use crate::scripts::ScriptHash;
 use crate::utils::WarnAfterExt;
@@ -473,8 +474,8 @@ pub async fn get_variable_or_self(
     let path = path.strip_prefix("$var:").unwrap().to_string();
 
     let record = sqlx::query!(
-        "SELECT value, is_secret 
-         FROM variable 
+        "SELECT value, is_secret
+         FROM variable
          WHERE path = $1 AND workspace_id = $2",
         &path,
         &w_id
@@ -496,6 +497,51 @@ pub async fn get_variable_or_self(
         Err(Error::NotFound(format!(
             "Variable not found when resolving `$var:{}`",
             path
+        )))
+    }
+}
+
+/// Like `get_variable_or_self`, but uses an RLS-scoped connection to enforce
+/// that the caller has read access to the referenced variable.
+pub async fn get_variable_or_self_as<T: Authable + Sync>(
+    path: String,
+    db: &DB,
+    user_db: &UserDB,
+    authed: &T,
+    w_id: &str,
+) -> crate::error::Result<String> {
+    if !path.starts_with("$var:") {
+        return Ok(path);
+    }
+    let var_path = path.strip_prefix("$var:").unwrap().to_string();
+
+    // Use an RLS-scoped transaction so the query respects row-level security
+    let mut tx = user_db.clone().begin(authed).await?;
+    let record = sqlx::query!(
+        "SELECT value, is_secret
+         FROM variable
+         WHERE path = $1 AND workspace_id = $2",
+        &var_path,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    if let Some(record) = record {
+        let mut value = record.value;
+        if record.is_secret {
+            let mc = build_crypt(db, w_id).await?;
+            value = decrypt(&mc, value).map_err(|e| {
+                Error::internal_err(format!("Error decrypting variable {}: {}", var_path, e))
+            })?;
+        }
+
+        Ok(value)
+    } else {
+        Err(Error::NotFound(format!(
+            "Variable not found when resolving `$var:{}`",
+            var_path
         )))
     }
 }
