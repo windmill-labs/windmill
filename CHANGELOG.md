@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.674.2](https://github.com/windmill-labs/windmill/compare/v1.674.1...v1.674.2) (2026-04-04)
+
+
+### Bug Fixes
+
+* enforce RLS on $var: resolution in AI proxy (GHSA-jwg4-v3cj-rvfm) ([#8713](https://github.com/windmill-labs/windmill/issues/8713)) ([ff8e39c](https://github.com/windmill-labs/windmill/commit/ff8e39c69b1438defcaabd9d4906e7adafa7010c))
+* SSRF via X-Resource-Path header in AI proxy endpoint ([#8712](https://github.com/windmill-labs/windmill/issues/8712)) ([f394e67](https://github.com/windmill-labs/windmill/commit/f394e674f22af13bb77915f33aa1e8de402b6fe1))
+
 ## [1.674.1](https://github.com/windmill-labs/windmill/compare/v1.674.0...v1.674.1) (2026-04-04)
 
 
