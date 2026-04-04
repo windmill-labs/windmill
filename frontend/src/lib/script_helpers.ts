@@ -84,7 +84,7 @@ const NATIVETS_INIT_CODE = `// Fetch-only script, no imports allowed (except win
 //import * as wmill from './windmill.ts'
 
 export async function main(example_input: number = 3) {
-  // "3" is the default value of example_input, it can be overriden with code or using the UI
+  // "3" is the default value of example_input, it can be overridden with code or using the UI
   const res = await fetch(\`https://jsonplaceholder.typicode.com/todos/\${example_input}\`, {
     headers: { "Content-Type": "application/json" },
   });
@@ -101,7 +101,7 @@ const BUNNATIVE_INIT_CODE = `//native
 //import * as wmill from "windmill-client"
 
 export async function main(example_input: number = 3) {
-  // "3" is the default value of example_input, it can be overriden with code or using the UI
+  // "3" is the default value of example_input, it can be overridden with code or using the UI
   const res = await fetch(\`https://jsonplaceholder.typicode.com/todos/\${example_input}\`, {
     headers: { "Content-Type": "application/json" },
   });

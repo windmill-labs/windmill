@@ -250,7 +250,7 @@
 											copyLocalToGlobal(name, component?.customCss?.[name])
 											tab = 'global'
 										}}
-										overridding={hasStyleValue($app.css?.[component.type]?.[name]) &&
+										overriding={hasStyleValue($app.css?.[component.type]?.[name]) &&
 											hasStyleValue(component.customCss[name])}
 									/>
 								</div>
@@ -277,7 +277,7 @@
 											)
 											tab = 'local'
 										}}
-										overriden={hasStyleValue(component.customCss[id])}
+										overridden={hasStyleValue(component.customCss[id])}
 										wmClass={getSelector(id)}
 									/>
 								{/if}
