@@ -1,0 +1,23 @@
+# Nix Builder Container - optimized for CI/CD
+# Used by build-container-nix.sh for isolated Nix builds
+
+FROM nixos/nix:2.19.2
+
+RUN nix-channel --add https://nixos.org/channels/nixos-25.11 nixpkgs && \
+    nix-channel --update && \
+    nix-env -iA nixpkgs.docker-client nixpkgs.git nixpkgs.cacert && \
+    mkdir -p /etc/nix && \
+    echo 'experimental-features = nix-command flakes' >> /etc/nix/nix.conf
+
+RUN mkdir -p /etc/ssl/certs && \
+    CERT_BUNDLE=$(find /nix/store -name "ca-bundle.crt" | head -1) && \
+    ln -sf "$CERT_BUNDLE" /etc/ssl/certs/ca-bundle.crt && \
+    ln -sf "$CERT_BUNDLE" /etc/ssl/certs/ca-certificates.crt
+
+WORKDIR /build
+
+ENV VERSION=""
+ENV BUILD_CORES=""
+ENV NIX_FILE="container/default.nix"
+ENV NO_CACHE=""
+ENV PROJECT_ROOT="/project-root"
