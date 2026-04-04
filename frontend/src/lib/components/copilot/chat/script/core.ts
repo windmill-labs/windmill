@@ -417,6 +417,8 @@ export interface ScriptChatHelpers {
 	applyCode: (code: string, opts?: ReviewChangesOpts) => Promise<void>
 	/** Get lint errors from the Monaco editor */
 	getLintErrors?: () => ScriptLintResult
+	/** Optional benchmark/local hook for script test runs */
+	runScriptTest?: (args: Record<string, any>) => Promise<string>
 }
 
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
@@ -863,6 +865,10 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 		}
 
 		const parsedArgs = await buildTestRunArgs(args, this.def)
+
+		if (helpers.runScriptTest) {
+			return await helpers.runScriptTest(parsedArgs)
+		}
 
 		return executeTestRun({
 			jobStarter: () =>

@@ -1,0 +1,16 @@
+{
+  "name": "windmill-ai-evals",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cli": "bun cli/index.ts",
+    "list-cases": "bun cli/index.ts list-cases --surface cli"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.25"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  }
+}

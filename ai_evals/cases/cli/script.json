@@ -1,0 +1,22 @@
+[
+  {
+    "id": "bun-hello-script",
+    "description": "Create a minimal Bun script in a fresh CLI workspace.",
+    "prompt": "This is a benchmark harness. Create exactly one Windmill Bun/TypeScript script at {{workspace_root}}/f/evals/hello.ts. The script must export async function main(name: string) and return an object { greeting: `Hello, ${name}!` }. Keep it minimal. Do not create other scripts. Do not run any CLI commands. After writing the file, tell me exactly which wmill commands I should run next.",
+    "maxTurns": 6,
+    "expectedSkill": "write-script-bun",
+    "expectedOutputSubstrings": [
+      "wmill script generate-metadata",
+      "wmill sync push"
+    ],
+    "expectedFiles": [
+      {
+        "path": "f/evals/hello.ts",
+        "mustContain": [
+          "export async function main(name: string)",
+          "return { greeting: `Hello, ${name}!` };"
+        ]
+      }
+    ]
+  }
+]

@@ -1,4 +1,4 @@
-import { stat, writeFile, rm, mkdir } from "node:fs/promises";
+import { stat, writeFile, rm } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
@@ -8,22 +8,13 @@ import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
-import { SKILLS, SKILL_CONTENT, SCHEMAS, SCHEMA_MAPPINGS } from "../../guidance/skills.ts";
-import { generateAgentsMdContent } from "../../guidance/core.ts";
+import {
+  WMILL_INIT_AI_AGENTS_SOURCE_ENV,
+  WMILL_INIT_AI_CLAUDE_SOURCE_ENV,
+  WMILL_INIT_AI_SKILLS_SOURCE_ENV,
+  writeAiGuidanceFiles,
+} from "../../guidance/writer.ts";
 import { generateCommentedTemplate } from "./template.ts";
-
-/**
- * Format a YAML schema for inclusion in skill markdown files.
- */
-function formatSchemaForMarkdown(schemaYaml: string, schemaName: string, filePattern: string): string {
-  return `## ${schemaName} (\`${filePattern}\`)
-
-Must be a YAML file that adheres to the following schema:
-
-\`\`\`yaml
-${schemaYaml.trim()}
-\`\`\``;
-}
 
 export interface InitOptions {
   useDefault?: boolean;
@@ -235,88 +226,24 @@ async function initAction(opts: InitOptions) {
 
   // Create guidance files (AGENTS.md, CLAUDE.md, and Claude skills)
   try {
-    // Generate skills reference section for AGENTS.md
-    const skills_base_dir = ".claude/skills";
-    const skillsReference = SKILLS.map(
-      (s) => `- \`${skills_base_dir}/${s.name}/SKILL.md\` - ${s.description}`
-    ).join("\n");
+    const guidanceResult = await writeAiGuidanceFiles({
+      targetDir: ".",
+      nonDottedPaths,
+      overwriteProjectGuidance: false,
+      skillsSourcePath: process.env[WMILL_INIT_AI_SKILLS_SOURCE_ENV],
+      agentsSourcePath: process.env[WMILL_INIT_AI_AGENTS_SOURCE_ENV],
+      claudeSourcePath: process.env[WMILL_INIT_AI_CLAUDE_SOURCE_ENV],
+    });
 
-    // Create AGENTS.md file with minimal instructions
-    if (!(await stat("AGENTS.md").catch(() => null))) {
-      await writeFile(
-        "AGENTS.md",
-        generateAgentsMdContent(skillsReference), "utf-8"
-      );
+    if (guidanceResult.agentsWritten) {
       log.info(colors.green("Created AGENTS.md"));
     }
-
-    // Create CLAUDE.md file, referencing AGENTS.md
-    if (!(await stat("CLAUDE.md").catch(() => null))) {
-      await writeFile(
-        "CLAUDE.md",
-        `Instructions are in @AGENTS.md
-`, "utf-8"
-      );
+    if (guidanceResult.claudeWritten) {
       log.info(colors.green("Created CLAUDE.md"));
     }
-
-    // Create .claude/skills/ directory and skill files
-    try {
-      await mkdir(".claude/skills", { recursive: true });
-
-      await Promise.all(
-        SKILLS.map(async (skill) => {
-          const skillDir = `.claude/skills/${skill.name}`;
-          await mkdir(skillDir, { recursive: true });
-
-          let skillContent = SKILL_CONTENT[skill.name];
-          if (skillContent) {
-            // Replace placeholders with actual suffixes based on nonDottedPaths
-            if (nonDottedPaths) {
-              skillContent = skillContent
-                .replaceAll("{{FLOW_SUFFIX}}", "__flow")
-                .replaceAll("{{APP_SUFFIX}}", "__app")
-                .replaceAll("{{RAW_APP_SUFFIX}}", "__raw_app")
-                .replaceAll("{{INLINE_SCRIPT_NAMING}}", "Inline script files should NOT include `.inline_script.` in their names (e.g. use `a.ts`, not `a.inline_script.ts`).");
-            } else {
-              skillContent = skillContent
-                .replaceAll("{{FLOW_SUFFIX}}", ".flow")
-                .replaceAll("{{APP_SUFFIX}}", ".app")
-                .replaceAll("{{RAW_APP_SUFFIX}}", ".raw_app")
-                .replaceAll("{{INLINE_SCRIPT_NAMING}}", "Inline script files use the `.inline_script.` naming convention (e.g. `a.inline_script.ts`).");
-            }
-            // Check if this skill has schemas that need to be appended
-            const schemaMappings = SCHEMA_MAPPINGS[skill.name];
-            if (schemaMappings && schemaMappings.length > 0) {
-              // Combine base content with schemas
-              const schemaDocs = schemaMappings
-                .map((mapping) => {
-                  const schemaYaml = SCHEMAS[mapping.schemaKey];
-                  if (schemaYaml) {
-                    return formatSchemaForMarkdown(schemaYaml, mapping.name, mapping.filePattern);
-                  }
-                  return null;
-                })
-                .filter((doc): doc is string => doc !== null);
-
-              if (schemaDocs.length > 0) {
-                skillContent = skillContent + "\n\n" + schemaDocs.join("\n\n");
-              }
-            }
-
-            await writeFile(`${skillDir}/SKILL.md`, skillContent, "utf-8");
-          }
-        })
-      );
-
-      log.info(colors.green(`Created .claude/skills/ with ${SKILLS.length} skills`));
-    } catch (skillError) {
-      if (skillError instanceof Error) {
-        log.warn(`Could not create skills: ${skillError.message}`);
-      } else {
-        log.warn(`Could not create skills: ${skillError}`);
-      }
-    }
+    log.info(
+      colors.green(`Created .claude/skills/ with ${guidanceResult.skillCount} skills`)
+    );
   } catch (error) {
     if (error instanceof Error) {
       log.warn(`Could not create guidance files: ${error.message}`);

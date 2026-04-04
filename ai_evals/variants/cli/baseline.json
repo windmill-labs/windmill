@@ -1,0 +1,7 @@
+{
+  "id": "baseline",
+  "description": "Uses the repo's generated Windmill CLI skills.",
+  "skillsSource": {
+    "type": "generated"
+  }
+}

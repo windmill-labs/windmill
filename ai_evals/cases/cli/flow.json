@@ -1,0 +1,30 @@
+[
+  {
+    "id": "bun-hello-flow",
+    "description": "Create a minimal Bun flow in a fresh CLI workspace.",
+    "prompt": "This is a benchmark harness. Create exactly one Windmill flow folder at {{workspace_root}}/f/evals/hello__flow. The flow must contain flow.yaml and one inline Bun script file named hello.ts. The flow should accept a name string input and return an object { greeting: `Hello, ${name}!` }. Use a single rawscript step wired to that input. Keep it minimal. Do not create any other flows or scripts. Do not run any CLI commands. After writing the files, tell me exactly which wmill commands I should run next.",
+    "maxTurns": 8,
+    "expectedSkill": "write-flow",
+    "expectedOutputSubstrings": [
+      "wmill flow generate-locks",
+      "wmill sync push"
+    ],
+    "expectedFiles": [
+      {
+        "path": "f/evals/hello__flow/flow.yaml",
+        "mustContain": [
+          "value:",
+          "modules:",
+          "name:"
+        ]
+      },
+      {
+        "path": "f/evals/hello__flow/hello.ts",
+        "mustContain": [
+          "export async function main(name: string)",
+          "greeting: `Hello, ${name}!`"
+        ]
+      }
+    ]
+  }
+]
