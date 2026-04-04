@@ -19,13 +19,15 @@ import { resolve, track_job, pollForJobResult } from "../script/script.ts";
 import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
-import { Flow } from "../../../gen/types.gen.ts";
+import { Flow, OpenFlowWPath } from "../../../gen/types.gen.ts";
 import {
   collectPathScriptPaths,
   replaceInlineScripts,
   replaceAllPathScriptsWithLocal,
 } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { generateFlowLockInternal } from "./flow_metadata.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { resolvePermissionedAsRule } from "../../core/permissioned_as.ts";
 import { exts } from "../script/script.ts";
 import type { SyncCodebase } from "../../utils/codebase.ts";
 import { listSyncCodebases } from "../../utils/codebase.ts";
@@ -39,6 +41,8 @@ export interface FlowFile {
   description?: string;
   value: any;
   schema?: any;
+  on_behalf_of_email?: string;
+  has_on_behalf_of?: boolean;
 }
 
 function normalizeOptionalString(value: string | null | undefined): string | undefined {
@@ -131,7 +135,8 @@ export async function pushFlow(
   workspace: string,
   remotePath: string,
   localPath: string,
-  message?: string
+  message?: string,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -177,6 +182,34 @@ export async function pushFlow(
     ));
   }
 
+  // Extract CLI-only field before sending to API
+  const hasOnBehalfOf = localFlow.has_on_behalf_of ?? !!localFlow.on_behalf_of_email;
+  delete (localFlow as any).has_on_behalf_of;
+
+  // Build preserve flags for permissioned_as
+  const preserveFields: Partial<OpenFlowWPath> = {};
+  if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
+    if (flow) {
+      // Updating: preserve the remote's on_behalf_of_email (only if it has one)
+      if (flow.on_behalf_of_email) {
+        preserveFields.on_behalf_of_email = flow.on_behalf_of_email;
+        preserveFields.preserve_on_behalf_of = true;
+        log.info(`Preserving ${flow.on_behalf_of_email} as permissioned_as for flow ${remotePath}`);
+      }
+    } else {
+      // Creating: apply defaultPermissionedAs rule if one matches
+      const rule = resolvePermissionedAsRule(
+        remotePath,
+        permissionedAsContext.rules
+      );
+      if (rule) {
+        preserveFields.on_behalf_of_email = rule.email;
+        preserveFields.preserve_on_behalf_of = true;
+        log.info(`Setting flow ${remotePath} to run permissioned as ${rule.email} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
+      }
+    }
+  }
+
   if (flow) {
     if (isSuperset(localFlow, flow)) {
       log.info(colors.green(`Flow ${remotePath} is up to date`));
@@ -190,6 +223,7 @@ export async function pushFlow(
         path: remotePath.replaceAll(SEP, "/"),
         deployment_message: message,
         ...localFlow,
+        ...preserveFields,
       },
     });
   } else {
@@ -201,6 +235,7 @@ export async function pushFlow(
           path: remotePath.replaceAll(SEP, "/"),
           deployment_message: message,
           ...localFlow,
+          ...preserveFields,
         },
       });
     } catch (e) {
@@ -717,6 +752,30 @@ export async function bootstrap(
   writeFileSync(flowYamlPath, newFlowDefinitionYaml, { flag: "wx", encoding: "utf-8" });
 }
 
+async function setPermissionedAs(
+  opts: GlobalOptions,
+  flowPath: string,
+  email: string
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  await wmill.updateFlow({
+    workspace: workspace.workspaceId,
+    path: flowPath,
+    requestBody: {
+      path: flowPath,
+      on_behalf_of_email: email,
+      preserve_on_behalf_of: true,
+    } as any,
+  });
+  log.info(
+    colors.green(
+      `Updated permissioned_as for flow ${flowPath} to ${email}`
+    )
+  );
+}
+
 async function history(
   opts: GlobalOptions & { json?: boolean },
   flowPath: string
@@ -860,6 +919,12 @@ const command = new Command()
   .option("--summary <summary:string>", "flow summary")
   .option("--description <description:string>", "flow description")
   .action(bootstrap as any)
+  .command(
+    "set-permissioned-as",
+    "Set the on_behalf_of_email for a flow (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action(setPermissionedAs as any)
   .command("history", "Show version history for a flow")
   .arguments("<path:string>")
   .option("--json", "Output as JSON (for piping to jq)")

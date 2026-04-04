@@ -57,6 +57,8 @@ import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
 
 import { execSync } from "node:child_process";
 import { NewScript, Script, ScriptModule } from "../../../gen/types.gen.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { resolvePermissionedAsRule } from "../../core/permissioned_as.ts";
 import {
   isRawAppBackendPath as isRawAppBackendPathInternal,
   isAppInlineScriptPath as isAppInlineScriptPathInternal,
@@ -229,7 +231,8 @@ export async function handleScriptMetadata(
   message: string | undefined,
   rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[],
-  opts: GlobalOptions
+  opts: GlobalOptions,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<boolean> {
   // Flat layout: my_script.script.yaml
   const isFlatMeta = path.endsWith(".script.json") ||
@@ -250,7 +253,8 @@ export async function handleScriptMetadata(
       message,
       opts,
       rawWorkspaceDependencies,
-      codebases
+      codebases,
+      permissionedAsContext
     );
   } else {
     return false;
@@ -272,7 +276,8 @@ export async function handleFile(
   message: string | undefined,
   opts: (GlobalOptions & { defaultTs?: "bun" | "deno" } & Skips) | undefined,
   rawWorkspaceDependencies: Record<string, string>,
-  codebases: SyncCodebase[]
+  codebases: SyncCodebase[],
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<boolean> {
   // Detect module entry point: e.g., my_script__mod/script.ts
   const moduleEntryPoint = isModuleEntryPoint(path);
@@ -481,9 +486,32 @@ export async function handleFile(
       labels: typed?.labels,
     };
 
-    // console.log(requestBodyCommon.codebase);
-    // log.info(JSON.stringify(requestBodyCommon, null, 2))
-    // log.info(JSON.stringify(opts, null, 2))
+    // Compute whether original remote had on_behalf_of set
+    const hasOnBehalfOf = typed?.has_on_behalf_of ?? !!typed?.on_behalf_of_email;
+
+    // Add preserve flags for permissioned_as
+    if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
+      if (remote) {
+        // Updating: preserve the remote's on_behalf_of_email (only if it has one)
+        if (remote.on_behalf_of_email) {
+          requestBodyCommon.on_behalf_of_email = remote.on_behalf_of_email;
+          requestBodyCommon.preserve_on_behalf_of = true;
+          log.info(`Preserving ${remote.on_behalf_of_email} as permissioned_as for script ${remotePath}`);
+        }
+      } else {
+        // Creating: apply defaultPermissionedAs rule if one matches
+        const rule = resolvePermissionedAsRule(
+          remotePath,
+          permissionedAsContext.rules
+        );
+        if (rule) {
+          requestBodyCommon.on_behalf_of_email = rule.email;
+          requestBodyCommon.preserve_on_behalf_of = true;
+          log.info(`Setting script ${remotePath} to run permissioned as ${rule.email} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
+        }
+      }
+    }
+
     if (remote) {
       if (content === remote.content) {
         if (
@@ -518,7 +546,7 @@ export async function handleFile(
             typed.debounce_key == remote["debounce_key"] &&
             typed.debounce_delay_s == remote["debounce_delay_s"] &&
             typed.codebase == remote.codebase &&
-            typed.on_behalf_of_email == remote.on_behalf_of_email &&
+            (typed.has_on_behalf_of !== undefined ? true : typed.on_behalf_of_email == remote.on_behalf_of_email) &&
             deepEqual(typed.envs, remote.envs) &&
             deepEqual(modules ?? null, remote.modules ?? null))
         ) {
@@ -1599,6 +1627,51 @@ async function preview(
   }
 }
 
+async function setPermissionedAs(
+  opts: GlobalOptions,
+  scriptPath: string,
+  email: string
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const remote = await wmill.getScriptByPath({
+    workspace: workspace.workspaceId,
+    path: scriptPath,
+  });
+
+  if (!remote) {
+    throw new Error(`Script ${scriptPath} not found`);
+  }
+
+  const body: NewScript = {
+    content: remote.content,
+    description: remote.description,
+    language: remote.language as NewScript["language"],
+    path: remote.path,
+    summary: remote.summary,
+    kind: remote.kind as NewScript["kind"],
+    lock: Array.isArray(remote.lock)
+      ? remote.lock.join("\n")
+      : remote.lock ?? undefined,
+    schema: remote.schema,
+    tag: remote.tag ?? undefined,
+    parent_hash: remote.hash,
+    on_behalf_of_email: email,
+    preserve_on_behalf_of: true,
+  };
+
+  await wmill.createScript({
+    workspace: workspace.workspaceId,
+    requestBody: body,
+  });
+  log.info(
+    colors.green(
+      `Updated permissioned_as for script ${scriptPath} to ${email}`
+    )
+  );
+}
+
 async function history(
   opts: GlobalOptions & { json?: boolean },
   scriptPath: string
@@ -1715,6 +1788,12 @@ const command = new Command()
     "Comma separated patterns to specify which file to NOT take into account."
   )
   .action(generateMetadata as any)
+  .command(
+    "set-permissioned-as",
+    "Set the on_behalf_of_email for a script (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action(setPermissionedAs as any)
   .command(
     "history",
     "show version history for a script"

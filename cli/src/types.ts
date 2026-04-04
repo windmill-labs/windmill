@@ -30,6 +30,7 @@ import {
   buildFolderPath,
   isScriptModulePath,
 } from "./utils/resource_folders.ts";
+import type { PermissionedAsContext } from "./core/permissioned_as.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -152,7 +153,8 @@ export async function pushObj(
   plainSecrets: boolean,
   alreadySynced: string[],
   message?: string,
-  originalLocalPath?: string
+  originalLocalPath?: string,
+  permissionedAsContext?: PermissionedAsContext
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
@@ -161,7 +163,7 @@ export async function pushObj(
     if (!appName) {
       throw new Error(`Could not extract app name from path: ${p}`);
     }
-    await pushApp(workspace, appName, buildFolderPath(appName, "app"), message);
+    await pushApp(workspace, appName, buildFolderPath(appName, "app"), message, permissionedAsContext);
   } else if (typeEnding === "raw_app") {
     const rawAppName = extractResourceName(p, "raw_app");
     if (!rawAppName) {
@@ -177,7 +179,7 @@ export async function pushObj(
     if (!flowName) {
       throw new Error(`Could not extract flow name from path: ${p}`);
     }
-    await pushFlow(workspace, flowName, buildFolderPath(flowName, "flow"), message);
+    await pushFlow(workspace, flowName, buildFolderPath(flowName, "flow"), message, permissionedAsContext);
   } else if (typeEnding === "resource") {
     if (!alreadySynced.includes(p)) {
       alreadySynced.push(p);
@@ -186,25 +188,25 @@ export async function pushObj(
   } else if (typeEnding === "resource-type") {
     await pushResourceType(workspace, p, befObj, newObj);
   } else if (typeEnding === "schedule") {
-    await pushSchedule(workspace, p, befObj, newObj);
+    await pushSchedule(workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "http_trigger") {
-    await pushTrigger("http", workspace, p, befObj, newObj);
+    await pushTrigger("http", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "websocket_trigger") {
-    await pushTrigger("websocket", workspace, p, befObj, newObj);
+    await pushTrigger("websocket", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "kafka_trigger") {
-    await pushTrigger("kafka", workspace, p, befObj, newObj);
+    await pushTrigger("kafka", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "nats_trigger") {
-    await pushTrigger("nats", workspace, p, befObj, newObj);
+    await pushTrigger("nats", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "postgres_trigger") {
-    await pushTrigger("postgres", workspace, p, befObj, newObj);
+    await pushTrigger("postgres", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "mqtt_trigger") {
-    await pushTrigger("mqtt", workspace, p, befObj, newObj);
+    await pushTrigger("mqtt", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "sqs_trigger") {
-    await pushTrigger("sqs", workspace, p, befObj, newObj);
+    await pushTrigger("sqs", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "gcp_trigger") {
-    await pushTrigger("gcp", workspace, p, befObj, newObj);
+    await pushTrigger("gcp", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "email_trigger") {
-    await pushTrigger("email", workspace, p, befObj, newObj);
+    await pushTrigger("email", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "native_trigger") {
     await pushNativeTrigger(workspace, p, befObj, newObj);
   } else if (typeEnding === "user") {

@@ -12,6 +12,16 @@ import { existsSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { execSync } from "node:child_process";
 import { setNonDottedPaths } from "../utils/resource_folders.ts";
+import type { PermissionedAsRule } from "./permissioned_as.ts";
+
+export const SUPPORTED_CLI_BEHAVIOR_VERSION = 1;
+
+// Parse cliBehavior version string (e.g. "v1", "v2") into a number. Returns 0 if absent/invalid.
+export function parseCliBehavior(value?: string): number {
+  if (!value) return 0;
+  const match = value.match(/^v(\d+)$/);
+  return match ? parseInt(match[1], 10) : 0;
+}
 
 export let showDiffs = false;
 export function setShowDiffs(value: boolean) {
@@ -108,6 +118,8 @@ export interface SyncOptions {
   promotion?: string;
   lint?: boolean;
   locksRequired?: boolean;
+  defaultPermissionedAs?: PermissionedAsRule[];
+  cliBehavior?: string;
 }
 
 export interface Codebase {
@@ -312,6 +324,15 @@ export async function readConfigFile(opts?: { warnIfMissing?: boolean }): Promis
     // Initialize global nonDottedPaths setting from config
     setNonDottedPaths(conf?.nonDottedPaths ?? false);
 
+    // Exit if the config specifies a cliBehavior version higher than what this CLI supports
+    const cliBehaviorVersion = parseCliBehavior(conf?.cliBehavior);
+    if (cliBehaviorVersion > SUPPORTED_CLI_BEHAVIOR_VERSION) {
+      log.error(
+        `Your wmill.yaml specifies cliBehavior: ${conf!.cliBehavior}, but this CLI only supports up to v${SUPPORTED_CLI_BEHAVIOR_VERSION}. Run 'wmill upgrade' to update.`
+      );
+      process.exit(1);
+    }
+
     return typeof conf == "object" ? conf : ({} as SyncOptions);
   } catch (e) {
     if (
@@ -371,6 +392,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
       | "includeSettings"
       | "includeKey"
       | "nonDottedPaths"
+      | "cliBehavior"
     >
   >
 > = {
@@ -394,6 +416,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
   includeKey: false,
   skipWorkspaceDependencies: false,
   nonDottedPaths: false,
+  cliBehavior: "v1",
 } as const;
 
 export async function mergeConfigWithConfigFile<T>(
@@ -525,7 +548,8 @@ export async function getEffectiveSettings(
   promotion?: string,
   skipBranchValidation?: boolean,
   suppressLogs?: boolean,
-  branchOverride?: string
+  branchOverride?: string,
+  targetWorkspace?: { workspaceId: string; remote: string },
 ): Promise<SyncOptions> {
   // Start with top-level settings from config
   const { gitBranches, ...topLevelSettings } = config;
@@ -577,27 +601,62 @@ export async function getEffectiveSettings(
         `No promotion or regular overrides found for branch '${promotion}', using top-level settings`
       );
     }
+    // Branch-level defaultPermissionedAs takes priority over root-level
+    if (targetBranch.defaultPermissionedAs) {
+      effective.defaultPermissionedAs = targetBranch.defaultPermissionedAs;
+    }
   }
   // Otherwise use current branch overrides (existing behavior)
   else if (
     currentBranch &&
     gitBranches &&
-    gitBranches[currentBranch] &&
-    gitBranches[currentBranch].overrides
+    gitBranches[currentBranch]
   ) {
-    Object.assign(effective, gitBranches[currentBranch].overrides);
-    if (!suppressLogs) {
-      const extraLog = originalBranchIfForked
-        ? ` (because it is the origin of the workspace fork branch \`${rawGitBranch}\`)`
-        : "";
-      log.info(
-        `Applied settings for Git branch: ${currentBranch}${extraLog}`
+    if (gitBranches[currentBranch].overrides) {
+      Object.assign(effective, gitBranches[currentBranch].overrides);
+      if (!suppressLogs) {
+        const extraLog = originalBranchIfForked
+          ? ` (because it is the origin of the workspace fork branch \`${rawGitBranch}\`)`
+          : "";
+        log.info(
+          `Applied settings for Git branch: ${currentBranch}${extraLog}`
+        );
+      }
+    } else {
+      log.debug(
+        `No branch-specific overrides found for '${currentBranch}', using top-level settings`
       );
+    }
+    // Branch-level defaultPermissionedAs takes priority over root-level
+    if (gitBranches[currentBranch].defaultPermissionedAs) {
+      effective.defaultPermissionedAs = gitBranches[currentBranch].defaultPermissionedAs;
     }
   } else if (currentBranch) {
     log.debug(
       `No branch-specific overrides found for '${currentBranch}', using top-level settings`
     );
+  }
+
+  // If a target workspace is provided, resolve defaultPermissionedAs from the
+  // branch config that matches it (rules are workspace-specific)
+  if (targetWorkspace && gitBranches) {
+    const matchingEntry = Object.entries(gitBranches).find(
+      ([_, branchConfig]) =>
+        branchConfig.workspaceId === targetWorkspace.workspaceId &&
+        branchConfig.baseUrl === targetWorkspace.remote
+    );
+    if (matchingEntry) {
+      const [, branchConfig] = matchingEntry;
+      if (branchConfig.defaultPermissionedAs) {
+        effective.defaultPermissionedAs = branchConfig.defaultPermissionedAs;
+      } else {
+        // Matching branch has no rules — fall back to root-level
+        effective.defaultPermissionedAs = topLevelSettings.defaultPermissionedAs;
+      }
+    } else {
+      // No branch matches the target workspace — use root-level rules
+      effective.defaultPermissionedAs = topLevelSettings.defaultPermissionedAs;
+    }
   }
 
   return effective;

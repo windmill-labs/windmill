@@ -46,6 +46,7 @@ import {
 import {
   getEffectiveSettings,
   mergeConfigWithConfigFile,
+  parseCliBehavior,
   SyncOptions,
   validateBranchConfiguration,
 } from "../../core/conf.ts";
@@ -79,6 +80,11 @@ import {
 import { extractInlineScripts as extractInlineScriptsForFlows, extractCurrentMapping } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
 import { isExecutionModeAnonymous } from "../app/app.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import {
+  preCheckPermissionedAs,
+  validatePermissionedAsRules,
+} from "../../core/permissioned_as.ts";
 import {
   APP_BACKEND_FOLDER,
   generateAppLocksInternal,
@@ -121,7 +127,10 @@ async function resolveEffectiveSyncOptions(
   promotion?: string,
   branchOverride?: string,
 ): Promise<SyncOptions> {
-  return await getEffectiveSettings(localConfig, promotion, false, false, branchOverride);
+  return await getEffectiveSettings(localConfig, promotion, false, false, branchOverride, {
+    workspaceId: workspace.workspaceId,
+    remote: workspace.remote,
+  });
 }
 
 type DynFSElement = {
@@ -540,6 +549,7 @@ function ZipFSElement(
   resourceTypeToFormatExtension: Record<string, string>,
   resourceTypeToIsFileset: Record<string, boolean>,
   ignoreCodebaseChanges: boolean,
+  stripOnBehalfOf: boolean,
 ): DynFSElement {
   // Pre-scan: find zip base paths of scripts that have modules.
   // These scripts use the folder layout: {basePath}__mod/script.{ext}
@@ -688,6 +698,11 @@ function ZipFSElement(
                   return s.content;
                 },
               };
+            }
+
+            if (stripOnBehalfOf) {
+              (flow as any).has_on_behalf_of = !!(flow as any).on_behalf_of_email;
+              delete (flow as any).on_behalf_of_email;
             }
 
             yield {
@@ -969,6 +984,10 @@ function ZipFSElement(
             }
             if (ignoreCodebaseChanges && parsed["codebase"]) {
               parsed["codebase"] = undefined;
+            }
+            if (stripOnBehalfOf) {
+              parsed["has_on_behalf_of"] = !!parsed["on_behalf_of_email"];
+              delete parsed["on_behalf_of_email"];
             }
             // Modules are stored as files in __mod/ folder, not in metadata
             delete parsed["modules"];
@@ -2085,6 +2104,7 @@ export async function pull(
     resourceTypeToFormatExtension,
     resourceTypeToIsFileset,
     true,
+    parseCliBehavior(opts.cliBehavior) >= 1,
   );
 
   const local = !opts.stateful
@@ -2494,7 +2514,7 @@ function removeSuffix(str: string, suffix: string) {
 }
 
 export async function push(
-  opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string },
+  opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string; acceptOverridingPermissionedAsWithSelf?: boolean },
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
   // Save original CLI options before merging with config file
@@ -2620,6 +2640,7 @@ export async function push(
     resourceTypeToFormatExtension,
     resourceTypeToIsFileset,
     false,
+    parseCliBehavior(opts.cliBehavior) >= 1,
   );
 
   const local = await FSFSElement(path.join(process.cwd(), ""), codebases, false);
@@ -2888,6 +2909,36 @@ export async function push(
       log.info(colors.gray(`Dry run complete.`));
       return;
     }
+
+    // Build permissioned_as context (only when respectVirtualUserPermissions is enabled)
+    let permissionedAsContext: PermissionedAsContext | undefined = undefined;
+    if (parseCliBehavior(opts.cliBehavior) >= 1) {
+      const user = await wmill.whoami({ workspace: workspace.workspaceId });
+      const userIsAdminOrDeployer =
+        user.is_admin || (user.groups ?? []).includes("wm_deployers");
+      log.debug(`permissioned_as: user=${user.email}, is_admin=${user.is_admin}, groups=${JSON.stringify(user.groups)}, isAdminOrDeployer=${userIsAdminOrDeployer}`);
+      const validatedRules = validatePermissionedAsRules(
+        opts.defaultPermissionedAs,
+        "wmill.yaml"
+      );
+      log.debug(`permissioned_as: ${validatedRules.length} rules loaded`);
+      permissionedAsContext = {
+        rules: validatedRules,
+        emailToUsernameCache: new Map<string, string>(),
+        userIsAdminOrDeployer,
+      };
+
+      // Pre-check: warn about permissioned_as changes
+      await preCheckPermissionedAs(
+        changes,
+        user.email,
+        userIsAdminOrDeployer,
+        opts.acceptOverridingPermissionedAsWithSelf ?? false,
+        !!process.stdin.isTTY,
+        validatedRules
+      );
+    }
+
     if (
       !opts.yes &&
       !(await Confirm.prompt({
@@ -2985,6 +3036,7 @@ export async function push(
                   rawWorkspaceDependencies,
                   codebases,
                   opts,
+                  permissionedAsContext,
                 )
               ) {
                 if (stateTarget) {
@@ -3000,6 +3052,7 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                  permissionedAsContext,
                 )
               ) {
                 if (stateTarget) {
@@ -3119,6 +3172,7 @@ export async function push(
                 alreadySynced,
                 opts.message,
                 originalBranchSpecificPath,
+                permissionedAsContext,
               );
 
               if (stateTarget) {
@@ -3142,6 +3196,7 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                  permissionedAsContext,
                 )
               ) {
                 continue;
@@ -3188,6 +3243,7 @@ export async function push(
                 [],
                 opts.message,
                 localFilePath, // Pass the actual local file path
+                permissionedAsContext,
               );
 
               if (stateTarget) {
@@ -3722,6 +3778,10 @@ const command = new Command()
   .option(
     "--locks-required",
     "Fail if scripts or flow inline scripts that need locks have no locks",
+  )
+  .option(
+    "--accept-overriding-permissioned-as-with-self",
+    "Accept that items with a different permissioned_as will be updated with your own user",
   )
   .option("--auto-metadata", "Automatically regenerate stale metadata (locks and schemas) before pushing")
   .action(push as any);

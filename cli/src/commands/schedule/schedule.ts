@@ -19,6 +19,11 @@ import {
   removeType,
 } from "../../types.ts";
 import { Schedule } from "../../../gen/types.gen.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import {
+  resolvePermissionedAsRule,
+  lookupUsernameByEmail,
+} from "../../core/permissioned_as.ts";
 
 export interface ScheduleFile {
   schedule: string;
@@ -103,7 +108,8 @@ export async function pushSchedule(
   workspace: string,
   path: string,
   schedule: Schedule | ScheduleFile | undefined,
-  localSchedule: ScheduleFile
+  localSchedule: ScheduleFile,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<void> {
   path = removeType(path, "schedule").replaceAll(SEP, "/");
   log.debug(`Processing local schedule ${path}`);
@@ -115,6 +121,35 @@ export async function pushSchedule(
   } catch {
     log.debug(`Schedule ${path} does not exist on remote`);
     //ignore
+  }
+
+  // Build preserve flags for permissioned_as
+  const preserveFields: { permissioned_as?: string; preserve_permissioned_as?: boolean } = {};
+  if (permissionedAsContext?.userIsAdminOrDeployer) {
+    if (schedule) {
+      // Updating: preserve the remote's permissioned_as (u/username format)
+      preserveFields.preserve_permissioned_as = true;
+      if ((schedule as Schedule).permissioned_as) {
+        preserveFields.permissioned_as = (schedule as Schedule).permissioned_as;
+        log.info(`Preserving ${(schedule as Schedule).permissioned_as} as permissioned_as for schedule ${path}`);
+      }
+    } else {
+      // Creating: apply defaultPermissionedAs rule if one matches
+      const rule = resolvePermissionedAsRule(
+        path,
+        permissionedAsContext.rules
+      );
+      if (rule) {
+        const username = await lookupUsernameByEmail(
+          workspace,
+          rule.email,
+          permissionedAsContext.emailToUsernameCache
+        );
+        preserveFields.permissioned_as = `u/${username}`;
+        preserveFields.preserve_permissioned_as = true;
+        log.info(`Setting schedule ${path} to run permissioned as ${rule.email} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
+      }
+    }
   }
 
   if (schedule) {
@@ -132,6 +167,7 @@ export async function pushSchedule(
         path,
         requestBody: {
           ...localSchedule,
+          ...preserveFields,
         },
       });
       if (localSchedule.enabled != schedule.enabled) {
@@ -158,6 +194,7 @@ export async function pushSchedule(
         requestBody: {
           path: path,
           ...localSchedule,
+          ...preserveFields,
         },
       });
     } catch (e) {
@@ -219,6 +256,36 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   console.log(colors.bold.underline.green("Schedule pushed"));
 }
 
+async function setPermissionedAs(
+  opts: GlobalOptions,
+  schedulePath: string,
+  email: string
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const cache = new Map<string, string>();
+  const username = await lookupUsernameByEmail(
+    workspace.workspaceId,
+    email,
+    cache
+  );
+
+  await wmill.updateSchedule({
+    workspace: workspace.workspaceId,
+    path: schedulePath,
+    requestBody: {
+      permissioned_as: `u/${username}`,
+      preserve_permissioned_as: true,
+    } as any,
+  });
+  log.info(
+    colors.green(
+      `Updated permissioned_as for schedule ${schedulePath} to ${email} (username: ${username})`
+    )
+  );
+}
+
 const command = new Command()
   .description("schedule related commands")
   .option("--json", "Output as JSON (for piping to jq)")
@@ -239,6 +306,12 @@ const command = new Command()
   )
   .arguments("<file_path:string> <remote_path:string>")
   .action(push as any)
+  .command(
+    "set-permissioned-as",
+    "Set the email (run-as user) for a schedule (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action(setPermissionedAs as any)
   .command("enable", "Enable a schedule")
   .arguments("<path:string>")
   .action(enable as any)
