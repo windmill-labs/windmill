@@ -402,6 +402,8 @@
 		}
 		return autoAdd ? 'add' : 'invite'
 	})
+
+	const isAdminsWorkspaceWithoutEE = $derived($workspaceStore === 'admins' && !$enterpriseLicense)
 </script>
 
 <SearchItems
@@ -419,331 +421,341 @@
 	link="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
 />
 
+{#if $workspaceStore === 'admins' && !$enterpriseLicense}
+	<Alert type="info" title="Admins workspace">
+		The admins workspace is reserved for superadmins. Only users with superadmin privileges can
+		access it. Members cannot be manually added or invited to this workspace.
+	</Alert>
+{/if}
+
 <Section>
 	{#snippet action()}
 		<div class="flex flex-row items-center gap-2 relative whitespace-nowrap w-full">
 			<input placeholder="Filter members" bind:value={userFilter} class="input !pl-8 !w-56" />
 			<Search class="absolute left-2" size={14} />
 
-			<Popover
-				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-				usePointerDownOutside
-			>
-				{#snippet trigger()}
-					<Button
-						variant="default"
-						unifiedSize="md"
-						nonCaptureEvent={true}
-						startIcon={{ icon: Mails }}
-						>Auto-{displayMode}: {autoInviteOrAddEnabled ? 'ON' : 'OFF'}
-					</Button>
-				{/snippet}
-				{#snippet content()}
-					<div class="flex flex-col items-start p-4 min-w-[320px] max-w-sm">
-						{#if showAutoInviteToggle}
-							<div class="text-xs mb-1 text-primary"
-								>Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
-							</div>
-							<ToggleButtonGroup
-								selected={displayMode}
-								on:selected={async (e) => {
-									const switchingToAdd = e.detail === 'add' && !autoAdd
-
-									// If switching from invite to add on non-cloud, show confirmation with warning
-									if (switchingToAdd && isLegacyAutoInvite) {
-										switchToAutoAddConfirmCallback = async () => {
-											autoAdd = true
-											if (autoInviteOrAddEnabled) {
-												await updateAutoInvite(true)
-											}
-										}
-									} else {
-										autoAdd = e.detail === 'add'
-										if (autoInviteOrAddEnabled) {
-											await updateAutoInvite(true)
-										}
-									}
-								}}
-							>
-								{#snippet children({ item })}
-									<ToggleButton value="invite" small label="Auto-invite" {item} />
-									<ToggleButton value="add" small label="Auto-add" {item} />
-								{/snippet}
-							</ToggleButtonGroup>
-
-							{#if isLegacyAutoInvite && !autoAdd}
-								<div class="mt-3 w-full">
-									<Alert type="warning" size="xs" title="Legacy mode">
-										Auto-invite is deprecated. Switching to auto-add will permanently disable
-										auto-invite for this workspace.
-									</Alert>
-								</div>
-							{/if}
-
-							<div class="mt-6"></div>
-						{/if}
-
-						<span class="text-xs mb-1">Role <Tooltip>Role of the auto-added users</Tooltip></span>
-						<ToggleButtonGroup
-							selected={operatorOnly ? 'operator' : 'developer'}
-							on:selected={async (e) => {
-								operatorOnly = e.detail === 'operator'
-								if (auto_invite_domain != undefined) {
-									await updateAutoInvite(true)
-								}
-							}}
-						>
-							{#snippet children({ item })}
-								<ToggleButton
-									value="operator"
-									small
-									label="Operator"
-									tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-									{item}
-								/>
-								<ToggleButton
-									value="developer"
-									small
-									label="Developer"
-									tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-									{item}
-								/>
-							{/snippet}
-						</ToggleButtonGroup>
-
-						<div class="mt-6">
-							<Toggle
-								checked={autoInviteOrAddEnabled}
-								on:change={async (e) => {
-									const enabling = e.detail
-
-									if (enabling) {
-										// Non-cloud users without legacy auto-invite: force auto-add mode
-										if (!isCloudHosted() && !isLegacyAutoInvite) {
-											autoAdd = true
-										}
-
-										// Show confirmation when enabling auto-add
-										if (autoAdd || (!isCloudHosted() && !showAutoInviteToggle)) {
-											autoAddConfirmCallback = async () => {
-												await updateAutoInvite(true)
-											}
-										} else {
-											await updateAutoInvite(true)
-										}
-									} else {
-										// Disabling: show confirmation if currently using auto-invite (legacy)
-										if (isLegacyAutoInvite) {
-											autoInviteDisableConfirmCallback = async () => {
-												await updateAutoInvite(false)
-											}
-										} else {
-											await updateAutoInvite(false)
-										}
-									}
-								}}
-								disabled={isCloudHosted() && !allowedAutoDomain}
-								options={{
-									right: isCloudHosted()
-										? `Auto-${displayMode} anyone from ${
-												autoInviteOrAddEnabled ? auto_invite_domain : domain
-											}`
-										: `Auto-${displayMode} anyone joining the instance`
-								}}
-							/>
-						</div>
-						{#if isCloudHosted() && !allowedAutoDomain}
-							<div class="text-red-400 text-xs">{domain} domain not allowed for auto-add</div>
-						{/if}
-					</div>
-				{/snippet}
-			</Popover>
-
-			{#if instanceGroups.length > 0}
+			{#if !isAdminsWorkspaceWithoutEE}
 				<Popover
 					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 					usePointerDownOutside
 				>
 					{#snippet trigger()}
 						<Button
-							color={autoAddInstanceGroups.length > 0 ? 'green' : 'gray'}
-							variant="border"
-							size="xs"
+							variant="default"
+							unifiedSize="md"
 							nonCaptureEvent={true}
 							startIcon={{ icon: Mails }}
-							>Instance groups: {autoAddInstanceGroups.length}
+							>Auto-{displayMode}: {autoInviteOrAddEnabled ? 'ON' : 'OFF'}
 						</Button>
 					{/snippet}
 					{#snippet content()}
-						<div class="flex flex-col p-4 min-w-[500px]">
-							<div class="flex flex-col gap-4">
-								<span class="text-sm leading-6 font-semibold"> Auto-add instance groups </span>
+						<div class="flex flex-col items-start p-4 min-w-[320px] max-w-sm">
+							{#if showAutoInviteToggle}
+								<div class="text-xs mb-1 text-primary"
+									>Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
+								</div>
+								<ToggleButtonGroup
+									selected={displayMode}
+									on:selected={async (e) => {
+										const switchingToAdd = e.detail === 'add' && !autoAdd
 
-								<!-- Add new instance group form -->
-								{#if availableGroupItems.length > 0}
-									<div class="flex w-full mt-1 gap-2 items-end justify-between">
-										<div class="flex gap-2 items-end">
-											<div class="flex flex-col gap-1">
-												<span class="text-xs text-primary">Instance group</span>
-												<Select
-													items={availableGroupItems}
-													placeholder="Select group"
-													bind:value={selectedNewInstanceGroup}
-													class="max-w-[160px]"
-													disablePortal={true}
-												/>
-											</div>
+										// If switching from invite to add on non-cloud, show confirmation with warning
+										if (switchingToAdd && isLegacyAutoInvite) {
+											switchToAutoAddConfirmCallback = async () => {
+												autoAdd = true
+												if (autoInviteOrAddEnabled) {
+													await updateAutoInvite(true)
+												}
+											}
+										} else {
+											autoAdd = e.detail === 'add'
+											if (autoInviteOrAddEnabled) {
+												await updateAutoInvite(true)
+											}
+										}
+									}}
+								>
+									{#snippet children({ item })}
+										<ToggleButton value="invite" small label="Auto-invite" {item} />
+										<ToggleButton value="add" small label="Auto-add" {item} />
+									{/snippet}
+								</ToggleButtonGroup>
 
-											<div class="flex flex-col gap-1">
-												<span class="text-xs text-primary">Role</span>
-												<ToggleButtonGroup
-													selected={selectedNewRole}
-													on:selected={(e) => {
-														selectedNewRole = e.detail
-													}}
-												>
-													{#snippet children({ item })}
-														<ToggleButton
-															value="operator"
-															small
-															label="Operator"
-															tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-															{item}
-														/>
-														<ToggleButton
-															value="developer"
-															small
-															label="Developer"
-															tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-															{item}
-														/>
-														<ToggleButton
-															value="admin"
-															small
-															label="Admin"
-															tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-															{item}
-														/>
-													{/snippet}
-												</ToggleButtonGroup>
-											</div>
-										</div>
-
-										<Button
-											color="blue"
-											size="xs"
-											startIcon={{ icon: Plus }}
-											disabled={!selectedNewInstanceGroup || !selectedNewRole}
-											onclick={addInstanceGroup}
-										>
-											Add
-										</Button>
+								{#if isLegacyAutoInvite && !autoAdd}
+									<div class="mt-3 w-full">
+										<Alert type="warning" size="xs" title="Legacy mode">
+											Auto-invite is deprecated. Switching to auto-add will permanently disable
+											auto-invite for this workspace.
+										</Alert>
 									</div>
 								{/if}
 
-								<!-- Configured groups table -->
-								{#if autoAddInstanceGroups.length > 0}
-									<div class="flex flex-col gap-2">
-										<p class="text-sm font-medium text-secondary">Configured groups:</p>
-										<div class="flex flex-col gap-1">
-											<table class="w-full text-sm">
-												<thead>
-													<tr class="text-left text-xs text-primary">
-														<th class="pb-2 w-1/2">Group</th>
-														<th class="pb-2 w-1/4">Role</th>
-														<th class="pb-2 w-1/4"></th>
-													</tr>
-												</thead>
-												<tbody>
-													{#each autoAddInstanceGroups as groupName (groupName)}
-														{@const group = instanceGroups.find((g) => g.name === groupName)}
-														<tr class="border-t border-gray-200 dark:border-gray-700">
-															<td class="py-2">
-																<div class="font-medium">{groupName}</div>
-																{#if group?.summary}
-																	<div class="text-xs text-primary">{group.summary}</div>
-																{/if}
-															</td>
-															<td class="py-2">
-																<div>
-																	<ToggleButtonGroup
-																		selected={autoAddInstanceGroupsRoles[groupName] || 'developer'}
-																		on:selected={async (e) => {
-																			autoAddInstanceGroupsRoles[groupName] = e.detail
-																			await updateGroupRole(groupName, e.detail)
-																		}}
-																	>
-																		{#snippet children({ item })}
-																			<ToggleButton
-																				value="operator"
-																				small
-																				label="Operator"
-																				tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-																				{item}
-																			/>
-																			<ToggleButton
-																				value="developer"
-																				small
-																				label="Developer"
-																				tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-																				{item}
-																			/>
-																			<ToggleButton
-																				value="admin"
-																				small
-																				label="Admin"
-																				tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-																				{item}
-																			/>
-																		{/snippet}
-																	</ToggleButtonGroup>
-																</div>
-															</td>
-															<td class="py-2">
-																<div class="flex justify-end">
-																	<Button
-																		color="light"
-																		variant="contained"
-																		btnClasses="text-red-500"
-																		size="xs"
-																		spacingSize="xs2"
-																		onclick={() => {
-																			removeInstanceGroupConfirmedCallback = async () => {
-																				await removeInstanceGroup(groupName)
-																			}
-																		}}
-																	>
-																		Remove
-																	</Button>
-																</div>
-															</td>
-														</tr>
-													{/each}
-												</tbody>
-											</table>
-										</div>
-									</div>
-								{:else}
-									<div class="text-center text-primary text-sm py-4">
-										No instance groups configured for auto-add
-									</div>
-								{/if}
+								<div class="mt-6"></div>
+							{/if}
+
+							<span class="text-xs mb-1">Role <Tooltip>Role of the auto-added users</Tooltip></span>
+							<ToggleButtonGroup
+								selected={operatorOnly ? 'operator' : 'developer'}
+								on:selected={async (e) => {
+									operatorOnly = e.detail === 'operator'
+									if (auto_invite_domain != undefined) {
+										await updateAutoInvite(true)
+									}
+								}}
+							>
+								{#snippet children({ item })}
+									<ToggleButton
+										value="operator"
+										small
+										label="Operator"
+										tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+										{item}
+									/>
+									<ToggleButton
+										value="developer"
+										small
+										label="Developer"
+										tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+										{item}
+									/>
+								{/snippet}
+							</ToggleButtonGroup>
+
+							<div class="mt-6">
+								<Toggle
+									checked={autoInviteOrAddEnabled}
+									on:change={async (e) => {
+										const enabling = e.detail
+
+										if (enabling) {
+											// Non-cloud users without legacy auto-invite: force auto-add mode
+											if (!isCloudHosted() && !isLegacyAutoInvite) {
+												autoAdd = true
+											}
+
+											// Show confirmation when enabling auto-add
+											if (autoAdd || (!isCloudHosted() && !showAutoInviteToggle)) {
+												autoAddConfirmCallback = async () => {
+													await updateAutoInvite(true)
+												}
+											} else {
+												await updateAutoInvite(true)
+											}
+										} else {
+											// Disabling: show confirmation if currently using auto-invite (legacy)
+											if (isLegacyAutoInvite) {
+												autoInviteDisableConfirmCallback = async () => {
+													await updateAutoInvite(false)
+												}
+											} else {
+												await updateAutoInvite(false)
+											}
+										}
+									}}
+									disabled={isCloudHosted() && !allowedAutoDomain}
+									options={{
+										right: isCloudHosted()
+											? `Auto-${displayMode} anyone from ${
+													autoInviteOrAddEnabled ? auto_invite_domain : domain
+												}`
+											: `Auto-${displayMode} anyone joining the instance`
+									}}
+								/>
 							</div>
+							{#if isCloudHosted() && !allowedAutoDomain}
+								<div class="text-red-400 text-xs">{domain} domain not allowed for auto-add</div>
+							{/if}
 						</div>
 					{/snippet}
 				</Popover>
-			{/if}
 
-			{#if showAutoInviteToggle}
-				<InviteUser {inviteUser} />
-			{/if}
+				{#if instanceGroups.length > 0}
+					<Popover
+						floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+						usePointerDownOutside
+					>
+						{#snippet trigger()}
+							<Button
+								color={autoAddInstanceGroups.length > 0 ? 'green' : 'gray'}
+								variant="border"
+								size="xs"
+								nonCaptureEvent={true}
+								startIcon={{ icon: Mails }}
+								>Instance groups: {autoAddInstanceGroups.length}
+							</Button>
+						{/snippet}
+						{#snippet content()}
+							<div class="flex flex-col p-4 min-w-[500px]">
+								<div class="flex flex-col gap-4">
+									<span class="text-sm leading-6 font-semibold"> Auto-add instance groups </span>
 
-			<AddUser
-				on:new={() => {
-					listUsers()
-					listInvites()
-				}}
-			/>
+									<!-- Add new instance group form -->
+									{#if availableGroupItems.length > 0}
+										<div class="flex w-full mt-1 gap-2 items-end justify-between">
+											<div class="flex gap-2 items-end">
+												<div class="flex flex-col gap-1">
+													<span class="text-xs text-primary">Instance group</span>
+													<Select
+														items={availableGroupItems}
+														placeholder="Select group"
+														bind:value={selectedNewInstanceGroup}
+														class="max-w-[160px]"
+														disablePortal={true}
+													/>
+												</div>
+
+												<div class="flex flex-col gap-1">
+													<span class="text-xs text-primary">Role</span>
+													<ToggleButtonGroup
+														selected={selectedNewRole}
+														on:selected={(e) => {
+															selectedNewRole = e.detail
+														}}
+													>
+														{#snippet children({ item })}
+															<ToggleButton
+																value="operator"
+																small
+																label="Operator"
+																tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+																{item}
+															/>
+															<ToggleButton
+																value="developer"
+																small
+																label="Developer"
+																tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+																{item}
+															/>
+															<ToggleButton
+																value="admin"
+																small
+																label="Admin"
+																tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+																{item}
+															/>
+														{/snippet}
+													</ToggleButtonGroup>
+												</div>
+											</div>
+
+											<Button
+												color="blue"
+												size="xs"
+												startIcon={{ icon: Plus }}
+												disabled={!selectedNewInstanceGroup || !selectedNewRole}
+												onclick={addInstanceGroup}
+											>
+												Add
+											</Button>
+										</div>
+									{/if}
+
+									<!-- Configured groups table -->
+									{#if autoAddInstanceGroups.length > 0}
+										<div class="flex flex-col gap-2">
+											<p class="text-sm font-medium text-secondary">Configured groups:</p>
+											<div class="flex flex-col gap-1">
+												<table class="w-full text-sm">
+													<thead>
+														<tr class="text-left text-xs text-primary">
+															<th class="pb-2 w-1/2">Group</th>
+															<th class="pb-2 w-1/4">Role</th>
+															<th class="pb-2 w-1/4"></th>
+														</tr>
+													</thead>
+													<tbody>
+														{#each autoAddInstanceGroups as groupName (groupName)}
+															{@const group = instanceGroups.find((g) => g.name === groupName)}
+															<tr class="border-t border-gray-200 dark:border-gray-700">
+																<td class="py-2">
+																	<div class="font-medium">{groupName}</div>
+																	{#if group?.summary}
+																		<div class="text-xs text-primary">{group.summary}</div>
+																	{/if}
+																</td>
+																<td class="py-2">
+																	<div>
+																		<ToggleButtonGroup
+																			selected={autoAddInstanceGroupsRoles[groupName] ||
+																				'developer'}
+																			on:selected={async (e) => {
+																				autoAddInstanceGroupsRoles[groupName] = e.detail
+																				await updateGroupRole(groupName, e.detail)
+																			}}
+																		>
+																			{#snippet children({ item })}
+																				<ToggleButton
+																					value="operator"
+																					small
+																					label="Operator"
+																					tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+																					{item}
+																				/>
+																				<ToggleButton
+																					value="developer"
+																					small
+																					label="Developer"
+																					tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+																					{item}
+																				/>
+																				<ToggleButton
+																					value="admin"
+																					small
+																					label="Admin"
+																					tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+																					{item}
+																				/>
+																			{/snippet}
+																		</ToggleButtonGroup>
+																	</div>
+																</td>
+																<td class="py-2">
+																	<div class="flex justify-end">
+																		<Button
+																			color="light"
+																			variant="contained"
+																			btnClasses="text-red-500"
+																			size="xs"
+																			spacingSize="xs2"
+																			onclick={() => {
+																				removeInstanceGroupConfirmedCallback = async () => {
+																					await removeInstanceGroup(groupName)
+																				}
+																			}}
+																		>
+																			Remove
+																		</Button>
+																	</div>
+																</td>
+															</tr>
+														{/each}
+													</tbody>
+												</table>
+											</div>
+										</div>
+									{:else}
+										<div class="text-center text-primary text-sm py-4">
+											No instance groups configured for auto-add
+										</div>
+									{/if}
+								</div>
+							</div>
+						{/snippet}
+					</Popover>
+				{/if}
+
+				{#if showAutoInviteToggle}
+					<InviteUser {inviteUser} />
+				{/if}
+
+				<AddUser
+					on:new={() => {
+						listUsers()
+						listInvites()
+					}}
+				/>
+			{/if}
 		</div>
 	{/snippet}
 
@@ -1028,7 +1040,7 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace"
 	>
 		{#snippet action()}
-			{#if showAutoInviteToggle}
+			{#if showAutoInviteToggle && !isAdminsWorkspaceWithoutEE}
 				<div class="flex gap-2 items-center">
 					<InviteUser {inviteUser} />
 				</div>
