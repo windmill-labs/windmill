@@ -421,7 +421,7 @@
 	link="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
 />
 
-{#if $workspaceStore === 'admins' && !$enterpriseLicense}
+{#if isAdminsWorkspaceWithoutEE}
 	<Alert type="info" title="Admins workspace">
 		The admins workspace is reserved for superadmins. Only users with superadmin privileges can
 		access it. Members cannot be manually added or invited to this workspace.
