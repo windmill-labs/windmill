@@ -39,11 +39,11 @@
 	</Pane>
 	<Pane size={frontendJob ? 70 : 50} minSize={10} class="text-sm text-primary">
 		{#if frontendJob}
-			<div class="break-words relative h-full px-1">
+			<div class="break-words relative h-full px-1 pt-2">
 				<DisplayResult bind:drawerOpen={resultDrawerOpen} result={frontendJob} />
 			</div>
 		{:else if testJob != undefined && (testJob.type == 'CompletedJob' || testJob.result_stream)}
-			<div class="break-words relative h-full px-1">
+			<div class="break-words relative h-full px-1 pt-2">
 				<DisplayResult
 					bind:drawerOpen={resultDrawerOpen}
 					workspaceId={testJob?.workspace_id}
