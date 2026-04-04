@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT args as \"args: sqlx::types::Json<Box<RawValue>>\"\n                        FROM v2_job\n                        WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "args: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "d1dcc7fc8a1e1bc4dad263ec5163a94fca9dd95cc3b26b33611eab9d2a261141"
+}

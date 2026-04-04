@@ -2911,6 +2911,18 @@ async fn push_next_flow_job(
                 FlowStatusModule::WaitingForPriorSteps { .. }
             ) && is_disapproved.is_none()
             {
+                let suspend_timeout_secs: u64 =
+                    suspend.timeout.map(|t| t.into()).unwrap_or(30 * 60);
+                // Cap suspend timeout at the retention period to prevent flows from being
+                // parked indefinitely (which blocks retention cleanup of completed children).
+                let job_retention_secs =
+                    *windmill_common::JOB_RETENTION_SECS.read().await;
+                let suspend_timeout_secs = if job_retention_secs > 0 {
+                    suspend_timeout_secs.min(job_retention_secs as u64)
+                } else {
+                    suspend_timeout_secs
+                };
+
                 sqlx::query!(
                     "WITH suspend AS (
                          UPDATE v2_job_queue SET suspend = $2, suspend_until = now() + $3
@@ -2927,9 +2939,7 @@ async fn push_next_flow_job(
                         job: last
                     }),
                     (required_events - resume_messages.len() as u16) as i32,
-                    Duration::from_secs(
-                        suspend.timeout.map(|t| t.into()).unwrap_or_else(|| 30 * 60)
-                    ) as Duration,
+                    Duration::from_secs(suspend_timeout_secs) as Duration,
                     flow_job.id,
                 )
                 .execute(&mut *tx)
