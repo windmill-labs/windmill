@@ -1264,6 +1264,8 @@ fn get_user_default_value(column: &ColumnDef) -> Option<String> {
     if let Some(ref val) = column.default_user_value {
         if is_truthy(val) {
             return match val {
+                // SAFETY: not escaped — this SQL runs against the user's own external database
+                // (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
                 serde_json::Value::String(s) => Some(format!("'{}'", s)),
                 other => Some(other.to_string()),
             };
@@ -1749,6 +1751,8 @@ fn format_default_value(s: &str, datatype: &str, db_type: DbType) -> String {
         return s[1..s.len() - 1].to_string();
     }
     let escaped = escape_sql_literal(s);
+    // SAFETY: datatype is not escaped — this SQL runs against the user's own external database
+    // (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
     if db_type == DbType::Postgresql {
         return format!("CAST('{}' AS {})", escaped, datatype);
     }
@@ -1827,6 +1831,8 @@ fn render_fk_ddl(
         quote_table_name(&target_table_raw, db_type),
         target_quoted.join(", ")
     ));
+    // SAFETY: on_delete/on_update are not validated — this SQL runs against the user's own
+    // external database (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
     if fk.on_delete != "NO ACTION" {
         sql.push_str(&format!(" ON DELETE {}", fk.on_delete));
     }
@@ -1963,6 +1969,8 @@ fn render_fk_inline(fk: &TableEditorForeignKey, use_schema: bool, db_type: DbTyp
         target_table,
         target_cols.join(", ")
     );
+    // SAFETY: on_delete/on_update are not validated — this SQL runs against the user's own
+    // external database (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
     if fk.on_delete != "NO ACTION" {
         sql.push_str(&format!(" ON DELETE {}", fk.on_delete));
     }
@@ -2206,6 +2214,8 @@ fn render_alter_column(
     Ok(queries)
 }
 
+// SAFETY: datatype is not escaped — this SQL runs against the user's own external database
+// (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
 fn render_alter_datatype(table_ref: &str, col: &str, datatype: &str, db_type: DbType) -> String {
     let qc = qi(col, db_type);
     match db_type {
