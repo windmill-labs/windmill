@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.674.1](https://github.com/windmill-labs/windmill/compare/v1.674.0...v1.674.1) (2026-04-04)
+
+
+### Bug Fixes
+
+* create pg connection for cloud-hosted jobs instead of panicking ([#8710](https://github.com/windmill-labs/windmill/issues/8710)) ([aff95c3](https://github.com/windmill-labs/windmill/commit/aff95c33b2fd4c248dfaf595b8d18a6dbc50f0e6))
+
 ## [1.674.0](https://github.com/windmill-labs/windmill/compare/v1.673.0...v1.674.0) (2026-04-03)
 
 
