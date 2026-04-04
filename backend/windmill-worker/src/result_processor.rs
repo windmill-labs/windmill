@@ -86,6 +86,11 @@ async fn process_jc(
             script_path = field::Empty,
             flow_step_id = field::Empty,
             parent_job = field::Empty,
+            job_kind = %jc.job.kind.as_str(),
+            created_by = %jc.job.created_by,
+            trigger_kind = field::Empty,
+            trigger = field::Empty,
+            script_hash = field::Empty,
             otel.name = field::Empty,
             success = %success,
             labels = field::Empty,
@@ -100,6 +105,11 @@ async fn process_jc(
             script_path = field::Empty,
             flow_step_id = field::Empty,
             parent_job = field::Empty,
+            job_kind = %jc.job.kind.as_str(),
+            created_by = %jc.job.created_by,
+            trigger_kind = field::Empty,
+            trigger = field::Empty,
+            script_hash = field::Empty,
             otel.name = field::Empty,
             success = %success,
             error.message = field::Empty,
@@ -140,6 +150,15 @@ async fn process_jc(
     }
     if let Some(root_job) = jc.job.flow_innermost_root_job.as_ref() {
         span.record("root_job", root_job.to_string().as_str());
+    }
+    if let Some(trigger_kind) = jc.job.trigger_kind.as_ref() {
+        span.record("trigger_kind", trigger_kind.to_string().as_str());
+    }
+    if let Some(trigger) = jc.job.trigger.as_ref() {
+        span.record("trigger", trigger.as_str());
+    }
+    if let Some(script_hash) = jc.job.runnable_id.as_ref() {
+        span.record("script_hash", script_hash.to_string().as_str());
     }
     if !success {
         if let Ok(result_error) = serde_json::from_str::<ErrorMessage>(jc.result.get()) {
