@@ -96,14 +96,8 @@ export interface SelectedContext {
 	backendRunnable?: BackendRunnable
 	/** Inspector-selected element info (when user has used the inspector tool) */
 	inspectorElement?: InspectorElementInfo
-	/** Whether the file/runnable selection is excluded from being sent to the AI prompt */
-	selectionExcluded?: boolean
-	/** Function to toggle whether the selection is excluded from the prompt */
-	toggleSelectionExcluded?: () => void
 	/** Function to clear the inspector selection */
 	clearInspector?: () => void
-	/** Function to clear the runnable selection (go back to frontend view) */
-	clearRunnable?: () => void
 	/** Code selection from the editor (either frontend or backend) */
 	codeSelection?: AppCodeSelectionElement
 	/** Function to clear the code selection */
@@ -981,6 +975,85 @@ ${policy.schema ? `\n**IMPORTANT**: Always use the schema prefix \`${schemaPrefi
 
 /** Maximum characters for file content in context */
 const MAX_CONTEXT_CONTENT_LENGTH = 3000
+type AppContextElement = (
+	| AppFrontendFileElement
+	| AppBackendRunnableElement
+	| AppDatatableElement
+) & { activeSelection?: boolean }
+type ActiveAppContextElement = (AppFrontendFileElement | AppBackendRunnableElement) & {
+	activeSelection?: boolean
+}
+
+function truncateContextContent(content: string, maxLength = MAX_CONTEXT_CONTENT_LENGTH): string {
+	return content.length > maxLength ? content.slice(0, maxLength) + '\n... [TRUNCATED]' : content
+}
+
+function formatAppContextElement(
+	context: AppContextElement,
+	options: { activeSelection?: boolean } = {}
+): string {
+	if (context.type === 'app_frontend_file') {
+		const truncatedContent = truncateContextContent(context.content)
+		return options.activeSelection
+			? `The user is currently viewing the frontend file: **${context.path}**\n\n\`\`\`\n${truncatedContent}\n\`\`\`\n`
+			: `\n**Frontend File: ${context.path}**\n\`\`\`\n${truncatedContent}\n\`\`\`\n`
+	}
+
+	if (context.type === 'app_backend_runnable') {
+		const runnable = context.runnable
+		let formattedContext = options.activeSelection
+			? `The user is currently viewing the backend runnable: **${context.key}**\n`
+			: `\n**Backend Runnable: ${context.key}**\n`
+
+		formattedContext += `- **Name**: ${runnable.name}\n`
+		formattedContext += `- **Type**: ${runnable.type}\n`
+		if (runnable.path) {
+			formattedContext += `- **Path**: ${runnable.path}\n`
+		}
+		if (runnable.inlineScript) {
+			formattedContext += `- **Language**: ${runnable.inlineScript.language}\n`
+			formattedContext += `- **Code**:\n\`\`\`${runnable.inlineScript.language === 'bun' ? 'typescript' : 'python'}\n${truncateContextContent(runnable.inlineScript.content)}\n\`\`\`\n`
+		}
+		if (runnable.staticInputs && Object.keys(runnable.staticInputs).length > 0) {
+			formattedContext += `- **Static inputs**: ${JSON.stringify(runnable.staticInputs)}\n`
+		}
+		return formattedContext
+	}
+
+	const tableRef =
+		context.schemaName === 'public'
+			? `${context.datatableName}/${context.tableName}`
+			: `${context.datatableName}/${context.schemaName}:${context.tableName}`
+	return (
+		`\n**Table: ${tableRef}**\n` +
+		`- **Datatable**: ${context.datatableName}\n` +
+		`- **Schema**: ${context.schemaName}\n` +
+		`- **Table**: ${context.tableName}\n` +
+		`- **Columns** (column_name -> type):\n\`\`\`json\n${truncateContextContent(JSON.stringify(context.columns, null, 2))}\n\`\`\`\n`
+	)
+}
+
+function getAppContextElements(
+	additionalContext: ContextElement[]
+): {
+	activeContextElements: ActiveAppContextElement[]
+	additionalContextElements: AppContextElement[]
+} {
+	const activeContextElements = additionalContext.filter(
+		(context) =>
+			context.activeSelection &&
+			(context.type === 'app_frontend_file' || context.type === 'app_backend_runnable')
+	) as ActiveAppContextElement[]
+	const additionalContextElements = additionalContext.filter(
+		(context) =>
+			!context.activeSelection &&
+			(context.type === 'app_frontend_file' ||
+				context.type === 'app_backend_runnable' ||
+				context.type === 'app_datatable')
+	) as AppContextElement[]
+
+	return { activeContextElements, additionalContextElements }
+}
 
 export function prepareAppUserMessage(
 	instructions: string,
@@ -988,61 +1061,20 @@ export function prepareAppUserMessage(
 	additionalContext?: ContextElement[]
 ): ChatCompletionUserMessageParam {
 	let content = ''
+	const { activeContextElements, additionalContextElements } = getAppContextElements(
+		additionalContext ?? []
+	)
 
 	// Check if we have any context to add
 	const hasSelectedContext =
-		selectedContext && (selectedContext.type !== 'none' || selectedContext.inspectorElement)
-	const hasAdditionalContext = additionalContext && additionalContext.length > 0
+		activeContextElements.length > 0 || !!selectedContext?.inspectorElement || !!selectedContext?.codeSelection
+	const hasAdditionalContext = additionalContextElements.length > 0
 
 	if (hasSelectedContext || hasAdditionalContext) {
 		content += `## SELECTED CONTEXT:\n`
 
-		// Add frontend file context with content (unless excluded)
-		if (
-			selectedContext &&
-			selectedContext.type === 'frontend' &&
-			selectedContext.frontendPath &&
-			!selectedContext.selectionExcluded
-		) {
-			content += `The user is currently viewing the frontend file: **${selectedContext.frontendPath}**\n`
-			if (selectedContext.frontendContent) {
-				const truncatedContent =
-					selectedContext.frontendContent.length > MAX_CONTEXT_CONTENT_LENGTH
-						? selectedContext.frontendContent.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
-							'\n... [TRUNCATED]'
-						: selectedContext.frontendContent
-				content += `\n\`\`\`\n${truncatedContent}\n\`\`\`\n`
-			}
-		}
-
-		// Add backend runnable context with content (unless excluded)
-		if (
-			selectedContext &&
-			selectedContext.type === 'backend' &&
-			selectedContext.backendKey &&
-			!selectedContext.selectionExcluded
-		) {
-			content += `The user is currently viewing the backend runnable: **${selectedContext.backendKey}**\n`
-			if (selectedContext.backendRunnable) {
-				const runnable = selectedContext.backendRunnable
-				content += `- **Name**: ${runnable.name}\n`
-				content += `- **Type**: ${runnable.type}\n`
-				if (runnable.path) {
-					content += `- **Path**: ${runnable.path}\n`
-				}
-				if (runnable.inlineScript) {
-					const truncatedCode =
-						runnable.inlineScript.content.length > MAX_CONTEXT_CONTENT_LENGTH
-							? runnable.inlineScript.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
-								'\n... [TRUNCATED]'
-							: runnable.inlineScript.content
-					content += `- **Language**: ${runnable.inlineScript.language}\n`
-					content += `- **Code**:\n\`\`\`${runnable.inlineScript.language === 'bun' ? 'typescript' : 'python'}\n${truncatedCode}\n\`\`\`\n`
-				}
-				if (runnable.staticInputs && Object.keys(runnable.staticInputs).length > 0) {
-					content += `- **Static inputs**: ${JSON.stringify(runnable.staticInputs)}\n`
-				}
-			}
+		for (const activeContextElement of activeContextElements) {
+			content += formatAppContextElement(activeContextElement, { activeSelection: true })
 		}
 
 		// Add inspector element context if available
@@ -1069,65 +1101,15 @@ export function prepareAppUserMessage(
 			content += `The user has selected code in the ${selection.sourceType} editor:\n`
 			content += `- **File/Source**: ${selection.source}\n`
 			content += `- **Lines**: ${selection.startLine}-${selection.endLine}\n`
-			const truncatedCode =
-				selection.content.length > MAX_CONTEXT_CONTENT_LENGTH
-					? selection.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + '\n... [TRUNCATED]'
-					: selection.content
-			content += `\`\`\`\n${truncatedCode}\n\`\`\`\n`
+			content += `\`\`\`\n${truncateContextContent(selection.content)}\n\`\`\`\n`
 		}
 
 		// Add additional context from @ mentions
-		if (additionalContext && additionalContext.length > 0) {
+		if (additionalContextElements.length > 0) {
 			content += `\n### ADDITIONAL CONTEXT (mentioned by user):\n`
 
-			for (const ctx of additionalContext) {
-				if (ctx.type === 'app_frontend_file') {
-					const fileCtx = ctx as AppFrontendFileElement
-					content += `\n**Frontend File: ${fileCtx.path}**\n`
-					const truncatedContent =
-						fileCtx.content.length > MAX_CONTEXT_CONTENT_LENGTH
-							? fileCtx.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + '\n... [TRUNCATED]'
-							: fileCtx.content
-					content += `\`\`\`\n${truncatedContent}\n\`\`\`\n`
-				} else if (ctx.type === 'app_backend_runnable') {
-					const runnableCtx = ctx as AppBackendRunnableElement
-					const runnable = runnableCtx.runnable
-					content += `\n**Backend Runnable: ${runnableCtx.key}**\n`
-					content += `- **Name**: ${runnable.name}\n`
-					content += `- **Type**: ${runnable.type}\n`
-					if (runnable.path) {
-						content += `- **Path**: ${runnable.path}\n`
-					}
-					if (runnable.inlineScript) {
-						const truncatedCode =
-							runnable.inlineScript.content.length > MAX_CONTEXT_CONTENT_LENGTH
-								? runnable.inlineScript.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
-									'\n... [TRUNCATED]'
-								: runnable.inlineScript.content
-						content += `- **Language**: ${runnable.inlineScript.language}\n`
-						content += `- **Code**:\n\`\`\`${runnable.inlineScript.language === 'bun' ? 'typescript' : 'python'}\n${truncatedCode}\n\`\`\`\n`
-					}
-					if (runnable.staticInputs && Object.keys(runnable.staticInputs).length > 0) {
-						content += `- **Static inputs**: ${JSON.stringify(runnable.staticInputs)}\n`
-					}
-				} else if (ctx.type === 'app_datatable') {
-					const datatableCtx = ctx as AppDatatableElement
-					const tableRef =
-						datatableCtx.schemaName === 'public'
-							? `${datatableCtx.datatableName}/${datatableCtx.tableName}`
-							: `${datatableCtx.datatableName}/${datatableCtx.schemaName}:${datatableCtx.tableName}`
-					content += `\n**Table: ${tableRef}**\n`
-					content += `- **Datatable**: ${datatableCtx.datatableName}\n`
-					content += `- **Schema**: ${datatableCtx.schemaName}\n`
-					content += `- **Table**: ${datatableCtx.tableName}\n`
-					// Format columns as column_name: type
-					const columnsStr = JSON.stringify(datatableCtx.columns, null, 2)
-					const truncatedColumns =
-						columnsStr.length > MAX_CONTEXT_CONTENT_LENGTH
-							? columnsStr.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + '\n... [TRUNCATED]'
-							: columnsStr
-					content += `- **Columns** (column_name -> type):\n\`\`\`json\n${truncatedColumns}\n\`\`\`\n`
-				}
+			for (const ctx of additionalContextElements) {
+				content += formatAppContextElement(ctx)
 			}
 		}
 
