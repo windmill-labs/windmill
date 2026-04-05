@@ -161,11 +161,15 @@
 	let hasConfig = $derived(Boolean(bucket_config))
 	$effect(() => {
 		if (hasConfig) {
+			let cancelled = false
 			fetchCleanupStatus().then(() => {
-				if (cleanupStatus?.running) {
+				if (!cancelled && cleanupStatus?.running) {
 					startPolling()
 				}
 			})
+			return () => {
+				cancelled = true
+			}
 		} else {
 			stopPolling()
 			cleanupStatus = undefined
