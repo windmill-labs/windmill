@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.675.0](https://github.com/windmill-labs/windmill/compare/v1.674.2...v1.675.0) (2026-04-05)
+
+
+### Features
+
+* add object storage usage view and manual log cleanup ([#8724](https://github.com/windmill-labs/windmill/issues/8724)) ([02d0ee9](https://github.com/windmill-labs/windmill/commit/02d0ee919880823a33b112bcaf626a8933e1f715))
+
+
+### Bug Fixes
+
+* add admin check to count_completed_jobs_detail and document query builder SQL safety ([#8722](https://github.com/windmill-labs/windmill/issues/8722)) ([dd39c11](https://github.com/windmill-labs/windmill/commit/dd39c110a8468bf31d42428fc978cd302426fa86))
+* allow private AI base URLs in ai_proxy integration test ([#8715](https://github.com/windmill-labs/windmill/issues/8715)) ([2b865c0](https://github.com/windmill-labs/windmill/commit/2b865c0694d79ce6477e5f14a077b73837007500))
+* enrich OTEL spans with job_kind, trigger_kind, trigger, created_by, and script_hash ([#8718](https://github.com/windmill-labs/windmill/issues/8718)) ([7bf6ac2](https://github.com/windmill-labs/windmill/commit/7bf6ac2b694fc829327248ff2480c20c97e03e48))
+* split DB health endpoint and add slow query controls ([#8725](https://github.com/windmill-labs/windmill/issues/8725)) ([01e39d9](https://github.com/windmill-labs/windmill/commit/01e39d9cd1b841d085bcc28a578654a5486cf76e))
+
 ## [1.674.2](https://github.com/windmill-labs/windmill/compare/v1.674.1...v1.674.2) (2026-04-04)
 
 
