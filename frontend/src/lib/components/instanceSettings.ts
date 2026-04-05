@@ -294,7 +294,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Delete logs from s3 periodically',
 			description:
-				'Job and service logs are periodically deleted from disk. When this setting is on, they will also be deleted from the object storage.',
+				'Job and service logs are periodically deleted from disk when they expire. When this setting is on, they are also deleted from object storage. Defaults to on when object storage is configured; turn off to keep logs in object storage indefinitely.',
 			key: 'monitor_logs_on_s3',
 			fieldType: 'boolean',
 			storage: 'setting',

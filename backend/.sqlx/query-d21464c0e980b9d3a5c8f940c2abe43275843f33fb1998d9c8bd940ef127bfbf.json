@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM log_file WHERE (file_path, hostname) IN (\n                 SELECT file_path, hostname FROM log_file\n                 WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval\n                 LIMIT $2\n             ) RETURNING file_path, hostname",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "file_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "hostname",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "d21464c0e980b9d3a5c8f940c2abe43275843f33fb1998d9c8bd940ef127bfbf"
+}
