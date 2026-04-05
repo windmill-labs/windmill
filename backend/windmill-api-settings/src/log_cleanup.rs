@@ -307,12 +307,15 @@ async fn delete_expired_jobs_batch(
         return Ok((0, Vec::new()));
     }
 
-    let _ = sqlx::query!(
+    if let Err(e) = sqlx::query!(
         "DELETE FROM job_stats WHERE job_id = ANY($1)",
         &deleted_jobs
     )
     .execute(&mut *tx)
-    .await;
+    .await
+    {
+        tracing::error!("log cleanup: error deleting job stats: {e:?}");
+    }
 
     let log_paths: Vec<String> = match sqlx::query_scalar!(
         "DELETE FROM job_logs WHERE job_id = ANY($1) RETURNING log_file_index",
@@ -332,16 +335,22 @@ async fn delete_expired_jobs_batch(
         }
     };
 
-    let _ = sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", &deleted_jobs)
+    if let Err(e) = sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", &deleted_jobs)
         .execute(&mut *tx)
-        .await;
+        .await
+    {
+        tracing::error!("log cleanup: error deleting job: {e:?}");
+    }
 
-    let _ = sqlx::query!(
+    if let Err(e) = sqlx::query!(
         "DELETE FROM job_result_stream_v2 WHERE job_id = ANY($1)",
         &deleted_jobs
     )
     .execute(&mut *tx)
-    .await;
+    .await
+    {
+        tracing::error!("log cleanup: error deleting job result stream: {e:?}");
+    }
 
     tx.commit().await?;
 
@@ -351,21 +360,34 @@ async fn delete_expired_jobs_batch(
 /// Spawn the cleanup task. Caller is responsible for ensuring only one runs at a time
 /// (use `try_start` first).
 pub fn spawn_cleanup(db: DB) {
+    use futures::FutureExt;
+    use std::panic::AssertUnwindSafe;
+
     tokio::spawn(async move {
-        let store = match windmill_object_store::get_object_store().await {
-            Some(s) => s,
-            None => {
-                record_error("Object storage is not configured".to_string()).await;
-                finish().await;
-                return;
+        let task = async {
+            let store = match windmill_object_store::get_object_store().await {
+                Some(s) => s,
+                None => {
+                    record_error("Object storage is not configured".to_string()).await;
+                    return;
+                }
+            };
+            if let Err(e) = cleanup_service_logs(&db, &store).await {
+                record_error(format!("service logs phase failed: {e:#}")).await;
+            }
+            if let Err(e) = cleanup_job_logs(&db, &store).await {
+                record_error(format!("job logs phase failed: {e:#}")).await;
             }
         };
 
-        if let Err(e) = cleanup_service_logs(&db, &store).await {
-            record_error(format!("service logs phase failed: {e:#}")).await;
-        }
-        if let Err(e) = cleanup_job_logs(&db, &store).await {
-            record_error(format!("job logs phase failed: {e:#}")).await;
+        // catch_unwind so a panic inside the cleanup can't leave running=true forever.
+        if let Err(panic) = AssertUnwindSafe(task).catch_unwind().await {
+            let msg = panic
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic".to_string());
+            record_error(format!("cleanup task panicked: {msg}")).await;
         }
 
         finish().await;
