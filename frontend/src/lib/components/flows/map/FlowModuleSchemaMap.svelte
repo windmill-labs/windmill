@@ -95,6 +95,7 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
+		controlsPosition?: 'top' | 'bottom'
 	}
 
 	let {
@@ -124,6 +125,7 @@
 		showJobStatus = false,
 		suspendStatus = $bindable({ val: {} }),
 		onDelete,
+		controlsPosition = 'top',
 		flowHasChanged
 	}: Props = $props()
 
@@ -620,7 +622,7 @@
 		/>
 	</div>
 
-	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
+	<div class="z-10 flex-auto grow min-h-0 bg-surface-secondary" bind:clientHeight={minHeight}>
 		<FlowGraphV2
 			bind:this={graph}
 			earlyStop={flowStore.val.value?.skip_expr !== undefined}
@@ -1044,6 +1046,7 @@
 			{onCancelTestFlow}
 			{onOpenPreview}
 			{onHideJobStatus}
+			{controlsPosition}
 			exitNoteMode={() => (noteMode = false)}
 			onNotePositionUpdate={(noteId, position) => {
 				// Update note position via NoteEditor context in edit mode

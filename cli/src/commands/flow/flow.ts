@@ -4,7 +4,8 @@ import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import { Table } from "@cliffy/table";
 import * as log from "../../core/log.ts";
-import { sep as SEP } from "node:path";
+import { sep as SEP, join as pathJoin, resolve as pathResolve } from "node:path";
+import { execSync } from "node:child_process";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import { validateRequiredArgs } from "../../utils/utils.ts";
@@ -715,6 +716,55 @@ export async function bootstrap(
   const metadataFile = getMetadataFileName("flow", "yaml");
   const flowYamlPath = `${flowDirFullPath}/${metadataFile}`;
   writeFileSync(flowYamlPath, newFlowDefinitionYaml, { flag: "wx", encoding: "utf-8" });
+
+  // Generate .claude/launch.json for Claude Code preview
+  const claudeDir = pathJoin(flowDirFullPath, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  const launchJson = {
+    version: "0.0.1",
+    configurations: [{
+      name: "windmill",
+      runtimeExecutable: "bash",
+      runtimeArgs: ["-c", "wmill dev --proxy-port ${PORT:-4000}"],
+      port: 4000,
+      autoPort: true,
+    }],
+  };
+  writeFileSync(
+    pathJoin(claudeDir, "launch.json"),
+    JSON.stringify(launchJson, null, 2) + "\n",
+    "utf-8",
+  );
+
+  log.info(colors.green(`Created flow at ${flowDirFullPath}`));
+
+  // Detect Claude CLI and Claude Desktop
+  let hasClaudeCli = false;
+  let hasClaudeDesktop = false;
+  try {
+    execSync("which claude", { stdio: "ignore" });
+    hasClaudeCli = true;
+  } catch {}
+  try {
+    execSync("ls /Applications/Claude.app", { stdio: "ignore" });
+    hasClaudeDesktop = true;
+  } catch {}
+
+  if (hasClaudeCli && hasClaudeDesktop) {
+    log.info("");
+    log.info(colors.bold("To develop this flow with Claude Desktop:"));
+    log.info(colors.gray(`  1. cd ${flowDirFullPath} && claude`));
+    log.info(colors.gray(`  2. Type /desktop to open the session in Claude Desktop`));
+  } else if (hasClaudeCli) {
+    log.info("");
+    log.info(colors.bold("To preview this flow:"));
+    log.info(colors.gray(`  wmill dev --path ${flowPath}`));
+  } else if (hasClaudeDesktop) {
+    const absFlowDir = pathResolve(flowDirFullPath);
+    log.info("");
+    log.info(colors.bold("To develop this flow with Claude Desktop:"));
+    log.info(colors.gray(`  Open Claude Desktop with "${absFlowDir}" as root folder`));
+  }
 }
 
 async function history(

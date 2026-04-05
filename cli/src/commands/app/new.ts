@@ -12,6 +12,7 @@ import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import path from "node:path";
+import { execSync, exec } from "node:child_process";
 import {
   buildFolderPath,
   loadNonDottedPathsSetting,
@@ -99,7 +100,18 @@ import "./index.css";
 
 createApp(App).mount('#root')`;
 
-const indexCss = `.myclass {
+const indexCss = `body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #f5f5f5;
+    color: #1a1a1a;
+}
+
+#root {
+    padding: 24px;
+}
+
+.myclass {
     border: 1px solid gray;
     padding: 2px;
 }`;
@@ -498,6 +510,26 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
   await mkdir(appDir, { recursive: true });
   await mkdir(path.join(appDir, "backend"), { recursive: true });
   await mkdir(path.join(appDir, "sql_to_apply"), { recursive: true });
+  await mkdir(path.join(appDir, ".claude"), { recursive: true });
+
+  // Create .claude/launch.json for Claude Code preview
+  const launchJson = {
+    version: "0.0.1",
+    configurations: [
+      {
+        name: "windmill",
+        runtimeExecutable: "bash",
+        runtimeArgs: ["-c", "wmill app dev --no-open --port ${PORT:-4000}"],
+        port: 4000,
+        autoPort: true,
+      },
+    ],
+  };
+  await writeFile(
+    path.join(appDir, ".claude", "launch.json"),
+    JSON.stringify(launchJson, null, 2) + "\n",
+    "utf-8"
+  );
 
   // Create raw_app.yaml with data configuration
   const rawAppConfig: Record<string, unknown> = {
@@ -610,6 +642,8 @@ This folder is for SQL migration files that will be applied to datatables during
   log.info("");
   log.info(colors.gray("Directory structure:"));
   log.info(colors.gray(`  ${folderName}/`));
+  log.info(colors.gray("  ├── .claude/"));
+  log.info(colors.gray("  │   └── launch.json"));
   log.info(colors.gray("  ├── AGENTS.md        ← Read this first!"));
   log.info(colors.gray("  ├── raw_app.yaml"));
   log.info(colors.gray("  ├── DATATABLES.md"));
@@ -662,6 +696,67 @@ This folder is for SQL migration files that will be applied to datatables during
   }
   log.info("");
   log.info(colors.gray("  4. wmill sync push (to deploy when ready)"));
+
+  // Offer to open in Claude Desktop
+  let hasClaudeDesktop = false;
+  try {
+    execSync("ls /Applications/Claude.app", { stdio: "ignore" });
+    hasClaudeDesktop = true;
+  } catch {
+    // Claude Desktop not installed
+  }
+
+  if (hasClaudeDesktop) {
+    log.info("");
+    const openInDesktop = await Confirm.prompt({
+      message: "Open in Claude Desktop?",
+      default: true,
+    });
+
+    if (openInDesktop) {
+      try {
+        const absAppDir = path.resolve(appDir);
+        const sessionId = crypto.randomUUID();
+
+        // Create a persisted CLI session with welcome message (async to allow spinner)
+        const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let i = 0;
+        const spinner = setInterval(() => {
+          process.stdout.write(`\r${colors.gray(`${frames[i++ % frames.length]} Creating Claude session...`)}`);
+        }, 80);
+
+        await new Promise<void>((resolve, reject) => {
+          exec(
+            `claude --session-id "${sessionId}" -p "Say: Your app is ready, click on preview to test it!"`,
+            { cwd: absAppDir },
+            (error) => (error ? reject(error) : resolve())
+          );
+        });
+
+        clearInterval(spinner);
+        process.stdout.write("\r" + " ".repeat(40) + "\r");
+
+        // Import the session into Claude Desktop Code mode
+        const deepLink = `claude://resume?session=${sessionId}&cwd=${encodeURIComponent(absAppDir)}`;
+        exec(`open ${JSON.stringify(deepLink)}`);
+
+        log.info(colors.bold.green("Opened in Claude Desktop!"));
+      } catch (error: unknown) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        log.warn(
+          colors.yellow(
+            `Could not open in Claude Desktop: ${errorMessage}`
+          )
+        );
+        log.info(
+          colors.gray(
+            "You can manually run: cd " + folderName + " && claude"
+          )
+        );
+      }
+    }
+  }
 }
 
 const command = new Command()
