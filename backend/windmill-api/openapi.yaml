@@ -1358,28 +1358,67 @@ paths:
 
   /settings/object_storage_usage:
     get:
-      summary: get object storage usage by top-level folder
+      summary: get current or last object storage usage computation (null if never run)
       operationId: getObjectStorageUsage
       tags:
         - setting
       responses:
         "200":
-          description: list of top-level folders with their total size in bytes
+          description: current or last storage-usage computation state
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    prefix:
-                      type: string
-                    size:
-                      type: integer
-                      format: int64
-                  required:
-                    - prefix
-                    - size
+                nullable: true
+                type: object
+                properties:
+                  running:
+                    type: boolean
+                  started_at:
+                    type: string
+                    format: date-time
+                  finished_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  current_prefix:
+                    type: string
+                    nullable: true
+                  scanned_objects:
+                    type: integer
+                    format: int64
+                  folders:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        prefix:
+                          type: string
+                        size:
+                          type: integer
+                          format: int64
+                      required:
+                        - prefix
+                        - size
+                  error:
+                    type: string
+                    nullable: true
+                required:
+                  - running
+                  - started_at
+                  - scanned_objects
+                  - folders
+    post:
+      summary: start a background computation of object storage usage by top-level folder
+      operationId: computeObjectStorageUsage
+      tags:
+        - setting
+      responses:
+        "202":
+          description: computation started
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /settings/run_log_cleanup:
     post:
@@ -1419,6 +1458,8 @@ paths:
                     type: string
                     format: date-time
                     nullable: true
+                  phase:
+                    type: string
                   total_service:
                     type: integer
                     format: int64
@@ -1434,6 +1475,12 @@ paths:
                   s3_deleted:
                     type: integer
                     format: int64
+                  orphans_scanned:
+                    type: integer
+                    format: int64
+                  orphans_deleted:
+                    type: integer
+                    format: int64
                   errors:
                     type: integer
                     format: int64
@@ -1443,11 +1490,14 @@ paths:
                 required:
                   - running
                   - started_at
+                  - phase
                   - total_service
                   - processed_service
                   - total_jobs
                   - processed_jobs
                   - s3_deleted
+                  - orphans_scanned
+                  - orphans_deleted
                   - errors
 
   /settings/send_stats:

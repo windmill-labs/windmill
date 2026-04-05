@@ -37,6 +37,7 @@ pub mod apps;
 pub mod assets;
 pub mod audit;
 pub mod auth;
+pub mod background_task;
 #[cfg(feature = "benchmark")]
 pub mod bench;
 pub mod cache;
