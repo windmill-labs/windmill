@@ -90,7 +90,7 @@ async fn process_jc(
             created_by = %jc.job.created_by,
             trigger_kind = field::Empty,
             trigger = field::Empty,
-            script_hash = field::Empty,
+            runnable_id = field::Empty,
             otel.name = field::Empty,
             success = %success,
             labels = field::Empty,
@@ -109,7 +109,7 @@ async fn process_jc(
             created_by = %jc.job.created_by,
             trigger_kind = field::Empty,
             trigger = field::Empty,
-            script_hash = field::Empty,
+            runnable_id = field::Empty,
             otel.name = field::Empty,
             success = %success,
             error.message = field::Empty,
@@ -157,8 +157,8 @@ async fn process_jc(
     if let Some(trigger) = jc.job.trigger.as_ref() {
         span.record("trigger", trigger.as_str());
     }
-    if let Some(script_hash) = jc.job.runnable_id.as_ref() {
-        span.record("script_hash", script_hash.to_string().as_str());
+    if let Some(runnable_id) = jc.job.runnable_id.as_ref() {
+        span.record("runnable_id", runnable_id.to_string().as_str());
     }
     if !success {
         if let Ok(result_error) = serde_json::from_str::<ErrorMessage>(jc.result.get()) {
