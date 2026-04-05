@@ -129,7 +129,7 @@
 	}
 
 	function startPolling() {
-		if (cleanupPollHandle != undefined) return
+		if (cleanupPollHandle !== undefined) return
 		cleanupPollHandle = setInterval(async () => {
 			await fetchCleanupStatus()
 			if (cleanupStatus && !cleanupStatus.running) {
@@ -139,7 +139,7 @@
 	}
 
 	function stopPolling() {
-		if (cleanupPollHandle != undefined) {
+		if (cleanupPollHandle !== undefined) {
 			clearInterval(cleanupPollHandle)
 			cleanupPollHandle = undefined
 		}

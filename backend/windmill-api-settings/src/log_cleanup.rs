@@ -5,6 +5,12 @@
  * Mirrors the periodic cleanup done in backend/src/monitor.rs::delete_expired_items,
  * but runs on demand from the UI with progress reporting and uses
  * ObjectStore::delete_stream for batched S3 deletes (up to 1000 per request).
+ *
+ * Note: unlike the periodic cleanup (which only hits S3 when MONITOR_LOGS_ON_OBJECT_STORE
+ * is enabled), this manual path ALWAYS issues S3 deletes. That is intentional: operators
+ * who previously ran with the setting OFF may have orphan log files in their bucket and
+ * need a way to reclaim that space. Do not add a MONITOR_LOGS_ON_OBJECT_STORE guard here
+ * without first considering that use case.
  */
 
 use std::sync::Arc;
@@ -97,9 +103,6 @@ async fn s3_bulk_delete(
     store: &Arc<dyn ObjectStore>,
     paths: Vec<ObjectPath>,
 ) -> (u64 /* deleted */, u64 /* errors */) {
-    if paths.is_empty() {
-        return (0, 0);
-    }
     let stream = futures::stream::iter(paths.into_iter().map(Ok)).boxed();
     let mut deleted = 0u64;
     let mut errors = 0u64;
@@ -191,6 +194,11 @@ async fn cleanup_service_logs(db: &DB, store: &Arc<dyn ObjectStore>) -> error::R
 
         update(|p| {
             p.processed_service = p.processed_service.saturating_add(batch_len);
+            // total_service is sampled once upfront; rows that become expired during
+            // the run must not make processed > total.
+            if p.processed_service > p.total_service {
+                p.total_service = p.processed_service;
+            }
             p.s3_deleted = p.s3_deleted.saturating_add(deleted);
             p.errors = p.errors.saturating_add(errors);
         })
@@ -242,6 +250,9 @@ async fn cleanup_job_logs(db: &DB, store: &Arc<dyn ObjectStore>) -> error::Resul
 
         update(|p| {
             p.processed_jobs = p.processed_jobs.saturating_add(deleted_count as u64);
+            if p.processed_jobs > p.total_jobs {
+                p.total_jobs = p.processed_jobs;
+            }
             p.s3_deleted = p.s3_deleted.saturating_add(deleted);
             p.errors = p.errors.saturating_add(errors);
         })

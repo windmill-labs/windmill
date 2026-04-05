@@ -253,38 +253,47 @@ async fn object_storage_usage(
         .await
         .ok_or_else(|| error::Error::BadRequest("Object storage is not configured".to_string()))?;
 
-    let list_result = tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        client.list_with_delimiter(None),
-    )
-    .await
-    .map_err(|_| error::Error::internal_err("Listing top-level prefixes timed out".to_string()))?
-    .map_err(|e| error::Error::internal_err(format!("Failed to list prefixes: {e:#}")))?;
+    // Overall cap on the whole listing operation — a bucket with millions of
+    // objects under a single prefix would otherwise hold an HTTP connection
+    // and memory for minutes. On timeout we return 504 and let the caller retry.
+    let work = async {
+        let list_result = client.list_with_delimiter(None).await?;
 
-    let mut usage: Vec<FolderUsage> = Vec::new();
+        let mut usage: Vec<FolderUsage> = Vec::new();
 
-    let root_size: u64 = list_result.objects.iter().map(|o| o.size).sum();
-    if root_size > 0 {
-        usage.push(FolderUsage { prefix: "(root files)".to_string(), size: root_size });
-    }
+        let root_size: u64 = list_result.objects.iter().map(|o| o.size).sum();
+        if root_size > 0 {
+            usage.push(FolderUsage { prefix: "(root files)".to_string(), size: root_size });
+        }
 
-    for prefix in list_result.common_prefixes {
-        let prefix_str = prefix.to_string();
-        let mut total_size: u64 = 0;
-        let mut stream = client.list(Some(&prefix));
-        while let Some(item) = stream.next().await {
-            match item {
-                Ok(meta) => total_size += meta.size,
-                Err(e) => {
-                    tracing::warn!("Error listing objects under {prefix_str}: {e:#}");
-                    break;
+        for prefix in list_result.common_prefixes {
+            let prefix_str = prefix.to_string();
+            let mut total_size: u64 = 0;
+            let mut stream = client.list(Some(&prefix));
+            while let Some(item) = stream.next().await {
+                match item {
+                    Ok(meta) => total_size += meta.size,
+                    Err(e) => {
+                        tracing::warn!("Error listing objects under {prefix_str}: {e:#}");
+                        break;
+                    }
                 }
             }
+            usage.push(FolderUsage { prefix: prefix_str, size: total_size });
         }
-        usage.push(FolderUsage { prefix: prefix_str, size: total_size });
-    }
 
-    usage.sort_by(|a, b| b.size.cmp(&a.size));
+        usage.sort_by(|a, b| b.size.cmp(&a.size));
+        Ok::<_, windmill_object_store::object_store_reexports::ObjectStoreError>(usage)
+    };
+
+    let usage = tokio::time::timeout(std::time::Duration::from_secs(60), work)
+        .await
+        .map_err(|_| {
+            error::Error::internal_err(
+                "Listing object storage timed out after 60s — bucket may be too large".to_string(),
+            )
+        })?
+        .map_err(|e| error::Error::internal_err(format!("Failed to list objects: {e:#}")))?;
 
     Ok(Json(usage))
 }
