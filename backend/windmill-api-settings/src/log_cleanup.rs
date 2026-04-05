@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use windmill_common::background_task;
+use crate::background_task;
 use windmill_common::error::{self};
 use windmill_common::tracing_init::{LOGS_SERVICE, TMP_WINDMILL_LOGS_SERVICE};
 use windmill_common::worker::WINDMILL_DIR;

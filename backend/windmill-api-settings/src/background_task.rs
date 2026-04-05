@@ -22,7 +22,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::{Pool, Postgres};
 
-use crate::error::{self, Result};
+use windmill_common::error::{self, Result};
 
 /// After this many seconds without a heartbeat, a "running" lease is treated
 /// as stale and can be reclaimed by another server.

@@ -21,7 +21,7 @@ use futures::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use windmill_common::background_task;
+use crate::background_task;
 use windmill_common::error;
 use windmill_common::{DB, INSTANCE_NAME};
 

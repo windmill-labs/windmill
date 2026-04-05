@@ -8,6 +8,8 @@
 
 use std::{collections::HashMap, time::Duration};
 
+#[cfg(feature = "parquet")]
+mod background_task;
 #[cfg(feature = "private")]
 mod ee;
 pub mod ee_oss;
