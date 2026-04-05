@@ -461,14 +461,17 @@ async fn cleanup_s3_orphans(
     store: &Arc<dyn ObjectStore>,
 ) -> error::Result<()> {
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
-    if job_retention_secs <= 0 {
-        // If job retention is disabled we don't know what's safe to delete.
-        return Ok(());
-    }
-
     let now = Utc::now();
-    let job_cutoff = now - chrono::Duration::seconds(job_retention_secs);
+    // Service logs always have a retention (hardcoded SERVICE_LOG_RETENTION_SECS),
+    // so we scan for service-log orphans regardless of JOB_RETENTION_SECS. Job-log
+    // orphans, by contrast, can only be considered expired relative to
+    // JOB_RETENTION_SECS; when that is disabled we skip the job branch entirely.
     let service_cutoff = now - chrono::Duration::seconds(SERVICE_LOG_RETENTION_SECS);
+    let job_cutoff = if job_retention_secs > 0 {
+        Some(now - chrono::Duration::seconds(job_retention_secs))
+    } else {
+        None
+    };
 
     let logs_prefix = ObjectPath::from("logs/");
     let mut stream = store.list(Some(&logs_prefix));
@@ -510,7 +513,7 @@ async fn cleanup_s3_orphans(
                     flush_service_orphans(session, store, &mut service_batch).await;
                 }
             }
-        } else {
+        } else if let Some(job_cutoff) = job_cutoff {
             // logs/<uuid>/... — parse uuid segment.
             let first_seg = rest.split('/').next().unwrap_or("");
             let job_id = match Uuid::parse_str(first_seg) {
