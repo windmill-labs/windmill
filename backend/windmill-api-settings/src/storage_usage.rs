@@ -33,6 +33,11 @@ pub const TASK_NAME: &str = "storage_usage";
 pub struct FolderUsage {
     pub prefix: String,
     pub size: u64,
+    /// True if listing this prefix errored mid-stream; `size` is then a lower
+    /// bound, not the full total. UI surfaces this so operators don't
+    /// misinterpret the partial sum as the real folder size.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub partial: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -135,12 +140,20 @@ async fn compute_inner(session: &Session, store: Arc<dyn ObjectStore>) -> error:
         let root_count = list_result.objects.len() as u64;
         session
             .update(|p| {
-                p.folders
-                    .push(FolderUsage { prefix: "(root files)".to_string(), size: root_size });
+                p.folders.push(FolderUsage {
+                    prefix: "(root files)".to_string(),
+                    size: root_size,
+                    partial: false,
+                });
                 p.scanned_objects = p.scanned_objects.saturating_add(root_count);
             })
             .await;
     }
+
+    /// Keep heartbeat well below STALE_HEARTBEAT_SECS/2 so a slow S3 LIST
+    /// (large bucket, rate-limited) can't let another replica reclaim.
+    const HEARTBEAT_SECS: u64 = 30;
+    const PROGRESS_TICK: u64 = 1_000;
 
     for prefix in list_result.common_prefixes {
         let prefix_str = prefix.to_string();
@@ -150,15 +163,20 @@ async fn compute_inner(session: &Session, store: Arc<dyn ObjectStore>) -> error:
 
         let mut total_size: u64 = 0;
         let mut local_count: u64 = 0;
+        let mut partial = false;
+        let mut last_heartbeat = std::time::Instant::now();
         let mut stream = store.list(Some(&prefix));
-        const PROGRESS_TICK: u64 = 1_000;
 
         while let Some(item) = stream.next().await {
             match item {
                 Ok(meta) => {
                     total_size += meta.size;
                     local_count += 1;
-                    if local_count % PROGRESS_TICK == 0 {
+                    if local_count % PROGRESS_TICK == 0
+                        || last_heartbeat.elapsed()
+                            >= std::time::Duration::from_secs(HEARTBEAT_SECS)
+                    {
+                        last_heartbeat = std::time::Instant::now();
                         session
                             .update(|p| {
                                 p.scanned_objects = p.scanned_objects.saturating_add(PROGRESS_TICK)
@@ -168,6 +186,7 @@ async fn compute_inner(session: &Session, store: Arc<dyn ObjectStore>) -> error:
                 }
                 Err(e) => {
                     tracing::warn!("storage usage: error listing {prefix_str}: {e:#}");
+                    partial = true;
                     break;
                 }
             }
@@ -183,7 +202,7 @@ async fn compute_inner(session: &Session, store: Arc<dyn ObjectStore>) -> error:
         session
             .update(|p| {
                 p.folders
-                    .push(FolderUsage { prefix: prefix_str, size: total_size });
+                    .push(FolderUsage { prefix: prefix_str, size: total_size, partial });
                 // Keep folders sorted by size so UI stays stable as we stream results.
                 p.folders.sort_by(|a, b| b.size.cmp(&a.size));
             })

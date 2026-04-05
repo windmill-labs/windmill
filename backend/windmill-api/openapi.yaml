@@ -1396,6 +1396,8 @@ paths:
                         size:
                           type: integer
                           format: int64
+                        partial:
+                          type: boolean
                       required:
                         - prefix
                         - size

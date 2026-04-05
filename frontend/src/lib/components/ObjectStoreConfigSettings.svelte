@@ -84,7 +84,7 @@
 		finished_at?: string | null
 		current_prefix?: string | null
 		scanned_objects: number
-		folders: Array<{ prefix: string; size: number }>
+		folders: Array<{ prefix: string; size: number; partial?: boolean }>
 		error?: string | null
 	}
 
@@ -351,9 +351,14 @@
 							{#each usageStatus.folders as item (item.prefix)}
 								<div
 									class="flex justify-between items-center text-xs py-1 px-2 rounded hover:bg-surface-hover"
+									title={item.partial
+										? 'Listing errored mid-stream; size is a lower bound, not the true total.'
+										: undefined}
 								>
 									<span class="font-mono text-secondary">{item.prefix}</span>
-									<span class="text-tertiary font-semibold">{displaySize(item.size) ?? '0 B'}</span>
+									<span class="text-tertiary font-semibold">
+										{displaySize(item.size) ?? '0 B'}{item.partial ? ' (partial)' : ''}
+									</span>
 								</div>
 							{/each}
 							<div

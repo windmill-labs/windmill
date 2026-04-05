@@ -43,6 +43,11 @@ const ORPHAN_BATCH: usize = 1_000;
 /// Flush orphan_scanned to the DB every N inspected objects. Per-object
 /// writes would turn a TB-bucket scan into millions of DB round-trips.
 const ORPHAN_SCAN_FLUSH_TICK: u64 = 1_000;
+/// Maximum time between heartbeats during the orphan scan. Must stay below
+/// `STALE_HEARTBEAT_SECS / 2` so that a slow S3 LIST (rate-limited providers
+/// can take >2 minutes per 1000-object page) doesn't let another replica
+/// mistakenly reclaim the lease and run a concurrent scan.
+const ORPHAN_HEARTBEAT_SECS: u64 = 30;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LogCleanupProgress {
@@ -479,6 +484,7 @@ async fn cleanup_s3_orphans(
     let mut service_batch: Vec<ObjectPath> = Vec::with_capacity(ORPHAN_BATCH);
     let mut job_batch: Vec<(ObjectPath, Uuid)> = Vec::with_capacity(ORPHAN_BATCH);
     let mut scanned_since_flush: u64 = 0;
+    let mut last_heartbeat = std::time::Instant::now();
 
     while let Some(item) = stream.next().await {
         let meta = match item {
@@ -492,9 +498,12 @@ async fn cleanup_s3_orphans(
         };
 
         scanned_since_flush += 1;
-        if scanned_since_flush >= ORPHAN_SCAN_FLUSH_TICK {
+        if scanned_since_flush >= ORPHAN_SCAN_FLUSH_TICK
+            || last_heartbeat.elapsed() >= std::time::Duration::from_secs(ORPHAN_HEARTBEAT_SECS)
+        {
             let delta = scanned_since_flush;
             scanned_since_flush = 0;
+            last_heartbeat = std::time::Instant::now();
             session
                 .update(|p| p.orphans_scanned = p.orphans_scanned.saturating_add(delta))
                 .await;
