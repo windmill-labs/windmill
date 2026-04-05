@@ -395,6 +395,14 @@ async fn test_root_job_span_created_on_success() {
         attrs.contains(&"script_path"),
         "missing script_path attribute"
     );
+    assert!(
+        attrs.contains(&"job_kind"),
+        "missing job_kind attribute"
+    );
+    assert!(
+        attrs.contains(&"created_by"),
+        "missing created_by attribute"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
