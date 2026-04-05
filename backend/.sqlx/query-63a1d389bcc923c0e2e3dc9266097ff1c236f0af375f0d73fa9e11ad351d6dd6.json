@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM v2_job WHERE id = ANY($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "63a1d389bcc923c0e2e3dc9266097ff1c236f0af375f0d73fa9e11ad351d6dd6"
+}
