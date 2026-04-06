@@ -1855,69 +1855,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/SecretMigrationReport"
 
-  /settings/test_aws_kms_backend:
-    post:
-      summary: test connection to AWS KMS
-      operationId: testAwsKmsBackend
-      tags:
-        - setting
-      requestBody:
-        description: AWS KMS settings to test
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AwsKmsSettings"
-      responses:
-        "200":
-          description: connection test result
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /settings/migrate_secrets_to_aws_kms:
-    post:
-      summary: migrate secrets from database to AWS KMS encryption
-      operationId: migrateSecretsToAwsKms
-      tags:
-        - setting
-      requestBody:
-        description: AWS KMS settings for migration
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AwsKmsSettings"
-      responses:
-        "200":
-          description: migration report
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SecretMigrationReport"
-
-  /settings/migrate_secrets_from_aws_kms:
-    post:
-      summary: migrate secrets from AWS KMS encryption to database
-      operationId: migrateSecretsFromAwsKms
-      tags:
-        - setting
-      requestBody:
-        description: AWS KMS settings for migration source
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AwsKmsSettings"
-      responses:
-        "200":
-          description: migration report
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SecretMigrationReport"
-
   /settings/test_aws_sm_backend:
     post:
       summary: test connection to AWS Secrets Manager
@@ -19527,28 +19464,6 @@ components:
         token:
           type: string
           description: Static Bearer token for testing/development (optional, if provided this is used instead of OAuth2 authentication)
-
-    AwsKmsSettings:
-      type: object
-      required:
-        - key_id
-        - region
-      properties:
-        key_id:
-          type: string
-          description: KMS Key ID, Key ARN, Alias name, or Alias ARN
-        region:
-          type: string
-          description: AWS region (e.g., us-east-1)
-        access_key_id:
-          type: string
-          description: AWS Access Key ID (optional, uses default credential chain if not provided)
-        secret_access_key:
-          type: string
-          description: AWS Secret Access Key (optional)
-        endpoint_url:
-          type: string
-          description: Custom endpoint URL for testing (e.g., LocalStack)
 
     AwsSecretsManagerSettings:
       type: object

@@ -6,6 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+//! HashiCorp Vault secret backend stubs (Open Source Edition)
+//!
+//! This module provides stub implementations for Vault integration.
+//! The actual Vault integration requires Enterprise Edition.
+
 use std::sync::Arc;
 
 use crate::db::DB;
@@ -16,6 +21,7 @@ use super::{
     VaultSettings,
 };
 
+/// Stub VaultBackend for OSS - all operations return EE required error
 pub struct VaultBackend;
 
 impl VaultBackend {
@@ -49,6 +55,10 @@ impl SecretBackend for VaultBackend {
     }
 }
 
+/// Create the appropriate secret backend based on configuration
+///
+/// In OSS, always returns DatabaseBackend regardless of config.
+/// Vault configuration is ignored with a warning.
 pub async fn create_secret_backend(
     db: DB,
     config: &SecretBackendConfig,
@@ -79,12 +89,14 @@ pub async fn create_secret_backend(
     }
 }
 
+/// Test connection to Vault (OSS stub)
 pub async fn test_vault_connection(_settings: &VaultSettings, _db: Option<&DB>) -> Result<()> {
     Err(Error::internal_err(
         "HashiCorp Vault integration requires Enterprise Edition".to_string(),
     ))
 }
 
+/// Migrate secrets from database to Vault (OSS stub)
 pub async fn migrate_secrets_to_vault(
     _db: &DB,
     _settings: &VaultSettings,
@@ -94,6 +106,7 @@ pub async fn migrate_secrets_to_vault(
     ))
 }
 
+/// Migrate secrets from Vault back to database (OSS stub)
 pub async fn migrate_secrets_to_database(
     _db: &DB,
     _settings: &VaultSettings,
@@ -103,6 +116,7 @@ pub async fn migrate_secrets_to_database(
     ))
 }
 
+/// Generate a JWT for Vault authentication (OSS stub)
 pub async fn generate_vault_jwt(_db: &DB, _vault_address: &str) -> Result<String> {
     Err(Error::internal_err(
         "HashiCorp Vault integration requires Enterprise Edition".to_string(),
