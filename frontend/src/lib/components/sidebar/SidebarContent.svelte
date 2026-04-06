@@ -73,6 +73,7 @@
 	} from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
 	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
+	import { t } from '$lib/i18n/t.svelte'
 
 	async function leaveWorkspace() {
 		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
@@ -133,13 +134,13 @@
 		hasNewChangelogs = false
 	}
 
-	const thirdMenuLinks = [
+	let thirdMenuLinks = $derived([
 		{
-			label: 'Help',
+			label: t('sidebar.help'),
 			icon: HelpCircle,
 			subItems: [
 				{
-					label: 'Tutorials',
+					label: t('sidebar.tutorials'),
 					href: `${base}/tutorials`,
 					icon: GraduationCap,
 					aiId: 'sidebar-menu-link-tutorials',
@@ -147,7 +148,7 @@
 					external: false
 				},
 				{
-					label: 'Docs',
+					label: t('sidebar.docs'),
 					href: 'https://www.windmill.dev/docs/intro/',
 					icon: BookOpen,
 					aiId: 'sidebar-menu-link-docs',
@@ -155,7 +156,7 @@
 					external: true
 				},
 				{
-					label: 'Feedbacks',
+					label: t('sidebar.feedbacks'),
 					href: 'https://discord.gg/V7PM2YHsPB',
 					icon: DiscordIcon,
 					aiId: 'sidebar-menu-link-feedbacks',
@@ -163,7 +164,7 @@
 					external: true
 				},
 				{
-					label: 'Issues',
+					label: t('sidebar.issues'),
 					href: 'https://github.com/windmill-labs/windmill/issues/new',
 					icon: Github,
 					aiId: 'sidebar-menu-link-issues',
@@ -171,7 +172,7 @@
 					external: true
 				},
 				{
-					label: 'Changelog',
+					label: t('sidebar.changelog'),
 					href: 'https://www.windmill.dev/changelog/',
 					icon: Newspaper,
 					aiId: 'sidebar-menu-link-changelog',
@@ -180,7 +181,7 @@
 				}
 			]
 		}
-	]
+	])
 
 	interface Props {
 		numUnacknowledgedCriticalAlerts?: number
@@ -205,7 +206,7 @@
 	)
 	let mainMenuLinks = $derived([
 		{
-			label: 'Home',
+			label: t('sidebar.home'),
 			href: `${base}/`,
 			icon: Home,
 			aiId: 'sidebar-menu-link-home',
@@ -213,7 +214,7 @@
 				"Button to navigate to home which contains all the user's scripts, flows and apps"
 		},
 		{
-			label: 'Runs',
+			label: t('sidebar.runs'),
 			href: `${base}/runs`,
 			icon: Play,
 			aiId: 'sidebar-menu-link-runs',
@@ -225,7 +226,7 @@
 			}
 		},
 		{
-			label: 'Variables',
+			label: t('sidebar.variables'),
 			href: `${base}/variables`,
 			icon: DollarSign,
 			disabled: $userStore?.operator,
@@ -233,7 +234,7 @@
 			aiDescription: 'Button to navigate to variables'
 		},
 		{
-			label: 'Resources',
+			label: t('sidebar.resources'),
 			href: `${base}/resources`,
 			icon: Boxes,
 			disabled: $userStore?.operator,
@@ -241,7 +242,7 @@
 			aiDescription: 'Button to navigate to resources'
 		},
 		{
-			label: 'Assets',
+			label: t('sidebar.assets'),
 			href: `${base}/assets`,
 			icon: Pyramid,
 			disabled: $userStore?.operator,
@@ -252,7 +253,7 @@
 		...($tutorialsToDo.length > 0 && !$skippedAll
 			? [
 					{
-						label: 'Tutorials',
+						label: t('sidebar.tutorials'),
 						href: `${base}/tutorials`,
 						icon: GraduationCap,
 						aiId: 'sidebar-menu-link-tutorials-main',
@@ -263,7 +264,7 @@
 	])
 	let defaultExtraTriggerLinks = $derived([
 		{
-			label: 'HTTP',
+			label: t('sidebar.http'),
 			href: '/routes',
 			icon: Route,
 			disabled: $userStore?.operator,
@@ -272,7 +273,7 @@
 			aiDescription: 'Button to navigate to HTTP routes'
 		},
 		{
-			label: 'WebSockets',
+			label: t('sidebar.websockets'),
 			href: '/websocket_triggers',
 			icon: Unplug,
 			disabled: $userStore?.operator,
@@ -281,7 +282,7 @@
 			aiDescription: 'Button to navigate to websocket triggers'
 		},
 		{
-			label: 'Postgres',
+			label: t('sidebar.postgres'),
 			href: '/postgres_triggers',
 			icon: Database,
 			disabled: $userStore?.operator,
@@ -290,7 +291,7 @@
 			aiDescription: 'Button to navigate to Postgres triggers'
 		},
 		{
-			label: 'Kafka' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: t('sidebar.kafka') + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/kafka_triggers',
 			icon: KafkaIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
@@ -299,7 +300,7 @@
 			aiDescription: 'Button to navigate to Kafka triggers'
 		},
 		{
-			label: 'NATS' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: t('sidebar.nats') + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/nats_triggers',
 			icon: NatsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
@@ -308,7 +309,7 @@
 			aiDescription: 'Button to navigate to NATS triggers'
 		},
 		{
-			label: 'SQS' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: t('sidebar.sqs') + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/sqs_triggers',
 			icon: AwsIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
@@ -317,7 +318,7 @@
 			aiDescription: 'Button to navigate to SQS triggers'
 		},
 		{
-			label: 'GCP Pub/Sub' + ($enterpriseLicense ? '' : ' (EE)'),
+			label: t('sidebar.gcp_pubsub') + ($enterpriseLicense ? '' : ' (EE)'),
 			href: '/gcp_triggers',
 			icon: GoogleCloudIcon,
 			disabled: $userStore?.operator || !$enterpriseLicense,
@@ -326,7 +327,7 @@
 			aiDescription: 'Button to navigate to GCP Pub/Sub triggers'
 		},
 		{
-			label: 'MQTT',
+			label: t('sidebar.mqtt'),
 			href: '/mqtt_triggers',
 			icon: MqttIcon,
 			disabled: $userStore?.operator,
@@ -335,7 +336,7 @@
 			aiDescription: 'Button to navigate to MQTT triggers'
 		},
 		{
-			label: 'Email',
+			label: t('sidebar.email'),
 			href: '/email_triggers',
 			icon: MailIcon,
 			disabled: $userStore?.operator,
@@ -361,7 +362,7 @@
 
 	let triggerMenuLinks = $derived([
 		{
-			label: 'Schedules',
+			label: t('sidebar.schedules'),
 			href: `${base}/schedules`,
 			icon: Calendar,
 			disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator,
@@ -385,14 +386,14 @@
 		// 	disabled: !$userStore?.is_admin && !$userStore?.is_super_admin
 		// },
 		{
-			label: 'Settings',
+			label: t('sidebar.settings'),
 			icon: Settings,
 			aiId: 'sidebar-menu-link-settings',
 			aiDescription:
 				'Button to navigate to settings, including account, workspace, and instance settings',
 			subItems: [
 				{
-					label: 'Account',
+					label: t('sidebar.account'),
 					href: '#user-settings',
 					icon: UserCog,
 					aiId: 'sidebar-menu-link-account',
@@ -402,7 +403,7 @@
 				...($userStore?.is_admin || $superadmin
 					? [
 							{
-								label: 'Workspace',
+								label: t('sidebar.workspace'),
 								href: `${base}/workspace_settings`,
 								icon: FolderCog,
 								aiId: 'sidebar-menu-link-workspace',
@@ -414,7 +415,7 @@
 				...($superadmin
 					? [
 							{
-								label: 'Instance',
+								label: t('sidebar.instance'),
 								href: '#superadmin-settings',
 								icon: ServerCog,
 								aiId: 'sidebar-menu-link-instance',
@@ -426,7 +427,7 @@
 				...(!$superadmin && !$userStore?.is_admin
 					? [
 							{
-								label: 'Leave workspace',
+								label: t('sidebar.leave_workspace'),
 								action: () => {
 									leaveWorkspaceModal = true
 								},
@@ -439,7 +440,7 @@
 				...($workspaceStore?.startsWith('wm-fork-')
 					? [
 							{
-								label: 'Delete Forked Workspace',
+								label: t('sidebar.delete_fork'),
 								action: () => {
 									deleteWorkspaceForkModal = true
 								},
@@ -452,7 +453,7 @@
 			disabled: $userStore?.operator
 		},
 		{
-			label: 'Workers',
+			label: t('sidebar.workers'),
 			href: `${base}/workers`,
 			icon: ServerCog,
 			disabled: $userStore?.operator,
@@ -460,13 +461,13 @@
 			aiDescription: 'Button to navigate to workers'
 		},
 		{
-			label: 'Folders & Groups',
+			label: t('sidebar.folders_groups'),
 			icon: FolderOpen,
 			aiId: 'sidebar-menu-link-folders-groups',
 			aiDescription: 'Button to navigate to folders and groups',
 			subItems: [
 				{
-					label: 'Folders',
+					label: t('sidebar.folders'),
 					href: `${base}/folders`,
 					icon: FolderOpen,
 					disabled: $userStore?.operator,
@@ -475,7 +476,7 @@
 					faIcon: undefined
 				},
 				{
-					label: 'Groups',
+					label: t('sidebar.groups'),
 					href: `${base}/groups`,
 					icon: UserCog,
 					disabled: $userStore?.operator,
@@ -488,13 +489,13 @@
 		},
 		$devopsRole || $userStore?.is_admin
 			? {
-					label: 'Logs',
+					label: t('sidebar.logs'),
 					icon: Logs,
 					aiId: 'sidebar-menu-link-logs',
 					aiDescription: 'Button to navigate to logs',
 					subItems: [
 						{
-							label: 'Audit logs',
+							label: t('sidebar.audit_logs'),
 							href: `${base}/audit_logs`,
 							icon: Eye,
 							aiId: 'sidebar-menu-link-audit-logs',
@@ -503,7 +504,7 @@
 						...($devopsRole
 							? [
 									{
-										label: 'Service logs',
+										label: t('sidebar.service_logs'),
 										href: `${base}/service_logs`,
 										icon: Logs,
 										aiId: 'sidebar-menu-link-service-logs',
@@ -514,7 +515,7 @@
 						...($enterpriseLicense
 							? [
 									{
-										label: 'Critical alerts',
+										label: t('sidebar.critical_alerts'),
 										action: () => {
 											isCriticalAlertsUIOpen.set(true)
 										},
@@ -528,7 +529,7 @@
 					]
 				}
 			: {
-					label: 'Audit logs',
+					label: t('sidebar.audit_logs'),
 					href: `${base}/audit_logs`,
 					icon: Eye,
 					disabled: $userStore?.operator,
@@ -552,7 +553,7 @@
 		<div class="pt-4">
 			<div
 				class="text-secondary text-[0.5rem] uppercase transition-opacity"
-				class:opacity-0={isCollapsed}>Triggers</div
+				class:opacity-0={isCollapsed}>{t('sidebar.triggers')}</div
 			>
 			<Menubar class="flex flex-col gap-1">
 				{#snippet children({ createMenu })}

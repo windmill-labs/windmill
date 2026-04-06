@@ -38,6 +38,7 @@
 	import MenuButton, { sidebarClasses } from './MenuButton.svelte'
 	import MenuLink from './MenuLink.svelte'
 	import type { FavoriteKind } from './FavoriteMenu.svelte'
+	import { t } from '$lib/i18n/t.svelte'
 	let darkMode: boolean = $state(false)
 	let showExtraTriggers = $state(false)
 	let menubarEl: HTMLElement | undefined = $state()
@@ -55,14 +56,14 @@
 
 	let mainMenuLinks = $derived(
 		[
-			{ label: 'Home', id: 'home', href: `${base}/`, icon: Home },
-			{ label: 'Runs', id: 'runs', href: `${base}/runs`, icon: Play },
-			{ label: 'Schedules', id: 'schedules', href: `${base}/schedules`, icon: Calendar },
+			{ label: t('sidebar.home'), id: 'home', href: `${base}/`, icon: Home },
+			{ label: t('sidebar.runs'), id: 'runs', href: `${base}/runs`, icon: Play },
+			{ label: t('sidebar.schedules'), id: 'schedules', href: `${base}/schedules`, icon: Calendar },
 			// Add Tutorials to main menu only if not all completed and not skipped
 			...($tutorialsToDo.length > 0 && !$skippedAll
 				? [
 						{
-							label: 'Tutorials',
+							label: t('sidebar.tutorials'),
 							id: 'tutorials',
 							href: `${base}/tutorials`,
 							icon: GraduationCap
@@ -89,37 +90,37 @@
 	let secondMenuLinks: SecondMenuLink[] = $derived(
 		[
 			{
-				label: 'Resources',
+				label: t('sidebar.resources'),
 				id: 'resources',
 				href: `${base}/resources`
 			},
 			{
-				label: 'Variables',
+				label: t('sidebar.variables'),
 				id: 'variables',
 				href: `${base}/variables`
 			},
 			{
-				label: 'Assets',
+				label: t('sidebar.assets'),
 				id: 'assets',
 				href: `${base}/assets`
 			},
 			{
-				label: 'Groups',
+				label: t('sidebar.groups'),
 				id: 'groups',
 				href: `${base}/groups`
 			},
 			{
-				label: 'Folders',
+				label: t('sidebar.folders'),
 				id: 'folders',
 				href: `${base}/folders`
 			},
 			{
-				label: 'Workers',
+				label: t('sidebar.workers'),
 				id: 'workers',
 				href: `${base}/workers`
 			},
 			{
-				label: 'Audit logs',
+				label: t('sidebar.audit_logs'),
 				id: 'audit_logs',
 				href: `${base}/audit_logs`
 			}
@@ -129,30 +130,60 @@
 	let allTriggerLinks: TriggerMenuLink[] = $derived(
 		(
 			[
-				{ label: 'Custom HTTP routes', id: 'triggers', href: `${base}/routes`, kind: 'http' },
 				{
-					label: 'Websocket triggers',
+					label: t('operator.custom_http_routes'),
+					id: 'triggers',
+					href: `${base}/routes`,
+					kind: 'http'
+				},
+				{
+					label: t('operator.websocket_triggers'),
 					id: 'triggers',
 					href: `${base}/websocket_triggers`,
 					kind: 'ws'
 				},
 				{
-					label: 'Postgres triggers',
+					label: t('operator.postgres_triggers'),
 					id: 'triggers',
 					href: `${base}/postgres_triggers`,
 					kind: 'postgres'
 				},
-				{ label: 'Kafka triggers', id: 'triggers', href: `${base}/kafka_triggers`, kind: 'kafka' },
-				{ label: 'NATS triggers', id: 'triggers', href: `${base}/nats_triggers`, kind: 'nats' },
-				{ label: 'SQS triggers', id: 'triggers', href: `${base}/sqs_triggers`, kind: 'sqs' },
 				{
-					label: 'GCP Pub/Sub triggers',
+					label: t('operator.kafka_triggers'),
+					id: 'triggers',
+					href: `${base}/kafka_triggers`,
+					kind: 'kafka'
+				},
+				{
+					label: t('operator.nats_triggers'),
+					id: 'triggers',
+					href: `${base}/nats_triggers`,
+					kind: 'nats'
+				},
+				{
+					label: t('operator.sqs_triggers'),
+					id: 'triggers',
+					href: `${base}/sqs_triggers`,
+					kind: 'sqs'
+				},
+				{
+					label: t('operator.gcp_triggers'),
 					id: 'triggers',
 					href: `${base}/gcp_triggers`,
 					kind: 'gcp'
 				},
-				{ label: 'MQTT triggers', id: 'triggers', href: `${base}/mqtt_triggers`, kind: 'mqtt' },
-				{ label: 'Email triggers', id: 'triggers', href: `${base}/email_triggers`, kind: 'email' }
+				{
+					label: t('operator.mqtt_triggers'),
+					id: 'triggers',
+					href: `${base}/mqtt_triggers`,
+					kind: 'mqtt'
+				},
+				{
+					label: t('operator.email_triggers'),
+					id: 'triggers',
+					href: `${base}/email_triggers`,
+					kind: 'email'
+				}
 			] as TriggerMenuLink[]
 		).filter(filterLink)
 	)
@@ -231,7 +262,7 @@
 								{item}
 							>
 								<Settings size={14} />
-								Account settings
+								{t('user.account_settings')}
 							</MenuItem>
 						</div>
 
@@ -259,7 +290,7 @@
 								{:else}
 									<Moon size={14} />
 								{/if}
-								Switch theme
+								{t('user.switch_theme')}
 							</MenuItem>
 							<MenuItem
 								href="{base}/user/workspaces"
@@ -288,7 +319,7 @@
 									{item}
 								>
 									<ServerCog size={14} />
-									Instance settings
+									{t('sidebar.instance')}
 								</MenuItem>
 							{/if}
 
@@ -303,7 +334,7 @@
 								{item}
 							>
 								<LogOut size={14} />
-								Sign out
+								{t('user.sign_out')}
 							</MenuItem>
 						</div>
 						<div role="none">
