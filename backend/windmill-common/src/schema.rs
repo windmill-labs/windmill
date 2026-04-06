@@ -350,40 +350,50 @@ pub struct CiTestedItem {
 }
 
 /// Parse a CI test annotation from the top of a script.
-/// Format (TS example):
+///
+/// Multi-line format:
 /// ```
 /// // test:
-/// // script:u/admin/my_script
-/// // flow:u/admin/my_flow
-/// // resource:u/admin/my_resource
+/// // script/u/admin/my_script
+/// // flow/u/admin/my_flow
+/// // resource/u/admin/my_resource
+/// ```
+///
+/// One-line format:
+/// ```
+/// // test: script/u/admin/my_script
 /// ```
 pub fn parse_ci_test_annotation(code: &str, comment_prefix: &str) -> Option<Vec<CiTestedItem>> {
     let test_marker = format!("{comment_prefix} test:");
     let mut lines = code.lines();
 
-    // First comment line must be "// test:"
     let first = lines.next()?;
-    if first.trim_end() != test_marker {
+    let first_trimmed = first.trim_end();
+    if !first_trimmed.starts_with(&test_marker) {
         return None;
     }
 
     let mut items = Vec::new();
+
+    // Check for one-line format: "// test: script/path"
+    let inline = first_trimmed[test_marker.len()..].trim();
+    if !inline.is_empty() {
+        if let Some(item) = parse_ci_test_item(inline) {
+            items.push(item);
+        }
+    }
+
     for line in lines {
         let Some(after_prefix) = line.strip_prefix(comment_prefix) else {
-            break; // End of comment block
+            break;
         };
         let stripped = after_prefix.trim();
         if stripped.is_empty() {
             continue;
         }
 
-        if let Some(path) = stripped.strip_prefix("script:") {
-            items.push(CiTestedItem { path: path.trim().to_string(), kind: "script".to_string() });
-        } else if let Some(path) = stripped.strip_prefix("flow:") {
-            items.push(CiTestedItem { path: path.trim().to_string(), kind: "flow".to_string() });
-        } else if let Some(path) = stripped.strip_prefix("resource:") {
-            items
-                .push(CiTestedItem { path: path.trim().to_string(), kind: "resource".to_string() });
+        if let Some(item) = parse_ci_test_item(stripped) {
+            items.push(item);
         } else {
             break;
         }
@@ -393,6 +403,18 @@ pub fn parse_ci_test_annotation(code: &str, comment_prefix: &str) -> Option<Vec<
         None
     } else {
         Some(items)
+    }
+}
+
+fn parse_ci_test_item(s: &str) -> Option<CiTestedItem> {
+    if let Some(path) = s.strip_prefix("script/") {
+        Some(CiTestedItem { path: path.trim().to_string(), kind: "script".to_string() })
+    } else if let Some(path) = s.strip_prefix("flow/") {
+        Some(CiTestedItem { path: path.trim().to_string(), kind: "flow".to_string() })
+    } else if let Some(path) = s.strip_prefix("resource/") {
+        Some(CiTestedItem { path: path.trim().to_string(), kind: "resource".to_string() })
+    } else {
+        None
     }
 }
 
