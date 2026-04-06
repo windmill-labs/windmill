@@ -180,13 +180,11 @@
 		const cyclePrefix = slash >= 0 ? vNow.slice(0, slash + 1) : ''
 		if (opts.length === 1) {
 			value = cyclePrefix + opts[0].name + '/'
-
 			return true
 		}
 		const idx = direction === 1 ? 0 : opts.length - 1
 		cycleMode = { cyclePrefix, options: opts, index: idx }
 		value = cyclePrefix + opts[idx].name + '/'
-
 		return true
 	}
 
