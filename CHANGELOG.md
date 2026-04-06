@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.676.0](https://github.com/windmill-labs/windmill/compare/v1.675.1...v1.676.0) (2026-04-06)
+
+
+### Features
+
+* add path name autocomplete with ghost text and folder cycling ([#8731](https://github.com/windmill-labs/windmill/issues/8731)) ([e326621](https://github.com/windmill-labs/windmill/commit/e32662169a9762605de2dbe058514ddefbe07982))
+
+
+### Bug Fixes
+
+* fix custom urls not found ([d2abc0d](https://github.com/windmill-labs/windmill/commit/d2abc0d4300bb53f4035102f214d3c05bf0976a1))
+
+
+### Performance Improvements
+
+* add partial index for expired cache resource cleanup ([#8728](https://github.com/windmill-labs/windmill/issues/8728)) ([c721fac](https://github.com/windmill-labs/windmill/commit/c721fac466524747de04e3623c8cd62de8bd4dae))
+
+## [1.675.1](https://github.com/windmill-labs/windmill/compare/v1.675.0...v1.675.1) (2026-04-05)
+
+
+### Bug Fixes
+
+* log cleanup scans S3 orphans and works cross-server ([#8729](https://github.com/windmill-labs/windmill/issues/8729)) ([f703fba](https://github.com/windmill-labs/windmill/commit/f703fba1ef56c89a97b2b4da7b4c188158f4c982))
+
+
+### Performance Improvements
+
+* add indexes for cleanup deletes on concurrency_key and autoscaling_event ([#8726](https://github.com/windmill-labs/windmill/issues/8726)) ([eae46a2](https://github.com/windmill-labs/windmill/commit/eae46a21a93fe7ab191228658dd5825f472bd851))
+
 ## [1.675.0](https://github.com/windmill-labs/windmill/compare/v1.674.2...v1.675.0) (2026-04-05)
 
 
