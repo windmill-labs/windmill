@@ -16,7 +16,7 @@ This interactive command creates a complete app structure with your choice of fr
 my_app__raw_app/
 ├── AGENTS.md              # AI agent instructions (auto-generated)
 ├── DATATABLES.md          # Database schemas (run 'wmill app generate-agents' to refresh)
-├── raw_app.yaml           # App configuration (summary, path, data settings)
+├── raw_app.yaml           # App configuration (summary, path, viewer/data settings)
 ├── index.tsx              # Frontend entry point
 ├── App.tsx                # Main React/Svelte/Vue component
 ├── index.css              # Styles
@@ -141,6 +141,9 @@ Raw apps can query Windmill datatables (PostgreSQL databases managed by Windmill
 ### Configuration in raw_app.yaml
 
 ```yaml
+summary: Customer dashboard
+custom_path: f/team/dashboard   # Optional URL path override
+hide_edit_button: true          # Hide the floating Edit button in viewer mode
 data:
   datatable: main           # Default datatable
   schema: app_schema        # Default schema (optional)
@@ -148,6 +151,8 @@ data:
     - main/users            # Table in public schema
     - main/app_schema:items # Table in specific schema
 ```
+
+Set `hide_edit_button: true` to hide the floating Edit button when viewers open the raw app. Editors can still open the app directly from its edit URL.
 
 **Table reference formats:**
 - `<datatable>` - All tables in the datatable

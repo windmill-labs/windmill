@@ -42,6 +42,13 @@ function validateRawAppYaml(appData: any): {
     errors.push("Field 'summary' must be a string");
   }
 
+  if (
+    appData.hide_edit_button !== undefined &&
+    typeof appData.hide_edit_button !== "boolean"
+  ) {
+    errors.push("Field 'hide_edit_button' must be a boolean");
+  }
+
   // Note: 'runnables' is no longer required in raw_app.yaml
   // Runnables can be stored in separate files in the backend folder
 

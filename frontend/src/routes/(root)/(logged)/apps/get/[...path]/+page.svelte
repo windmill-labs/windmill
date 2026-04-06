@@ -7,6 +7,7 @@
 	import { Button, Skeleton } from '$lib/components/common'
 	import { AppService, type AppWithLastVersion } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { shouldHideAppEditButton } from '$lib/components/apps/viewer'
 	import { canWrite, urlParamsToObject } from '$lib/utils'
 	import { Pen } from 'lucide-svelte'
 	import { writable } from 'svelte/store'
@@ -37,7 +38,10 @@
 	const breakpoint = writable<EditorBreakpoint>('lg')
 
 	const hideRefreshBar = page.url.searchParams.get('hideRefreshBar') === 'true'
-	const hideEditBtn = page.url.searchParams.get('hideEditBtn') === 'true'
+	let hideEditBtn = $derived.by(() => {
+		const appValue = app?.value as { hideEditButton?: boolean } | undefined
+		return shouldHideAppEditButton(page.url.searchParams, appValue)
+	})
 </script>
 
 {#if app}

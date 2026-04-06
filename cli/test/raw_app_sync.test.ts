@@ -82,13 +82,23 @@ const INLINE_SCRIPT_A_LOCK = `{
 //bun.lock
 <empty>`;
 
-// raw_app.yaml metadata file
-const RAW_APP_YAML = `summary: Test Raw App
-policy:
-  execution_mode: publisher
-  triggerables: {}
-  triggerables_v2: {}
-`;
+type RawAppOptions = {
+  hideEditButton?: boolean;
+};
+
+function createRawAppYaml(options: RawAppOptions = {}): string {
+  return [
+    "summary: Test Raw App",
+    ...(typeof options.hideEditButton === "boolean"
+      ? [`hide_edit_button: ${options.hideEditButton}`]
+      : []),
+    "policy:",
+    "  execution_mode: publisher",
+    "  triggerables: {}",
+    "  triggerables_v2: {}",
+    "",
+  ].join("\n");
+}
 
 async function fileExists(filePath: string): Promise<boolean> {
   try {
@@ -107,12 +117,16 @@ async function readFileContent(filePath: string): Promise<string> {
  * Create a raw app directory structure on disk
  * Uses .raw_app folder suffix with raw_app.yaml metadata
  */
-async function createRawAppOnDisk(appDir: string, includeBackend: boolean = false): Promise<void> {
+async function createRawAppOnDisk(
+  appDir: string,
+  includeBackend: boolean = false,
+  options: RawAppOptions = {},
+): Promise<void> {
   await mkdir(appDir, { recursive: true });
   await mkdir(path.join(appDir, "inline_scripts"), { recursive: true });
 
   // Create raw_app.yaml metadata file
-  await writeFile(path.join(appDir, "raw_app.yaml"), RAW_APP_YAML, "utf-8");
+  await writeFile(path.join(appDir, "raw_app.yaml"), createRawAppYaml(options), "utf-8");
 
   // Create app source files
   await writeFile(path.join(appDir, "App.tsx"), APP_TSX, "utf-8");
@@ -379,6 +393,68 @@ excludes: []`, "utf-8");
       expect(await fileExists(newFilePath)).toBeTruthy();
       const newFileContent = await readFileContent(newFilePath);
       expect(newFileContent).toContain("formatValue");
+    });
+});
+
+test("Raw App: hide_edit_button round-trips through sync push and pull", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "raw_app_hide_edit_button_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      const appDir = path.join(tempDir, "f", "test", "hide_edit_button_app.raw_app");
+      const rawAppYamlPath = path.join(appDir, "raw_app.yaml");
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
+      await createRawAppOnDisk(appDir, true, { hideEditButton: true });
+
+      const pushResult1 = await backend.runCLICommand([
+        'sync', 'push',
+        '--yes'
+      ], tempDir, "raw_app_hide_edit_button_test");
+      expect(pushResult1.code).toEqual(0);
+
+      await rm(appDir, { recursive: true });
+
+      const pullResult1 = await backend.runCLICommand([
+        'sync', 'pull',
+        '--yes'
+      ], tempDir, "raw_app_hide_edit_button_test");
+      expect(pullResult1.code).toEqual(0);
+
+      const firstPulledConfig = await readFileContent(rawAppYamlPath);
+      expect(firstPulledConfig).toContain("hide_edit_button: true");
+
+      await writeFile(
+        rawAppYamlPath,
+        firstPulledConfig.replace("hide_edit_button: true", "hide_edit_button: false"),
+        "utf-8"
+      );
+
+      const pushResult2 = await backend.runCLICommand([
+        'sync', 'push',
+        '--yes'
+      ], tempDir, "raw_app_hide_edit_button_test");
+      expect(pushResult2.code).toEqual(0);
+
+      await rm(appDir, { recursive: true });
+
+      const pullResult2 = await backend.runCLICommand([
+        'sync', 'pull',
+        '--yes'
+      ], tempDir, "raw_app_hide_edit_button_test");
+      expect(pullResult2.code).toEqual(0);
+
+      const secondPulledConfig = await readFileContent(rawAppYamlPath);
+      expect(secondPulledConfig).toContain("hide_edit_button: false");
     });
 });
 

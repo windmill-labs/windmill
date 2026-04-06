@@ -908,6 +908,9 @@ function ZipFSElement(
             if (data) {
               rawApp.data = data;
             }
+            if (typeof value?.["hideEditButton"] === "boolean") {
+              rawApp.hide_edit_button = value.hideEditButton;
+            }
 
             // Remove runnables and value from raw_app.yaml - they are now in separate files
             delete rawApp?.["value"];

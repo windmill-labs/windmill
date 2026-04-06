@@ -3,13 +3,12 @@
 	import { Button, Skeleton } from '$lib/components/common'
 	import { AppService, type AppWithLastVersion } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { shouldHideAppEditButton } from '$lib/components/apps/viewer'
 	import { canWrite } from '$lib/utils'
 	import { Pen } from 'lucide-svelte'
 	import RawAppPreview from '$lib/components/raw_apps/RawAppPreview.svelte'
 	import { page } from '$app/state'
 	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
-
-	const hideEditBtn = page.url.searchParams.get('hideEditBtn') === 'true'
 
 	let app = $state(undefined) as AppWithLastVersion | undefined
 
@@ -35,6 +34,10 @@
 	})
 
 	let can_write = $derived(canWrite(page.params.path ?? '', app?.extra_perms ?? {}, $userStore))
+	let hideEditBtn = $derived.by(() => {
+		const appValue = app?.value as { hideEditButton?: boolean } | undefined
+		return shouldHideAppEditButton(page.url.searchParams, appValue)
+	})
 	function getRunnables(app: AppWithLastVersion) {
 		return ((app?.value as any)?.runnables ?? {}) as Record<string, Runnable>
 	}

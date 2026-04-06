@@ -28,6 +28,7 @@ export interface AppFile {
   runnables?: any;
   custom_path?: string;
   public?: boolean;
+  hide_edit_button?: boolean;
   summary: string;
   policy: Policy;
   data?: {
@@ -35,6 +36,28 @@ export interface AppFile {
     datatable?: string;
     schema?: string;
   };
+}
+
+export function applyRawAppValueMetadata(
+  value: Record<string, any>,
+  localApp: AppFile,
+): void {
+  if (localApp.data) {
+    value.data = localApp.data;
+  }
+  if (typeof localApp.hide_edit_button === "boolean") {
+    value.hideEditButton = localApp.hide_edit_button;
+  }
+}
+
+export function populateRawAppMetadataFromValue(app: Record<string, any>): void {
+  const value = app?.value;
+  if (value?.data) {
+    app.data = value.data;
+  }
+  if (typeof value?.hideEditButton === "boolean") {
+    app.hide_edit_button = value.hideEditButton;
+  }
 }
 
 /**
@@ -355,6 +378,7 @@ export async function pushRawApp(
   }
   // console.log(app);
   if (app) {
+    populateRawAppMetadataFromValue(app);
     app.policy = undefined;
   }
 
@@ -420,9 +444,7 @@ export async function pushRawApp(
   }
   // Build the value object, including data if present
   const value: Record<string, any> = { runnables, files };
-  if (localApp.data) {
-    value.data = localApp.data;
-  }
+  applyRawAppValueMetadata(value, localApp);
 
   if (app) {
     // Check both metadata/runnables AND files for changes

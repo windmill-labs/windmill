@@ -171,6 +171,7 @@ export type App = {
 	darkMode?: boolean
 	fullscreen: boolean
 	norefreshbar?: boolean
+	hideEditButton?: boolean | undefined
 	unusedInlineScripts: Array<{
 		name: string
 		inlineScript: InlineScript

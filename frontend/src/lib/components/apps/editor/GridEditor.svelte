@@ -173,6 +173,21 @@
 						}
 					/>
 				</div>
+				<div class="py-2 pr-2 text-secondary flex gap-1 items-center">
+					Hide edit button on view
+					<Toggle
+						size="xs"
+						bind:checked={
+							() => $app.hideEditButton ?? false,
+							(v) =>
+								($app.hideEditButton !== undefined || v) && ($app.hideEditButton = v)
+						}
+					/>
+					<Tooltip>
+						Hides the floating Edit button in viewer mode. Editors can still open the app
+						directly from its edit URL.
+					</Tooltip>
+				</div>
 				<div>
 					{policy.on_behalf_of ? `Author ${policy.on_behalf_of_email}` : ''}
 					<Tooltip>

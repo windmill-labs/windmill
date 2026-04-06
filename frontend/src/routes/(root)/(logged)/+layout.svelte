@@ -117,6 +117,10 @@
 			page.url.pathname.startsWith('/oauth/callback/')
 	}
 
+	function closeMenu() {
+		menuOpen = false
+	}
+
 	async function updateUserStore(workspace: string | undefined) {
 		if (workspace) {
 			try {
@@ -138,7 +142,7 @@
 	}
 
 	beforeNavigate((navigation) => {
-		menuOpen = false
+		closeMenu()
 
 		// Force page reload when navigating to /apps_raw/add or /apps_raw/edit
 		// This ensures the cross-origin isolation headers are fetched from the server
@@ -482,13 +486,16 @@
 						role="dialog"
 						aria-modal="true"
 					>
-						<div
+						<button
+							type="button"
+							aria-label="Close sidebar"
 							class={classNames(
-								'fixed inset-0 bg-black/50 transition-opacity ease-linear duration-300 z-40',
+								'fixed inset-0 border-0 bg-black/50 p-0 transition-opacity ease-linear duration-300 z-40',
 
 								menuOpen ? 'opacity-100' : 'opacity-0'
 							)}
-						></div>
+							onclick={closeMenu}
+						></button>
 
 						<div class="fixed inset-0 flex z-40">
 							<div
@@ -505,9 +512,7 @@
 								>
 									<button
 										type="button"
-										onclick={() => {
-											menuOpen = !menuOpen
-										}}
+										onclick={closeMenu}
 										class="ml-1 flex items-center justify-center h-6 w-6 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
 										aria-label="Close"
 									>
