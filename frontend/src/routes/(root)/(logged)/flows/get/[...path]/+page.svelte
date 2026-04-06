@@ -577,6 +577,12 @@
 							'mx-auto'
 						)}
 					>
+						{#if flow?.path}
+							<div class="mb-2">
+								<CiTestResults path={flow.path} kind="flow" />
+							</div>
+						{/if}
+
 						{#if flow?.archived}
 							<Alert type="error" title="Archived">This flow was archived</Alert>
 							<div class="h-4"></div>
@@ -590,12 +596,6 @@
 								/>
 							</div>
 							<div class="h-4"></div>
-						{/if}
-
-						{#if flow?.path}
-							<div class="mb-2">
-								<CiTestResults path={flow.path} kind="flow" />
-							</div>
 						{/if}
 
 						{#if deploymentInProgress}

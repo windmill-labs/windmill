@@ -749,6 +749,12 @@
 							isWac ? 'max-h-1/2' : ''
 						)}
 					>
+						{#if script?.path}
+							<div class="mb-2">
+								<CiTestResults path={script.path} kind="script" />
+							</div>
+						{/if}
+
 						<div class="flex flex-col gap-0.5 mb-1">
 							{#if script.lock_error_logs || topHash || script.archived || script.deleted}
 								<div class="flex flex-col gap-2 my-2">
@@ -795,12 +801,6 @@
 								<div class="h-4"></div>
 							{/if}
 						</div>
-
-						{#if script?.path}
-							<div class="mb-2">
-								<CiTestResults path={script.path} kind="script" />
-							</div>
-						{/if}
 
 						{#if deploymentInProgress}
 							<div class="pb-4" transition:slide={{ duration: 150 }}>
