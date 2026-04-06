@@ -8725,6 +8725,35 @@ paths:
                 items:
                   $ref: "#/components/schemas/FlowConversationMessage"
 
+  /w/{workspace}/path_autocomplete/list_paths:
+    get:
+      summary: list all paths in a workspace for client-side autocomplete
+      description: |
+        Returns the flat list of all item paths visible to the caller across
+        scripts, flows, apps, raw apps, variables, and resources. Intended to
+        feed an entirely client-side path autocomplete UI: the frontend fetches
+        once (server caches per user for 60s) and performs all prefix/segment
+        computation locally. Capped at 20,000 paths (5,000 per table).
+      operationId: listPathAutocompletePaths
+      tags:
+        - path_autocomplete
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: deduplicated path list, sorted lexicographically
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paths:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - paths
+
   /w/{workspace}/raw_apps/list:
     get:
       summary: list all raw apps

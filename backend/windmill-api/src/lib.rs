@@ -131,6 +131,7 @@ pub mod oauth2_oss;
 #[cfg(feature = "private")]
 pub mod oidc_ee;
 mod oidc_oss;
+mod path_autocomplete;
 mod raw_apps;
 mod resources;
 #[cfg(feature = "private")]
@@ -601,6 +602,10 @@ pub async fn run_server(
                         })
                         .nest("/ai", ai::workspaced_service())
                         .nest("/npm_proxy", windmill_api_npm_proxy::workspaced_service())
+                        .nest(
+                            "/path_autocomplete",
+                            path_autocomplete::workspaced_service(),
+                        )
                         .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
                         .nest("/schedules", windmill_api_schedule::workspaced_service())
