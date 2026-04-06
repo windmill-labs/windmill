@@ -1,4 +1,6 @@
 pub mod ci_tests;
+#[cfg(feature = "private")]
+pub mod ci_tests_ee;
 pub mod scoped_dependency_map;
 pub mod trigger_dependents;
 pub mod workspace_dependencies;
