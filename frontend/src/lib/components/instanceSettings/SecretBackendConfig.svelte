@@ -260,7 +260,7 @@
 				<ToggleButton value="Database" label="Database" tooltip="Store secrets encrypted in the database (default)" item={toggleButton} />
 				<ToggleButton value="HashiCorpVault" label="HashiCorp Vault (Beta)" tooltip={vaultDisabled ? 'Requires Enterprise Edition' : 'Store secrets in HashiCorp Vault'} item={toggleButton} disabled={vaultDisabled} />
 				<ToggleButton value="AzureKeyVault" label="Azure Key Vault" tooltip={vaultDisabled ? 'Requires Enterprise Edition' : 'Store secrets in Azure Key Vault'} item={toggleButton} disabled={vaultDisabled} />
-				<ToggleButton value="AwsSecretsManager" label="AWS Secrets Manager" tooltip={vaultDisabled ? 'Requires Enterprise Edition' : 'Store secrets in AWS Secrets Manager'} item={toggleButton} disabled={vaultDisabled} />
+				<ToggleButton value="AwsSecretsManager" label="AWS Secrets Manager (Beta)" tooltip={vaultDisabled ? 'Requires Enterprise Edition' : 'Store secrets in AWS Secrets Manager'} item={toggleButton} disabled={vaultDisabled} />
 			{/snippet}
 		</ToggleButtonGroup>
 		{#if vaultDisabled}
@@ -435,7 +435,7 @@ vault write auth/jwt/role/windmill-secrets \
 			<div class="flex items-center gap-2 mb-4">
 				<Cloud class="text-primary" size={20} />
 				<div>
-					<p class="text-sm font-medium text-emphasis">AWS Secrets Manager Configuration</p>
+					<p class="text-sm font-medium text-emphasis">AWS Secrets Manager Configuration <span class="ml-2 px-1.5 py-0.5 text-2xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 rounded">Beta</span></p>
 					<p class="text-xs text-secondary">Store secrets in AWS Secrets Manager.</p>
 				</div>
 			</div>
