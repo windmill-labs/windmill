@@ -199,29 +199,19 @@
 			}
 			return
 		}
-		// Enter accepts the ghost text (LCP). When multiple folders match,
-		// this narrows the input to the common prefix so the user can then
-		// Tab-cycle through the remaining options.
-		if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
-			// Compute LCP inline to avoid reactive timing issues with $derived.
-			if (derivedFolderMatches.length > 0) {
-				const names = derivedFolderMatches.map((s) => s.name)
-				let lcp = names[0]
-				for (let i = 1; i < names.length; i++) {
-					let j = 0
-					while (j < lcp.length && j < names[i].length && lcp[j] === names[i][j]) j++
-					lcp = lcp.slice(0, j)
-				}
-				if (lcp.length > currentSegment.length) {
-					e.preventDefault()
-					e.stopPropagation()
-					enterConsumed = true
-					const completion = lcp.slice(currentSegment.length)
-					const trailingSlash = derivedFolderMatches.length === 1 ? '/' : ''
-					value = (value ?? '') + completion + trailingSlash
-					return
-				}
-			}
+		// Enter selects the first (or currently highlighted) folder and
+		// navigates into it, showing its children immediately.
+		if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && derivedFolderMatches.length > 0) {
+			e.preventDefault()
+			e.stopPropagation()
+			enterConsumed = true
+			const vNow = value ?? ''
+			const slash = vNow.lastIndexOf('/')
+			const committed = slash >= 0 ? vNow.slice(0, slash + 1) : ''
+			const pick = derivedFolderMatches[0]
+			value = committed + pick.name + '/'
+			cycleMode = null
+			return
 		}
 		if (e.key === 'Escape' && (cycleMode || showList || ghostText)) {
 			e.stopPropagation()
@@ -334,7 +324,7 @@
 				<span
 					class="ml-1.5 px-1 py-0 rounded border border-border-light text-[10px] text-tertiary bg-surface-secondary"
 				>
-					{derivedFolderMatches.length === 1 ? 'Tab' : 'Enter'}
+					Enter
 				</span>
 			</div>
 		{/if}
