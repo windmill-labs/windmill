@@ -472,8 +472,11 @@ async function updateRawAppRunnables(
     // Skip frontend scripts - they don't need locks
     if (language === "frontend") {
       // Still need to write the runnable YAML file
+      // Use runnableId (the dict key) for file naming, consistent with
+      // extractInlineScriptsForApps in sync.ts which also uses the key.
+      // Using runnable.name would create duplicate files when name != key.
       const [basePathO, ext] = pathAssigner.assignPath(
-        runnable.name ?? runnableId,
+        runnableId,
         language
       );
       const basePath = basePathO.replaceAll(SEP, "/");
@@ -509,8 +512,11 @@ async function updateRawAppRunnables(
       );
 
       // Determine file extension for this language
+      // Use runnableId (the dict key) for file naming, consistent with
+      // extractInlineScriptsForApps in sync.ts which also uses the key.
+      // Using runnable.name would create duplicate files when name != key.
       const [basePathO, ext] = pathAssigner.assignPath(
-        runnable.name ?? runnableId,
+        runnableId,
         language
       );
       const basePath = basePathO.replaceAll(SEP, "/");
