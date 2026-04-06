@@ -1,33 +1,42 @@
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
-import { type Locale, DEFAULT_LOCALE, SUPPORTED_LOCALES } from './index'
+import { type Locale, SUPPORTED_LOCALES, detectLocale } from './index'
 import { en, type MessageKey } from './messages/en'
 import { messages } from './messages/index'
 
-function getInitialLocale(): Locale {
+export type LocaleChoice = Locale | 'auto'
+
+function getInitialChoice(): LocaleChoice {
 	const stored = getLocalSetting('locale')
 	if (stored && SUPPORTED_LOCALES.includes(stored as Locale)) {
 		return stored as Locale
 	}
-	return DEFAULT_LOCALE
+	return 'auto'
 }
 
-let locale = $state<Locale>(getInitialLocale())
+let choice = $state<LocaleChoice>(getInitialChoice())
 
+/** The resolved locale actually used for translations */
 export function getLocale(): Locale {
-	return locale
+	return choice === 'auto' ? detectLocale() : choice
 }
 
-export function setLocale(l: Locale) {
-	locale = l
-	storeLocalSetting('locale', l)
+/** The raw user choice ('auto' or a specific locale) */
+export function getLocaleChoice(): LocaleChoice {
+	return choice
+}
+
+export function setLocale(l: LocaleChoice) {
+	choice = l
+	storeLocalSetting('locale', l === 'auto' ? undefined : l)
 	if (typeof document !== 'undefined') {
-		document.documentElement.lang = l
+		document.documentElement.lang = getLocale()
 	}
 }
 
 export function t(key: MessageKey): string {
-	if (locale === 'en') {
+	const loc = getLocale()
+	if (loc === 'en') {
 		return en[key]
 	}
-	return messages[locale]?.[key] ?? en[key]
+	return messages[loc]?.[key] ?? en[key]
 }

@@ -16,8 +16,10 @@
 	import MenuButton from './MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import { type MenubarBuilders } from '@melt-ui/svelte'
-	import { t, getLocale, setLocale } from '$lib/i18n/t.svelte'
+	import { t, getLocale, getLocaleChoice, setLocale } from '$lib/i18n/t.svelte'
 	import { SUPPORTED_LOCALES, LOCALE_NAMES } from '$lib/i18n/index'
+
+	let showLanguages = $state(false)
 
 	let darkMode: boolean = $state(false)
 
@@ -88,18 +90,49 @@
 				{t('user.switch_theme')}
 			</MenuItem>
 
-			<MenuItem
-				onClick={() => {
-					const currentIndex = SUPPORTED_LOCALES.indexOf(getLocale())
-					const nextIndex = (currentIndex + 1) % SUPPORTED_LOCALES.length
-					setLocale(SUPPORTED_LOCALES[nextIndex])
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class={twMerge(itemClass, 'cursor-pointer')}
+				role="button"
+				tabindex="0"
+				onclick={(e) => {
+					e.stopPropagation()
+					showLanguages = !showLanguages
 				}}
-				class={itemClass}
-				{item}
 			>
 				<Languages size={16} />
-				{t('user.language')}: {LOCALE_NAMES[getLocale()]}
-			</MenuItem>
+				{t('user.language')}: {getLocaleChoice() === 'auto'
+					? 'Detected'
+					: LOCALE_NAMES[getLocale()]}
+			</div>
+			{#if showLanguages}
+				<div class="border-t border-b py-1">
+					<MenuItem
+						onClick={() => setLocale('auto')}
+						class={twMerge(
+							itemClass,
+							'pl-8',
+							getLocaleChoice() === 'auto' ? 'font-semibold text-primary' : ''
+						)}
+						{item}
+					>
+						Detected ({LOCALE_NAMES[getLocale()]})
+					</MenuItem>
+					{#each SUPPORTED_LOCALES as loc (loc)}
+						<MenuItem
+							onClick={() => setLocale(loc)}
+							class={twMerge(
+								itemClass,
+								'pl-8',
+								getLocaleChoice() === loc ? 'font-semibold text-primary' : ''
+							)}
+							{item}
+						>
+							{LOCALE_NAMES[loc]}
+						</MenuItem>
+					{/each}
+				</div>
+			{/if}
 
 			<MenuItem onClick={() => logout()} class={itemClass} {item}>
 				<LogOut size={16} />
