@@ -750,7 +750,7 @@
 						)}
 					>
 						{#if script?.path}
-							<div class="mb-2">
+							<div class="mb-4">
 								<CiTestResults path={script.path} kind="script" />
 							</div>
 						{/if}

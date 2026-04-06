@@ -2,8 +2,7 @@
 	import { ScriptService, type CiTestResult } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { CircleCheck, CircleX, Loader2, TestTubes } from 'lucide-svelte'
+	import { CircleCheck, CircleX, Loader2, FlaskConical } from 'lucide-svelte'
 	import { resource } from 'runed'
 
 	interface Props {
@@ -32,29 +31,20 @@
 {#if hasResults}
 	<div class="flex flex-col gap-1">
 		<div class="flex items-center gap-1.5 text-xs font-semibold text-secondary">
-			<TestTubes size={14} />
-			CI Tests
+			<FlaskConical size={14} />
+			CI tests
 		</div>
 		<div class="flex flex-col gap-1">
 			{#each results as test (test.test_script_path)}
 				<div class="flex items-center gap-2 text-xs">
 					{#if test.status === 'success'}
-						<Badge color="green" small>
-							<CircleCheck size={12} class="mr-1" />
-							pass
-						</Badge>
+						<CircleCheck size={14} class="text-green-600" />
 					{:else if test.status === 'failure' || test.status === 'canceled'}
-						<Badge color="red" small>
-							<CircleX size={12} class="mr-1" />
-							fail
-						</Badge>
+						<CircleX size={14} class="text-red-600" />
 					{:else if test.status === 'running'}
-						<Badge color="yellow" small>
-							<Loader2 size={12} class="mr-1 animate-spin" />
-							running
-						</Badge>
+						<Loader2 size={14} class="text-yellow-600 animate-spin" />
 					{:else}
-						<Badge small>pending</Badge>
+						<div class="w-3.5 h-3.5 rounded-full border border-tertiary"></div>
 					{/if}
 					<a
 						href="{base}/scripts/get/{test.test_script_path}?workspace={$workspaceStore}"

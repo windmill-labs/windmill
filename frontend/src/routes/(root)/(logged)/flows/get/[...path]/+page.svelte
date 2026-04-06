@@ -578,7 +578,7 @@
 						)}
 					>
 						{#if flow?.path}
-							<div class="mb-2">
+							<div class="mb-4">
 								<CiTestResults path={flow.path} kind="flow" />
 							</div>
 						{/if}
