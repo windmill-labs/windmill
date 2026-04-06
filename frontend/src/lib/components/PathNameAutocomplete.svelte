@@ -112,6 +112,9 @@
 	} | null>(null)
 	let dismissedFor: string | undefined = $state(undefined)
 	let hasFocus = $state(false)
+	// Flag set when keydown consumes Enter for ghost-text acceptance.
+	// Checked in keyup to suppress Path.svelte's 'enter' dispatch.
+	let enterConsumed = false
 
 	let currentSegment = $derived.by(() => {
 		const v = value ?? ''
@@ -201,6 +204,8 @@
 		// Tab-cycle through the remaining options.
 		if (e.key === 'Enter' && ghostText && !e.ctrlKey && !e.metaKey) {
 			e.preventDefault()
+			e.stopPropagation()
+			enterConsumed = true
 			value = (value ?? '') + ghostText
 			return
 		}
@@ -290,7 +295,15 @@
 				spellcheck: false,
 				placeholder: showList || ghostText ? '' : placeholder,
 				onkeydown: handleKeydown,
-				onkeyup,
+				onkeyup: (e: KeyboardEvent) => {
+					if (e.key === 'Enter' && enterConsumed) {
+						e.preventDefault()
+						e.stopPropagation()
+						enterConsumed = false
+						return
+					}
+					onkeyup?.(e)
+				},
 				onfocus: onInputFocus,
 				onblur: onInputBlur
 			}}
