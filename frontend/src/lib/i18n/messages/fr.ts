@@ -157,26 +157,36 @@ export const fr: Record<MessageKey, string> = {
 	// Editor - common
 	'editor.save': 'Enregistrer',
 	'editor.deploy': 'Déployer',
+	'editor.deploy_stay': 'Déployer & Rester ici',
 	'editor.draft': 'Draft',
 	'editor.test': 'Tester',
 	'editor.test_and_record': 'Tester & enregistrer',
+	'editor.cancel': 'Annuler',
+	'editor.settings': 'Paramètres',
 	'editor.history': 'Historique',
 	'editor.versions_history': 'Historique des versions',
 	'editor.deployment_history': 'Historique des déploiements',
 	'editor.edit_in_yaml': 'Éditer en YAML',
 	'editor.flow_settings': 'Paramètres du flow',
 	'editor.export': 'Exporter',
+	'editor.export_yaml_json': 'Exporter en YAML/JSON',
 	'editor.diff': 'Diff',
+	'editor.show_diff': 'Afficher le diff',
 	'editor.editor': 'Éditeur',
 	'editor.preview': 'Aperçu',
 	'editor.main': 'Principal',
 	'editor.preprocessor': 'Préprocesseur',
 	'editor.diagram': 'Diagramme',
 	'editor.save_to_workspace': "Enregistrer dans l'espace",
+	'editor.save_initial_draft': 'Sauvegarder le brouillon initial',
 	'editor.exit_see_details': 'Quitter & voir détails',
 	'editor.edit_in_fork': 'Éditer dans le fork',
 	'editor.save_anyway': 'Enregistrer quand même',
 	'editor.invite_others': "Inviter d'autres",
+	'editor.deployment_message': 'Message de déploiement',
+	'editor.test_to_see_result': 'Testez pour voir le résultat ici',
+	'editor.no_logs_available': 'Aucun log disponible pour le moment',
+	'editor.waiting_for_job': 'En attente du démarrage du job...',
 
 	// Flow editor
 	'flow.test_flow': 'Tester le flow',
@@ -197,6 +207,7 @@ export const fr: Record<MessageKey, string> = {
 	'app.troubleshoot': 'Dépannage',
 	'app.lazy_mode': 'Mode lazy',
 	'app.hub_export': 'Export Hub',
+	'app.debug_runs': 'Exécutions debug',
 
 	// Status labels
 	'status.default': 'Défaut',
@@ -224,6 +235,13 @@ export const fr: Record<MessageKey, string> = {
 	'confirm.empty_trashbin': 'Vider la corbeille',
 	'confirm.discard_changes': 'Abandonner les modifications',
 	'confirm.override': 'Écraser',
+	'confirm.unsaved_changes_detected': 'Modifications non sauvegardées détectées',
+	'confirm.discard_changes_question':
+		'Êtes-vous sûr de vouloir annuler les modifications effectuées ?',
+	'confirm.leave_anyway': 'Quitter quand même',
+	'confirm.override_anyway': 'Remplacer quand même',
+	'confirm.new_version_deployed':
+		'Une nouvelle version a été déployée pendant que vous éditiez celle-ci.',
 
 	// Groups/Folders
 	'groups.manage_group': 'Gérer le groupe',

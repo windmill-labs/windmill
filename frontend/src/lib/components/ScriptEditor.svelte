@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { buildWsUrl } from '$lib/wsUrl'
+	import { t } from '$lib/i18n/t.svelte'
 	import { processSecretArgs } from './secretArgUtils'
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import {
@@ -1520,7 +1521,7 @@
 												width="20px"
 												spin="fast"
 											/>
-											Cancel
+											{t('editor.cancel')}
 										</Button>
 									{:else}
 										{@const disableTriggerButton =
@@ -1533,7 +1534,7 @@
 											startIcon={{ icon: Play, classes: 'animate-none' }}
 											shortCut={{ Icon: CornerDownLeft }}
 										>
-											Test
+											{t('editor.test')}
 										</Button>
 										{#if !disableTriggerButton}
 											<CaptureButton on:openTriggers />
@@ -1557,7 +1558,7 @@
 								size="xs"
 								items={[
 									{
-										displayName: 'Test & record',
+										displayName: t('editor.test_and_record'),
 										icon: Disc,
 										action: () => recordAndTest()
 									}
@@ -1628,9 +1629,7 @@
 										{/key}
 										{#if showPsCommonParams}
 											<div class="mt-2">
-												<PowerShellCommonParams
-														bind:args={psCommonParams}
-												/>
+												<PowerShellCommonParams bind:args={psCommonParams} />
 											</div>
 										{/if}
 									</div>

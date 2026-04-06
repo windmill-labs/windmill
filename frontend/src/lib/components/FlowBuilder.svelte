@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '$lib/i18n/t.svelte'
 	import {
 		FlowService,
 		type Flow,
@@ -279,7 +280,7 @@
 			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 				sendUserToast('No changes detected, ignoring', false, [
 					{
-						label: 'Save anyway',
+						label: t('editor.save_anyway'),
 						callback: () => {
 							saveDraftInternal(true)
 						}
@@ -821,21 +822,21 @@
 	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
 		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
 			dropdownItems.push({
-				label: 'Exit & see details',
+				label: t('editor.exit_see_details'),
 				onClick: () => onDetails?.({ path: $pathStore })
 			})
 		}
 
 		if (!untrack(() => newFlow)) {
 			dropdownItems.push({
-				label: 'Fork',
+				label: t('action.fork'),
 				onClick: () => window.open(`/flows/add?template=${initialPath}`)
 			})
 		}
 
 		if (!untrack(() => newFlow) && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
 			dropdownItems.push({
-				label: 'Edit in workspace fork',
+				label: t('editor.edit_in_fork'),
 				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
 			})
 		}
@@ -880,7 +881,7 @@
 		return [
 			...baseMenuItems,
 			{
-				displayName: 'Undo',
+				displayName: t('action.undo'),
 				icon: Undo,
 				action: () => handleUndo(),
 				disabled: $history.index === 0,
@@ -888,14 +889,14 @@
 				separatorTop: baseMenuItems.length > 0
 			},
 			{
-				displayName: 'Redo',
+				displayName: t('action.redo'),
 				icon: Redo,
 				action: () => handleRedo(),
 				disabled: $history.index === $history.history.length - 1,
 				shortcut: `${mod}⇧Z`
 			},
 			{
-				displayName: 'Tutorials',
+				displayName: t('sidebar.tutorials'),
 				icon: BookOpen,
 				separatorTop: true,
 				extra: (() => {
@@ -912,7 +913,7 @@
 				})(),
 				submenuItems: [
 					{
-						displayName: 'Build a flow',
+						displayName: t('flow.build_a_flow'),
 						action: () => flowTutorials?.runTutorialById('flow-live-tutorial'),
 						icon: $tutorialsToDo.includes(getTutorialIndex('flow-live-tutorial'))
 							? Circle
@@ -922,7 +923,7 @@
 							: 'green'
 					},
 					{
-						displayName: 'Fix a broken flow',
+						displayName: t('flow.fix_broken_flow'),
 						action: () => flowTutorials?.runTutorialById('troubleshoot-flow'),
 						icon: $tutorialsToDo.includes(getTutorialIndex('troubleshoot-flow'))
 							? Circle
@@ -932,20 +933,20 @@
 							: 'green'
 					},
 					{
-						displayName: 'Reset tutorials',
+						displayName: t('flow.reset_tutorials'),
 						action: () => resetAllTodos(),
 						icon: RefreshCw,
 						separatorTop: true
 					},
 					{
-						displayName: 'Skip tutorials',
+						displayName: t('flow.skip_tutorials'),
 						action: () => skipAllTodos(),
 						icon: CheckCheck
 					}
 				]
 			},
 			{
-				displayName: 'Test flow & record',
+				displayName: t('flow.test_flow_record'),
 				icon: Disc,
 				action: () => flowPreviewButtons?.openRecordingPreview()
 			}
@@ -960,7 +961,7 @@
 			...(customUi?.topBar?.history != false
 				? [
 						{
-							displayName: 'Deployment History',
+							displayName: t('editor.deployment_history'),
 							icon: HistoryIcon,
 							action: () => {
 								flowHistory?.open()
@@ -972,12 +973,12 @@
 			...(customUi?.topBar?.export != false
 				? [
 						{
-							displayName: 'Export',
+							displayName: t('editor.export'),
 							icon: FileJson,
 							action: () => jsonViewerDrawer?.openDrawer()
 						},
 						{
-							displayName: 'Edit in YAML',
+							displayName: t('editor.edit_in_yaml'),
 							icon: FileJson,
 							action: () => yamlEditorDrawer?.openDrawer(),
 							disabled: hasAiDiff
@@ -987,7 +988,7 @@
 			...(customUi?.topBar?.settings != false
 				? [
 						{
-							displayName: 'Flow settings',
+							displayName: t('editor.flow_settings'),
 							icon: Settings,
 							action: () => {
 								select('settings-metadata')
@@ -1225,7 +1226,7 @@
 							disabled={!savedFlow}
 							startIcon={{ icon: DiffIcon }}
 						>
-							Diff
+							{t('editor.diff')}
 						</Button>
 					{/if}
 					<FlowPreviewButtons
@@ -1258,7 +1259,7 @@
 							disabled={(!newFlow && !savedFlow) || loading}
 							shortCut={{ key: 'S' }}
 						>
-							Draft
+							{t('editor.draft')}
 						</Button>
 					{/if}
 

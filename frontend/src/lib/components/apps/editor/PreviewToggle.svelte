@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Eye, Pen } from 'lucide-svelte'
 	import { getContext } from 'svelte'
+	import { t } from '$lib/i18n/t.svelte'
 	import type { AppViewerContext } from '../types'
 
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -24,7 +25,7 @@
 >
 	{#snippet children({ item })}
 		<ToggleButton
-			label="Editor"
+			label={t('editor.editor')}
 			value="dnd"
 			icon={Pen}
 			disabled={loading}
@@ -33,7 +34,7 @@
 			{item}
 		/>
 		<ToggleButton
-			label="Preview"
+			label={t('editor.preview')}
 			value="preview"
 			icon={Eye}
 			tooltip="Preview mode"

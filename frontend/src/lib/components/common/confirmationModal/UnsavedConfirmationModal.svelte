@@ -3,6 +3,7 @@
 	import { beforeNavigate } from '$app/navigation'
 	import { goto as gotoUrl } from '$app/navigation'
 	import Button from '../button/Button.svelte'
+	import { t } from '$lib/i18n/t.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import {
 		cleanValueProperties,
@@ -96,8 +97,8 @@
 
 <ConfirmationModal
 	{open}
-	title="Unsaved changes detected"
-	confirmationText="Discard changes"
+	title={t('confirm.unsaved_changes_detected')}
+	confirmationText={t('confirm.discard_changes')}
 	on:canceled={() => {
 		open = false
 	}}
@@ -113,7 +114,7 @@
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to discard the changes you have made? </span>
+		<span>{t('confirm.discard_changes_question')} </span>
 		{#if savedValue && modifiedValue && diffDrawer}
 			<Button
 				wrapperClasses="self-start"
@@ -132,7 +133,7 @@
 						current: modifiedValue,
 						defaultDiffType: 'draft',
 						button: {
-							text: 'Leave anyway',
+							text: t('confirm.leave_anyway'),
 							onClick: () => {
 								if (goingTo) {
 									bypassBeforeNavigate = true
@@ -143,7 +144,7 @@
 						}
 					})
 				}}
-				>Show diff
+				>{t('editor.show_diff')}
 			</Button>
 		{/if}
 	</div>

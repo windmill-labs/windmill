@@ -157,26 +157,36 @@ export const es: Record<MessageKey, string> = {
 	// Editor - common
 	'editor.save': 'Guardar',
 	'editor.deploy': 'Desplegar',
+	'editor.deploy_stay': 'Desplegar y Quedarse aquí',
 	'editor.draft': 'Draft',
 	'editor.test': 'Probar',
 	'editor.test_and_record': 'Probar y grabar',
+	'editor.cancel': 'Cancelar',
+	'editor.settings': 'Configuración',
 	'editor.history': 'Historial',
 	'editor.versions_history': 'Historial de versiones',
 	'editor.deployment_history': 'Historial de despliegues',
 	'editor.edit_in_yaml': 'Editar en YAML',
 	'editor.flow_settings': 'Ajustes del flujo',
 	'editor.export': 'Exportar',
+	'editor.export_yaml_json': 'Exportar como YAML/JSON',
 	'editor.diff': 'Diff',
+	'editor.show_diff': 'Mostrar diferencias',
 	'editor.editor': 'Editor',
 	'editor.preview': 'Vista previa',
 	'editor.main': 'Principal',
 	'editor.preprocessor': 'Preprocesador',
 	'editor.diagram': 'Diagrama',
 	'editor.save_to_workspace': 'Guardar en espacio',
+	'editor.save_initial_draft': 'Guardar borrador inicial',
 	'editor.exit_see_details': 'Salir y ver detalles',
 	'editor.edit_in_fork': 'Editar en fork',
 	'editor.save_anyway': 'Guardar de todos modos',
 	'editor.invite_others': 'Invitar a otros',
+	'editor.deployment_message': 'Mensaje de despliegue',
+	'editor.test_to_see_result': 'Prueba para ver el resultado aquí',
+	'editor.no_logs_available': 'Aún no hay logs disponibles',
+	'editor.waiting_for_job': 'Esperando a que inicie el trabajo...',
 
 	// Flow editor
 	'flow.test_flow': 'Probar flujo',
@@ -197,6 +207,7 @@ export const es: Record<MessageKey, string> = {
 	'app.troubleshoot': 'Panel de diagnóstico',
 	'app.lazy_mode': 'Modo lazy',
 	'app.hub_export': 'Exportar a Hub',
+	'app.debug_runs': 'Ejecuciones de depuración',
 
 	// Status labels
 	'status.default': 'Por defecto',
@@ -224,6 +235,12 @@ export const es: Record<MessageKey, string> = {
 	'confirm.empty_trashbin': 'Vaciar papelera',
 	'confirm.discard_changes': 'Descartar cambios',
 	'confirm.override': 'Sobrescribir',
+	'confirm.unsaved_changes_detected': 'Cambios no guardados detectados',
+	'confirm.discard_changes_question':
+		'¿Estás seguro de que deseas descartar los cambios realizados?',
+	'confirm.leave_anyway': 'Salir de todos modos',
+	'confirm.override_anyway': 'Sobrescribir de todos modos',
+	'confirm.new_version_deployed': 'Se desplegó una nueva versión mientras editabas esta.',
 
 	// Groups/Folders
 	'groups.manage_group': 'Gestionar grupo',

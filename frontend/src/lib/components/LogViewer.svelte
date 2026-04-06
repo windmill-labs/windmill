@@ -12,6 +12,7 @@
 
 <script lang="ts">
 	import { ClipboardCopy, Download, Expand, Loader2 } from 'lucide-svelte'
+	import { t } from '$lib/i18n/t.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { copyToClipboard } from '$lib/utils'
 	import { base } from '$lib/base'
@@ -55,7 +56,7 @@
 		noMaxH = false,
 		noAutoScroll = false,
 		download = true,
-		customEmptyMessage = 'No logs are available yet',
+		customEmptyMessage = t('editor.no_logs_available'),
 		tagLabel = undefined,
 		noPadding = false,
 		navigationId = undefined
@@ -273,14 +274,16 @@
 				>{#if content}{@const len =
 						(content?.length ?? 0) +
 						(loadedFromObjectStore?.length ?? 0)}{#if splitHtml}{@html splitHtml.before}<button
-								onclick={getStoreLogs}
-								>Show more... <Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
-							>{@html splitHtml.after}{:else if downloadStartUrl}<button
 							onclick={getStoreLogs}
 							>Show more... <Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
-						><br />{@html html}{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)...<br
+						>{@html splitHtml.after}{:else if downloadStartUrl}<button onclick={getStoreLogs}
+							>Show more... <Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
+						><br
+						/>{@html html}{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)...<br
 						/><button onclick={() => showMoreTruncate(len)}>Show more..</button><br
-						/>{@html html}{:else}{@html html}{/if}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
+						/>{@html html}{:else}{@html html}{/if}{:else if isLoading}{t(
+						'editor.waiting_for_job'
+					)}{:else}{t('editor.no_logs_available')}{/if}</pre
 			>
 		</div>
 	</DrawerContent>
@@ -356,19 +359,18 @@
 					noPadding ? '' : 'p-2'
 				)}
 				>{#if content}{@const len =
-						(content?.length ?? 0) +
-						(loadedFromObjectStore?.length ?? 0)}{#if splitHtml}<span>{@html splitHtml.before}</span><button
-								onclick={getStoreLogs}
-								>Show more... &nbsp;<Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
-							><span>{@html splitHtml.after}</span
-						>{:else if downloadStartUrl}<button
+						(content?.length ?? 0) + (loadedFromObjectStore?.length ?? 0)}{#if splitHtml}<span
+							>{@html splitHtml.before}</span
+						><button onclick={getStoreLogs}
+							>Show more... &nbsp;<Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
+						><span>{@html splitHtml.after}</span>{:else if downloadStartUrl}<button
 							onclick={getStoreLogs}
 							>Show more... &nbsp;<Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
-						><br /><span>{@html html}</span
-						>{:else if len > LOG_LIMIT}<button onclick={() => showMoreTruncate(len)}
-							>Show more..</button
-						>&nbsp;({LOG_LIMIT}/{len} chars)<br /><span>{@html html}</span
-						>{:else}<span>{@html html}</span>{/if}{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
+						><br /><span>{@html html}</span>{:else if len > LOG_LIMIT}<button
+							onclick={() => showMoreTruncate(len)}>Show more..</button
+						>&nbsp;({LOG_LIMIT}/{len} chars)<br /><span>{@html html}</span>{:else}<span
+							>{@html html}</span
+						>{/if}{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
 			>
 		</div>
 	</div>

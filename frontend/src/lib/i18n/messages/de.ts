@@ -157,26 +157,36 @@ export const de: Record<MessageKey, string> = {
 	// Editor - common
 	'editor.save': 'Speichern',
 	'editor.deploy': 'Deployen',
+	'editor.deploy_stay': 'Bereitstellen & Hier bleiben',
 	'editor.draft': 'Draft',
 	'editor.test': 'Testen',
 	'editor.test_and_record': 'Testen & aufzeichnen',
+	'editor.cancel': 'Abbrechen',
+	'editor.settings': 'Einstellungen',
 	'editor.history': 'Verlauf',
 	'editor.versions_history': 'Versionsverlauf',
 	'editor.deployment_history': 'Deployment-Verlauf',
 	'editor.edit_in_yaml': 'In YAML bearbeiten',
 	'editor.flow_settings': 'Flow-Einstellungen',
 	'editor.export': 'Exportieren',
+	'editor.export_yaml_json': 'Als YAML/JSON exportieren',
 	'editor.diff': 'Diff',
+	'editor.show_diff': 'Diff anzeigen',
 	'editor.editor': 'Editor',
 	'editor.preview': 'Vorschau',
 	'editor.main': 'Main',
 	'editor.preprocessor': 'Preprocessor',
 	'editor.diagram': 'Diagramm',
 	'editor.save_to_workspace': 'Im Workspace speichern',
+	'editor.save_initial_draft': 'Erstentwurf speichern',
 	'editor.exit_see_details': 'Beenden & Details',
 	'editor.edit_in_fork': 'Im Fork bearbeiten',
 	'editor.save_anyway': 'Trotzdem speichern',
 	'editor.invite_others': 'Andere einladen',
+	'editor.deployment_message': 'Bereitstellungsnachricht',
+	'editor.test_to_see_result': 'Testen, um das Ergebnis hier zu sehen',
+	'editor.no_logs_available': 'Noch keine Logs verfügbar',
+	'editor.waiting_for_job': 'Warten auf Jobstart...',
 
 	// Flow editor
 	'flow.test_flow': 'Flow testen',
@@ -197,6 +207,7 @@ export const de: Record<MessageKey, string> = {
 	'app.troubleshoot': 'Fehlerbehebung',
 	'app.lazy_mode': 'Lazy-Modus',
 	'app.hub_export': 'Hub-Export',
+	'app.debug_runs': 'Debug-Ausführungen',
 
 	// Status labels
 	'status.default': 'Standard',
@@ -224,6 +235,13 @@ export const de: Record<MessageKey, string> = {
 	'confirm.empty_trashbin': 'Papierkorb leeren',
 	'confirm.discard_changes': 'Änderungen verwerfen',
 	'confirm.override': 'Überschreiben',
+	'confirm.unsaved_changes_detected': 'Nicht gespeicherte Änderungen erkannt',
+	'confirm.discard_changes_question':
+		'Sind Sie sicher, dass Sie die vorgenommenen Änderungen verwerfen möchten?',
+	'confirm.leave_anyway': 'Trotzdem verlassen',
+	'confirm.override_anyway': 'Trotzdem überschreiben',
+	'confirm.new_version_deployed':
+		'Eine neue Version wurde bereitgestellt, während Sie diese bearbeitet haben.',
 
 	// Groups/Folders
 	'groups.manage_group': 'Gruppe verwalten',

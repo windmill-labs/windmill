@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { t } from '$lib/i18n/t.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
@@ -135,8 +136,8 @@
 
 <ConfirmationModal
 	open={unsavedModalOpen}
-	title="Unsaved changes detected"
-	confirmationText="Discard changes"
+	title={t('confirm.unsaved_changes_detected')}
+	confirmationText={t('confirm.discard_changes')}
 	on:canceled={() => {
 		unsavedModalOpen = false
 	}}
@@ -148,7 +149,7 @@
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to discard the changes you have made? </span>
+		<span>{t('confirm.discard_changes_question')} </span>
 		<Button
 			wrapperClasses="self-start"
 			variant="default"
@@ -167,7 +168,7 @@
 					original: savedScript,
 					current: script,
 					button: {
-						text: 'Close anyway',
+						text: t('confirm.leave_anyway'),
 						onClick: () => {
 							closeAnyway = true
 							diffDrawer?.closeDrawer()
@@ -175,7 +176,7 @@
 					}
 				})
 			}}
-			>Show diff
+			>{t('editor.show_diff')}
 		</Button>
 	</div>
 </ConfirmationModal>

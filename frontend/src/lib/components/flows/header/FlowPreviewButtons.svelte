@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { t } from '$lib/i18n/t.svelte'
 
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
@@ -162,7 +163,7 @@
 			]
 		: undefined}
 >
-	Test flow
+	{t('flow.test_flow')}
 </Button>
 
 {#if !loading}

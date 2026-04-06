@@ -2,6 +2,7 @@
 	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
+	import { t } from '$lib/i18n/t.svelte'
 	import {
 		DraftService,
 		type NewScript,
@@ -824,13 +825,13 @@
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
 						{
-							label: 'Deploy & Stay here',
+							label: t('editor.deploy_stay'),
 							onClick: () => {
 								handleEditScript(true)
 							}
 						},
 						{
-							label: 'Fork',
+							label: t('action.fork'),
 							onClick: () => {
 								window.open(`/scripts/add?template=${initialPath}`)
 							}
@@ -838,7 +839,7 @@
 						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
 							? [
 									{
-										label: 'Edit in workspace fork',
+										label: t('editor.edit_in_fork'),
 										onClick: () => {
 											window.open(buildForkEditUrl('script', initialPath))
 										}
@@ -848,7 +849,7 @@
 						...(customUi?.topBar?.diff !== false && savedScript && diffDrawer
 							? [
 									{
-										label: 'Show diff',
+										label: t('editor.show_diff'),
 										onClick: async () => {
 											if (!savedScript) {
 												return
@@ -877,7 +878,7 @@
 						...(!script.draft_only && script.kind === 'script' && !script.auto_kind
 							? [
 									{
-										label: 'Exit & See details',
+										label: t('editor.exit_see_details'),
 										onClick: () => {
 											onSeeDetails?.({ path: initialPath })
 										}
@@ -887,7 +888,7 @@
 						...(isWorkflowAsCode(script.content, script.language)
 							? [
 									{
-										label: 'Export as YAML/JSON',
+										label: t('editor.export_yaml_json'),
 										onClick: () => {
 											wacExportDrawer?.open(script)
 										}
@@ -900,7 +901,7 @@
 		if (dropdownItems.length === 0 && isWorkflowAsCode(script.content, script.language)) {
 			dropdownItems = [
 				{
-					label: 'Export as YAML/JSON',
+					label: t('editor.export_yaml_json'),
 					onClick: () => {
 						wacExportDrawer?.open(script)
 					}
@@ -2026,7 +2027,7 @@
 						on:click={() => (metadataOpen = true)}
 						startIcon={{ icon: Settings }}
 					>
-						<span class="hidden lg:flex"> Settings </span>
+						<span class="hidden lg:flex"> {t('editor.settings')} </span>
 					</Button>
 				{/if}
 				<Button
@@ -2038,7 +2039,7 @@
 					disabled={initialPath != '' && !savedScript}
 					shortCut={{ key: 'S' }}
 				>
-					<span class="hidden lg:flex"> Draft </span>
+					<span class="hidden lg:flex"> {t('editor.draft')} </span>
 				</Button>
 
 				<DeployButton

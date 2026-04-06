@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Drawer, DrawerContent, UndoRedo } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { t } from '$lib/i18n/t.svelte'
 
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, DraftService, type Policy } from '$lib/gen'
@@ -401,7 +402,7 @@
 		if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
 			sendUserToast('No changes detected, ignoring', false, [
 				{
-					label: 'Save anyway',
+					label: t('editor.save_anyway'),
 					callback: () => {
 						saveDraft(true)
 					}
@@ -560,7 +561,7 @@
 
 	let moreItems = $derived([
 		{
-			displayName: 'Deployment history',
+			displayName: t('editor.deployment_history'),
 			icon: History,
 			action: () => {
 				historyBrowserDrawerOpen = true
@@ -568,14 +569,14 @@
 			disabled: !savedApp
 		},
 		{
-			displayName: 'Export',
+			displayName: t('editor.export'),
 			icon: FileJson,
 			action: () => {
 				appExport?.open($app)
 			}
 		},
 		{
-			displayName: 'Public URL',
+			displayName: t('app.public_url'),
 			icon: Globe,
 			action: async () => {
 				const secretUrl = await AppService.getPublicSecretOfApp({
@@ -595,14 +596,14 @@
 		// },
 
 		{
-			displayName: 'App inputs',
+			displayName: t('app.app_inputs'),
 			icon: FormInput,
 			action: () => {
 				inputsDrawerOpen = true
 			}
 		},
 		{
-			displayName: 'Schedule reports',
+			displayName: t('app.schedule_reports'),
 			icon: FileClock,
 			action: () => {
 				appReportingDrawerOpen = true
@@ -610,7 +611,7 @@
 			disabled: !savedApp || savedApp.draft_only
 		},
 		{
-			displayName: 'Diff',
+			displayName: t('editor.diff'),
 			icon: DiffIcon,
 			action: async () => {
 				if (!savedApp) {
@@ -638,21 +639,21 @@
 		},
 		// App debug menu
 		{
-			displayName: 'Troubleshoot panel',
+			displayName: t('app.troubleshoot'),
 			icon: Bug,
 			action: () => {
 				debugAppDrawerOpen = true
 			}
 		},
 		{
-			displayName: 'Lazy mode',
+			displayName: t('app.lazy_mode'),
 			icon: Zap,
 			action: () => {
 				lazyDrawerOpen = true
 			}
 		},
 		{
-			displayName: 'Hub export',
+			displayName: t('app.hub_export'),
 			icon: FileUp,
 			action: () => {
 				appExport?.open(toStatic($app, $staticExporter, $summary).app)
@@ -742,7 +743,7 @@
 
 {#if $appPath == ''}
 	<Drawer bind:open={draftDrawerOpen} size="800px">
-		<DrawerContent title="Initial draft save" on:close={() => closeDraftDrawer()}>
+		<DrawerContent title={t('editor.save_initial_draft')} on:close={() => closeDraftDrawer()}>
 			{#snippet actions()}
 				<div>
 					<Button
@@ -752,7 +753,7 @@
 						unifiedSize="md"
 						variant="accent"
 					>
-						Save initial draft
+						{t('editor.save_initial_draft')}
 					</Button>
 				</div>
 			{/snippet}
@@ -1079,7 +1080,7 @@
 				startIcon={{ icon: Bug }}
 			>
 				<div class="flex flex-row gap-1 items-center">
-					<div>Debug runs</div>
+					<div>{t('app.debug_runs')}</div>
 					<div class="text-2xs {hasErrors ? '' : 'text-primary'}"
 						>({$jobs?.length > 99 ? '99+' : ($jobs?.length ?? 0)})</div
 					>
@@ -1106,7 +1107,7 @@
 			disabled={!newApp && !savedApp}
 			shortCut={{ key: 'S' }}
 		>
-			Draft
+			{t('editor.draft')}
 		</Button>
 		<Button
 			variant="accent"
@@ -1117,7 +1118,7 @@
 			dropdownItems={$appPath != ''
 				? () => [
 						{
-							label: 'Fork',
+							label: t('action.fork'),
 							onClick: () => {
 								window.open(`/apps/add?template=${appPath}`)
 							}
@@ -1125,7 +1126,7 @@
 						...(!isCloudHosted() && !isRuleActive('DisableWorkspaceForking')
 							? [
 									{
-										label: 'Edit in workspace fork',
+										label: t('editor.edit_in_fork'),
 										onClick: () => {
 											window.open(buildForkEditUrl('app', $appPath))
 										}
@@ -1135,7 +1136,7 @@
 					]
 				: undefined}
 		>
-			Deploy
+			{t('editor.deploy')}
 		</Button>
 	</div>
 </div>

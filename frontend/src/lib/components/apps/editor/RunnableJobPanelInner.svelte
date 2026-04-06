@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '$lib/i18n/t.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
@@ -58,7 +59,7 @@
 				{#if testIsLoading}
 					<Loader2 class="animate-spin" />
 				{:else}
-					Test to see the result here
+					{t('editor.test_to_see_result')}
 				{/if}
 			</div>
 		{/if}
