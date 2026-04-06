@@ -1383,6 +1383,42 @@ pub async fn migrate_secrets_from_aws_kms(
     Ok(Json(report))
 }
 
+/// Test connection to AWS Secrets Manager
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn test_aws_sm_backend(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AwsSecretsManagerSettings>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    windmill_common::secret_backend::test_aws_sm_connection(&settings).await?;
+    Ok("Successfully connected to AWS Secrets Manager".to_string())
+}
+
+/// Migrate existing secrets from database to AWS Secrets Manager
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_to_aws_sm(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AwsSecretsManagerSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+    let report = windmill_common::secret_backend::migrate_secrets_to_aws_sm(&db, &settings).await?;
+    Ok(Json(report))
+}
+
+/// Migrate secrets from AWS Secrets Manager back to database
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_from_aws_sm(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AwsSecretsManagerSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+    let report = windmill_common::secret_backend::migrate_secrets_from_aws_sm(&db, &settings).await?;
+    Ok(Json(report))
+}
+
 // ============================================================================
 // JWKS Endpoint for Vault JWT Authentication
 // ============================================================================

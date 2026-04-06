@@ -1866,6 +1866,66 @@ paths:
               schema:
                 $ref: "#/components/schemas/SecretMigrationReport"
 
+  /settings/test_aws_sm_backend:
+    post:
+      summary: test connection to AWS Secrets Manager
+      operationId: testAwsSmBackend
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AwsSecretsManagerSettings"
+      responses:
+        "200":
+          description: connection test result
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/migrate_secrets_to_aws_sm:
+    post:
+      summary: migrate secrets from database to AWS Secrets Manager
+      operationId: migrateSecretsToAwsSm
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AwsSecretsManagerSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
+  /settings/migrate_secrets_from_aws_sm:
+    post:
+      summary: migrate secrets from AWS Secrets Manager to database
+      operationId: migrateSecretsFromAwsSm
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AwsSecretsManagerSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
   /users/email:
     get:
       summary: get current user email (if logged in)
@@ -19408,6 +19468,27 @@ components:
         endpoint_url:
           type: string
           description: Custom endpoint URL for testing (e.g., LocalStack)
+
+    AwsSecretsManagerSettings:
+      type: object
+      required:
+        - region
+      properties:
+        region:
+          type: string
+          description: AWS region (e.g., us-east-1)
+        access_key_id:
+          type: string
+          description: AWS Access Key ID (optional, uses default credential chain if not provided)
+        secret_access_key:
+          type: string
+          description: AWS Secret Access Key (optional)
+        endpoint_url:
+          type: string
+          description: Custom endpoint URL for testing (e.g., LocalStack)
+        prefix:
+          type: string
+          description: Prefix for secret names (e.g., windmill/)
 
     SecretMigrationFailure:
       type: object

@@ -6,11 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-//! Secret backend extension for the API layer
-//!
-//! This module provides helper functions for integrating the SecretBackend
-//! trait with variable operations in the API.
-
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use std::sync::Arc;
 
@@ -26,8 +21,8 @@ use windmill_common::secret_backend::{database::DatabaseBackend, SecretBackend};
 use windmill_common::{
     global_settings::{load_value_from_global_settings, SECRET_BACKEND_SETTING},
     secret_backend::{
-        AzureKeyVaultBackend, AzureKeyVaultSettings, SecretBackendConfig, VaultBackend,
-        VaultSettings,
+        AwsSecretsManagerBackend, AwsSecretsManagerSettings, AzureKeyVaultBackend,
+        AzureKeyVaultSettings, SecretBackendConfig, VaultBackend, VaultSettings,
     },
 };
 
@@ -57,12 +52,22 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
+struct CachedAwsSmBackend {
+    backend: Arc<dyn SecretBackend>,
+    settings: AwsSecretsManagerSettings,
+}
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+lazy_static::lazy_static! {
+    static ref AWS_SM_BACKEND_CACHE: RwLock<Option<CachedAwsSmBackend>> = RwLock::new(None);
+}
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
 async fn get_secret_backend(db: &DB) -> Result<Arc<dyn SecretBackend>> {
     let config = match load_value_from_global_settings(db, SECRET_BACKEND_SETTING).await? {
         Some(value) => serde_json::from_value::<SecretBackendConfig>(value).unwrap_or_default(),
         None => SecretBackendConfig::default(),
     };
-
     match config {
         SecretBackendConfig::Database => Ok(Arc::new(DatabaseBackend::new(db.clone()))),
         SecretBackendConfig::HashiCorpVault(settings) => {
@@ -71,11 +76,8 @@ async fn get_secret_backend(db: &DB) -> Result<Arc<dyn SecretBackend>> {
         SecretBackendConfig::AzureKeyVault(settings) => {
             get_or_create_azure_kv_backend(db, settings).await
         }
-        SecretBackendConfig::AwsKms(_) => {
-            // KMS backend: secrets are in DB encrypted by KMS.
-            // For API-layer operations (rename), we use the database backend
-            // since KMS secrets don't need external store operations.
-            Ok(Arc::new(DatabaseBackend::new(db.clone())))
+        SecretBackendConfig::AwsSecretsManager(settings) => {
+            get_or_create_aws_sm_backend(db, settings).await
         }
     }
 }
@@ -88,20 +90,13 @@ async fn get_or_create_vault_backend(
     {
         let cache = VAULT_BACKEND_CACHE.read().await;
         if let Some(ref cached) = *cache {
-            if cached.settings == settings {
-                return Ok(cached.backend.clone());
-            }
+            if cached.settings == settings { return Ok(cached.backend.clone()); }
         }
     }
-
     let mut cache = VAULT_BACKEND_CACHE.write().await;
-
     if let Some(ref cached) = *cache {
-        if cached.settings == settings {
-            return Ok(cached.backend.clone());
-        }
+        if cached.settings == settings { return Ok(cached.backend.clone()); }
     }
-
     let backend: Arc<dyn SecretBackend> = {
         #[cfg(feature = "openidconnect")]
         if settings.token.is_none() {
@@ -109,13 +104,10 @@ async fn get_or_create_vault_backend(
         } else {
             Arc::new(VaultBackend::new(settings.clone()))
         }
-
         #[cfg(not(feature = "openidconnect"))]
         Arc::new(VaultBackend::new(settings.clone()))
     };
-
     *cache = Some(CachedVaultBackend { backend: backend.clone(), settings });
-
     Ok(backend)
 }
 
@@ -127,24 +119,36 @@ async fn get_or_create_azure_kv_backend(
     {
         let cache = AZURE_KV_BACKEND_CACHE.read().await;
         if let Some(ref cached) = *cache {
-            if cached.settings == settings {
-                return Ok(cached.backend.clone());
-            }
+            if cached.settings == settings { return Ok(cached.backend.clone()); }
         }
     }
-
     let mut cache = AZURE_KV_BACKEND_CACHE.write().await;
-
     if let Some(ref cached) = *cache {
-        if cached.settings == settings {
-            return Ok(cached.backend.clone());
+        if cached.settings == settings { return Ok(cached.backend.clone()); }
+    }
+    let backend: Arc<dyn SecretBackend> = Arc::new(AzureKeyVaultBackend::new(settings.clone()));
+    *cache = Some(CachedAzureKvBackend { backend: backend.clone(), settings });
+    Ok(backend)
+}
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+async fn get_or_create_aws_sm_backend(
+    _db: &DB,
+    settings: AwsSecretsManagerSettings,
+) -> Result<Arc<dyn SecretBackend>> {
+    {
+        let cache = AWS_SM_BACKEND_CACHE.read().await;
+        if let Some(ref cached) = *cache {
+            if cached.settings == settings { return Ok(cached.backend.clone()); }
         }
     }
-
-    let backend: Arc<dyn SecretBackend> = Arc::new(AzureKeyVaultBackend::new(settings.clone()));
-
-    *cache = Some(CachedAzureKvBackend { backend: backend.clone(), settings });
-
+    let mut cache = AWS_SM_BACKEND_CACHE.write().await;
+    if let Some(ref cached) = *cache {
+        if cached.settings == settings { return Ok(cached.backend.clone()); }
+    }
+    let backend: Arc<dyn SecretBackend> =
+        Arc::new(AwsSecretsManagerBackend::new_with_client(settings.clone()).await?);
+    *cache = Some(CachedAwsSmBackend { backend: backend.clone(), settings });
     Ok(backend)
 }
 
@@ -154,35 +158,31 @@ async fn is_vault_backend_configured(db: &DB) -> Result<bool> {
         Some(value) => serde_json::from_value::<SecretBackendConfig>(value).unwrap_or_default(),
         None => SecretBackendConfig::default(),
     };
-
-    // AwsKms intentionally excluded: KMS secrets are in the DB, no external rename needed
     Ok(matches!(
         config,
-        SecretBackendConfig::HashiCorpVault(_) | SecretBackendConfig::AzureKeyVault(_)
+        SecretBackendConfig::HashiCorpVault(_)
+            | SecretBackendConfig::AzureKeyVault(_)
+            | SecretBackendConfig::AwsSecretsManager(_)
     ))
 }
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
-fn is_vault_stored_value(value: &str) -> bool {
-    value.starts_with("$vault:")
-}
+fn is_vault_stored_value(value: &str) -> bool { value.starts_with("$vault:") }
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
-fn is_azure_kv_stored_value(value: &str) -> bool {
-    value.starts_with("$azure_kv:")
-}
+fn is_azure_kv_stored_value(value: &str) -> bool { value.starts_with("$azure_kv:") }
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+fn is_aws_sm_stored_value(value: &str) -> bool { value.starts_with("$aws_sm:") }
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
 fn is_external_stored_value(value: &str) -> bool {
-    is_vault_stored_value(value) || is_azure_kv_stored_value(value)
+    is_vault_stored_value(value) || is_azure_kv_stored_value(value) || is_aws_sm_stored_value(value)
 }
 
 #[cfg(not(all(feature = "private", feature = "enterprise")))]
 pub async fn rename_vault_secrets_with_prefix(
-    _db: &DB,
-    _workspace_id: &str,
-    _old_prefix: &str,
-    _new_prefix: &str,
+    _db: &DB, _workspace_id: &str, _old_prefix: &str, _new_prefix: &str,
     _variables: Vec<(String, String)>,
 ) -> Result<Vec<(String, String)>> {
     Ok(vec![])
@@ -190,35 +190,27 @@ pub async fn rename_vault_secrets_with_prefix(
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
 pub async fn rename_vault_secrets_with_prefix(
-    db: &DB,
-    workspace_id: &str,
-    old_prefix: &str,
-    new_prefix: &str,
+    db: &DB, workspace_id: &str, old_prefix: &str, new_prefix: &str,
     variables: Vec<(String, String)>,
 ) -> Result<Vec<(String, String)>> {
-    if !is_vault_backend_configured(db).await? {
-        return Ok(vec![]);
-    }
-
+    if !is_vault_backend_configured(db).await? { return Ok(vec![]); }
     let backend = get_secret_backend(db).await?;
     let mut updates = Vec::new();
 
     for (old_path, value) in variables {
-        if !is_external_stored_value(&value) {
-            continue;
-        }
+        if !is_external_stored_value(&value) { continue; }
 
-        let marker_prefix = if is_azure_kv_stored_value(&value) {
+        let marker_prefix = if value.starts_with("$azure_kv:") {
             "$azure_kv:"
+        } else if value.starts_with("$aws_sm:") {
+            "$aws_sm:"
         } else {
             "$vault:"
         };
 
         let new_path = if old_path.starts_with(old_prefix) {
             format!("{}{}", new_prefix, &old_path[old_prefix.len()..])
-        } else {
-            continue;
-        };
+        } else { continue; };
 
         let secret_value = match backend.get_secret(workspace_id, &old_path).await {
             Ok(v) => v,
@@ -227,37 +219,21 @@ pub async fn rename_vault_secrets_with_prefix(
                 continue;
             }
             Err(e) => {
-                tracing::error!(
-                    "Failed to read secret at {} during bulk rename: {}",
-                    old_path,
-                    e
-                );
+                tracing::error!("Failed to read secret at {} during bulk rename: {}", old_path, e);
                 continue;
             }
         };
 
-        if let Err(e) = backend
-            .set_secret(workspace_id, &new_path, &secret_value)
-            .await
-        {
-            tracing::error!(
-                "Failed to write secret to {} during bulk rename: {}",
-                new_path,
-                e
-            );
+        if let Err(e) = backend.set_secret(workspace_id, &new_path, &secret_value).await {
+            tracing::error!("Failed to write secret to {} during bulk rename: {}", new_path, e);
             continue;
         }
 
         if let Err(e) = backend.delete_secret(workspace_id, &old_path).await {
-            tracing::warn!(
-                "Failed to delete old secret at {} after rename: {}",
-                old_path,
-                e
-            );
+            tracing::warn!("Failed to delete old secret at {} after rename: {}", old_path, e);
         }
 
         updates.push((old_path, format!("{}{}", marker_prefix, new_path)));
     }
-
     Ok(updates)
 }
