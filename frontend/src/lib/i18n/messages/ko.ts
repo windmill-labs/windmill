@@ -78,6 +78,33 @@ export const ko: Record<MessageKey, string> = {
 	'action.close': '닫기',
 	'action.confirm': '확인',
 	'action.refresh': '새로고침',
+	'action.duplicate': '복제',
+	'action.fork': '포크',
+	'action.rename': '이름 변경',
+	'action.move': '이동',
+	'action.copy_path': '경로 복사',
+	'action.export': '내보내기',
+	'action.undo': '실행 취소',
+	'action.redo': '다시 실행',
+	'action.test': '테스트',
+	'action.view': '보기',
+	'action.next': '다음',
+	'action.previous': '이전',
+	'action.remove': '제거',
+	'action.enable': '활성화',
+	'action.disable': '비활성화',
+	'action.see_permissions': '권한 보기',
+	'action.deploy_to_prod': '프로덕션/스테이징에 배포',
+	'action.refresh_token': '토큰 갱신',
+	'action.view_runs': '실행 보기',
+	'action.view_code': '코드 보기',
+	'action.audit_logs': '감사 로그',
+	'action.schedule': '스케줄',
+	'action.versions': '버전',
+	'action.delete_draft': 'Draft 삭제',
+	'action.publish_to_hub': 'Hub에 게시',
+	'action.run_now': '지금 실행',
+	'action.manage': '관리',
 
 	// Page headers
 	'page.home': '홈',
@@ -86,5 +113,134 @@ export const ko: Record<MessageKey, string> = {
 	'page.schedules': '스케줄',
 	'page.workers': '워커',
 	'page.folders': '폴더',
-	'page.groups': '그룹'
+	'page.groups': '그룹',
+	'page.runs': '실행',
+
+	// Home page
+	'home.create_a': '생성:',
+	'home.workspace': '워크스페이스',
+	'home.hub': 'Hub',
+	'home.scripts': '스크립트',
+	'home.flows': '플로우',
+	'home.apps': '앱',
+	'home.hub_flow': 'Hub 플로우',
+	'home.hub_app': 'Hub 앱',
+	'home.view_on_hub': 'Hub에서 보기',
+	'home.content': '콘텐츠',
+
+	// Variables page
+	'variables.new_variable': '새 변수',
+	'variables.new_contextual': '새 컨텍스트 변수',
+	'variables.contextual': '컨텍스트',
+	'variables.custom_contextual': '사용자 정의 컨텍스트 변수',
+	'variables.contextual_vars': '컨텍스트 변수',
+	'variables.no_variables': '변수를 찾을 수 없습니다',
+	'variables.path': '경로',
+	'variables.value': '값',
+	'variables.description': '설명',
+
+	// Resources page
+	'resources.new_resource': '새 리소스',
+
+	// Schedules page
+	'schedules.duplicate': '스케줄 복제',
+	'schedules.view_script': '스크립트 보기',
+	'schedules.view_flow': '플로우 보기',
+
+	// Runs page
+	'runs.cancel_jobs': '작업 취소',
+	'runs.rerun_jobs': '작업 재실행',
+	'runs.cancel_all': '필터와 일치하는 모든 작업 취소',
+	'runs.rerun_all': '필터와 일치하는 모든 작업 재실행',
+	'runs.force_cancel': '강제 취소',
+
+	// Editor - common
+	'editor.save': '저장',
+	'editor.deploy': '배포',
+	'editor.draft': 'Draft',
+	'editor.test': '테스트',
+	'editor.test_and_record': '테스트 및 기록',
+	'editor.history': '히스토리',
+	'editor.versions_history': '버전 히스토리',
+	'editor.deployment_history': '배포 히스토리',
+	'editor.edit_in_yaml': 'YAML로 편집',
+	'editor.flow_settings': '플로우 설정',
+	'editor.export': '내보내기',
+	'editor.diff': '차이점',
+	'editor.editor': '편집기',
+	'editor.preview': '미리보기',
+	'editor.main': '메인',
+	'editor.preprocessor': '전처리기',
+	'editor.diagram': '다이어그램',
+	'editor.save_to_workspace': '워크스페이스에 저장',
+	'editor.exit_see_details': '종료 후 상세 보기',
+	'editor.edit_in_fork': '포크에서 편집',
+	'editor.save_anyway': '그래도 저장',
+	'editor.invite_others': '다른 사용자 초대',
+
+	// Flow editor
+	'flow.test_flow': '플로우 테스트',
+	'flow.test_flow_record': '플로우 테스트 및 기록',
+	'flow.build_a_flow': '플로우 만들기',
+	'flow.fix_broken_flow': '오류 플로우 수정',
+	'flow.reset_tutorials': '튜토리얼 초기화',
+	'flow.skip_tutorials': '튜토리얼 건너뛰기',
+	'flow.create_group': '그룹 생성',
+	'flow.test_iteration': '반복 테스트',
+	'flow.skip_failures': '실패 건너뛰기',
+	'flow.run_parallel': '병렬 실행',
+
+	// App editor
+	'app.public_url': '공개 URL',
+	'app.app_inputs': '앱 입력',
+	'app.schedule_reports': '보고서 예약',
+	'app.troubleshoot': '문제 해결 패널',
+	'app.lazy_mode': '지연 모드',
+	'app.hub_export': 'Hub 내보내기',
+
+	// Status labels
+	'status.default': '기본',
+	'status.primary': '주요',
+	'status.modified': '수정됨',
+	'status.draft': 'Draft',
+
+	// Tabs - common
+	'tab.workspace': '워크스페이스',
+	'tab.contextual': '컨텍스트',
+	'tab.hub': 'Hub',
+	'tab.scripts': '스크립트',
+	'tab.flows': '플로우',
+	'tab.apps': '앱',
+
+	// Row actions (scripts/flows/apps)
+	'row.view_json': 'JSON/YAML 보기',
+	'row.move_rename': '이동/이름 변경',
+	'row.duplicate_fork': '복제/포크',
+	'row.go_to_public_page': '공개 페이지로 이동',
+	'row.deployments': '배포',
+
+	// Confirmation dialogs
+	'confirm.delete_forever': '영구 삭제',
+	'confirm.empty_trashbin': '휴지통 비우기',
+	'confirm.discard_changes': '변경 사항 취소',
+	'confirm.override': '덮어쓰기',
+
+	// Groups/Folders
+	'groups.manage_group': '그룹 관리',
+	'groups.new_group': '새 그룹',
+	'folders.manage_folder': '폴더 관리',
+	'folders.new_folder': '새 폴더',
+
+	// Triggers
+	'triggers.suspend_job': '작업 실행 일시 중지',
+	'triggers.more_triggers': '더 많은 트리거',
+	'triggers.scheduled_poll': '예약 폴링',
+
+	// Misc
+	'misc.all_workspaces': '모든 워크스페이스',
+	'misc.instance_settings': '인스턴스 설정',
+	'misc.search': '검색',
+	'misc.filter': '필터',
+	'misc.tree_view': '트리 보기',
+	'misc.loading': '로딩 중...'
 }

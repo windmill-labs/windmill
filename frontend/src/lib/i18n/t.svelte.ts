@@ -1,42 +1,55 @@
-import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { type Locale, SUPPORTED_LOCALES, detectLocale } from './index'
 import { en, type MessageKey } from './messages/en'
 import { messages } from './messages/index'
 
-export type LocaleChoice = Locale | 'auto'
+/**
+ * Persist locale in localStorage directly (not via getLocalSetting)
+ * to survive as long as possible — localStorage has no expiry.
+ */
+const STORAGE_KEY = 'wm_locale'
 
-function getInitialChoice(): LocaleChoice {
-	const stored = getLocalSetting('locale')
-	if (stored && SUPPORTED_LOCALES.includes(stored as Locale)) {
-		return stored as Locale
-	}
-	return 'auto'
+function readStored(): Locale | undefined {
+	try {
+		const v = localStorage.getItem(STORAGE_KEY)
+		if (v && SUPPORTED_LOCALES.includes(v as Locale)) return v as Locale
+	} catch {}
+	return undefined
 }
 
-let choice = $state<LocaleChoice>(getInitialChoice())
+function writeStored(l: Locale) {
+	try {
+		localStorage.setItem(STORAGE_KEY, l)
+	} catch {}
+}
 
-/** The resolved locale actually used for translations */
+/** Default is English. User can switch to any supported locale. */
+let locale = $state<Locale>(readStored() ?? 'en')
+
 export function getLocale(): Locale {
-	return choice === 'auto' ? detectLocale() : choice
+	return locale
 }
 
-/** The raw user choice ('auto' or a specific locale) */
-export function getLocaleChoice(): LocaleChoice {
-	return choice
+/** Whether the user's browser language differs from the active locale */
+export function detectedDiffers(): boolean {
+	return detectLocale() !== locale
 }
 
-export function setLocale(l: LocaleChoice) {
-	choice = l
-	storeLocalSetting('locale', l === 'auto' ? undefined : l)
+/** The browser-detected locale (for the alert banner) */
+export function getDetectedLocale(): Locale {
+	return detectLocale()
+}
+
+export function setLocale(l: Locale) {
+	locale = l
+	writeStored(l)
 	if (typeof document !== 'undefined') {
-		document.documentElement.lang = getLocale()
+		document.documentElement.lang = l
 	}
 }
 
 export function t(key: MessageKey): string {
-	const loc = getLocale()
-	if (loc === 'en') {
+	if (locale === 'en') {
 		return en[key]
 	}
-	return messages[loc]?.[key] ?? en[key]
+	return messages[locale]?.[key] ?? en[key]
 }

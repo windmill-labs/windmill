@@ -76,6 +76,33 @@ export const en = {
 	'action.close': 'Close',
 	'action.confirm': 'Confirm',
 	'action.refresh': 'Refresh',
+	'action.duplicate': 'Duplicate',
+	'action.fork': 'Fork',
+	'action.rename': 'Rename',
+	'action.move': 'Move',
+	'action.copy_path': 'Copy path',
+	'action.export': 'Export',
+	'action.undo': 'Undo',
+	'action.redo': 'Redo',
+	'action.test': 'Test',
+	'action.view': 'View',
+	'action.next': 'Next',
+	'action.previous': 'Previous',
+	'action.remove': 'Remove',
+	'action.enable': 'Enable',
+	'action.disable': 'Disable',
+	'action.see_permissions': 'See Permissions',
+	'action.deploy_to_prod': 'Deploy to prod/staging',
+	'action.refresh_token': 'Refresh token',
+	'action.view_runs': 'View runs',
+	'action.view_code': 'View code',
+	'action.audit_logs': 'Audit logs',
+	'action.schedule': 'Schedule',
+	'action.versions': 'Versions',
+	'action.delete_draft': 'Delete Draft',
+	'action.publish_to_hub': 'Publish to Hub',
+	'action.run_now': 'Run now',
+	'action.manage': 'Manage',
 
 	// Page headers
 	'page.home': 'Home',
@@ -84,7 +111,136 @@ export const en = {
 	'page.schedules': 'Schedules',
 	'page.workers': 'Workers',
 	'page.folders': 'Folders',
-	'page.groups': 'Groups'
+	'page.groups': 'Groups',
+	'page.runs': 'Runs',
+
+	// Home page
+	'home.create_a': 'Create a',
+	'home.workspace': 'Workspace',
+	'home.hub': 'Hub',
+	'home.scripts': 'Scripts',
+	'home.flows': 'Flows',
+	'home.apps': 'Apps',
+	'home.hub_flow': 'Hub flow',
+	'home.hub_app': 'Hub app',
+	'home.view_on_hub': 'View on the Hub',
+	'home.content': 'Content',
+
+	// Variables page
+	'variables.new_variable': 'New variable',
+	'variables.new_contextual': 'New contextual variable',
+	'variables.contextual': 'Contextual',
+	'variables.custom_contextual': 'Custom contextual variables',
+	'variables.contextual_vars': 'Contextual variables',
+	'variables.no_variables': 'No variables found',
+	'variables.path': 'Path',
+	'variables.value': 'Value',
+	'variables.description': 'Description',
+
+	// Resources page
+	'resources.new_resource': 'New resource',
+
+	// Schedules page
+	'schedules.duplicate': 'Duplicate schedule',
+	'schedules.view_script': 'View Script',
+	'schedules.view_flow': 'View Flow',
+
+	// Runs page
+	'runs.cancel_jobs': 'Cancel jobs',
+	'runs.rerun_jobs': 'Re-run jobs',
+	'runs.cancel_all': 'Cancel all jobs matching filters',
+	'runs.rerun_all': 'Re-run all jobs matching filters',
+	'runs.force_cancel': 'Force Cancel',
+
+	// Editor - common
+	'editor.save': 'Save',
+	'editor.deploy': 'Deploy',
+	'editor.draft': 'Draft',
+	'editor.test': 'Test',
+	'editor.test_and_record': 'Test & record',
+	'editor.history': 'History',
+	'editor.versions_history': 'Versions History',
+	'editor.deployment_history': 'Deployment History',
+	'editor.edit_in_yaml': 'Edit in YAML',
+	'editor.flow_settings': 'Flow settings',
+	'editor.export': 'Export',
+	'editor.diff': 'Diff',
+	'editor.editor': 'Editor',
+	'editor.preview': 'Preview',
+	'editor.main': 'Main',
+	'editor.preprocessor': 'Preprocessor',
+	'editor.diagram': 'Diagram',
+	'editor.save_to_workspace': 'Save to workspace',
+	'editor.exit_see_details': 'Exit & see details',
+	'editor.edit_in_fork': 'Edit in workspace fork',
+	'editor.save_anyway': 'Save anyway',
+	'editor.invite_others': 'Invite others',
+
+	// Flow editor
+	'flow.test_flow': 'Test flow',
+	'flow.test_flow_record': 'Test flow & record',
+	'flow.build_a_flow': 'Build a flow',
+	'flow.fix_broken_flow': 'Fix a broken flow',
+	'flow.reset_tutorials': 'Reset tutorials',
+	'flow.skip_tutorials': 'Skip tutorials',
+	'flow.create_group': 'Create group',
+	'flow.test_iteration': 'Test an iteration',
+	'flow.skip_failures': 'Skip failures',
+	'flow.run_parallel': 'Run in parallel',
+
+	// App editor
+	'app.public_url': 'Public URL',
+	'app.app_inputs': 'App inputs',
+	'app.schedule_reports': 'Schedule reports',
+	'app.troubleshoot': 'Troubleshoot panel',
+	'app.lazy_mode': 'Lazy mode',
+	'app.hub_export': 'Hub export',
+
+	// Status labels
+	'status.default': 'Default',
+	'status.primary': 'Primary',
+	'status.modified': 'Modified',
+	'status.draft': 'Draft',
+
+	// Tabs - common
+	'tab.workspace': 'Workspace',
+	'tab.contextual': 'Contextual',
+	'tab.hub': 'Hub',
+	'tab.scripts': 'Scripts',
+	'tab.flows': 'Flows',
+	'tab.apps': 'Apps',
+
+	// Row actions (scripts/flows/apps)
+	'row.view_json': 'View JSON/YAML',
+	'row.move_rename': 'Move/Rename',
+	'row.duplicate_fork': 'Duplicate/Fork',
+	'row.go_to_public_page': 'Go to public page',
+	'row.deployments': 'Deployments',
+
+	// Confirmation dialogs
+	'confirm.delete_forever': 'Delete forever',
+	'confirm.empty_trashbin': 'Empty trashbin',
+	'confirm.discard_changes': 'Discard changes',
+	'confirm.override': 'Override',
+
+	// Groups/Folders
+	'groups.manage_group': 'Manage group',
+	'groups.new_group': 'New group',
+	'folders.manage_folder': 'Manage folder',
+	'folders.new_folder': 'New folder',
+
+	// Triggers
+	'triggers.suspend_job': 'Suspend job execution',
+	'triggers.more_triggers': 'More triggers',
+	'triggers.scheduled_poll': 'Scheduled Poll',
+
+	// Misc
+	'misc.all_workspaces': 'All workspaces',
+	'misc.instance_settings': 'Instance settings',
+	'misc.search': 'Search',
+	'misc.filter': 'Filter',
+	'misc.tree_view': 'Tree view',
+	'misc.loading': 'Loading...'
 } as const
 
 export type MessageKey = keyof typeof en

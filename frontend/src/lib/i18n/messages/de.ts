@@ -78,6 +78,33 @@ export const de: Record<MessageKey, string> = {
 	'action.close': 'Schließen',
 	'action.confirm': 'Bestätigen',
 	'action.refresh': 'Aktualisieren',
+	'action.duplicate': 'Duplizieren',
+	'action.fork': 'Fork',
+	'action.rename': 'Umbenennen',
+	'action.move': 'Verschieben',
+	'action.copy_path': 'Pfad kopieren',
+	'action.export': 'Exportieren',
+	'action.undo': 'Rückgängig',
+	'action.redo': 'Wiederholen',
+	'action.test': 'Testen',
+	'action.view': 'Ansehen',
+	'action.next': 'Weiter',
+	'action.previous': 'Zurück',
+	'action.remove': 'Entfernen',
+	'action.enable': 'Aktivieren',
+	'action.disable': 'Deaktivieren',
+	'action.see_permissions': 'Berechtigungen',
+	'action.deploy_to_prod': 'Auf Prod deployen',
+	'action.refresh_token': 'Token erneuern',
+	'action.view_runs': 'Ausführungen',
+	'action.view_code': 'Code ansehen',
+	'action.audit_logs': 'Audit-Logs',
+	'action.schedule': 'Planen',
+	'action.versions': 'Versionen',
+	'action.delete_draft': 'Draft löschen',
+	'action.publish_to_hub': 'Im Hub veröffentlichen',
+	'action.run_now': 'Jetzt ausführen',
+	'action.manage': 'Verwalten',
 
 	// Page headers
 	'page.home': 'Start',
@@ -86,5 +113,134 @@ export const de: Record<MessageKey, string> = {
 	'page.schedules': 'Zeitpläne',
 	'page.workers': 'Workers',
 	'page.folders': 'Ordner',
-	'page.groups': 'Gruppen'
+	'page.groups': 'Gruppen',
+	'page.runs': 'Ausführungen',
+
+	// Home page
+	'home.create_a': 'Erstellen:',
+	'home.workspace': 'Workspace',
+	'home.hub': 'Hub',
+	'home.scripts': 'Skripte',
+	'home.flows': 'Flows',
+	'home.apps': 'Apps',
+	'home.hub_flow': 'Hub-Flow',
+	'home.hub_app': 'Hub-App',
+	'home.view_on_hub': 'Im Hub ansehen',
+	'home.content': 'Inhalte',
+
+	// Variables page
+	'variables.new_variable': 'Neue Variable',
+	'variables.new_contextual': 'Neue Kontextvariable',
+	'variables.contextual': 'Kontext',
+	'variables.custom_contextual': 'Eigene Kontextvariablen',
+	'variables.contextual_vars': 'Kontextvariablen',
+	'variables.no_variables': 'Keine Variablen gefunden',
+	'variables.path': 'Pfad',
+	'variables.value': 'Wert',
+	'variables.description': 'Beschreibung',
+
+	// Resources page
+	'resources.new_resource': 'Neue Ressource',
+
+	// Schedules page
+	'schedules.duplicate': 'Zeitplan duplizieren',
+	'schedules.view_script': 'Skript ansehen',
+	'schedules.view_flow': 'Flow ansehen',
+
+	// Runs page
+	'runs.cancel_jobs': 'Jobs abbrechen',
+	'runs.rerun_jobs': 'Jobs neu starten',
+	'runs.cancel_all': 'Alle gefilterten Jobs abbrechen',
+	'runs.rerun_all': 'Alle gefilterten Jobs neu starten',
+	'runs.force_cancel': 'Erzwungen abbrechen',
+
+	// Editor - common
+	'editor.save': 'Speichern',
+	'editor.deploy': 'Deployen',
+	'editor.draft': 'Draft',
+	'editor.test': 'Testen',
+	'editor.test_and_record': 'Testen & aufzeichnen',
+	'editor.history': 'Verlauf',
+	'editor.versions_history': 'Versionsverlauf',
+	'editor.deployment_history': 'Deployment-Verlauf',
+	'editor.edit_in_yaml': 'In YAML bearbeiten',
+	'editor.flow_settings': 'Flow-Einstellungen',
+	'editor.export': 'Exportieren',
+	'editor.diff': 'Diff',
+	'editor.editor': 'Editor',
+	'editor.preview': 'Vorschau',
+	'editor.main': 'Main',
+	'editor.preprocessor': 'Preprocessor',
+	'editor.diagram': 'Diagramm',
+	'editor.save_to_workspace': 'Im Workspace speichern',
+	'editor.exit_see_details': 'Beenden & Details',
+	'editor.edit_in_fork': 'Im Fork bearbeiten',
+	'editor.save_anyway': 'Trotzdem speichern',
+	'editor.invite_others': 'Andere einladen',
+
+	// Flow editor
+	'flow.test_flow': 'Flow testen',
+	'flow.test_flow_record': 'Flow testen & aufzeichnen',
+	'flow.build_a_flow': 'Flow erstellen',
+	'flow.fix_broken_flow': 'Flow reparieren',
+	'flow.reset_tutorials': 'Tutorials zurücksetzen',
+	'flow.skip_tutorials': 'Tutorials überspringen',
+	'flow.create_group': 'Gruppe erstellen',
+	'flow.test_iteration': 'Iteration testen',
+	'flow.skip_failures': 'Fehler überspringen',
+	'flow.run_parallel': 'Parallel ausführen',
+
+	// App editor
+	'app.public_url': 'Öffentliche URL',
+	'app.app_inputs': 'App-Eingaben',
+	'app.schedule_reports': 'Berichte planen',
+	'app.troubleshoot': 'Fehlerbehebung',
+	'app.lazy_mode': 'Lazy-Modus',
+	'app.hub_export': 'Hub-Export',
+
+	// Status labels
+	'status.default': 'Standard',
+	'status.primary': 'Primär',
+	'status.modified': 'Geändert',
+	'status.draft': 'Draft',
+
+	// Tabs - common
+	'tab.workspace': 'Workspace',
+	'tab.contextual': 'Kontext',
+	'tab.hub': 'Hub',
+	'tab.scripts': 'Skripte',
+	'tab.flows': 'Flows',
+	'tab.apps': 'Apps',
+
+	// Row actions (scripts/flows/apps)
+	'row.view_json': 'JSON/YAML ansehen',
+	'row.move_rename': 'Verschieben/Umbenennen',
+	'row.duplicate_fork': 'Duplizieren/Fork',
+	'row.go_to_public_page': 'Öffentliche Seite',
+	'row.deployments': 'Deployments',
+
+	// Confirmation dialogs
+	'confirm.delete_forever': 'Endgültig löschen',
+	'confirm.empty_trashbin': 'Papierkorb leeren',
+	'confirm.discard_changes': 'Änderungen verwerfen',
+	'confirm.override': 'Überschreiben',
+
+	// Groups/Folders
+	'groups.manage_group': 'Gruppe verwalten',
+	'groups.new_group': 'Neue Gruppe',
+	'folders.manage_folder': 'Ordner verwalten',
+	'folders.new_folder': 'Neuer Ordner',
+
+	// Triggers
+	'triggers.suspend_job': 'Job pausieren',
+	'triggers.more_triggers': 'Weitere Trigger',
+	'triggers.scheduled_poll': 'Geplante Abfrage',
+
+	// Misc
+	'misc.all_workspaces': 'Alle Workspaces',
+	'misc.instance_settings': 'Instanzeinstellungen',
+	'misc.search': 'Suchen',
+	'misc.filter': 'Filtern',
+	'misc.tree_view': 'Baumansicht',
+	'misc.loading': 'Laden...'
 }

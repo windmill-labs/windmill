@@ -16,7 +16,7 @@
 	import MenuButton from './MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import { type MenubarBuilders } from '@melt-ui/svelte'
-	import { t, getLocale, getLocaleChoice, setLocale } from '$lib/i18n/t.svelte'
+	import { t, getLocale, setLocale } from '$lib/i18n/t.svelte'
 	import { SUPPORTED_LOCALES, LOCALE_NAMES } from '$lib/i18n/index'
 
 	let showLanguages = $state(false)
@@ -101,30 +101,17 @@
 				}}
 			>
 				<Languages size={16} />
-				{t('user.language')}: {getLocaleChoice() === 'auto'
-					? 'Detected'
-					: LOCALE_NAMES[getLocale()]}
+				{t('user.language')}: {LOCALE_NAMES[getLocale()]}
 			</div>
 			{#if showLanguages}
 				<div class="border-t border-b py-1">
-					<MenuItem
-						onClick={() => setLocale('auto')}
-						class={twMerge(
-							itemClass,
-							'pl-8',
-							getLocaleChoice() === 'auto' ? 'font-semibold text-primary' : ''
-						)}
-						{item}
-					>
-						Detected ({LOCALE_NAMES[getLocale()]})
-					</MenuItem>
 					{#each SUPPORTED_LOCALES as loc (loc)}
 						<MenuItem
 							onClick={() => setLocale(loc)}
 							class={twMerge(
 								itemClass,
 								'pl-8',
-								getLocaleChoice() === loc ? 'font-semibold text-primary' : ''
+								getLocale() === loc ? 'font-semibold text-primary' : ''
 							)}
 							{item}
 						>

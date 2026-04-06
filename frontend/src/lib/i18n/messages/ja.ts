@@ -78,6 +78,33 @@ export const ja: Record<MessageKey, string> = {
 	'action.close': '閉じる',
 	'action.confirm': '確認',
 	'action.refresh': '更新',
+	'action.duplicate': '複製',
+	'action.fork': 'フォーク',
+	'action.rename': '名前変更',
+	'action.move': '移動',
+	'action.copy_path': 'パスをコピー',
+	'action.export': 'エクスポート',
+	'action.undo': '元に戻す',
+	'action.redo': 'やり直す',
+	'action.test': 'テスト',
+	'action.view': '表示',
+	'action.next': '次へ',
+	'action.previous': '前へ',
+	'action.remove': '削除',
+	'action.enable': '有効化',
+	'action.disable': '無効化',
+	'action.see_permissions': '権限を表示',
+	'action.deploy_to_prod': '本番/ステージングにデプロイ',
+	'action.refresh_token': 'トークンを更新',
+	'action.view_runs': '実行を表示',
+	'action.view_code': 'コードを表示',
+	'action.audit_logs': '監査ログ',
+	'action.schedule': 'スケジュール',
+	'action.versions': 'バージョン',
+	'action.delete_draft': 'Draftを削除',
+	'action.publish_to_hub': 'Hubに公開',
+	'action.run_now': '今すぐ実行',
+	'action.manage': '管理',
 
 	// Page headers
 	'page.home': 'ホーム',
@@ -86,5 +113,134 @@ export const ja: Record<MessageKey, string> = {
 	'page.schedules': 'スケジュール',
 	'page.workers': 'ワーカー',
 	'page.folders': 'フォルダ',
-	'page.groups': 'グループ'
+	'page.groups': 'グループ',
+	'page.runs': '実行',
+
+	// Home page
+	'home.create_a': '作成:',
+	'home.workspace': 'ワークスペース',
+	'home.hub': 'Hub',
+	'home.scripts': 'スクリプト',
+	'home.flows': 'フロー',
+	'home.apps': 'アプリ',
+	'home.hub_flow': 'Hubフロー',
+	'home.hub_app': 'Hubアプリ',
+	'home.view_on_hub': 'Hubで表示',
+	'home.content': 'コンテンツ',
+
+	// Variables page
+	'variables.new_variable': '新しい変数',
+	'variables.new_contextual': '新しいコンテキスト変数',
+	'variables.contextual': 'コンテキスト',
+	'variables.custom_contextual': 'カスタムコンテキスト変数',
+	'variables.contextual_vars': 'コンテキスト変数',
+	'variables.no_variables': '変数が見つかりません',
+	'variables.path': 'パス',
+	'variables.value': '値',
+	'variables.description': '説明',
+
+	// Resources page
+	'resources.new_resource': '新しいリソース',
+
+	// Schedules page
+	'schedules.duplicate': 'スケジュールを複製',
+	'schedules.view_script': 'スクリプトを表示',
+	'schedules.view_flow': 'フローを表示',
+
+	// Runs page
+	'runs.cancel_jobs': 'ジョブをキャンセル',
+	'runs.rerun_jobs': 'ジョブを再実行',
+	'runs.cancel_all': 'フィルター一致のジョブを全てキャンセル',
+	'runs.rerun_all': 'フィルター一致のジョブを全て再実行',
+	'runs.force_cancel': '強制キャンセル',
+
+	// Editor - common
+	'editor.save': '保存',
+	'editor.deploy': 'デプロイ',
+	'editor.draft': 'Draft',
+	'editor.test': 'テスト',
+	'editor.test_and_record': 'テストして記録',
+	'editor.history': '履歴',
+	'editor.versions_history': 'バージョン履歴',
+	'editor.deployment_history': 'デプロイ履歴',
+	'editor.edit_in_yaml': 'YAMLで編集',
+	'editor.flow_settings': 'フロー設定',
+	'editor.export': 'エクスポート',
+	'editor.diff': '差分',
+	'editor.editor': 'エディタ',
+	'editor.preview': 'プレビュー',
+	'editor.main': 'メイン',
+	'editor.preprocessor': 'プリプロセッサ',
+	'editor.diagram': 'ダイアグラム',
+	'editor.save_to_workspace': 'ワークスペースに保存',
+	'editor.exit_see_details': '終了して詳細を表示',
+	'editor.edit_in_fork': 'フォークで編集',
+	'editor.save_anyway': 'そのまま保存',
+	'editor.invite_others': '他のユーザーを招待',
+
+	// Flow editor
+	'flow.test_flow': 'フローをテスト',
+	'flow.test_flow_record': 'フローをテストして記録',
+	'flow.build_a_flow': 'フローを作成',
+	'flow.fix_broken_flow': 'エラーのあるフローを修正',
+	'flow.reset_tutorials': 'チュートリアルをリセット',
+	'flow.skip_tutorials': 'チュートリアルをスキップ',
+	'flow.create_group': 'グループを作成',
+	'flow.test_iteration': 'イテレーションをテスト',
+	'flow.skip_failures': '失敗をスキップ',
+	'flow.run_parallel': '並列実行',
+
+	// App editor
+	'app.public_url': '公開URL',
+	'app.app_inputs': 'アプリ入力',
+	'app.schedule_reports': 'レポートをスケジュール',
+	'app.troubleshoot': 'トラブルシュートパネル',
+	'app.lazy_mode': '遅延モード',
+	'app.hub_export': 'Hubエクスポート',
+
+	// Status labels
+	'status.default': 'デフォルト',
+	'status.primary': 'プライマリ',
+	'status.modified': '変更済み',
+	'status.draft': 'Draft',
+
+	// Tabs - common
+	'tab.workspace': 'ワークスペース',
+	'tab.contextual': 'コンテキスト',
+	'tab.hub': 'Hub',
+	'tab.scripts': 'スクリプト',
+	'tab.flows': 'フロー',
+	'tab.apps': 'アプリ',
+
+	// Row actions (scripts/flows/apps)
+	'row.view_json': 'JSON/YAMLを表示',
+	'row.move_rename': '移動/名前変更',
+	'row.duplicate_fork': '複製/フォーク',
+	'row.go_to_public_page': '公開ページを表示',
+	'row.deployments': 'デプロイ',
+
+	// Confirmation dialogs
+	'confirm.delete_forever': '完全に削除',
+	'confirm.empty_trashbin': 'ゴミ箱を空にする',
+	'confirm.discard_changes': '変更を破棄',
+	'confirm.override': '上書き',
+
+	// Groups/Folders
+	'groups.manage_group': 'グループを管理',
+	'groups.new_group': '新しいグループ',
+	'folders.manage_folder': 'フォルダを管理',
+	'folders.new_folder': '新しいフォルダ',
+
+	// Triggers
+	'triggers.suspend_job': 'ジョブ実行を一時停止',
+	'triggers.more_triggers': 'その他のトリガー',
+	'triggers.scheduled_poll': 'スケジュールポーリング',
+
+	// Misc
+	'misc.all_workspaces': '全ワークスペース',
+	'misc.instance_settings': 'インスタンス設定',
+	'misc.search': '検索',
+	'misc.filter': 'フィルター',
+	'misc.tree_view': 'ツリー表示',
+	'misc.loading': '読み込み中...'
 }

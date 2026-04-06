@@ -41,7 +41,7 @@
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import TutorialBanner from '$lib/components/home/TutorialBanner.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
-	import { getLocale, getLocaleChoice, setLocale } from '$lib/i18n/t.svelte'
+	import { detectedDiffers, getDetectedLocale, setLocale } from '$lib/i18n/t.svelte'
 	import { LOCALE_NAMES } from '$lib/i18n/index'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { X, Languages } from 'lucide-svelte'
@@ -286,18 +286,18 @@
 				Windmill instance, such as keeping resource types up to date.
 			</Alert>
 		{/if}
-		{#if !i18nBannerDismissed && getLocaleChoice() === 'auto' && getLocale() !== 'en'}
+		{#if !i18nBannerDismissed && detectedDiffers()}
 			<div
 				class="flex items-center gap-3 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950 px-4 py-3 my-4 text-sm text-secondary"
 			>
 				<Languages size={16} class="flex-shrink-0 text-blue-500" />
 				<span class="flex-1">
-					Windmill is displayed in {LOCALE_NAMES[getLocale()]} based on your browser settings. You can
+					Windmill is available in {LOCALE_NAMES[getDetectedLocale()]}.
 					<button
 						class="underline text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
-						onclick={() => setLocale('en')}
+						onclick={() => setLocale(getDetectedLocale())}
 					>
-						switch to English
+						Switch to {LOCALE_NAMES[getDetectedLocale()]}
 					</button>
 					or change the language anytime from the user menu.
 				</span>
