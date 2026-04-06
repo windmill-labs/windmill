@@ -199,19 +199,28 @@
 			}
 			return
 		}
-		// Enter selects the first (or currently highlighted) folder and
-		// navigates into it, showing its children immediately.
-		if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && derivedFolderMatches.length > 0) {
-			e.preventDefault()
-			e.stopPropagation()
-			enterConsumed = true
-			const vNow = value ?? ''
-			const slash = vNow.lastIndexOf('/')
-			const committed = slash >= 0 ? vNow.slice(0, slash + 1) : ''
-			const pick = derivedFolderMatches[0]
-			value = committed + pick.name + '/'
-			cycleMode = null
-			return
+		// Enter picks the currently highlighted folder (from Tab cycling)
+		// or the first match, and navigates into it.
+		if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
+			let pick: AutocompleteSegment | undefined
+			let committed: string
+			if (cycleMode) {
+				pick = cycleMode.options[cycleMode.index]
+				committed = cycleMode.cyclePrefix
+			} else if (derivedFolderMatches.length > 0) {
+				pick = derivedFolderMatches[0]
+				const vNow = value ?? ''
+				const slash = vNow.lastIndexOf('/')
+				committed = slash >= 0 ? vNow.slice(0, slash + 1) : ''
+			}
+			if (pick) {
+				e.preventDefault()
+				e.stopPropagation()
+				enterConsumed = true
+				value = committed! + pick.name + '/'
+				cycleMode = null
+				return
+			}
 		}
 		if (e.key === 'Escape' && (cycleMode || showList || ghostText)) {
 			e.stopPropagation()
