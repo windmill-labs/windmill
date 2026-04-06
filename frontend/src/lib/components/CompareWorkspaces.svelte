@@ -11,6 +11,7 @@
 		CircleX,
 		DiffIcon,
 		FileJson,
+		FlaskConical,
 		GitFork,
 		Loader2,
 		Trash2,
@@ -518,6 +519,23 @@
 		return 'pass'
 	}
 
+	// Deduplicated list of all CI tests across all items
+	let allCiTests = $derived.by(() => {
+		const seen = new Map<string, CiTestResult>()
+		for (const results of Object.values(ciTestResults)) {
+			for (const r of results) {
+				const existing = seen.get(r.test_script_path)
+				if (
+					!existing ||
+					(r.started_at && (!existing.started_at || r.started_at > existing.started_at))
+				) {
+					seen.set(r.test_script_path, r)
+				}
+			}
+		}
+		return [...seen.values()]
+	})
+
 	let forkTriggers = $state<ForkTrigger[]>([])
 	let loadingTriggers = $state(true)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
@@ -838,6 +856,38 @@
 					</div>
 				</div>
 			</div>
+			{#if allCiTests.length > 0}
+				<div class="flex flex-col gap-1.5 mt-3 p-3 border bg-surface-secondary rounded text-xs">
+					<div class="flex items-center gap-1.5 font-semibold text-secondary">
+						<FlaskConical size={14} />
+						CI tests
+					</div>
+					<div class="flex flex-col gap-1">
+						{#each allCiTests as test (test.test_script_path)}
+							<div class="flex items-center gap-2">
+								{#if test.status === 'success'}
+									<CircleCheck size={14} class="text-green-600" />
+								{:else if test.status === 'failure' || test.status === 'canceled'}
+									<CircleX size={14} class="text-red-600" />
+								{:else if test.status === 'running'}
+									<Loader2 size={14} class="text-yellow-600 animate-spin" />
+								{:else}
+									<div class="w-3.5 h-3.5 rounded-full border border-tertiary"></div>
+								{/if}
+								<span class="text-secondary">{test.test_script_path}</span>
+								{#if test.job_id}
+									<a
+										href="{base}/run/{test.job_id}?workspace={currentWorkspaceId}"
+										class="text-tertiary hover:text-secondary text-2xs"
+									>
+										view run
+									</a>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/if}
 		{/snippet}
 
 		{#snippet alerts()}
@@ -913,16 +963,6 @@
 			{:else}
 				{newSummary || diff.path}
 			{/if}
-			{@const ciStatus = getCiTestStatus(diff)}
-			{#if ciStatus === 'pass'}
-				<Badge color="green" small><CircleCheck size={10} class="mr-0.5" />CI pass</Badge>
-			{:else if ciStatus === 'fail'}
-				<Badge color="red" small><CircleX size={10} class="mr-0.5" />CI fail</Badge>
-			{:else if ciStatus === 'running'}
-				<Badge color="yellow" small
-					><Loader2 size={10} class="mr-0.5 animate-spin" />CI running</Badge
-				>
-			{/if}
 		{/snippet}
 
 		{#snippet itemActions(item)}
@@ -978,6 +1018,14 @@
 					color="indigo"
 					size="xs">New</Badge
 				>
+			{/if}
+			{@const ciStatus = getCiTestStatus(diff)}
+			{#if ciStatus === 'pass'}
+				<Badge color="green" size="xs"><CircleCheck size={10} class="mr-0.5" />CI pass</Badge>
+			{:else if ciStatus === 'fail'}
+				<Badge color="red" size="xs"><CircleX size={10} class="mr-0.5" />CI fail</Badge>
+			{:else if ciStatus === 'running'}
+				<Badge color="yellow" size="xs"><Loader2 size={10} class="mr-0.5 animate-spin" />CI</Badge>
 			{/if}
 			{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
 				<div class="flex items-center gap-2">
