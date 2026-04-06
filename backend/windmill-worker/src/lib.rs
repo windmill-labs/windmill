@@ -17,6 +17,9 @@ mod java_executor;
 #[cfg(feature = "ruby")]
 mod ruby_executor;
 
+#[cfg(feature = "rlang")]
+mod r_executor;
+
 mod ai;
 mod ai_executor;
 mod bun_executor;
@@ -55,7 +58,7 @@ mod otel_oss;
 #[cfg(all(feature = "private", feature = "enterprise"))]
 mod otel_tracing_proxy_ee;
 mod otel_tracing_proxy_oss;
-mod pg_executor;
+pub mod pg_executor;
 #[cfg(feature = "php")]
 mod php_executor;
 mod prepare_deps;

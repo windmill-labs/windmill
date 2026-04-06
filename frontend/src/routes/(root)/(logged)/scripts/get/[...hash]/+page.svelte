@@ -94,6 +94,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	let script: Script | undefined = $state()
 	let topHash: string | undefined = $state()
@@ -661,6 +662,7 @@
 				errorHandlerKind="script"
 				scriptOrFlowPath={script?.path ?? ''}
 				tag={script?.tag ?? ''}
+				labels={script?.labels}
 				on:seeTriggers={() => {
 					rightPaneSelected = 'triggers'
 				}}
@@ -671,7 +673,7 @@
 							if (newPath !== script?.path) {
 								await goto(`/scripts/get/${newPath}?workspace=${$workspaceStore}`)
 							} else {
-								loadScript(page.params.hash ?? '')
+								loadScript(newPath)
 							}
 						}
 					: undefined}
@@ -739,9 +741,12 @@
 				<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showEditButtons = v)} />
 			</div>
 			{#if script}
-				<div class="flex flex-col h-full" class:divide-y={isWac}>
+				<div class={twMerge('flex flex-col', isWac ? 'h-full divide-y' : '')}>
 					<div
-						class="p-8 w-full max-w-3xl mx-auto md:min-h-[300px] flex flex-col md:justify-center"
+						class={twMerge(
+							'p-8 w-full max-w-3xl overflow-y-auto mx-auto flex flex-col relative',
+							isWac ? 'max-h-1/2' : ''
+						)}
 					>
 						<div class="flex flex-col gap-0.5 mb-1">
 							{#if script.lock_error_logs || topHash || script.archived || script.deleted}

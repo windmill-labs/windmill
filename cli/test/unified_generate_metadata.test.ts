@@ -774,3 +774,239 @@ describe("generate-metadata with script modules", () => {
     });
   });
 });
+
+// =============================================================================
+// Per-resource-type lockfile generation and idempotency
+// =============================================================================
+
+describe("generate-metadata: script lockfile generation", () => {
+  test("generates lock content and is idempotent", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "script_lock_gen_test");
+
+      await createLocalScript(tempDir, "f/test", "my_script");
+
+      // First run: should detect stale and generate locks
+      const result1 = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "script_lock_gen_test"
+      );
+      expect(result1.code).toEqual(0);
+      expect(result1.stdout).toContain("my_script");
+      expect(result1.stdout).toContain("Done");
+
+      // Verify the script metadata file now has a non-empty lock
+      const metaContent = await readFile(
+        `${tempDir}/f/test/my_script.script.yaml`,
+        "utf-8"
+      );
+      // Lock should no longer be empty — it was populated by generate-metadata
+      expect(metaContent).not.toContain('lock: ""');
+
+      // Second run: should be up-to-date
+      const result2 = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "script_lock_gen_test"
+      );
+      expect(result2.code).toEqual(0);
+      expect(result2.stdout).toContain("up-to-date");
+    });
+  });
+
+  test("detects content change after initial generation", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "script_change_detect_test");
+
+      await createLocalScript(tempDir, "f/test", "my_script");
+
+      // Generate metadata
+      const result1 = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "script_change_detect_test"
+      );
+      expect(result1.code).toEqual(0);
+
+      // Verify up-to-date
+      const result2 = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "script_change_detect_test"
+      );
+      expect(result2.code).toEqual(0);
+      expect(result2.stdout).toContain("up-to-date");
+
+      // Modify script content
+      await writeFile(
+        `${tempDir}/f/test/my_script.ts`,
+        'export async function main() {\n  return "modified";\n}',
+        "utf-8"
+      );
+
+      // Should detect as stale
+      const result3 = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "script_change_detect_test"
+      );
+      expect(result3.code).toEqual(0);
+      expect(result3.stdout).toContain("my_script");
+      expect(result3.stdout).not.toContain("up-to-date");
+    });
+  });
+});
+
+describe("generate-metadata: flow lockfile generation", () => {
+  test("generates lock files for inline scripts and is idempotent", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "flow_lock_gen_test");
+
+      await createLocalFlow(tempDir, "f/test", "my_flow");
+
+      // First run: should detect stale and generate locks
+      const result1 = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "flow_lock_gen_test"
+      );
+      expect(result1.code).toEqual(0);
+      expect(result1.stdout).toContain("my_flow");
+      expect(result1.stdout).toContain("Done");
+
+      // Verify the inline script lock file was created
+      const flowDir = `${tempDir}/f/test/my_flow.flow`;
+      expect(await fileExists(`${flowDir}/a.inline_script.lock`)).toEqual(true);
+
+      // Second run: should be up-to-date
+      const result2 = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "flow_lock_gen_test"
+      );
+      expect(result2.code).toEqual(0);
+      expect(result2.stdout).toContain("up-to-date");
+    });
+  });
+
+  test("detects inline script change after initial generation", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "flow_change_detect_test");
+
+      await createLocalFlow(tempDir, "f/test", "my_flow");
+
+      // Generate metadata
+      const result1 = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "flow_change_detect_test"
+      );
+      expect(result1.code).toEqual(0);
+
+      // Verify up-to-date
+      const result2 = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "flow_change_detect_test"
+      );
+      expect(result2.code).toEqual(0);
+      expect(result2.stdout).toContain("up-to-date");
+
+      // Modify the inline script
+      await writeFile(
+        `${tempDir}/f/test/my_flow.flow/a.inline_script.ts`,
+        'export async function main() {\n  return "modified flow script";\n}',
+        "utf-8"
+      );
+
+      // Should detect as stale
+      const result3 = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "flow_change_detect_test"
+      );
+      expect(result3.code).toEqual(0);
+      expect(result3.stdout).toContain("my_flow");
+      expect(result3.stdout).not.toContain("up-to-date");
+    });
+  });
+});
+
+describe("generate-metadata: app lockfile generation", () => {
+  test("generates lock content and is idempotent", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "app_lock_gen_test");
+
+      await createLocalApp(tempDir, "f/test", "my_app");
+
+      // First run: should detect stale and generate locks
+      const result1 = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "app_lock_gen_test"
+      );
+      expect(result1.code).toEqual(0);
+      expect(result1.stdout).toContain("my_app");
+      expect(result1.stdout).toContain("Done");
+
+      // Second run: should be up-to-date
+      const result2 = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "app_lock_gen_test"
+      );
+      expect(result2.code).toEqual(0);
+      expect(result2.stdout).toContain("up-to-date");
+    });
+  });
+
+  test("detects app change after initial generation", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspace(backend, tempDir, "app_change_detect_test");
+
+      await createLocalApp(tempDir, "f/test", "my_app");
+
+      // Generate metadata
+      const result1 = await backend.runCLICommand(
+        ["generate-metadata", "--yes"],
+        tempDir,
+        "app_change_detect_test"
+      );
+      expect(result1.code).toEqual(0);
+
+      // Verify up-to-date
+      const result2 = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "app_change_detect_test"
+      );
+      expect(result2.code).toEqual(0);
+      expect(result2.stdout).toContain("up-to-date");
+
+      // After generation, inline scripts are extracted to separate files.
+      // Find and modify the extracted inline script file.
+      const appDir = `${tempDir}/f/test/my_app.app`;
+      const { readdir: readdirAsync } = await import("node:fs/promises");
+      const files = await readdirAsync(appDir);
+      const inlineScriptFile = files.find((f: string) => f.endsWith(".ts"));
+      expect(inlineScriptFile).toBeDefined();
+
+      await writeFile(
+        `${appDir}/${inlineScriptFile}`,
+        'export async function main() {\n  return "modified app";\n}',
+        "utf-8"
+      );
+
+      // Should detect as stale
+      const result3 = await backend.runCLICommand(
+        ["generate-metadata", "--dry-run"],
+        tempDir,
+        "app_change_detect_test"
+      );
+      expect(result3.code).toEqual(0);
+      expect(result3.stdout).toContain("my_app");
+      expect(result3.stdout).not.toContain("up-to-date");
+    });
+  });
+});

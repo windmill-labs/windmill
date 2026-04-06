@@ -69,6 +69,16 @@
 	loadSettings()
 	loadVersion()
 
+	// When the user enables object storage for the first time, default
+	// `monitor_logs_on_s3` to true so S3 log files get cleaned up with their
+	// jobs. Backend still defaults to false for backwards compat with
+	// operators who never touched the setting.
+	$effect(() => {
+		if ($values['object_store_cache_config'] && $values['monitor_logs_on_s3'] === undefined) {
+			values.update((v) => ({ ...v, monitor_logs_on_s3: true }))
+		}
+	})
+
 	const dispatch = createEventDispatcher()
 
 	async function loadVersion() {

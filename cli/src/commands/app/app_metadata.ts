@@ -117,7 +117,6 @@ export async function generateAppLocksInternal(
   },
   justUpdateMetadataLock?: boolean,
   noStaleMessage?: boolean,
-  legacyBehaviour?: boolean,
   tree?: DoubleLinkedDependencyTree
 ): Promise<string | AppLocksResult | void> {
   if (appFolder.endsWith(SEP)) {
@@ -143,8 +142,8 @@ export async function generateAppLocksInternal(
   let filteredDeps: Record<string, string> = {};
   const conf = await readLockfile();
 
-  // New behaviour: tree-based dependency tracking
-  if (!legacyBehaviour && tree) {
+  // Tree-based dependency tracking
+  if (tree) {
     if (dryRun) {
       const hashes = await generateAppHash({}, appFolder, rawApp, opts.defaultTs);
       const isDirectlyStale = !(await checkifMetadataUptodate(appFolder, hashes[TOP_HASH], conf, TOP_HASH));
@@ -245,7 +244,7 @@ export async function generateAppLocksInternal(
     // In tree mode, the tree already verified this app is stale (possibly via dependency change).
     // Per-script hashes only detect content changes, not transitive dependency changes,
     // so we must regenerate locks for all inline scripts regardless.
-    if (changedScripts.length > 0 || (tree && !legacyBehaviour)) {
+    if (changedScripts.length > 0 || tree) {
       if (!noStaleMessage) {
         log.info(
           `Recomputing locks of ${changedScripts.join(", ")} in ${appFolder}`
@@ -309,8 +308,8 @@ export async function generateAppLocksInternal(
     }
   }
 
-  // Non-legacy mode excludes workspace deps from hash (tracked via tree instead)
-  const depsForHash = (tree && !legacyBehaviour) ? {} : filteredDeps;
+  // In tree mode, workspace deps are tracked via the tree — exclude from hash
+  const depsForHash = tree ? {} : filteredDeps;
   const finalHashes = await generateAppHash(
     depsForHash,
     appFolder,

@@ -11,6 +11,7 @@
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils.svelte'
+	import { processSecretArgs } from './secretArgUtils'
 	import SchemaForm from './SchemaForm.svelte'
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
@@ -171,6 +172,7 @@
 			lastPreviewFlow = JSON.stringify(flowStore.val)
 			flowProgressBar?.reset()
 			const newFlow = extractFlow(previewMode)
+			args = await processSecretArgs(args, flowStore.val.schema as any)
 			newJobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom, conversationId)
 			jobId = newJobId
 			isRunning = true

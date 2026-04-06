@@ -14,6 +14,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { getRelevantFields, getTriggerInfo, type FieldConfig } from './JobDetailFieldConfig'
+	import { flowPathToHref } from '$lib/scripts'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 
@@ -385,10 +386,12 @@
 					<div class="flex flex-col gap-1 flex-1 min-w-0">
 						<!-- Title row -->
 						<div class="min-w-0 grow">
-							{#if job.script_path && (job.job_kind === 'script' || job.job_kind === 'flow' || job.job_kind === 'singlestepflow')}
+							{#if job.script_path && (job.job_kind === 'script' || job.job_kind === 'flow' || job.job_kind === 'singlestepflow' || job.job_kind === 'flowpreview')}
 								{@const stem = job.job_kind === 'script' ? 'scripts' : 'flows'}
 								{@const isScript = job.job_kind === 'script'}
-								{@const viewHref = `${base}/${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+								{@const viewHref = isScript
+									? `${base}/${stem}/get/${job?.script_hash}`
+									: flowPathToHref(job?.script_path ?? '')}
 								<a
 									href={viewHref}
 									class="text-emphasis {compact

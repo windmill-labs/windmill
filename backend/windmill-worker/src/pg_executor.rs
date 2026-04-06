@@ -8,7 +8,7 @@ use anyhow::Context;
 use base64::{engine, Engine as _};
 use chrono::Utc;
 use futures::future::BoxFuture;
-use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
+use futures::{FutureExt, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde_json::value::RawValue;
@@ -56,6 +56,40 @@ lazy_static! {
     pub static ref CONNECTION_COUNTER: Arc<RwLock<HashMap<String, u64>>> =
         Arc::new(RwLock::new(HashMap::new()));
     pub static ref LAST_QUERY: AtomicU64 = AtomicU64::new(0);
+    pub static ref CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+}
+
+pub async fn clear_pg_cache() {
+    *CONNECTION_CACHE.lock().await = None;
+    CONNECTION_COUNTER.write().await.clear();
+}
+
+async fn new_pg_connection(
+    database: &PgDatabase,
+    _use_iam_auth: bool,
+) -> error::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>)> {
+    let (client, connection) = if _use_iam_auth {
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        {
+            database.connect_with_iam().await?
+        }
+        #[cfg(not(all(feature = "enterprise", feature = "private")))]
+        {
+            return Err(Error::ExecutionErr(
+                "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
+            ));
+        }
+    } else {
+        database.connect().await?
+    };
+    let handle = tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            let mut mtex = CONNECTION_CACHE.lock().await;
+            *mtex = None;
+            tracing::error!("connection error: {}", e);
+        }
+    });
+    Ok((client, handle))
 }
 
 fn otyp_to_pg_type(otyp: &str) -> error::Result<Type> {
@@ -134,45 +168,45 @@ fn do_postgresql_inner<'a>(
     let result_f = async move {
         let mut res: Vec<Box<serde_json::value::RawValue>> = vec![];
 
-        let query_params = query_params
-            .iter()
-            .map(|p| &**p as &(dyn ToSql + Sync))
-            .collect_vec();
-
-        let statement = if typed_schema {
+        // Use query_typed_raw (unnamed prepared statement) when all param types are
+        // resolved. This avoids named prepared statements ("s0", "s1", ...) which break
+        // with transaction-mode connection poolers (e.g. PgBouncer/Supabase) since the
+        // prepare and query can land on different backend connections.
+        // Fall back to prepare + query_raw for custom/unsupported types.
+        let rows = if typed_schema {
+            let typed_params = query_params
+                .iter()
+                .zip(param_types.iter())
+                .map(|(p, t)| (&**p as &(dyn ToSql + Sync), t.clone()));
             client
-                .prepare_typed(&query, &param_types)
+                .query_typed_raw(&query, typed_params)
                 .await
                 .map_err(to_anyhow)?
         } else {
-            client.prepare(&query).await.map_err(to_anyhow)?
+            let query_params = query_params
+                .iter()
+                .map(|p| &**p as &(dyn ToSql + Sync))
+                .collect_vec();
+            let statement = client.prepare(&query).await.map_err(to_anyhow)?;
+            client
+                .query_raw(&statement, query_params)
+                .await
+                .map_err(to_anyhow)?
         };
 
         if skip_collect {
-            client
-                .execute_raw(&statement, query_params)
-                .await
-                .map_err(to_anyhow)?;
+            futures::pin_mut!(rows);
+            while rows.try_next().await.map_err(to_anyhow)?.is_some() {}
         } else if let Some(ref s3) = s3 {
-            let rows_stream = client
-                .query_raw(&statement, query_params)
-                .map_err(to_anyhow)
-                .await?
-                .map_err(to_anyhow)
-                .map(|row_result| {
-                    row_result.and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
-                });
+            let rows_stream = rows.map_err(to_anyhow).map(|row_result| {
+                row_result.and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
+            });
 
             let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
             s3.upload(stream.boxed()).await?;
 
             return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
         } else {
-            let rows = client
-                .query_raw(&statement, query_params)
-                .await
-                .map_err(to_anyhow)?;
-
             let rows = if first_row_only {
                 rows.take(1).boxed()
             } else {
@@ -297,50 +331,49 @@ pub async fn do_postgresql(
     };
     let database_string_clone = database_string.clone();
 
-    let mtex;
+    let cached_client;
+    let new_client;
     if !*CLOUD_HOSTED {
-        mtex = CONNECTION_CACHE.try_lock().ok();
+        let mut guard = CONNECTION_CACHE.try_lock().ok();
         increment_connection_counter(&database_string).await;
-    } else {
-        mtex = None;
-    }
 
-    let has_cached_con = mtex
-        .as_ref()
-        .is_some_and(|x| x.as_ref().is_some_and(|y| y.0 == database_string));
-
-    // tracing::error!("HAS CACHED CON: {}", has_cached_con);
-    let (new_client, mtex) = if has_cached_con {
-        tracing::info!("Using cached connection");
-        LAST_QUERY.store(
-            chrono::Utc::now().timestamp().try_into().unwrap_or(0),
-            std::sync::atomic::Ordering::Relaxed,
-        );
-        (None, mtex)
-    } else {
-        let (client, connection) = if use_iam_auth {
-            #[cfg(all(feature = "enterprise", feature = "private"))]
-            {
-                database.connect_with_iam().await?
-            }
-            #[cfg(not(all(feature = "enterprise", feature = "private")))]
-            {
-                return Err(Error::ExecutionErr(
-                    "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
-                ));
+        if guard
+            .as_ref()
+            .is_some_and(|x| x.as_ref().is_some_and(|y| y.0 == database_string))
+        {
+            // Probe the cached connection with DISCARD ALL before using it.
+            // This resets the full session (role, GUCs, temp tables, prepared
+            // statements, advisory locks) and also detects broken connections.
+            let probe_client = &guard.as_ref().unwrap().as_ref().unwrap().1;
+            if probe_client.batch_execute("DISCARD ALL").await.is_ok() {
+                tracing::info!("Using cached connection");
+                CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                LAST_QUERY.store(
+                    chrono::Utc::now().timestamp().try_into().unwrap_or(0),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+                cached_client = guard;
+                new_client = None;
+            } else {
+                tracing::info!("Cached connection is stale, creating new one");
+                if let Some(ref mut g) = guard {
+                    **g = None;
+                }
+                drop(guard);
+                cached_client = None;
+                new_client = Some(new_pg_connection(&database, use_iam_auth).await?);
             }
         } else {
-            database.connect().await?
-        };
-        let handle = tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                let mut mtex = CONNECTION_CACHE.lock().await;
-                *mtex = None;
-                tracing::error!("connection error: {}", e);
-            }
-        });
-        (Some((client, handle)), None)
-    };
+            // Release the lock before connecting so the post-query caching
+            // code can re-acquire it.
+            drop(guard);
+            cached_client = None;
+            new_client = Some(new_pg_connection(&database, use_iam_auth).await?);
+        }
+    } else {
+        cached_client = None;
+        new_client = Some(new_pg_connection(&database, use_iam_auth).await?);
+    }
 
     let (sig, typed_schema) = parse_pgsql_sig_with_typed_schema(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?;
@@ -356,7 +389,7 @@ pub async fn do_postgresql(
     let (client, handle) = if let Some((client, handle)) = new_client.as_ref() {
         (client, Some(handle))
     } else {
-        let (_, client) = mtex.as_ref().unwrap().as_ref().unwrap();
+        let (_, client) = cached_client.as_ref().unwrap().as_ref().unwrap();
         (client, None)
     };
 
@@ -370,6 +403,9 @@ pub async fn do_postgresql(
     let size_ref = &size;
     let result_f = async move {
         let mut results = vec![];
+        // Session reset (DISCARD ALL) is now handled eagerly when validating
+        // the cached connection — no per-query reset needed here.
+
         for (i, query) in queries.iter().enumerate() {
             if annotations.prepare {
                 let query = remove_comments(query);
@@ -444,17 +480,16 @@ pub async fn do_postgresql(
         .await?
     };
 
-    // drop the mtex to avoid holding the lock for too long, result has been returned
-    drop(mtex);
+    // Release the cache lock now that we have the result — allows the
+    // post-query caching code below to re-acquire it if needed.
+    drop(cached_client);
 
     *mem_peak = size.load(Ordering::Relaxed) as i32;
 
     if let Some(handle) = handle {
         if !*CLOUD_HOSTED {
-            // tracing::error!("Found handle");
             if let Ok(mut mtex) = CONNECTION_CACHE.try_lock() {
                 if mtex.as_ref().is_none_or(|x| x.0 != database_string) {
-                    // tracing::error!("Locked conn cached");
                     let abort_handler = handle.abort_handle();
 
                     let mut cache_new_con = false;

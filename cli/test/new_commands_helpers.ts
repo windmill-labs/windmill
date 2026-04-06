@@ -170,6 +170,130 @@ export async function runRemoteFlow(
   throw new Error(`Failed to run flow ${flowPath} after ${retries} retries`);
 }
 
+/**
+ * Create a multi-step flow with 2 steps (a prints, b returns result).
+ * Useful for testing hierarchical job get and aggregated logs.
+ */
+export async function createRemoteMultiStepFlow(
+  backend: TestBackend,
+  flowPath: string
+): Promise<void> {
+  const parts = flowPath.split("/");
+  if (parts[0] === "f" && parts.length > 2) {
+    await ensureFolder(backend, parts[1]);
+  }
+
+  const resp = await backend.apiRequest!(
+    `/api/w/${backend.workspace}/flows/create`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: flowPath,
+        summary: "Multi-step test flow",
+        description: "A flow with two steps for testing",
+        value: {
+          modules: [
+            {
+              id: "a",
+              summary: "Generate data",
+              value: {
+                type: "rawscript",
+                content:
+                  'export async function main() { console.log("step a running"); return { value: 42 }; }',
+                language: "bun",
+                input_transforms: {},
+              },
+            },
+            {
+              id: "b",
+              summary: "Process data",
+              value: {
+                type: "rawscript",
+                content:
+                  'export async function main(data: any) { console.log("step b running"); return "done"; }',
+                language: "bun",
+                input_transforms: {
+                  data: { type: "javascript", expr: "results.a" },
+                },
+              },
+            },
+          ],
+        },
+        schema: {
+          $schema: "https://json-schema.org/draft/2020-12/schema",
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      }),
+    }
+  );
+  expect(resp.status).toBeLessThan(300);
+  await resp.text();
+}
+
+/**
+ * Create a flow where step b throws an error.
+ * Useful for testing failure handling.
+ */
+export async function createRemoteFailingFlow(
+  backend: TestBackend,
+  flowPath: string
+): Promise<void> {
+  const parts = flowPath.split("/");
+  if (parts[0] === "f" && parts.length > 2) {
+    await ensureFolder(backend, parts[1]);
+  }
+
+  const resp = await backend.apiRequest!(
+    `/api/w/${backend.workspace}/flows/create`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        path: flowPath,
+        summary: "Failing test flow",
+        description: "A flow where step b fails",
+        value: {
+          modules: [
+            {
+              id: "a",
+              summary: "Succeeding step",
+              value: {
+                type: "rawscript",
+                content:
+                  'export async function main() { return "ok"; }',
+                language: "bun",
+                input_transforms: {},
+              },
+            },
+            {
+              id: "b",
+              summary: "Failing step",
+              value: {
+                type: "rawscript",
+                content:
+                  'export async function main() { throw new Error("simulated failure"); }',
+                language: "bun",
+                input_transforms: {},
+              },
+            },
+          ],
+        },
+        schema: {
+          $schema: "https://json-schema.org/draft/2020-12/schema",
+          type: "object",
+          properties: {},
+          required: [],
+        },
+      }),
+    }
+  );
+  expect(resp.status).toBeLessThan(300);
+  await resp.text();
+}
+
 export async function createRemoteSchedule(
   backend: TestBackend,
   schedulePath: string,

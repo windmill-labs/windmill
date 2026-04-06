@@ -3,7 +3,7 @@
 	import { type Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { X } from 'lucide-svelte'
+	import { ExternalLink, X } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Button } from './common'
@@ -23,6 +23,7 @@
 	let default_payload: object = $state({})
 	let description: any = $state(undefined)
 	let hide_cancel = $state(false)
+	let approvalPageUrl: string | undefined = $state(undefined)
 
 	let defaultValues = $state({})
 
@@ -47,6 +48,8 @@
 		defaultValues = JSON.parse(JSON.stringify(args))
 		default_payload = args
 
+		approvalPageUrl = job_result?.['approvalPage']
+		actionTaken = false
 		hide_cancel = job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel ?? false
 		schema = mergeSchema(
 			job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? {},
@@ -55,6 +58,7 @@
 	}
 
 	let loading = $state(false)
+	let actionTaken = $state(false)
 	async function continu(approve: boolean) {
 		loading = true
 		try {
@@ -66,6 +70,7 @@
 					approved: approve
 				}
 			})
+			actionTaken = true
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? 'Failed', true)
 		} finally {
@@ -84,7 +89,7 @@
 		<div class="mt-2"></div>
 	{/if}
 	<div>
-		<div class={twMerge('flex gap-2', light ? 'flex-col' : 'flex-row ')}>
+		<div class={twMerge('flex gap-2 items-center', light ? 'flex-col' : 'flex-row ')}>
 			{#if !hide_cancel}
 				<div>
 					<Button
@@ -92,7 +97,7 @@
 						iconOnly
 						startIcon={{ icon: X }}
 						variant="default"
-						disabled={loading}
+						disabled={loading || actionTaken}
 						destructive
 						unifiedSize="md"
 						on:click={() => continu(false)}
@@ -100,11 +105,27 @@
 				</div>
 			{/if}
 			<div>
-				<Button variant="accent" onClick={() => continu(true)} disabled={loading} unifiedSize="md">
+				<Button
+					variant="accent"
+					onClick={() => continu(true)}
+					disabled={loading || actionTaken}
+					unifiedSize="md"
+				>
 					Resume
 					<Tooltip class="text-white">Resume or approve this suspended step</Tooltip>
 				</Button>
 			</div>
+
+			{#if approvalPageUrl}
+				<a
+					href={approvalPageUrl}
+					target="_blank"
+					rel="noreferrer"
+					class="text-accent flex items-center gap-1 whitespace-nowrap"
+				>
+					Approval page <ExternalLink size={12} />
+				</a>
+			{/if}
 
 			{#if job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
 				<div

@@ -294,7 +294,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Delete logs from s3 periodically',
 			description:
-				'Job and service logs are periodically deleted from disk. When this setting is on, they will also be deleted from the object storage.',
+				'Job and service logs are periodically deleted from disk when they expire. When this setting is on, they are also deleted from object storage. Defaults to on when object storage is configured; turn off to keep logs in object storage indefinitely.',
 			key: 'monitor_logs_on_s3',
 			fieldType: 'boolean',
 			storage: 'setting',
@@ -683,11 +683,11 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Backend type',
 			description:
-				'By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault as an external secret store.',
+				'By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault and Azure Key Vault as external secret stores.',
 			key: 'secret_backend',
 			fieldType: 'secret_backend',
 			storage: 'setting',
-			ee_only: 'HashiCorp Vault integration is an Enterprise Edition feature'
+			ee_only: 'HashiCorp Vault and Azure Key Vault integrations are Enterprise Edition features'
 		}
 	],
 	'GitHub App': [

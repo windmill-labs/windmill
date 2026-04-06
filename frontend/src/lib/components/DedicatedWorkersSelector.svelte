@@ -3,7 +3,7 @@
 		ScriptService,
 		FlowService,
 		WorkspaceService,
-		WorkspaceDependenciesService,
+		ConfigService,
 		type FlowModule
 	} from '$lib/gen'
 	import {
@@ -66,8 +66,8 @@
 	let workspaces: { id: string; name: string }[] = $state([])
 	let workspacesLoading = $state(true)
 	let selectorExpanded = $state(false)
-	// Set of existing workspace dependency names for the current workspace (for validation)
-	let existingDeps: Set<string> = $state(new Set())
+	// Map of dep name → set of workspaces that have it (for cross-workspace validation)
+	let existingDeps: Map<string, Set<string>> = $state(new Map())
 
 	// Track detailed info for each selected tag (for displaying in summary)
 	interface SelectedTagInfo {
@@ -129,54 +129,53 @@
 
 		const newInfo = new SvelteMap<string, SelectedTagInfo>()
 
-		// Collect workspaces that need dep info fetched
-		const workspacesNeedingDeps = new Set<string>()
-		for (const tag of tags) {
-			const existing = currentInfo.get(tag)
-			const existingRunnable = currentRunnables.find((r) => r.tag === tag)
-			// If we don't have workspaceDeps cached, we need to fetch for this workspace
-			if (!existing?.workspaceDeps && !existingRunnable?.workspaceDeps) {
-				const parsed = parseTag(tag)
-				if (parsed?.type === 'script') {
-					workspacesNeedingDeps.add(parsed.workspace)
+		// Fetch dep info only when not disabled (requires devops role)
+		let needsFetch = !disabled && currentExistingDeps.size === 0
+		if (!needsFetch && !disabled) {
+			for (const tag of tags) {
+				const existing = currentInfo.get(tag)
+				const existingRunnable = currentRunnables.find((r) => r.tag === tag)
+				if (!existing?.workspaceDeps && !existingRunnable?.workspaceDeps) {
+					const parsed = parseTag(tag)
+					if (parsed?.type === 'script') {
+						needsFetch = true
+						break
+					}
 				}
 			}
 		}
 
-		// Fetch workspace dep info for workspaces that need it
+		// Fetch dep info across all workspaces (requires devops role)
 		const depsPerWorkspace = new Map<string, Map<string, { deps: string[]; language: string }>>()
-		if (workspacesNeedingDeps.size > 0 || currentExistingDeps.size === 0) {
-			await Promise.all(
-				Array.from(workspacesNeedingDeps).map(async (ws) => {
-					try {
-						const [dedicatedDeps, wsDeps] = await Promise.all([
-							ScriptService.listDedicatedWithDeps({ workspace: ws }).catch(() => []),
-							WorkspaceDependenciesService.listWorkspaceDependencies({
-								workspace: ws
-							}).catch(() => [])
-						])
-						const depsMap = new Map<string, { deps: string[]; language: string }>()
-						for (const d of dedicatedDeps) {
-							if (d.workspace_dep_names.length > 0) {
-								depsMap.set(d.path, {
-									deps: d.workspace_dep_names,
-									language: d.language
-								})
-							}
-						}
-						depsPerWorkspace.set(ws, depsMap)
-						// Merge into existingDeps
-						for (const d of wsDeps) {
-							if (!d.archived && d.name) {
-								currentExistingDeps.add(d.name)
-							}
-						}
-					} catch {
-						// ignore
+		if (needsFetch) {
+			const [allDedicatedDeps, allWsDeps] = await Promise.all([
+				ConfigService.listAllDedicatedWithDeps().catch(() => []),
+				ConfigService.listAllWorkspaceDependencies().catch(() => [])
+			])
+			for (const d of allDedicatedDeps) {
+				if (d.workspace_dep_names.length > 0) {
+					let wsMap = depsPerWorkspace.get(d.workspace_id)
+					if (!wsMap) {
+						wsMap = new Map()
+						depsPerWorkspace.set(d.workspace_id, wsMap)
 					}
-				})
-			)
-			existingDeps = new Set(currentExistingDeps)
+					wsMap.set(d.path, {
+						deps: d.workspace_dep_names,
+						language: d.language
+					})
+				}
+			}
+			for (const d of allWsDeps) {
+				if (d.name) {
+					let wsSet = currentExistingDeps.get(d.name)
+					if (!wsSet) {
+						wsSet = new Set()
+						currentExistingDeps.set(d.name, wsSet)
+					}
+					wsSet.add(d.workspace_id)
+				}
+			}
+			existingDeps = new Map(currentExistingDeps)
 		}
 
 		try {
@@ -218,6 +217,17 @@
 					// Parse and fetch
 					const parsed = parseTag(tag)
 					if (!parsed) return
+
+					if (disabled) {
+						// Read-only: just show path info, skip API calls
+						newInfo.set(tag, {
+							tag,
+							workspace: parsed.workspace,
+							type: parsed.type,
+							path: parsed.path
+						})
+						return
+					}
 
 					if (parsed.type === 'script') {
 						const depInfo = depsPerWorkspace.get(parsed.workspace)?.get(parsed.path)
@@ -394,7 +404,7 @@
 			loading = true
 			runnables = []
 
-			const [scripts, flows, dedicatedDeps, wsDeps] = await Promise.all([
+			const [scripts, flows, dedicatedDeps, allWsDeps] = await Promise.all([
 				ScriptService.listScripts({
 					workspace: workspaceId,
 					dedicatedWorker: true
@@ -403,21 +413,29 @@
 					workspace: workspaceId,
 					dedicatedWorker: true
 				}),
-				ScriptService.listDedicatedWithDeps({
-					workspace: workspaceId
-				}).catch(() => []),
-				WorkspaceDependenciesService.listWorkspaceDependencies({
-					workspace: workspaceId
-				}).catch(() => [])
+				disabled
+					? Promise.resolve([])
+					: ScriptService.listDedicatedWithDeps({
+							workspace: workspaceId
+						}).catch(() => []),
+				disabled
+					? Promise.resolve([])
+					: ConfigService.listAllWorkspaceDependencies().catch(() => [])
 			])
 
-			// Track existing workspace dep names for validation
-			existingDeps = new Set(
-				wsDeps
-					.filter((d) => !d.archived)
-					.map((d) => d.name)
-					.filter((n): n is string => !!n)
-			)
+			// Track existing workspace dep names with their workspaces for validation
+			const newDeps = new Map<string, Set<string>>()
+			for (const d of allWsDeps) {
+				if (d.name) {
+					let wsSet = newDeps.get(d.name)
+					if (!wsSet) {
+						wsSet = new Set()
+						newDeps.set(d.name, wsSet)
+					}
+					wsSet.add(d.workspace_id)
+				}
+			}
+			existingDeps = newDeps
 
 			// Build a map from path -> workspace dep names
 			const depsMap = new Map<string, string[]>()
@@ -497,7 +515,11 @@
 	}
 
 	function updateSelectedTags() {
-		selectedTags = runnables.filter((r) => r.selected).map((r) => r.tag)
+		// Keep tags from other workspaces, update only the currently visible ones
+		const visibleTags = new Set(runnables.map((r) => r.tag))
+		const otherTags = selectedTags.filter((t) => !visibleTags.has(t))
+		const newVisibleTags = runnables.filter((r) => r.selected).map((r) => r.tag)
+		selectedTags = [...otherTags, ...newVisibleTags]
 		onchange?.(selectedTags)
 	}
 
@@ -519,26 +541,32 @@
 
 	let selectedCount = $derived(runnables.filter((r) => r.selected).length)
 
-	// Compute shared runner groups: scripts sharing a (dep_name, language) pair
+	// Compute shared runner groups: scripts sharing a (workspace, dep_name, language) tuple
 	interface RunnerGroup {
+		workspace: string
 		depName: string
 		language: string
 		tags: string[]
 	}
 
 	let runnerGroups: RunnerGroup[] = $derived.by(() => {
-		const groupMap = new Map<string, { depName: string; language: string; tags: string[] }>()
+		const groupMap = new Map<string, RunnerGroup>()
 		for (const tag of selectedTags) {
 			const info = selectedTagsInfo.get(tag)
 			if (info?.type === 'script' && info.workspaceDeps) {
 				const lang = info.language ?? runnables.find((r) => r.tag === tag)?.language ?? 'unknown'
 				for (const dep of info.workspaceDeps) {
-					const key = `${dep}:${lang}`
+					const key = `${info.workspace}:${dep}:${lang}`
 					const existing = groupMap.get(key)
 					if (existing) {
 						existing.tags.push(tag)
 					} else {
-						groupMap.set(key, { depName: dep, language: lang, tags: [tag] })
+						groupMap.set(key, {
+							workspace: info.workspace,
+							depName: dep,
+							language: lang,
+							tags: [tag]
+						})
 					}
 				}
 			}
@@ -562,16 +590,28 @@
 	let standaloneTags: string[] = $derived(selectedTags.filter((tag) => !tagRunnerGroup.has(tag)))
 </script>
 
-{#snippet depBadge(dep: string)}
-	{#if existingDeps.has(dep)}
-		<Badge color="indigo" small href="/workspace_settings?tab=dependencies">
+{#snippet depBadge(dep: string, workspace: string | undefined)}
+	{@const depWorkspaces = existingDeps.get(dep)}
+	{@const existsInWorkspace = depWorkspaces?.has(workspace ?? '')}
+	{@const existsElsewhere = depWorkspaces && depWorkspaces.size > 0 && !existsInWorkspace}
+	{#if existsInWorkspace}
+		<Badge color="indigo" small href="/workspace_settings?tab=dependencies&workspace={workspace}">
 			{dep}
 			<ExternalLink class="h-2.5 w-2.5" />
 		</Badge>
+	{:else if existsElsewhere}
+		<Tooltip small>
+			Workspace dependency '{dep}' exists in {[...(depWorkspaces ?? [])].join(', ')} but not in '{workspace}'.
+			Each workspace needs its own dependency.
+		</Tooltip>
+		<Badge color="yellow" small>
+			<TriangleAlert class="h-2.5 w-2.5" />
+			{dep} (not in {workspace})
+		</Badge>
 	{:else}
 		<Tooltip small>
-			Workspace dependency '{dep}' not found. Create it in workspace settings to enable shared
-			runners.
+			Workspace dependency '{dep}' not found in any workspace. Create it in workspace settings to
+			enable shared runners.
 		</Tooltip>
 		<Badge color="yellow" small>
 			<TriangleAlert class="h-2.5 w-2.5" />
@@ -580,10 +620,15 @@
 	{/if}
 {/snippet}
 
-{#snippet tagRow(tag: string, info: SelectedTagInfo | undefined)}
+{#snippet tagRow(tag: string, info: SelectedTagInfo | undefined, standalone: boolean)}
+	{@const hasChevron = info?.type === 'flow' && info.runners && info.runners.length > 0}
 	<div>
-		<div class="flex items-center">
-			{#if info?.type === 'flow' && info.runners && info.runners.length > 0}
+		<div
+			class="flex items-center {standalone
+				? (hasChevron ? 'pr-3' : 'px-3') + ' py-1.5 bg-surface-secondary'
+				: ''}"
+		>
+			{#if hasChevron}
 				<button
 					class="p-2 hover:bg-surface-hover transition-colors"
 					onclick={(e) => {
@@ -597,10 +642,10 @@
 						<ChevronRight class="h-3 w-3 text-tertiary" />
 					{/if}
 				</button>
-			{:else}
+			{:else if !standalone}
 				<div class="w-7"></div>
 			{/if}
-			<div class="flex-1 flex items-center gap-2 px-2 py-1.5 min-w-0">
+			<div class="flex-1 flex items-center gap-2 {standalone ? '' : 'px-2 py-1.5'} min-w-0">
 				{#if info}
 					{#if info.type === 'flow'}
 						<BarsStaggered size={14} class="flex-shrink-0 text-secondary" />
@@ -613,10 +658,10 @@
 					{#if !tagRunnerGroup.has(tag)}
 						{#if info.workspaceDeps}
 							{#each info.workspaceDeps as dep}
-								{@render depBadge(dep)}
+								{@render depBadge(dep, info?.workspace)}
 							{/each}
 						{/if}
-						{#if info.type === 'flow' && info.runners}
+						{#if info.type === 'flow' && info.runners && info.runners.length > 0}
 							<Badge color="indigo" small>
 								{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
 							</Badge>
@@ -664,19 +709,19 @@
 		<div class="flex flex-col gap-2">
 			<div class="border rounded-md bg-surface divide-y">
 				<!-- Shared runner groups -->
-				{#each runnerGroups as group (`${group.depName}:${group.language}`)}
+				{#each runnerGroups as group (`${group.workspace}:${group.depName}:${group.language}`)}
 					<div>
 						<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary border-b">
 							<Layers size={12} class="flex-shrink-0 text-secondary" />
 							<span class="text-xs font-medium text-emphasis">Shared runner</span>
 							<span class="flex-1"></span>
-							{@render depBadge(group.depName)}
+							{@render depBadge(group.depName, group.workspace)}
 							<Badge color="gray" small>{group.language}</Badge>
 						</div>
 						<div class="divide-y">
 							{#each group.tags as tag (tag)}
 								{@const info = selectedTagsInfo.get(tag)}
-								{@render tagRow(tag, info)}
+								{@render tagRow(tag, info, false)}
 							{/each}
 						</div>
 					</div>
@@ -685,199 +730,168 @@
 				<!-- Standalone scripts/flows -->
 				{#each standaloneTags as tag (tag)}
 					{@const info = selectedTagsInfo.get(tag)}
-					<div class="flex items-center gap-2 px-3 py-1.5 bg-surface-secondary min-w-0">
-						{#if info?.type === 'flow'}
-							<BarsStaggered size={12} class="flex-shrink-0 text-secondary" />
-						{:else}
-							<CodeXml size={12} class="flex-shrink-0 text-secondary" />
-						{/if}
-						<span class="text-xs truncate min-w-0">{info?.path ?? tag}</span>
-						<span class="text-xs text-tertiary flex-shrink-0">({info?.workspace ?? ''})</span>
-						<span class="flex-1"></span>
-						{#if info?.workspaceDeps}
-							{#each info.workspaceDeps as dep}
-								{@render depBadge(dep)}
-							{/each}
-						{/if}
-						{#if info?.type === 'flow' && info.runners}
-							<Badge color="indigo" small>
-								{info.runners.length} runner{info.runners.length !== 1 ? 's' : ''}
-							</Badge>
-						{:else if info?.language}
-							<Badge color="gray" small>{info.language}</Badge>
-						{/if}
-						{#if !disabled}
-							<button
-								class="hover:text-red-500 transition-colors flex-shrink-0"
-								onclick={(e) => {
-									e.stopPropagation()
-									removeTag(tag)
-								}}
-							>
-								<X class="h-3 w-3" />
-							</button>
-						{/if}
-					</div>
+					{@render tagRow(tag, info, true)}
 				{/each}
 			</div>
 		</div>
 	{/if}
 
-	<!-- Collapsible selector section -->
-	<div class="border rounded-md">
-		<button
-			class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-hover transition-colors"
-			onclick={() => (selectorExpanded = !selectorExpanded)}
-			{disabled}
-		>
+	<!-- Collapsible selector section (hidden for read-only users) -->
+	{#if !disabled}
+		<div class="border rounded-md">
+			<button
+				class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-hover transition-colors"
+				onclick={() => (selectorExpanded = !selectorExpanded)}
+			>
+				{#if selectorExpanded}
+					<ChevronDown class="h-4 w-4 text-secondary" />
+				{:else}
+					<ChevronRight class="h-4 w-4 text-secondary" />
+				{/if}
+				<span class="text-sm">
+					{selectedTags.length > 0 ? 'Add more scripts/flows' : 'Select scripts/flows'}
+				</span>
+			</button>
+
 			{#if selectorExpanded}
-				<ChevronDown class="h-4 w-4 text-secondary" />
-			{:else}
-				<ChevronRight class="h-4 w-4 text-secondary" />
-			{/if}
-			<span class="text-sm">
-				{selectedTags.length > 0 ? 'Add more scripts/flows' : 'Select scripts/flows'}
-			</span>
-		</button>
+				<div class="border-t px-3 py-3 flex flex-col gap-3">
+					<!-- Workspace selector -->
+					<div class="flex flex-col gap-1">
+						<span class="text-xs text-secondary">Workspace</span>
+						<Select
+							bind:value={selectedWorkspace}
+							items={workspaces.map((w) => ({ value: w.id, label: `${w.name} (${w.id})` }))}
+							placeholder="Select workspace..."
+							disabled={disabled || workspacesLoading}
+						/>
+					</div>
 
-		{#if selectorExpanded}
-			<div class="border-t px-3 py-3 flex flex-col gap-3">
-				<!-- Workspace selector -->
-				<div class="flex flex-col gap-1">
-					<span class="text-xs text-secondary">Workspace</span>
-					<Select
-						bind:value={selectedWorkspace}
-						items={workspaces.map((w) => ({ value: w.id, label: `${w.name} (${w.id})` }))}
-						placeholder="Select workspace..."
-						disabled={disabled || workspacesLoading}
-					/>
-				</div>
+					<!-- Scripts/flows list -->
+					{#if selectedWorkspace}
+						<div class="flex flex-col gap-2">
+							<div class="flex items-center justify-between">
+								<span class="text-xs text-secondary"
+									>Scripts/flows with dedicated worker enabled</span
+								>
+								{#if !loading && runnables.length > 0}
+									<div class="flex gap-1">
+										<Button size="xs2" color="light" on:click={selectAll} {disabled}>All</Button>
+										<Button size="xs2" color="light" on:click={deselectAll} {disabled}>None</Button>
+										<Button
+											size="xs2"
+											color="light"
+											iconOnly
+											startIcon={{ icon: RefreshCcw }}
+											on:click={() => selectedWorkspace && loadRunnables(selectedWorkspace)}
+											{disabled}
+										/>
+									</div>
+								{/if}
+							</div>
 
-				<!-- Scripts/flows list -->
-				{#if selectedWorkspace}
-					<div class="flex flex-col gap-2">
-						<div class="flex items-center justify-between">
-							<span class="text-xs text-secondary">Scripts/flows with dedicated worker enabled</span
-							>
-							{#if !loading && runnables.length > 0}
-								<div class="flex gap-1">
-									<Button size="xs2" color="light" on:click={selectAll} {disabled}>All</Button>
-									<Button size="xs2" color="light" on:click={deselectAll} {disabled}>None</Button>
-									<Button
-										size="xs2"
-										color="light"
-										iconOnly
-										startIcon={{ icon: RefreshCcw }}
-										on:click={() => selectedWorkspace && loadRunnables(selectedWorkspace)}
-										{disabled}
-									/>
+							{#if loading}
+								<div class="flex items-center justify-center py-4">
+									<RefreshCcw class="animate-spin h-4 w-4 text-secondary" />
+									<span class="ml-2 text-xs text-secondary">Loading...</span>
 								</div>
-							{/if}
-						</div>
-
-						{#if loading}
-							<div class="flex items-center justify-center py-4">
-								<RefreshCcw class="animate-spin h-4 w-4 text-secondary" />
-								<span class="ml-2 text-xs text-secondary">Loading...</span>
-							</div>
-						{:else if runnables.length === 0}
-							<div class="text-xs text-tertiary py-3 text-center">
-								No scripts or flows with dedicated worker enabled found.
-							</div>
-						{:else}
-							<div class="border rounded-md divide-y max-h-64 overflow-y-auto bg-surface">
-								{#each runnables as runnable (runnable.tag)}
-									<div>
-										<div class="flex items-center">
-											{#if runnable.type === 'flow' && runnable.runners && runnable.runners.length > 0}
+							{:else if runnables.length === 0}
+								<div class="text-xs text-tertiary py-3 text-center">
+									No scripts or flows with dedicated worker enabled found.
+								</div>
+							{:else}
+								<div class="border rounded-md divide-y max-h-64 overflow-y-auto bg-surface">
+									{#each runnables as runnable (runnable.tag)}
+										<div>
+											<div class="flex items-center">
+												{#if runnable.type === 'flow' && runnable.runners && runnable.runners.length > 0}
+													<button
+														class="p-2 hover:bg-surface-hover transition-colors"
+														onclick={(e) => {
+															e.stopPropagation()
+															toggleExpanded(runnable)
+														}}
+														{disabled}
+													>
+														{#if runnable.expanded}
+															<ChevronDown class="h-3 w-3 text-tertiary" />
+														{:else}
+															<ChevronRight class="h-3 w-3 text-tertiary" />
+														{/if}
+													</button>
+												{/if}
 												<button
-													class="p-2 hover:bg-surface-hover transition-colors"
+													class="flex-1 flex items-center gap-2 px-2 py-1.5 hover:bg-surface-hover transition-colors text-left min-w-0"
 													onclick={(e) => {
 														e.stopPropagation()
-														toggleExpanded(runnable)
+														if (!disabled) toggleRunnable(runnable)
 													}}
 													{disabled}
 												>
-													{#if runnable.expanded}
-														<ChevronDown class="h-3 w-3 text-tertiary" />
-													{:else}
-														<ChevronRight class="h-3 w-3 text-tertiary" />
+													<div
+														class="w-4 h-4 border rounded flex items-center justify-center flex-shrink-0"
+														class:bg-blue-500={runnable.selected}
+														class:border-blue-500={runnable.selected}
+													>
+														{#if runnable.selected}
+															<Check class="h-3 w-3 text-white" />
+														{/if}
+													</div>
+													<span class="flex-1 text-xs truncate min-w-0">{runnable.displayName}</span
+													>
+													{#if runnable.type === 'flow' && runnable.runners}
+														<span class="text-xs text-tertiary flex-shrink-0">
+															{runnable.runners.length}
+														</span>
 													{/if}
+													{#if runnable.workspaceDeps}
+														{#each runnable.workspaceDeps as dep}
+															{@render depBadge(dep, selectedWorkspace)}
+														{/each}
+													{/if}
+													<Badge color={runnable.type === 'flow' ? 'indigo' : 'gray'} small>
+														{runnable.type === 'flow' ? 'flow' : runnable.language}
+													</Badge>
 												</button>
-											{:else}
-												<div class="w-7"></div>
-											{/if}
-											<button
-												class="flex-1 flex items-center gap-2 px-2 py-1.5 hover:bg-surface-hover transition-colors text-left min-w-0"
-												onclick={(e) => {
-													e.stopPropagation()
-													if (!disabled) toggleRunnable(runnable)
-												}}
-												{disabled}
-											>
-												<div
-													class="w-4 h-4 border rounded flex items-center justify-center flex-shrink-0"
-													class:bg-blue-500={runnable.selected}
-													class:border-blue-500={runnable.selected}
-												>
-													{#if runnable.selected}
-														<Check class="h-3 w-3 text-white" />
+											</div>
+
+											{#if runnable.type === 'flow' && runnable.expanded && runnable.runners}
+												<div class="bg-surface-secondary border-t">
+													{#if runnable.runners.length === 0}
+														<div class="px-9 py-1.5 text-xs text-tertiary italic">
+															No eligible steps (python3/bun/bunnative/deno)
+														</div>
+													{:else}
+														{#each runnable.runners as runner (runner.stepId)}
+															<div
+																class="flex items-center gap-2 px-9 py-1 text-xs border-t first:border-t-0 min-w-0"
+															>
+																<span class="font-mono text-tertiary flex-shrink-0"
+																	>{runner.stepId}</span
+																>
+																{#if runner.stepSummary}
+																	<span class="text-secondary truncate flex-1 min-w-0">
+																		{runner.stepSummary}
+																	</span>
+																{/if}
+																<Badge color="gray" small>
+																	{runner.isInline ? runner.language : runner.scriptPath}
+																</Badge>
+															</div>
+														{/each}
 													{/if}
 												</div>
-												<span class="flex-1 text-xs truncate min-w-0">{runnable.displayName}</span>
-												{#if runnable.type === 'flow' && runnable.runners}
-													<span class="text-xs text-tertiary flex-shrink-0">
-														{runnable.runners.length}
-													</span>
-												{/if}
-												{#if runnable.workspaceDeps}
-													{#each runnable.workspaceDeps as dep}
-														{@render depBadge(dep)}
-													{/each}
-												{/if}
-												<Badge color={runnable.type === 'flow' ? 'indigo' : 'gray'} small>
-													{runnable.type === 'flow' ? 'flow' : runnable.language}
-												</Badge>
-											</button>
+											{/if}
 										</div>
-
-										{#if runnable.type === 'flow' && runnable.expanded && runnable.runners}
-											<div class="bg-surface-secondary border-t">
-												{#if runnable.runners.length === 0}
-													<div class="px-9 py-1.5 text-xs text-tertiary italic">
-														No eligible steps (python3/bun/bunnative/deno)
-													</div>
-												{:else}
-													{#each runnable.runners as runner (runner.stepId)}
-														<div
-															class="flex items-center gap-2 px-9 py-1 text-xs border-t first:border-t-0 min-w-0"
-														>
-															<span class="font-mono text-tertiary flex-shrink-0"
-																>{runner.stepId}</span
-															>
-															{#if runner.stepSummary}
-																<span class="text-secondary truncate flex-1 min-w-0">
-																	{runner.stepSummary}
-																</span>
-															{/if}
-															<Badge color="gray" small>
-																{runner.isInline ? runner.language : runner.scriptPath}
-															</Badge>
-														</div>
-													{/each}
-												{/if}
-											</div>
-										{/if}
-									</div>
-								{/each}
-							</div>
-							<div class="text-xs text-tertiary">
-								{selectedCount} selected
-							</div>
-						{/if}
-					</div>
-				{/if}
-			</div>
-		{/if}
-	</div>
+									{/each}
+								</div>
+								<div class="text-xs text-tertiary">
+									{selectedCount} selected
+								</div>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{/if}
+		</div>
+	{/if}
 </div>

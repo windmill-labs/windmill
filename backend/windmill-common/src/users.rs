@@ -81,6 +81,46 @@ pub async fn get_email_from_permissioned_as(
     }
 }
 
+/// Compute the highest-precedence workspace role for a user across all their instance groups.
+///
+/// Precedence: admin (3) > developer (2) > operator (1).
+/// Returns `(best_group_name, is_admin, is_operator)`.
+pub fn compute_highest_workspace_role(
+    user_igroups: &[String],
+    ws_configured_groups: &[String],
+    ws_roles: &std::collections::HashMap<String, String>,
+) -> (String, bool, bool) {
+    let mut best_group = String::new();
+    let mut best_precedence = 0u8;
+
+    for group in user_igroups {
+        if !ws_configured_groups.contains(group) {
+            continue;
+        }
+        let default_role = "developer".to_string();
+        let role = ws_roles.get(group).unwrap_or(&default_role);
+        let precedence = match role.as_str() {
+            "admin" => 3u8,
+            "operator" => 1,
+            _ => 2,
+        };
+        if precedence > best_precedence {
+            best_precedence = precedence;
+            best_group = group.clone();
+        }
+    }
+
+    let default_role = "developer".to_string();
+    let best_role_str = ws_roles.get(&best_group).unwrap_or(&default_role);
+    let (is_admin, is_operator) = match best_role_str.as_str() {
+        "admin" => (true, false),
+        "operator" => (false, true),
+        _ => (false, false),
+    };
+
+    (best_group, is_admin, is_operator)
+}
+
 pub fn truncate_token(token: &str) -> String {
     if token.len() > 10 {
         let mut s = token[..10].to_owned();
@@ -104,5 +144,64 @@ mod tests {
         );
         assert_eq!(username_to_permissioned_as("group-all"), "g/all");
         assert_eq!(username_to_permissioned_as("group-my-team"), "g/my-team");
+    }
+
+    #[test]
+    fn test_compute_highest_workspace_role_admin_wins() {
+        let user_groups = vec!["ops".to_string(), "admins".to_string()];
+        let ws_groups = vec!["ops".to_string(), "admins".to_string()];
+        let mut roles = std::collections::HashMap::new();
+        roles.insert("ops".to_string(), "operator".to_string());
+        roles.insert("admins".to_string(), "admin".to_string());
+
+        let (group, is_admin, is_operator) =
+            compute_highest_workspace_role(&user_groups, &ws_groups, &roles);
+        assert_eq!(group, "admins");
+        assert!(is_admin);
+        assert!(!is_operator);
+    }
+
+    #[test]
+    fn test_compute_highest_workspace_role_developer_over_operator() {
+        let user_groups = vec!["devs".to_string(), "ops".to_string()];
+        let ws_groups = vec!["devs".to_string(), "ops".to_string()];
+        let mut roles = std::collections::HashMap::new();
+        roles.insert("devs".to_string(), "developer".to_string());
+        roles.insert("ops".to_string(), "operator".to_string());
+
+        let (group, is_admin, is_operator) =
+            compute_highest_workspace_role(&user_groups, &ws_groups, &roles);
+        assert_eq!(group, "devs");
+        assert!(!is_admin);
+        assert!(!is_operator);
+    }
+
+    #[test]
+    fn test_compute_highest_workspace_role_skips_unconfigured_groups() {
+        let user_groups = vec!["admins".to_string(), "other".to_string()];
+        let ws_groups = vec!["ops".to_string()]; // admins not configured for this workspace
+        let mut roles = std::collections::HashMap::new();
+        roles.insert("admins".to_string(), "admin".to_string());
+        roles.insert("ops".to_string(), "operator".to_string());
+
+        let (group, is_admin, is_operator) =
+            compute_highest_workspace_role(&user_groups, &ws_groups, &roles);
+        // No user groups match ws_configured_groups, so best_group stays empty
+        assert_eq!(group, "");
+        assert!(!is_admin);
+        assert!(!is_operator);
+    }
+
+    #[test]
+    fn test_compute_highest_workspace_role_defaults_to_developer() {
+        let user_groups = vec!["team".to_string()];
+        let ws_groups = vec!["team".to_string()];
+        let roles = std::collections::HashMap::new(); // no role configured → developer
+
+        let (group, is_admin, is_operator) =
+            compute_highest_workspace_role(&user_groups, &ws_groups, &roles);
+        assert_eq!(group, "team");
+        assert!(!is_admin);
+        assert!(!is_operator);
     }
 }

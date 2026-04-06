@@ -24,12 +24,13 @@ import {
 import { Workspace } from "../workspace/workspace.ts";
 import {
   checkifMetadataUptodate,
+  generateScriptHash,
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   parseMetadataFile,
   readLockfile,
 } from "../../utils/metadata.ts";
-import { generateHash, validateRequiredArgs } from "../../utils/utils.ts";
+import { validateRequiredArgs } from "../../utils/utils.ts";
 import {
   WorkspaceDependenciesLanguage,
   ScriptLanguage,
@@ -105,6 +106,16 @@ export function isFlowInlineScriptPath(filePath: string): boolean {
 }
 
 type PushOptions = GlobalOptions & { message?: string };
+export async function computePushMetadataHash(
+  filePath: string,
+  content: string
+): Promise<string> {
+  const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
+  const metadataWithType = await parseMetadataFile(remotePath, undefined);
+  const metadataContent = await readFile(metadataWithType.path, "utf-8");
+  return await generateScriptHash({}, content, metadataContent);
+}
+
 async function push(opts: PushOptions, filePath: string) {
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
@@ -130,7 +141,7 @@ async function push(opts: PushOptions, filePath: string) {
   try {
     const content = await readFile(filePath, "utf-8");
     const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
-    const contentHash = await generateHash(content + remotePath);
+    const contentHash = await computePushMetadataHash(filePath, content);
     const conf = await readLockfile();
     const hasLockEntry = conf.locks && (conf.locks[remotePath] !== undefined || conf.locks[`${remotePath}.ts`] !== undefined);
     if (!hasLockEntry) {
@@ -467,6 +478,7 @@ export async function handleFile(
       on_behalf_of_email: typed?.on_behalf_of_email,
       envs: typed?.envs,
       modules: modules,
+      labels: typed?.labels,
     };
 
     // console.log(requestBodyCommon.codebase);
@@ -832,6 +844,8 @@ export function filePathExtensionFromContentType(
     return ".java";
   } else if (language === "ruby") {
     return ".rb";
+  } else if (language === "rlang") {
+    return ".r";
     // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);
@@ -863,6 +877,7 @@ export const exts = [
   ".playbook.yml",
   ".java",
   ".rb",
+  ".r",
   // for related places search: ADD_NEW_LANG
 ];
 
@@ -1115,6 +1130,27 @@ export async function track_job(workspace: string, id: string) {
   }
 }
 
+const POLL_INTERVAL_MS = 2000;
+
+export async function pollForJobResult(
+  workspace: string,
+  jobId: string,
+): Promise<{ result: unknown; success: boolean }> {
+  while (true) {
+    const maybeResult = await wmill.getCompletedJobResultMaybe({
+      workspace,
+      id: jobId,
+      getStarted: false,
+    });
+
+    if (maybeResult.completed) {
+      return { result: maybeResult.result, success: maybeResult.success ?? false };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+}
+
 async function show(opts: GlobalOptions, path: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -1239,7 +1275,7 @@ export async function generateMetadata(
     colors.yellow('This command is deprecated. Use "wmill generate-metadata" instead.')
   );
   log.info(
-    "This command only works for workspace scripts, for flows inline scripts use `wmill flow generate-locks`"
+    "This command only works for workspace scripts. For flows or apps, run `wmill generate-metadata` from the affected folder."
   );
   if (scriptPath == "") {
     scriptPath = undefined;
@@ -1529,8 +1565,8 @@ async function preview(
       }
     }
   } else {
-    // For regular scripts, use the standard preview API
-    const result = await wmill.runScriptPreviewAndWaitResult({
+    // For regular scripts, start the preview job then poll for completion
+    const jobId = await wmill.runScriptPreview({
       workspace: workspace.workspaceId,
       requestBody: {
         content,
@@ -1541,8 +1577,21 @@ async function preview(
       },
     });
 
+    const { result, success } = await pollForJobResult(workspace.workspaceId, jobId);
+
+    if (!success) {
+      if (opts.silent) {
+        console.log(JSON.stringify(result));
+      } else {
+        log.info(colors.red.bold("Preview failed"));
+        log.info(JSON.stringify(result, null, 2));
+      }
+      process.exitCode = 1;
+      return;
+    }
+
     if (opts.silent) {
-      console.log(JSON.stringify(result, null, 2));
+      console.log(JSON.stringify(result));
     } else {
       log.info(colors.bold.underline.green("Preview completed"));
       log.info(JSON.stringify(result, null, 2));
@@ -1647,8 +1696,11 @@ const command = new Command()
   .action(bootstrap as any)
   .command(
     "generate-metadata",
-    "re-generate the metadata file updating the lock and the script schema (for flows, use `wmill flow generate-locks`)"
+    'DEPRECATED: re-generate script metadata. Use top-level "wmill generate-metadata" instead.'
   )
+  // Deprecated compatibility command. Keep it working for older repos, but
+  // exclude it from generated system prompt docs.
+  // @deprecated use `wmill generate-metadata`
   .arguments("[script:file]")
   .option("--yes", "Skip confirmation prompt")
   .option("--dry-run", "Perform a dry run without making changes")

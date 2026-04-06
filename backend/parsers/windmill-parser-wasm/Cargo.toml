@@ -38,6 +38,7 @@ csharp-parser = [ "dep:windmill-parser-csharp"]
 nu-parser = [ "dep:windmill-parser-nu"]
 java-parser = [ "dep:windmill-parser-java"]
 ruby-parser = [ "dep:windmill-parser-ruby"]
+r-parser = [ "dep:windmill-parser-r"]
 wac-parser = [ "dep:windmill-parser-wac"]
 asset-parser = [ "dep:windmill-parser-ts-asset", "dep:windmill-parser-py-asset", "dep:windmill-parser-sql-asset"]
 py-imports-parser = [ "dep:windmill-parser-py-imports"]
@@ -58,6 +59,7 @@ windmill-parser-csharp = { workspace = true, optional = true }
 windmill-parser-nu = { workspace = true, optional = true }
 windmill-parser-java = { workspace = true, optional = true }
 windmill-parser-ruby = { workspace = true, optional = true }
+windmill-parser-r = { workspace = true, optional = true }
 windmill-parser-wac = { workspace = true, optional = true }
 windmill-parser-ts-asset = { workspace = true, optional = true }
 windmill-parser-py-asset = { workspace = true, optional = true }

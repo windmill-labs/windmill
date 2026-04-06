@@ -119,6 +119,24 @@
 		{/if}
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
 		<DraftBadge has_draft={flow.has_draft} draft_only={flow.draft_only} />
+		{#if flow.labels?.length}
+			<div class="flex items-center gap-0.5">
+				{#each flow.labels.slice(0, 3) as label}
+					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+				{/each}
+				{#if flow.labels.length > 3}
+					<Badge
+						color="blue"
+						small
+						class="px-1"
+						title={flow.labels
+							.slice(3)
+							.map((l) => 'Label: ' + l)
+							.join('\n')}>+{flow.labels.length - 3}</Badge
+					>
+				{/if}
+			</div>
+		{/if}
 		<div class="w-8 center-center"></div>
 	{/snippet}
 	{#snippet actions()}

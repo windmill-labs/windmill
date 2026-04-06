@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { buildWsUrl } from '$lib/wsUrl'
+	import { processSecretArgs } from './secretArgUtils'
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import {
 		type CompletedJob,
@@ -23,6 +24,7 @@
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SchemaForm from './SchemaForm.svelte'
+	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import JobLoader from './JobLoader.svelte'
@@ -187,6 +189,8 @@
 	let initialArgs = structuredClone($state.snapshot(args))
 	let jsonView = $state(false)
 	let schemaHeight = $state(0)
+	let psCommonParams: Record<string, any> = $state({})
+	let showPsCommonParams = $derived(lang === 'powershell' && /^\s*\[CmdletBinding/im.test(code))
 
 	// Module tab state
 	let activeModuleTab: string | null = $state(null)
@@ -645,12 +649,21 @@
 
 		const testCode = activeModuleTab !== null ? editorCode : code
 		const testLang = activeModuleTab !== null ? effectiveLang : lang
-		const testArgs =
+		const rawTestArgs =
 			activeModuleTab !== null
 				? testPanelArgs
 				: selectedTab === 'preprocessor' || kind === 'preprocessor'
 					? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
 					: (args ?? {})
+		const testSchema = activeModuleTab !== null ? testPanelSchema : schema
+		const testArgs = await processSecretArgs(rawTestArgs, testSchema)
+		if (showPsCommonParams) {
+			for (const [k, v] of Object.entries(psCommonParams)) {
+				if (v !== undefined && v !== false && v !== '') {
+					testArgs[k] = v
+				}
+			}
+		}
 
 		//@ts-ignore
 		let job = await jobLoader.runPreview(
@@ -1613,6 +1626,13 @@
 												/>
 											{/if}
 										{/key}
+										{#if showPsCommonParams}
+											<div class="mt-2">
+												<PowerShellCommonParams
+														bind:args={psCommonParams}
+												/>
+											</div>
+										{/if}
 									</div>
 								</div>
 							{/if}

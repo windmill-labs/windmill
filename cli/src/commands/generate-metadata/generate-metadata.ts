@@ -110,7 +110,6 @@ async function generateMetadata(
         rawWorkspaceDependencies,
         codebases,
         false,
-        false, // legacyBehaviour
         tree
       );
     }
@@ -142,7 +141,6 @@ async function generateMetadata(
         opts,
         false,
         true, // noStaleMessage
-        false, // legacyBehaviour
         tree
       );
     }
@@ -176,7 +174,6 @@ async function generateMetadata(
         opts,
         false,
         true, // noStaleMessage
-        false, // legacyBehaviour
         tree
       );
     }
@@ -190,7 +187,6 @@ async function generateMetadata(
         opts,
         false,
         true, // noStaleMessage
-        false, // legacyBehaviour
         tree
       );
     }
@@ -333,8 +329,9 @@ async function generateMetadata(
 
   log.info("");
 
+  const isInteractive = process.stdin.isTTY ?? false;
   if (
-    !opts.yes &&
+    !opts.yes && isInteractive &&
     !(await Confirm.prompt({
       message: "Update metadata?",
       default: true,
@@ -371,7 +368,6 @@ async function generateMetadata(
         mismatchedWorkspaceDeps,
         codebases,
         false,
-        false, // legacyBehaviour
         tree
       );
     } catch (e) {
@@ -392,7 +388,6 @@ async function generateMetadata(
         opts,
         false,
         true, // noStaleMessage
-        false, // legacyBehaviour
         tree
       );
       const flowResult = result as FlowLocksResult | undefined;
@@ -420,7 +415,6 @@ async function generateMetadata(
         opts,
         false,
         true, // noStaleMessage
-        false, // legacyBehaviour
         tree
       );
       const appResult = result as AppLocksResult | undefined;

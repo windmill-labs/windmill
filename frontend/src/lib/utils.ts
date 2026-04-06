@@ -1464,6 +1464,35 @@ export function isFlowPreview(job_kind: Job['job_kind'] | undefined) {
 	return !!job_kind && (job_kind === 'flowpreview' || job_kind === 'flownode')
 }
 
+export function isHubFlowPath(scriptPath: string | undefined | null) {
+	return !!scriptPath && scriptPath.startsWith('hub/flows/')
+}
+
+export function getHubFlowIdFromPath(scriptPath: string | undefined | null) {
+	if (!scriptPath || !isHubFlowPath(scriptPath)) {
+		return undefined
+	}
+
+	const hubFlowPath = scriptPath.substring('hub/flows/'.length)
+	const [idPart] = hubFlowPath.split('/')
+	const id = Number(idPart)
+
+	return Number.isInteger(id) && id > 0 ? id : undefined
+}
+
+export function getJobKindDisplayLabel(
+	jobKind: Job['job_kind'] | undefined,
+	scriptPath: string | undefined | null
+) {
+	if (jobKind === 'script_hub') {
+		return 'Script from hub'
+	}
+	if (isFlowPreview(jobKind) && isHubFlowPath(scriptPath)) {
+		return 'Flow from hub'
+	}
+	return jobKind ?? ''
+}
+
 export function isNotFlow(job_kind: Job['job_kind'] | undefined) {
 	return job_kind !== 'flow' && job_kind !== 'singlestepflow' && !isFlowPreview(job_kind)
 }

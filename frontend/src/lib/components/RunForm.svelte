@@ -3,7 +3,8 @@
 		computeSharableHash as computeSharableHash,
 		defaultIfEmptyString,
 		emptyString,
-		truncateHash
+		truncateHash,
+		sendUserToast
 	} from '$lib/utils'
 
 	import type { Schema } from '$lib/common'
@@ -21,20 +22,63 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { untrack } from 'svelte'
+	import { processSecretArgs } from './secretArgUtils'
+	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
 	let schemaHeight = $state(0)
 	let showInputSelectedBadge = $state(false)
 	let savedPreviousArgs: Record<string, any> | undefined = $state(undefined)
+	let psCommonParams: Record<string, any> = $state({})
+
+	function extractPsCommonParams(allArgs: Record<string, any>): {
+		scriptArgs: Record<string, any>
+		commonParams: Record<string, any>
+	} {
+		const scriptArgs: Record<string, any> = {}
+		const commonParams: Record<string, any> = {}
+		for (const [k, v] of Object.entries(allArgs)) {
+			if (k.startsWith('_wm_ps_')) {
+				commonParams[k] = v
+			} else {
+				scriptArgs[k] = v
+			}
+		}
+		return { scriptArgs, commonParams }
+	}
 
 	export async function setArgs(nargs: Record<string, any>) {
-		args = nargs
+		const { scriptArgs, commonParams } = extractPsCommonParams(nargs)
+		args = scriptArgs
+		psCommonParams = commonParams
 		reloadArgs++
 	}
 
-	export function run() {
-		runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)
+	export async function run(overrideScheduledForStr?: string | undefined | null) {
+		let processedArgs: Record<string, any>
+		try {
+			processedArgs = await processSecretArgs(
+				enforceDisabledDefaults(args ?? {}, true),
+				runnable?.schema
+			)
+		} catch (e) {
+			sendUserToast('Failed to process sensitive args: ' + e, true)
+			return
+		}
+		if (showPsCommonParams) {
+			for (const [k, v] of Object.entries(psCommonParams)) {
+				if (v !== undefined && v !== false && v !== '') {
+					processedArgs[k] = v
+				}
+			}
+		}
+		runAction(
+			overrideScheduledForStr === null ? undefined : (overrideScheduledForStr ?? scheduledForStr),
+			processedArgs,
+			invisible_to_owner,
+			overrideTag
+		)
 	}
 
 	interface Props {
@@ -47,6 +91,7 @@
 					is_template?: boolean
 					hash?: string
 					kind?: string
+					language?: string
 					can_write?: boolean
 					created_at?: string
 					created_by?: string
@@ -92,9 +137,19 @@
 		isValid = $bindable(true)
 	}: Props = $props()
 
+	let showPsCommonParams = $derived(
+		runnable?.language === 'powershell' && runnable?.schema?.['x-windmill-ps-cmd-binding'] === true
+	)
+
 	$effect.pre(() => {
 		if (args == undefined) {
 			args = {}
+		}
+		// Extract _wm_ps_* keys from args on initial load (e.g. "Run again" via URL hash)
+		if (args && Object.keys(args).some((k) => k.startsWith('_wm_ps_'))) {
+			const { scriptArgs, commonParams } = extractPsCommonParams(args)
+			args = scriptArgs
+			psCommonParams = commonParams
 		}
 	})
 
@@ -116,6 +171,30 @@
 		} catch (e) {
 			console.error('Impossible to set hash in args', e)
 		}
+	}
+
+	function enforceDisabledDefaults(
+		args: Record<string, any>,
+		notify: boolean = false
+	): Record<string, any> {
+		const schema = runnable?.schema
+		if (!schema?.properties) return args
+		const result = { ...args }
+		const resetKeys: string[] = []
+		for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
+			if (prop?.disabled && 'default' in prop) {
+				if (notify && result[key] !== prop.default) {
+					resetKeys.push(key)
+				}
+				result[key] = prop.default
+			}
+		}
+		if (resetKeys.length > 0) {
+			sendUserToast(
+				`Disabled field${resetKeys.length > 1 ? 's' : ''} ${resetKeys.map((k) => `'${k}'`).join(', ')} reset to default value${resetKeys.length > 1 ? 's' : ''}`
+			)
+		}
+		return result
 	}
 
 	export function setCode(code: string) {
@@ -235,7 +314,7 @@
 					bind:this={jsonEditor}
 					on:select={(e) => {
 						if (e.detail) {
-							args = e.detail
+							args = enforceDisabledDefaults(e.detail)
 						}
 					}}
 					updateOnBlur={false}
@@ -266,6 +345,11 @@
 	{:else}
 		<div class="text-xs text-primary">No arguments</div>
 	{/if}
+	{#if showPsCommonParams}
+		<div class="mt-4">
+			<PowerShellCommonParams bind:args={psCommonParams} />
+		</div>
+	{/if}
 	{#if schedulable}
 		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6">
 			<div class="flex-row-reverse flex-wrap flex w-full gap-4">
@@ -276,7 +360,7 @@
 					unifiedSize="md"
 					btnClasses="!inline-flex"
 					disabled={!isValid && !jsonView}
-					on:click={() => runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)}
+					on:click={() => run()}
 					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 				>
 					{scheduledForStr ? 'Schedule to run later' : buttonText}
@@ -315,7 +399,7 @@
 			btnClasses="!px-6 !py-1 w-full"
 			variant="accent"
 			disabled={!isValid && !jsonView}
-			on:click={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
+			on:click={() => run(null)}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>
 			{buttonText}

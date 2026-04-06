@@ -22,6 +22,15 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Read review prompt
+        id: review-prompt
+        run: |
+          {
+            echo 'REVIEW_PROMPT<<EOF'
+            cat .claude/review-prompt.md
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
+
       - name: Automatic PR Review
         uses: anthropics/claude-code-action@v1
         with:
@@ -31,18 +40,7 @@ jobs:
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
 
-            Please review this pull request and provide comprehensive feedback.
-
-            Focus on:
-            - Code quality and best practices
-            - Potential bugs or issues
-            - Performance considerations
-            - Security implications
-
-            Provide detailed feedback using inline comments for specific issues.
-            Use top-level comments for general observations or praise.
-
-            At the end of your review, add complete instructions to reproduce the added changes through the app interface. These instructions will be given to a tester so he can verify the changes. It should be a short descriptive text (not a step by step or a list) on how to navigate the app (what page, what action, what input, etc) to see the changes.
+            ${{ env.REVIEW_PROMPT }}
           claude_args: |
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
             --model opus

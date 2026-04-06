@@ -117,6 +117,10 @@ properties:
     type: string
     description: Path to a script that validates scheduled datetimes. Receives scheduled_for
       datetime and returns boolean to skip (true) or run (false)
+  labels:
+    type: array
+    items:
+      type: string
 required:
 - schedule
 - script_path
