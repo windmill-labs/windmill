@@ -66,6 +66,7 @@
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
+	import CiTestResults from '$lib/components/CiTestResults.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
@@ -589,6 +590,12 @@
 								/>
 							</div>
 							<div class="h-4"></div>
+						{/if}
+
+						{#if flow?.path}
+							<div class="mb-2">
+								<CiTestResults path={flow.path} kind="flow" />
+							</div>
 						{/if}
 
 						{#if deploymentInProgress}

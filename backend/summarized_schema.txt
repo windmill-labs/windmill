@@ -16,7 +16,7 @@ http_method: get, post, put, delete, patch
 importer_kind: script, flow, app
 job_kind: script, preview, flow, dependencies, flowpreview, script_hub, identity, flowdependencies, http, graphql, postgresql, noop, appdependencies, deploymentcallback, singlestepflow, flowscript, flownode, appscript, aiagent, unassigned_script, unassigned_flow, unassigned_singlestepflow
 job_status: success, failure, canceled, skipped
-job_trigger_kind: webhook, http, websocket, kafka, email, nats, schedule, app, ui, postgres, sqs, gcp, mqtt, nextcloud
+job_trigger_kind: webhook, http, websocket, kafka, email, nats, schedule, app, ui, postgres, sqs, gcp, mqtt, nextcloud, ci_test
 log_mode: standalone, server, worker, agent, indexer, mcp
 login_type: password, github
 message_type: user, assistant, tool
@@ -60,6 +60,8 @@ cloud_workspace_settings: workspace_id(char), threshold_alert_amount(int), last_
 concurrency_counter: concurrency_id(char), job_uuids(jsonb)
 concurrency_key: key(char), ended_at(ts), job_id(uuid)
 concurrency_locks: id(char), last_locked_at(ts), owner(char)
+ci_test_reference: workspace_id(char), test_script_path(char), test_script_hash(bigint), tested_item_path(char), tested_item_kind(char)
+  FK: (workspace_id) -> workspace(id)
 concurrency_settings: hash(bigint), concurrency_key(char), concurrent_limit(int), concurrency_time_window_s(int)
 config: name(char), config(jsonb)
 custom_concurrency_key_ended: key(char), ended_at(ts)

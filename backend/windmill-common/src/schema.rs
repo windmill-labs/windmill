@@ -343,6 +343,57 @@ fn find_annotation(comm_lit: &str, annotation: &str, code: &str) -> bool {
     false
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CiTestedItem {
+    pub path: String,
+    pub kind: String,
+}
+
+/// Parse a CI test annotation from the top of a script.
+/// Format (TS example):
+/// ```
+/// // test:
+/// // script:u/admin/my_script
+/// // flow:u/admin/my_flow
+/// // resource:u/admin/my_resource
+/// ```
+pub fn parse_ci_test_annotation(code: &str, comment_prefix: &str) -> Option<Vec<CiTestedItem>> {
+    let test_marker = format!("{comment_prefix} test:");
+    let mut lines = code.lines();
+
+    // First comment line must be "// test:"
+    let first = lines.next()?;
+    if first.trim_end() != test_marker {
+        return None;
+    }
+
+    let mut items = Vec::new();
+    for line in lines {
+        let stripped = line.strip_prefix(comment_prefix)?.trim();
+        if stripped.is_empty() {
+            continue;
+        }
+
+        if let Some(path) = stripped.strip_prefix("script:") {
+            items.push(CiTestedItem { path: path.trim().to_string(), kind: "script".to_string() });
+        } else if let Some(path) = stripped.strip_prefix("flow:") {
+            items.push(CiTestedItem { path: path.trim().to_string(), kind: "flow".to_string() });
+        } else if let Some(path) = stripped.strip_prefix("resource:") {
+            items
+                .push(CiTestedItem { path: path.trim().to_string(), kind: "resource".to_string() });
+        } else {
+            // Stop at first non-matching comment line (e.g. normal code comments)
+            break;
+        }
+    }
+
+    if items.is_empty() {
+        None
+    } else {
+        Some(items)
+    }
+}
+
 pub fn should_validate_schema(code: &str, lang: &ScriptLang) -> bool {
     let annotation = "schema_validation";
     find_annotation(&lang.as_comment_lit(), annotation, code)

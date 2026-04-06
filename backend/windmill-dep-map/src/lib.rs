@@ -1,3 +1,4 @@
+pub mod ci_tests;
 pub mod scoped_dependency_map;
 pub mod trigger_dependents;
 pub mod workspace_dependencies;
@@ -88,7 +89,13 @@ pub fn extract_referenced_paths(
 ) -> Option<Vec<String>> {
     let mut referenced_paths = vec![];
     if let Some(wk_deps_refs) = language
-        .and_then(|l| windmill_common::scripts::extract_workspace_dependencies_annotated_refs(&l, raw_code, script_path))
+        .and_then(|l| {
+            windmill_common::scripts::extract_workspace_dependencies_annotated_refs(
+                &l,
+                raw_code,
+                script_path,
+            )
+        })
         .map(|r| r.external)
     {
         let l = language.expect("should be some");

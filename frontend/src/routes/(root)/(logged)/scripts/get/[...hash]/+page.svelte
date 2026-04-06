@@ -95,6 +95,7 @@
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import CiTestResults from '$lib/components/CiTestResults.svelte'
 
 	let script: Script | undefined = $state()
 	let topHash: string | undefined = $state()
@@ -794,6 +795,12 @@
 								<div class="h-4"></div>
 							{/if}
 						</div>
+
+						{#if script?.path}
+							<div class="mb-2">
+								<CiTestResults path={script.path} kind="script" />
+							</div>
+						{/if}
 
 						{#if deploymentInProgress}
 							<div class="pb-4" transition:slide={{ duration: 150 }}>

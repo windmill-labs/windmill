@@ -7,6 +7,8 @@
 		ArrowUp,
 		ArrowUpRight,
 		Building,
+		CircleCheck,
+		CircleX,
 		DiffIcon,
 		FileJson,
 		GitFork,
@@ -14,6 +16,7 @@
 		Trash2,
 		Upload
 	} from 'lucide-svelte'
+	import type { CiTestResult } from '$lib/gen'
 	import { Alert, Badge } from './common'
 	import {
 		AppService,
@@ -482,6 +485,39 @@
 		extraLabel?: string
 	}
 
+	let ciTestResults = $state<Record<string, CiTestResult[]>>({})
+
+	async function fetchCiTests() {
+		if (!comparison?.diffs || !currentWorkspaceId) return
+		const items = comparison.diffs
+			.filter((d) => d.kind === 'script' || d.kind === 'flow' || d.kind === 'resource')
+			.map((d) => ({ path: d.path, kind: d.kind as 'script' | 'flow' | 'resource' }))
+		if (items.length === 0) return
+		try {
+			ciTestResults = await ScriptService.getCiTestResultsBatch({
+				workspace: currentWorkspaceId,
+				requestBody: { items }
+			})
+		} catch (e) {
+			console.error('Failed to fetch CI test results:', e)
+		}
+	}
+
+	$effect(() => {
+		if (comparison && comparison.diffs.length > 0) {
+			fetchCiTests()
+		}
+	})
+
+	function getCiTestStatus(diff: WorkspaceItemDiff): 'pass' | 'fail' | 'running' | null {
+		const key = `${diff.kind}:${diff.path}`
+		const results = ciTestResults[key]
+		if (!results || results.length === 0) return null
+		if (results.some((r) => r.status === 'failure' || r.status === 'canceled')) return 'fail'
+		if (results.some((r) => r.status === 'running' || !r.status)) return 'running'
+		return 'pass'
+	}
+
 	let forkTriggers = $state<ForkTrigger[]>([])
 	let loadingTriggers = $state(true)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
@@ -876,6 +912,16 @@
 				{newSummary || oldSummary || diff.path}
 			{:else}
 				{newSummary || diff.path}
+			{/if}
+			{@const ciStatus = getCiTestStatus(diff)}
+			{#if ciStatus === 'pass'}
+				<Badge color="green" small><CircleCheck size={10} class="mr-0.5" />CI pass</Badge>
+			{:else if ciStatus === 'fail'}
+				<Badge color="red" small><CircleX size={10} class="mr-0.5" />CI fail</Badge>
+			{:else if ciStatus === 'running'}
+				<Badge color="yellow" small
+					><Loader2 size={10} class="mr-0.5 animate-spin" />CI running</Badge
+				>
 			{/if}
 		{/snippet}
 

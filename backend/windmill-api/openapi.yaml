@@ -7424,6 +7424,77 @@ paths:
                     type: string
                     format: uuid
 
+  /w/{workspace}/scripts/ci_test_results/{kind}/{path}:
+    get:
+      summary: get CI test results for a script, flow, or resource
+      operationId: getCiTestResults
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [script, flow, resource]
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: CI test results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CiTestResult"
+
+  /w/{workspace}/scripts/ci_test_results_batch:
+    post:
+      summary: get CI test results for multiple items
+      operationId: getCiTestResultsBatch
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - items
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - path
+                      - kind
+                    properties:
+                      path:
+                        type: string
+                      kind:
+                        type: string
+                        enum: [script, flow, resource]
+      responses:
+        "200":
+          description: CI test results by item key
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CiTestResult"
+
   /w/{workspace}/scripts/raw_temp/store:
     post:
       summary: store raw script content temporarily for CLI lock generation
@@ -18954,6 +19025,25 @@ components:
     # This is why it is better to inline each of schemas for better compat
     # Do not change next line. It is used by python-client for pre-processing
     # -- INLINE START --
+    CiTestResult:
+      type: object
+      properties:
+        test_script_path:
+          type: string
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - test_script_path
+
     OpenFlow:
       $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
     FlowValue:
