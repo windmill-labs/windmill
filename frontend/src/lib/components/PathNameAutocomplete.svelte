@@ -114,6 +114,9 @@
 	} | null>(null)
 	let dismissedFor: string | undefined = $state(undefined)
 	let hasFocus = $state(false)
+	// Set after Tab/click navigates into a folder — bypasses the 2-char minimum
+	// so subfolders appear immediately. Cleared on next manual keystroke.
+	let justNavigated = $state(false)
 
 	let currentSegment = $derived.by(() => {
 		const v = value ?? ''
@@ -130,7 +133,11 @@
 	let fullPrefix = $derived(prefix + (value ?? ''))
 
 	let derivedFolderMatches = $derived.by(() => {
-		if (currentSegment.length < MIN_SEGMENT_CHARS || allPaths.length === 0) return []
+		if (allPaths.length === 0) return []
+		// After Tab/click into a folder, show subfolders immediately (no min chars).
+		// Otherwise require MIN_SEGMENT_CHARS of typing.
+		const atFolderBoundary = justNavigated && currentSegment.length === 0
+		if (!atFolderBoundary && currentSegment.length < MIN_SEGMENT_CHARS) return []
 		return segmentsUnderPrefix(allPaths, folderPrefix).filter(
 			(s) => s.is_folder && s.name.startsWith(currentSegment)
 		)
@@ -166,11 +173,13 @@
 		const cyclePrefix = slash >= 0 ? vNow.slice(0, slash + 1) : ''
 		if (opts.length === 1) {
 			value = cyclePrefix + opts[0].name + '/'
+			justNavigated = true
 			return true
 		}
 		const idx = direction === 1 ? 0 : opts.length - 1
 		cycleMode = { cyclePrefix, options: opts, index: idx }
 		value = cyclePrefix + opts[idx].name + '/'
+		justNavigated = true
 		return true
 	}
 
@@ -187,7 +196,12 @@
 			e.stopPropagation()
 			cycleMode = null
 			dismissedFor = fullPrefix
+			justNavigated = false
+			return
 		}
+		// Any other key clears the post-navigation state so the 2-char
+		// minimum kicks back in for manual typing.
+		justNavigated = false
 	}
 
 	function selectOption(opt: AutocompleteSegment) {
@@ -196,6 +210,7 @@
 		const valueCommitted = slash >= 0 ? vNow.slice(0, slash + 1) : ''
 		value = valueCommitted + opt.name + '/'
 		cycleMode = null
+		justNavigated = true
 		inputEl?.focus()
 	}
 
