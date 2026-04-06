@@ -16,8 +16,7 @@
 	import MenuButton from './MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import { type MenubarBuilders } from '@melt-ui/svelte'
-	import { t } from '$lib/i18n/t.svelte'
-	import { getLocale, setLocale } from '$lib/i18n/t.svelte'
+	import { t, getLocale, setLocale } from '$lib/i18n/t.svelte'
 	import { SUPPORTED_LOCALES, LOCALE_NAMES } from '$lib/i18n/index'
 
 	let darkMode: boolean = $state(false)
