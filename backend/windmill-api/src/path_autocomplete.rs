@@ -58,9 +58,9 @@ async fn list_paths(
     let mut paths: Vec<String> = sqlx::query_scalar!(
         r#"
         SELECT path AS "path!" FROM (
-            (SELECT path FROM script   WHERE workspace_id = $1 LIMIT 5000)
+            (SELECT DISTINCT path FROM script WHERE workspace_id = $1 AND archived = false AND deleted = false AND draft_only IS NOT true LIMIT 5000)
             UNION
-            (SELECT path FROM flow     WHERE workspace_id = $1 LIMIT 5000)
+            (SELECT path FROM flow     WHERE workspace_id = $1 AND archived = false AND draft_only IS NOT true LIMIT 5000)
             UNION
             (SELECT path FROM app      WHERE workspace_id = $1 LIMIT 5000)
             UNION
