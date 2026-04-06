@@ -137,12 +137,25 @@
 	let displayedOptions = $derived(cycleMode ? cycleMode.options : derivedFolderMatches)
 	let displayedActiveIndex = $derived(cycleMode ? cycleMode.index : -1)
 
+	// Ghost text: longest common prefix across all matching folder names,
+	// beyond what the user has already typed. Shows the unambiguous part
+	// the user can accept with Enter (multi-match) or Tab (single match).
 	let ghostText = $derived.by(() => {
 		if (cycleMode) return ''
-		if (derivedFolderMatches.length !== 1) return ''
-		const single = derivedFolderMatches[0]
-		if (single.name.length <= currentSegment.length) return ''
-		return single.name.slice(currentSegment.length) + '/'
+		if (derivedFolderMatches.length === 0) return ''
+		const names = derivedFolderMatches.map((s) => s.name)
+		// Compute LCP of all matching folder names
+		let lcp = names[0]
+		for (let i = 1; i < names.length; i++) {
+			let j = 0
+			while (j < lcp.length && j < names[i].length && lcp[j] === names[i][j]) j++
+			lcp = lcp.slice(0, j)
+		}
+		if (lcp.length <= currentSegment.length) return ''
+		const completion = lcp.slice(currentSegment.length)
+		// Append '/' only when the LCP fully resolves to one folder name
+		const trailingSlash = derivedFolderMatches.length === 1 ? '/' : ''
+		return completion + trailingSlash
 	})
 
 	let showList = $derived(
@@ -183,15 +196,20 @@
 			}
 			return
 		}
+		// Enter accepts the ghost text (LCP). When multiple folders match,
+		// this narrows the input to the common prefix so the user can then
+		// Tab-cycle through the remaining options.
+		if (e.key === 'Enter' && ghostText && !e.ctrlKey && !e.metaKey) {
+			e.preventDefault()
+			value = (value ?? '') + ghostText
+			return
+		}
 		if (e.key === 'Escape' && (cycleMode || showList || ghostText)) {
 			e.stopPropagation()
 			cycleMode = null
 			dismissedFor = fullPrefix
-
 			return
 		}
-		// Any other key clears the post-navigation state so the 2-char
-		// minimum kicks back in for manual typing.
 	}
 
 	function selectOption(opt: AutocompleteSegment) {
@@ -289,7 +307,7 @@
 				<span
 					class="ml-1.5 px-1 py-0 rounded border border-border-light text-[10px] text-tertiary bg-surface-secondary"
 				>
-					Tab
+					{derivedFolderMatches.length === 1 ? 'Tab' : 'Enter'}
 				</span>
 			</div>
 		{/if}
