@@ -6,7 +6,7 @@ edition.workspace = true
 
 [features]
 default = []
-enterprise = ["dep:aws-config"]
+enterprise = ["dep:aws-config", "dep:aws-sdk-secretsmanager"]
 instance_config_schema = ["dep:schemars"]
 local_reports = ["dep:rsa", "dep:aes-gcm"]
 private = ["dep:aws-sdk-rds"]
@@ -81,6 +81,7 @@ native-tls.workspace = true
 
 aws-smithy-types-convert = { workspace = true, optional = true }
 aws-sdk-rds = { workspace = true, optional = true }
+aws-sdk-secretsmanager = { workspace = true, optional = true }
 indexmap.workspace = true
 bytes.workspace = true
 mail-send = { workspace = true, optional = true }
