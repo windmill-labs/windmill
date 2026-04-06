@@ -41,7 +41,7 @@ use serde::{Deserialize, Serialize};
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use windmill_common::secret_backend::{
-    AwsKmsSettings, AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
+    AwsSecretsManagerSettings, AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
 };
 use windmill_common::{
     ai_cache::bump_instance_ai_config_revision,
@@ -132,14 +132,14 @@ pub fn global_service() -> Router {
             "/migrate_secrets_from_azure_kv",
             post(migrate_secrets_from_azure_kv),
         )
-        .route("/test_aws_kms_backend", post(test_aws_kms_backend))
+        .route("/test_aws_sm_backend", post(test_aws_sm_backend))
         .route(
-            "/migrate_secrets_to_aws_kms",
-            post(migrate_secrets_to_aws_kms),
+            "/migrate_secrets_to_aws_sm",
+            post(migrate_secrets_to_aws_sm),
         )
         .route(
-            "/migrate_secrets_from_aws_kms",
-            post(migrate_secrets_from_aws_kms),
+            "/migrate_secrets_from_aws_sm",
+            post(migrate_secrets_from_aws_sm),
         );
 
     #[cfg(feature = "parquet")]
@@ -1293,50 +1293,6 @@ pub async fn migrate_secrets_from_azure_kv(
     Ok(Json(report))
 }
 
-/// Test connection to AWS KMS
-#[cfg(all(feature = "private", feature = "enterprise"))]
-pub async fn test_aws_kms_backend(
-    Extension(db): Extension<DB>,
-    authed: ApiAuthed,
-    Json(settings): Json<AwsKmsSettings>,
-) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
-
-    windmill_common::secret_backend::test_aws_kms_connection(&settings).await?;
-
-    Ok("Successfully connected to AWS KMS".to_string())
-}
-
-/// Migrate existing secrets from database to AWS KMS encryption
-#[cfg(all(feature = "private", feature = "enterprise"))]
-pub async fn migrate_secrets_to_aws_kms(
-    Extension(db): Extension<DB>,
-    authed: ApiAuthed,
-    Json(settings): Json<AwsKmsSettings>,
-) -> JsonResult<SecretMigrationReport> {
-    require_super_admin(&db, &authed.email).await?;
-
-    let report =
-        windmill_common::secret_backend::migrate_secrets_to_aws_kms(&db, &settings).await?;
-
-    Ok(Json(report))
-}
-
-/// Migrate secrets from AWS KMS encryption back to database
-#[cfg(all(feature = "private", feature = "enterprise"))]
-pub async fn migrate_secrets_from_aws_kms(
-    Extension(db): Extension<DB>,
-    authed: ApiAuthed,
-    Json(settings): Json<AwsKmsSettings>,
-) -> JsonResult<SecretMigrationReport> {
-    require_super_admin(&db, &authed.email).await?;
-
-    let report =
-        windmill_common::secret_backend::migrate_secrets_from_aws_kms(&db, &settings).await?;
-
-    Ok(Json(report))
-}
-
 /// Test connection to AWS Secrets Manager
 #[cfg(all(feature = "private", feature = "enterprise"))]
 pub async fn test_aws_sm_backend(
@@ -1369,7 +1325,8 @@ pub async fn migrate_secrets_from_aws_sm(
     Json(settings): Json<AwsSecretsManagerSettings>,
 ) -> JsonResult<SecretMigrationReport> {
     require_super_admin(&db, &authed.email).await?;
-    let report = windmill_common::secret_backend::migrate_secrets_from_aws_sm(&db, &settings).await?;
+    let report =
+        windmill_common::secret_backend::migrate_secrets_from_aws_sm(&db, &settings).await?;
     Ok(Json(report))
 }
 
