@@ -369,7 +369,10 @@ pub fn parse_ci_test_annotation(code: &str, comment_prefix: &str) -> Option<Vec<
 
     let mut items = Vec::new();
     for line in lines {
-        let stripped = line.strip_prefix(comment_prefix)?.trim();
+        let Some(after_prefix) = line.strip_prefix(comment_prefix) else {
+            break; // End of comment block
+        };
+        let stripped = after_prefix.trim();
         if stripped.is_empty() {
             continue;
         }
@@ -382,7 +385,6 @@ pub fn parse_ci_test_annotation(code: &str, comment_prefix: &str) -> Option<Vec<
             items
                 .push(CiTestedItem { path: path.trim().to_string(), kind: "resource".to_string() });
         } else {
-            // Stop at first non-matching comment line (e.g. normal code comments)
             break;
         }
     }

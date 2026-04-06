@@ -1025,10 +1025,13 @@ async fn create_script_internal<'c>(
     .await?;
 
     // Update ci_test_reference table for test scripts
+    // Delete by both new and old path to handle renames
+    let old_path = parent_hashes_and_perms.as_ref().map(|x| x.p_path.as_str());
     sqlx::query!(
-        "DELETE FROM ci_test_reference WHERE workspace_id = $1 AND test_script_path = $2",
+        "DELETE FROM ci_test_reference WHERE workspace_id = $1 AND (test_script_path = $2 OR test_script_path = $3)",
         &w_id,
-        &ns.path
+        &ns.path,
+        old_path.unwrap_or(&ns.path)
     )
     .execute(&mut *tx)
     .await?;
