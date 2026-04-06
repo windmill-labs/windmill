@@ -41,6 +41,12 @@
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import TutorialBanner from '$lib/components/home/TutorialBanner.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
+	import { getLocale, getLocaleChoice, setLocale } from '$lib/i18n/t.svelte'
+	import { LOCALE_NAMES } from '$lib/i18n/index'
+	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { X, Languages } from 'lucide-svelte'
+
+	let i18nBannerDismissed = $state(getLocalSetting('i18n_banner_dismissed') === 'true')
 
 	type Tab = 'hub' | 'workspace'
 
@@ -117,7 +123,8 @@
 			setTimeout(() => {
 				workspaceTutorials?.runTutorialById('workspace-onboarding')
 			}, 500)
-		} else if (tutorialParam === 'workspace-onboarding-operator') { // Small delay to ensure page is fully loaded
+		} else if (tutorialParam === 'workspace-onboarding-operator') {
+			// Small delay to ensure page is fully loaded
 			setTimeout(() => {
 				workspaceTutorials?.runTutorialById('workspace-onboarding-operator')
 			}, 500)
@@ -279,6 +286,33 @@
 				Windmill instance, such as keeping resource types up to date.
 			</Alert>
 		{/if}
+		{#if !i18nBannerDismissed && getLocaleChoice() === 'auto' && getLocale() !== 'en'}
+			<div
+				class="flex items-center gap-3 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950 px-4 py-3 my-4 text-sm text-secondary"
+			>
+				<Languages size={16} class="flex-shrink-0 text-blue-500" />
+				<span class="flex-1">
+					Windmill is displayed in {LOCALE_NAMES[getLocale()]} based on your browser settings. You can
+					<button
+						class="underline text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
+						onclick={() => setLocale('en')}
+					>
+						switch to English
+					</button>
+					or change the language anytime from the user menu.
+				</span>
+				<button
+					onclick={() => {
+						i18nBannerDismissed = true
+						storeLocalSetting('i18n_banner_dismissed', 'true')
+					}}
+					class="p-1 rounded hover:bg-surface-hover text-secondary hover:text-primary flex-shrink-0"
+					aria-label="Dismiss"
+				>
+					<X size={16} />
+				</button>
+			</div>
+		{/if}
 		<PageHeader
 			title="Home"
 			childrenWrapperDivClasses="flex-1 flex flex-row gap-4 flex-wrap justify-end items-center"
@@ -293,7 +327,7 @@
 
 		<TutorialBanner />
 
-		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => showCreateButtons = v}/>
+		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
 		{#if !$userStore?.operator}
 			<div class="w-full overflow-auto scrollbar-hidden pb-2">
