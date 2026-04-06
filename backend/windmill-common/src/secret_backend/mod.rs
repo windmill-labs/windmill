@@ -22,6 +22,10 @@ pub mod vault_oss;
 pub mod azure_kv_ee;
 pub mod azure_kv_oss;
 
+#[cfg(feature = "private")]
+pub mod aws_kms_ee;
+pub mod aws_kms_oss;
+
 #[cfg(test)]
 mod tests;
 
@@ -36,6 +40,12 @@ pub use azure_kv_ee::*;
 
 #[cfg(not(feature = "private"))]
 pub use azure_kv_oss::*;
+
+#[cfg(feature = "private")]
+pub use aws_kms_ee::*;
+
+#[cfg(not(feature = "private"))]
+pub use aws_kms_oss::*;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -91,6 +101,8 @@ pub enum SecretBackendConfig {
     HashiCorpVault(VaultSettings),
     /// Store secrets in Azure Key Vault (Enterprise Edition only)
     AzureKeyVault(AzureKeyVaultSettings),
+    /// Encrypt secrets with AWS KMS, store in database (Enterprise Edition only)
+    AwsKms(AwsKmsSettings),
 }
 
 impl Default for SecretBackendConfig {
@@ -134,6 +146,24 @@ pub struct AzureKeyVaultSettings {
     /// If provided, this is used instead of OAuth2 client credentials authentication
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+}
+
+/// Settings for AWS KMS integration
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AwsKmsSettings {
+    /// KMS Key ID, Key ARN, Alias name, or Alias ARN
+    pub key_id: String,
+    /// AWS region (e.g., "us-east-1")
+    pub region: String,
+    /// AWS Access Key ID (optional - uses default credential chain if not provided)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_key_id: Option<String>,
+    /// AWS Secret Access Key (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret_access_key: Option<String>,
+    /// Custom endpoint URL for LocalStack/testing (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint_url: Option<String>,
 }
 
 /// Result of a secret migration operation

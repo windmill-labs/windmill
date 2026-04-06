@@ -188,13 +188,17 @@ pub async fn get_secret_value_as_admin(
     let r = if variable.is_secret {
         let value = variable.value;
         if !value.is_empty() {
-            let mc = build_crypt(db, w_id).await?;
-            decrypt(&mc, value).map_err(|e| {
-                crate::error::Error::internal_err(format!(
-                    "Error decrypting variable {}: {}",
-                    variable.path, e
-                ))
-            })?
+            if value.starts_with("$aws_kms:") {
+                crate::secret_backend::decrypt_aws_kms_value(db, &value).await?
+            } else {
+                let mc = build_crypt(db, w_id).await?;
+                decrypt(&mc, value).map_err(|e| {
+                    crate::error::Error::internal_err(format!(
+                        "Error decrypting variable {}: {}",
+                        variable.path, e
+                    ))
+                })?
+            }
         } else {
             "".to_string()
         }

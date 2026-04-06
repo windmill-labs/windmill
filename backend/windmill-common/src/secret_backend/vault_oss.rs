@@ -79,6 +79,13 @@ pub async fn create_secret_backend(
             );
             Ok(Arc::new(DatabaseBackend::new(db)))
         }
+        SecretBackendConfig::AwsKms(_) => {
+            tracing::warn!(
+                "AWS KMS is configured but requires Enterprise Edition. \
+                 Falling back to database backend."
+            );
+            Ok(Arc::new(DatabaseBackend::new(db)))
+        }
     }
 }
 
