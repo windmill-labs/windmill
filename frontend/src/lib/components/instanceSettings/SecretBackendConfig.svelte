@@ -26,7 +26,7 @@
 		}
 	})
 
-	let selectedType: 'Database' | 'HashiCorpVault' | 'AzureKeyVault' = $derived(
+	let selectedType: 'Database' | 'HashiCorpVault' | 'AzureKeyVault' | 'AwsSecretsManager' = $derived(
 		$values['secret_backend']?.type ?? 'Database'
 	)
 
@@ -51,6 +51,12 @@
 	let migratingFromAzureKv = $state(false)
 	let migrateToAzureKvModalOpen = $state(false)
 	let migrateFromAzureKvModalOpen = $state(false)
+
+	let testingAwsSmConnection = $state(false)
+	let migratingToAwsSm = $state(false)
+	let migratingFromAwsSm = $state(false)
+	let migrateToAwsSmModalOpen = $state(false)
+	let migrateFromAwsSmModalOpen = $state(false)
 
 	// Check if Vault option should be disabled (non-EE)
 	let vaultDisabled = $derived(!$enterpriseLicense)
@@ -81,6 +87,16 @@
 				client_id: $values['secret_backend']?.client_id ?? '',
 				client_secret: $values['secret_backend']?.client_secret ?? null,
 				token: $values['secret_backend']?.token ?? null
+			}
+		} else if (type === 'AwsSecretsManager') {
+			if (vaultDisabled) return
+			$values['secret_backend'] = {
+				type: 'AwsSecretsManager',
+				region: $values['secret_backend']?.region ?? 'us-east-1',
+				access_key_id: $values['secret_backend']?.access_key_id ?? null,
+				secret_access_key: $values['secret_backend']?.secret_access_key ?? null,
+				endpoint_url: $values['secret_backend']?.endpoint_url ?? null,
+				prefix: $values['secret_backend']?.prefix ?? 'windmill/'
 			}
 		}
 	}
@@ -282,6 +298,72 @@
 		)
 	}
 
+	function getAwsSmSettings() {
+		return {
+			region: $values['secret_backend'].region,
+			access_key_id: $values['secret_backend'].access_key_id || undefined,
+			secret_access_key: $values['secret_backend'].secret_access_key || undefined,
+			endpoint_url: $values['secret_backend'].endpoint_url || undefined,
+			prefix: $values['secret_backend'].prefix || undefined
+		}
+	}
+
+	async function testAwsSmConnection() {
+		if (!$values['secret_backend'] || $values['secret_backend'].type !== 'AwsSecretsManager') return
+		testingAwsSmConnection = true
+		try {
+			await SettingService.testAwsSmBackend({ requestBody: getAwsSmSettings() })
+			sendUserToast('Successfully connected to AWS Secrets Manager')
+		} catch (error: any) {
+			sendUserToast('Failed to connect to AWS Secrets Manager: ' + error.message, true)
+		} finally {
+			testingAwsSmConnection = false
+		}
+	}
+
+	async function migrateSecretsToAwsSm() {
+		if (!$values['secret_backend'] || $values['secret_backend'].type !== 'AwsSecretsManager') return
+		migratingToAwsSm = true
+		try {
+			const report = await SettingService.migrateSecretsToAwsSm({ requestBody: getAwsSmSettings() })
+			if (report.failed_count > 0) {
+				sendUserToast(`Migration completed with errors: ${report.migrated_count}/${report.total_secrets} secrets migrated, ${report.failed_count} failed`, true)
+				console.error('Migration failures:', report.failures)
+			} else {
+				sendUserToast(`Successfully migrated ${report.migrated_count}/${report.total_secrets} secrets to AWS Secrets Manager`)
+			}
+		} catch (error: any) {
+			sendUserToast('Failed to migrate secrets to AWS Secrets Manager: ' + error.message, true)
+		} finally {
+			migratingToAwsSm = false
+			migrateToAwsSmModalOpen = false
+		}
+	}
+
+	async function migrateSecretsFromAwsSm() {
+		if (!$values['secret_backend'] || $values['secret_backend'].type !== 'AwsSecretsManager') return
+		migratingFromAwsSm = true
+		try {
+			const report = await SettingService.migrateSecretsFromAwsSm({ requestBody: getAwsSmSettings() })
+			if (report.failed_count > 0) {
+				sendUserToast(`Migration completed with errors: ${report.migrated_count}/${report.total_secrets} secrets migrated, ${report.failed_count} failed`, true)
+				console.error('Migration failures:', report.failures)
+			} else {
+				sendUserToast(`Successfully migrated ${report.migrated_count}/${report.total_secrets} secrets to database`)
+			}
+		} catch (error: any) {
+			sendUserToast('Failed to migrate secrets to database: ' + error.message, true)
+		} finally {
+			migratingFromAwsSm = false
+			migrateFromAwsSmModalOpen = false
+		}
+	}
+
+	function isAwsSmConfigValid(): boolean {
+		if (!$values['secret_backend'] || $values['secret_backend'].type !== 'AwsSecretsManager') return false
+		return $values['secret_backend'].region?.trim() !== ''
+	}
+
 	let baseUrl = $derived($values['base_url'] ?? 'https://your-windmill-instance.com')
 </script>
 
@@ -314,11 +396,20 @@
 					item={toggleButton}
 					disabled={vaultDisabled}
 				/>
+				<ToggleButton
+					value="AwsSecretsManager"
+					label="AWS Secrets Manager"
+					tooltip={vaultDisabled
+						? 'AWS Secrets Manager integration requires Enterprise Edition'
+						: 'Store secrets in AWS Secrets Manager'}
+					item={toggleButton}
+					disabled={vaultDisabled}
+				/>
 			{/snippet}
 		</ToggleButtonGroup>
 		{#if vaultDisabled}
 			<div class="flex items-center gap-1">
-				<EEOnly>HashiCorp Vault and Azure Key Vault integrations require Enterprise Edition</EEOnly>
+				<EEOnly>HashiCorp Vault, Azure Key Vault, and AWS Secrets Manager integrations require Enterprise Edition</EEOnly>
 			</div>
 		{/if}
 	</div>
@@ -571,6 +662,171 @@ vault write auth/jwt/role/windmill-secrets \
 				</div>
 			</div>
 		</div>
+	{:else if selectedType === 'AwsSecretsManager'}
+		<!-- AWS Secrets Manager Configuration -->
+		<div class="space-y-4 p-4 border rounded-lg">
+			<div class="flex items-center gap-2 mb-4">
+				<Cloud class="text-primary" size={20} />
+				<div>
+					<p class="text-sm font-medium text-emphasis">AWS Secrets Manager Configuration</p>
+					<p class="text-xs text-secondary">
+						Store secrets in AWS Secrets Manager.
+					</p>
+				</div>
+			</div>
+
+			<div class="grid grid-cols-1 gap-4">
+				<div class="flex flex-col gap-1">
+					<label for="aws_region" class="block text-xs font-semibold text-emphasis"
+						>Region</label
+					>
+					<TextInput
+						inputProps={{
+							type: 'text',
+							id: 'aws_region',
+							placeholder: 'us-east-1',
+							disabled: disabled
+						}}
+						bind:value={$values['secret_backend'].region}
+					/>
+				</div>
+
+				<div class="flex flex-col gap-1">
+					<label for="aws_access_key_id" class="block text-xs font-semibold text-emphasis"
+						>Access Key ID (optional)</label
+					>
+					<span class="text-2xs text-secondary"
+						>Leave empty to use the default AWS credential chain (env vars, instance profile, EKS pod identity)</span
+					>
+					<TextInput
+						inputProps={{
+							type: 'text',
+							id: 'aws_access_key_id',
+							placeholder: 'AKIAIOSFODNN7EXAMPLE',
+							disabled: disabled
+						}}
+						bind:value={$values['secret_backend'].access_key_id}
+					/>
+				</div>
+
+				<div class="flex flex-col gap-1 p-3 bg-surface-secondary rounded-lg">
+					<label for="aws_secret_access_key" class="block text-xs font-semibold text-emphasis"
+						>Secret Access Key (optional)</label
+					>
+					<span class="text-2xs text-secondary"
+						>Required if Access Key ID is provided</span
+					>
+					<Password bind:password={$values['secret_backend'].secret_access_key} small {disabled} />
+				</div>
+
+				<div class="flex flex-col gap-1">
+					<label for="aws_prefix" class="block text-xs font-semibold text-emphasis"
+						>Secret Name Prefix (optional)</label
+					>
+					<span class="text-2xs text-secondary"
+						>Prefix for secret names in AWS Secrets Manager (default: windmill/)</span
+					>
+					<TextInput
+						inputProps={{
+							type: 'text',
+							id: 'aws_prefix',
+							placeholder: 'windmill/',
+							disabled: disabled
+						}}
+						bind:value={$values['secret_backend'].prefix}
+					/>
+				</div>
+
+				<div class="flex flex-col gap-1">
+					<label for="aws_endpoint_url" class="block text-xs font-semibold text-emphasis"
+						>Endpoint URL (optional)</label
+					>
+					<span class="text-2xs text-secondary"
+						>Custom endpoint for LocalStack or other S3-compatible services</span
+					>
+					<TextInput
+						inputProps={{
+							type: 'text',
+							id: 'aws_endpoint_url',
+							placeholder: 'http://localhost:4566',
+							disabled: disabled
+						}}
+						bind:value={$values['secret_backend'].endpoint_url}
+					/>
+				</div>
+			</div>
+
+			<!-- Action Buttons -->
+			<div class="flex flex-col gap-4 pt-4 border-t">
+				<div class="flex gap-2">
+					<Button
+						unifiedSize="md"
+						variant="accent"
+						onclick={testAwsSmConnection}
+						disabled={disabled || !isAwsSmConfigValid() || testingAwsSmConnection}
+						loading={testingAwsSmConnection}
+						startIcon={{ icon: Server }}
+					>
+						Test Connection
+					</Button>
+				</div>
+
+				<!-- Migration Section -->
+				<div class="flex flex-col gap-4 pt-4 border-t">
+					<span class="block text-xs font-semibold text-emphasis">Secret Migration</span>
+					<span class="text-2xs text-secondary">
+						Migrate secrets between the database and AWS Secrets Manager. Original values are NOT
+						deleted to allow for rollback.
+					</span>
+
+					<div class="flex gap-4">
+						<!-- Database to AWS SM -->
+						<div class="flex-1 p-3 border rounded-lg">
+							<div class="flex items-center gap-2 mb-2">
+								<Database size={16} />
+								<ArrowRight size={16} />
+								<Cloud size={16} />
+							</div>
+							<p class="text-xs font-medium mb-2">Database → AWS Secrets Manager</p>
+							<p class="text-2xs text-secondary mb-3">
+								Decrypt secrets from database and store in AWS Secrets Manager
+							</p>
+							<Button
+								unifiedSize="sm"
+								variant="default"
+								onclick={() => (migrateToAwsSmModalOpen = true)}
+								disabled={disabled || !isAwsSmConfigValid() || migratingToAwsSm}
+								startIcon={{ icon: ArrowRight }}
+							>
+								Migrate to AWS SM
+							</Button>
+						</div>
+
+						<!-- AWS SM to Database -->
+						<div class="flex-1 p-3 border rounded-lg">
+							<div class="flex items-center gap-2 mb-2">
+								<Cloud size={16} />
+								<ArrowLeft size={16} />
+								<Database size={16} />
+							</div>
+							<p class="text-xs font-medium mb-2">AWS Secrets Manager → Database</p>
+							<p class="text-2xs text-secondary mb-3">
+								Read secrets from AWS Secrets Manager and encrypt in database
+							</p>
+							<Button
+								unifiedSize="sm"
+								variant="default"
+								onclick={() => (migrateFromAwsSmModalOpen = true)}
+								disabled={disabled || !isAwsSmConfigValid() || migratingFromAwsSm}
+								startIcon={{ icon: ArrowLeft }}
+							>
+								Migrate to Database
+							</Button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
 	{:else if selectedType === 'AzureKeyVault'}
 		<!-- Azure Key Vault Configuration -->
 		<div class="space-y-4 p-4 border rounded-lg">
@@ -780,6 +1036,69 @@ vault write auth/jwt/role/windmill-secrets \
 			</ol>
 			<p class="text-yellow-600 dark:text-yellow-400 text-sm mt-2">
 				Note: Azure Key Vault values are NOT deleted automatically. Only secrets that already exist in the
+				database will be updated.
+			</p>
+			<p>Are you sure you want to proceed?</p>
+		</div>
+	{/snippet}
+</ConfirmationModal>
+
+<!-- Migrate to AWS Secrets Manager Modal -->
+<ConfirmationModal
+	title="Migrate Secrets to AWS Secrets Manager"
+	confirmationText="Migrate"
+	open={migrateToAwsSmModalOpen}
+	loading={migratingToAwsSm}
+	type="reload"
+	onCanceled={() => {
+		migrateToAwsSmModalOpen = false
+	}}
+	onConfirmed={migrateSecretsToAwsSm}
+>
+	{#snippet children()}
+		<div class="flex flex-col gap-2">
+			<p>
+				This will migrate all existing secrets from the database to AWS Secrets Manager. The process
+				will:
+			</p>
+			<ol class="list-decimal list-inside text-sm space-y-1">
+				<li>Read all encrypted secrets from the database</li>
+				<li>Decrypt them using the workspace encryption keys</li>
+				<li>Store them in AWS Secrets Manager</li>
+			</ol>
+			<p class="text-yellow-600 dark:text-yellow-400 text-sm mt-2">
+				Note: Database values are NOT deleted automatically. You can manually clear them after
+				verifying the migration was successful.
+			</p>
+			<p>Are you sure you want to proceed?</p>
+		</div>
+	{/snippet}
+</ConfirmationModal>
+
+<!-- Migrate from AWS Secrets Manager to Database Modal -->
+<ConfirmationModal
+	title="Migrate Secrets to Database"
+	confirmationText="Migrate"
+	open={migrateFromAwsSmModalOpen}
+	loading={migratingFromAwsSm}
+	type="reload"
+	onCanceled={() => {
+		migrateFromAwsSmModalOpen = false
+	}}
+	onConfirmed={migrateSecretsFromAwsSm}
+>
+	{#snippet children()}
+		<div class="flex flex-col gap-2">
+			<p>
+				This will migrate all secrets from AWS Secrets Manager back to the database. The process will:
+			</p>
+			<ol class="list-decimal list-inside text-sm space-y-1">
+				<li>List all secrets in AWS Secrets Manager for each workspace</li>
+				<li>Read each secret value from AWS Secrets Manager</li>
+				<li>Encrypt and store them in the database</li>
+			</ol>
+			<p class="text-yellow-600 dark:text-yellow-400 text-sm mt-2">
+				Note: AWS Secrets Manager values are NOT deleted automatically. Only secrets that already exist in the
 				database will be updated.
 			</p>
 			<p>Are you sure you want to proceed?</p>
