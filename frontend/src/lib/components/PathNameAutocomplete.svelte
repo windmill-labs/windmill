@@ -89,7 +89,7 @@
 
 	let {
 		prefix,
-		value = $bindable(''),
+		value = $bindable(),
 		placeholder = '',
 		disabled = false,
 		autofocus = false,
@@ -201,7 +201,7 @@
 		// or the first match, and navigates into it.
 		if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
 			let pick: AutocompleteSegment | undefined
-			let committed: string
+			let committed = ''
 			if (cycleMode) {
 				pick = cycleMode.options[cycleMode.index]
 				committed = cycleMode.cyclePrefix
@@ -215,7 +215,7 @@
 				e.preventDefault()
 				e.stopPropagation()
 				enterConsumed = true
-				value = committed! + pick.name + '/'
+				value = committed + pick.name + '/'
 				cycleMode = null
 				return
 			}
