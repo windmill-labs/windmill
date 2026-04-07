@@ -1,9 +1,12 @@
 import { existsSync } from "fs";
-import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from "fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { fileURLToPath } from "url";
 import { writeAiGuidanceFiles } from "../../../cli/src/guidance/writer.ts";
+import {
+  loadEvalCases,
+  type CliExpectedFileCheck
+} from "../shared/evalCases";
 import {
   runPromptAndCapture,
   type PromptRunResult,
@@ -11,11 +14,7 @@ import {
 } from "./runtime";
 import type { CliVariant } from "./variants";
 
-export interface ExpectedFile {
-  path: string;
-  mustContain?: string[];
-  mustNotContain?: string[];
-}
+export type ExpectedFile = CliExpectedFileCheck;
 
 export interface CliArtifactEvalCase {
   id: string;
@@ -50,7 +49,6 @@ export interface CliArtifactEvalResult {
   variantId: string;
 }
 
-const CASES_DIR = fileURLToPath(new URL("../../cases/cli", import.meta.url));
 const CLAUDE_PROJECT_PREAMBLE = [
   "Follow the project instructions from AGENTS.md exactly.",
   "Before creating or modifying any Windmill entity, you MUST invoke the relevant Skill tool and follow it.",
@@ -59,24 +57,18 @@ const CLAUDE_PROJECT_PREAMBLE = [
 ].join(" ");
 
 export async function loadCliArtifactEvalCases(): Promise<CliArtifactEvalCase[]> {
-  const filenames = (await readdir(CASES_DIR))
-    .filter((entry) => entry.endsWith(".json"))
-    .sort((left, right) => left.localeCompare(right));
-
-  const cases: CliArtifactEvalCase[] = [];
-
-  for (const filename of filenames) {
-    const raw = await readFile(join(CASES_DIR, filename), "utf8");
-    const parsed = JSON.parse(raw) as CliArtifactEvalCase[];
-
-    if (!Array.isArray(parsed) || parsed.length === 0) {
-      throw new Error(`No CLI artifact eval cases found in ${join(CASES_DIR, filename)}`);
-    }
-
-    cases.push(...parsed);
-  }
-
-  return cases;
+  return loadEvalCases("cli").map((entry) => ({
+    id: entry.id,
+    description: entry.title,
+    prompt: entry.userPrompt,
+    maxTurns:
+      typeof entry.workspaceContext.max_turns === "number"
+        ? entry.workspaceContext.max_turns
+        : undefined,
+    expectedSkill: entry.artifactChecks.expectedSkill,
+    expectedOutputSubstrings: entry.artifactChecks.expectedOutputSubstrings,
+    expectedFiles: entry.artifactChecks.expectedFiles
+  }));
 }
 
 export async function runCliArtifactEvalCase(

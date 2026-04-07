@@ -1,53 +1,167 @@
 [
   {
     "id": "app-test1-counter-create",
+    "surface": "frontend-app",
     "title": "test1: creates a simple counter app",
-    "userPrompt": "Create a counter app with increment/decrement buttons"
+    "user_prompt": "Create a counter app with increment/decrement buttons",
+    "initial_state": {},
+    "workspace_context": {},
+    "artifact_checks": {},
+    "judge_rubric": {
+      "min_score": 80
+    },
+    "tags": [
+      "frontend",
+      "app",
+      "create"
+    ]
   },
   {
     "id": "app-test2-counter-reset",
+    "surface": "frontend-app",
     "title": "test2: modifies existing counter app to add reset button",
-    "userPrompt": "Add a reset button that sets the counter back to 0",
-    "initialAppFixturePath": "ai_evals/fixtures/frontend/app/initial/test1_counter_app"
+    "user_prompt": "Add a reset button that sets the counter back to 0",
+    "initial_state": {
+      "app_fixture_path": "ai_evals/fixtures/frontend/app/initial/test1_counter_app"
+    },
+    "workspace_context": {},
+    "artifact_checks": {},
+    "judge_rubric": {
+      "min_score": 80
+    },
+    "tags": [
+      "frontend",
+      "app",
+      "modify"
+    ]
   },
   {
     "id": "app-test3-shopping-cart-quantity",
+    "surface": "frontend-app",
     "title": "test3: shopping cart - add quantity selector",
-    "userPrompt": "Add a quantity selector (+ and - buttons) to each cart item so users can adjust quantities without removing and re-adding items",
-    "initialAppFixturePath": "ai_evals/fixtures/frontend/app/initial/shopping_cart"
+    "user_prompt": "Add a quantity selector (+ and - buttons) to each cart item so users can adjust quantities without removing and re-adding items",
+    "initial_state": {
+      "app_fixture_path": "ai_evals/fixtures/frontend/app/initial/shopping_cart"
+    },
+    "workspace_context": {},
+    "artifact_checks": {},
+    "judge_rubric": {
+      "min_score": 80
+    },
+    "tags": [
+      "frontend",
+      "app",
+      "modify"
+    ]
   },
   {
     "id": "app-test4-shopping-cart-discount",
+    "surface": "frontend-app",
     "title": "test4: shopping cart - add discount code",
-    "userPrompt": "Add a discount code input field in the cart. When the code \"SAVE10\" is entered, apply a 10% discount to the total",
-    "initialAppFixturePath": "ai_evals/fixtures/frontend/app/initial/shopping_cart"
+    "user_prompt": "Add a discount code input field in the cart. When the code \"SAVE10\" is entered, apply a 10% discount to the total",
+    "initial_state": {
+      "app_fixture_path": "ai_evals/fixtures/frontend/app/initial/shopping_cart"
+    },
+    "workspace_context": {},
+    "artifact_checks": {},
+    "judge_rubric": {
+      "min_score": 80
+    },
+    "tags": [
+      "frontend",
+      "app",
+      "modify"
+    ]
   },
   {
     "id": "app-test5-file-manager-search",
+    "surface": "frontend-app",
     "title": "test5: file manager - add search bar",
-    "userPrompt": "Add a search bar in the toolbar that filters files and folders by name as the user types",
-    "initialAppFixturePath": "ai_evals/fixtures/frontend/app/initial/file_manager"
+    "user_prompt": "Add a search bar in the toolbar that filters files and folders by name as the user types",
+    "initial_state": {
+      "app_fixture_path": "ai_evals/fixtures/frontend/app/initial/file_manager"
+    },
+    "workspace_context": {},
+    "artifact_checks": {},
+    "judge_rubric": {
+      "min_score": 80
+    },
+    "tags": [
+      "frontend",
+      "app",
+      "modify"
+    ]
   },
   {
     "id": "app-test6-file-manager-details",
+    "surface": "frontend-app",
     "title": "test6: file manager - show file details",
-    "userPrompt": "Show file size (formatted as KB/MB) and modified date in the file list for each item",
-    "initialAppFixturePath": "ai_evals/fixtures/frontend/app/initial/file_manager"
+    "user_prompt": "Show file size (formatted as KB/MB) and modified date in the file list for each item",
+    "initial_state": {
+      "app_fixture_path": "ai_evals/fixtures/frontend/app/initial/file_manager"
+    },
+    "workspace_context": {},
+    "artifact_checks": {},
+    "judge_rubric": {
+      "min_score": 80
+    },
+    "tags": [
+      "frontend",
+      "app",
+      "modify"
+    ]
   },
   {
     "id": "app-test7-file-manager-select-all",
+    "surface": "frontend-app",
     "title": "test7: file manager - add select all checkbox",
-    "userPrompt": "Add a \"Select All\" checkbox in the file list header and individual checkboxes for each file. Add a \"Delete Selected\" button that appears when items are selected",
-    "initialAppFixturePath": "ai_evals/fixtures/frontend/app/initial/file_manager"
+    "user_prompt": "Add a \"Select All\" checkbox in the file list header and individual checkboxes for each file. Add a \"Delete Selected\" button that appears when items are selected",
+    "initial_state": {
+      "app_fixture_path": "ai_evals/fixtures/frontend/app/initial/file_manager"
+    },
+    "workspace_context": {},
+    "artifact_checks": {},
+    "judge_rubric": {
+      "min_score": 80
+    },
+    "tags": [
+      "frontend",
+      "app",
+      "modify"
+    ]
   },
   {
     "id": "app-test8-quiz-create",
+    "surface": "frontend-app",
     "title": "test8: create quiz app from scratch",
-    "userPrompt": "Create a multiple choice quiz app with 5 questions about general knowledge. Show one question at a time with 4 answer options. Track the score and show results at the end with percentage correct."
+    "user_prompt": "Create a multiple choice quiz app with 5 questions about general knowledge. Show one question at a time with 4 answer options. Track the score and show results at the end with percentage correct.",
+    "initial_state": {},
+    "workspace_context": {},
+    "artifact_checks": {},
+    "judge_rubric": {
+      "min_score": 80
+    },
+    "tags": [
+      "frontend",
+      "app",
+      "create"
+    ]
   },
   {
     "id": "app-test9-recipe-book-create",
+    "surface": "frontend-app",
     "title": "test9: create recipe book from scratch",
-    "userPrompt": "Create a recipe book app where users can add recipes with a name, ingredients list, and instructions. Include a search bar to filter recipes by name and the ability to delete recipes."
+    "user_prompt": "Create a recipe book app where users can add recipes with a name, ingredients list, and instructions. Include a search bar to filter recipes by name and the ability to delete recipes.",
+    "initial_state": {},
+    "workspace_context": {},
+    "artifact_checks": {},
+    "judge_rubric": {
+      "min_score": 80
+    },
+    "tags": [
+      "frontend",
+      "app",
+      "create"
+    ]
   }
 ]
