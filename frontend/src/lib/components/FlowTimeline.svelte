@@ -149,7 +149,7 @@
 							height={Math.min(400, (subItems?.length ?? 0) * barHeight)}
 							itemCount={subItems?.length ?? 0}
 							itemSize={barHeight}
-							getKey={(index) => subItems?.[index]?.id}
+							getKey={(index) => subItems?.[index]?.id ?? `_${index}`}
 						>
 							{#snippet item({ index, style })}
 								{@const b = subItems?.[index]}
