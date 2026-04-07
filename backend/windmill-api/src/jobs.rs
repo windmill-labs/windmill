@@ -1796,11 +1796,13 @@ async fn get_flow_all_logs(
     // Fetch all jobs in the flow tree using recursive CTE.
     // Uses a materialized id_path for depth-first ordering so children
     // appear right after their parent (e.g. iteration 1 → its steps → iteration 2 → ...).
+    // Extracts parent_module_type (branchall, forloopflow, etc.) from parent's flow definition.
     let records = sqlx::query!(
         "WITH RECURSIVE job_tree AS (
             SELECT j.id, j.kind::text, j.flow_step_id, j.parent_job,
                    '' as path_label, 0 as depth,
-                   j.id::text as id_path
+                   j.id::text as id_path,
+                   ''::text as parent_module_type
             FROM v2_job j
             WHERE j.id = $2 AND j.workspace_id = $1
             UNION ALL
@@ -1810,7 +1812,19 @@ async fn get_flow_all_logs(
                        ELSE jt.path_label || '/' || COALESCE(j.flow_step_id, '')
                    END,
                    jt.depth + 1,
-                   jt.id_path || '/' || j.id::text
+                   jt.id_path || '/' || j.id::text,
+                   COALESCE((
+                       SELECT m->'value'->>'type'
+                       FROM v2_job parent_j
+                       LEFT JOIN flow f ON f.path = parent_j.runnable_path
+                           AND f.workspace_id = parent_j.workspace_id
+                       CROSS JOIN LATERAL jsonb_array_elements(
+                           COALESCE(parent_j.raw_flow, f.value)->'modules'
+                       ) m
+                       WHERE parent_j.id = jt.id
+                         AND m->>'id' = j.flow_step_id
+                       LIMIT 1
+                   ), '')::text
             FROM v2_job j
             JOIN job_tree jt ON j.parent_job = jt.id
             WHERE j.workspace_id = $1
@@ -1830,6 +1844,7 @@ async fn get_flow_all_logs(
                w.sibling_index::int as sibling_index,
                w.sibling_count::int as sibling_count,
                w.depth::int as depth,
+               w.parent_module_type,
                coalesce(job_logs.logs, '') as logs,
                COALESCE(job_logs.log_offset, 0) as log_offset,
                job_logs.log_file_index
@@ -1850,13 +1865,27 @@ async fn get_flow_all_logs(
         let depth = record.depth.unwrap_or(0);
         let sibling_count = record.sibling_count.unwrap_or(1);
         let sibling_index = record.sibling_index.unwrap_or(0);
+        let parent_module_type = record.parent_module_type.as_deref().unwrap_or("");
 
         // Build a descriptive label
+        let is_branch = parent_module_type == "branchall" || parent_module_type == "branchone";
+        let is_loop = parent_module_type == "forloopflow" || parent_module_type == "whileloopflow";
+
         let label = if depth == 0 {
             "Flow".to_string()
         } else if kind == "flowpreview" || kind == "flow" {
             // Intermediate flow job (loop iteration or branch)
-            if sibling_count > 1 {
+            if is_branch {
+                format!(
+                    "Step {} (branch {}/{})",
+                    step_id, sibling_index, sibling_count
+                )
+            } else if is_loop {
+                format!(
+                    "Step {} (iteration {}/{})",
+                    step_id, sibling_index, sibling_count
+                )
+            } else if sibling_count > 1 {
                 format!(
                     "Step {} (iteration {}/{})",
                     step_id, sibling_index, sibling_count
@@ -1864,13 +1893,6 @@ async fn get_flow_all_logs(
             } else {
                 format!("Step {} (subflow)", step_id)
             }
-        } else if sibling_count > 1 {
-            // Leaf script inside a loop/branch with multiple siblings
-            let path = record.path_label.as_deref().unwrap_or(step_id);
-            format!(
-                "Step {} (iteration {}/{})",
-                path, sibling_index, sibling_count
-            )
         } else {
             let path = record.path_label.as_deref().unwrap_or(step_id);
             format!("Step {}", path)
