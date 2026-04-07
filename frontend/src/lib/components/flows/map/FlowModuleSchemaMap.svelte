@@ -50,10 +50,10 @@
 		createWebsearchTool,
 		createAiAgentTool,
 		SPECIAL_TOOL_KINDS,
-		agentToolToFlowModule,
-		removeAgentToolByIdDeep
+		agentToolToFlowModule
 	} from '../agentToolUtils'
 	import { loadFlowModuleState } from '../flowStateUtils.svelte'
+	import { partitionDeleteTargets, removeToolIds } from '../flowDeleteUtils'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
 	import {
 		GroupedModulesProxy,
@@ -253,48 +253,6 @@
 		}
 	}
 
-	/**
-	 * Helper function to remove an AgentTool by id from the tools array
-	 * Tools are always leaf nodes, so we just need to delete their state directly
-	 */
-	function removeAgentToolById(tools: AgentTool[], id: string): AgentTool[] {
-		const index = tools.findIndex((tool) => tool.id === id)
-		if (index != -1) {
-			const [removed] = tools.splice(index, 1)
-			deleteFlowStateById(removed.id, flowStateStore)
-		}
-		return tools
-	}
-
-	export function removeAtId(modules: FlowModule[], id: string): FlowModule[] {
-		const index = modules.findIndex((mod) => mod.id == id)
-		if (index != -1) {
-			const [removed] = modules.splice(index, 1)
-			const leaves = dfs([removed], (mod) => mod.id)
-			leaves.forEach((leafId: string) => deleteFlowStateById(leafId, flowStateStore))
-			return modules
-		}
-		return modules.map((mod) => {
-			if (mod.value.type == 'forloopflow' || mod.value.type == 'whileloopflow') {
-				mod.value.modules = removeAtId(mod.value.modules, id)
-			} else if (mod.value.type == 'branchall') {
-				mod.value.branches = mod.value.branches.map((branch) => {
-					branch.modules = removeAtId(branch.modules, id)
-					return branch
-				})
-			} else if (mod.value.type == 'branchone') {
-				mod.value.branches = mod.value.branches.map((branch) => {
-					branch.modules = removeAtId(branch.modules, id)
-					return branch
-				})
-				mod.value.default = removeAtId(mod.value.default, id)
-			} else if (mod.value.type == 'aiagent') {
-				mod.value.tools = removeAgentToolById(mod.value.tools, id)
-			}
-			return mod
-		})
-	}
-
 	let sidebarMode: 'list' | 'graph' = 'graph'
 
 	let minHeight = $state(0)
@@ -384,15 +342,7 @@
 	}
 
 	export function deleteMultiple(ids: string[]) {
-		const structureIds: string[] = []
-		const toolIds: string[] = []
-		for (const id of ids) {
-			if (findInStructure(proxy.items, id)) {
-				structureIds.push(id)
-			} else {
-				toolIds.push(id)
-			}
-		}
+		const { structureIds, toolIds } = partitionDeleteTargets(proxy.items, ids)
 		const deletingSet = new Set(ids)
 		const allDeps: Record<string, string[]> = {}
 		for (const id of ids) {
@@ -424,13 +374,13 @@
 		const cb = () => {
 			push(history, flowStore.val)
 			commit({ removeDuplicates: duplicateGroups.length > 0 })
-			for (const id of toolIds) {
-				removeAgentToolByIdDeep(flowStore.val.value.modules, id, (removed) => {
-					deleteFlowStateById(removed.id, flowStateStore)
-				})
-			}
+			const removedToolIds = removeToolIds(flowStore.val.value.modules, toolIds, (tool) => {
+				deleteFlowStateById(tool.id, flowStateStore)
+			})
 			for (const id of ids) {
-				delete flowStateStore.val[id]
+				if (structureIds.includes(id) || removedToolIds.includes(id)) {
+					delete flowStateStore.val[id]
+				}
 			}
 			selectionManager.clearSelection()
 			refreshStateStore(flowStore)
@@ -704,10 +654,10 @@
 					const cb = () => {
 						push(history, flowStore.val)
 						selectNextId(id)
-						const removed = removeAgentToolByIdDeep(flowStore.val.value.modules, id, (tool) => {
+						const removedIds = removeToolIds(flowStore.val.value.modules, [id], (tool) => {
 							deleteFlowStateById(tool.id, flowStateStore)
 						})
-						if (!removed) return
+						if (removedIds.length === 0) return
 						refreshStateStore(flowStore)
 						onDelete?.(id)
 					}
