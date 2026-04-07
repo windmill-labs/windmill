@@ -401,7 +401,7 @@ pub struct PrepareQueryResult {
     pub error: Option<String>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct PgDatabase {
     pub host: String,
     pub user: Option<String>,
@@ -630,6 +630,180 @@ impl PgDatabase {
             region: None,
         })
     }
+}
+
+/// Validate a database name to prevent SQL injection.
+/// Must start with a letter, contain only alphanumeric characters or underscores, and be <= 63 chars.
+pub fn validate_dbname(dbname: &str) -> error::Result<()> {
+    let dbname = dbname.trim();
+    if dbname.is_empty() {
+        return Err(error::Error::BadRequest(
+            "Database name cannot be empty".to_string(),
+        ));
+    }
+    if dbname.len() > 63 {
+        return Err(error::Error::BadRequest(
+            "Database name cannot exceed 63 characters".to_string(),
+        ));
+    }
+    if !dbname
+        .chars()
+        .next()
+        .map_or(false, |c| c.is_ascii_alphabetic())
+    {
+        return Err(error::Error::BadRequest(
+            "Database name must start with a letter".to_string(),
+        ));
+    }
+    if !dbname
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(error::Error::BadRequest(
+            "Database name must contain only alphanumeric characters or underscores".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Drop a custom instance database: validate, terminate connections, DROP DATABASE, remove from global_settings.
+pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Result<()> {
+    let dbname = dbname.trim();
+    validate_dbname(dbname)?;
+
+    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+    if wmill_pg_creds.dbname.trim().eq_ignore_ascii_case(dbname) {
+        return Err(error::Error::BadRequest(
+            "Cannot drop the main Windmill database".to_string(),
+        ));
+    }
+
+    let db_exists = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+        dbname
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    if db_exists {
+        // Terminate active connections
+        if let Err(e) = sqlx::query(&format!(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}' AND pid <> pg_backend_pid()",
+            dbname.replace('\'', "''")
+        ))
+        .execute(db)
+        .await
+        {
+            tracing::warn!("Failed to terminate connections to '{}': {}", dbname, e);
+        }
+
+        // Drop the database
+        sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", dbname))
+            .execute(db)
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!("Failed to drop database '{}': {}", dbname, e))
+            })?;
+
+        tracing::info!("Dropped instance database '{}'", dbname);
+    } else {
+        tracing::info!("Database '{}' does not exist, skipping drop", dbname);
+    }
+
+    // Always remove from global_settings
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
+        dbname
+    )
+    .execute(db)
+    .await?;
+
+    Ok(())
+}
+
+/// Create a custom instance database: CREATE DATABASE, grant permissions, register in global_settings.
+/// The `tag` is stored in global_settings metadata (e.g. "datatable" or "ducklake").
+pub async fn create_custom_instance_database(
+    db: &DB,
+    dbname: &str,
+    tag: &str,
+) -> error::Result<()> {
+    let dbname = dbname.trim();
+    validate_dbname(dbname)?;
+
+    let db_exists = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+        dbname
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    if db_exists {
+        return Err(error::Error::BadRequest(format!(
+            "Database '{}' already exists",
+            dbname
+        )));
+    }
+
+    sqlx::query(&format!("CREATE DATABASE \"{}\"", dbname))
+        .execute(db)
+        .await
+        .map_err(|e| {
+            error::Error::internal_err(format!("Failed to create database '{}': {}", dbname, e))
+        })?;
+
+    // Grant permissions to custom_instance_user
+    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+    let new_pg_creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
+    let (client, connection) = new_pg_creds.connect().await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+
+    if let Err(e) = client
+        .batch_execute(&format!(
+            "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
+             GRANT USAGE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
+        ))
+        .await
+    {
+        tracing::warn!(
+            "Failed to grant permissions on '{}': {}. Continuing.",
+            dbname,
+            e
+        );
+    }
+
+    drop(client);
+    join_handle
+        .await
+        .map_err(|e| error::Error::internal_err(format!("join error: {}", e)))?
+        .map_err(|e| error::Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+
+    // Register in global_settings
+    let status_json = serde_json::json!({
+        "logs": {
+            "created_database": "OK",
+            "db_connect": "OK",
+            "grant_permissions": "OK"
+        },
+        "success": true,
+        "error": null,
+        "tag": tag
+    });
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
+        serde_json::json!({ (dbname): status_json })
+    )
+    .execute(db)
+    .await?;
+
+    tracing::info!("Created custom instance database '{}'", dbname);
+    Ok(())
 }
 
 #[derive(Clone)]

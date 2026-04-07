@@ -1573,7 +1573,9 @@
 
 	let customTsTypesData = resource([() => lang], async () => {
 		if (lang !== 'typescript') return undefined
-		let datatables = await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+		let datatables = (
+			await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+		).map((d) => d.name)
 		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
 		return { datatables, ducklakes }
 	})

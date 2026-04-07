@@ -28,7 +28,7 @@
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { clone, isScriptPreview, msToSec, readFieldsRecursively, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
-	import { ChevronDown, ExternalLink, Hourglass } from 'lucide-svelte'
+	import { ChevronDown, Download, ExternalLink, Hourglass } from 'lucide-svelte'
 	import { deepEqual } from 'fast-equals'
 	import FlowTimeline from './FlowTimeline.svelte'
 	import { dfs } from './flows/dfs'
@@ -1821,6 +1821,19 @@
 				bind:clientHeight={tabsHeight.logsHeight}
 				style="min-height: {minTabHeight}px"
 			>
+				{#if !hideDownloadLogs && !isReplay && job?.id}
+					<div class="flex justify-end p-1">
+						<Button
+							href="{base}/api/w/{workspace}/jobs_u/get_flow_all_logs/{job.id}"
+							download="windmill_flow_logs_{job.id}.txt"
+							color="light"
+							size="xs"
+							startIcon={{ icon: Download }}
+						>
+							Download all logs
+						</Button>
+					</div>
+				{/if}
 				<FlowLogViewerWrapper
 					{job}
 					{localModuleStates}

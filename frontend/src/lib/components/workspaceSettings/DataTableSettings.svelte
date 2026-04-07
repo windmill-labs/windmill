@@ -15,7 +15,10 @@
 		const s: DataTableSettingsType = { dataTables: [] }
 		if (settings?.datatables) {
 			for (const [name, rest] of Object.entries(settings.datatables)) {
-				s.dataTables.push({ name, ...rest })
+				s.dataTables.push({
+					name,
+					...rest
+				})
 			}
 		}
 		return s
@@ -107,7 +110,7 @@
 		})
 	}
 
-	const customInstanceDbs = resource([], SettingService.listCustomInstanceDbs)
+	const customInstanceDbs = resource([() => $workspaceStore], SettingService.listCustomInstanceDbs)
 
 	async function onSave() {
 		try {
@@ -252,27 +255,29 @@
 						</div>
 					</div>
 				</Cell>
+
 				<Cell class="w-12">
-					{#if dirtyMap[dataTable.name]}
-						<Popover
-							openOnHover
-							contentClasses="p-2 text-sm text-secondary italic"
-							class="cursor-not-allowed"
-						>
-							{#snippet trigger()}
-								<ExploreAssetButton
-									class="h-9"
-									asset={{ kind: 'datatable', path: dataTable.name }}
-									disabled
-								/>
-							{/snippet}
-							{#snippet content()}
-								Please save settings first
-							{/snippet}
-						</Popover>
-					{:else}
-						<ExploreAssetButton class="h-9" asset={{ kind: 'datatable', path: dataTable.name }} />
-					{/if}
+					<div class="flex gap-2">
+						{#if dirtyMap[dataTable.name]}
+							<Popover
+								openOnHover
+								contentClasses="p-2 text-sm text-secondary italic"
+								class="cursor-not-allowed"
+							>
+								{#snippet trigger()}
+									<ExploreAssetButton
+										asset={{ kind: 'datatable', path: dataTable.name }}
+										disabled
+									/>
+								{/snippet}
+								{#snippet content()}
+									Please save settings first
+								{/snippet}
+							</Popover>
+						{:else}
+							<ExploreAssetButton asset={{ kind: 'datatable', path: dataTable.name }} />
+						{/if}
+					</div>
 				</Cell>
 				<Cell class="w-12">
 					<CloseButton small on:close={() => removeDataTable(dataTableIndex)} />
