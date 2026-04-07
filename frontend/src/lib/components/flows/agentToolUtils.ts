@@ -109,6 +109,66 @@ export function createWebsearchTool(id: string): WebsearchTool {
 }
 
 /**
+ * Remove an AI agent tool by id, recursively traversing nested modules and nested AI agents.
+ * Returns true when a matching tool was found and removed.
+ */
+export function removeAgentToolByIdDeep(
+	modules: FlowModule[],
+	id: string,
+	onRemove?: (tool: AgentTool) => void
+): boolean {
+	for (const module of modules) {
+		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
+			if (removeAgentToolByIdDeep(module.value.modules, id, onRemove)) {
+				return true
+			}
+			continue
+		}
+
+		if (module.value.type === 'branchall') {
+			for (const branch of module.value.branches) {
+				if (removeAgentToolByIdDeep(branch.modules, id, onRemove)) {
+					return true
+				}
+			}
+			continue
+		}
+
+		if (module.value.type === 'branchone') {
+			if (removeAgentToolByIdDeep(module.value.default, id, onRemove)) {
+				return true
+			}
+			for (const branch of module.value.branches) {
+				if (removeAgentToolByIdDeep(branch.modules, id, onRemove)) {
+					return true
+				}
+			}
+			continue
+		}
+
+		if (module.value.type !== 'aiagent') {
+			continue
+		}
+
+		const toolIndex = module.value.tools.findIndex((tool) => tool.id === id)
+		if (toolIndex !== -1) {
+			const [removed] = module.value.tools.splice(toolIndex, 1)
+			onRemove?.(removed)
+			return true
+		}
+
+		const nestedToolModules = module.value.tools
+			.filter(isFlowModuleTool)
+			.map((tool) => agentToolToFlowModule(tool))
+		if (removeAgentToolByIdDeep(nestedToolModules, id, onRemove)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+/**
  * Convert a FlowModuleTool to a FlowModule for use with loadFlowModuleState etc.
  * Strips the extra `tool_type` field and maps AgentTool fields to FlowModule fields.
  */
