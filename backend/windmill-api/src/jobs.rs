@@ -1794,11 +1794,13 @@ async fn get_flow_all_logs(
     .await?;
 
     // Fetch all jobs in the flow tree using recursive CTE.
-    // Computes path labels with iteration indices for loops/branches.
+    // Uses a materialized id_path for depth-first ordering so children
+    // appear right after their parent (e.g. iteration 1 → its steps → iteration 2 → ...).
     let records = sqlx::query!(
         "WITH RECURSIVE job_tree AS (
             SELECT j.id, j.kind::text, j.flow_step_id, j.parent_job,
-                   '' as path_label, 0 as depth
+                   '' as path_label, 0 as depth,
+                   j.id::text as id_path
             FROM v2_job j
             WHERE j.id = $2 AND j.workspace_id = $1
             UNION ALL
@@ -1807,7 +1809,8 @@ async fn get_flow_all_logs(
                        WHEN jt.path_label = '' THEN COALESCE(j.flow_step_id, '')
                        ELSE jt.path_label || '/' || COALESCE(j.flow_step_id, '')
                    END,
-                   jt.depth + 1
+                   jt.depth + 1,
+                   jt.id_path || '/' || j.id::text
             FROM v2_job j
             JOIN job_tree jt ON j.parent_job = jt.id
             WHERE j.workspace_id = $1
@@ -1817,7 +1820,7 @@ async fn get_flow_all_logs(
                    ROW_NUMBER() OVER (
                        PARTITION BY jt.parent_job, jt.flow_step_id
                        ORDER BY jt.id
-                   ) - 1 as sibling_index,
+                   ) as sibling_index,
                    COUNT(*) OVER (
                        PARTITION BY jt.parent_job, jt.flow_step_id
                    ) as sibling_count
@@ -1832,7 +1835,7 @@ async fn get_flow_all_logs(
                job_logs.log_file_index
         FROM with_sibling_index w
         LEFT JOIN job_logs ON job_logs.job_id = w.id
-        ORDER BY w.id ASC",
+        ORDER BY w.id_path ASC",
         w_id,
         id,
     )
