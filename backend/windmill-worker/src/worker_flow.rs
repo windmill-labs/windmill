@@ -1660,13 +1660,13 @@ pub async fn update_flow_status_after_job_completion_internal(
                         "Unable to serialize scheduled clean entries: {e:#}"
                     ))
                 })?;
-                sqlx::query(
+                sqlx::query!(
                     "UPDATE v2_job_status
                     SET flow_status = JSONB_SET(flow_status, ARRAY['cleanup_module', 'flow_jobs_to_schedule_clean'], COALESCE(flow_status->'cleanup_module'->'flow_jobs_to_schedule_clean', '[]'::jsonb) || $1)
                     WHERE id = $2",
+                    entries_json,
+                    parent_job
                 )
-                .bind(&entries_json)
-                .bind(parent_job)
                 .execute(db)
                 .warn_after_seconds(3)
                 .await?;
@@ -3876,13 +3876,13 @@ async fn push_next_flow_job(
                     let uuid_singleton_json = serde_json::to_value(&[uuid]).map_err(|e| {
                         error::Error::internal_err(format!("Unable to serialize uuid: {e:#}"))
                     })?;
-                    sqlx::query(
+                    sqlx::query!(
                         "UPDATE v2_job_status
                          SET flow_status = JSONB_SET(flow_status, ARRAY['cleanup_module', 'flow_jobs_to_clean'], COALESCE(flow_status->'cleanup_module'->'flow_jobs_to_clean', '[]'::jsonb) || $1)
                          WHERE id = $2",
+                        uuid_singleton_json,
+                        root_id
                     )
-                    .bind(&uuid_singleton_json)
-                    .bind(root_id)
                     .execute(&mut *inner_tx)
                     .warn_after_seconds(3)
                     .await?;
@@ -3898,13 +3898,13 @@ async fn push_next_flow_job(
                             "Unable to serialize scheduled clean entry: {e:#}"
                         ))
                     })?;
-                    sqlx::query(
+                    sqlx::query!(
                         "UPDATE v2_job_status
                          SET flow_status = JSONB_SET(flow_status, ARRAY['cleanup_module', 'flow_jobs_to_schedule_clean'], COALESCE(flow_status->'cleanup_module'->'flow_jobs_to_schedule_clean', '[]'::jsonb) || $1)
                          WHERE id = $2",
+                        entry_json,
+                        root_id
                     )
-                    .bind(&entry_json)
-                    .bind(root_id)
                     .execute(&mut *inner_tx)
                     .warn_after_seconds(3)
                     .await?;

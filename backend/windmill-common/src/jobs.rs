@@ -49,14 +49,14 @@ pub async fn schedule_job_deletion(
     w_id: &str,
     delete_after_secs: i32,
 ) -> crate::error::Result<()> {
-    sqlx::query(
+    sqlx::query!(
         "INSERT INTO job_delete_schedule (job_id, workspace_id, delete_at) \
          VALUES ($1, $2, now() + make_interval(secs => $3::double precision)) \
          ON CONFLICT (job_id) DO NOTHING",
+        job_id,
+        w_id,
+        delete_after_secs as f64,
     )
-    .bind(job_id)
-    .bind(w_id)
-    .bind(delete_after_secs as f64)
     .execute(db)
     .await?;
     Ok(())

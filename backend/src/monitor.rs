@@ -1219,7 +1219,7 @@ async fn cleanup_scheduled_job_deletions(db: &Pool<Postgres>) {
             }
         };
 
-        let rows = match sqlx::query_as::<_, (uuid::Uuid,)>(
+        let rows = match sqlx::query_scalar!(
             "DELETE FROM job_delete_schedule
              WHERE job_id IN (
                  SELECT job_id FROM job_delete_schedule
@@ -1229,8 +1229,8 @@ async fn cleanup_scheduled_job_deletions(db: &Pool<Postgres>) {
                  FOR UPDATE SKIP LOCKED
              )
              RETURNING job_id",
+            BATCH_SIZE,
         )
-        .bind(BATCH_SIZE)
         .fetch_all(&mut *tx)
         .await
         {
@@ -1245,29 +1245,33 @@ async fn cleanup_scheduled_job_deletions(db: &Pool<Postgres>) {
             break;
         }
 
-        let job_ids: Vec<uuid::Uuid> = rows.into_iter().map(|r| r.0).collect();
+        let job_ids = rows;
         let count = job_ids.len() as u64;
 
-        if let Err(e) = sqlx::query("UPDATE v2_job SET args = '{}'::jsonb WHERE id = ANY($1)")
-            .bind(&job_ids)
-            .execute(&mut *tx)
-            .await
+        if let Err(e) = sqlx::query!(
+            "UPDATE v2_job SET args = '{}'::jsonb WHERE id = ANY($1)",
+            &job_ids,
+        )
+        .execute(&mut *tx)
+        .await
         {
             tracing::error!("Error clearing args for scheduled deletion: {e:?}");
         }
-        if let Err(e) =
-            sqlx::query("UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)")
-                .bind(&job_ids)
-                .execute(&mut *tx)
-                .await
+        if let Err(e) = sqlx::query!(
+            "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
+            &job_ids,
+        )
+        .execute(&mut *tx)
+        .await
         {
             tracing::error!("Error clearing results for scheduled deletion: {e:?}");
         }
-        if let Err(e) =
-            sqlx::query("UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = ANY($1)")
-                .bind(&job_ids)
-                .execute(&mut *tx)
-                .await
+        if let Err(e) = sqlx::query!(
+            "UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = ANY($1)",
+            &job_ids,
+        )
+        .execute(&mut *tx)
+        .await
         {
             tracing::error!("Error clearing logs for scheduled deletion: {e:?}");
         }
