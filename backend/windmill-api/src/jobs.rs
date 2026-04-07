@@ -1876,12 +1876,16 @@ async fn get_flow_all_logs(
             "branchone" => " branchone",
             "forloopflow" => " forloop",
             "whileloopflow" => " whileloop",
+            "aiagent" => " ai-agent",
             _ => "",
         };
 
         let label = if depth == 0 {
             "Flow".to_string()
-        } else if matches!(kind, "flow" | "flowpreview" | "flownode" | "singlestepflow") {
+        } else if matches!(
+            kind,
+            "flow" | "flowpreview" | "flownode" | "singlestepflow" | "aiagent"
+        ) {
             // Intermediate flow job (loop iteration or branch)
             if parent_module_type == "branchone" {
                 let branch_label = if sibling_index == 1 {
