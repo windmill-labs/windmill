@@ -1905,6 +1905,13 @@ async fn get_flow_all_logs(
             } else {
                 format!("Step {} (subflow)", path)
             }
+        } else if sibling_count > 1 {
+            // Simple module optimization: forloop/whileloop with single step
+            // runs iterations as direct script jobs instead of subflows
+            format!(
+                "Step {}{} (iteration {}/{})",
+                path, kind_label, sibling_index, sibling_count
+            )
         } else {
             format!("Step {}", path)
         };
