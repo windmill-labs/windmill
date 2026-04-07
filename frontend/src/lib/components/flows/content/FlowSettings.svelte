@@ -598,10 +598,8 @@
 					on:change={() => {
 						if (flowStore.val.value.delete_after_secs != null) {
 							flowStore.val.value.delete_after_secs = undefined
-							flowStore.val.value.delete_after_use = undefined
 						} else {
 							flowStore.val.value.delete_after_secs = 0
-							flowStore.val.value.delete_after_use = true
 						}
 					}}
 					options={{

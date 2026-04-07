@@ -42,10 +42,8 @@
 		on:change={() => {
 			if (enabled) {
 				flowModule.delete_after_secs = undefined
-				flowModule.delete_after_use = undefined
 			} else {
 				flowModule.delete_after_secs = 0
-				flowModule.delete_after_use = true
 			}
 		}}
 		options={{

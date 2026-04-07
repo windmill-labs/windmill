@@ -1675,10 +1675,8 @@
 												on:change={() => {
 													if (script.delete_after_secs != null) {
 														script.delete_after_secs = undefined
-														script.delete_after_use = undefined
 													} else {
 														script.delete_after_secs = 0
-														script.delete_after_use = true
 													}
 												}}
 												options={{
