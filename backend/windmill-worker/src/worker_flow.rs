@@ -3862,11 +3862,7 @@ async fn push_next_flow_job(
         {
             use windmill_common::jobs::resolve_delete_after_secs;
             let resolved = resolve_delete_after_secs(
-                if payload_tag.delete_after_use {
-                    Some(true)
-                } else {
-                    None
-                },
+                payload_tag.delete_after_use.then_some(true),
                 payload_tag.delete_after_secs,
             );
             let root_id = flow_innermost_root_job.unwrap_or(flow_job.id);

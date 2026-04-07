@@ -1249,32 +1249,33 @@ async fn cleanup_scheduled_job_deletions(db: &Pool<Postgres>) {
         let job_ids = rows;
         let count = job_ids.len() as u64;
 
-        if let Err(e) = sqlx::query!(
-            "UPDATE v2_job SET args = '{}'::jsonb WHERE id = ANY($1)",
-            &job_ids,
-        )
-        .execute(&mut *tx)
-        .await
-        {
-            tracing::error!("Error clearing args for scheduled deletion: {e:?}");
+        let cleanup_result: Result<(), sqlx::Error> = async {
+            sqlx::query!(
+                "UPDATE v2_job SET args = '{}'::jsonb WHERE id = ANY($1)",
+                &job_ids,
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!(
+                "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
+                &job_ids,
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!(
+                "UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = ANY($1)",
+                &job_ids,
+            )
+            .execute(&mut *tx)
+            .await?;
+            Ok(())
         }
-        if let Err(e) = sqlx::query!(
-            "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
-            &job_ids,
-        )
-        .execute(&mut *tx)
-        .await
-        {
-            tracing::error!("Error clearing results for scheduled deletion: {e:?}");
-        }
-        if let Err(e) = sqlx::query!(
-            "UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = ANY($1)",
-            &job_ids,
-        )
-        .execute(&mut *tx)
-        .await
-        {
-            tracing::error!("Error clearing logs for scheduled deletion: {e:?}");
+        .await;
+
+        if let Err(e) = cleanup_result {
+            // Roll back so schedule rows survive for retry on next cycle
+            tracing::error!("Error cleaning job data in batch {batch_num}, rolling back: {e:?}");
+            break;
         }
 
         if let Err(e) = tx.commit().await {

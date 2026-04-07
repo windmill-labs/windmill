@@ -1,7 +1,7 @@
 ALTER TABLE script ADD COLUMN delete_after_secs INTEGER;
 
 CREATE TABLE job_delete_schedule (
-    job_id UUID PRIMARY KEY,
+    job_id UUID PRIMARY KEY REFERENCES v2_job(id) ON DELETE CASCADE,
     workspace_id VARCHAR(50) NOT NULL,
     delete_at TIMESTAMPTZ NOT NULL
 );
