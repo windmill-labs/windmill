@@ -537,6 +537,14 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    info!("Deleting raw_script_temp table");
+    sqlx::query!(
+        "DELETE FROM raw_script_temp WHERE workspace_id = $1",
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating resource table");
     sqlx::query!(
         "UPDATE resource SET workspace_id = $1 WHERE workspace_id = $2",
@@ -826,6 +834,10 @@ pub(crate) async fn delete_workspace(
         .await?;
 
     // NATS triggers have on delete cascade
+
+    sqlx::query!("DELETE FROM raw_script_temp WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
 
     sqlx::query!("DELETE FROM workspace WHERE id = $1", &w_id)
         .execute(&mut *tx)
