@@ -27,7 +27,7 @@ import {
 } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { generateFlowLockInternal } from "./flow_metadata.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
-import { resolvePermissionedAsRule } from "../../core/permissioned_as.ts";
+import { resolvePermissionedAsRule, lookupEmailByUsername } from "../../core/permissioned_as.ts";
 import { exts } from "../script/script.ts";
 import type { SyncCodebase } from "../../utils/codebase.ts";
 import { listSyncCodebases } from "../../utils/codebase.ts";
@@ -203,9 +203,14 @@ export async function pushFlow(
         permissionedAsContext.rules
       );
       if (rule) {
-        preserveFields.on_behalf_of_email = rule.email;
+        const email = await lookupEmailByUsername(
+          workspace,
+          rule.username,
+          permissionedAsContext.usernameToEmailCache
+        );
+        preserveFields.on_behalf_of_email = email;
         preserveFields.preserve_on_behalf_of = true;
-        log.info(`Setting flow ${remotePath} to run permissioned as ${rule.email} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
+        log.info(`Setting flow ${remotePath} to run permissioned as ${rule.username} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
       }
     }
   }

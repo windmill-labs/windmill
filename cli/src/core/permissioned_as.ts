@@ -6,17 +6,17 @@ import { Confirm } from "@cliffy/prompt/confirm";
 import { getTypeStrFromPath } from "../types.ts";
 
 export interface PermissionedAsRule {
-  email: string;
+  username: string;
   path_pattern: string;
 }
 
 export interface PermissionedAsContext {
   rules: PermissionedAsRule[];
-  emailToUsernameCache: Map<string, string>;
+  usernameToEmailCache: Map<string, string>;
   userIsAdminOrDeployer: boolean;
 }
 
-const KNOWN_RULE_FIELDS = new Set(["email", "path_pattern"]);
+const KNOWN_RULE_FIELDS = new Set(["username", "path_pattern"]);
 
 /**
  * Validates defaultPermissionedAs rules from wmill.yaml.
@@ -42,7 +42,7 @@ export function validatePermissionedAsRules(
     const ruleLabel = `defaultPermissionedAs[${i}] in ${source}`;
 
     if (typeof rule !== "object" || rule === null) {
-      throw new Error(`Invalid ${ruleLabel}: expected an object with 'email' and 'path_pattern' fields`);
+      throw new Error(`Invalid ${ruleLabel}: expected an object with 'username' and 'path_pattern' fields`);
     }
 
     // Check for unknown/misspelled fields
@@ -50,14 +50,14 @@ export function validatePermissionedAsRules(
     if (unknownFields.length > 0) {
       throw new Error(
         `Invalid ${ruleLabel}: unknown field(s) ${unknownFields.map((f) => `'${f}'`).join(", ")}. ` +
-          `Valid fields are: 'email', 'path_pattern'`
+          `Valid fields are: 'username', 'path_pattern'`
       );
     }
 
     // Validate required fields
-    if (typeof rule.email !== "string" || rule.email.trim() === "") {
+    if (typeof rule.username !== "string" || rule.username.trim() === "") {
       throw new Error(
-        `Invalid ${ruleLabel}: 'email' is required and must be a non-empty string`
+        `Invalid ${ruleLabel}: 'username' is required and must be a non-empty string`
       );
     }
     if (typeof rule.path_pattern !== "string" || rule.path_pattern.trim() === "") {
@@ -77,7 +77,7 @@ export function validatePermissionedAsRules(
       );
     }
 
-    validated.push({ email: rule.email, path_pattern: rule.path_pattern });
+    validated.push({ username: rule.username, path_pattern: rule.path_pattern });
   }
 
   return validated;
@@ -100,7 +100,39 @@ export function resolvePermissionedAsRule(
 }
 
 /**
+ * Looks up an email by username using the workspace users API.
+ * Results are cached in the provided map.
+ */
+export async function lookupEmailByUsername(
+  workspace: string,
+  username: string,
+  cache: Map<string, string>
+): Promise<string> {
+  if (cache.has(username)) {
+    return cache.get(username)!;
+  }
+
+  // Populate entire cache from users list (only fetched once)
+  if (cache.size === 0) {
+    const users = await wmill.listUsers({ workspace });
+    for (const user of users) {
+      cache.set(user.username, user.email);
+    }
+  }
+
+  const email = cache.get(username);
+  if (!email) {
+    throw new Error(
+      `Could not find email for username '${username}' in workspace. ` +
+        `Make sure the user exists in the workspace.`
+    );
+  }
+  return email;
+}
+
+/**
  * Looks up a username by email using the workspace users API.
+ * Used by standalone set-permissioned-as commands that accept an email argument.
  * Results are cached in the provided map.
  */
 export async function lookupUsernameByEmail(

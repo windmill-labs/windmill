@@ -140,14 +140,9 @@ export async function pushSchedule(
         permissionedAsContext.rules
       );
       if (rule) {
-        const username = await lookupUsernameByEmail(
-          workspace,
-          rule.email,
-          permissionedAsContext.emailToUsernameCache
-        );
-        preserveFields.permissioned_as = `u/${username}`;
+        preserveFields.permissioned_as = rule.username;
         preserveFields.preserve_permissioned_as = true;
-        log.info(`Setting schedule ${path} to run permissioned as ${rule.email} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
+        log.info(`Setting schedule ${path} to run permissioned as ${rule.username} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
       }
     }
   }
