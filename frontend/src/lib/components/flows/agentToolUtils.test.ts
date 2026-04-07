@@ -65,4 +65,13 @@ describe('removeAgentToolByIdDeep', () => {
 		expect((((rootAgent.value as any).tools as any[])[0].value as any).tools).toEqual([])
 		expect(removed).toEqual(['create_ticket'])
 	})
+
+	it('returns false when the tool does not exist', () => {
+		const agent = makeAiAgent('agent', [makeFlowModuleTool(makeRawModule('lookup_user'))])
+		const removed: string[] = []
+
+		expect(removeAgentToolByIdDeep([agent], 'missing_tool', (x) => removed.push(x.id))).toBe(false)
+		expect((agent.value as any).tools).toHaveLength(1)
+		expect(removed).toEqual([])
+	})
 })
