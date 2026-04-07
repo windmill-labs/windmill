@@ -3640,9 +3640,19 @@ pub fn resolve_debounce_key<'b>(
 
     tracing::debug!("Original debounce key: {}", original_debounce_key);
 
-    // If debounce_key is not too long (< 255 chars), keep it as is, otherwise hash it
+    // If debounce_key is not too long (< 255 chars), keep it as is, otherwise hash it.
+    // On cloud, we prepend "{workspace_id}:" so we must reserve space for that prefix
+    // to avoid exceeding the VARCHAR(255) column limit.
     const MAX_DEBOUNCE_KEY_LENGTH: usize = 255;
-    let resolved = if original_debounce_key.len() <= MAX_DEBOUNCE_KEY_LENGTH {
+
+    #[cfg(feature = "cloud")]
+    let prefix = format!("{workspace_id}:");
+    #[cfg(not(feature = "cloud"))]
+    let prefix = String::new();
+
+    let max_key_length = MAX_DEBOUNCE_KEY_LENGTH - prefix.len();
+
+    let resolved = if original_debounce_key.len() <= max_key_length {
         original_debounce_key
     } else {
         let hash = calculate_hash(&original_debounce_key);
@@ -3651,11 +3661,14 @@ pub fn resolve_debounce_key<'b>(
             original_debounce_key.len(),
             hash
         );
-        hash
+        if hash.len() > max_key_length {
+            hash[..max_key_length].to_string()
+        } else {
+            hash
+        }
     };
 
-    #[cfg(feature = "cloud")]
-    let resolved = format!("{workspace_id}:{resolved}");
+    let resolved = format!("{prefix}{resolved}");
 
     tracing::debug!("Final debounce key: {}", resolved);
     resolved
