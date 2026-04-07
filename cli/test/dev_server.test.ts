@@ -404,6 +404,197 @@ export default function App() {
         } finally {
           clearTimeout(sseTimeout);
         }
+
+        // Verify esbuild bundle is served and contains valid JS
+        const bundleRes = await fetch(`http://localhost:${port}/dist/bundle.js`);
+        expect(bundleRes.status).toEqual(200);
+        expect(bundleRes.headers.get("content-type")).toContain("application/javascript");
+        const bundleJs = await bundleRes.text();
+        expect(bundleJs.length).toBeGreaterThan(100);
+        // The bundle should contain the React app code
+        expect(bundleJs).toContain("Hello from test app");
+
+        // Verify source map is served
+        const mapRes = await fetch(`http://localhost:${port}/dist/bundle.js.map`);
+        expect(mapRes.status).toEqual(200);
+        expect(mapRes.headers.get("content-type")).toContain("application/json");
+        const sourceMap = await mapRes.json() as any;
+        expect(sourceMap.version).toEqual(3);
+        expect(sourceMap.sources).toBeArray();
+      } finally {
+        if (proc) {
+          proc.kill();
+          await proc.exited;
+        }
+      }
+    });
+  },
+  { timeout: 120000 },
+);
+
+// =============================================================================
+// TEST 3: `wmill app dev` with Svelte app — verifies esbuild + Svelte plugin
+// =============================================================================
+
+test(
+  "wmill app dev: Svelte app bundles correctly and serves valid JS",
+  async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        "defaultTs: bun\n",
+        "utf-8",
+      );
+
+      const appDir = join(tempDir, "f", "test", "svelteapp.raw_app");
+      await mkdir(appDir, { recursive: true });
+
+      await writeFile(
+        join(appDir, "raw_app.yaml"),
+        `custom_path: f/test/svelteapp\n`,
+        "utf-8",
+      );
+
+      await writeFile(
+        join(appDir, "package.json"),
+        JSON.stringify(
+          {
+            name: "test-svelte-app",
+            private: true,
+            dependencies: {
+              svelte: "^5.0.0",
+            },
+          },
+          null,
+          2,
+        ),
+        "utf-8",
+      );
+
+      // Svelte apps use index.ts (not index.tsx)
+      await writeFile(
+        join(appDir, "index.ts"),
+        `import App from "./App.svelte";
+import { mount } from "svelte";
+
+const app = mount(App, { target: document.getElementById("root")! });
+export default app;
+`,
+        "utf-8",
+      );
+
+      await writeFile(
+        join(appDir, "App.svelte"),
+        `<script>
+  let count = $state(0);
+</script>
+
+<h1>Svelte Dev Test</h1>
+<button onclick={() => count++}>clicks: {count}</button>
+`,
+        "utf-8",
+      );
+
+      // npm install
+      const npmInstall = Bun.spawn(["npm", "install"], {
+        cwd: appDir,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      await Promise.all([
+        new Response(npmInstall.stdout).text(),
+        new Response(npmInstall.stderr).text(),
+      ]);
+      expect(await npmInstall.exited).toEqual(0);
+
+      const port = await findFreePort();
+
+      const cliMainPath = getCLIMainPath();
+      const args = [
+        "run",
+        cliMainPath,
+        "--base-url",
+        backend.baseUrl,
+        "--workspace",
+        backend.workspace,
+        "--token",
+        backend.token!,
+        "--config-dir",
+        backend.testConfigDir,
+        "app",
+        "dev",
+        appDir,
+        "--no-open",
+        "--port",
+        String(port),
+      ];
+
+      let proc: Subprocess | null = null;
+
+      try {
+        proc = Bun.spawn(["bun", ...args], {
+          cwd: tempDir,
+          stdout: "pipe",
+          stderr: "pipe",
+          env: { ...process.env },
+        });
+
+        // Collect stderr for debugging on failure
+        const stderrReader = proc.stderr.getReader();
+        let stderrBuffer = "";
+        (async () => {
+          try {
+            while (true) {
+              const { done, value } = await stderrReader.read();
+              if (done) break;
+              stderrBuffer += new TextDecoder().decode(value);
+            }
+          } catch {
+            // Process may have exited
+          }
+        })();
+
+        // Wait for the bundle to be ready (poll /dist/bundle.js instead of just /)
+        await waitFor(
+          async () => {
+            try {
+              const res = await fetch(`http://localhost:${port}/dist/bundle.js`, {
+                signal: AbortSignal.timeout(1000),
+              });
+              if (res.ok) {
+                const text = await res.text();
+                // Only consider ready when bundle has real content (not empty/placeholder)
+                return text.length > 100;
+              }
+              await res.text();
+            } catch {
+              // Not ready yet
+            }
+            return false;
+          },
+          60000,
+          "Svelte app dev server bundle to be ready",
+        );
+
+        // Verify HTML is served with correct structure
+        const htmlRes = await fetch(`http://localhost:${port}/`);
+        const htmlBody = await htmlRes.text();
+        expect(htmlBody).toContain("<!DOCTYPE html>");
+        expect(htmlBody).toContain('<div id="root">');
+
+        // Verify the JS bundle contains compiled Svelte code
+        const bundleRes = await fetch(`http://localhost:${port}/dist/bundle.js`);
+        expect(bundleRes.status).toEqual(200);
+        const bundleJs = await bundleRes.text();
+        expect(bundleJs.length).toBeGreaterThan(100);
+        // The bundle should contain the Svelte component text
+        expect(bundleJs).toContain("Svelte Dev Test");
+
+        // Verify source map
+        const mapRes = await fetch(`http://localhost:${port}/dist/bundle.js.map`);
+        expect(mapRes.status).toEqual(200);
+        const sourceMap = await mapRes.json() as any;
+        expect(sourceMap.version).toEqual(3);
       } finally {
         if (proc) {
           proc.kill();

@@ -20,9 +20,10 @@ use windmill_common::ai_cache::current_instance_ai_config_revision;
 use windmill_common::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
+use windmill_common::db::UserDB;
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
-use windmill_common::variables::get_variable_or_self;
+use windmill_common::variables::{get_variable_or_self, get_variable_or_self_as};
 
 // AI timeout configuration constants
 const AI_TIMEOUT_MIN_SECS: u64 = 1;
@@ -211,13 +212,35 @@ struct AIRequestConfig {
     pub custom_headers: HashMap<String, String>,
 }
 
+/// Resolve a `$var:` reference. When `user_db`/`authed` are provided the query
+/// goes through an RLS-scoped connection so the caller can only read variables
+/// they are authorised to access.  Without auth context the raw pool is used
+/// (appropriate for admin/system paths where the resource was already validated).
+async fn resolve_var(
+    path: String,
+    db: &DB,
+    w_id: &str,
+    user_db: Option<&UserDB>,
+    authed: Option<&ApiAuthed>,
+) -> Result<String> {
+    match (user_db, authed) {
+        (Some(udb), Some(auth)) => Ok(get_variable_or_self_as(path, db, udb, auth, w_id).await?),
+        _ => Ok(get_variable_or_self(path, db, w_id).await?),
+    }
+}
+
 impl AIRequestConfig {
     pub async fn new(
         provider: &AIProvider,
         db: &DB,
         w_id: &str,
         resource: AIResource,
+        authed: Option<&ApiAuthed>,
     ) -> Result<Self> {
+        // When authed is provided, resolve $var: references through RLS so that
+        // users can only read variables they have permission to access.
+        let user_db = authed.map(|_| UserDB::new(db.clone()));
+
         let (
             api_key,
             access_token,
@@ -244,28 +267,29 @@ impl AIRequestConfig {
                     provider.get_base_url(resource.base_url, db).await?
                 };
                 let api_key = if let Some(api_key) = resource.api_key {
-                    Some(get_variable_or_self(api_key, db, w_id).await?)
+                    Some(resolve_var(api_key, db, w_id, user_db.as_ref(), authed).await?)
                 } else {
                     None
                 };
                 let organization_id = if let Some(organization_id) = resource.organization_id {
-                    Some(get_variable_or_self(organization_id, db, w_id).await?)
+                    Some(resolve_var(organization_id, db, w_id, user_db.as_ref(), authed).await?)
                 } else {
                     None
                 };
                 let aws_access_key_id = if let Some(access_key_id) = resource.aws_access_key_id {
-                    Some(get_variable_or_self(access_key_id, db, w_id).await?)
+                    Some(resolve_var(access_key_id, db, w_id, user_db.as_ref(), authed).await?)
                 } else {
                     None
                 };
-                let aws_secret_access_key =
-                    if let Some(secret_access_key) = resource.aws_secret_access_key {
-                        Some(get_variable_or_self(secret_access_key, db, w_id).await?)
-                    } else {
-                        None
-                    };
+                let aws_secret_access_key = if let Some(secret_access_key) =
+                    resource.aws_secret_access_key
+                {
+                    Some(resolve_var(secret_access_key, db, w_id, user_db.as_ref(), authed).await?)
+                } else {
+                    None
+                };
                 let aws_session_token = if let Some(session_token) = resource.aws_session_token {
-                    Some(get_variable_or_self(session_token, db, w_id).await?)
+                    Some(resolve_var(session_token, db, w_id, user_db.as_ref(), authed).await?)
                 } else {
                     None
                 };
@@ -287,11 +311,13 @@ impl AIRequestConfig {
             }
             AIResource::OAuth(resource) => {
                 let user = if let Some(user) = resource.user.clone() {
-                    Some(get_variable_or_self(user, db, w_id).await?)
+                    Some(resolve_var(user, db, w_id, user_db.as_ref(), authed).await?)
                 } else {
                     None
                 };
-                let token = Self::get_token_using_oauth(resource, db, w_id).await?;
+                let token =
+                    Self::get_token_using_oauth(resource, db, w_id, user_db.as_ref(), authed)
+                        .await?;
                 let base_url = provider.get_base_url(None, db).await?;
 
                 (
@@ -331,10 +357,13 @@ impl AIRequestConfig {
         mut resource: AIOAuthResource,
         db: &DB,
         w_id: &str,
+        user_db: Option<&UserDB>,
+        authed: Option<&ApiAuthed>,
     ) -> Result<String> {
-        resource.client_id = get_variable_or_self(resource.client_id, db, w_id).await?;
-        resource.client_secret = get_variable_or_self(resource.client_secret, db, w_id).await?;
-        resource.token_url = get_variable_or_self(resource.token_url, db, w_id).await?;
+        resource.client_id = resolve_var(resource.client_id, db, w_id, user_db, authed).await?;
+        resource.client_secret =
+            resolve_var(resource.client_secret, db, w_id, user_db, authed).await?;
+        resource.token_url = resolve_var(resource.token_url, db, w_id, user_db, authed).await?;
         let mut params = HashMap::new();
         params.insert("grant_type", "client_credentials");
         params.insert("scope", "https://cognitiveservices.azure.com/.default");
@@ -778,6 +807,7 @@ async fn proxy(
     let forced_resource_path = headers
         .get("X-Resource-Path")
         .map(|v| v.to_str().unwrap_or("").to_string());
+    let is_user_specified_resource = forced_resource_path.is_some();
     let request_config = match workspace_cache {
         Some(request_cache) if !request_cache.is_expired() && forced_resource_path.is_none() => {
             request_cache.config
@@ -861,8 +891,22 @@ async fn proxy(
             let resource = serde_json::from_str::<AIResource>(resource.0.get())
                 .map_err(|e| Error::BadRequest(e.to_string()))?;
 
-            let request_config =
-                AIRequestConfig::new(&provider, &db, &resource_workspace, resource).await?;
+            // Enforce RLS on $var: resolution when the resource path was
+            // user-specified (X-Resource-Path header) so users can only read
+            // variables they have permission to access.
+            let enforce_authed = if is_user_specified_resource {
+                Some(&authed)
+            } else {
+                None
+            };
+            let request_config = AIRequestConfig::new(
+                &provider,
+                &db,
+                &resource_workspace,
+                resource,
+                enforce_authed,
+            )
+            .await?;
             if save_to_cache {
                 AI_REQUEST_CACHE.insert(
                     (w_id.clone(), provider.clone()),

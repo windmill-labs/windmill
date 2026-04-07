@@ -159,12 +159,7 @@ async fn test_app_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await
         .unwrap();
-    assert_eq!(
-        resp.status(),
-        200,
-        "public_app: {}",
-        resp.text().await?
-    );
+    assert_eq!(resp.status(), 200, "public_app: {}", resp.text().await?);
 
     // --- secret_of_latest_version ---
     let resp = authed_get(port, "secret_of_latest_version", "u/test-user/test_app").await;
@@ -186,7 +181,6 @@ async fn test_app_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         resp.text().await?
     );
 
-
     // --- history_update ---
     let app_body = authed_get(port, "get/p", "u/test-user/test_app").await;
     let app = app_body.json::<serde_json::Value>().await?;
@@ -198,12 +192,7 @@ async fn test_app_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     .send()
     .await
     .unwrap();
-    assert_eq!(
-        resp.status(),
-        200,
-        "history_update: {}",
-        resp.text().await?
-    );
+    assert_eq!(resp.status(), 200, "history_update: {}", resp.text().await?);
 
     // --- update ---
     let resp = authed(client().post(app_url(port, "update", "u/test-user/test_app")))
@@ -239,12 +228,10 @@ async fn test_app_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     // ===== Hub endpoints (require external network, expect 500 or 200) =====
 
     // --- hub/list ---
-    let resp = authed(client().get(format!(
-        "http://localhost:{port}/api/apps/hub/list"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("http://localhost:{port}/api/apps/hub/list")))
+        .send()
+        .await
+        .unwrap();
     assert!(
         resp.status() == 200 || resp.status() == 500,
         "hub/list: unexpected status {}",
@@ -252,12 +239,10 @@ async fn test_app_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // --- hub/get ---
-    let resp = authed(client().get(format!(
-        "http://localhost:{port}/api/apps/hub/get/1"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("http://localhost:{port}/api/apps/hub/get/1")))
+        .send()
+        .await
+        .unwrap();
     assert!(
         resp.status() == 200 || resp.status() == 500,
         "hub/get: unexpected status {}",
@@ -265,17 +250,94 @@ async fn test_app_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // --- hub/get_raw ---
-    let resp = authed(client().get(format!(
-        "http://localhost:{port}/api/apps/hub/get_raw/1"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("http://localhost:{port}/api/apps/hub/get_raw/1")))
+        .send()
+        .await
+        .unwrap();
     assert!(
         resp.status() == 200 || resp.status() == 500,
         "hub/get_raw: unexpected status {}",
         resp.status()
     );
+
+    Ok(())
+}
+
+#[cfg(feature = "enterprise")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_public_app_by_custom_path(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/apps");
+
+    // create app with anonymous execution mode
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(&new_app("u/test-user/custom_path_app", "Custom path app"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create: {}", resp.text().await?);
+
+    // set custom_path on the app
+    let resp = authed(client().post(app_url(port, "update", "u/test-user/custom_path_app")))
+        .json(&serde_json::json!({
+            "custom_path": "my-custom-app",
+            "policy": {
+                "execution_mode": "anonymous",
+                "triggerables": {},
+                "on_behalf_of": null,
+                "on_behalf_of_email": null
+            }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "update custom_path: {}",
+        resp.text().await?
+    );
+
+    // fetch via public_app_by_custom_path (no workspace prefix: CLOUD_HOSTED=false, APP_WORKSPACED_ROUTE=false)
+    let resp = client()
+        .get(format!(
+            "http://localhost:{port}/api/apps_u/public_app_by_custom_path/my-custom-app"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "public_app_by_custom_path: {}",
+        resp.text().await?
+    );
+
+    // verify response contains expected fields
+    let resp = client()
+        .get(format!(
+            "http://localhost:{port}/api/apps_u/public_app_by_custom_path/my-custom-app"
+        ))
+        .send()
+        .await
+        .unwrap();
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["path"], "u/test-user/custom_path_app");
+    assert_eq!(body["summary"], "Custom path app");
+    assert_eq!(body["workspace_id"], "test-workspace");
+    assert_eq!(body["custom_path"], "my-custom-app");
+
+    // nonexistent custom path returns 404
+    let resp = client()
+        .get(format!(
+            "http://localhost:{port}/api/apps_u/public_app_by_custom_path/nonexistent"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
 
     Ok(())
 }

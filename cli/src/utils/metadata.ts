@@ -191,7 +191,6 @@ export async function generateScriptMetadataInternal(
   rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[],
   justUpdateMetadataLock?: boolean,
-  legacyBehaviour?: boolean,
   tree?: DoubleLinkedDependencyTree
 ): Promise<string | undefined> {
   // Detect folder layout: my_script__mod/script.ts
@@ -228,15 +227,15 @@ export async function generateScriptMetadataInternal(
 
   const hasModules = existsSync(moduleFolderPath) && statSync(moduleFolderPath).isDirectory();
 
-  // In non-legacy mode, workspace deps are tracked via the tree — exclude from hash
-  const depsForHash = (!legacyBehaviour && tree) ? {} : filteredRawWorkspaceDependencies;
+  // In tree mode, workspace deps are tracked via the tree — exclude from hash
+  const depsForHash = tree ? {} : filteredRawWorkspaceDependencies;
   let hash = await generateScriptHash(depsForHash, scriptContent, metadataContent);
 
   // Compute per-module hashes for stale detection (like flow inline scripts)
   let moduleHashes: Record<string, string> = {};
   if (hasModules) {
     moduleHashes = await computeModuleHashes(
-      moduleFolderPath, opts.defaultTs, (!legacyBehaviour && tree) ? {} : rawWorkspaceDependencies, isFolderLayout
+      moduleFolderPath, opts.defaultTs, tree ? {} : rawWorkspaceDependencies, isFolderLayout
     );
   }
   const hasModuleHashes = Object.keys(moduleHashes).length > 0;
@@ -255,8 +254,8 @@ export async function generateScriptMetadataInternal(
   // Use checkHash (includes module hashes) so module changes are detected as stale
   const isDirectlyStale = !(await checkifMetadataUptodate(remotePath, checkHash, conf, checkSubpath));
 
-  // New behaviour: tree-based dependency tracking
-  if (!legacyBehaviour && tree) {
+  // Tree-based dependency tracking
+  if (tree) {
     if (dryRun) {
       // First pass: populate tree with script and its imports
       const imports = await extractRelativeImports(scriptContent, remotePath, language);
@@ -265,7 +264,7 @@ export async function generateScriptMetadataInternal(
     }
     // Second pass: proceed to generate (caller verified this script is stale via tree)
   } else {
-    // Legacy behaviour: use existing staleness check
+    // Legacy path: use existing staleness check
     if (await checkifMetadataUptodate(remotePath, checkHash, conf, checkSubpath)) {
       if (!noStaleMessage) {
         log.info(

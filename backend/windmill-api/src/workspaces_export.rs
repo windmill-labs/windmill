@@ -107,6 +107,8 @@ struct ScriptMetadata {
     pub concurrency_settings: ConcurrencySettings,
     #[serde(flatten)]
     pub debouncing_settings: DebouncingSettings,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 pub fn is_none_or_false(val: &Option<bool>) -> bool {
@@ -514,6 +516,7 @@ pub(crate) async fn tarball_workspace(
                 has_preprocessor: script.has_preprocessor,
                 on_behalf_of_email: script.on_behalf_of_email,
                 modules: script.modules,
+                labels: script.labels,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive
@@ -561,7 +564,7 @@ pub(crate) async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
              FROM flow
              LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
              WHERE flow.workspace_id = $1 AND flow.archived = false AND (flow.draft_only IS NULL OR flow.draft_only = false)",
@@ -611,7 +614,7 @@ pub(crate) async fn tarball_workspace(
         let apps = sqlx::query_as::<_, AppWithLastVersion>(
              "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
              app.extra_perms, app_version.value,
-             app_version.created_at, app_version.created_by, app_version.raw_app from app, app_version
+             app_version.created_at, app_version.created_by, app_version.raw_app, app.labels from app, app_version
              WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]
              AND (app.draft_only IS NULL OR app.draft_only = false)",
          )

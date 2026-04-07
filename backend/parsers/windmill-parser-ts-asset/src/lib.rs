@@ -106,6 +106,28 @@ fn extract_wmill_datatable_call(expr: &Expr) -> Option<(AssetKind, String, Optio
     }
     None
 }
+
+/// Check if an expression is `tag.raw(...)` where `tag` matches the given tag name.
+/// Returns true for patterns like `sql.raw(x)`.
+fn is_raw_call(expr: &Expr, tag_name: &str) -> bool {
+    if let Expr::Call(call_expr) = expr {
+        if let Some(Expr::Member(member)) = call_expr.callee.as_expr().map(AsRef::as_ref) {
+            let is_tag = matches!(
+                member.obj.as_ref(),
+                Expr::Ident(ident) if ident.sym.as_str() == tag_name
+            );
+            if is_tag {
+                if let MemberProp::Ident(prop) = &member.prop {
+                    return prop.sym.as_str() == "raw";
+                }
+            }
+        }
+    }
+    false
+}
+
+const WM_SQL_RAW_PLACEHOLDER: &str = "__WM_SQL_RAW__";
+
 impl Visit for AssetsFinder {
     // visit_call_expr will not recurse if it detects an asset,
     // so this will only be called when no further context was found
@@ -230,21 +252,31 @@ impl Visit for AssetsFinder {
             return;
         };
 
-        // Extract the SQL query from the template quasis (string parts)
-        // Substitute ${} with $1, $2, etc.
-        let sql: String = node
+        // Determine which interpolations are sql.raw() calls
+        let raw_flags: Vec<bool> = node
             .tpl
-            .quasis
+            .exprs
             .iter()
-            .map(|quasi| quasi.raw.as_str())
-            .enumerate()
-            .fold(String::new(), |acc, (i, s)| {
-                if i == 0 {
-                    s.to_string()
+            .map(|expr| is_raw_call(expr.as_ref(), tag_name))
+            .collect();
+        let has_raw_interpolation = raw_flags.iter().any(|&r| r);
+
+        // Extract the SQL query from the template quasis (string parts)
+        // Substitute ${} with $N for normal args, __WM_SQL_RAW__ for raw args
+        let mut sql = String::new();
+        let mut arg_index = 0usize;
+        for (i, quasi) in node.tpl.quasis.iter().enumerate() {
+            if i > 0 {
+                let is_raw = raw_flags.get(i - 1).copied().unwrap_or(false);
+                if is_raw {
+                    sql.push_str(WM_SQL_RAW_PLACEHOLDER);
                 } else {
-                    format!("{}${}{}", acc, i, s)
+                    arg_index += 1;
+                    sql.push_str(&format!("${}", arg_index));
                 }
-            });
+            }
+            sql.push_str(quasi.raw.as_str());
+        }
 
         // Capture SQL query details before transforming for SQL parser
         let span = node.span();
@@ -256,6 +288,7 @@ impl Visit for AssetsFinder {
             source_kind: *kind,
             source_name: asset_name.clone(),
             source_schema: schema.clone(),
+            has_raw_interpolation,
         });
 
         // We use the SQL parser to detect RW, specific tables, etc.
@@ -266,7 +299,11 @@ impl Visit for AssetsFinder {
             &sql,
         );
         match sql_assets {
-            Ok(Some(sql_assets)) => self.assets.extend(sql_assets),
+            Ok(Some(sql_assets)) => self.assets.extend(
+                sql_assets
+                    .into_iter()
+                    .filter(|a| !a.path.contains(WM_SQL_RAW_PLACEHOLDER)),
+            ),
             _ => {}
         }
     }
@@ -629,6 +666,7 @@ mod tests {
         assert_eq!(query_detail.source_kind, AssetKind::DataTable);
         assert_eq!(query_detail.source_name, "dt");
         assert_eq!(query_detail.source_schema, None);
+        assert_eq!(query_detail.has_raw_interpolation, false);
         // Span should be non-zero
         assert!(query_detail.span.0 > 0);
         assert!(query_detail.span.1 > query_detail.span.0);
@@ -692,5 +730,86 @@ mod tests {
         assert_eq!(query_detail.source_kind, AssetKind::Ducklake);
         assert_eq!(query_detail.source_name, "my_lake");
         assert_eq!(query_detail.source_schema, None);
+        assert_eq!(query_detail.has_raw_interpolation, false);
+    }
+
+    #[test]
+    fn test_ts_asset_parser_sql_raw_basic() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(table: string) {
+                let sql = wmill.datatable('dt')
+                return await sql`SELECT * FROM ${sql.raw(table)}`.fetch()
+            }
+        "#;
+        let result = parse_assets(input).unwrap();
+
+        // sql.raw in table position => the __WM_SQL_RAW__ asset gets filtered out,
+        // but the datatable itself is still tracked as "used" (without specific table info)
+        assert_eq!(
+            result.assets,
+            vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "dt".to_string(),
+                access_type: None,
+                columns: None,
+            }]
+        );
+
+        // Check SQL query details
+        assert_eq!(result.sql_queries.len(), 1);
+        let q = &result.sql_queries[0];
+        assert!(q.query_string.contains("__WM_SQL_RAW__"));
+        assert!(!q.query_string.contains("$1"));
+        assert_eq!(q.has_raw_interpolation, true);
+        assert_eq!(q.source_kind, AssetKind::DataTable);
+        assert_eq!(q.source_name, "dt");
+    }
+
+    #[test]
+    fn test_ts_asset_parser_sql_raw_mixed() {
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(name: string, col: string, val: number) {
+                let sql = wmill.datatable('dt')
+                return await sql`SELECT * FROM users WHERE name = ${name} AND ${sql.raw(col)} = ${val}`.fetch()
+            }
+        "#;
+        let result = parse_assets(input).unwrap();
+
+        // "users" table should still be detected
+        assert_eq!(result.assets.len(), 1);
+        assert_eq!(result.assets[0].path, "dt/users");
+        assert_eq!(result.assets[0].access_type, Some(R));
+
+        // Check SQL query details — arg numbering skips the raw interpolation
+        assert_eq!(result.sql_queries.len(), 1);
+        let q = &result.sql_queries[0];
+        assert_eq!(
+            q.query_string,
+            "SELECT * FROM users WHERE name = $1 AND __WM_SQL_RAW__ = $2"
+        );
+        assert_eq!(q.has_raw_interpolation, true);
+    }
+
+    #[test]
+    fn test_ts_asset_parser_sql_raw_no_false_positive() {
+        // Ensure that a normal query (no sql.raw) still has has_raw_interpolation=false
+        let input = r#"
+            import * as wmill from "windmill-client"
+            export async function main(x: number) {
+                let sql = wmill.datatable('dt')
+                return await sql`SELECT * FROM friends WHERE age = ${x}`.fetch()
+            }
+        "#;
+        let result = parse_assets(input).unwrap();
+        assert_eq!(result.sql_queries.len(), 1);
+        assert_eq!(result.sql_queries[0].has_raw_interpolation, false);
+        assert_eq!(
+            result.sql_queries[0].query_string,
+            "SELECT * FROM friends WHERE age = $1"
+        );
+        assert_eq!(result.assets.len(), 1);
+        assert_eq!(result.assets[0].path, "dt/friends");
     }
 }

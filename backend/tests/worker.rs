@@ -1,4 +1,5 @@
 use serde::de::DeserializeOwned;
+use serial_test::serial;
 
 #[cfg(feature = "enterprise")]
 use chrono::Timelike;
@@ -1505,8 +1506,10 @@ export async function main(a: Date) {
 }
 
 #[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
 async fn test_postgresql_job(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
+    windmill_worker::pg_executor::clear_pg_cache().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
@@ -1541,6 +1544,311 @@ SELECT 'hello ' || $1::text AS result;
     .unwrap();
 
     assert_eq!(result, json!([{"result": "hello world"}]));
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
+async fn test_postgresql_cached_connection_resets_session(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use std::sync::atomic::Ordering;
+    use windmill_worker::pg_executor::{clear_pg_cache, CACHE_HITS};
+
+    initialize_tracing().await;
+
+    // Clear stale connections from prior tests.
+    clear_pg_cache().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let hits_before = CACHE_HITS.load(Ordering::Relaxed);
+
+    let db_arg = json!({"host": "localhost", "port": 5432, "dbname": "windmill", "user": "postgres", "password": "changeme"});
+
+    let make_pg_job = |content: String| {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+        }))
+        .arg("database", db_arg.clone())
+    };
+
+    // Run 3 jobs against the same database resource so that at least the
+    // second→third transition exercises the cached-connection path.
+    //
+    // Job 1: warm up — creates and (if eligible) caches the connection.
+    let result1 = make_pg_job("SELECT 1 as n;".into())
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+    assert_eq!(result1, json!([{"n": 1}]));
+
+    // Job 2: mutate session state — set a custom search_path.
+    let result2 = make_pg_job(
+        "SET search_path TO pg_catalog;\nSELECT current_setting('search_path') as sp;".into(),
+    )
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+    assert_eq!(
+        result2,
+        json!([{"sp": "pg_catalog"}]),
+        "second job should see the custom search_path it just set"
+    );
+
+    // Job 3: read search_path — RESET ALL (on cached conn) should have restored
+    // the default.
+    let result3 = make_pg_job("SELECT current_setting('search_path') as sp;".into())
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+    let sp = result3[0]["sp"].as_str().unwrap();
+    assert_ne!(
+        sp, "pg_catalog",
+        "search_path must be reset between jobs, got: {sp}"
+    );
+
+    // Verify the cached-connection path was actually exercised.
+    let hits_after = CACHE_HITS.load(Ordering::Relaxed);
+    assert!(
+        hits_after > hits_before,
+        "expected at least one cache hit across the 3 jobs, got {hits_before} -> {hits_after}"
+    );
+
+    Ok(())
+}
+
+/// Runs multiple PG jobs through a SINGLE worker (like production) to verify
+/// that SET ROLE / search_path changes do not leak across jobs.
+#[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
+async fn test_postgresql_single_worker_session_isolation(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use std::sync::atomic::Ordering;
+    use windmill_common::worker::Connection;
+    use windmill_worker::pg_executor::{clear_pg_cache, CACHE_HITS};
+
+    initialize_tracing().await;
+    clear_pg_cache().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let hits_before = CACHE_HITS.load(Ordering::Relaxed);
+
+    let db_arg = json!({"host": "localhost", "port": 5432, "dbname": "windmill", "user": "postgres", "password": "changeme"});
+
+    let make_pg_job = |content: String| {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+        }))
+        .arg("database", db_arg.clone())
+    };
+
+    // Push all 3 jobs into the queue BEFORE starting the worker, so a single
+    // worker processes them all sequentially — matching production behaviour.
+    let id1 = make_pg_job("SELECT current_user as cu;".into())
+        .push(&db)
+        .await;
+    let id2 = make_pg_job("SET ROLE postgres;\nSET search_path TO pg_catalog;\nSELECT current_user as cu, current_setting('search_path') as sp;".into())
+        .push(&db)
+        .await;
+    let id3 =
+        make_pg_job("SELECT current_user as cu, current_setting('search_path') as sp;".into())
+            .push(&db)
+            .await;
+
+    // Run ONE worker that processes all three jobs.
+    let ids = [id1, id2, id3];
+    let listener = listen_for_completed_jobs(&db).await;
+    in_test_worker(
+        Connection::Sql(db.clone()),
+        async {
+            use futures::StreamExt;
+            let mut remaining = ids
+                .iter()
+                .copied()
+                .collect::<std::collections::HashSet<_>>();
+            let mut listener = listener;
+            while !remaining.is_empty() {
+                if let Some(id) = listener.next().await {
+                    remaining.remove(&id);
+                }
+            }
+        },
+        port,
+    )
+    .await;
+
+    let r1 = completed_job(id1, &db).await.json_result().unwrap();
+    let r2 = completed_job(id2, &db).await.json_result().unwrap();
+    let r3 = completed_job(id3, &db).await.json_result().unwrap();
+
+    // Job 1: baseline — should be the connecting user (postgres)
+    assert_eq!(r1[0]["cu"], "postgres");
+
+    // Job 2: SET ROLE + SET search_path took effect within the job
+    assert_eq!(r2[0]["sp"], "pg_catalog");
+
+    // Job 3: neither the role nor the search_path should leak from job 2
+    let cu3 = r3[0]["cu"].as_str().unwrap();
+    let sp3 = r3[0]["sp"].as_str().unwrap();
+    assert_eq!(
+        cu3, "postgres",
+        "SET ROLE must not leak across jobs, got: {cu3}"
+    );
+    assert_ne!(
+        sp3, "pg_catalog",
+        "search_path must not leak across jobs, got: {sp3}"
+    );
+
+    // Verify caching actually happened (jobs 2 and 3 should hit the cache).
+    let hits_after = CACHE_HITS.load(Ordering::Relaxed);
+    assert!(
+        hits_after > hits_before,
+        "expected cache hits, got {hits_before} -> {hits_after}"
+    );
+
+    Ok(())
+}
+
+/// Runs 100 varied PG jobs through a single worker, verifying every job
+/// succeeds, the cache is used for 99 of them, and session state never leaks.
+#[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
+async fn test_postgresql_100_jobs_cached(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use std::sync::atomic::Ordering;
+    use windmill_common::worker::Connection;
+    use windmill_worker::pg_executor::{clear_pg_cache, CACHE_HITS};
+
+    initialize_tracing().await;
+    clear_pg_cache().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let hits_before = CACHE_HITS.load(Ordering::Relaxed);
+
+    let db_arg = json!({"host": "localhost", "port": 5432, "dbname": "windmill", "user": "postgres", "password": "changeme"});
+
+    let make_pg_job = |content: String| {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+        }))
+        .arg("database", db_arg.clone())
+    };
+
+    const N: usize = 100;
+    let mut ids = Vec::with_capacity(N);
+
+    // Push 100 varied jobs — mix of session-mutating and read-only queries.
+    for i in 0..N {
+        let content = match i % 5 {
+            // Plain SELECT with different values each time
+            0 => format!("SELECT {} as n, current_user as cu, current_setting('search_path') as sp;", i),
+            // SET search_path then read it
+            1 => format!("SET search_path TO pg_catalog;\nSELECT {} as n, current_setting('search_path') as sp;", i),
+            // SET ROLE then read it
+            2 => "SET ROLE postgres;\nSELECT current_user as cu;".to_string(),
+            // Multi-statement
+            3 => format!("SELECT 1;\nSELECT {} as n;", i),
+            // Read-only with math
+            _ => format!("SELECT {} + {} as n;", i, i * 2),
+        };
+        ids.push(make_pg_job(content).push(&db).await);
+    }
+
+    // Run ONE worker for all 100 jobs.
+    let listener = listen_for_completed_jobs(&db).await;
+    let id_set = ids
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    in_test_worker(
+        Connection::Sql(db.clone()),
+        async {
+            use futures::StreamExt;
+            let mut remaining = id_set;
+            let mut listener = listener;
+            while !remaining.is_empty() {
+                if let Some(id) = listener.next().await {
+                    remaining.remove(&id);
+                }
+            }
+        },
+        port,
+    )
+    .await;
+
+    // Verify all 100 jobs succeeded.
+    for (i, id) in ids.iter().enumerate() {
+        let cjob = completed_job(*id, &db).await;
+        assert!(cjob.success, "job {i} (id={id}) failed: {:?}", cjob.result);
+    }
+
+    // Spot-check: jobs that followed a SET search_path should NOT see pg_catalog.
+    // Pattern: job i%5==1 sets search_path, job i%5==2 follows — should be clean.
+    for i in (2..N).step_by(5) {
+        let cjob = completed_job(ids[i], &db).await;
+        let result = cjob.json_result().unwrap();
+        let cu = result[0]["cu"].as_str().unwrap_or("N/A");
+        assert_eq!(cu, "postgres", "job {i}: SET ROLE leaked, got {cu}");
+    }
+    for i in (0..N).step_by(5) {
+        let cjob = completed_job(ids[i], &db).await;
+        let result = cjob.json_result().unwrap();
+        let sp = result[0]["sp"].as_str().unwrap_or("N/A");
+        assert_ne!(sp, "pg_catalog", "job {i}: search_path leaked, got {sp}");
+    }
+
+    // Verify caching: first job creates the connection, remaining 99 should hit cache.
+    let hits_after = CACHE_HITS.load(Ordering::Relaxed);
+    let new_hits = hits_after - hits_before;
+    assert!(
+        new_hits >= (N as u64 - 1),
+        "expected at least {} cache hits, got {new_hits}",
+        N - 1
+    );
+
     Ok(())
 }
 

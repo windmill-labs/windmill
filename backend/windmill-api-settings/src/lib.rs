@@ -8,9 +8,15 @@
 
 use std::{collections::HashMap, time::Duration};
 
+#[cfg(feature = "parquet")]
+mod background_task;
 #[cfg(feature = "private")]
 mod ee;
 pub mod ee_oss;
+#[cfg(feature = "parquet")]
+mod log_cleanup;
+#[cfg(feature = "parquet")]
+mod storage_usage;
 
 use windmill_api_auth::{require_devops_role, require_super_admin, ApiAuthed};
 use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
@@ -34,7 +40,9 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 #[cfg(all(feature = "private", feature = "enterprise"))]
-use windmill_common::secret_backend::{SecretMigrationReport, VaultSettings};
+use windmill_common::secret_backend::{
+    AwsSecretsManagerSettings, AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
+};
 use windmill_common::{
     ai_cache::bump_instance_ai_config_revision,
     email_oss::send_email_plain_text,
@@ -106,7 +114,7 @@ pub fn global_service() -> Router {
             post(restart_worker_group),
         );
 
-    // Vault integration routes (EE only - requires both private and enterprise features)
+    // Vault/Azure KV integration routes (EE only - requires both private and enterprise features)
     #[cfg(all(feature = "private", feature = "enterprise"))]
     let r = r
         .route("/test_secret_backend", post(test_secret_backend))
@@ -114,11 +122,36 @@ pub fn global_service() -> Router {
         .route(
             "/migrate_secrets_to_database",
             post(migrate_secrets_to_database),
+        )
+        .route("/test_azure_kv_backend", post(test_azure_kv_backend))
+        .route(
+            "/migrate_secrets_to_azure_kv",
+            post(migrate_secrets_to_azure_kv),
+        )
+        .route(
+            "/migrate_secrets_from_azure_kv",
+            post(migrate_secrets_from_azure_kv),
+        )
+        .route("/test_aws_sm_backend", post(test_aws_sm_backend))
+        .route(
+            "/migrate_secrets_to_aws_sm",
+            post(migrate_secrets_to_aws_sm),
+        )
+        .route(
+            "/migrate_secrets_from_aws_sm",
+            post(migrate_secrets_from_aws_sm),
         );
 
     #[cfg(feature = "parquet")]
     {
-        return r.route("/test_object_storage_config", post(test_s3_bucket));
+        return r
+            .route("/test_object_storage_config", post(test_s3_bucket))
+            .route(
+                "/object_storage_usage",
+                get(get_object_storage_usage).post(compute_object_storage_usage),
+            )
+            .route("/run_log_cleanup", post(run_log_cleanup))
+            .route("/log_cleanup_status", get(log_cleanup_status));
     }
 
     #[cfg(not(feature = "parquet"))]
@@ -214,6 +247,46 @@ pub async fn test_s3_bucket(
     }
     client.delete(&path).await.map_err(to_anyhow)?;
     Ok("Tested blob storage successfully".to_string())
+}
+
+#[cfg(feature = "parquet")]
+async fn get_object_storage_usage(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::JsonResult<Option<storage_usage::StorageUsageProgress>> {
+    require_super_admin(&db, &authed.email).await?;
+    Ok(Json(storage_usage::get_status(&db).await?))
+}
+
+#[cfg(feature = "parquet")]
+async fn compute_object_storage_usage(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::Result<axum::http::StatusCode> {
+    require_super_admin(&db, &authed.email).await?;
+    storage_usage::try_start(&db).await?;
+    storage_usage::spawn_compute(db.clone());
+    Ok(axum::http::StatusCode::ACCEPTED)
+}
+
+#[cfg(feature = "parquet")]
+async fn run_log_cleanup(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::Result<axum::http::StatusCode> {
+    require_super_admin(&db, &authed.email).await?;
+    log_cleanup::try_start(&db).await?;
+    log_cleanup::spawn_cleanup(db.clone());
+    Ok(axum::http::StatusCode::ACCEPTED)
+}
+
+#[cfg(feature = "parquet")]
+async fn log_cleanup_status(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::JsonResult<Option<log_cleanup::LogCleanupProgress>> {
+    require_super_admin(&db, &authed.email).await?;
+    Ok(Json(log_cleanup::get_status(&db).await?))
 }
 
 #[derive(Deserialize)]
@@ -1167,6 +1240,93 @@ pub async fn migrate_secrets_to_database(
     let report =
         windmill_common::secret_backend::migrate_secrets_to_database(&db, &settings).await?;
 
+    Ok(Json(report))
+}
+
+/// Test connection to Azure Key Vault
+///
+/// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn test_azure_kv_backend(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AzureKeyVaultSettings>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    windmill_common::secret_backend::test_azure_kv_connection(&settings).await?;
+
+    Ok("Successfully connected to Azure Key Vault".to_string())
+}
+
+/// Migrate existing secrets from database to Azure Key Vault
+///
+/// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_to_azure_kv(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AzureKeyVaultSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let report =
+        windmill_common::secret_backend::migrate_secrets_to_azure_kv(&db, &settings).await?;
+
+    Ok(Json(report))
+}
+
+/// Migrate secrets from Azure Key Vault back to database
+///
+/// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_from_azure_kv(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AzureKeyVaultSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let report =
+        windmill_common::secret_backend::migrate_secrets_from_azure_kv(&db, &settings).await?;
+
+    Ok(Json(report))
+}
+
+/// Test connection to AWS Secrets Manager
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn test_aws_sm_backend(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AwsSecretsManagerSettings>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    windmill_common::secret_backend::test_aws_sm_connection(&settings).await?;
+    Ok("Successfully connected to AWS Secrets Manager".to_string())
+}
+
+/// Migrate existing secrets from database to AWS Secrets Manager
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_to_aws_sm(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AwsSecretsManagerSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+    let report = windmill_common::secret_backend::migrate_secrets_to_aws_sm(&db, &settings).await?;
+    Ok(Json(report))
+}
+
+/// Migrate secrets from AWS Secrets Manager back to database
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_from_aws_sm(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AwsSecretsManagerSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+    let report =
+        windmill_common::secret_backend::migrate_secrets_from_aws_sm(&db, &settings).await?;
     Ok(Json(report))
 }
 

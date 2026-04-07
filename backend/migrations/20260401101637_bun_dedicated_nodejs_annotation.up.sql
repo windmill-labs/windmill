@@ -7,4 +7,4 @@ SET content = '//nodejs
 ' || content
 WHERE language = 'bun'
   AND dedicated_worker = true
-  AND content !~ '//\s*nodejs';
+  AND content !~ '^//\s*nodejs';

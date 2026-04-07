@@ -23,15 +23,35 @@
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { untrack } from 'svelte'
 	import { processSecretArgs } from './secretArgUtils'
+	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
 	let schemaHeight = $state(0)
 	let showInputSelectedBadge = $state(false)
 	let savedPreviousArgs: Record<string, any> | undefined = $state(undefined)
+	let psCommonParams: Record<string, any> = $state({})
+
+	function extractPsCommonParams(allArgs: Record<string, any>): {
+		scriptArgs: Record<string, any>
+		commonParams: Record<string, any>
+	} {
+		const scriptArgs: Record<string, any> = {}
+		const commonParams: Record<string, any> = {}
+		for (const [k, v] of Object.entries(allArgs)) {
+			if (k.startsWith('_wm_ps_')) {
+				commonParams[k] = v
+			} else {
+				scriptArgs[k] = v
+			}
+		}
+		return { scriptArgs, commonParams }
+	}
 
 	export async function setArgs(nargs: Record<string, any>) {
-		args = nargs
+		const { scriptArgs, commonParams } = extractPsCommonParams(nargs)
+		args = scriptArgs
+		psCommonParams = commonParams
 		reloadArgs++
 	}
 
@@ -45,6 +65,13 @@
 		} catch (e) {
 			sendUserToast('Failed to process sensitive args: ' + e, true)
 			return
+		}
+		if (showPsCommonParams) {
+			for (const [k, v] of Object.entries(psCommonParams)) {
+				if (v !== undefined && v !== false && v !== '') {
+					processedArgs[k] = v
+				}
+			}
 		}
 		runAction(
 			overrideScheduledForStr === null ? undefined : (overrideScheduledForStr ?? scheduledForStr),
@@ -64,6 +91,7 @@
 					is_template?: boolean
 					hash?: string
 					kind?: string
+					language?: string
 					can_write?: boolean
 					created_at?: string
 					created_by?: string
@@ -109,9 +137,19 @@
 		isValid = $bindable(true)
 	}: Props = $props()
 
+	let showPsCommonParams = $derived(
+		runnable?.language === 'powershell' && runnable?.schema?.['x-windmill-ps-cmd-binding'] === true
+	)
+
 	$effect.pre(() => {
 		if (args == undefined) {
 			args = {}
+		}
+		// Extract _wm_ps_* keys from args on initial load (e.g. "Run again" via URL hash)
+		if (args && Object.keys(args).some((k) => k.startsWith('_wm_ps_'))) {
+			const { scriptArgs, commonParams } = extractPsCommonParams(args)
+			args = scriptArgs
+			psCommonParams = commonParams
 		}
 	})
 
@@ -306,6 +344,11 @@
 		{/if}
 	{:else}
 		<div class="text-xs text-primary">No arguments</div>
+	{/if}
+	{#if showPsCommonParams}
+		<div class="mt-4">
+			<PowerShellCommonParams bind:args={psCommonParams} />
+		</div>
 	{/if}
 	{#if schedulable}
 		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6">

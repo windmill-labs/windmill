@@ -1297,6 +1297,14 @@ pub fn use_flow_root_path(flow_path: &str) -> String {
     }
 }
 
+/// Extract the flow root path by stripping /branchone-N/, /branchall-N/, /forloop-N/, /loop-N/
+/// and everything after. Returns None if no nesting segments are found.
+pub fn extract_flow_root(runnable_path: &str) -> Option<&str> {
+    RE_FLOW_ROOT
+        .captures(runnable_path)
+        .and_then(|c| c.get(1).map(|m| m.as_str()))
+}
+
 pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result<Client> {
     configure_client(
         reqwest::ClientBuilder::new()

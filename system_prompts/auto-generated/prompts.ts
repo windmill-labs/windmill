@@ -36,7 +36,7 @@ export const FLOW_BASE = `# Windmill Flow Building Guide
 Create a folder ending with \`__flow\` and add a \`flow.yaml\` file with the flow definition.
 For rawscript modules, use \`!inline path/to/script.ts\` for the content key. Inline script files should NOT include \`.inline_script.\` in their names (e.g. use \`a.ts\`, not \`a.inline_script.ts\`).
 After writing, tell the user they can run:
-- \`wmill flow generate-locks <path_to_flow_folder> --yes\` - Generate lock files for the specific flow you modified (e.g. \`wmill flow generate-locks f/my_folder/my_flow__flow --yes\`)
+- \`wmill generate-metadata\` - Generate lock files for the flow you modified
 - \`wmill sync push\` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -152,6 +152,8 @@ Reference a specific resource using \`$res:\` prefix:
 export const SDK_TYPESCRIPT = `# TypeScript SDK (windmill-client)
 
 Import: import * as wmill from 'windmill-client'
+
+workerHasInternalServer(): boolean
 
 /**
  * Initialize the Windmill client with authentication token and base URL
@@ -690,6 +692,8 @@ export const SDK_PYTHON = `# Python SDK (wmill)
 
 Import: import wmill
 
+def worker_has_internal_server() -> bool
+
 def get_mocked_api() -> Optional[dict]
 
 # Get the HTTP client instance.
@@ -754,7 +758,10 @@ def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int
 # Run script by hash synchronously and return its result.
 def run_script_by_hash(hash_: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
 
-# Run a script on the current worker without creating a job
+# Run a script on the current worker without creating a job.
+# 
+# On agent workers (no internal server), falls back to running a normal
+# preview job and waiting for the result.
 def run_inline_script_preview(content: str, language: str, args: dict = None) -> Any
 
 # Wait for a job to complete and return its result.
@@ -1563,10 +1570,6 @@ app related commands
   - \`--fix\` - Attempt to fix common issues (not implemented yet)
 - \`app new\` - create a new raw app from a template
 - \`app generate-agents [app_folder:string]\` - regenerate AGENTS.md and DATATABLES.md from remote workspace
-- \`app generate-locks [app_folder:string]\` - re-generate the lockfiles for app runnables inline scripts that have changed
-  - \`--yes\` - Skip confirmation prompt
-  - \`--dry-run\` - Perform a dry run without making changes
-  - \`--default-ts <runtime:string>\` - Default TypeScript runtime (bun or deno)
 
 ### audit
 
@@ -1635,11 +1638,6 @@ flow related commands
   - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - \`-s --silent\` - Do not output anything other then the final output. Useful for scripting.
   - \`--remote\` - Use deployed workspace scripts for PathScript steps instead of local files.
-- \`flow generate-locks [flow:file]\` - re-generate the lock files of all inline scripts of all updated flows
-  - \`--yes\` - Skip confirmation prompt
-  - \`--dry-run\` - Perform a dry run without making changes
-  - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
-  - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which file to NOT take into account.
 - \`flow new <flow_path:string>\` - create a new empty flow
   - \`--summary <summary:string>\` - flow summary
   - \`--description <description:string>\` - flow description
@@ -1923,13 +1921,6 @@ script related commands
 - \`script bootstrap <path:file> <language:string>\` - create a new script (alias for new)
   - \`--summary <summary:string>\` - script summary
   - \`--description <description:string>\` - script description
-- \`script generate-metadata [script:file]\` - re-generate the metadata file updating the lock and the script schema (for flows, use \`wmill flow generate-locks\`)
-  - \`--yes\` - Skip confirmation prompt
-  - \`--dry-run\` - Perform a dry run without making changes
-  - \`--lock-only\` - re-generate only the lock
-  - \`--schema-only\` - re-generate only script schema
-  - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
-  - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which file to NOT take into account.
 - \`script history <path:string>\` - show version history for a script
   - \`--json\` - Output as JSON (for piping to jq)
 

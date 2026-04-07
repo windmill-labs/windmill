@@ -102,6 +102,7 @@ struct ListVariableQuery {
     // filter by matching the non-encrypted value (for non-secrets only)
     pub value: Option<String>,
     pub broad_filter: Option<String>,
+    pub label: Option<String>,
 }
 
 async fn list_variables(
@@ -130,6 +131,7 @@ async fn list_variables(
             "resource.path IS NOT NULL as is_linked",
             "account.refresh_token != '' as is_refreshed",
             "variable.expires_at",
+            "variable.labels",
         ])
         .left()
         .join("account")
@@ -169,6 +171,12 @@ async fn list_variables(
             "(variable.path ILIKE ? OR variable.description ILIKE ? OR (is_secret = FALSE AND variable.value ILIKE ?))"
                 .bind(&pat).bind(&pat).bind(&pat)
         );
+    }
+
+    if let Some(label) = &lq.label {
+        for l in label.split(',') {
+            sqlb.and_where("variable.labels @> ARRAY[?]".bind(&l.trim()));
+        }
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
@@ -424,8 +432,8 @@ async fn create_variable(
 
     sqlx::query!(
         "INSERT INTO variable
-            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at, labels)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         &w_id,
         variable.path,
         value,
@@ -433,7 +441,8 @@ async fn create_variable(
         variable.description,
         variable.account,
         variable.is_oauth.unwrap_or(false),
-        variable.expires_at
+        variable.expires_at,
+        variable.labels.as_deref() as Option<&[String]>
     )
     .execute(&mut *tx)
     .await?;
@@ -771,6 +780,7 @@ struct EditVariable {
     is_secret: Option<bool>,
     description: Option<String>,
     account: Option<i32>,
+    labels: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -957,6 +967,17 @@ async fn update_variable(
     let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
 
     let npath = not_found_if_none(npath_o, "Variable", path)?;
+
+    if let Some(nlabels) = &ns.labels {
+        sqlx::query!(
+            "UPDATE variable SET labels = $1 WHERE path = $2 AND workspace_id = $3",
+            nlabels as &[String],
+            &npath,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

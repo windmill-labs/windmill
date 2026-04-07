@@ -2439,6 +2439,7 @@ pub async fn handle_wac_v2_output(
                             apply_preprocessor: false,
                             concurrency_settings: ConcurrencySettings::default(),
                             debouncing_settings: DebouncingSettings::default(),
+                            labels: None,
                         })
                     } else {
                         Err(error::Error::internal_err(
@@ -2621,6 +2622,7 @@ pub async fn handle_wac_v2_output(
                                 dedicated_worker: flow_info.dedicated_worker,
                                 apply_preprocessor: false,
                                 version: flow_info.version,
+                                labels: flow_info.labels.clone(),
                             };
                             let step_args: HashMap<String, Box<RawValue>> = step
                                 .args

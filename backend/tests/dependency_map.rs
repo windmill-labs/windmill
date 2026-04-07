@@ -450,6 +450,7 @@ def main():
                 on_behalf_of_email: None,
                 preserve_on_behalf_of: None,
                 ws_error_handler_muted: None,
+                labels: None,
             })
             .send()
             .await
@@ -511,6 +512,7 @@ def main():
                 deployment_message: None,
                 custom_path: None,
                 preserve_on_behalf_of: None,
+                labels: None,
             })
             .send()
             .await

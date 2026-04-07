@@ -445,4 +445,89 @@ mod tests {
             Some(serde_json::json!("value"))
         );
     }
+
+    // ========================================================================
+    // jwt_secret and rsa_keys via sync_global_settings
+    // ========================================================================
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_sync_jwt_secret_via_settings_map(db: Pool<Postgres>) {
+        // Simulate the full operator pipeline: parse GlobalSettings with a
+        // resolved jwt_secret (StringOrSecretRef::Literal), convert to
+        // settings map, and sync to DB.
+        let settings = windmill_common::instance_config::GlobalSettings {
+            jwt_secret: Some(
+                windmill_common::instance_config::StringOrSecretRef::Literal(
+                    "resolved-jwt-value".to_string(),
+                ),
+            ),
+            ..Default::default()
+        };
+
+        let map = settings.to_settings_map();
+        windmill_operator::db_sync::sync_global_settings(&db, &map)
+            .await
+            .expect("sync should succeed");
+
+        let stored = get_global_setting(&db, "jwt_secret")
+            .await
+            .expect("jwt_secret should exist");
+        assert_eq!(stored, serde_json::json!("resolved-jwt-value"));
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_sync_rsa_keys_via_settings_map(db: Pool<Postgres>) {
+        // rsa_keys flows through GlobalSettings.extra as opaque JSON.
+        // After operator resolves secretKeyRef, the value is a plain JSON
+        // object that gets synced to DB.
+        let json_str = r#"{
+            "rsa_keys": {
+                "private_key": "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
+            }
+        }"#;
+        let settings: windmill_common::instance_config::GlobalSettings =
+            serde_json::from_str(json_str).unwrap();
+
+        let map = settings.to_settings_map();
+        windmill_operator::db_sync::sync_global_settings(&db, &map)
+            .await
+            .expect("sync should succeed");
+
+        let stored = get_global_setting(&db, "rsa_keys")
+            .await
+            .expect("rsa_keys should exist");
+        assert_eq!(
+            stored["private_key"],
+            "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"
+        );
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_sync_protects_jwt_secret_and_rsa_keys(db: Pool<Postgres>) {
+        // Pre-populate both protected settings
+        insert_global_setting(&db, "jwt_secret", serde_json::json!("original-jwt")).await;
+        insert_global_setting(
+            &db,
+            "rsa_keys",
+            serde_json::json!({"private_key": "original-rsa"}),
+        )
+        .await;
+
+        // Sync with empty desired — protected keys should survive
+        let desired = BTreeMap::new();
+        windmill_operator::db_sync::sync_global_settings(&db, &desired)
+            .await
+            .expect("sync should succeed");
+
+        assert_eq!(
+            get_global_setting(&db, "jwt_secret").await,
+            Some(serde_json::json!("original-jwt")),
+            "jwt_secret is protected and should survive empty sync"
+        );
+        assert_eq!(
+            get_global_setting(&db, "rsa_keys").await,
+            Some(serde_json::json!({"private_key": "original-rsa"})),
+            "rsa_keys is protected and should survive empty sync"
+        );
+    }
 }
