@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.679.0](https://github.com/windmill-labs/windmill/compare/v1.678.0...v1.679.0) (2026-04-07)
+
+
+### Features
+
+* Fork datatables ([#8339](https://github.com/windmill-labs/windmill/issues/8339)) ([3d4f4c6](https://github.com/windmill-labs/windmill/commit/3d4f4c6c38155396e9b2236a6a7a7ad4e02da877))
+
 ## [1.678.0](https://github.com/windmill-labs/windmill/compare/v1.677.0...v1.678.0) (2026-04-07)
 
 
