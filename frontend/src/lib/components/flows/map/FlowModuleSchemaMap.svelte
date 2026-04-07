@@ -384,8 +384,15 @@
 	}
 
 	export function deleteMultiple(ids: string[]) {
-		const structureIds = ids.filter((id) => findInStructure(proxy.items, id))
-		const toolIds = ids.filter((id) => !findInStructure(proxy.items, id))
+		const structureIds: string[] = []
+		const toolIds: string[] = []
+		for (const id of ids) {
+			if (findInStructure(proxy.items, id)) {
+				structureIds.push(id)
+			} else {
+				toolIds.push(id)
+			}
+		}
 		const deletingSet = new Set(ids)
 		const allDeps: Record<string, string[]> = {}
 		for (const id of ids) {
