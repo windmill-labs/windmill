@@ -13,6 +13,7 @@ import {
 	findDuplicateGroups,
 	removeDuplicateGroups,
 	flattenStructureIds,
+	findInStructure,
 	type FlowStructureNode
 } from './flowStructure'
 
@@ -23,6 +24,13 @@ export type ExtendedOpenFlow = {
 		[key: string]: any
 	}
 	[key: string]: any
+}
+
+export type PreparedStructureDelete = {
+	removedIds: string[]
+	affectedGroups: FlowGroup[]
+	duplicateGroups: FlowGroup[]
+	commit: (commitOpts?: { removeDuplicates?: boolean }) => void
 }
 
 /**
@@ -110,6 +118,33 @@ export class GroupedModulesProxy {
 		}
 
 		return { emptiedGroups, duplicateGroups, commit }
+	}
+
+	prepareDelete(
+		ids: string[],
+		opts?: {
+			displayState?: import('./groupEditor.svelte').GroupDisplayState
+		}
+	): PreparedStructureDelete {
+		const removedIds: string[] = []
+		const { emptiedGroups, duplicateGroups, commit } = this.prepareMutation((tree) => {
+			for (const id of ids) {
+				const found = findInStructure(tree, id)
+				if (!found) {
+					continue
+				}
+
+				found.parentChildren.splice(found.index, 1)
+				removedIds.push(id)
+			}
+		}, opts)
+
+		return {
+			removedIds,
+			affectedGroups: [...emptiedGroups, ...duplicateGroups],
+			duplicateGroups,
+			commit
+		}
 	}
 
 	/**

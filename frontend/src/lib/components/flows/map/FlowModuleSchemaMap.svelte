@@ -23,7 +23,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
-	import { getAllModules, getDependentComponents } from '../flowExplorer'
+	import { getAllModules } from '../flowExplorer'
 	import { locateModules, groupByParent } from '../multiSelectUtils'
 	import { workspaceStore } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
@@ -53,18 +53,24 @@
 		agentToolToFlowModule
 	} from '../agentToolUtils'
 	import { loadFlowModuleState } from '../flowStateUtils.svelte'
-	import { partitionDeleteTargets, removeToolIds } from '../flowDeleteUtils'
+	import {
+		createDeletePlan,
+		removeDeletePlanTools,
+		type DeletePlan
+	} from '../flowDeleteUtils'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
 	import {
 		GroupedModulesProxy,
 		type ExtendedOpenFlow
 	} from '$lib/components/graph/groupedModulesProxy.svelte'
-	import { GroupDisplayState } from '$lib/components/graph/groupEditor.svelte'
+	import {
+		GroupDisplayState,
+		type FlowGroup
+	} from '$lib/components/graph/groupEditor.svelte'
 	import {
 		type FlowStructureNode,
 		matchStructureNode,
 		dfsStructure,
-		findInStructure,
 		moduleToStructureNode
 	} from '$lib/components/graph/flowStructure'
 
@@ -259,18 +265,6 @@
 	let flowPaneWidth = $state(0)
 	let compactTopbar = $derived(flowPaneWidth < 700)
 
-	export function selectNextId(id: any) {
-		if (flowStore.val.value.modules) {
-			let allIds = dfs(flowStore.val.value.modules, (mod) => mod.id)
-			if (allIds.length > 1) {
-				const idx = allIds.indexOf(id)
-				selectionManager.selectId(idx == 0 ? allIds[0] : allIds[idx - 1])
-			} else {
-				selectionManager.selectId('settings-metadata')
-			}
-		}
-	}
-
 	function findModuleById(id: string) {
 		return dfsByModule(id, flowStore.val.value.modules)[0]
 	}
@@ -312,15 +306,19 @@
 		}
 	}
 
-	let deleteCallback: (() => void) | undefined = $state(undefined)
-	let dependents: Record<string, string[]> = $state({})
+	type PendingDeleteConfirmation = {
+		plan: DeletePlan
+	}
 
-	/** Confirmation gate for actions that would empty or duplicate groups */
-	let affectedGroupsPending: import('$lib/components/graph/groupEditor.svelte').FlowGroup[] =
-		$state([])
-	let affectedGroupsAction: (() => void) | undefined = $state(undefined)
-	let affectedGroupsCancel: (() => void) | undefined = $state(undefined)
-	let affectedGroupsActionLabel: 'delete' | 'move' = $state('delete')
+	type PendingGroupAction = {
+		groups: FlowGroup[]
+		label: 'delete' | 'move'
+		confirm: () => void
+		cancel?: () => void
+	}
+
+	let pendingDeleteConfirmation: PendingDeleteConfirmation | undefined = $state(undefined)
+	let pendingGroupAction: PendingGroupAction | undefined = $state(undefined)
 
 	let graph: FlowGraphV2 | undefined = $state(undefined)
 	let noteMode = $state(false)
@@ -341,67 +339,66 @@
 		noteMode = !noteMode
 	}
 
-	export function deleteMultiple(ids: string[]) {
-		const { structureIds, toolIds } = partitionDeleteTargets(proxy.items, ids)
-		const deletingSet = new Set(ids)
-		const allDeps: Record<string, string[]> = {}
-		for (const id of ids) {
-			const deps = getDependentComponents(id, flowStore.val)
-			for (const [depId, exprs] of Object.entries(deps)) {
-				if (!deletingSet.has(depId)) {
-					allDeps[depId] = [...(allDeps[depId] ?? []), ...exprs]
-				}
-			}
+	function applyDeletePlan(plan: DeletePlan) {
+		push(history, flowStore.val)
+
+		if (plan.selection.kind === 'clear') {
+			selectionManager.clearSelection()
+		} else {
+			selectionManager.selectId(plan.selection.id)
 		}
 
-		const opts = { displayState: groupDisplayState }
-		const { emptiedGroups, duplicateGroups, commit } =
-			structureIds.length > 0
-				? proxy.prepareMutation((tree) => {
-						for (const id of structureIds) {
-							const found = findInStructure(tree, id)
-							if (found) found.parentChildren.splice(found.index, 1)
-						}
-					}, opts)
-				: {
-						emptiedGroups: [],
-						duplicateGroups: [],
-						commit: () => {}
-					}
+		if (plan.targets.some((target) => target.kind === 'preprocessor')) {
+			flowStore.val.value.preprocessor_module = undefined
+		}
 
-		const affectedGroups = [...emptiedGroups, ...duplicateGroups]
+		plan.structureDelete?.commit({ removeDuplicates: plan.removeDuplicates })
+		removeDeletePlanTools(plan.targets)
 
-		const cb = () => {
-			push(history, flowStore.val)
-			commit({ removeDuplicates: duplicateGroups.length > 0 })
-			const removedToolIds = removeToolIds(flowStore.val.value.modules, toolIds, (tool) => {
-				deleteFlowStateById(tool.id, flowStateStore)
-			})
-			for (const id of ids) {
-				if (structureIds.includes(id) || removedToolIds.includes(id)) {
-					delete flowStateStore.val[id]
-				}
-			}
-			selectionManager.clearSelection()
-			refreshStateStore(flowStore)
+		for (const id of plan.stateIds) {
+			deleteFlowStateById(id, flowStateStore)
+		}
+
+		refreshStateStore(flowStore)
+
+		if (plan.inputIds.length === 1) {
+			onDelete?.(plan.targets[0]?.id ?? plan.inputIds[0])
+		}
+	}
+
+	function requestDelete(ids: string[]) {
+		const plan = createDeletePlan({
+			ids,
+			flow: flowStore.val,
+			tree: proxy.items,
+			proxy,
+			displayState: groupDisplayState
+		})
+		if (!plan) {
+			return
 		}
 
 		const proceed = () => {
-			if (Object.keys(allDeps).length > 0) {
-				dependents = allDeps
-				deleteCallback = cb
+			if (Object.keys(plan.dependents).length > 0) {
+				pendingDeleteConfirmation = { plan }
 			} else {
-				cb()
+				applyDeletePlan(plan)
 			}
 		}
 
-		if (affectedGroups.length > 0) {
-			affectedGroupsPending = affectedGroups
-			affectedGroupsActionLabel = 'delete'
-			affectedGroupsAction = proceed
+		if ((plan.structureDelete?.affectedGroups.length ?? 0) > 0) {
+			pendingGroupAction = {
+				groups: plan.structureDelete!.affectedGroups,
+				label: 'delete',
+				confirm: proceed
+			}
 		} else {
 			proceed()
 		}
+	}
+
+	export function deleteMultiple(ids: string[]) {
+		requestDelete(ids)
 	}
 
 	// Operates directly on the flat module array (not the structure tree).
@@ -512,21 +509,21 @@
 	<ConfirmationModal
 		title="Confirm deleting step with dependents"
 		confirmationText="Delete step"
-		open={Boolean(deleteCallback)}
+		open={Boolean(pendingDeleteConfirmation)}
 		on:confirmed={() => {
-			if (deleteCallback) {
-				deleteCallback()
-				deleteCallback = undefined
+			if (pendingDeleteConfirmation) {
+				applyDeletePlan(pendingDeleteConfirmation.plan)
+				pendingDeleteConfirmation = undefined
 			}
 		}}
 		on:canceled={() => {
-			deleteCallback = undefined
+			pendingDeleteConfirmation = undefined
 		}}
 	>
 		<div class="text-primary pb-2"
 			>Found the following steps that will require changes after this step is deleted:</div
 		>
-		{#each Object.entries(dependents) as [k, v]}
+		{#each Object.entries(pendingDeleteConfirmation?.plan.dependents ?? {}) as [k, v]}
 			<div class="pb-3">
 				<h3 class="text-secondary font-semibold">{k}</h3>
 				<ul class="text-sm">
@@ -539,36 +536,32 @@
 	</ConfirmationModal>
 
 	<ConfirmationModal
-		title={affectedGroupsPending.length === 1 ? 'Remove group?' : 'Remove groups?'}
-		confirmationText={affectedGroupsActionLabel === 'delete' ? 'Delete step' : 'Move step'}
-		open={affectedGroupsPending.length > 0}
+		title={pendingGroupAction?.groups.length === 1 ? 'Remove group?' : 'Remove groups?'}
+		confirmationText={pendingGroupAction?.label === 'delete' ? 'Delete step' : 'Move step'}
+		open={Boolean(pendingGroupAction)}
 		on:confirmed={() => {
-			affectedGroupsAction?.()
-			affectedGroupsPending = []
-			affectedGroupsAction = undefined
-			affectedGroupsCancel = undefined
+			pendingGroupAction?.confirm()
+			pendingGroupAction = undefined
 		}}
 		on:canceled={() => {
-			affectedGroupsCancel?.()
-			affectedGroupsPending = []
-			affectedGroupsAction = undefined
-			affectedGroupsCancel = undefined
+			pendingGroupAction?.cancel?.()
+			pendingGroupAction = undefined
 		}}
 	>
-		{#if affectedGroupsPending.length === 1}
-			{@const group = affectedGroupsPending[0]}
+		{#if pendingGroupAction?.groups.length === 1}
+			{@const group = pendingGroupAction.groups[0]}
 			<p
 				>The group{group.summary ? ` "${group.summary}"` : ''} will be removed (empty or duplicate).
-				Are you sure you want to {affectedGroupsActionLabel} the step?</p
+				Are you sure you want to {pendingGroupAction.label} the step?</p
 			>
 		{:else}
 			<p>The following groups will be removed (empty or duplicate):</p>
 			<ul class="list-disc pl-4 mt-1">
-				{#each affectedGroupsPending as group}
+				{#each pendingGroupAction?.groups ?? [] as group}
 					<li>{group.summary || `${group.start_id} → ${group.end_id}`}</li>
 				{/each}
 			</ul>
-			<p class="mt-2">Are you sure you want to {affectedGroupsActionLabel} the step?</p>
+			<p class="mt-2">Are you sure you want to {pendingGroupAction?.label} the step?</p>
 		{/if}
 	</ConfirmationModal>
 </Portal>
@@ -630,78 +623,7 @@
 			suspendStatus={suspendStatus.val}
 			{flowHasChanged}
 			chatInputEnabled={Boolean(flowStore.val.value?.chat_input_enabled)}
-			onDelete={(id) => {
-				dependents = getDependentComponents(id, flowStore.val)
-
-				if (id === 'preprocessor') {
-					const cb = () => {
-						push(history, flowStore.val)
-						selectionManager.selectId('Input')
-						flowStore.val.value.preprocessor_module = undefined
-						refreshStateStore(flowStore)
-						onDelete?.(id)
-						delete flowStateStore.val[id]
-					}
-					if (Object.keys(dependents).length > 0) {
-						deleteCallback = cb
-					} else {
-						cb()
-					}
-					return
-				}
-
-				if (!findInStructure(proxy.items, id)) {
-					const cb = () => {
-						push(history, flowStore.val)
-						selectNextId(id)
-						const removedIds = removeToolIds(flowStore.val.value.modules, [id], (tool) => {
-							deleteFlowStateById(tool.id, flowStateStore)
-						})
-						if (removedIds.length === 0) return
-						refreshStateStore(flowStore)
-						onDelete?.(id)
-					}
-					if (Object.keys(dependents).length > 0) {
-						deleteCallback = cb
-					} else {
-						cb()
-					}
-					return
-				}
-
-				const dsOpts = { displayState: groupDisplayState }
-				const { emptiedGroups, duplicateGroups, commit } = proxy.prepareMutation((tree) => {
-					const found = findInStructure(tree, id)
-					if (found) found.parentChildren.splice(found.index, 1)
-				}, dsOpts)
-
-				const affectedGroups = [...emptiedGroups, ...duplicateGroups]
-
-				const cb = () => {
-					push(history, flowStore.val)
-					selectNextId(id)
-					commit({ removeDuplicates: duplicateGroups.length > 0 })
-					refreshStateStore(flowStore)
-					onDelete?.(id)
-					delete flowStateStore.val[id]
-				}
-
-				const proceed = () => {
-					if (Object.keys(dependents).length > 0) {
-						deleteCallback = cb
-					} else {
-						cb()
-					}
-				}
-
-				if (affectedGroups.length > 0) {
-					affectedGroupsPending = affectedGroups
-					affectedGroupsActionLabel = 'delete'
-					affectedGroupsAction = proceed
-				} else {
-					proceed()
-				}
-			}}
+			onDelete={(id) => requestDelete([id])}
 			onInsert={async (detail) => {
 				if (!flowStore.val.value.modules || !Array.isArray(flowStore.val.value.modules)) return
 				await tick()
@@ -780,10 +702,12 @@
 					}
 
 					if (affectedGroups.length > 0) {
-						affectedGroupsPending = affectedGroups
-						affectedGroupsActionLabel = 'move'
-						affectedGroupsAction = doMove
-						affectedGroupsCancel = () => moveManager.clearMoving()
+						pendingGroupAction = {
+							groups: affectedGroups,
+							label: 'move',
+							confirm: doMove,
+							cancel: () => moveManager.clearMoving()
+						}
 					} else {
 						doMove()
 					}
