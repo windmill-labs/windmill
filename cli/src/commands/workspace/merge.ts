@@ -724,14 +724,16 @@ async function mergeWorkspaces(
     }
   }
 
-  // 11. Reset diff tally
-  try {
-    await wmill.resetDiffTally({
-      workspace: parentWorkspaceId,
-      forkWorkspaceId: forkWorkspaceId,
-    });
-  } catch {
-    // Non-critical — tally will refresh on next comparison
+  // 11. Reset diff tally (only if items were successfully deployed)
+  if (successCount > 0) {
+    try {
+      await wmill.resetDiffTally({
+        workspace: parentWorkspaceId,
+        forkWorkspaceId: forkWorkspaceId,
+      });
+    } catch {
+      // Non-critical — tally will refresh on next comparison
+    }
   }
 
   // 12. Summary

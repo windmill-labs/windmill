@@ -110,40 +110,50 @@ async function createWorkspaceFork(
   }
   const forkedDatatables: ForkedDatatableInfo[] = [];
 
+  let datatables: Awaited<ReturnType<typeof wmill.listDataTables>> = [];
   try {
-    const datatables = await wmill.listDataTables({
+    datatables = await wmill.listDataTables({
       workspace: workspace.workspaceId,
     });
+  } catch (e) {
+    log.info(
+      colors.yellow(
+        `Note: Could not list datatables: ${(e as Error).message}`
+      )
+    );
+  }
 
-    if (datatables && datatables.length > 0) {
-      const behavior = opts.datatableBehavior ?? (opts.yes ? "skip" : undefined);
+  if (datatables && datatables.length > 0) {
+    const behavior = opts.datatableBehavior ?? (opts.yes ? "skip" : undefined);
 
-      if (behavior !== "skip") {
-        log.info(`\nFound ${datatables.length} datatable(s):`);
+    if (behavior !== "skip") {
+      log.info(`\nFound ${datatables.length} datatable(s):`);
 
-        for (const dt of datatables) {
-          let dtBehavior: string;
+      for (const dt of datatables) {
+        let dtBehavior: string;
 
-          if (behavior === "schema_only" || behavior === "schema_and_data") {
-            dtBehavior = behavior;
-          } else {
-            // Interactive prompt
-            const { Select } = await import("@cliffy/prompt/select");
-            dtBehavior = await Select.prompt({
-              message: `Datatable "${dt.name}" (${dt.resource_type}):`,
-              options: [
-                { name: "Keep original (no cloning)", value: "keep_original" },
-                { name: "Clone schema only", value: "schema_only" },
-                { name: "Clone schema and data", value: "schema_and_data" },
-              ],
-            });
-          }
+        if (behavior === "schema_only" || behavior === "schema_and_data") {
+          dtBehavior = behavior;
+        } else {
+          // Interactive prompt
+          const { Select } = await import("@cliffy/prompt/select");
+          dtBehavior = await Select.prompt({
+            message: `Datatable "${dt.name}" (${dt.resource_type}):`,
+            options: [
+              { name: "Keep original (no cloning)", value: "keep_original" },
+              { name: "Clone schema only", value: "schema_only" },
+              { name: "Clone schema and data", value: "schema_and_data" },
+            ],
+          });
+        }
 
-          if (dtBehavior === "keep_original") {
-            continue;
-          }
+        if (dtBehavior === "keep_original") {
+          continue;
+        }
 
-          const newDbName = `${trueWorkspaceId.replace(/-/g, "_")}__${dt.name}`;
+        const newDbName = `${trueWorkspaceId.replace(/-/g, "_")}__${dt.name}`;
+
+        try {
           log.info(
             colors.blue(`  Creating database "${newDbName}" for datatable "${dt.name}"...`)
           );
@@ -174,19 +184,19 @@ async function createWorkspaceFork(
 
           log.info(colors.green(`  ✓ Datatable "${dt.name}" cloned.`));
           forkedDatatables.push({ name: dt.name, new_dbname: newDbName });
+        } catch (e) {
+          log.info(
+            colors.yellow(
+              `  ✗ Failed to clone datatable "${dt.name}": ${(e as Error).message}`
+            )
+          );
         }
       }
     }
-  } catch (e) {
-    log.info(
-      colors.yellow(
-        `Note: Could not list or clone datatables: ${(e as Error).message}`
-      )
-    );
   }
 
   // --- Create git branch for fork (matches UI: createWorkspaceForkGitBranch) ---
-  const forkColor = opts.color ?? undefined;
+  const forkColor = opts.color;
   try {
     const gitSyncJobIds = await wmill.createWorkspaceForkGitBranch({
       workspace: workspace.workspaceId,
@@ -204,11 +214,12 @@ async function createWorkspaceFork(
       );
     }
   } catch (e) {
-    log.info(
-      colors.yellow(
-        `Note: Git branch creation skipped: ${(e as Error).message}`
+    log.error(
+      colors.red(
+        `Failed to create git branch for fork: ${(e as Error).message}`
       )
     );
+    throw e;
   }
 
   // --- Create the fork workspace ---
