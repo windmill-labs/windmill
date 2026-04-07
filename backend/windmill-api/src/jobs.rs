@@ -378,6 +378,7 @@ pub fn workspace_unauthed_service() -> Router {
         .route("/get_root_job_id/{id}", get(get_root_job))
         .route("/get/{id}", get(get_job))
         .route("/get_logs/{id}", get(get_job_logs))
+        .route("/get_flow_all_logs/{id}", get(get_flow_all_logs))
         .route(
             "/get_completed_logs_tail/{id}",
             get(get_completed_job_logs_tail),
@@ -1684,6 +1685,144 @@ async fn get_job_logs(
         );
         Ok(content_plain(Body::from(logs)))
     }
+}
+
+async fn resolve_logs_to_string(
+    log_offset: i32,
+    logs: &str,
+    log_file_index: &Option<Vec<String>>,
+) -> String {
+    if log_offset > 0 {
+        if let Some(file_index) = log_file_index.as_ref() {
+            let mut result = String::new();
+
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            {
+                if let Some(os) = windmill_object_store::get_object_store().await {
+                    let mut found_all = true;
+                    for file_p in file_index {
+                        match os
+                            .get(&object_store::path::Path::from(file_p.clone()))
+                            .await
+                        {
+                            Ok(file) => {
+                                if let Ok(bytes) = file.bytes().await {
+                                    result.push_str(&String::from_utf8_lossy(&bytes));
+                                }
+                            }
+                            Err(_) => {
+                                found_all = false;
+                                break;
+                            }
+                        }
+                    }
+                    if found_all {
+                        result.push_str(logs);
+                        return result;
+                    }
+                    result.clear();
+                }
+            }
+
+            // Try disk
+            let mut all_exist = true;
+            for file_p in file_index {
+                if !tokio::fs::metadata(format!("{}/{file_p}", *WINDMILL_DIR))
+                    .await
+                    .is_ok()
+                {
+                    all_exist = false;
+                    break;
+                }
+            }
+            if all_exist {
+                for file_p in file_index {
+                    if let Ok(mut file) =
+                        tokio::fs::File::open(format!("{}/{file_p}", *WINDMILL_DIR)).await
+                    {
+                        use tokio::io::AsyncReadExt;
+                        let mut buffer = Vec::new();
+                        if file.read_to_end(&mut buffer).await.is_ok() {
+                            result.push_str(&String::from_utf8_lossy(&buffer));
+                        }
+                    }
+                }
+                result.push_str(logs);
+                return result;
+            }
+        }
+    }
+    logs.to_string()
+}
+
+async fn get_flow_all_logs(
+    OptAuthed(opt_authed): OptAuthed,
+    opt_tokened: OptTokened,
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<Response> {
+    let tags = opt_authed
+        .as_ref()
+        .map(|authed| get_scope_tags(authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec()))
+        .flatten();
+
+    // Verify the root job exists and check auth
+    let root_job = sqlx::query!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+        id,
+        w_id,
+        tags.as_ref().map(|v| v.as_slice())
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let root_job = not_found_if_none(root_job, "Job", id.to_string())?;
+
+    if opt_authed.is_none() && root_job.created_by != "anonymous" {
+        return Err(Error::BadRequest(
+            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+        ));
+    }
+
+    log_job_view(
+        &db,
+        opt_authed.as_ref(),
+        opt_tokened.token.as_deref(),
+        &w_id,
+        &id,
+    )
+    .await?;
+
+    // Fetch all jobs in the flow (root + children) with their logs
+    let records = sqlx::query!(
+        "SELECT j.id, j.flow_step_id, coalesce(job_logs.logs, '') as logs, COALESCE(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
+         FROM v2_job j
+         LEFT JOIN job_logs ON job_logs.job_id = j.id
+         WHERE j.workspace_id = $1 AND (j.flow_innermost_root_job = $2 OR j.id = $2)
+         ORDER BY j.created_at ASC",
+        w_id,
+        id,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let mut all_logs = String::new();
+
+    for record in &records {
+        let step_label = record.flow_step_id.as_deref().unwrap_or("flow");
+        all_logs.push_str(&format!(
+            "\n=== Step: {} (Job: {}) ===\n",
+            step_label, record.id
+        ));
+        let logs = record.logs.as_deref().unwrap_or("");
+        let resolved =
+            resolve_logs_to_string(record.log_offset.unwrap_or(0), logs, &record.log_file_index)
+                .await;
+        all_logs.push_str(&resolved);
+        all_logs.push('\n');
+    }
+
+    Ok(content_plain(Body::from(all_logs)))
 }
 
 async fn get_args(

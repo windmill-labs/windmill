@@ -608,11 +608,12 @@ fn extract_domain_from_route(
     )))
 }
 
-const RUN_WHITELISTED_GET_PATHS: [&'static str; 19] = [
+const RUN_WHITELISTED_GET_PATHS: [&'static str; 20] = [
     "jobs_u/get_flow/",
     "jobs_u/get_root_job_id/",
     "jobs_u/get/",
     "jobs_u/get_logs/",
+    "jobs_u/get_flow_all_logs/",
     "jobs_u/get_args/",
     "jobs_u/get_flow_debug_info/",
     "jobs_u/completed/get/",

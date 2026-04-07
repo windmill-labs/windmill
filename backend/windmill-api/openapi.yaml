@@ -11031,6 +11031,23 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs_u/get_flow_all_logs/{id}:
+    get:
+      summary: get all logs for a flow job
+      operationId: getFlowAllLogs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: concatenated logs of all flow steps
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/jobs_u/get_completed_logs_tail/{id}:
     get:
       summary: get completed job logs tail
