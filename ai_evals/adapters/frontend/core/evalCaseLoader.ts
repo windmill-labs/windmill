@@ -30,7 +30,7 @@ export interface ScriptEvalFixture {
   code: string;
   lang: ScriptLang | "bunnative";
   path: string;
-  args?: Record<string, any>;
+  args: Record<string, any>;
 }
 
 export interface ScriptEvalCaseManifest {
@@ -84,6 +84,6 @@ function toScriptEvalFixture(fixture: EvalScriptFixture): ScriptEvalFixture {
     code: fixture.code,
     lang: fixture.lang as ScriptLang | "bunnative",
     path: fixture.path,
-    args: fixture.args as Record<string, any> | undefined
+    args: (fixture.args as Record<string, any> | undefined) ?? {}
   };
 }

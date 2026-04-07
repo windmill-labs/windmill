@@ -8,9 +8,12 @@ import {
   type CliExpectedFileCheck
 } from "../shared/evalCases";
 import {
+  validateCliArtifact,
+  type BenchmarkCheck
+} from "../shared/validators";
+import {
   runPromptAndCapture,
   type PromptRunResult,
-  wasSkillInvoked
 } from "./runtime";
 import type { CliVariant } from "./variants";
 
@@ -26,12 +29,7 @@ export interface CliArtifactEvalCase {
   expectedFiles: ExpectedFile[];
 }
 
-export interface ArtifactCheck {
-  name: string;
-  passed: boolean;
-  required?: boolean;
-  details?: string;
-}
+export type ArtifactCheck = BenchmarkCheck;
 
 export interface FileArtifactResult {
   path: string;
@@ -178,48 +176,12 @@ function buildChecks(
   run: PromptRunResult,
   fileResults: FileArtifactResult[]
 ): ArtifactCheck[] {
-  const checks: ArtifactCheck[] = [];
-
-  if (evalCase.expectedSkill) {
-    checks.push({
-      name: `invokes ${evalCase.expectedSkill}`,
-      passed: wasSkillInvoked(run, evalCase.expectedSkill),
-      required: true,
-      details: `skills invoked: ${run.skillsInvoked.join(", ")}`
-    });
-  }
-
-  for (const expectedOutput of evalCase.expectedOutputSubstrings ?? []) {
-    checks.push({
-      name: `mentions '${expectedOutput}' in assistant output`,
-      passed: run.output.includes(expectedOutput),
-      required: true
-    });
-  }
-
-  for (const expectedFile of evalCase.expectedFiles) {
-    const fileResult = fileResults.find((entry) => entry.path === expectedFile.path);
-    const content = fileResult?.content ?? "";
-
-    checks.push({
-      name: `creates ${expectedFile.path}`,
-      passed: Boolean(fileResult?.exists)
-    });
-
-    for (const requiredSnippet of expectedFile.mustContain ?? []) {
-      checks.push({
-        name: `${expectedFile.path} contains '${requiredSnippet}'`,
-        passed: content.includes(requiredSnippet)
-      });
-    }
-
-    for (const forbiddenSnippet of expectedFile.mustNotContain ?? []) {
-      checks.push({
-        name: `${expectedFile.path} avoids '${forbiddenSnippet}'`,
-        passed: !content.includes(forbiddenSnippet)
-      });
-    }
-  }
-
-  return checks;
+  return validateCliArtifact({
+    assistantOutput: run.output,
+    skillsInvoked: run.skillsInvoked,
+    expectedSkill: evalCase.expectedSkill,
+    expectedOutputSubstrings: evalCase.expectedOutputSubstrings,
+    expectedFiles: evalCase.expectedFiles,
+    fileResults
+  });
 }

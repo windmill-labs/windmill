@@ -7,6 +7,16 @@ import { fileURLToPath } from 'url'
 import type { AIProvider } from '$lib/gen/types.gen'
 import { loadAppEvalCases, loadFlowEvalCases, loadScriptEvalCases } from './core/evalCaseLoader'
 import type { VariantConfig } from './core/shared'
+import {
+	allRequiredChecksPassed,
+	buildJudgeChecks,
+	getRequiredFailedChecks,
+	requiredCheck,
+	validateAppArtifact,
+	validateFlowArtifact,
+	validateScriptArtifact,
+	type BenchmarkCheck
+} from '../shared/validators'
 
 export type FrontendBenchmarkSurface = 'flow' | 'app' | 'script'
 
@@ -54,7 +64,7 @@ export interface FrontendBenchmarkAttempt {
 	assistantMessageCount: number
 	toolCallCount: number
 	toolsUsed: string[]
-	checks: Array<{ name: string; passed: boolean; required?: boolean }>
+	checks: BenchmarkCheck[]
 	requiredFailedChecks: string[]
 	judgeScore: number | null
 	judgeStatement: string | null
@@ -175,17 +185,19 @@ async function runFlowBenchmark(input: {
 
 							const minJudgeScore = testCase.minJudgeScore ?? DEFAULT_MIN_JUDGE_SCORE
 							const checks = [
-								{ name: 'chat run succeeded', passed: result.success, required: true },
-								{
-									name: 'judge evaluation succeeded',
-									passed: Boolean(result.evaluationResult?.success),
-									required: true
-								},
-								{
-									name: `judge score >= ${minJudgeScore}`,
-									passed: (result.evaluationResult?.resemblanceScore ?? 0) >= minJudgeScore,
-									required: true
-								}
+								requiredCheck('chat run succeeded', result.success, result.error),
+								...validateFlowArtifact({
+									generatedFlow: {
+										summary: result.flow.summary,
+										value: { modules: result.flow.value.modules },
+										schema: result.flow.schema
+									},
+									expectedFlow: testCase.expectedFlow
+								}),
+								...buildJudgeChecks({
+									evaluationResult: result.evaluationResult,
+									minJudgeScore
+								})
 							]
 
 							return {
@@ -196,9 +208,7 @@ async function runFlowBenchmark(input: {
 								toolCallCount: result.toolCallsCount,
 								toolsUsed: uniqueStrings(result.toolsCalled),
 								checks,
-								requiredFailedChecks: checks
-									.filter((check) => check.required !== false && !check.passed)
-									.map((check) => check.name),
+								requiredFailedChecks: getRequiredFailedChecks(checks),
 								judgeScore: result.evaluationResult?.resemblanceScore ?? null,
 								judgeStatement: result.evaluationResult?.statement ?? null,
 								error: result.error ?? result.evaluationResult?.error ?? null
@@ -267,17 +277,20 @@ async function runAppBenchmark(input: {
 
 								const minJudgeScore = testCase.minJudgeScore ?? DEFAULT_MIN_JUDGE_SCORE
 								const checks = [
-									{ name: 'chat run succeeded', passed: result.success, required: true },
-									{
-										name: 'judge evaluation succeeded',
-										passed: Boolean(result.evaluationResult?.success),
-										required: true
-									},
-									{
-										name: `judge score >= ${minJudgeScore}`,
-										passed: (result.evaluationResult?.resemblanceScore ?? 0) >= minJudgeScore,
-										required: true
-									}
+									requiredCheck('chat run succeeded', result.success, result.error),
+									...validateAppArtifact({
+										generatedApp: result.files,
+										initialApp: testCase.initialAppFixturePath
+											? {
+													frontend: fixture.initialFrontend,
+													backend: fixture.initialBackend
+												}
+											: undefined
+									}),
+									...buildJudgeChecks({
+										evaluationResult: result.evaluationResult,
+										minJudgeScore
+									})
 								]
 
 								return {
@@ -288,9 +301,7 @@ async function runAppBenchmark(input: {
 									toolCallCount: result.toolCallsCount,
 									toolsUsed: uniqueStrings(result.toolsCalled),
 									checks,
-									requiredFailedChecks: checks
-										.filter((check) => check.required !== false && !check.passed)
-										.map((check) => check.name),
+									requiredFailedChecks: getRequiredFailedChecks(checks),
 									judgeScore: result.evaluationResult?.resemblanceScore ?? null,
 									judgeStatement: result.evaluationResult?.statement ?? null,
 									error: result.error ?? result.evaluationResult?.error ?? null
@@ -355,40 +366,16 @@ async function runScriptBenchmark(input: {
 
 							const minJudgeScore = testCase.minJudgeScore ?? DEFAULT_MIN_JUDGE_SCORE
 							const checks = [
-								{ name: 'chat run succeeded', passed: result.success, required: true },
-								{
-									name: 'script exports entrypoint',
-									passed:
-										/export\s+(async\s+)?function\s+(main|preprocessor)\s*\(/.test(
-											result.script.code
-										),
-									required: true
-								},
-								{
-									name: 'edit_code used',
-									passed: result.toolsCalled.includes('edit_code'),
-									required: true
-								},
-								{
-									name: 'get_lint_errors used',
-									passed: result.toolsCalled.includes('get_lint_errors'),
-									required: true
-								},
-								{
-									name: 'test_run_script used',
-									passed: result.toolsCalled.includes('test_run_script'),
-									required: false
-								},
-								{
-									name: 'judge evaluation succeeded',
-									passed: Boolean(result.evaluationResult?.success),
-									required: true
-								},
-								{
-									name: `judge score >= ${minJudgeScore}`,
-									passed: (result.evaluationResult?.resemblanceScore ?? 0) >= minJudgeScore,
-									required: true
-								}
+								requiredCheck('chat run succeeded', result.success, result.error),
+								...validateScriptArtifact({
+									generatedScript: result.script,
+									expectedScript: testCase.expectedScript,
+									initialScript: testCase.initialScript
+								}),
+								...buildJudgeChecks({
+									evaluationResult: result.evaluationResult,
+									minJudgeScore
+								})
 							]
 
 							return {
@@ -399,9 +386,7 @@ async function runScriptBenchmark(input: {
 								toolCallCount: result.toolCallsCount,
 								toolsUsed: uniqueStrings(result.toolsCalled),
 								checks,
-								requiredFailedChecks: checks
-									.filter((check) => check.required !== false && !check.passed)
-									.map((check) => check.name),
+								requiredFailedChecks: getRequiredFailedChecks(checks),
 								judgeScore: result.evaluationResult?.resemblanceScore ?? null,
 								judgeStatement: result.evaluationResult?.statement ?? null,
 								error: result.error ?? result.evaluationResult?.error ?? null
@@ -549,10 +534,4 @@ function parsePositiveInteger(value: string | undefined, envName: string): numbe
 
 function uniqueStrings(values: string[]): string[] {
 	return [...new Set(values)].sort((left, right) => left.localeCompare(right))
-}
-
-function allRequiredChecksPassed(
-	checks: Array<{ name: string; passed: boolean; required?: boolean }>
-): boolean {
-	return checks.every((check) => check.required === false || check.passed)
 }
