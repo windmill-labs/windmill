@@ -1869,37 +1869,43 @@ async fn get_flow_all_logs(
         let parent_module_type = record.parent_module_type.as_deref().unwrap_or("");
 
         // Build a descriptive label
-        let is_loop = parent_module_type == "forloopflow" || parent_module_type == "whileloopflow";
+        let path = record.path_label.as_deref().unwrap_or(step_id);
+
+        let kind_label = match parent_module_type {
+            "branchall" => " branchall",
+            "branchone" => " branchone",
+            "forloopflow" => " forloop",
+            "whileloopflow" => " whileloop",
+            _ => "",
+        };
 
         let label = if depth == 0 {
             "Flow".to_string()
         } else if matches!(kind, "flow" | "flowpreview" | "flownode" | "singlestepflow") {
             // Intermediate flow job (loop iteration or branch)
             if parent_module_type == "branchone" {
-                // For branchone, first child is the default branch, rest are branch 1, 2, ...
                 let branch_label = if sibling_index == 1 {
                     "default".to_string()
                 } else {
                     format!("{}", sibling_index - 1)
                 };
-                format!("Step {} (branch {})", step_id, branch_label)
+                format!("Step {}{} (branch {})", path, kind_label, branch_label)
             } else if parent_module_type == "branchall" {
-                format!("Step {} (branch {})", step_id, sibling_index)
-            } else if is_loop {
+                format!("Step {}{} (branch {})", path, kind_label, sibling_index)
+            } else if parent_module_type == "forloopflow" || parent_module_type == "whileloopflow" {
                 format!(
-                    "Step {} (iteration {}/{})",
-                    step_id, sibling_index, sibling_count
+                    "Step {}{} (iteration {}/{})",
+                    path, kind_label, sibling_index, sibling_count
                 )
             } else if sibling_count > 1 {
                 format!(
                     "Step {} (iteration {}/{})",
-                    step_id, sibling_index, sibling_count
+                    path, sibling_index, sibling_count
                 )
             } else {
-                format!("Step {} (subflow)", step_id)
+                format!("Step {} (subflow)", path)
             }
         } else {
-            let path = record.path_label.as_deref().unwrap_or(step_id);
             format!("Step {}", path)
         };
 
