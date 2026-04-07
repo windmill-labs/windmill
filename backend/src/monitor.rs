@@ -1205,6 +1205,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
     }
 }
 
+#[cfg(feature = "enterprise")]
 async fn cleanup_scheduled_job_deletions(db: &Pool<Postgres>) {
     const BATCH_SIZE: i64 = 1000;
     const MAX_BATCHES: i32 = 10;
