@@ -15,6 +15,7 @@ import * as log from "../../core/log.ts";
 import { setClient } from "../../core/client.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { createWorkspaceFork, deleteWorkspaceFork } from "./fork.ts";
+import { mergeWorkspaces } from "./merge.ts";
 
 import * as wmill from "../../../gen/services.gen.ts";
 
@@ -651,11 +652,27 @@ const command = new Command()
     "--create-workspace-name <workspace_name:string>",
     "Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id."
   )
+  .option("--color <color:string>", "Workspace color (hex code, e.g. #ff0000)")
+  .option(
+    "--datatable-behavior <behavior:string>",
+    "How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)"
+  )
+  .option("-y --yes", "Skip interactive prompts (defaults datatable behavior to 'skip')")
   .action(createWorkspaceFork as any)
   .command("delete-fork")
   .description("Delete a forked workspace and git branch")
   .arguments("<fork_name:string>")
   .option("-y --yes", "Skip confirmation prompt")
-  .action(deleteWorkspaceFork as any);
+  .action(deleteWorkspaceFork as any)
+  .command("merge")
+  .description("Compare and deploy changes between a fork and its parent workspace")
+  .option("--direction <direction:string>", "Deploy direction: to-parent or to-fork")
+  .option("--all", "Deploy all changed items including conflicts")
+  .option("--skip-conflicts", "Skip items modified in both workspaces")
+  .option("--include <items:string>", "Comma-separated kind:path items to include (e.g. script:f/test/main,flow:f/my/flow)")
+  .option("--exclude <items:string>", "Comma-separated kind:path items to exclude")
+  .option("--preserve-on-behalf-of", "Preserve original on_behalf_of/permissioned_as values")
+  .option("-y --yes", "Non-interactive mode (deploy without prompts)")
+  .action(mergeWorkspaces as any);
 
 export default command;
