@@ -267,6 +267,7 @@ windmill-types.workspace = true
 opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 windmill-trigger.workspace = true
+serial_test = "3"
 windmill-trigger-websocket.workspace = true
 windmill-trigger-postgres.workspace = true
 windmill-trigger-mqtt.workspace = true
