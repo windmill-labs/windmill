@@ -3655,9 +3655,8 @@ pub fn resolve_debounce_key<'b>(
         hash
     };
 
-    // In cloud mode, prefix with workspace_id for isolation
     #[cfg(feature = "cloud")]
-    let original_debounce_key = format!("{workspace_id}:{original_debounce_key}");
+    let resolved = format!("{workspace_id}:{resolved}");
 
     tracing::debug!("Final debounce key (len={}): {}", resolved.len(), resolved);
     resolved
