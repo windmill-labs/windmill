@@ -1213,8 +1213,8 @@ pub struct PyScriptEntry<'a> {
 /// Generate a wrapper for Python dedicated workers and runner groups.
 /// All scripts are baked in at codegen time with proper Python imports and inline arg handling.
 /// Protocol:
-///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
-///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
+///   execd:<json_args>               -> execute the single registered script (non-runner-group)
+///   exec:<path>:<json_args>         -> execute script by path (runner groups)
 ///   end                             -> exit
 #[cfg(any(feature = "private", test))]
 pub fn generate_multi_script_wrapper(
@@ -1359,6 +1359,52 @@ for line in sys.stdin:
             sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
             main_args = entry['transform'](preprocessed if preprocessed else {{}})
             res = mod.main(**main_args)
+            typ = type(res)
+            res_json = res_to_json(res, typ)
+            sys.stdout.write("wm_res[success]:" + res_json + "\n")
+        except BaseException as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            tb = traceback.format_tb(exc_traceback)
+            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+        sys.stdout.flush()
+        continue
+
+    if line.startswith('execd_preprocess:'):
+        try:
+            args_json = line[len('execd_preprocess:'):]
+            entry = next(iter(scripts.values()))
+            mod = entry['mod']
+            if not hasattr(mod, 'preprocessor') or not callable(mod.preprocessor):
+                err_json = json.dumps({{"message": "preprocessor function is missing", "name": "Error"}}, separators=(',', ':'), default=str).replace('\n', '')
+                sys.stdout.write("wm_res[error]:" + err_json + "\n")
+                sys.stdout.flush()
+                continue
+            kwargs = json.loads(args_json, strict=False)
+            pre_args = entry['pre_transform'](kwargs)
+            preprocessed = mod.preprocessor(**pre_args)
+            preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
+            main_args = entry['transform'](preprocessed if preprocessed else {{}})
+            res = mod.main(**main_args)
+            typ = type(res)
+            res_json = res_to_json(res, typ)
+            sys.stdout.write("wm_res[success]:" + res_json + "\n")
+        except BaseException as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            tb = traceback.format_tb(exc_traceback)
+            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+        sys.stdout.flush()
+        continue
+
+    if line.startswith('execd:'):
+        try:
+            args_json = line[len('execd:'):]
+            entry = next(iter(scripts.values()))
+            kwargs = json.loads(args_json, strict=False)
+            args = entry['transform'](kwargs)
+            res = entry['mod'].main(**args)
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -2875,6 +2921,7 @@ pub async fn start_worker(
         script_path,
         "python",
         client,
+        false,
     )
     .await
 }

@@ -127,6 +127,8 @@ pub struct Resource {
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(default)]
     pub ws_specific: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -147,6 +149,8 @@ pub struct ListableResource {
     pub account: Option<i32>,
     #[serde(default)]
     pub ws_specific: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -157,6 +161,7 @@ pub struct CreateResource {
     pub resource_type: String,
     #[serde(default)]
     pub ws_specific: Option<bool>,
+    pub labels: Option<Vec<String>>,
 }
 #[derive(Deserialize)]
 struct EditResource {
@@ -164,6 +169,7 @@ struct EditResource {
     description: Option<String>,
     value: Option<Box<RawValue>>,
     ws_specific: Option<bool>,
+    labels: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -176,6 +182,7 @@ pub struct ListResourceQuery {
     // filter by matching a subset of the value using base64 encoded json subset
     pub value: Option<String>,
     pub broad_filter: Option<String>,
+    pub label: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -260,6 +267,7 @@ async fn list_resources(
             "resource.created_by",
             "resource.edited_at",
             "resource.ws_specific",
+            "resource.labels",
         ])
         .left()
         .join("variable")
@@ -319,6 +327,12 @@ async fn list_resources(
             "(resource.path ILIKE ? OR resource.description ILIKE ? OR resource_type ILIKE ? OR resource.value::text ILIKE ?)"
                 .bind(&pat).bind(&pat).bind(&pat).bind(&pat)
         );
+    }
+
+    if let Some(label) = &lq.label {
+        for l in label.split(',') {
+            sqlb.and_where("resource.labels @> ARRAY[?]".bind(&l.trim()));
+        }
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
@@ -829,16 +843,17 @@ async fn create_resource(
     }
     sqlx::query!(
         "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type, created_by, edited_at, ws_specific)
-            VALUES ($1, $2, $3, $4, $5, $6, now(), $7) ON CONFLICT (workspace_id, path)
-            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now(), ws_specific = EXCLUDED.ws_specific",
+            (workspace_id, path, value, description, resource_type, created_by, edited_at, ws_specific, labels)
+            VALUES ($1, $2, $3, $4, $5, $6, now(), $7, $8) ON CONFLICT (workspace_id, path)
+            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now(), ws_specific = EXCLUDED.ws_specific, labels = EXCLUDED.labels",
         w_id,
         resource.path,
         raw_json as sqlx::types::Json<&RawValue>,
         resource.description,
         resource.resource_type,
         authed.username,
-        resource.ws_specific.unwrap_or(false)
+        resource.ws_specific.unwrap_or(false),
+        resource.labels.as_deref() as Option<&[String]>
     )
     .execute(&mut *tx)
     .await?;
@@ -1274,6 +1289,17 @@ async fn update_resource(
     let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
 
     let npath = not_found_if_none(npath_o, "Resource", path)?;
+
+    if let Some(nlabels) = &ns.labels {
+        sqlx::query!(
+            "UPDATE resource SET labels = $1 WHERE path = $2 AND workspace_id = $3",
+            nlabels as &[String],
+            &npath,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

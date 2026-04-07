@@ -128,6 +128,8 @@ pub struct ScriptWDraft<SR> {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(json(nullable))]
     pub modules: Option<HashMap<String, ScriptModule>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
     #[serde(flatten)]
     #[sqlx(flatten)]
     pub runnable_settings: SR,
@@ -183,6 +185,7 @@ impl ScriptWDraft<ScriptRunnableSettingsHandle> {
             on_behalf_of_email: self.on_behalf_of_email,
             assets: self.assets,
             modules: self.modules,
+            labels: self.labels,
         })
     }
 }
@@ -306,7 +309,8 @@ async fn list_scripts(
             "ws_error_handler_muted",
             "auto_kind",
             "codebase IS NOT NULL as use_codebase",
-            "kind"
+            "kind",
+            "o.labels"
         ])
         .left()
         .join("favorite")
@@ -383,6 +387,11 @@ async fn list_scripts(
     }
     if let Some(dw) = &lq.dedicated_worker {
         sqlb.and_where_eq("dedicated_worker", dw);
+    }
+    if let Some(label) = &lq.label {
+        for l in label.split(',') {
+            sqlb.and_where("o.labels @> ARRAY[?]".bind(&l.trim()));
+        }
     }
     if authed.is_operator {
         sqlb.and_where_eq("kind", quote("script"));
@@ -834,7 +843,11 @@ async fn create_script_internal<'c>(
         })
     };
 
-    let needs_lock_gen = lock.is_none() && codebase.is_none();
+    // Always generate a lock for dedicated worker scripts, even if a lock was provided.
+    // The dependency job runs on the dedicated worker and triggers a restart so it picks
+    // up the new script version (see result_processor.rs: is_dependency_job && is_dedicated_worker).
+    let needs_lock_gen =
+        (lock.is_none() && codebase.is_none()) || ns.dedicated_worker.is_some_and(|x| x);
     let envs = ns.envs.as_ref().map(|x| x.as_slice());
     let envs = if ns.envs.is_none() || ns.envs.as_ref().unwrap().is_empty() {
         None
@@ -930,8 +943,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)",
         &w_id,
         &hash.0,
         ns.path,
@@ -974,7 +987,8 @@ async fn create_script_internal<'c>(
         guarded_debounce_delay_s,
         ns.cache_ignore_s3_path,
         runnable_settings_handle,
-        ns.modules.as_ref().and_then(|m| serde_json::to_value(m).ok())
+        ns.modules.as_ref().and_then(|m| serde_json::to_value(m).ok()),
+        ns.labels.as_deref() as Option<&[String]>
     )
     .execute(&mut *tx)
     .await?;
@@ -1424,7 +1438,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft<ScriptRunnableSettingsHandle>>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, runnable_settings_handle, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, has_preprocessor, on_behalf_of_email, assets, modules, debounce_key, debounce_delay_s FROM script LEFT JOIN draft ON
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, runnable_settings_handle, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, has_preprocessor, on_behalf_of_email, assets, modules, debounce_key, debounce_delay_s, labels FROM script LEFT JOIN draft ON
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2
          ORDER BY script.created_at DESC LIMIT 1",

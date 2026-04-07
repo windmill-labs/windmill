@@ -82,6 +82,7 @@
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { onMount, setContext, untrack } from 'svelte'
 	import Summary from './Summary.svelte'
+	import LabelsInput from './LabelsInput.svelte'
 
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
@@ -607,7 +608,8 @@
 					on_behalf_of_email: script.on_behalf_of_email,
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					assets: script.assets,
-					modules: script.modules
+					modules: script.modules,
+					labels: script.labels
 				}
 			})
 
@@ -765,7 +767,8 @@
 						has_preprocessor: script.has_preprocessor,
 						on_behalf_of_email: script.on_behalf_of_email,
 						assets: script.assets,
-						modules: script.modules
+						modules: script.modules,
+						labels: script.labels
 					}
 				})
 			}
@@ -1195,6 +1198,7 @@
 													}}
 												/>
 											</Label>
+											<LabelsInput bind:labels={script.labels} class="-mt-4" />
 											<Label label="Path">
 												{#snippet header()}
 													<Tooltip

@@ -102,6 +102,7 @@ async fn get_schedule_metadata<'c>(
             on_behalf_of_email,
             created_by,
             _runnable_settings_handle,
+            _labels,
         ) = windmill_common::get_latest_hash_for_path(
             &mut **tx,
             &schedule.workspace_id,
@@ -294,7 +295,13 @@ pub async fn push_scheduled_job<'c>(
         .await?;
 
         let FlowVersionInfo {
-            version, tag, dedicated_worker, on_behalf_of_email, edited_by, ..
+            version,
+            tag,
+            dedicated_worker,
+            on_behalf_of_email,
+            edited_by,
+            labels,
+            ..
         } = get_flow_version_info_from_version(
             &mut *tx,
             version,
@@ -310,6 +317,7 @@ pub async fn push_scheduled_job<'c>(
                 dedicated_worker,
                 apply_preprocessor: false,
                 version,
+                labels,
             },
             tag,
             None,
@@ -334,6 +342,7 @@ pub async fn push_scheduled_job<'c>(
             on_behalf_of_email,
             created_by,
             runnable_settings_handle,
+            labels,
         ) = windmill_common::get_latest_hash_for_path(
             &mut *tx,
             &schedule.workspace_id,
@@ -409,6 +418,7 @@ pub async fn push_scheduled_job<'c>(
                         concurrent_limit,
                         concurrency_time_window_s,
                     ),
+                    labels,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()

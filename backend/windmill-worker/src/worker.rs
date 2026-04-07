@@ -1316,6 +1316,11 @@ pub fn create_span_with_name(
         script_path = field::Empty,
         flow_step_id = field::Empty,
         parent_job = field::Empty,
+        job_kind = %arc_job.kind.as_str(),
+        created_by = %arc_job.created_by,
+        trigger_kind = field::Empty,
+        trigger = field::Empty,
+        script_hash = field::Empty,
         otel.name = field::Empty
     );
 
@@ -1341,6 +1346,15 @@ pub fn create_span_with_name(
     }
     if let Some(hostname) = hostname {
         span.record("hostname", hostname);
+    }
+    if let Some(trigger_kind) = arc_job.trigger_kind.as_ref() {
+        span.record("trigger_kind", trigger_kind.to_string().as_str());
+    }
+    if let Some(trigger) = arc_job.trigger.as_ref() {
+        span.record("trigger", trigger.as_str());
+    }
+    if let Some(script_hash) = arc_job.runnable_id.as_ref() {
+        span.record("script_hash", script_hash.to_string().as_str());
     }
 
     windmill_common::otel_oss::set_span_parent(&span, &rj);
@@ -1994,9 +2008,8 @@ pub async fn run_worker(
     // Option<JoinHandle<()>>,
 
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    let (dedicated_workers, dedicated_flow_paths, dedicated_handles): (
+    let (dedicated_workers, dedicated_handles): (
         HashMap<String, Sender<DedicatedWorkerJob>>,
-        HashSet<String>,
         Vec<JoinHandle<()>>,
     ) = match conn {
         Connection::Sql(pool) => {
@@ -2011,15 +2024,14 @@ pub async fn run_worker(
             )
             .await
         }
-        Connection::Http(_) => (HashMap::new(), HashSet::new(), vec![]),
+        Connection::Http(_) => (HashMap::new(), vec![]),
     };
 
     #[cfg(any(not(feature = "private"), not(feature = "enterprise")))]
-    let (dedicated_workers, dedicated_flow_paths, dedicated_handles): (
+    let (dedicated_workers, dedicated_handles): (
         HashMap<String, Sender<DedicatedWorkerJob>>,
-        HashSet<String>,
         Vec<JoinHandle<()>>,
-    ) = (HashMap::new(), HashSet::new(), vec![]);
+    ) = (HashMap::new(), vec![]);
 
     if i_worker == 1 {
         // Initialize runtime asset inserter for batched database inserts
@@ -2480,17 +2492,21 @@ pub async fn run_worker(
                     JobKind::Script | JobKind::Preview | JobKind::FlowScript
                 ) {
                     if !dedicated_workers.is_empty() {
-                        // Try flow path + step_id combinations for flow jobs, otherwise use runnable_path
-                        let dedicated_worker_tx = if let Some(step_id) = job.flow_step_id.as_ref() {
-                            dedicated_flow_paths.iter().find_map(|flow_path| {
-                                let key = format!("{}:{}", flow_path, step_id);
-                                dedicated_workers.get(&key)
-                            })
-                        } else {
-                            job.runnable_path
-                                .as_ref()
-                                .and_then(|path| dedicated_workers.get(path))
-                        };
+                        let dedicated_worker_tx = job.runnable_path.as_ref().and_then(|path| {
+                            // For flow steps inside branches/loops, runnable_path includes
+                            // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
+                            // worker map is keyed by flow_root/step_id (e.g. f/flow/a).
+                            // When nesting segments are present, use flow_root + flow_step_id
+                            // to construct the correct key.
+                            let key =
+                                if let Some(flow_root) = crate::common::extract_flow_root(path) {
+                                    let step_id = job.flow_step_id.as_deref().unwrap_or("");
+                                    format!("{}:{}/{}", job.workspace_id, flow_root, step_id)
+                                } else {
+                                    format!("{}:{}", job.workspace_id, path)
+                                };
+                            dedicated_workers.get(&key)
+                        });
                         if let Some(dedicated_worker_tx) = dedicated_worker_tx {
                             let dedicated_job = DedicatedWorkerJob {
                                 job: Arc::new(job.job()),
@@ -5455,4 +5471,3 @@ pub fn get_worker_internal_server_inline_utils(
         )),
     }
 }
-

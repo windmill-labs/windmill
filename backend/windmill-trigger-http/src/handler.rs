@@ -268,6 +268,18 @@ pub async fn create_many_http_triggers(
         .await
         .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
 
+        if let Some(labels) = &new_http_trigger.base.labels {
+            sqlx::query!(
+                "UPDATE http_trigger SET labels = $1 WHERE workspace_id = $2 AND path = $3",
+                labels as &[String],
+                &w_id,
+                &new_http_trigger.base.path
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err.into()))?;
+        }
+
         audit_log(
             &mut *tx,
             &authed,

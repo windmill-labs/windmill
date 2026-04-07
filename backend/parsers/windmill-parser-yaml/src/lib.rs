@@ -27,6 +27,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
             args: vec![],
             auto_kind: None,
             has_preprocessor: None,
+            ..Default::default()
         });
     }
 
@@ -94,6 +95,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
         args,
         auto_kind: None,
         has_preprocessor: None,
+        ..Default::default()
     })
 }
 

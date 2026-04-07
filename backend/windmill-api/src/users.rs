@@ -294,13 +294,13 @@ async fn update_username_in_workpsace<'c>(
     let old_prefix = format!("u/{}/", old_username);
     let new_prefix = format!("u/{}/", new_username);
 
-    // Fetch all Vault-stored secret variables under this user's path
+    // Fetch all externally-stored secret variables under this user's path
     let vault_secrets: Vec<(String, String)> = sqlx::query!(
         r#"SELECT path, value FROM variable
            WHERE path LIKE ('u/' || $1 || '/%')
            AND workspace_id = $2
            AND is_secret = true
-           AND value LIKE '$vault:%'"#,
+           AND (value LIKE '$vault:%' OR value LIKE '$azure_kv:%')"#,
         old_username,
         w_id
     )

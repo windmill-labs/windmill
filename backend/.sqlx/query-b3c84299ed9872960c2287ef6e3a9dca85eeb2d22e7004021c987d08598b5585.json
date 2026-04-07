@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM v2_job_completed\n         WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b3c84299ed9872960c2287ef6e3a9dca85eeb2d22e7004021c987d08598b5585"
+}

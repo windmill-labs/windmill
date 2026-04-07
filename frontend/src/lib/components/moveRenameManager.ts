@@ -27,8 +27,9 @@ export async function updateItemPathAndSummary(opts: {
 	initialPath: string
 	newPath: string
 	newSummary: string
+	labels?: string[]
 }): Promise<void> {
-	const { workspace, kind, initialPath, newPath, newSummary } = opts
+	const { workspace, kind, initialPath, newPath, newSummary, labels } = opts
 
 	if (kind === 'flow') {
 		const flow = await FlowService.getFlowByPath({ workspace, path: initialPath })
@@ -44,7 +45,8 @@ export async function updateItemPathAndSummary(opts: {
 				tag: flow.tag,
 				dedicated_worker: flow.dedicated_worker,
 				ws_error_handler_muted: flow.ws_error_handler_muted,
-				visible_to_runner_only: flow.visible_to_runner_only
+				visible_to_runner_only: flow.visible_to_runner_only,
+				labels
 			}
 		})
 	} else if (kind === 'script') {
@@ -57,7 +59,8 @@ export async function updateItemPathAndSummary(opts: {
 				description: script.description ?? '',
 				lock: script.lock,
 				parent_hash: script.hash,
-				path: newPath
+				path: newPath,
+				labels
 			}
 		})
 	} else if (kind === 'app') {
@@ -66,7 +69,8 @@ export async function updateItemPathAndSummary(opts: {
 			path: initialPath,
 			requestBody: {
 				path: newPath !== initialPath ? newPath : undefined,
-				summary: newSummary
+				summary: newSummary,
+				labels
 			}
 		})
 	}

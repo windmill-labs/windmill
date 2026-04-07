@@ -93,6 +93,9 @@
 		if (currentFilters._default_) {
 			apiParams.broadFilter = currentFilters._default_
 		}
+		if (currentFilters.label) {
+			apiParams.label = currentFilters.label
+		}
 
 		const result = (await ScheduleService.listSchedules(apiParams)).map((x) => {
 			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
@@ -101,6 +104,7 @@
 		// Extract unique values for autocomplete
 		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
 		allScriptPaths = Array.from(new Set(result.map((x) => x.script_path))).sort()
+		allLabels = Array.from(new Set(result.flatMap((x) => x.labels ?? []))).sort()
 
 		schedules = result
 		loading = false
@@ -161,6 +165,7 @@
 	// Collect unique values for filter autocomplete
 	let allPaths: string[] = $state([])
 	let allScriptPaths: string[] = $state([])
+	let allLabels: string[] = $state([])
 
 	// FilterSearchbar setup
 	let userFoldersFilterType = $derived(
@@ -174,12 +179,36 @@
 		buildSchedulesFilterSchema({
 			paths: allPaths,
 			scriptPaths: allScriptPaths,
+			labels: allLabels,
 			showUserFoldersFilter: userFoldersFilterType !== undefined,
 			userFoldersLabel:
 				userFoldersFilterType === 'only f/*' ? 'Only f/*' : `Only u/${$userStore?.username} and f/*`
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => schedulesFilterSchema))
+	let allFolders = $derived(
+		Array.from(
+			new Set(
+				(schedules ?? [])
+					.map((x) => x.path.split('/').slice(0, 2).join('/'))
+					.filter((x) => x.startsWith('f/'))
+			)
+		)
+			.sort()
+			.map((f) => f.replace(/^f\//, ''))
+	)
+	let presets = $derived([
+		...allFolders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
+		...allLabels.map((l) => ({ name: l, value: `label:\\ ${l}` })),
+		...(schedulesFilterSchema.user_folders_only
+			? [
+					{
+						name: schedulesFilterSchema.user_folders_only.label ?? '?',
+						value: 'user_folders_only:\\ true'
+					}
+				]
+			: [])
+	])
 
 	let nbDisplayed = $state(15)
 	let filterEnabledDisabled: 'all' | 'enabled' | 'disabled' = $state('all')
@@ -198,7 +227,6 @@
 		selectedFilterKind: 'schedule' | 'script_flow',
 		userFoldersOnly: boolean
 	) {
-		if ($workspaceStore == 'admins') return true
 		if (userFoldersOnly) {
 			if (selectedFilterKind === 'schedule') {
 				return (
@@ -275,6 +303,7 @@
 					schema={schedulesFilterSchema}
 					bind:value={filters.val}
 					class="grow max-w-[26rem]"
+					{presets}
 				/>
 			</div>
 			{#if loading}
@@ -285,7 +314,7 @@
 				<div class="text-center text-xs font-semibold text-emphasis mt-2"> No schedules </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const avg_s = jobs
 							? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
@@ -312,6 +341,27 @@
 										schedule: {path}
 									</div>
 								</a>
+								{#if labels?.length}
+									{#each labels as label}
+										<Badge
+											color="blue"
+											small
+											class="px-1"
+											title="Label: {label}"
+											clickable
+											onclick={() => {
+												const arr = (filters.val.label ?? '').split(',').filter(Boolean)
+												const idx = arr.indexOf(label)
+												if (idx >= 0) arr.splice(idx, 1)
+												else arr.push(label)
+												const newFilters = { ...filters.val }
+												if (arr.length) newFilters.label = arr.join(',')
+												else delete newFilters.label
+												filters.val = newFilters
+											}}>{label}</Badge
+										>
+									{/each}
+								{/if}
 
 								{#if paused_until && new Date(paused_until) > new Date()}
 									<div class="pb-1">

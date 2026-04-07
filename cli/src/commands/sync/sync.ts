@@ -375,7 +375,7 @@ ${tables.length > 0 ? tables.map(t => `    - ${t}`).join('\n') : '    # Add tabl
 
 ## Quick Reference
 
-**Backend runnable:** Add \`backend/<name>.ts\` (or .py, etc.), then run \`wmill app generate-locks\`
+**Backend runnable:** Add \`backend/<name>.ts\` (or .py, etc.), then run \`wmill generate-metadata\`
 
 **Call from frontend:**
 \`\`\`typescript
@@ -2668,7 +2668,7 @@ export async function push(
       log.info("Auto-regenerated metadata for stale scripts:");
     } else {
       log.warn(
-        "Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:",
+        "Stale scripts metadata found, you may want to update them using 'wmill generate-metadata' before pushing:",
       );
     }
     for (const stale of staleScripts) {
@@ -2701,7 +2701,7 @@ export async function push(
       log.info("Auto-regenerated locks for stale flows:");
     } else {
       log.warn(
-        "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:",
+        "Stale flows locks found, you may want to update them using 'wmill generate-metadata' before pushing:",
       );
     }
     for (const stale of staleFlows) {
@@ -2749,7 +2749,7 @@ export async function push(
       log.info("Auto-regenerated locks for stale apps:");
     } else {
       log.warn(
-        "Stale apps locks found, you may want to update them using 'wmill app generate-locks' before pushing:",
+        "Stale apps locks found, you may want to update them using 'wmill generate-metadata' before pushing:",
       );
     }
     for (const stale of staleApps) {
@@ -2801,9 +2801,32 @@ export async function push(
       }
     }
     for (const folderName of folderNames) {
-      try {
-        await stat(path.join("f", folderName, "folder.meta.yaml"));
-      } catch {
+      const basePath = path.join("f", folderName, "folder.meta.yaml");
+      const branchPath = getBranchSpecificPath(
+        `f/${folderName}/folder.meta.yaml`,
+        specificItems,
+        opts.branch,
+      );
+      let found = false;
+      // Check branch-specific variant first (e.g. folder.dev.meta.yaml)
+      if (branchPath) {
+        try {
+          await stat(branchPath);
+          found = true;
+        } catch {
+          // fall through to base path check
+        }
+      }
+      // Then check base path
+      if (!found) {
+        try {
+          await stat(basePath);
+          found = true;
+        } catch {
+          // not found
+        }
+      }
+      if (!found) {
         missingFolders.push(folderName);
       }
     }
