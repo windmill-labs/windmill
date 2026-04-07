@@ -1818,8 +1818,9 @@ async fn get_flow_all_logs(
                        FROM v2_job parent_j
                        LEFT JOIN flow f ON f.path = parent_j.runnable_path
                            AND f.workspace_id = parent_j.workspace_id
+                       LEFT JOIN flow_node fn ON fn.id = parent_j.runnable_id
                        CROSS JOIN LATERAL jsonb_array_elements(
-                           COALESCE(parent_j.raw_flow, f.value)->'modules'
+                           COALESCE(parent_j.raw_flow, f.value, fn.flow)->'modules'
                        ) m
                        WHERE parent_j.id = jt.id
                          AND m->>'id' = j.flow_step_id
