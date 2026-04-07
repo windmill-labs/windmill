@@ -613,6 +613,7 @@ pub async fn run_flow<'c>(
         on_behalf_of_email,
         edited_by,
         early_return,
+        labels,
         ..
     } = flow_version_info;
 
@@ -656,6 +657,7 @@ pub async fn run_flow<'c>(
             version,
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
+            labels,
         },
         PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),

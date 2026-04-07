@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use anyhow::bail;
@@ -29,6 +30,153 @@ pub struct RequiredDependency<T: Clone + Send + Sync> {
     pub display_name: String,
     /// Custom payload can be used for passing information easily. If you wish not to use it just leave '()'
     pub custom_payload: T,
+}
+
+/// Generic dependency graph that produces topologically sorted layers via Kahn's algorithm.
+/// Each layer's packages only depend on packages from earlier layers, enabling parallel install
+/// per layer.
+#[allow(dead_code)]
+pub struct DependencyGraph<T: Clone + Send + Sync> {
+    nodes: HashMap<String, RequiredDependency<T>>,
+    deps: HashMap<String, HashSet<String>>,
+}
+
+#[allow(dead_code)]
+impl<T: Clone + Send + Sync> DependencyGraph<T> {
+    pub fn new() -> Self {
+        Self { nodes: HashMap::new(), deps: HashMap::new() }
+    }
+
+    /// Insert a dependency and the names of packages it depends on.
+    /// References to packages not in the graph are silently ignored during layering.
+    pub fn insert(
+        &mut self,
+        key: impl Into<String>,
+        dep: RequiredDependency<T>,
+        depends_on: Vec<String>,
+    ) {
+        let key = key.into();
+        self.nodes.insert(key.clone(), dep);
+        self.deps.insert(key, depends_on.into_iter().collect());
+    }
+
+    /// Render a dependency tree string. Each package appears once, nested under the first parent
+    /// that pulls it in. Only includes packages present in `filter` (if provided).
+    pub fn print_tree(&self, filter: Option<&HashSet<String>>) -> String {
+        // Find roots: packages nothing else in the graph depends on
+        let mut depended_on: HashSet<&str> = HashSet::new();
+        for dep_set in self.deps.values() {
+            for to in dep_set {
+                if self.nodes.contains_key(to) {
+                    depended_on.insert(to.as_str());
+                }
+            }
+        }
+        let roots: Vec<&String> = self
+            .nodes
+            .keys()
+            .filter(|k| !depended_on.contains(k.as_str()))
+            .filter(|k| filter.map_or(true, |f| f.contains(*k)))
+            .sorted()
+            .collect();
+
+        let mut out = String::new();
+        let mut seen = HashSet::new();
+        for root in roots {
+            self.print_tree_node(root, 0, &mut seen, filter, &mut out);
+        }
+        out
+    }
+
+    fn print_tree_node(
+        &self,
+        key: &str,
+        depth: usize,
+        seen: &mut HashSet<String>,
+        filter: Option<&HashSet<String>>,
+        out: &mut String,
+    ) {
+        if !seen.insert(key.to_string()) {
+            return;
+        }
+        if let Some(dep) = self.nodes.get(key) {
+            let indent = "  ".repeat(depth);
+            out.push_str(&format!("{}- {}\n", indent, dep.display_name));
+            if let Some(children) = self.deps.get(key) {
+                for child in children.iter().sorted() {
+                    if self.nodes.contains_key(child)
+                        && filter.map_or(true, |f| f.contains(child))
+                        && !seen.contains(child)
+                    {
+                        self.print_tree_node(child, depth + 1, seen, filter, out);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Produce topologically sorted layers.
+    pub fn layers(self) -> Vec<Vec<RequiredDependency<T>>> {
+        let mut in_degree: HashMap<String, usize> =
+            self.nodes.keys().map(|k| (k.clone(), 0)).collect();
+        let mut reverse: HashMap<String, Vec<String>> = HashMap::new();
+
+        for (from, dep_set) in &self.deps {
+            for to in dep_set {
+                if self.nodes.contains_key(to) {
+                    *in_degree.entry(from.clone()).or_default() += 1;
+                    reverse.entry(to.clone()).or_default().push(from.clone());
+                }
+            }
+        }
+
+        let mut queue: VecDeque<String> = in_degree
+            .iter()
+            .filter(|(_, &d)| d == 0)
+            .map(|(k, _)| k.clone())
+            .sorted()
+            .collect();
+
+        let mut result = vec![];
+        let mut nodes = self.nodes;
+
+        while !queue.is_empty() {
+            let mut layer = vec![];
+            let mut next = VecDeque::new();
+
+            for key in queue {
+                if let Some(dep) = nodes.remove(&key) {
+                    layer.push(dep);
+                }
+                if let Some(dependents) = reverse.get(&key) {
+                    for d in dependents {
+                        if let Some(deg) = in_degree.get_mut(d) {
+                            *deg -= 1;
+                            if *deg == 0 {
+                                next.push_back(d.clone());
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !layer.is_empty() {
+                result.push(layer);
+            }
+            queue = next.into_iter().sorted().collect();
+        }
+
+        result
+    }
+}
+
+#[allow(dead_code)]
+pub enum InstallDeps<T: Clone + Send + Sync> {
+    /// Flat list of dependencies — installed in one parallel batch (existing behavior).
+    Flat(Vec<RequiredDependency<T>>),
+    /// Dependency graph — split into topological layers, each installed in parallel.
+    /// A `--- Layer N ---` separator is printed between layers.
+    Layered(DependencyGraph<T>),
 }
 
 #[allow(dead_code)]
@@ -105,8 +253,10 @@ pub async fn par_install_language_dependencies_all_at_once<
         .await;
     }
     let total_time = std::time::Instant::now();
-    let (missing, name_max_length) = filter_to_missing(deps, job_id, w_id, jailed, conn).await?;
-    if missing.is_empty() {
+    let (layers, name_max_length, total_missing) =
+        filter_to_missing(InstallDeps::Flat(deps), job_id, w_id, jailed, conn).await?;
+    let missing: Vec<RequiredDependency<T>> = layers.into_iter().flatten().collect();
+    if total_missing == 0 {
         return Ok(());
     }
     let to_batch_install = Arc::new(RwLock::new(vec![]));
@@ -122,6 +272,9 @@ pub async fn par_install_language_dependencies_all_at_once<
         conn,
         _language_name,
         _platform_agnostic,
+        None,
+        None,
+        None,
     )
     .await?;
     let installation_res = process_handles(handles, w_id).await;
@@ -231,18 +384,26 @@ pub async fn par_install_language_dependencies_seq<
     'a,
     T: Clone + std::marker::Send + Sync + 'a + 'static,
 >(
-    deps: Vec<RequiredDependency<T>>,
+    install_deps: InstallDeps<T>,
     _language_name: &'a str,
     installer_executable_name: &'a str,
     _platform_agnostic: bool,
     concurrent_downloads: usize,
     callback: impl Fn(RequiredDependency<T>) -> Result<Command, error::Error> + Send + Sync + 'static,
+    post_install: Option<Arc<dyn Fn(&RequiredDependency<T>) -> anyhow::Result<()> + Send + Sync + 'static>>,
     job_id: &'a Uuid,
     w_id: &'a str,
     worker_name: &'a str,
     jailed: bool,
     conn: &'a Connection,
 ) -> anyhow::Result<()> {
+    let total_time = std::time::Instant::now();
+    let (layers, name_max_length, total_missing) =
+        filter_to_missing(install_deps, job_id, w_id, jailed, conn).await?;
+    if total_missing == 0 {
+        return Ok(());
+    }
+
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let is_not_pro = !matches!(
         windmill_common::ee_oss::get_license_plan().await,
@@ -258,65 +419,133 @@ pub async fn par_install_language_dependencies_seq<
         )
         .await;
     }
-    let total_time = std::time::Instant::now();
-    let (missing, name_max_length) = filter_to_missing(deps, job_id, w_id, jailed, conn).await?;
-    if missing.is_empty() {
-        return Ok(());
-    }
-    let handles = spawn_wrapped_installation_threads(
-        missing,
-        name_max_length,
-        InstallStrategy::Single(Arc::new(callback)),
-        installer_executable_name,
-        concurrent_downloads,
+
+    let is_layered = layers.len() > 1;
+    let callback = Arc::new(callback);
+    let mut offset = 0usize;
+
+    windmill_queue::append_logs(
         job_id,
         w_id,
-        worker_name,
+        if jailed {
+            format!(
+                "\nStarting isolated installation... ({} tasks in parallel)\n",
+                concurrent_downloads
+            )
+        } else {
+            format!(
+                "\nStarting installation... ({} tasks in parallel)\n",
+                concurrent_downloads
+            )
+        },
         conn,
-        _language_name,
-        _platform_agnostic,
     )
-    .await?;
+    .await;
 
-    let installation_res = process_handles(handles, w_id).await;
+    for (i, layer_deps) in layers.into_iter().enumerate() {
+        if layer_deps.is_empty() {
+            continue;
+        }
+
+        if is_layered && offset > 0 {
+            windmill_queue::append_logs(
+                job_id,
+                w_id,
+                format!("\n\n--- Layer {} ---", i + 1),
+                conn,
+            )
+            .await;
+        }
+
+        let layer_size = layer_deps.len();
+        tracing::info!("Layer {}: spawning {} installs", i + 1, layer_size);
+        let handles = spawn_wrapped_installation_threads(
+            layer_deps,
+            name_max_length,
+            InstallStrategy::Single(callback.clone()),
+            installer_executable_name,
+            concurrent_downloads,
+            job_id,
+            w_id,
+            worker_name,
+            conn,
+            _language_name,
+            _platform_agnostic,
+            Some(offset),
+            Some(total_missing),
+            post_install.clone(),
+        )
+        .await?;
+        tracing::info!("Layer {}: all spawned, waiting for handles", i + 1);
+
+        process_handles(handles, w_id).await?;
+        tracing::info!("Layer {}: done", i + 1);
+        offset += layer_size;
+    }
+
     finish_installation(total_time, job_id, w_id, conn).await;
-    installation_res
+    Ok(())
 }
 
 type NameMaxLength = usize;
+
+/// Returns (layers of missing deps, name_max_length, total_missing).
+/// Prints the "To be installed" header once with all missing packages.
+/// For `Layered`, prints a dependency tree; for `Flat`, prints a flat list.
 async fn filter_to_missing<'a, T: Clone + std::marker::Send + Sync + 'a + 'static>(
-    mut deps: Vec<RequiredDependency<T>>,
+    install_deps: InstallDeps<T>,
     job_id: &Uuid,
     w_id: &str,
     jailed: bool,
     conn: &Connection,
-) -> anyhow::Result<(Vec<RequiredDependency<T>>, NameMaxLength)> {
-    // Unique to flatten all same values
-    deps = deps.into_iter().unique_by(|rd| rd.path.clone()).collect();
-    // Total to install
-    let mut missing = vec![];
-    // Name max length
-    let mut name_ml = 0;
-    for rd in deps.into_iter() {
-        let display_name = rd.display_name.clone();
-        if rd.path.ends_with("/") {
-            anyhow::bail!("Internal error: path should not end with '/'")
+) -> anyhow::Result<(Vec<Vec<RequiredDependency<T>>>, NameMaxLength, usize)> {
+    let (mut layers, tree_data) = match install_deps {
+        InstallDeps::Flat(deps) => (vec![deps], None),
+        InstallDeps::Layered(graph) => {
+            let deps_map = graph.deps.clone();
+            let nodes_display: HashMap<String, String> = graph
+                .nodes
+                .iter()
+                .map(|(k, v)| (k.clone(), v.display_name.clone()))
+                .collect();
+            let layers = graph.layers();
+            (layers, Some((deps_map, nodes_display)))
         }
-        {
-            // Later will help us align text in log console
-            if display_name.len() > name_ml {
+    };
+
+    let mut name_ml = 0;
+    let mut missing_keys: HashSet<String> = HashSet::new();
+    let mut total_missing = 0;
+
+    for layer in layers.iter_mut() {
+        *layer = std::mem::take(layer)
+            .into_iter()
+            .unique_by(|rd| rd.path.clone())
+            .collect();
+
+        let mut missing = vec![];
+        for rd in std::mem::take(layer) {
+            if rd.path.ends_with("/") {
+                anyhow::bail!("Internal error: path should not end with '/'")
+            }
+            if rd.display_name.len() > name_ml {
                 name_ml = rd.display_name.len();
             }
+            if tokio::fs::metadata(rd.path.clone() + ".valid.windmill")
+                .await
+                .is_err()
+            {
+                if let Some(key) = rd.path.rsplit('/').next() {
+                    missing_keys.insert(key.to_string());
+                }
+                missing.push(rd);
+            }
         }
-        // Will look like: /tmp/windmill/cache/lang/dependency.valid.windmill
-        if tokio::fs::metadata(rd.path.clone() + ".valid.windmill")
-            .await
-            .is_err()
-        {
-            missing.push(rd);
-        }
+        total_missing += missing.len();
+        *layer = missing;
     }
-    if !missing.is_empty() {
+
+    if total_missing > 0 {
         windmill_queue::append_logs(
             job_id,
             w_id,
@@ -328,15 +557,40 @@ async fn filter_to_missing<'a, T: Clone + std::marker::Send + Sync + 'a + 'stati
             conn,
         )
         .await;
-        let to_log = missing
-            .iter()
-            .map(|rd| format!("- {}", &rd.display_name))
-            .join("\n")
-            + "\n";
+
+        let to_log = if let Some((deps_map, nodes_display)) = tree_data {
+            let mut print_graph: DependencyGraph<()> = DependencyGraph::new();
+            for (key, display) in &nodes_display {
+                if missing_keys.contains(key) {
+                    print_graph.insert(
+                        key.clone(),
+                        RequiredDependency {
+                            path: String::new(),
+                            _s3_handle: String::new(),
+                            display_name: display.clone(),
+                            custom_payload: (),
+                        },
+                        deps_map
+                            .get(key)
+                            .map(|s| s.iter().cloned().collect())
+                            .unwrap_or_default(),
+                    );
+                }
+            }
+            print_graph.print_tree(Some(&missing_keys))
+        } else {
+            layers
+                .iter()
+                .flat_map(|l| l.iter())
+                .map(|rd| format!("- {}", &rd.display_name))
+                .join("\n")
+                + "\n"
+        };
 
         windmill_queue::append_logs(job_id, w_id, to_log, conn).await;
     }
-    Ok((missing, name_ml))
+
+    Ok((layers, name_ml, total_missing))
 }
 
 enum Action<T: Clone + Send + Sync> {
@@ -369,6 +623,9 @@ async fn spawn_wrapped_installation_threads<
     conn: &Connection,
     _language_name: &str,
     _platform_agnostic: bool,
+    counter_offset: Option<usize>,
+    total_override: Option<usize>,
+    post_install: Option<Arc<dyn Fn(&RequiredDependency<T>) -> anyhow::Result<()> + Send + Sync + 'static>>,
 ) -> anyhow::Result<(
     Vec<JoinHandle<anyhow::Result<TaskKiller>>>,
     tokio::sync::broadcast::Sender<()>,
@@ -382,11 +639,11 @@ async fn spawn_wrapped_installation_threads<
         job_id
     );
 
-    let (mut handles, semaphore, total_to_install, counter_arc) = (
+    let total_to_install = total_override.unwrap_or(missing.len());
+    let (mut handles, semaphore, counter_arc) = (
         vec![],
         Arc::new(Semaphore::new(parallel_limit)),
-        missing.len(),
-        Arc::new(tokio::sync::Mutex::new(0)),
+        Arc::new(tokio::sync::Mutex::new(counter_offset.unwrap_or(0))),
     );
 
     // Pretty sensitive. Single drop will fail installation
@@ -426,6 +683,7 @@ async fn spawn_wrapped_installation_threads<
             ),
             InstallStrategy::AllAtOnce(ref rw_lock) => Action::AddToBulk(Arc::clone(rw_lock)),
         };
+        let post_install_c = post_install.clone();
         let task_fut = try_install_one_detached(
             dep,
             installer_executable_name.to_owned(),
@@ -441,6 +699,7 @@ async fn spawn_wrapped_installation_threads<
             _platform_agnostic,
             permit,
             TaskKiller(kill_tx),
+            post_install_c,
         );
         handles.push(tokio::spawn(async move {
             tokio::select! {
@@ -513,6 +772,7 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
     // If dropped the entire installation fails and all installation threads are being stopped
     // That's why we just pass it to return so it is not being dropped
     kill_all_tasks: TaskKiller,
+    post_install: Option<Arc<dyn Fn(&RequiredDependency<T>) -> anyhow::Result<()> + Send + Sync + 'static>>,
 ) -> anyhow::Result<TaskKiller> {
     let start = std::time::Instant::now();
 
@@ -607,6 +867,9 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
             &dep.display_name
         ));
     } else {
+        if let Some(ref cb) = post_install {
+            cb(&dep)?;
+        }
         mark_success(dep.path.clone(), &job_id, &w_id).await;
         print_success(
             false,

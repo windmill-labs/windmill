@@ -243,6 +243,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_tags_per_workspace: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview_tags_override: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_hub: Option<bool>,
 
     // String settings
@@ -257,7 +259,7 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hub_api_secret: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub jwt_secret: Option<String>,
+    pub jwt_secret: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scim_token: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -595,6 +597,7 @@ pub enum ScriptLang {
     Nu,
     Java,
     Ruby,
+    Rlang,
 }
 
 // ---------------------------------------------------------------------------
@@ -896,7 +899,7 @@ const SENSITIVE_SETTINGS: &[&str] = &[
 /// Maps a top-level key to the sub-field names that must be redacted.
 const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("smtp_settings", &["smtp_password"]),
-    ("secret_backend", &["token"]),
+    ("secret_backend", &["token", "client_secret", "secret_access_key"]),
     (
         "object_store_cache_config",
         &["secret_key", "serviceAccountKey"],

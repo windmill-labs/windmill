@@ -89,6 +89,7 @@ pub fn parse_csharp_sig_meta(code: &str) -> anyhow::Result<CsharpMainSigMeta> {
         args,
         has_preprocessor: None,
         auto_kind,
+        ..Default::default()
     };
 
     Ok(CsharpMainSigMeta { is_async, returns_void, class_name, main_sig, is_public })

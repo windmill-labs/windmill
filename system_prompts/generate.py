@@ -347,8 +347,13 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     subcommand_sections = re.split(r'(?=\.command\()', block)
 
     for section in subcommand_sections:
-        cmd_match = re.match(r'\.command\(\s*["\']([^"\']+)["\']\s*(?:,\s*([^)]+))?\s*\)', section)
+        cmd_match = re.match(r'\.command\(\s*["\']([^"\']+)["\']\s*(?:,\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^)]+))?\s*\)', section)
         if not cmd_match:
+            continue
+
+        # Explicit source marker for backwards-compatible CLI commands that
+        # should not be suggested in generated system prompts.
+        if '@deprecated' in section:
             continue
 
         cmd_name = cmd_match.group(1)
@@ -957,7 +962,7 @@ def generate_skills(
     script_cli_intro = """## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- `wmill script generate-metadata` - Generate .script.yaml and .lock files
+- `wmill generate-metadata` - Generate .script.yaml and .lock files
 - `wmill sync push` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.

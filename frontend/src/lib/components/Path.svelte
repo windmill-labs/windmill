@@ -36,6 +36,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
 	import FolderPicker from './FolderPicker.svelte'
+	import PathNameAutocomplete from './PathNameAutocomplete.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 
 	type PathKind =
@@ -101,7 +102,7 @@
 		}
 	})
 
-	let inputP: TextInput | undefined = $state(undefined)
+	let inputP: PathNameAutocomplete | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -479,20 +480,17 @@
 			<div class="text-sm text-secondary">/</div>
 			<label class="block grow min-w-32 max-w-md">
 				<!-- svelte-ignore a11y_autofocus -->
-				<TextInput
+				<PathNameAutocomplete
 					bind:this={inputP}
 					bind:value={meta.name}
+					prefix={`${meta.ownerKind?.charAt(0) ?? ''}/${meta.owner ?? ''}/`}
 					{size}
 					{error}
-					inputProps={{
-						disabled: disabled || disableEditing,
-						type: 'text',
-						id: 'path',
-						autofocus,
-						autocomplete: 'off',
-						onkeyup: handleKeyUp,
-						placeholder: namePlaceholder
-					}}
+					{autofocus}
+					id="path"
+					placeholder={namePlaceholder}
+					disabled={disabled || disableEditing}
+					onkeyup={handleKeyUp}
 				/>
 			</label>
 		{/if}

@@ -19,7 +19,7 @@
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -305,7 +305,7 @@
 			<div class="text-center text-sm text-primary mt-2"> No websocket triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, url, is_flow, extra_perms, canWrite, marked, error, last_server_ping, server_id, mode, retry, error_handler_path, error_handler_args } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, url, is_flow, extra_perms, canWrite, marked, error, last_server_ping, server_id, mode, retry, error_handler_path, error_handler_args, labels } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
@@ -346,6 +346,11 @@
 
 							<div class="hidden lg:flex flex-row gap-1 items-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
+							{#if labels?.length}
+								{#each labels as label}
+									<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+								{/each}
+							{/if}
 							</div>
 
 							<div class="w-10">

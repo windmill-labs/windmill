@@ -38,6 +38,10 @@ pub struct MainArgSignature {
     pub args: Vec<Arg>,
     pub auto_kind: Option<String>,
     pub has_preprocessor: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_cmd_binding: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supports_should_process: Option<bool>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]

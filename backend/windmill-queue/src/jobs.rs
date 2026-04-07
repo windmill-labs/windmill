@@ -77,8 +77,8 @@ use windmill_common::{
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
-        to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS, WORKER_PULL_QUERIES,
-        WORKER_SUSPENDED_PULL_QUERY,
+        to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS, PREVIEW_TAGS_OVERRIDE,
+        WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
 };
@@ -1435,6 +1435,7 @@ async fn restart_job_if_perpetual_inner(
                 },
                 // TODO(debouncing): handle properly
                 debouncing_settings: DebouncingSettings::default(),
+                labels: None, // labels already set on original job
             },
             PushArgs::from(&args.0),
             &queued_job.created_by,
@@ -3302,7 +3303,10 @@ pub async fn pull(
                 };
 
                 if let Some(job) = job.as_ref() {
-                    if job.is_flow() || job.is_dependency() {
+                    if (job.is_flow() || job.is_dependency())
+                        && !(job.kind.is_preview()
+                            && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed))
+                    {
                         let per_workspace = per_workspace_tag(&job.workspace_id).await;
                         let base_tag = if job.is_flow() {
                             "flow".to_string()
@@ -4736,6 +4740,7 @@ async fn push_inner<'c, 'd>(
         _low_level_priority: Option<i16>,
         concurrency_settings: ConcurrencySettings,
         debouncing_settings: DebouncingSettings,
+        labels: Option<Vec<String>>,
     }
     let mut preprocessed = None;
     #[allow(unused)]
@@ -4753,6 +4758,7 @@ async fn push_inner<'c, 'd>(
         _low_level_priority,
         mut concurrency_settings,
         debouncing_settings,
+        labels,
     } = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -4765,6 +4771,7 @@ async fn push_inner<'c, 'd>(
             apply_preprocessor,
             concurrency_settings,
             debouncing_settings,
+            labels,
         } => {
             if apply_preprocessor {
                 preprocessed = Some(false);
@@ -4781,6 +4788,7 @@ async fn push_inner<'c, 'd>(
                 cache_ignore_s3_path,
                 dedicated_worker,
                 _low_level_priority: priority,
+                labels,
                 ..Default::default()
             }
         }
@@ -5211,7 +5219,7 @@ async fn push_inner<'c, 'd>(
                 ..Default::default()
             }
         }
-        JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version } => {
+        JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version, labels } => {
             let mut ntx = tx.into_tx().await?;
             // Do not use the lite version unless all workers are updated.
             let data = if *DISABLE_FLOW_SCRIPT
@@ -5277,6 +5285,7 @@ async fn push_inner<'c, 'd>(
                 _low_level_priority: priority,
                 concurrency_settings,
                 debouncing_settings,
+                labels,
                 ..Default::default()
             }
         }
@@ -5493,25 +5502,35 @@ async fn push_inner<'c, 'd>(
         };
 
         interpolated_tag.unwrap_or_else(|| {
-            language
-                .as_ref()
-                .map(|x| {
-                    let tag_lang = if x == &ScriptLang::Bunnative {
-                        if job_kind == JobKind::Dependencies {
-                            ScriptLang::Bun.as_str()
+            if job_kind.is_preview()
+                && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed)
+            {
+                if per_workspace {
+                    format!("preview-{}", workspace_id)
+                } else {
+                    "preview".to_string()
+                }
+            } else {
+                language
+                    .as_ref()
+                    .map(|x| {
+                        let tag_lang = if x == &ScriptLang::Bunnative {
+                            if job_kind == JobKind::Dependencies {
+                                ScriptLang::Bun.as_str()
+                            } else {
+                                ScriptLang::Nativets.as_str()
+                            }
                         } else {
-                            ScriptLang::Nativets.as_str()
+                            x.as_str()
+                        };
+                        if per_workspace {
+                            format!("{}-{}", tag_lang, workspace_id)
+                        } else {
+                            tag_lang.to_string()
                         }
-                    } else {
-                        x.as_str()
-                    };
-                    if per_workspace {
-                        format!("{}-{}", tag_lang, workspace_id)
-                    } else {
-                        tag_lang.to_string()
-                    }
-                })
-                .unwrap_or_else(default)
+                    })
+                    .unwrap_or_else(default)
+            }
         })
     };
 
@@ -5706,10 +5725,11 @@ async fn push_inner<'c, 'd>(
                 priority, -- 26
                 trigger_kind, -- 39
                 script_entrypoint_override, -- 12
-                preprocessed -- 27,
+                preprocessed, -- 27,
+                labels -- 44
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $38, $21, $22, $23, $24, $25, $26, $39::job_trigger_kind,
-            ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27)
+            ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27, $44)
         ),
         inserted_runtime AS (
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
@@ -5765,6 +5785,7 @@ async fn push_inner<'c, 'd>(
         end_user_email,
         cache_ignore_s3_path,
         runnable_settings_handle,
+        labels.as_deref() as Option<&[String]>,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)

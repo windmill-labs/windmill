@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT path AS \"path!\" FROM (\n            (SELECT DISTINCT path FROM script WHERE workspace_id = $1 AND archived = false AND deleted = false AND draft_only IS NOT true LIMIT 5000)\n            UNION\n            (SELECT path FROM flow     WHERE workspace_id = $1 AND archived = false AND draft_only IS NOT true LIMIT 5000)\n            UNION\n            (SELECT path FROM app      WHERE workspace_id = $1 LIMIT 5000)\n            UNION\n            (SELECT path FROM raw_app  WHERE workspace_id = $1 LIMIT 5000)\n            UNION\n            (SELECT path FROM variable WHERE workspace_id = $1 LIMIT 5000)\n            UNION\n            (SELECT path FROM resource WHERE workspace_id = $1 LIMIT 5000)\n        ) t\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f175f0eda0dcdb26c08b743de80e73344dff5b98a33daaee144ffaccaa8a0bad"
+}

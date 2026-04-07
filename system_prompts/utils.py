@@ -177,6 +177,11 @@ LANGUAGE_METADATA = {
         'description': 'MUST use when writing Java scripts.',
         'use_cases': 'Java automation, enterprise integrations'
     },
+    'rlang': {
+        'name': 'R',
+        'description': 'MUST use when writing R scripts.',
+        'use_cases': 'R statistical computing, data analysis, visualization'
+    },
 }
 
 # Languages that use TypeScript SDK

@@ -21,6 +21,7 @@
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Button from './common/button/Button.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
+	import { isValidLogoutRedirect } from '$lib/logoutRedirect'
 
 	interface Props {
 		rd?: string | undefined
@@ -134,7 +135,11 @@
 
 	async function redirectUser() {
 		if (rd?.startsWith('http')) {
-			window.location.href = rd
+			if (isValidLogoutRedirect(rd)) {
+				window.location.href = rd
+				return
+			}
+			goto('/')
 			return
 		}
 		if ($workspaceStore) {

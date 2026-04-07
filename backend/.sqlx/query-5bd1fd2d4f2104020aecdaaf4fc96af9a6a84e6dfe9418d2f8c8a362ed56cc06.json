@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO background_task_state\n             (name, value, running, owner, started_at, finished_at, updated_at)\n         VALUES ($1, $2, true, $3, NOW(), NULL, NOW())\n         ON CONFLICT (name) DO UPDATE SET\n             value = EXCLUDED.value,\n             running = true,\n             owner = EXCLUDED.owner,\n             started_at = NOW(),\n             finished_at = NULL,\n             updated_at = NOW()\n         WHERE background_task_state.running = false\n            OR background_task_state.updated_at < NOW() - ($4::text)::interval\n         RETURNING 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5bd1fd2d4f2104020aecdaaf4fc96af9a6a84e6dfe9418d2f8c8a362ed56cc06"
+}

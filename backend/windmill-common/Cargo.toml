@@ -9,7 +9,7 @@ default = []
 enterprise = ["dep:aws-config"]
 instance_config_schema = ["dep:schemars"]
 local_reports = ["dep:rsa", "dep:aes-gcm"]
-private = ["dep:aws-sdk-rds"]
+private = ["dep:aws-sdk-rds", "dep:aws-sdk-secretsmanager"]
 jemalloc = ["dep:tikv-jemalloc-ctl"]
 tantivy = []
 prometheus = ["dep:prometheus"]
@@ -80,6 +80,7 @@ postgres-native-tls.workspace = true
 native-tls.workspace = true
 
 aws-smithy-types-convert = { workspace = true, optional = true }
+aws-sdk-secretsmanager = { workspace = true, optional = true }
 aws-sdk-rds = { workspace = true, optional = true }
 indexmap.workspace = true
 bytes.workspace = true

@@ -969,7 +969,8 @@ macro_rules! get_job_query {
     ("v2_job_completed", $($opts:tt)*) => {
         get_job_query!(
             @impl "v2_job_completed", ($($opts)*),
-            "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, result->'wm_labels' as labels, \
+            "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, \
+            v2_job.labels, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
             "",
         )
@@ -979,7 +980,7 @@ macro_rules! get_job_query {
             @impl "v2_job_queue", ($($opts)*),
             "scheduled_for, running, ping as last_ping, suspend, suspend_until, same_worker, pre_run_error, visible_to_owner, \
             flow_innermost_root_job  AS root_job, flow_leaf_jobs AS leaf_jobs, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, \
-            script_entrypoint_override",
+            script_entrypoint_override, v2_job.labels",
             "LEFT JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id",
         )
     };
@@ -2008,7 +2009,7 @@ async fn count_completed_jobs_detail(
     sqlb.join("v2_job USING (id)");
     sqlb.field("COUNT(*) as count");
 
-    if !query.all_workspaces.unwrap_or(false) {
+    if !(w_id == "admins" && query.all_workspaces.unwrap_or(false)) {
         sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
     }
 
@@ -2451,6 +2452,10 @@ struct ApprovalInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    default_args: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    enums: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     approval_conditions: Option<ApprovalConditions>,
     can_approve: bool,
     user_auth_required: bool,
@@ -2505,62 +2510,51 @@ async fn get_approval_info(
     let is_wac = row.workflow_as_code_status.is_some();
 
     // Extract approval info based on WAC vs classic flow
-    let (form_schema, description, approval_conditions, hide_cancel) = if is_wac {
-        let approval_meta = row
-            .workflow_as_code_status
-            .as_ref()
-            .and_then(|v| v.get("_approval"));
-        let form = approval_meta.and_then(|m| m.get("form").cloned());
-        let ac = row
-            .flow_status
-            .as_ref()
-            .and_then(|v| v.get("approval_conditions"))
-            .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
-        (form, None, ac, None)
-    } else {
-        let fs = row
-            .flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
-        let ac = fs.as_ref().and_then(|s| s.approval_conditions.clone());
+    let (form_schema, description, default_args, enums, approval_conditions, hide_cancel) =
+        if is_wac {
+            let approval_meta = row
+                .workflow_as_code_status
+                .as_ref()
+                .and_then(|v| v.get("_approval"));
+            let form = approval_meta.and_then(|m| m.get("form").cloned());
+            let default_args = approval_meta.and_then(|m| m.get("default_args").cloned());
+            let enums = approval_meta.and_then(|m| m.get("enums").cloned());
+            let description = approval_meta.and_then(|m| m.get("description").cloned());
+            let ac = row
+                .flow_status
+                .as_ref()
+                .and_then(|v| v.get("approval_conditions"))
+                .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok());
+            (form, description, default_args, enums, ac, None)
+        } else {
+            let fs = row
+                .flow_status
+                .as_ref()
+                .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok());
+            let ac = fs.as_ref().and_then(|s| s.approval_conditions.clone());
 
-        // For classic flows, form/description come from the flow definition and step result
-        let approval_step = fs.as_ref().map(|s| (s.step as usize).saturating_sub(1));
+            // For classic flows, form/description come from the flow definition and step result
+            let approval_step = fs.as_ref().map(|s| (s.step as usize).saturating_sub(1));
 
-        // Fetch flow definition to get suspend settings (form schema, hide_cancel).
-        // Try raw_flow on the job first, fall back to flow_version for deployed flows,
-        // then flow_node for graph-based branch/loop sub-flows.
-        let raw_flow: Option<FlowValue> = {
-            let from_job: Option<serde_json::Value> = sqlx::query_scalar(
-                "SELECT raw_flow FROM v2_job WHERE id = $1 AND workspace_id = $2",
-            )
-            .bind(&job_id)
-            .bind(&w_id)
-            .fetch_optional(&db)
-            .await?
-            .flatten();
-
-            if let Some(v) = from_job {
-                serde_json::from_value(v).ok()
-            } else {
-                // Deployed flow: fetch from flow_version using runnable_id
-                let from_version: Option<serde_json::Value> = sqlx::query_scalar(
-                    "SELECT fv.value FROM v2_job j JOIN flow_version fv ON fv.id = j.runnable_id \
-                     WHERE j.id = $1 AND j.workspace_id = $2",
+            // Fetch flow definition to get suspend settings (form schema, hide_cancel).
+            // Try raw_flow on the job first, fall back to flow_version for deployed flows,
+            // then flow_node for graph-based branch/loop sub-flows.
+            let raw_flow: Option<FlowValue> = {
+                let from_job: Option<serde_json::Value> = sqlx::query_scalar(
+                    "SELECT raw_flow FROM v2_job WHERE id = $1 AND workspace_id = $2",
                 )
                 .bind(&job_id)
                 .bind(&w_id)
                 .fetch_optional(&db)
                 .await?
                 .flatten();
-                if let Some(v) = from_version {
+
+                if let Some(v) = from_job {
                     serde_json::from_value(v).ok()
                 } else {
-                    // FlowNode sub-flow (graph-based branch/loop): raw_flow is not stored
-                    // in v2_job for newer versions, fetch from flow_node table
-                    let from_node: Option<serde_json::Value> = sqlx::query_scalar(
-                        "SELECT fn.flow FROM v2_job j \
-                         JOIN flow_node fn ON fn.id = j.runnable_id \
+                    // Deployed flow: fetch from flow_version using runnable_id
+                    let from_version: Option<serde_json::Value> = sqlx::query_scalar(
+                        "SELECT fv.value FROM v2_job j JOIN flow_version fv ON fv.id = j.runnable_id \
                          WHERE j.id = $1 AND j.workspace_id = $2",
                     )
                     .bind(&job_id)
@@ -2568,44 +2562,60 @@ async fn get_approval_info(
                     .fetch_optional(&db)
                     .await?
                     .flatten();
-                    from_node.and_then(|v| serde_json::from_value(v).ok())
+                    if let Some(v) = from_version {
+                        serde_json::from_value(v).ok()
+                    } else {
+                        // FlowNode sub-flow (graph-based branch/loop): raw_flow is not stored
+                        // in v2_job for newer versions, fetch from flow_node table
+                        let from_node: Option<serde_json::Value> = sqlx::query_scalar(
+                            "SELECT fn.flow FROM v2_job j \
+                             JOIN flow_node fn ON fn.id = j.runnable_id \
+                             WHERE j.id = $1 AND j.workspace_id = $2",
+                        )
+                        .bind(&job_id)
+                        .bind(&w_id)
+                        .fetch_optional(&db)
+                        .await?
+                        .flatten();
+                        from_node.and_then(|v| serde_json::from_value(v).ok())
+                    }
                 }
-            }
+            };
+
+            let suspend_module = raw_flow
+                .as_ref()
+                .and_then(|rf| approval_step.and_then(|s| rf.modules.get(s)));
+            let suspend_settings = suspend_module.and_then(|m| m.suspend.as_ref());
+
+            let form = suspend_settings
+                .and_then(|s| s.resume_form.as_ref())
+                .map(|rf| serde_json::json!(rf));
+            let hc = suspend_settings.map(|s| s.hide_cancel.unwrap_or(false));
+
+            // Fetch description, default_args, and enums from the step's completed job result
+            let step_job_id = fs
+                .as_ref()
+                .and_then(|s| approval_step.and_then(|step| s.modules.get(step)))
+                .and_then(|m| m.job());
+            let (desc, default_args, enums) = if let Some(sjid) = step_job_id {
+                let result: Option<serde_json::Value> = sqlx::query_scalar(
+                    "SELECT result FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
+                )
+                .bind(sjid)
+                .bind(&w_id)
+                .fetch_optional(&db)
+                .await?
+                .flatten();
+                let desc = result.as_ref().and_then(|r| r.get("description").cloned());
+                let da = result.as_ref().and_then(|r| r.get("default_args").cloned());
+                let enums = result.as_ref().and_then(|r| r.get("enums").cloned());
+                (desc, da, enums)
+            } else {
+                (None, None, None)
+            };
+
+            (form, desc, default_args, enums, ac, hc)
         };
-
-        let suspend_module = raw_flow
-            .as_ref()
-            .and_then(|rf| approval_step.and_then(|s| rf.modules.get(s)));
-        let suspend_settings = suspend_module.and_then(|m| m.suspend.as_ref());
-
-        let form = suspend_settings
-            .and_then(|s| s.resume_form.as_ref())
-            .map(|rf| serde_json::json!(rf));
-        let hc = suspend_settings.map(|s| s.hide_cancel.unwrap_or(false));
-
-        // Fetch description and default_args from the step's completed job result
-        let step_job_id = fs
-            .as_ref()
-            .and_then(|s| approval_step.and_then(|step| s.modules.get(step)))
-            .and_then(|m| m.job());
-        let (desc, _default_args) = if let Some(sjid) = step_job_id {
-            let result: Option<serde_json::Value> = sqlx::query_scalar(
-                "SELECT result FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
-            )
-            .bind(sjid)
-            .bind(&w_id)
-            .fetch_optional(&db)
-            .await?
-            .flatten();
-            let desc = result.as_ref().and_then(|r| r.get("description").cloned());
-            let da = result.as_ref().and_then(|r| r.get("default_args").cloned());
-            (desc, da)
-        } else {
-            (None, None)
-        };
-
-        (form, desc, ac, hc)
-    };
 
     let user_auth_required = approval_conditions
         .as_ref()
@@ -2657,6 +2667,8 @@ async fn get_approval_info(
         flow_id: row.id,
         form_schema,
         description,
+        default_args,
+        enums,
         approval_conditions,
         can_approve,
         user_auth_required,
@@ -4582,6 +4594,7 @@ pub async fn run_wait_result_script_by_hash(
         has_preprocessor,
         on_behalf_of_email,
         created_by,
+        labels,
         runnable_settings:
             ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
         ..
@@ -4632,6 +4645,7 @@ pub async fn run_wait_result_script_by_hash(
             priority,
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
+            labels,
         },
         PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
@@ -6362,6 +6376,7 @@ pub async fn run_job_by_hash_inner(
         on_behalf_of_email,
         created_by,
         delete_after_use,
+        labels,
         ..
     } = get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash)
         .await?
@@ -6411,6 +6426,7 @@ pub async fn run_job_by_hash_inner(
             priority,
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
+            labels,
         },
         PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
@@ -7262,7 +7278,7 @@ async fn list_completed_jobs(
             "v2_job_completed.memory_peak as mem_peak",
             "v2_job.tag",
             "v2_job.priority",
-            "v2_job_completed.result->'wm_labels' as labels",
+            "v2_job.labels",
             args_field,
             "'CompletedJob' as type",
         ],

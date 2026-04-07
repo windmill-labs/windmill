@@ -20,6 +20,7 @@
 	import Login from '$lib/components/Login.svelte'
 	import { onMount } from 'svelte'
 	import { refreshSuperadmin } from '$lib/refreshUser'
+	import { isValidLogoutRedirect } from '$lib/logoutRedirect'
 
 	const email = page.url.searchParams.get('email') ?? ''
 	const password = page.url.searchParams.get('password') ?? ''
@@ -55,7 +56,11 @@
 
 	async function redirectUser() {
 		if (rd?.startsWith('http')) {
-			window.location.href = rd
+			if (isValidLogoutRedirect(rd)) {
+				window.location.href = rd
+				return
+			}
+			goto('/')
 			return
 		}
 

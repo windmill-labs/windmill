@@ -6,7 +6,7 @@ description: MUST use when writing Bun Native scripts.
 ## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- `wmill script generate-metadata` - Generate .script.yaml and .lock files
+- `wmill generate-metadata` - Generate .script.yaml and .lock files
 - `wmill sync push` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -128,6 +128,8 @@ const result: S3Object = await wmill.writeS3File(
 # TypeScript SDK (windmill-client)
 
 Import: import * as wmill from 'windmill-client'
+
+workerHasInternalServer(): boolean
 
 /**
  * Initialize the Windmill client with authentication token and base URL

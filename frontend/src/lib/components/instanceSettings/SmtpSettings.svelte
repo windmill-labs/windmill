@@ -145,6 +145,14 @@
 				}}
 				options={{ right: 'Disable TLS' }}
 			/>
+
+			<Toggle
+				id="smtp_clicktracking_off"
+				{disabled}
+				bind:checked={$values['smtp_settings'].smtp_clicktracking_off}
+				size="xs"
+				options={{ right: 'Disable click tracking on links' }}
+			/>
 		</div>
 
 		<!-- Test Email -->

@@ -4,7 +4,11 @@
 	import { SettingService, WorkerService, WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
-	import { DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
+	import {
+		DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+		DEFAULT_TAGS_WORKSPACES_SETTING,
+		PREVIEW_TAGS_OVERRIDE_SETTING
+	} from '$lib/consts'
 	import Toggle from './Toggle.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
@@ -22,16 +26,19 @@
 
 	let defaultTags = $state<string[] | undefined>(undefined)
 	let limitToWorkspaces = $state(false)
+	let previewTagsOverride = $state(false)
 
 	// Change detection
 	let originalDefaultTagPerWorkspace = $state<boolean | undefined>(defaultTagPerWorkspace)
 	let originalDefaultTagWorkspaces = $state<string[]>(defaultTagWorkspaces)
+	let originalPreviewTagsOverride = $state(false)
 
 	// Detect changes
 	let hasChanges = $derived(
 		originalDefaultTagPerWorkspace !== defaultTagPerWorkspace ||
 			JSON.stringify($state.snapshot(originalDefaultTagWorkspaces)?.sort() || []) !==
-				JSON.stringify($state.snapshot(defaultTagWorkspaces)?.sort() || [])
+				JSON.stringify($state.snapshot(defaultTagWorkspaces)?.sort() || []) ||
+			originalPreviewTagsOverride !== previewTagsOverride
 	)
 
 	let workspaces: string[] = $state([])
@@ -47,6 +54,11 @@
 					key: DEFAULT_TAGS_WORKSPACES_SETTING
 				})) as any) ?? []
 			limitToWorkspaces = defaultTagWorkspaces ? defaultTagWorkspaces.length > 0 : false
+			previewTagsOverride =
+				((await SettingService.getGlobal({
+					key: PREVIEW_TAGS_OVERRIDE_SETTING
+				})) as any) ?? false
+			originalPreviewTagsOverride = previewTagsOverride
 		} catch (err) {
 			sendUserToast(`Could not load default tags: ${err}`, true)
 		}
@@ -68,10 +80,17 @@
 						: undefined
 			}
 		})
+		await SettingService.setGlobal({
+			key: PREVIEW_TAGS_OVERRIDE_SETTING,
+			requestBody: {
+				value: previewTagsOverride
+			}
+		})
 
 		// Update original state after save
 		originalDefaultTagPerWorkspace = defaultTagPerWorkspace
 		originalDefaultTagWorkspaces = [...(defaultTagWorkspaces || [])]
+		originalPreviewTagsOverride = previewTagsOverride
 
 		loadDefaultTags()
 		sendUserToast('Saved')
@@ -146,6 +165,18 @@
 					/>
 				{/if}
 			{/if}
+			<div class="flex flex-col gap-1">
+				<Toggle
+					bind:checked={previewTagsOverride}
+					options={{
+						right: 'route preview jobs to dedicated preview tag',
+						rightTooltip:
+							'When enabled, preview jobs (script previews and flow previews) will be routed to the "preview" tag instead of their language-specific tag, allowing you to dedicate specific workers for previews.'
+					}}
+					class="w-fit"
+					disabled={!$enterpriseLicense}
+				/>
+			</div>
 		</div>
 
 		<div class="flex gap-2 items-center mb-1">
@@ -168,6 +199,17 @@
 					</div>
 				</div>
 			{/each}
+			{#if previewTagsOverride}
+				<div class="flex gap-2 items-center">
+					<div class="w-36">
+						<Badge color="transparent">preview</Badge>
+					</div>
+					<div class="w-6 flex justify-center text-secondary">&rightarrow;</div>
+					<div class="flex-1">
+						<Badge color="blue">{defaultTagPerWorkspace ? 'preview-$workspace' : 'preview'}</Badge>
+					</div>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </Section>
