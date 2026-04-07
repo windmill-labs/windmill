@@ -94,9 +94,6 @@ components:
           description: Cache duration in seconds for flow results
         cache_ignore_s3_path:
           type: boolean
-        delete_after_use:
-          type: boolean
-          description: If true, delete the flow job's args, result and logs after use
         delete_after_secs:
           type: integer
           description: If set, delete the flow job's args, result and logs after this many seconds following job completion
@@ -309,9 +306,6 @@ components:
         timeout:
           description: Maximum execution time in seconds (static value or expression)
           $ref: '#/components/schemas/InputTransform'
-        delete_after_use:
-          type: boolean
-          description: If true, this step's result is deleted after use to save memory
         delete_after_secs:
           type: integer
           description: If set, delete the step's args, result and logs after this many seconds following job completion

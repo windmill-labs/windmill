@@ -357,7 +357,7 @@ pub struct Script<SR> {
     pub cache_ignore_s3_path: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing, default)]
     pub delete_after_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delete_after_secs: Option<i32>,
@@ -507,6 +507,7 @@ pub struct NewScript {
     pub ws_error_handler_muted: Option<bool>,
     pub priority: Option<i16>,
     pub timeout: Option<i32>,
+    #[serde(skip_serializing, default)]
     pub delete_after_use: Option<bool>,
     pub delete_after_secs: Option<i32>,
     pub restart_unless_cancelled: Option<bool>,

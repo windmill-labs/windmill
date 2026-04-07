@@ -84,8 +84,6 @@ struct ScriptMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub delete_after_use: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub delete_after_secs: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restart_unless_cancelled: Option<bool>,
@@ -510,7 +508,6 @@ pub(crate) async fn tarball_workspace(
                 priority: script.priority,
                 tag: script.tag,
                 timeout: script.timeout,
-                delete_after_use: script.delete_after_use,
                 delete_after_secs: script.delete_after_secs,
                 restart_unless_cancelled: script.restart_unless_cancelled,
                 visible_to_runner_only: script.visible_to_runner_only,

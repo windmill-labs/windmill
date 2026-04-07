@@ -253,8 +253,8 @@ var $Script = {
     timeout: {
       type: "integer",
     },
-    delete_after_use: {
-      type: "boolean",
+    delete_after_secs: {
+      type: "integer",
     },
     visible_to_runner_only: {
       type: "boolean",
@@ -369,8 +369,8 @@ var $NewScript = {
     timeout: {
       type: "integer",
     },
-    delete_after_use: {
-      type: "boolean",
+    delete_after_secs: {
+      type: "integer",
     },
     deployment_message: {
       type: "string",
@@ -2830,8 +2830,8 @@ var $FlowModule = {
     timeout: {
       type: "number",
     },
-    delete_after_use: {
-      type: "boolean",
+    delete_after_secs: {
+      type: "integer",
     },
     summary: {
       type: "string",

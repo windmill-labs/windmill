@@ -184,7 +184,7 @@ pub struct FlowValue {
     pub chat_input_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_env: Option<HashMap<String, Box<RawValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing, default)]
     pub delete_after_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delete_after_secs: Option<i32>,
@@ -445,7 +445,7 @@ pub struct FlowModule {
     pub timeout: Option<InputTransform>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing, default)]
     pub delete_after_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delete_after_secs: Option<i32>,

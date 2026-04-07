@@ -364,8 +364,6 @@ pub mod types {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub dedicated_worker: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub delete_after_use: Option<bool>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub delete_after_secs: Option<i32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub deployment_message: Option<String>,
@@ -541,8 +539,6 @@ pub mod types {
         pub cache_ttl: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub continue_on_error: Option<bool>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub delete_after_use: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub delete_after_secs: Option<i32>,
         pub id: String,
