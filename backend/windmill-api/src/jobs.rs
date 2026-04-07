@@ -1793,13 +1793,46 @@ async fn get_flow_all_logs(
     )
     .await?;
 
-    // Fetch all jobs in the flow (root + children) with their logs
+    // Fetch all jobs in the flow tree using recursive CTE.
+    // Computes path labels with iteration indices for loops/branches.
     let records = sqlx::query!(
-        "SELECT j.id, j.flow_step_id, coalesce(job_logs.logs, '') as logs, COALESCE(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
-         FROM v2_job j
-         LEFT JOIN job_logs ON job_logs.job_id = j.id
-         WHERE j.workspace_id = $1 AND (j.flow_innermost_root_job = $2 OR j.id = $2)
-         ORDER BY j.created_at ASC",
+        "WITH RECURSIVE job_tree AS (
+            SELECT j.id, j.kind::text, j.flow_step_id, j.parent_job,
+                   '' as path_label, 0 as depth
+            FROM v2_job j
+            WHERE j.id = $2 AND j.workspace_id = $1
+            UNION ALL
+            SELECT j.id, j.kind::text, j.flow_step_id, j.parent_job,
+                   CASE
+                       WHEN jt.path_label = '' THEN COALESCE(j.flow_step_id, '')
+                       ELSE jt.path_label || '/' || COALESCE(j.flow_step_id, '')
+                   END,
+                   jt.depth + 1
+            FROM v2_job j
+            JOIN job_tree jt ON j.parent_job = jt.id
+            WHERE j.workspace_id = $1
+        ),
+        with_sibling_index AS (
+            SELECT jt.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY jt.parent_job, jt.flow_step_id
+                       ORDER BY jt.id
+                   ) - 1 as sibling_index,
+                   COUNT(*) OVER (
+                       PARTITION BY jt.parent_job, jt.flow_step_id
+                   ) as sibling_count
+            FROM job_tree jt
+        )
+        SELECT w.id, w.kind, w.flow_step_id, w.path_label,
+               w.sibling_index::int as sibling_index,
+               w.sibling_count::int as sibling_count,
+               w.depth::int as depth,
+               coalesce(job_logs.logs, '') as logs,
+               COALESCE(job_logs.log_offset, 0) as log_offset,
+               job_logs.log_file_index
+        FROM with_sibling_index w
+        LEFT JOIN job_logs ON job_logs.job_id = w.id
+        ORDER BY w.id ASC",
         w_id,
         id,
     )
@@ -1809,11 +1842,39 @@ async fn get_flow_all_logs(
     let mut all_logs = String::new();
 
     for record in &records {
-        let step_label = record.flow_step_id.as_deref().unwrap_or("flow");
-        all_logs.push_str(&format!(
-            "\n=== Step: {} (Job: {}) ===\n",
-            step_label, record.id
-        ));
+        let kind = record.kind.as_deref().unwrap_or("");
+        let step_id = record.flow_step_id.as_deref().unwrap_or("");
+        let depth = record.depth.unwrap_or(0);
+        let sibling_count = record.sibling_count.unwrap_or(1);
+        let sibling_index = record.sibling_index.unwrap_or(0);
+
+        // Build a descriptive label
+        let label = if depth == 0 {
+            "Flow".to_string()
+        } else if kind == "flowpreview" || kind == "flow" {
+            // Intermediate flow job (loop iteration or branch)
+            if sibling_count > 1 {
+                format!(
+                    "Step {} (iteration {}/{})",
+                    step_id, sibling_index, sibling_count
+                )
+            } else {
+                format!("Step {} (subflow)", step_id)
+            }
+        } else if sibling_count > 1 {
+            // Leaf script inside a loop/branch with multiple siblings
+            let path = record.path_label.as_deref().unwrap_or(step_id);
+            format!(
+                "Step {} (iteration {}/{})",
+                path, sibling_index, sibling_count
+            )
+        } else {
+            let path = record.path_label.as_deref().unwrap_or(step_id);
+            format!("Step {}", path)
+        };
+
+        let job_id = record.id.map(|u| u.to_string()).unwrap_or_default();
+        all_logs.push_str(&format!("\n=== {} (Job: {}) ===\n", label, job_id));
         let logs = record.logs.as_deref().unwrap_or("");
         let resolved =
             resolve_logs_to_string(record.log_offset.unwrap_or(0), logs, &record.log_file_index)
