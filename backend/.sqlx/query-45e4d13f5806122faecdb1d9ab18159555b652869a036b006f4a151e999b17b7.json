@@ -45,6 +45,11 @@
       },
       {
         "ordinal": 8,
+        "name": "labels",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 9,
         "name": "ws_specific",
         "type_info": "Bool"
       }
@@ -61,6 +66,7 @@
       true,
       false,
       false,
+      true,
       true,
       true,
       false
