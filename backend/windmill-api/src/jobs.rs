@@ -1873,7 +1873,7 @@ async fn get_flow_all_logs(
 
         let label = if depth == 0 {
             "Flow".to_string()
-        } else if kind == "flowpreview" || kind == "flow" {
+        } else if matches!(kind, "flow" | "flowpreview" | "flownode" | "singlestepflow") {
             // Intermediate flow job (loop iteration or branch)
             if is_branch {
                 format!(
