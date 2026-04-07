@@ -1868,18 +1868,22 @@ async fn get_flow_all_logs(
         let parent_module_type = record.parent_module_type.as_deref().unwrap_or("");
 
         // Build a descriptive label
-        let is_branch = parent_module_type == "branchall" || parent_module_type == "branchone";
         let is_loop = parent_module_type == "forloopflow" || parent_module_type == "whileloopflow";
 
         let label = if depth == 0 {
             "Flow".to_string()
         } else if matches!(kind, "flow" | "flowpreview" | "flownode" | "singlestepflow") {
             // Intermediate flow job (loop iteration or branch)
-            if is_branch {
-                format!(
-                    "Step {} (branch {}/{})",
-                    step_id, sibling_index, sibling_count
-                )
+            if parent_module_type == "branchone" {
+                // For branchone, first child is the default branch, rest are branch 1, 2, ...
+                let branch_label = if sibling_index == 1 {
+                    "default".to_string()
+                } else {
+                    format!("{}", sibling_index - 1)
+                };
+                format!("Step {} (branch {})", step_id, branch_label)
+            } else if parent_module_type == "branchall" {
+                format!("Step {} (branch {})", step_id, sibling_index)
             } else if is_loop {
                 format!(
                     "Step {} (iteration {}/{})",
