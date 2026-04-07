@@ -360,6 +360,8 @@ pub struct Script<SR> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delete_after_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub delete_after_secs: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub restart_unless_cancelled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visible_to_runner_only: Option<bool>,
@@ -506,6 +508,7 @@ pub struct NewScript {
     pub priority: Option<i16>,
     pub timeout: Option<i32>,
     pub delete_after_use: Option<bool>,
+    pub delete_after_secs: Option<i32>,
     pub restart_unless_cancelled: Option<bool>,
     pub deployment_message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

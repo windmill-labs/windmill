@@ -113,6 +113,8 @@ pub struct ScriptWDraft<SR> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delete_after_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub delete_after_secs: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visible_to_runner_only: Option<bool>,
@@ -178,6 +180,7 @@ impl ScriptWDraft<ScriptRunnableSettingsHandle> {
             priority: self.priority,
             restart_unless_cancelled: self.restart_unless_cancelled,
             delete_after_use: self.delete_after_use,
+            delete_after_secs: self.delete_after_secs,
             timeout: self.timeout,
             visible_to_runner_only: self.visible_to_runner_only,
             auto_kind: self.auto_kind,
@@ -938,58 +941,59 @@ async fn create_script_internal<'c>(
         )
     };
 
-    sqlx::query!(
+    sqlx::query(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)",
-        &w_id,
-        &hash.0,
-        ns.path,
-        p_hashes,
-        ns.summary,
-        ns.description,
-        &ns.content,
-        &authed.username,
-        ns.schema.and_then(|x| serde_json::to_string(&x.0).ok()),
-        ns.is_template.unwrap_or(false),
-        extra_perms,
-        lock,
-        lang as ScriptLang,
-        ns.kind.unwrap_or(ScriptKind::Script) as ScriptKind,
-        ns.tag,
-        ns.draft_only,
-        envs,
-        guarded_concurrent_limit,
-        guarded_concurrency_time_window_s,
-        ns.cache_ttl,
-        ns.dedicated_worker,
-        ns.ws_error_handler_muted.unwrap_or(false),
-        ns.priority,
-        ns.restart_unless_cancelled,
-        ns.delete_after_use,
-        ns.timeout,
-        guarded_concurrency_key,
-        ns.visible_to_runner_only,
-        auto_kind.as_deref(),
-        codebase,
-        has_preprocessor.filter(|x: &bool| *x), // should be Some(true) or None
-        windmill_common::resolve_on_behalf_of_email(
-            ns.on_behalf_of_email.as_deref(),
-            ns.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-        ),
-        validate_schema,
-        ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok()),
-        guarded_debounce_key,
-        guarded_debounce_delay_s,
-        ns.cache_ignore_s3_path,
-        runnable_settings_handle,
-        ns.modules.as_ref().and_then(|m| serde_json::to_value(m).ok()),
-        ns.labels.as_deref() as Option<&[String]>
+         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)",
     )
+    .bind(&w_id)
+    .bind(&hash.0)
+    .bind(&ns.path)
+    .bind(&p_hashes)
+    .bind(&ns.summary)
+    .bind(&ns.description)
+    .bind(&ns.content)
+    .bind(&authed.username)
+    .bind(ns.schema.and_then(|x| serde_json::to_string(&x.0).ok()))
+    .bind(ns.is_template.unwrap_or(false))
+    .bind(&extra_perms)
+    .bind(&lock)
+    .bind(lang as ScriptLang)
+    .bind(ns.kind.unwrap_or(ScriptKind::Script) as ScriptKind)
+    .bind(&ns.tag)
+    .bind(&ns.draft_only)
+    .bind(&envs)
+    .bind(&guarded_concurrent_limit)
+    .bind(&guarded_concurrency_time_window_s)
+    .bind(&ns.cache_ttl)
+    .bind(&ns.dedicated_worker)
+    .bind(ns.ws_error_handler_muted.unwrap_or(false))
+    .bind(&ns.priority)
+    .bind(&ns.restart_unless_cancelled)
+    .bind(&ns.delete_after_use)
+    .bind(&ns.delete_after_secs)
+    .bind(&ns.timeout)
+    .bind(&guarded_concurrency_key)
+    .bind(&ns.visible_to_runner_only)
+    .bind(auto_kind.as_deref())
+    .bind(&codebase)
+    .bind(has_preprocessor.filter(|x: &bool| *x))
+    .bind(windmill_common::resolve_on_behalf_of_email(
+        ns.on_behalf_of_email.as_deref(),
+        ns.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+    ))
+    .bind(&validate_schema)
+    .bind(ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok()))
+    .bind(&guarded_debounce_key)
+    .bind(&guarded_debounce_delay_s)
+    .bind(&ns.cache_ignore_s3_path)
+    .bind(&runnable_settings_handle)
+    .bind(ns.modules.as_ref().and_then(|m| serde_json::to_value(m).ok()))
+    .bind(ns.labels.as_deref() as Option<&[String]>)
     .execute(&mut *tx)
     .await?;
 

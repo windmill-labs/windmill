@@ -366,6 +366,8 @@ pub mod types {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub delete_after_use: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub delete_after_secs: Option<i32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub deployment_message: Option<String>,
         pub description: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -541,6 +543,8 @@ pub mod types {
         pub continue_on_error: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub delete_after_use: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub delete_after_secs: Option<i32>,
         pub id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub mock: Option<serde_json::Value>,

@@ -19916,6 +19916,9 @@ components:
           type: integer
         delete_after_use:
           type: boolean
+        delete_after_secs:
+          type: integer
+          description: If set, delete the job's args, result and logs after this many seconds following job completion
         visible_to_runner_only:
           type: boolean
         auto_kind:
@@ -20008,6 +20011,9 @@ components:
           type: integer
         delete_after_use:
           type: boolean
+        delete_after_secs:
+          type: integer
+          description: If set, delete the job's args, result and logs after this many seconds following job completion
         deployment_message:
           type: string
         concurrency_key:
