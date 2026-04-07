@@ -3638,7 +3638,8 @@ pub fn resolve_debounce_key<'b>(
                 .join(":"),
         ));
 
-    tracing::debug!("Original debounce key: {}", original_debounce_key);
+    tracing::debug!("Original debounce key (len={}): {}", original_debounce_key.len(), original_debounce_key);
+
 
     // If debounce_key is not too long (< 255 chars), keep it as is, otherwise hash it
     const MAX_DEBOUNCE_KEY_LENGTH: usize = 255;
@@ -3654,10 +3655,11 @@ pub fn resolve_debounce_key<'b>(
         hash
     };
 
+    // In cloud mode, prefix with workspace_id for isolation
     #[cfg(feature = "cloud")]
-    let resolved = format!("{workspace_id}:{resolved}");
+    let original_debounce_key = format!("{workspace_id}:{original_debounce_key}");
 
-    tracing::debug!("Final debounce key: {}", resolved);
+    tracing::debug!("Final debounce key (len={}): {}", resolved.len(), resolved);
     resolved
 }
 
