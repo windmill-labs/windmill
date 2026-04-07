@@ -1692,66 +1692,31 @@ async fn resolve_logs_to_string(
     logs: &str,
     log_file_index: &Option<Vec<String>>,
 ) -> String {
-    if log_offset > 0 {
-        if let Some(file_index) = log_file_index.as_ref() {
-            let mut result = String::new();
+    use futures::StreamExt;
 
-            #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            {
-                if let Some(os) = windmill_object_store::get_object_store().await {
-                    let mut found_all = true;
-                    for file_p in file_index {
-                        match os
-                            .get(&object_store::path::Path::from(file_p.clone()))
-                            .await
-                        {
-                            Ok(file) => {
-                                if let Ok(bytes) = file.bytes().await {
-                                    result.push_str(&String::from_utf8_lossy(&bytes));
-                                }
-                            }
-                            Err(_) => {
-                                found_all = false;
-                                break;
-                            }
-                        }
-                    }
-                    if found_all {
-                        result.push_str(logs);
-                        return result;
-                    }
-                    result.clear();
-                }
-            }
-
-            // Try disk
-            let mut all_exist = true;
-            for file_p in file_index {
-                if !tokio::fs::metadata(format!("{}/{file_p}", *WINDMILL_DIR))
-                    .await
-                    .is_ok()
-                {
-                    all_exist = false;
-                    break;
-                }
-            }
-            if all_exist {
-                for file_p in file_index {
-                    if let Ok(mut file) =
-                        tokio::fs::File::open(format!("{}/{file_p}", *WINDMILL_DIR)).await
-                    {
-                        use tokio::io::AsyncReadExt;
-                        let mut buffer = Vec::new();
-                        if file.read_to_end(&mut buffer).await.is_ok() {
-                            result.push_str(&String::from_utf8_lossy(&buffer));
-                        }
-                    }
-                }
-                result.push_str(logs);
-                return result;
-            }
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if let Some(stream) =
+        windmill_object_store::get_logs_from_store(log_offset, logs, log_file_index).await
+    {
+        let mut result = String::new();
+        futures::pin_mut!(stream);
+        while let Some(Ok(bytes)) = stream.next().await {
+            result.push_str(&String::from_utf8_lossy(&bytes));
         }
+        return result;
     }
+
+    if let Some(stream) =
+        windmill_common::jobs::get_logs_from_disk(log_offset, logs, log_file_index).await
+    {
+        let mut result = String::new();
+        futures::pin_mut!(stream);
+        while let Some(Ok(bytes)) = stream.next().await {
+            result.push_str(&String::from_utf8_lossy(&bytes));
+        }
+        return result;
+    }
+
     logs.to_string()
 }
 
