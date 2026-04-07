@@ -2,6 +2,7 @@
 
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { Command, InvalidArgumentError, Option } from "commander";
 import {
   cleanupWorkspace,
   loadCliArtifactEvalCases,
@@ -33,6 +34,20 @@ import {
   runFrontendBenchmarkAdapter,
   type FrontendAdapterPayload,
 } from "../adapters/frontend/runtime";
+
+const SURFACE_NAMES = [
+  "cli",
+  "frontend-flow",
+  "frontend-app",
+  "frontend-script"
+] as const;
+const HISTORY_VIEWS = [
+  "latest",
+  "summary",
+  "surface",
+  "variant",
+  "model"
+] as const;
 
 type CommandName =
   | "run"
@@ -159,8 +174,7 @@ async function main() {
       await handleHistory(args);
       return;
     default:
-      printHelp();
-      throw new Error(`Unknown command: ${String(args.command)}`);
+      assertNever(args.command);
   }
 }
 
@@ -587,7 +601,7 @@ async function handleHistory(args: ParsedArgs) {
     }
     case "summary": {
       const summaries = await loadSummaryHistory(historyDir);
-      const payload = {
+      const payload: Parameters<typeof printHistorySummary>[0] = {
         view: "summary",
         historyDir,
         totalEntries: summaries.length,
@@ -820,7 +834,7 @@ function summarizeAttempt(
     })),
     pathSignature: buildPathSignature(skillsInvoked, toolsUsed),
     judgeScore: null,
-    error: result.error ?? null
+    error: null
   };
 }
 
@@ -859,19 +873,187 @@ function aggregateAttempts(attempts: AttemptSummary[]): AggregateMetrics {
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
-  const [commandArg, ...rest] = argv;
+  const program = buildProgram();
+  let parsed: ParsedArgs | null = null;
 
-  if (!commandArg || commandArg === "--help" || commandArg === "-h") {
-    printHelp();
+  program
+    .command("list-cases")
+    .description("List available cases for a benchmark surface")
+    .addOption(createSurfaceOption())
+    .option("--json", "print machine-readable output")
+    .action((options: { surface: SurfaceName; json?: boolean }) => {
+      parsed = {
+        ...createDefaultParsedArgs("list-cases"),
+        surface: options.surface,
+        json: options.json ?? false
+      };
+    });
+
+  program
+    .command("list-variants")
+    .description("List available variants for a benchmark surface")
+    .addOption(createSurfaceOption())
+    .option("--json", "print machine-readable output")
+    .action((options: { surface: SurfaceName; json?: boolean }) => {
+      parsed = {
+        ...createDefaultParsedArgs("list-variants"),
+        surface: options.surface,
+        json: options.json ?? false
+      };
+    });
+
+  program
+    .command("snapshot-variant")
+    .description("Snapshot the current CLI guidance bundle into a named variant")
+    .addOption(createSurfaceOption())
+    .option("--variant <id>", "variant id to create")
+    .option("--description <text>", "variant description")
+    .option("--json", "print machine-readable output")
+    .action(
+      (options: {
+        surface: SurfaceName;
+        variant?: string;
+        description?: string;
+        json?: boolean;
+      }) => {
+        parsed = {
+          ...createDefaultParsedArgs("snapshot-variant"),
+          surface: options.surface,
+          variantIds: options.variant ? [options.variant] : [],
+          description: options.description,
+          json: options.json ?? false
+        };
+      }
+    );
+
+  program
+    .command("run")
+    .description("Run one benchmark case for a selected surface and variant")
+    .addOption(createSurfaceOption())
+    .option("--case <id>", "case id", collectOptionValues)
+    .option("--variant <id>", "variant id", collectOptionValues)
+    .option("--runs <n>", "number of runs", (value) => parsePositiveInteger(value, "--runs"), 1)
+    .option("--json", "print machine-readable output")
+    .option("--keep-workspace", "keep the final CLI workspace for inspection")
+    .action(
+      (options: {
+        surface: SurfaceName;
+        case: string[];
+        variant: string[];
+        runs: number;
+        json?: boolean;
+        keepWorkspace?: boolean;
+      }) => {
+        parsed = {
+          ...createDefaultParsedArgs("run"),
+          surface: options.surface,
+          caseIds: options.case ?? [],
+          variantIds: options.variant ?? [],
+          runs: options.runs,
+          json: options.json ?? false,
+          keepWorkspace: options.keepWorkspace ?? false
+        };
+      }
+    );
+
+  program
+    .command("compare")
+    .description("Compare one or more variants across one or more cases")
+    .addOption(createSurfaceOption())
+    .option("--case <id>", "case id (repeatable)", collectOptionValues)
+    .option("--variant <id>", "variant id (repeatable)", collectOptionValues)
+    .option("--runs <n>", "number of runs per case", (value) => parsePositiveInteger(value, "--runs"), 1)
+    .option("--write-history", "write official history snapshots")
+    .option("--history-dir <path>", "override the history directory")
+    .option("--json", "print machine-readable output")
+    .action(
+      (options: {
+        surface: SurfaceName;
+        case: string[];
+        variant: string[];
+        runs: number;
+        writeHistory?: boolean;
+        historyDir?: string;
+        json?: boolean;
+      }) => {
+        parsed = {
+          ...createDefaultParsedArgs("compare"),
+          surface: options.surface,
+          caseIds: options.case ?? [],
+          variantIds: options.variant ?? [],
+          runs: options.runs,
+          writeHistory: options.writeHistory ?? false,
+          historyDir: options.historyDir,
+          json: options.json ?? false
+        };
+      }
+    );
+
+  program
+    .command("history")
+    .description("Inspect official benchmark history rollups")
+    .addOption(createHistoryViewOption())
+    .option("--limit <n>", "number of entries or groups to show", (value) => parsePositiveInteger(value, "--limit"), 10)
+    .option("--history-dir <path>", "override the history directory")
+    .option("--json", "print machine-readable output")
+    .action(
+      (options: {
+        view: ParsedArgs["historyView"];
+        limit: number;
+        historyDir?: string;
+        json?: boolean;
+      }) => {
+        parsed = {
+          ...createDefaultParsedArgs("history"),
+          historyView: options.view,
+          limit: options.limit,
+          historyDir: options.historyDir,
+          json: options.json ?? false
+        };
+      }
+    );
+
+  if (argv.length === 0) {
+    program.outputHelp();
     process.exit(0);
   }
 
-  if (!isCommandName(commandArg)) {
-    throw new Error(`Unknown command: ${commandArg}`);
+  program.parse(argv, { from: "user" });
+
+  if (!parsed) {
+    program.outputHelp();
+    process.exit(0);
   }
 
-  const parsed: ParsedArgs = {
-    command: commandArg,
+  return parsed;
+}
+
+function buildProgram(): Command {
+  return new Command()
+    .name("bun run cli --")
+    .description("Repo-level benchmark CLI for prompt and artifact evaluation")
+    .usage("<command> [options]")
+    .showHelpAfterError()
+    .showSuggestionAfterError()
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Examples:",
+        "  bun run cli -- list-cases --surface cli",
+        "  bun run cli -- run --surface cli --case bun-hello-script --variant baseline",
+        "  bun run cli -- compare --surface frontend-flow --variant baseline --variant candidate --runs 3",
+        "  bun run cli -- history --view summary --limit 10",
+        "",
+        `Supported surfaces: ${SURFACE_NAMES.join(", ")}`
+      ].join("\n")
+    );
+}
+
+function createDefaultParsedArgs(command: CommandName): ParsedArgs {
+  return {
+    command,
+    surface: undefined,
     caseIds: [],
     variantIds: [],
     description: undefined,
@@ -883,93 +1065,22 @@ function parseArgs(argv: string[]): ParsedArgs {
     historyView: "latest",
     limit: 10
   };
-
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index];
-
-    if (arg === "--surface") {
-      parsed.surface = rest[index + 1];
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--case") {
-      parsed.caseIds.push(rest[index + 1]);
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--variant") {
-      parsed.variantIds.push(rest[index + 1]);
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--description") {
-      parsed.description = rest[index + 1];
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--runs") {
-      parsed.runs = parsePositiveInteger(rest[index + 1], "--runs");
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--write-history") {
-      parsed.writeHistory = true;
-      continue;
-    }
-
-    if (arg === "--history-dir") {
-      parsed.historyDir = rest[index + 1];
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--view") {
-      parsed.historyView = parseHistoryView(rest[index + 1]);
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--limit") {
-      parsed.limit = parsePositiveInteger(rest[index + 1], "--limit");
-      index += 1;
-      continue;
-    }
-
-    if (arg === "--json") {
-      parsed.json = true;
-      continue;
-    }
-
-    if (arg === "--keep-workspace") {
-      parsed.keepWorkspace = true;
-      continue;
-    }
-
-    if (arg === "--help" || arg === "-h") {
-      printHelp();
-      process.exit(0);
-    }
-
-    throw new Error(`Unknown argument: ${arg}`);
-  }
-
-  return parsed;
 }
 
-function isCommandName(value: string): value is CommandName {
-  return (
-    value === "run" ||
-    value === "list-cases" ||
-    value === "list-variants" ||
-    value === "snapshot-variant" ||
-    value === "compare" ||
-    value === "history"
-  );
+function createSurfaceOption(): Option {
+  return new Option("--surface <surface>", "benchmark surface")
+    .choices([...SURFACE_NAMES])
+    .makeOptionMandatory(true);
+}
+
+function createHistoryViewOption(): Option {
+  return new Option("--view <view>", "history rollup view")
+    .choices([...HISTORY_VIEWS])
+    .default("latest");
+}
+
+function collectOptionValues(value: string, previous: string[] = []): string[] {
+  return [...previous, value];
 }
 
 function requireSurface(surface: string | undefined): SurfaceName {
@@ -1010,33 +1121,13 @@ function requireSingleVariantId(variantIds: string[], fallback: string): string 
   return variantIds[0];
 }
 
-function parsePositiveInteger(value: string | undefined, flagName: string): number {
-  if (!value) {
-    throw new Error(`Missing value for ${flagName}`);
-  }
-
+function parsePositiveInteger(value: string, flagName: string): number {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed < 1) {
-    throw new Error(`${flagName} must be a positive integer`);
+    throw new InvalidArgumentError(`${flagName} must be a positive integer`);
   }
 
   return parsed;
-}
-
-function parseHistoryView(
-  value: string | undefined
-): ParsedArgs["historyView"] {
-  if (
-    value === "latest" ||
-    value === "summary" ||
-    value === "surface" ||
-    value === "variant" ||
-    value === "model"
-  ) {
-    return value;
-  }
-
-  throw new Error("--view must be one of: latest, summary, surface, variant, model");
 }
 
 function printRunSummary(payload: {
@@ -1417,29 +1508,6 @@ function printHistoryGroupSummary(
       `- ${group}: ${entries.length} runs | latest ${latest.timestamp} | ${latest.variant_name} | ${formatPercent(latest.metrics.quality.pass_rate)} | avg ${formatNumber(latest.metrics.efficiency.latency_ms_mean)} ms\n`
     );
   }
-}
-
-function printHelp() {
-  process.stdout.write(
-    [
-      "Usage:",
-      "  cd ai_evals && bun run cli -- list-cases --surface cli [--json]",
-      "  cd ai_evals && bun run cli -- list-cases --surface frontend-flow [--json]",
-      "  cd ai_evals && bun run cli -- list-cases --surface frontend-app [--json]",
-      "  cd ai_evals && bun run cli -- list-cases --surface frontend-script [--json]",
-      "  cd ai_evals && bun run cli -- list-variants --surface cli [--json]",
-      "  cd ai_evals && bun run cli -- list-variants --surface frontend-flow [--json]",
-      "  cd ai_evals && bun run cli -- list-variants --surface frontend-app [--json]",
-      "  cd ai_evals && bun run cli -- list-variants --surface frontend-script [--json]",
-      "  cd ai_evals && bun run cli -- snapshot-variant --surface cli --variant <id> [--description <text>] [--json]",
-      "  cd ai_evals && bun run cli -- run --surface <cli|frontend-flow|frontend-app|frontend-script> --case <id> [--variant <id>] [--runs <n>] [--json] [--keep-workspace]",
-      "  cd ai_evals && bun run cli -- compare --surface <cli|frontend-flow|frontend-app|frontend-script> [--case <id> ...] [--variant <id> ...] [--runs <n>] [--write-history] [--history-dir <path>] [--json]",
-      "  cd ai_evals && bun run cli -- history [--view latest|summary|surface|variant|model] [--limit <n>] [--history-dir <path>] [--json]",
-      "",
-      "Current support:",
-      "  surfaces: cli, frontend-flow, frontend-app, frontend-script"
-    ].join("\n") + "\n"
-  );
 }
 
 function assertNever(value: never): never {
