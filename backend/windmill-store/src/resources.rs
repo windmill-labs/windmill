@@ -87,10 +87,6 @@ pub fn public_service() -> Router {
     Router::new().route("/custom_component/{name}", get(custom_component))
 }
 
-fn is_false(b: &bool) -> bool {
-    !b
-}
-
 #[derive(FromRow, Serialize, Deserialize)]
 pub struct ResourceType {
     pub workspace_id: String,
