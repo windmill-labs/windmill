@@ -1764,7 +1764,11 @@
 											/>
 										</div>
 									</Section>
-									<Section label="Run on behalf of a specified user">
+									<Section
+										label={canPreserve
+											? 'Run on behalf of a specified user'
+											: 'On behalf of last editor'}
+									>
 										{#snippet header()}
 											<Tooltip>
 												When this option is enabled, the script will be run with the permissions of

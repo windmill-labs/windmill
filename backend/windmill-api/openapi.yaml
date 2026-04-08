@@ -861,9 +861,9 @@ paths:
         "200":
           description: offboard result
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/OffboardResponse"
   /w/{workspace}/users/convert_to_group/{username}:
     post:
       summary: convert manual user to group user (require admin privilege)

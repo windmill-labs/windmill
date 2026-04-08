@@ -1,14 +1,15 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
-	import { Download } from 'lucide-svelte'
+	import { ChevronDown, ChevronRight, Download } from 'lucide-svelte'
 	import type { OffboardPreview } from '$lib/gen/types.gen'
 	import OffboardItemsBox from './OffboardItemsBox.svelte'
 	import OffboardReassignControls from './OffboardReassignControls.svelte'
-	import { countPaths, pl, downloadCsv } from './offboarding-utils'
+	import { countPaths, pl, downloadCsv, flattenPaths } from './offboarding-utils'
 
 	type Props = {
 		preview: OffboardPreview
 		username: string
+		deleteUser?: boolean
 		targetKind: 'user' | 'folder'
 		selectedUser: string | undefined
 		selectedFolder: string | undefined
@@ -22,6 +23,7 @@
 	let {
 		preview,
 		username,
+		deleteUser = true,
 		targetKind = $bindable(),
 		selectedUser = $bindable(),
 		selectedFolder = $bindable(),
@@ -39,13 +41,13 @@
 	function downloadAffectedCsv() {
 		if (!preview.referencing) return
 		const rows: string[][] = [['type', 'path']]
-		for (const [kind, list] of Object.entries(preview.referencing)) {
-			if (Array.isArray(list)) {
-				for (const p of list) rows.push([kind, p])
-			}
+		for (const { kind, path } of flattenPaths(preview.referencing)) {
+			rows.push([kind, path])
 		}
 		downloadCsv(rows, csvFilename)
 	}
+
+	let tokensExpanded = $state(false)
 </script>
 
 <div class="flex flex-col gap-2">
@@ -57,6 +59,41 @@
 			title="Permissioned as u/{username} ({onBehalfCount})"
 			paths={preview.executing_on_behalf}
 		/>
+	{/if}
+	{#if deleteUser}
+		<div
+			class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700/40 rounded-md p-3"
+		>
+			{#if (preview.tokens?.length ?? 0) > 0}
+				<button
+					class="flex items-center gap-1 w-full text-left"
+					onclick={() => (tokensExpanded = !tokensExpanded)}
+				>
+					{#if tokensExpanded}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
+					<span class="text-xs font-medium text-yellow-800 dark:text-yellow-100/90"
+						>Tokens ({preview.tokens?.length})</span
+					>
+				</button>
+			{:else}
+				<p class="text-xs font-medium text-yellow-800 dark:text-yellow-100/90">Tokens</p>
+			{/if}
+			<p
+				class="text-xs text-yellow-700 dark:text-yellow-100/70 mt-1 {(preview.tokens?.length ?? 0) >
+				0
+					? 'ml-5'
+					: ''}"
+				>All workspace tokens for this user will be deleted. Only scoped tokens are listed below.</p
+			>
+			{#if tokensExpanded && (preview.tokens?.length ?? 0) > 0}
+				<div
+					class="flex flex-col gap-0.5 text-xs text-yellow-800 dark:text-yellow-100/90 mt-1.5 ml-5"
+				>
+					{#each preview.tokens ?? [] as token}
+						<span>{token.label || '(no label)'}: {token.scopes?.join(', ') || '(no scopes)'}</span>
+					{/each}
+				</div>
+			{/if}
+		</div>
 	{/if}
 	{#if referencingCount > 0}
 		<OffboardItemsBox
@@ -74,21 +111,6 @@
 				>
 			{/snippet}
 		</OffboardItemsBox>
-	{/if}
-	{#if (preview.tokens?.length ?? 0) > 0}
-		<div class="bg-surface-secondary rounded-md p-3">
-			<p class="text-xs font-medium text-primary mb-0.5">Tokens ({preview.tokens?.length ?? 0})</p>
-			<p class="text-xs text-tertiary mb-1">These tokens will be deleted.</p>
-			<div class="flex flex-col gap-0.5 text-xs text-secondary">
-				{#each preview.tokens ?? [] as token}
-					<span
-						>{token.label || '(no label)'}{#if token.scopes?.length}: {token.scopes.join(
-								', '
-							)}{/if}</span
-					>
-				{/each}
-			</div>
-		</div>
 	{/if}
 </div>
 
@@ -113,6 +135,6 @@
 	bind:selectedOperator
 	{users}
 	{folders}
-	showTargetSelector={ownedCount > 0}
+	showTargetSelector={ownedCount > 0 || onBehalfCount > 0}
 	{size}
 />

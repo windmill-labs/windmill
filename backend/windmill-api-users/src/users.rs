@@ -1683,6 +1683,14 @@ pub async fn delete_workspace_user_internal(
     .execute(&mut **tx)
     .await?;
 
+    sqlx::query!(
+        "DELETE FROM token WHERE email = $1 AND workspace_id = $2",
+        email_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     // Only audit if we have an authenticated user (API calls)
     if let Some(auth) = authed {
         audit_log(

@@ -43,8 +43,8 @@
 		>
 		<ToggleButtonGroup
 			selected={targetKind}
-			on:selected={(e) => {
-				targetKind = e.detail
+			onSelected={(value) => {
+				targetKind = value
 			}}
 			class={size === 'sm' ? 'mb-1.5' : 'mb-2'}
 		>

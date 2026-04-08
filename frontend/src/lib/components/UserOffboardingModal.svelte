@@ -55,7 +55,7 @@
 	)
 
 	let canSubmit = $derived(
-		!doReassign || ((ownedCount === 0 || reassignTo != null) && selectedOperator != null)
+		!doReassign || ((!hasItems || reassignTo != null) && selectedOperator != null)
 	)
 
 	$effect(() => {
@@ -179,6 +179,7 @@
 									<OffboardWorkspaceSection
 										{preview}
 										{username}
+										{deleteUser}
 										bind:targetKind
 										bind:selectedUser
 										bind:selectedFolder
@@ -202,7 +203,10 @@
 
 							{#if conflicts.length > 0}
 								<Alert type="error" title="Path conflicts detected">
-									<p class="text-xs mb-1">Resolve these before retrying:</p>
+									<p class="text-xs mb-1"
+										>These items already exist at the target. Rename or delete them, or choose a
+										different user/folder.</p
+									>
 									<ul class="text-xs list-disc list-inside max-h-32 overflow-y-auto">
 										{#each conflicts as conflict}
 											<li>{conflict}</li>

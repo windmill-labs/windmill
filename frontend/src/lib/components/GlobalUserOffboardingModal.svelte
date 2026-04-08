@@ -25,6 +25,7 @@
 	let submitting = $state(false)
 	let doReassign = $state(true)
 	let deleteUser = $state(true)
+	let conflicts: string[] = $state([])
 
 	$effect(() => {
 		deleteUser = !reassignOnly
@@ -60,23 +61,35 @@
 			const result = await UserService.globalOffboardPreview({ email })
 			workspacePreviews = result.workspaces
 
-			for (const wp of result.workspaces) {
-				if (countPaths(wp.preview.owned) > 0 || countPaths(wp.preview.executing_on_behalf) > 0) {
+			const configPromises = result.workspaces
+				.filter(
+					(wp) => countPaths(wp.preview.owned) > 0 || countPaths(wp.preview.executing_on_behalf) > 0
+				)
+				.map(async (wp) => {
 					const [usernamesList, foldersList] = await Promise.all([
 						UserService.listUsernames({ workspace: wp.workspace_id }),
 						FolderService.listFolders({ workspace: wp.workspace_id })
 					])
-					wsConfigs[wp.workspace_id] = {
-						targetKind: 'user',
-						selectedUser: undefined,
-						selectedFolder: undefined,
-						selectedOperator: undefined,
-						users: usernamesList
-							.filter((u) => u !== wp.username)
-							.map((u) => ({ label: u, value: u })),
-						folders: foldersList.map((f) => ({ label: f.name, value: f.name }))
+					return {
+						workspace_id: wp.workspace_id,
+						config: {
+							targetKind: 'user' as const,
+							selectedUser: undefined as string | undefined,
+							selectedFolder: undefined as string | undefined,
+							selectedOperator: undefined as string | undefined,
+							users: usernamesList
+								.filter((u: string) => u !== wp.username)
+								.map((u: string) => ({ label: u, value: u })),
+							folders: foldersList.map((f: { name: string }) => ({
+								label: f.name,
+								value: f.name
+							}))
+						}
 					}
-				}
+				})
+			const configs = await Promise.all(configPromises)
+			for (const { workspace_id, config } of configs) {
+				wsConfigs[workspace_id] = config
 			}
 		} catch (e) {
 			sendUserToast('Failed to load offboard preview', true)
@@ -111,6 +124,7 @@
 
 	async function submit() {
 		submitting = true
+		conflicts = []
 		try {
 			const reassignments: Record<string, { reassign_to: string; new_on_behalf_of_user?: string }> =
 				{}
@@ -125,19 +139,23 @@
 				}
 			}
 
-			await UserService.offboardGlobalUser({
+			const result = await UserService.offboardGlobalUser({
 				email,
 				requestBody: {
 					reassignments,
 					delete_user: deleteUser
 				}
 			})
-			sendUserToast(
-				deleteUser
-					? `User ${email} offboarded successfully`
-					: `Items reassigned from ${email} successfully`
-			)
-			onComplete()
+			if (result.conflicts && result.conflicts.length > 0) {
+				conflicts = result.conflicts
+			} else {
+				sendUserToast(
+					deleteUser
+						? `User ${email} offboarded successfully`
+						: `Items reassigned from ${email} successfully`
+				)
+				onComplete()
+			}
 		} catch (e) {
 			sendUserToast(`Offboarding failed: ${e}`, true)
 		} finally {
@@ -217,6 +235,7 @@
 												<OffboardWorkspaceSection
 													preview={wp.preview}
 													username={wp.username}
+													{deleteUser}
 													bind:targetKind={cfg.targetKind}
 													bind:selectedUser={cfg.selectedUser}
 													bind:selectedFolder={cfg.selectedFolder}
@@ -246,14 +265,18 @@
 								</p>
 							{/if}
 
-							{#if !reassignOnly}
-								<div class="pt-1">
-									<Toggle
-										bind:checked={deleteUser}
-										size="xs"
-										options={{ right: 'Also remove user from instance' }}
-									/>
-								</div>
+							{#if conflicts.length > 0}
+								<Alert type="error" title="Path conflicts detected">
+									<p class="text-xs mb-1"
+										>These items already exist at the target. Rename or delete them, or choose a
+										different user/folder.</p
+									>
+									<ul class="text-xs list-disc list-inside max-h-32 overflow-y-auto">
+										{#each conflicts as conflict}
+											<li>{conflict}</li>
+										{/each}
+									</ul>
+								</Alert>
 							{/if}
 						</div>
 					{/if}

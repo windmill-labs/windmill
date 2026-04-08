@@ -264,14 +264,29 @@ async fn test_offboard_reassign_only(db: Pool<Postgres>) -> anyhow::Result<()> {
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
+    // Remove conflict scripts so reassignment can proceed
+    sqlx::query!(
+        "DELETE FROM script WHERE hash IN (1003, 1004) AND workspace_id = 'test-workspace'"
+    )
+    .execute(&db)
+    .await?;
+
     let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
         .json(&json!({
             "reassign_to": "u/test-user",
+            "new_on_behalf_of_user": "test-user",
             "delete_user": false
         }))
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await?;
+    assert!(
+        body["conflicts"].as_array().map_or(true, |c| c.is_empty()),
+        "should have no conflicts"
+    );
+    assert!(body["summary"].is_object(), "should have a summary");
 
     // Verify user still exists in workspace
     let user_exists = sqlx::query_scalar!(
@@ -284,6 +299,15 @@ async fn test_offboard_reassign_only(db: Pool<Postgres>) -> anyhow::Result<()> {
         user_exists,
         "user should still exist when delete_user=false"
     );
+
+    // Verify items were actually reassigned
+    let moved = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM script WHERE path LIKE 'u/test-user/%' AND workspace_id = 'test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+    assert!(moved > 0, "scripts should be under u/test-user now");
 
     Ok(())
 }

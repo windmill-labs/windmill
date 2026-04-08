@@ -205,10 +205,10 @@ async fn get_offboard_preview(
         }
     }
 
-    // ---- Tokens ----
+    // ---- Tokens (only scoped ones for display, all will be deleted) ----
     let token_rows = sqlx::query!(
-        "SELECT label, scopes, expiration FROM token WHERE owner = $1 AND workspace_id = $2",
-        &user_owner,
+        "SELECT label, scopes, expiration FROM token WHERE email = $1 AND workspace_id = $2 AND scopes IS NOT NULL AND array_length(scopes, 1) > 0",
+        email,
         w_id
     )
     .fetch_all(db)
@@ -483,7 +483,7 @@ pub(crate) async fn offboard_global_user(
     Extension(db): Extension<DB>,
     Path(email): Path<String>,
     Json(req): Json<GlobalOffboardRequest>,
-) -> Result<String> {
+) -> Result<Json<OffboardResponse>> {
     require_super_admin(&db, &authed.email).await?;
 
     let workspaces = sqlx::query!(
@@ -510,6 +510,7 @@ pub(crate) async fn offboard_global_user(
     }
 
     // Check for conflicts in all workspaces
+    let mut all_conflicts = Vec::new();
     for ws in &workspaces {
         if let Some(reassignment) = req.reassignments.get(&ws.workspace_id) {
             let conflicts = check_path_conflicts(
@@ -519,14 +520,16 @@ pub(crate) async fn offboard_global_user(
                 &reassignment.reassign_to,
             )
             .await?;
-            if !conflicts.is_empty() {
-                return Err(Error::BadRequest(format!(
-                    "Path conflicts in workspace '{}': {}",
-                    &ws.workspace_id,
-                    conflicts.join(", ")
-                )));
+            for c in conflicts {
+                all_conflicts.push(format!("[{}] {}", &ws.workspace_id, c));
             }
         }
+    }
+    if !all_conflicts.is_empty() {
+        return Ok(Json(OffboardResponse {
+            conflicts: all_conflicts,
+            summary: None,
+        }));
     }
 
     let mut tx = db.begin().await?;
@@ -550,7 +553,7 @@ pub(crate) async fn offboard_global_user(
             .await?;
         }
 
-        if req.delete_user {
+        if req.delete_user && req.reassignments.contains_key(&ws.workspace_id) {
             delete_workspace_user_internal(&ws.workspace_id, &ws.username, &email, &mut tx, None)
                 .await?;
         }
@@ -592,11 +595,19 @@ pub(crate) async fn offboard_global_user(
 
     tx.commit().await?;
 
-    if req.delete_user {
-        Ok(format!("user {} offboarded and deleted", &email))
-    } else {
-        Ok(format!("user {} objects reassigned", &email))
-    }
+    Ok(Json(OffboardResponse {
+        conflicts: vec![],
+        summary: Some(OffboardSummary {
+            scripts_reassigned: 0,
+            flows_reassigned: 0,
+            apps_reassigned: 0,
+            resources_reassigned: 0,
+            variables_reassigned: 0,
+            schedules_reassigned: 0,
+            triggers_reassigned: 0,
+            drafts_deleted: 0,
+        }),
+    }))
 }
 
 // ---- Validation helpers ----
@@ -712,7 +723,23 @@ async fn check_path_conflicts(
     let new_prefix = format!("{}/", reassign_to);
     let mut conflicts = Vec::new();
 
-    let tables = ["script", "flow", "app", "resource", "variable", "schedule"];
+    let tables = [
+        "script",
+        "flow",
+        "app",
+        "resource",
+        "variable",
+        "schedule",
+        "http_trigger",
+        "websocket_trigger",
+        "kafka_trigger",
+        "postgres_trigger",
+        "mqtt_trigger",
+        "nats_trigger",
+        "sqs_trigger",
+        "gcp_trigger",
+        "email_trigger",
+    ];
 
     for table_name in &tables {
         let rows: Vec<String> = sqlx::query_scalar(&format!(
@@ -877,7 +904,7 @@ async fn offboard_user_from_workspace<'c>(
            WHERE path LIKE ('u/' || $1 || '/%')
            AND workspace_id = $2
            AND is_secret = true
-           AND value LIKE '$vault:%'"#,
+           AND (value LIKE '$vault:%' OR value LIKE '$azure_kv:%')"#,
         username,
         w_id
     )
@@ -1102,10 +1129,9 @@ async fn offboard_user_from_workspace<'c>(
     .await?;
 
     // ---- Tokens ----
-    let user_owner = format!("u/{}", username);
     sqlx::query!(
-        "DELETE FROM token WHERE owner = $1 AND workspace_id = $2",
-        &user_owner,
+        "DELETE FROM token WHERE email = $1 AND workspace_id = $2",
+        email,
         w_id
     )
     .execute(&mut **tx)
