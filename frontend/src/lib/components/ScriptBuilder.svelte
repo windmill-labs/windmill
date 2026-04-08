@@ -1772,7 +1772,7 @@
 										{#snippet header()}
 											<Tooltip>
 												When this option is enabled, the script will be run with the permissions of
-												the corresponding user.
+												{canPreserve ? 'the specified user' : 'the last editor'}.
 											</Tooltip>
 										{/snippet}
 										<div class="flex gap-2 shrink flex-col">

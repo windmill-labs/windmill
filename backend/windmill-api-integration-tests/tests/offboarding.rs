@@ -238,14 +238,26 @@ async fn test_offboard_to_folder(db: Pool<Postgres>) -> anyhow::Result<()> {
     let body: serde_json::Value = resp.json().await?;
     assert!(body["conflicts"].as_array().map_or(true, |a| a.is_empty()));
 
-    // Verify scripts moved to folder
-    let moved = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM script WHERE path LIKE 'f/test-folder/%' AND workspace_id = 'test-workspace'"
+    // Verify specific script moved to folder (not just pre-existing shared_script)
+    let script_a_moved = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM script WHERE path = 'f/test-folder/script_a' AND workspace_id = 'test-workspace')"
     )
     .fetch_one(&db)
     .await?
-    .unwrap_or(0);
-    assert!(moved > 0, "scripts should be under f/test-folder now");
+    .unwrap_or(false);
+    assert!(script_a_moved, "script_a should be moved to f/test-folder/");
+
+    // Verify no scripts remain under old path
+    let old_scripts = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM script WHERE path LIKE 'u/test-user-2/%' AND workspace_id = 'test-workspace' AND NOT archived AND NOT deleted"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(1);
+    assert_eq!(
+        old_scripts, 0,
+        "no scripts should remain under u/test-user-2"
+    );
 
     // Verify schedule permissioned_as is u/test-user (operator), not g/f/test-folder
     let perm = sqlx::query_scalar!(

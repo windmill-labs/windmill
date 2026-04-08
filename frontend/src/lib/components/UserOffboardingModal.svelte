@@ -95,7 +95,7 @@
 		submitting = true
 		conflicts = []
 		try {
-			if (!doReassign) {
+			if (!doReassign || !hasItems) {
 				await UserService.deleteUser({ workspace: $workspaceStore ?? '', username })
 				sendUserToast(`User ${username} removed`)
 				onComplete()
@@ -224,7 +224,7 @@
 					{/if}
 
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-						{#if hasItems}
+						{#if hasItems || deleteUser}
 							<Button
 								disabled={submitting || !canSubmit}
 								onclick={submit}

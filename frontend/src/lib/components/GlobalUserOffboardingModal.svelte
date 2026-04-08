@@ -57,6 +57,7 @@
 
 	async function loadPreview() {
 		loading = true
+		conflicts = []
 		try {
 			const result = await UserService.globalOffboardPreview({ email })
 			workspacePreviews = result.workspaces
