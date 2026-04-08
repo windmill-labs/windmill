@@ -41,14 +41,6 @@ async fn test_schedule_job_deletion_inserts_row(db: Pool<Postgres>) -> anyhow::R
     initialize_tracing().await;
 
     let job_id = uuid::Uuid::new_v4();
-    // Insert a dummy v2_job row to satisfy the FK constraint
-    sqlx::query(
-        "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email, kind, tag, same_worker, visible_to_owner) \
-         VALUES ($1, 'test-workspace', 'test', 'u/test', 'test@test.com', 'script', 'deno', false, true)",
-    )
-    .bind(job_id)
-    .execute(&db)
-    .await?;
 
     schedule_job_deletion(&db, job_id, "test-workspace", 3600).await?;
 
@@ -84,13 +76,6 @@ async fn test_schedule_job_deletion_is_idempotent(db: Pool<Postgres>) -> anyhow:
     initialize_tracing().await;
 
     let job_id = uuid::Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email, kind, tag, same_worker, visible_to_owner) \
-         VALUES ($1, 'test-workspace', 'test', 'u/test', 'test@test.com', 'script', 'deno', false, true)",
-    )
-    .bind(job_id)
-    .execute(&db)
-    .await?;
 
     schedule_job_deletion(&db, job_id, "test-workspace", 60).await?;
     // Second call should not error (ON CONFLICT DO NOTHING)
