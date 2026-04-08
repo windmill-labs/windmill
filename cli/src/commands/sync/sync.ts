@@ -118,6 +118,38 @@ function resolveWsNameFromBranch(opts: SyncOptions, branchName: string): string 
   return match ? match[0] : branchName;
 }
 
+// Warn if --workspace overrides auto-detected branch or if workspace not in config.
+function warnWorkspaceOverride(opts: SyncOptions, wsNameForConfig: string | undefined): void {
+  if (!wsNameForConfig || !opts.workspaces) return;
+
+  // Check if workspace exists in config
+  const wsEntry = (opts.workspaces as any)?.[wsNameForConfig] as WorkspaceEntryConfig | undefined;
+  if (!wsEntry) {
+    const wsNames = Object.keys(opts.workspaces).filter((k) => k !== "commonSpecificItems");
+    if (wsNames.length > 0) {
+      log.warn(
+        `⚠️  Workspace '${wsNameForConfig}' is not defined in the 'workspaces' section of wmill.yaml.\n` +
+        `   No workspace-specific overrides will be applied. Available workspaces: ${wsNames.join(", ")}`
+      );
+    }
+    return;
+  }
+
+  // Check if current git branch maps to a different workspace
+  if (isGitRepository()) {
+    const currentBranch = getCurrentGitBranch();
+    if (currentBranch) {
+      const autoMatch = findWorkspaceByGitBranch(opts.workspaces, currentBranch);
+      if (autoMatch && autoMatch[0] !== wsNameForConfig) {
+        log.info(
+          `Current git branch '${currentBranch}' maps to workspace '${autoMatch[0]}', ` +
+          `but --workspace overrides to '${wsNameForConfig}'.`
+        );
+      }
+    }
+  }
+}
+
 // Resolve the effective git branch for file naming from a workspace name.
 // If the workspace name matches a config entry with a custom gitBranch, use that.
 // Otherwise, the workspace name is assumed to be the git branch (backward compat).
@@ -2048,6 +2080,7 @@ export async function pull(
   } else if (opts.workspace && !hasExplicitCredentials) {
     // --workspace without --base-url: use as workspace config name
     wsNameForConfig = opts.workspace;
+    warnWorkspaceOverride(opts, wsNameForConfig);
   }
 
   // Validate workspace configuration early (skipped when override is used)
@@ -2565,6 +2598,7 @@ export async function push(
     wsNameForConfig = resolveWsNameFromBranch(opts, opts.branch);
   } else if (opts.workspace && !hasExplicitCredentials) {
     wsNameForConfig = opts.workspace;
+    warnWorkspaceOverride(opts, wsNameForConfig);
   }
 
   // Validate workspace configuration early (skipped when override is used)
