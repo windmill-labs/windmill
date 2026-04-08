@@ -33,16 +33,16 @@ vi.mock('$lib/components/vscode', () => ({}))
 const benchmarkOutputPath = process.env.WMILL_FRONTEND_AI_EVAL_OUTPUT_PATH
 const benchmarkIt = benchmarkOutputPath ? it : it.skip
 
-	benchmarkIt(
-		'runs the frontend benchmark adapter from environment input',
-		async () => {
-			const { runFrontendBenchmarkFromEnv } = await import('./benchmarkRunner')
-			const payload = await runFrontendBenchmarkFromEnv()
+benchmarkIt(
+	'runs the frontend benchmark adapter from environment input',
+	async () => {
+		const { runFrontendBenchmarkFromEnv } = await import('./benchmarkRunner')
+		const payload = await runFrontendBenchmarkFromEnv()
 		const absoluteOutputPath = resolve(benchmarkOutputPath!)
 		await mkdir(dirname(absoluteOutputPath), { recursive: true })
 		await writeFile(absoluteOutputPath, JSON.stringify(payload, null, 2) + '\n', 'utf8')
 
-			expect(payload.caseResults.length).toBeGreaterThan(0)
-		},
-		600_000
-	)
+		expect(payload.cases.length).toBeGreaterThan(0)
+	},
+	600_000
+)

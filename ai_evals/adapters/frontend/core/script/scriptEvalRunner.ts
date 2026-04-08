@@ -9,31 +9,23 @@ import {
 	prepareScriptUserMessage,
 	type ScriptChatHelpers
 } from '../../../../../frontend/src/lib/components/copilot/chat/script/core'
+import type { Tool as ProductionTool } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
 import { createScriptFileHelpers, type ScriptEvalState } from './fileHelpers'
-import { evaluateScriptComparison } from './scriptEvalComparison'
-import {
-	runEval,
-	resolveSystemPrompt,
-	resolveTools,
-	resolveModel,
-	type VariantConfig,
-	type BaseEvalResult,
-	type EvaluationResult,
-	type Tool,
-	type VariantDefaults
-} from '../shared'
+import { runEval } from '../shared'
 
-export interface ScriptEvalResult extends BaseEvalResult<ScriptEvalState> {
+export interface ScriptEvalResult {
+	success: boolean
 	script: ScriptEvalState
+	error?: string
+	assistantMessageCount: number
+	toolCallCount: number
+	toolsUsed: string[]
 }
 
 export interface ScriptEvalOptions {
 	initialScript: ScriptEvalState
 	model?: string
-	customSystemPrompt?: string
 	maxIterations?: number
-	variant?: VariantConfig
-	expectedScript?: ScriptEvalState
 	provider?: AIProvider
 	workspaceRoot?: string
 }
@@ -64,31 +56,19 @@ export async function runScriptEval(
 	)
 
 	try {
-		const variantName = options.variant?.name ?? 'baseline'
-		const model = resolveModel(options.variant, options.model)
+		const model = options.model ?? 'claude-haiku-4-5-20251001'
 		const modelProvider = resolveModelProvider(model, options.provider)
 		const selectedContext: ContextElement[] = []
-		const scriptDefaults: VariantDefaults<ScriptChatHelpers> = {
-			prepareSystemMessage: (customPrompt?: string) =>
-				prepareScriptSystemMessage(
-					modelProvider,
-					options.initialScript.lang,
-					{},
-					customPrompt ?? options.customSystemPrompt
-				),
-			tools: prepareScriptTools(
-				modelProvider,
-				options.initialScript.lang,
-				selectedContext
-			) as Tool<ScriptChatHelpers>[]
-		}
-
-		const systemMessage = resolveSystemPrompt(
-			options.variant,
-			scriptDefaults,
-			options.customSystemPrompt
+		const systemMessage = prepareScriptSystemMessage(
+			modelProvider,
+			options.initialScript.lang,
+			{}
 		)
-		const { tools } = resolveTools(options.variant, scriptDefaults)
+		const tools = prepareScriptTools(
+			modelProvider,
+			options.initialScript.lang,
+			selectedContext
+		) as ProductionTool<ScriptChatHelpers>[]
 		const userMessage = prepareScriptUserMessage(userPrompt, selectedContext)
 
 		const rawResult = await runEval({
@@ -107,20 +87,13 @@ export async function runScriptEval(
 			}
 		})
 
-		let evaluationResult: EvaluationResult | undefined
-		if (options.expectedScript) {
-			evaluationResult = await evaluateScriptComparison(
-				getScript(),
-				options.expectedScript,
-				userPrompt
-			)
-		}
-
 		return {
-			...rawResult,
-			variantName,
 			script: rawResult.output,
-			evaluationResult
+			success: rawResult.success,
+			error: rawResult.error,
+			assistantMessageCount: rawResult.iterations,
+			toolCallCount: rawResult.toolCallsCount,
+			toolsUsed: rawResult.toolsCalled
 		}
 	} finally {
 		await cleanup()

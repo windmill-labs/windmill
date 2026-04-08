@@ -5,28 +5,12 @@ import type {
 	ChatCompletionSystemMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import type { AIProvider, AIProviderModel } from '$lib/gen/types.gen'
-import type { TokenUsage, ToolCallDetail, EvalRunnerOptions } from './types'
-import type { Tool } from './baseVariants'
+import type { TokenUsage, ToolCallDetail, EvalRunnerOptions, RawEvalResult } from './types'
 import { runChatLoop, type ChatClients } from '../../../../../frontend/src/lib/components/copilot/chat/chatLoop'
 import type {
 	Tool as ProductionTool,
 	ToolCallbacks
 } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
-
-/**
- * Result from a single eval run (before domain-specific evaluation).
- */
-export interface RawEvalResult<TOutput> {
-	success: boolean
-	output: TOutput
-	error?: string
-	tokenUsage: TokenUsage
-	toolCallsCount: number
-	toolsCalled: string[]
-	toolCallDetails: ToolCallDetail[]
-	iterations: number
-	messages: ChatCompletionMessageParam[]
-}
 
 /**
  * Parameters for running a base evaluation.
@@ -41,7 +25,7 @@ export interface RunEvalParams<THelpers, TOutput> {
 	/** Tool definitions for the LLM API (unused — derived from tools) */
 	toolDefs?: unknown
 	/** Full tool implementations for execution */
-	tools: Tool<THelpers>[]
+	tools: ProductionTool<THelpers>[]
 	/** Domain-specific helpers for tool execution */
 	helpers: THelpers
 	/** API key for the provider */
@@ -60,12 +44,12 @@ function createEvalClients(provider: AIProvider, apiKey: string): ChatClients {
 		return {
 			openai: new OpenAI({ apiKey: 'unused' }),
 			anthropic: new Anthropic({ apiKey })
-		}
+		} as ChatClients
 	}
 	return {
 		openai: new OpenAI({ apiKey }),
 		anthropic: new Anthropic({ apiKey: 'unused' })
-	}
+	} as ChatClients
 }
 
 /**
@@ -131,7 +115,7 @@ export async function runEval<THelpers, TOutput>(
 			}
 			return tool.fn(p)
 		}
-	})) as ProductionTool<THelpers>[]
+	}))
 
 	// No-op callbacks for eval
 	const callbacks: ToolCallbacks & {

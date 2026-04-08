@@ -11,60 +11,29 @@ import {
 	prepareAppSystemMessage,
 	prepareAppUserMessage
 } from '../../../../../frontend/src/lib/components/copilot/chat/app/core'
+import type { Tool as ProductionTool } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
 import { createAppFileHelpers } from './fileHelpers'
-import { evaluateAppGeneration, type InitialApp } from './appEvalComparison'
-import {
-	runEval,
-	resolveSystemPrompt,
-	resolveTools,
-	resolveModel,
-	type VariantConfig,
-	type BaseEvalResult,
-	type EvaluationResult,
-	type Tool,
-	type VariantDefaults
-} from '../shared'
+import { runEval } from '../shared'
 import type { AIProvider } from '$lib/gen/types.gen'
 
-// Re-export for convenience
-export type { InitialApp } from './appEvalComparison'
-
-/**
- * App-specific evaluation result.
- */
-export interface AppEvalResult extends BaseEvalResult<AppFiles> {
-	/** Alias for output to maintain API compatibility */
+export interface AppEvalResult {
+	success: boolean
 	files: AppFiles
+	error?: string
+	assistantMessageCount: number
+	toolCallCount: number
+	toolsUsed: string[]
 }
 
-/**
- * Options for running an app evaluation.
- */
 export interface AppEvalOptions {
 	initialFrontend?: Record<string, string>
 	initialBackend?: Record<string, BackendRunnable>
 	model?: string
-	customSystemPrompt?: string
 	maxIterations?: number
-	variant?: VariantConfig
-	/** Whether to evaluate the generated app with LLM. Default: true. Set to false to skip evaluation. */
-	evaluateWithLLM?: boolean
-	/** AI provider (inferred from model name if omitted) */
 	provider?: AIProvider
 	workspaceRoot?: string
 }
 
-/**
- * App-specific variant defaults.
- */
-const appDefaults: VariantDefaults<AppAIChatHelpers> = {
-	prepareSystemMessage: prepareAppSystemMessage,
-	tools: getAppTools() as Tool<AppAIChatHelpers>[]
-}
-
-/**
- * Runs an app chat evaluation using the shared chat loop (same code path as production).
- */
 export async function runAppEval(
 	userPrompt: string,
 	apiKey: string,
@@ -80,14 +49,9 @@ export async function runAppEval(
 	)
 
 	try {
-		const variantName = options?.variant?.name ?? 'baseline'
-		const systemMessage = resolveSystemPrompt(
-			options?.variant,
-			appDefaults,
-			options?.customSystemPrompt
-		)
-		const { tools } = resolveTools(options?.variant, appDefaults)
-		const model = resolveModel(options?.variant, options?.model)
+		const systemMessage = prepareAppSystemMessage()
+		const tools = getAppTools() as ProductionTool<AppAIChatHelpers>[]
+		const model = options?.model ?? 'claude-haiku-4-5-20251001'
 		const userMessage = prepareAppUserMessage(userPrompt, helpers.getSelectedContext())
 
 		const rawResult = await runEval({
@@ -106,24 +70,13 @@ export async function runAppEval(
 			}
 		})
 
-		let evaluationResult: EvaluationResult | undefined
-		if (options?.evaluateWithLLM !== false) {
-			const generatedApp = getFiles()
-			const initialApp: InitialApp | undefined =
-				options?.initialFrontend || options?.initialBackend
-					? {
-							frontend: options.initialFrontend ?? {},
-							backend: options.initialBackend ?? {}
-						}
-					: undefined
-			evaluationResult = await evaluateAppGeneration(userPrompt, generatedApp, initialApp)
-		}
-
 		return {
-			...rawResult,
-			variantName,
 			files: rawResult.output,
-			evaluationResult
+			success: rawResult.success,
+			error: rawResult.error,
+			assistantMessageCount: rawResult.iterations,
+			toolCallCount: rawResult.toolCallsCount,
+			toolsUsed: rawResult.toolsCalled
 		}
 	} finally {
 		await cleanup()

@@ -1,0 +1,44 @@
+[
+  {
+    "id": "app-test1-counter-create",
+    "prompt": "Create a counter app with increment/decrement buttons"
+  },
+  {
+    "id": "app-test2-counter-reset",
+    "prompt": "Add a reset button that sets the counter back to 0",
+    "initial": "ai_evals/fixtures/frontend/app/initial/test1_counter_app"
+  },
+  {
+    "id": "app-test3-shopping-cart-quantity",
+    "prompt": "Add a quantity selector (+ and - buttons) to each cart item so users can adjust quantities without removing and re-adding items",
+    "initial": "ai_evals/fixtures/frontend/app/initial/shopping_cart"
+  },
+  {
+    "id": "app-test4-shopping-cart-discount",
+    "prompt": "Add a discount code input field in the cart. When the code \"SAVE10\" is entered, apply a 10% discount to the total",
+    "initial": "ai_evals/fixtures/frontend/app/initial/shopping_cart"
+  },
+  {
+    "id": "app-test5-file-manager-search",
+    "prompt": "Add a search bar in the toolbar that filters files and folders by name as the user types",
+    "initial": "ai_evals/fixtures/frontend/app/initial/file_manager"
+  },
+  {
+    "id": "app-test6-file-manager-details",
+    "prompt": "Show file size (formatted as KB/MB) and modified date in the file list for each item",
+    "initial": "ai_evals/fixtures/frontend/app/initial/file_manager"
+  },
+  {
+    "id": "app-test7-file-manager-select-all",
+    "prompt": "Add a \"Select All\" checkbox in the file list header and individual checkboxes for each file. Add a \"Delete Selected\" button that appears when items are selected",
+    "initial": "ai_evals/fixtures/frontend/app/initial/file_manager"
+  },
+  {
+    "id": "app-test8-quiz-create",
+    "prompt": "Create a multiple choice quiz app with 5 questions about general knowledge. Show one question at a time with 4 answer options. Track the score and show results at the end with percentage correct."
+  },
+  {
+    "id": "app-test9-recipe-book-create",
+    "prompt": "Create a recipe book app where users can add recipes with a name, ingredients list, and instructions. Include a search bar to filter recipes by name and the ability to delete recipes."
+  }
+]

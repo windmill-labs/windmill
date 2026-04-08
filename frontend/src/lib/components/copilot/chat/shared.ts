@@ -708,6 +708,10 @@ export async function pollJobCompletion(
 	toolId: string,
 	toolCallbacks: ToolCallbacks
 ): Promise<CompletedJob> {
+	if (isBenchmarkMockJob(jobId, workspace)) {
+		return buildBenchmarkMockCompletedJob(jobId, workspace)
+	}
+
 	let attempts = 0
 	const maxAttempts = 60
 	let job: CompletedJob | null = null
@@ -744,6 +748,36 @@ export async function pollJobCompletion(
 	}
 
 	return job
+}
+
+function isBenchmarkMockJob(jobId: string, workspace: string): boolean {
+	return jobId.startsWith('mock-job-id-') && workspace.includes('wmill-frontend-')
+}
+
+function buildBenchmarkMockCompletedJob(jobId: string, workspace: string): CompletedJob {
+	const now = new Date().toISOString()
+	return {
+		id: jobId,
+		created_by: 'ai-evals',
+		created_at: now,
+		started_at: now,
+		completed_at: now,
+		duration_ms: 0,
+		success: true,
+		result: {
+			mocked: true,
+			workspace
+		},
+		logs: 'Mock benchmark test run completed successfully.',
+		canceled: false,
+		job_kind: 'flowpreview',
+		permissioned_as: 'u/ai-evals',
+		is_flow_step: false,
+		is_skipped: false,
+		email: 'ai-evals@local',
+		visible_to_owner: true,
+		tag: 'benchmark'
+	}
 }
 
 // Helper function to extract code blocks from markdown text

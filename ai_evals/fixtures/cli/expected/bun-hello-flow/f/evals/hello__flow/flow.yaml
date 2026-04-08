@@ -1,0 +1,6 @@
+value:
+  modules:
+Add File: /home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/fixtures/cli/expected/bun-hello-flow/f/evals/hello__flow/hello.ts
+export async function main(name: string) {
+  return { greeting: `Hello, ${name}!` };
+}

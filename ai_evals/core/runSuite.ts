@@ -1,0 +1,202 @@
+import { judgeOutput, DEFAULT_JUDGE_MODEL } from "./judge";
+import type {
+  BenchmarkAttemptResult,
+  BenchmarkCaseResult,
+  BenchmarkCheck,
+  EvalCase,
+  FrontendBenchmarkProgressEvent,
+  ModeRunner,
+} from "./types";
+
+export async function runSuite<TInitial, TExpected, TActual>(input: {
+  modeRunner: ModeRunner<TInitial, TExpected, TActual>;
+  cases: EvalCase[];
+  runs: number;
+  runModel: string | null;
+  judgeModel?: string | null;
+  onProgress?: (event: FrontendBenchmarkProgressEvent) => void;
+}): Promise<BenchmarkCaseResult[]> {
+  const judgeModel = input.judgeModel ?? DEFAULT_JUDGE_MODEL;
+  const concurrency = Math.max(1, input.modeRunner.concurrency);
+  const results = new Array<BenchmarkCaseResult>(input.cases.length);
+  let cursor = 0;
+
+  if (input.modeRunner.mode !== "cli") {
+    input.onProgress?.({
+      type: "run-start",
+      surface: input.modeRunner.mode,
+      totalCases: input.cases.length,
+      runs: input.runs,
+      concurrency,
+    });
+  }
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const caseIndex = cursor++;
+      if (caseIndex >= input.cases.length) {
+        return;
+      }
+      const evalCase = input.cases[caseIndex];
+      results[caseIndex] = {
+        id: evalCase.id,
+        prompt: evalCase.prompt,
+        initialPath: evalCase.initialPath,
+        expectedPath: evalCase.expectedPath,
+        attempts: await runCaseAttempts({
+          caseIndex,
+          evalCase,
+          runs: input.runs,
+          judgeModel,
+          judgeThreshold: input.modeRunner.judgeThreshold ?? 80,
+          modeRunner: input.modeRunner,
+          totalCases: input.cases.length,
+          onProgress: input.onProgress,
+        }),
+      };
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, input.cases.length) }, () => worker())
+  );
+
+  return results;
+}
+
+async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
+  caseIndex: number;
+  evalCase: EvalCase;
+  runs: number;
+  judgeModel: string;
+  judgeThreshold: number;
+  modeRunner: ModeRunner<TInitial, TExpected, TActual>;
+  totalCases: number;
+  onProgress?: (event: FrontendBenchmarkProgressEvent) => void;
+}): Promise<BenchmarkAttemptResult[]> {
+  const attempts: BenchmarkAttemptResult[] = [];
+
+  for (let attempt = 1; attempt <= input.runs; attempt += 1) {
+    input.onProgress?.({
+      type: "attempt-start",
+      surface: input.modeRunner.mode as Exclude<typeof input.modeRunner.mode, "cli">,
+      caseId: input.evalCase.id,
+      caseNumber: input.caseIndex + 1,
+      totalCases: input.totalCases,
+      attempt,
+      runs: input.runs,
+    });
+
+    const startedAt = Date.now();
+    const initial = await input.modeRunner.loadInitial(input.evalCase.initialPath);
+    const expected = await input.modeRunner.loadExpected(input.evalCase.expectedPath);
+
+    try {
+      const run = await input.modeRunner.run(input.evalCase.prompt, initial);
+      const checks: BenchmarkCheck[] = [
+        buildCheck("run succeeded", run.success, run.error),
+        ...input.modeRunner.validate({
+          prompt: input.evalCase.prompt,
+          initial,
+          expected,
+          actual: run.actual,
+          run,
+        }),
+      ];
+
+      let judgeScore: number | null = null;
+      let judgeSummary: string | null = null;
+
+      if (run.success) {
+        const judge = await judgeOutput({
+          mode: input.modeRunner.mode,
+          prompt: input.evalCase.prompt,
+          initial,
+          expected,
+          actual: run.actual,
+          model: input.judgeModel,
+        });
+
+        judgeScore = judge.success ? judge.score : null;
+        judgeSummary = judge.summary;
+        checks.push(buildCheck("judge succeeded", judge.success, judge.error));
+        checks.push(
+          buildCheck(
+            `judge score >= ${input.judgeThreshold}`,
+            (judgeScore ?? 0) >= input.judgeThreshold,
+            judge.success ? `score=${judgeScore}` : judge.error
+          )
+        );
+      }
+
+      const attemptResult: BenchmarkAttemptResult = {
+        attempt,
+        passed: checks.every((check) => check.passed),
+        durationMs: Date.now() - startedAt,
+        assistantMessageCount: run.assistantMessageCount,
+        toolCallCount: run.toolCallCount,
+        toolsUsed: uniqueStrings(run.toolsUsed),
+        skillsInvoked: uniqueStrings(run.skillsInvoked),
+        checks,
+        judgeScore,
+        judgeSummary,
+        error: run.error ?? null,
+      };
+
+      input.onProgress?.({
+        type: "attempt-finish",
+        surface: input.modeRunner.mode as Exclude<typeof input.modeRunner.mode, "cli">,
+        caseId: input.evalCase.id,
+        caseNumber: input.caseIndex + 1,
+        totalCases: input.totalCases,
+        attempt,
+        runs: input.runs,
+        passed: attemptResult.passed,
+        durationMs: attemptResult.durationMs,
+        judgeScore: attemptResult.judgeScore,
+        error: attemptResult.error,
+      });
+
+      attempts.push(attemptResult);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const failedAttempt: BenchmarkAttemptResult = {
+        attempt,
+        passed: false,
+        durationMs: Date.now() - startedAt,
+        assistantMessageCount: 0,
+        toolCallCount: 0,
+        toolsUsed: [],
+        skillsInvoked: [],
+        checks: [buildCheck("run crashed", false, message)],
+        judgeScore: null,
+        judgeSummary: null,
+        error: message,
+      };
+      input.onProgress?.({
+        type: "attempt-finish",
+        surface: input.modeRunner.mode as Exclude<typeof input.modeRunner.mode, "cli">,
+        caseId: input.evalCase.id,
+        caseNumber: input.caseIndex + 1,
+        totalCases: input.totalCases,
+        attempt,
+        runs: input.runs,
+        passed: false,
+        durationMs: failedAttempt.durationMs,
+        judgeScore: null,
+        error: message,
+      });
+      attempts.push(failedAttempt);
+    }
+  }
+
+  return attempts;
+}
+
+function buildCheck(name: string, passed: boolean, details?: string): BenchmarkCheck {
+  return details ? { name, passed, details } : { name, passed };
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}

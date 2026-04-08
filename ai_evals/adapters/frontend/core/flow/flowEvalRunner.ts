@@ -10,58 +10,34 @@ import {
 	prepareFlowUserMessage,
 	type FlowAIChatHelpers
 } from '../../../../../frontend/src/lib/components/copilot/chat/flow/core'
+import type { Tool as ProductionTool } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
 import { createFlowFileHelpers } from './fileHelpers'
-import { evaluateFlowComparison, type ExpectedFlow } from './flowEvalComparison'
-import {
-	runEval,
-	resolveSystemPrompt,
-	resolveTools,
-	resolveModel,
-	type VariantConfig,
-	type BaseEvalResult,
-	type EvaluationResult,
-	type Tool,
-	type VariantDefaults
-} from '../shared'
+import { runEval } from '../shared'
 
-// Re-export for convenience
-export type { ExpectedFlow } from './flowEvalComparison'
-
-/**
- * Flow-specific evaluation result.
- */
-export interface FlowEvalResult extends BaseEvalResult<ExtendedOpenFlow> {
-	/** Alias for output to maintain API compatibility */
-	flow: ExtendedOpenFlow
+export interface FlowFixture {
+	value?: {
+		modules?: FlowModule[]
+	}
+	schema?: Record<string, unknown>
 }
 
-/**
- * Options for running a flow evaluation.
- */
+export interface FlowEvalResult {
+	success: boolean
+	flow: ExtendedOpenFlow
+	error?: string
+	assistantMessageCount: number
+	toolCallCount: number
+	toolsUsed: string[]
+}
+
 export interface FlowEvalOptions {
-	initialModules?: FlowModule[]
-	initialSchema?: Record<string, any>
+	initialFlow?: FlowFixture
 	model?: string
-	customSystemPrompt?: string
 	maxIterations?: number
-	variant?: VariantConfig
-	expectedFlow?: ExpectedFlow
-	/** AI provider (inferred from model name if omitted) */
 	provider?: AIProvider
 	workspaceRoot?: string
 }
 
-/**
- * Flow-specific variant defaults.
- */
-const flowDefaults: VariantDefaults<FlowAIChatHelpers> = {
-	prepareSystemMessage: prepareFlowSystemMessage,
-	tools: flowTools as Tool<FlowAIChatHelpers>[]
-}
-
-/**
- * Runs a flow chat evaluation using the shared chat loop (same code path as production).
- */
 export async function runFlowEval(
 	userPrompt: string,
 	apiKey: string,
@@ -71,20 +47,15 @@ export async function runFlowEval(
 		options?.workspaceRoot ??
 		(await mkdtemp(join(tmpdir(), 'wmill-frontend-flow-benchmark-')))
 	const { helpers, getFlow, cleanup } = await createFlowFileHelpers(
-		options?.initialModules ?? [],
-		options?.initialSchema,
+		options?.initialFlow?.value?.modules ?? [],
+		options?.initialFlow?.schema,
 		workspaceRoot
 	)
 
 	try {
-		const variantName = options?.variant?.name ?? 'baseline'
-		const systemMessage = resolveSystemPrompt(
-			options?.variant,
-			flowDefaults,
-			options?.customSystemPrompt
-		)
-		const { tools } = resolveTools(options?.variant, flowDefaults)
-		const model = resolveModel(options?.variant, options?.model)
+		const systemMessage = prepareFlowSystemMessage()
+		const tools = flowTools as ProductionTool<FlowAIChatHelpers>[]
+		const model = options?.model ?? 'claude-haiku-4-5-20251001'
 		const userMessage = prepareFlowUserMessage(userPrompt, helpers.getFlowAndSelectedId(), [])
 
 		const rawResult = await runEval({
@@ -103,25 +74,13 @@ export async function runFlowEval(
 			}
 		})
 
-		let evaluationResult: EvaluationResult | undefined
-		if (options?.expectedFlow) {
-			const generatedFlow = getFlow()
-			evaluationResult = await evaluateFlowComparison(
-				{
-					summary: generatedFlow.summary,
-					value: { modules: generatedFlow.value.modules },
-					schema: generatedFlow.schema
-				},
-				options.expectedFlow,
-				userPrompt
-			)
-		}
-
 		return {
-			...rawResult,
-			variantName,
 			flow: rawResult.output,
-			evaluationResult
+			success: rawResult.success,
+			error: rawResult.error,
+			assistantMessageCount: rawResult.iterations,
+			toolCallCount: rawResult.toolCallsCount,
+			toolsUsed: rawResult.toolsCalled
 		}
 	} finally {
 		await cleanup()

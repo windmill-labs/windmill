@@ -1,61 +1,69 @@
 # AI Evals
 
-Repo-level benchmark suite for the Windmill CLI guidance and the frontend AI
-chat surfaces.
+Minimal benchmark runner for the four Windmill AI generation modes:
 
-## What It Is For
+- `cli`
+- `flow`
+- `script`
+- `app`
 
-The default workflow is:
+Each case is just:
 
-1. run the benchmark on the current checkout
-2. save the local result JSON
-3. make your change
-4. run again
-5. diff the two result files
-6. optionally promote the good run into official history
+- a `prompt`
+- an optional `initial` fixture
+- an optional `expected` fixture
 
-This keeps local development focused on before/after comparisons instead of
-named prompt variants.
+Each attempt runs:
 
-## Entry Point
+1. the real production prompt/tool/guidance path
+2. deterministic validation
+3. LLM judging
 
-Install once:
+## Install
 
 ```bash
 cd ai_evals
 bun install
 ```
 
-Main commands:
+Frontend runs also require frontend dependencies:
+
+```bash
+cd frontend
+bun install
+```
+
+## CLI
+
+List cases:
 
 ```bash
 cd ai_evals
-bun run cli -- list-cases
-bun run cli -- run --surface flow --runs 3
-bun run cli -- diff-results ai_evals/results/before.json ai_evals/results/after.json
-bun run cli -- history --limit 10
+bun run cli -- cases
+bun run cli -- cases flow
 ```
 
-## Surfaces
+Run a mode:
 
-- `cli`: benchmark the CLI skills / AGENTS / CLAUDE guidance path
-- `flow`: benchmark frontend flow chat
-- `app`: benchmark frontend app chat
-- `script`: benchmark frontend script chat
+```bash
+cd ai_evals
+bun run cli -- run flow
+bun run cli -- run flow flow-test5-simple-modification --runs 3
+bun run cli -- run cli bun-hello-script
+```
+
+`run` always writes a JSON result file under `ai_evals/results/` unless you pass
+`--output`.
 
 ## Layout
 
-- `cli/`: benchmark CLI entrypoint
-- `cases/`: eval manifests
-- `fixtures/`: initial and expected frontend artifacts
-- `history/`: tracked official benchmark history
-- `results/`: local run outputs written by `run` and ignored by git
+- `cases/`: one JSON file per mode
+- `fixtures/`: initial and expected fixtures
+- `core/`: shared case loading, validation, judging, and result writing
+- `modes/`: one runner per mode
 
 ## Notes
 
-- Frontend runs reuse the production frontend chat code through the Vitest
-  adapter under `ai_evals/adapters/frontend/`.
-- CLI runs create an isolated workspace and write the current checkout's
-  guidance into it before running the benchmark prompt.
-- Official history is separate from local experimentation. Use
-  `bun run cli -- promote-result ...` only for runs you want to preserve.
+- Frontend modes reuse the production frontend chat code through the Vitest bridge.
+- CLI mode creates an isolated workspace, writes the current checkout guidance into it, and benchmarks the real skills / AGENTS flow.
+- Frontend progress streams live while the benchmark is running.

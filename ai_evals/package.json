@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "cli": "bun cli/index.ts",
-    "list-cases": "bun cli/index.ts list-cases"
+    "cli": "bun cli/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@anthropic-ai/claude-agent-sdk": "^0.2.25",
     "commander": "^14.0.3"
   },
