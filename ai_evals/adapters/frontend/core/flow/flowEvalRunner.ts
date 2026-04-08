@@ -127,34 +127,3 @@ export async function runFlowEval(
 		await cleanup()
 	}
 }
-
-/**
- * Per-variant provider override.
- */
-export interface VariantProviderOverride {
-	provider: AIProvider
-	apiKey: string
-}
-
-/**
- * Runs the same prompt against multiple variants sequentially for comparison.
- * Accepts optional per-variant provider/apiKey overrides.
- */
-export async function runVariantComparison(
-	userPrompt: string,
-	variants: VariantConfig[],
-	defaultApiKey: string,
-	baseOptions?: Omit<FlowEvalOptions, 'variant'>,
-	providerOverrides?: VariantProviderOverride[]
-): Promise<FlowEvalResult[]> {
-	return await Promise.all(
-		variants.map(async (variant, i) => {
-			const override = providerOverrides?.[i]
-			return await runFlowEval(userPrompt, override?.apiKey ?? defaultApiKey, {
-				...baseOptions,
-				variant,
-				provider: override?.provider ?? baseOptions?.provider
-			})
-		})
-	)
-}

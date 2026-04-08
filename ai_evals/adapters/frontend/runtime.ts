@@ -12,6 +12,15 @@ const FRONTEND_BENCHMARK_TEST = '../ai_evals/adapters/frontend/vitestAdapter.tes
 
 export type FrontendSurfaceName = 'frontend-flow' | 'frontend-app' | 'frontend-script'
 
+export interface FrontendBenchmarkConfig {
+	provider?: 'anthropic' | 'openai'
+	model?: string
+	systemPrompt?: {
+		mode: 'append' | 'replace'
+		content: string
+	}
+}
+
 export interface FrontendAdapterAttempt {
 	attempt: number
 	passed: boolean
@@ -31,25 +40,20 @@ export interface FrontendAdapterCaseResult {
 	attempts: FrontendAdapterAttempt[]
 }
 
-export interface FrontendAdapterVariantResult {
-	variant: string
+export interface FrontendAdapterPayload {
+	surface: 'flow' | 'app' | 'script'
+	runs: number
 	provider: string
 	model: string
 	judgeModel: string | null
 	caseResults: FrontendAdapterCaseResult[]
 }
 
-export interface FrontendAdapterPayload {
-	surface: 'flow' | 'app' | 'script'
-	runs: number
-	variants: FrontendAdapterVariantResult[]
-}
-
 export async function runFrontendBenchmarkAdapter(input: {
 	surface: FrontendSurfaceName
 	caseIds: string[]
-	variantIds: string[]
 	runs: number
+	config?: FrontendBenchmarkConfig
 }): Promise<FrontendAdapterPayload> {
 	const tempDir = await mkdtemp(path.join(tmpdir(), 'wmill-frontend-benchmark-'))
 	const outputPath = path.join(tempDir, 'result.json')
@@ -64,20 +68,22 @@ export async function runFrontendBenchmarkAdapter(input: {
 				'server',
 				'--config',
 				'vite.config.js'
-			],
-			{
-				cwd: FRONTEND_DIR,
-				env: {
-					...process.env,
-					WMILL_FRONTEND_AI_EVAL_OUTPUT_PATH: outputPath,
-					WMILL_FRONTEND_AI_EVAL_SURFACE: frontendSurfaceToAdapterSurface(input.surface),
-					WMILL_FRONTEND_AI_EVAL_CASE_IDS: JSON.stringify(input.caseIds),
-					WMILL_FRONTEND_AI_EVAL_VARIANT_IDS: JSON.stringify(input.variantIds),
-					WMILL_FRONTEND_AI_EVAL_RUNS: String(input.runs)
-				},
-				maxBuffer: 10 * 1024 * 1024
-			}
-		)
+				],
+				{
+					cwd: FRONTEND_DIR,
+					env: {
+						...process.env,
+						WMILL_FRONTEND_AI_EVAL_OUTPUT_PATH: outputPath,
+						WMILL_FRONTEND_AI_EVAL_SURFACE: frontendSurfaceToAdapterSurface(input.surface),
+						WMILL_FRONTEND_AI_EVAL_CASE_IDS: JSON.stringify(input.caseIds),
+						WMILL_FRONTEND_AI_EVAL_RUNS: String(input.runs),
+						WMILL_FRONTEND_AI_EVAL_CONFIG: input.config
+							? JSON.stringify(input.config)
+							: ''
+					},
+					maxBuffer: 10 * 1024 * 1024
+				}
+			)
 
 		const raw = await readFile(outputPath, 'utf8')
 		return JSON.parse(raw) as FrontendAdapterPayload

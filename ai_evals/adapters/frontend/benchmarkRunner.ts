@@ -1,9 +1,3 @@
-// @ts-ignore - Node.js fs/promises
-import { readFile } from 'fs/promises'
-// @ts-ignore - Node.js path
-import { dirname, join, resolve } from 'path'
-// @ts-ignore - Node.js url
-import { fileURLToPath } from 'url'
 import type { AIProvider } from '$lib/gen/types.gen'
 import { loadAppEvalCases, loadFlowEvalCases, loadScriptEvalCases } from './core/evalCaseLoader'
 import type { VariantConfig } from './core/shared'
@@ -20,41 +14,13 @@ import {
 
 export type FrontendBenchmarkSurface = 'flow' | 'app' | 'script'
 
-interface VariantPromptConfigDefault {
-	type: 'default'
-}
-
-interface VariantPromptConfigDefaultWithCustom {
-	type: 'default-with-custom'
-	custom?: string
-	customPath?: string
-}
-
-interface VariantPromptConfigCustom {
-	type: 'custom'
-	content?: string
-	contentPath?: string
-}
-
-interface VariantToolsConfigDefault {
-	type: 'default'
-}
-
-interface VariantToolsConfigSubset {
-	type: 'subset'
-	include: string[]
-}
-
-export interface FrontendBenchmarkVariantManifest {
-	id: string
-	description?: string
+export interface FrontendBenchmarkConfig {
 	provider?: AIProvider
 	model?: string
-	systemPrompt?:
-		| VariantPromptConfigDefault
-		| VariantPromptConfigDefaultWithCustom
-		| VariantPromptConfigCustom
-	tools?: VariantToolsConfigDefault | VariantToolsConfigSubset
+	systemPrompt?: {
+		mode: 'append' | 'replace'
+		content: string
+	}
 }
 
 export interface FrontendBenchmarkAttempt {
@@ -76,146 +42,129 @@ export interface FrontendBenchmarkCaseResult {
 	attempts: FrontendBenchmarkAttempt[]
 }
 
-export interface FrontendBenchmarkVariantResult {
-	variant: string
+export interface FrontendBenchmarkPayload {
+	surface: FrontendBenchmarkSurface
+	runs: number
 	provider: AIProvider
 	model: string
 	judgeModel: string | null
 	caseResults: FrontendBenchmarkCaseResult[]
 }
 
-export interface FrontendBenchmarkPayload {
-	surface: FrontendBenchmarkSurface
-	runs: number
-	variants: FrontendBenchmarkVariantResult[]
-}
-
 const DEFAULT_MIN_JUDGE_SCORE = 80
+const DEFAULT_PROVIDER: AIProvider = 'anthropic'
+const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
 const FRONTEND_JUDGE_MODEL = 'claude-sonnet-4-6'
 
 export async function runFrontendBenchmarkFromEnv(): Promise<FrontendBenchmarkPayload> {
 	return runFrontendBenchmark({
 		surface: parseSurface(process.env.WMILL_FRONTEND_AI_EVAL_SURFACE),
-		caseIds: parseJsonStringArray(process.env.WMILL_FRONTEND_AI_EVAL_CASE_IDS, 'WMILL_FRONTEND_AI_EVAL_CASE_IDS'),
-		variantIds: parseJsonStringArray(
-			process.env.WMILL_FRONTEND_AI_EVAL_VARIANT_IDS,
-			'WMILL_FRONTEND_AI_EVAL_VARIANT_IDS'
-		),
-		runs: parsePositiveInteger(process.env.WMILL_FRONTEND_AI_EVAL_RUNS, 'WMILL_FRONTEND_AI_EVAL_RUNS')
+		caseIds: parseOptionalJsonStringArray(process.env.WMILL_FRONTEND_AI_EVAL_CASE_IDS),
+		runs: parsePositiveInteger(process.env.WMILL_FRONTEND_AI_EVAL_RUNS, 'WMILL_FRONTEND_AI_EVAL_RUNS'),
+		config: parseConfig(process.env.WMILL_FRONTEND_AI_EVAL_CONFIG)
 	})
 }
 
 export async function runFrontendBenchmark(input: {
 	surface: FrontendBenchmarkSurface
 	caseIds: string[]
-	variantIds: string[]
 	runs: number
+	config?: FrontendBenchmarkConfig
 }): Promise<FrontendBenchmarkPayload> {
-	if (input.variantIds.length === 0) {
-		throw new Error('Frontend benchmark requires at least one variant id')
-	}
-
 	switch (input.surface) {
 		case 'flow':
-			return await runFlowBenchmark(input)
+			return await runFlowBenchmark({
+				surface: 'flow',
+				caseIds: input.caseIds,
+				runs: input.runs,
+				config: input.config
+			})
 		case 'app':
-			return await runAppBenchmark(input)
+			return await runAppBenchmark({
+				surface: 'app',
+				caseIds: input.caseIds,
+				runs: input.runs,
+				config: input.config
+			})
 		case 'script':
-			return await runScriptBenchmark(input)
+			return await runScriptBenchmark({
+				surface: 'script',
+				caseIds: input.caseIds,
+				runs: input.runs,
+				config: input.config
+			})
 		default:
 			throw new Error(`Unsupported frontend benchmark surface: ${String(input.surface)}`)
 	}
 }
 
-function resolveRepoRoot(): string {
-	const currentDir = dirname(fileURLToPath(import.meta.url))
-	const repoRoot = resolve(currentDir, '../../..')
-	return repoRoot
-}
-
 async function runFlowBenchmark(input: {
 	surface: 'flow'
 	caseIds: string[]
-	variantIds: string[]
 	runs: number
+	config?: FrontendBenchmarkConfig
 }): Promise<FrontendBenchmarkPayload> {
 	const { runFlowEval } = await import('./core/flow/flowEvalRunner')
 	const allCases = loadFlowEvalCases()
-	const selectedCases =
-		input.caseIds.length === 0
-			? allCases
-			: input.caseIds.map((caseId) => {
-					const testCase = allCases.find((entry) => entry.id === caseId)
-					if (!testCase) {
-						throw new Error(`Unknown frontend flow case: ${caseId}`)
-					}
-					return testCase
-				})
-
-	const variants = await Promise.all(
-		input.variantIds.map((variantId) => loadFrontendVariant('flow', variantId))
-	)
+	const selectedCases = resolveCases(allCases, input.caseIds, 'frontend flow')
+	const resolvedConfig = resolveConfig(input.config)
 
 	return {
 		surface: input.surface,
 		runs: input.runs,
-		variants: await Promise.all(
-			variants.map(async (variant) => ({
-				variant: variant.id,
-				provider: variant.provider,
-				model: variant.model,
-				judgeModel: FRONTEND_JUDGE_MODEL,
-				caseResults: await Promise.all(
-					selectedCases.map(async (testCase) => ({
-						caseId: testCase.id,
-						attempts: await runRepeated(input.runs, async (attempt) => {
-							const startedAt = Date.now()
-							const result = await runFlowEval(
-								testCase.userPrompt,
-								getApiKeyForProvider(variant.provider),
-								{
-									initialModules: testCase.initialFlow?.value?.modules,
-									initialSchema: testCase.initialFlow?.schema,
-									expectedFlow: testCase.expectedFlow,
-									variant: variant.config,
-									provider: variant.provider,
-									model: variant.model
-								}
-							)
+		provider: resolvedConfig.provider,
+		model: resolvedConfig.model,
+		judgeModel: FRONTEND_JUDGE_MODEL,
+		caseResults: await Promise.all(
+			selectedCases.map(async (testCase) => ({
+				caseId: testCase.id,
+				attempts: await runRepeated(input.runs, async (attempt) => {
+					const startedAt = Date.now()
+					const result = await runFlowEval(
+						testCase.userPrompt,
+						getApiKeyForProvider(resolvedConfig.provider),
+						{
+								initialModules: testCase.initialFlow?.value?.modules,
+								initialSchema: testCase.initialFlow?.schema,
+								expectedFlow: testCase.expectedFlow as unknown as Parameters<
+									typeof runFlowEval
+								>[2]['expectedFlow'],
+								variant: resolvedConfig.variant,
+								provider: resolvedConfig.provider,
+								model: resolvedConfig.model
+						}
+					)
 
-							const minJudgeScore = testCase.minJudgeScore ?? DEFAULT_MIN_JUDGE_SCORE
-							const checks = [
-								requiredCheck('chat run succeeded', result.success, result.error),
-								...validateFlowArtifact({
-									generatedFlow: {
-										summary: result.flow.summary,
-										value: { modules: result.flow.value.modules },
-										schema: result.flow.schema
-									},
-									expectedFlow: testCase.expectedFlow
-								}),
-								...buildJudgeChecks({
-									evaluationResult: result.evaluationResult,
-									minJudgeScore
-								})
-							]
-
-							return {
-								attempt,
-								passed: allRequiredChecksPassed(checks),
-								durationMs: Date.now() - startedAt,
-								assistantMessageCount: result.iterations,
-								toolCallCount: result.toolCallsCount,
-								toolsUsed: uniqueStrings(result.toolsCalled),
-								checks,
-								requiredFailedChecks: getRequiredFailedChecks(checks),
-								judgeScore: result.evaluationResult?.resemblanceScore ?? null,
-								judgeStatement: result.evaluationResult?.statement ?? null,
-								error: result.error ?? result.evaluationResult?.error ?? null
-							} satisfies FrontendBenchmarkAttempt
+					const minJudgeScore = testCase.minJudgeScore ?? DEFAULT_MIN_JUDGE_SCORE
+					const checks = [
+						requiredCheck('chat run succeeded', result.success, result.error),
+						...validateFlowArtifact({
+							generatedFlow: {
+								value: { modules: result.flow.value.modules },
+								schema: result.flow.schema
+							},
+							expectedFlow: testCase.expectedFlow
+						}),
+						...buildJudgeChecks({
+							evaluationResult: result.evaluationResult,
+							minJudgeScore
 						})
-					}))
-				)
+					]
+
+					return {
+						attempt,
+						passed: allRequiredChecksPassed(checks),
+						durationMs: Date.now() - startedAt,
+						assistantMessageCount: result.iterations,
+						toolCallCount: result.toolCallsCount,
+						toolsUsed: uniqueStrings(result.toolsCalled),
+						checks,
+						requiredFailedChecks: getRequiredFailedChecks(checks),
+						judgeScore: result.evaluationResult?.resemblanceScore ?? null,
+						judgeStatement: result.evaluationResult?.statement ?? null,
+						error: result.error ?? result.evaluationResult?.error ?? null
+					} satisfies FrontendBenchmarkAttempt
+				})
 			}))
 		)
 	}
@@ -224,93 +173,76 @@ async function runFlowBenchmark(input: {
 async function runAppBenchmark(input: {
 	surface: 'app'
 	caseIds: string[]
-	variantIds: string[]
 	runs: number
+	config?: FrontendBenchmarkConfig
 }): Promise<FrontendBenchmarkPayload> {
 	const { runAppEval } = await import('./core/app/appEvalRunner')
 	const { loadAppFixtureForEval } = await import('./core/app/appFixtureLoader')
 	const allCases = loadAppEvalCases()
-	const selectedCases =
-		input.caseIds.length === 0
-			? allCases
-			: input.caseIds.map((caseId) => {
-					const testCase = allCases.find((entry) => entry.id === caseId)
-					if (!testCase) {
-						throw new Error(`Unknown frontend app case: ${caseId}`)
-					}
-					return testCase
-				})
-
-	const variants = await Promise.all(
-		input.variantIds.map((variantId) => loadFrontendVariant('app', variantId))
-	)
+	const selectedCases = resolveCases(allCases, input.caseIds, 'frontend app')
+	const resolvedConfig = resolveConfig(input.config)
 
 	return {
 		surface: input.surface,
 		runs: input.runs,
-		variants: await Promise.all(
-			variants.map(async (variant) => ({
-				variant: variant.id,
-				provider: variant.provider,
-				model: variant.model,
-				judgeModel: FRONTEND_JUDGE_MODEL,
-				caseResults: await Promise.all(
-					selectedCases.map(async (testCase) => {
-						const fixture = testCase.initialAppFixturePath
-							? await loadAppFixtureForEval(testCase.initialAppFixturePath)
-							: { initialFrontend: {}, initialBackend: {} }
+		provider: resolvedConfig.provider,
+		model: resolvedConfig.model,
+		judgeModel: FRONTEND_JUDGE_MODEL,
+		caseResults: await Promise.all(
+			selectedCases.map(async (testCase) => {
+				const fixture = testCase.initialAppFixturePath
+					? await loadAppFixtureForEval(testCase.initialAppFixturePath)
+					: { initialFrontend: {}, initialBackend: {} }
+
+				return {
+					caseId: testCase.id,
+					attempts: await runRepeated(input.runs, async (attempt) => {
+						const startedAt = Date.now()
+						const result = await runAppEval(
+							testCase.userPrompt,
+							getApiKeyForProvider(resolvedConfig.provider),
+							{
+								...fixture,
+								variant: resolvedConfig.variant,
+								provider: resolvedConfig.provider,
+								model: resolvedConfig.model
+							}
+						)
+
+						const minJudgeScore = testCase.minJudgeScore ?? DEFAULT_MIN_JUDGE_SCORE
+						const checks = [
+							requiredCheck('chat run succeeded', result.success, result.error),
+							...validateAppArtifact({
+								generatedApp: result.files,
+								initialApp: testCase.initialAppFixturePath
+									? {
+											frontend: fixture.initialFrontend,
+											backend: fixture.initialBackend
+										}
+									: undefined
+							}),
+							...buildJudgeChecks({
+								evaluationResult: result.evaluationResult,
+								minJudgeScore
+							})
+						]
 
 						return {
-							caseId: testCase.id,
-							attempts: await runRepeated(input.runs, async (attempt) => {
-								const startedAt = Date.now()
-								const result = await runAppEval(
-									testCase.userPrompt,
-									getApiKeyForProvider(variant.provider),
-									{
-										...fixture,
-										variant: variant.config,
-										provider: variant.provider,
-										model: variant.model
-									}
-								)
-
-								const minJudgeScore = testCase.minJudgeScore ?? DEFAULT_MIN_JUDGE_SCORE
-								const checks = [
-									requiredCheck('chat run succeeded', result.success, result.error),
-									...validateAppArtifact({
-										generatedApp: result.files,
-										initialApp: testCase.initialAppFixturePath
-											? {
-													frontend: fixture.initialFrontend,
-													backend: fixture.initialBackend
-												}
-											: undefined
-									}),
-									...buildJudgeChecks({
-										evaluationResult: result.evaluationResult,
-										minJudgeScore
-									})
-								]
-
-								return {
-									attempt,
-									passed: allRequiredChecksPassed(checks),
-									durationMs: Date.now() - startedAt,
-									assistantMessageCount: result.iterations,
-									toolCallCount: result.toolCallsCount,
-									toolsUsed: uniqueStrings(result.toolsCalled),
-									checks,
-									requiredFailedChecks: getRequiredFailedChecks(checks),
-									judgeScore: result.evaluationResult?.resemblanceScore ?? null,
-									judgeStatement: result.evaluationResult?.statement ?? null,
-									error: result.error ?? result.evaluationResult?.error ?? null
-								} satisfies FrontendBenchmarkAttempt
-							})
-						}
+							attempt,
+							passed: allRequiredChecksPassed(checks),
+							durationMs: Date.now() - startedAt,
+							assistantMessageCount: result.iterations,
+							toolCallCount: result.toolCallsCount,
+							toolsUsed: uniqueStrings(result.toolsCalled),
+							checks,
+							requiredFailedChecks: getRequiredFailedChecks(checks),
+							judgeScore: result.evaluationResult?.resemblanceScore ?? null,
+							judgeStatement: result.evaluationResult?.statement ?? null,
+							error: result.error ?? result.evaluationResult?.error ?? null
+						} satisfies FrontendBenchmarkAttempt
 					})
-				)
-			}))
+				}
+			})
 		)
 	}
 }
@@ -318,164 +250,173 @@ async function runAppBenchmark(input: {
 async function runScriptBenchmark(input: {
 	surface: 'script'
 	caseIds: string[]
-	variantIds: string[]
 	runs: number
+	config?: FrontendBenchmarkConfig
 }): Promise<FrontendBenchmarkPayload> {
 	const { runScriptEval } = await import('./core/script/scriptEvalRunner')
 	const allCases = loadScriptEvalCases()
-	const selectedCases =
-		input.caseIds.length === 0
-			? allCases
-			: input.caseIds.map((caseId) => {
-					const testCase = allCases.find((entry) => entry.id === caseId)
-					if (!testCase) {
-						throw new Error(`Unknown frontend script case: ${caseId}`)
-					}
-					return testCase
-				})
-
-	const variants = await Promise.all(
-		input.variantIds.map((variantId) => loadFrontendVariant('script', variantId))
-	)
+	const selectedCases = resolveCases(allCases, input.caseIds, 'frontend script')
+	const resolvedConfig = resolveConfig(input.config)
 
 	return {
 		surface: input.surface,
 		runs: input.runs,
-		variants: await Promise.all(
-			variants.map(async (variant) => ({
-				variant: variant.id,
-				provider: variant.provider,
-				model: variant.model,
-				judgeModel: FRONTEND_JUDGE_MODEL,
-				caseResults: await Promise.all(
-					selectedCases.map(async (testCase) => ({
-						caseId: testCase.id,
-						attempts: await runRepeated(input.runs, async (attempt) => {
-							const startedAt = Date.now()
-							const result = await runScriptEval(
-								testCase.userPrompt,
-								getApiKeyForProvider(variant.provider),
-								{
-									initialScript: testCase.initialScript ?? testCase.expectedScript,
-									expectedScript: testCase.expectedScript,
-									variant: variant.config,
-									provider: variant.provider,
-									model: variant.model
-								}
-							)
+		provider: resolvedConfig.provider,
+		model: resolvedConfig.model,
+		judgeModel: FRONTEND_JUDGE_MODEL,
+		caseResults: await Promise.all(
+			selectedCases.map(async (testCase) => ({
+				caseId: testCase.id,
+				attempts: await runRepeated(input.runs, async (attempt) => {
+					const startedAt = Date.now()
+					const result = await runScriptEval(
+						testCase.userPrompt,
+						getApiKeyForProvider(resolvedConfig.provider),
+						{
+							initialScript: testCase.initialScript ?? testCase.expectedScript,
+							expectedScript: testCase.expectedScript,
+							variant: resolvedConfig.variant,
+							provider: resolvedConfig.provider,
+							model: resolvedConfig.model
+						}
+					)
 
-							const minJudgeScore = testCase.minJudgeScore ?? DEFAULT_MIN_JUDGE_SCORE
-							const checks = [
-								requiredCheck('chat run succeeded', result.success, result.error),
-								...validateScriptArtifact({
-									generatedScript: result.script,
-									expectedScript: testCase.expectedScript,
-									initialScript: testCase.initialScript
-								}),
-								...buildJudgeChecks({
-									evaluationResult: result.evaluationResult,
-									minJudgeScore
-								})
-							]
-
-							return {
-								attempt,
-								passed: allRequiredChecksPassed(checks),
-								durationMs: Date.now() - startedAt,
-								assistantMessageCount: result.iterations,
-								toolCallCount: result.toolCallsCount,
-								toolsUsed: uniqueStrings(result.toolsCalled),
-								checks,
-								requiredFailedChecks: getRequiredFailedChecks(checks),
-								judgeScore: result.evaluationResult?.resemblanceScore ?? null,
-								judgeStatement: result.evaluationResult?.statement ?? null,
-								error: result.error ?? result.evaluationResult?.error ?? null
-							} satisfies FrontendBenchmarkAttempt
+					const minJudgeScore = testCase.minJudgeScore ?? DEFAULT_MIN_JUDGE_SCORE
+					const checks = [
+						requiredCheck('chat run succeeded', result.success, result.error),
+						...validateScriptArtifact({
+							generatedScript: result.script,
+							expectedScript: testCase.expectedScript,
+							initialScript: testCase.initialScript
+						}),
+						...buildJudgeChecks({
+							evaluationResult: result.evaluationResult,
+							minJudgeScore
 						})
-					}))
-				)
+					]
+
+					return {
+						attempt,
+						passed: allRequiredChecksPassed(checks),
+						durationMs: Date.now() - startedAt,
+						assistantMessageCount: result.iterations,
+						toolCallCount: result.toolCallsCount,
+						toolsUsed: uniqueStrings(result.toolsCalled),
+						checks,
+						requiredFailedChecks: getRequiredFailedChecks(checks),
+						judgeScore: result.evaluationResult?.resemblanceScore ?? null,
+						judgeStatement: result.evaluationResult?.statement ?? null,
+						error: result.error ?? result.evaluationResult?.error ?? null
+					} satisfies FrontendBenchmarkAttempt
+				})
 			}))
 		)
 	}
 }
 
-async function loadFrontendVariant(
-	surface: FrontendBenchmarkSurface,
-	variantId: string
-): Promise<{
-	id: string
+function resolveConfig(config?: FrontendBenchmarkConfig): {
 	provider: AIProvider
 	model: string
-	config: VariantConfig
-}> {
-	const repoRoot = resolveRepoRoot()
-	const manifestPath = join(
-		repoRoot,
-		'ai_evals',
-		'variants',
-		'frontend',
-		surface,
-		`${variantId}.json`
-	)
-	const manifest = JSON.parse(
-		await readFile(manifestPath, 'utf8')
-	) as FrontendBenchmarkVariantManifest
+	variant: VariantConfig | undefined
+} {
+	const provider = config?.provider ?? DEFAULT_PROVIDER
+	const model = config?.model ?? DEFAULT_MODEL
 
-	if (!manifest.id) {
-		throw new Error(`Frontend variant manifest missing id: ${manifestPath}`)
+	if (!config?.systemPrompt) {
+		return {
+			provider,
+			model,
+			variant: undefined
+		}
 	}
 
 	return {
-		id: manifest.id,
-		provider: manifest.provider ?? 'anthropic',
-		model: manifest.model ?? 'claude-haiku-4-5-20251001',
-		config: {
-			name: manifest.id,
-			description: manifest.description,
-			systemPrompt: manifest.systemPrompt
-				? await resolveSystemPromptConfig(manifestPath, manifest.systemPrompt)
-				: { type: 'default' },
-			tools: manifest.tools ?? { type: 'default' }
+		provider,
+		model,
+		variant: {
+			name: config.systemPrompt.mode === 'replace' ? 'custom-system-prompt' : 'appended-system-prompt',
+			systemPrompt:
+				config.systemPrompt.mode === 'replace'
+					? { type: 'custom', content: config.systemPrompt.content }
+					: { type: 'default-with-custom', custom: config.systemPrompt.content },
+			tools: { type: 'default' },
+			model
 		}
 	}
 }
 
-async function resolveSystemPromptConfig(
-	manifestPath: string,
-	config: FrontendBenchmarkVariantManifest['systemPrompt']
-): Promise<VariantConfig['systemPrompt']> {
-	if (!config || config.type === 'default') {
-		return { type: 'default' }
+function resolveCases<T extends { id: string }>(
+	allCases: T[],
+	caseIds: string[],
+	surfaceLabel: string
+): T[] {
+	if (caseIds.length === 0) {
+		return allCases
 	}
 
-	if (config.type === 'default-with-custom') {
-		const custom = config.custom ?? (config.customPath ? await readPromptFile(manifestPath, config.customPath) : undefined)
-		if (!custom) {
+	return caseIds.map((caseId) => {
+		const testCase = allCases.find((entry) => entry.id === caseId)
+		if (!testCase) {
+			throw new Error(`Unknown ${surfaceLabel} case: ${caseId}`)
+		}
+		return testCase
+	})
+}
+
+function parseConfig(value: string | undefined): FrontendBenchmarkConfig | undefined {
+	if (!value) {
+		return undefined
+	}
+
+	const parsed = JSON.parse(value) as FrontendBenchmarkConfig
+	if (!parsed || typeof parsed !== 'object') {
+		throw new Error('WMILL_FRONTEND_AI_EVAL_CONFIG must be a JSON object')
+	}
+
+	if (parsed.provider && parsed.provider !== 'anthropic' && parsed.provider !== 'openai') {
+		throw new Error('WMILL_FRONTEND_AI_EVAL_CONFIG.provider must be "anthropic" or "openai"')
+	}
+
+	if (parsed.systemPrompt) {
+		const systemPrompt = parsed.systemPrompt
+		if (
+			(systemPrompt.mode !== 'append' && systemPrompt.mode !== 'replace') ||
+			typeof systemPrompt.content !== 'string' ||
+			systemPrompt.content.trim().length === 0
+		) {
 			throw new Error(
-				`Frontend variant ${manifestPath} must provide systemPrompt.custom or systemPrompt.customPath`
+				'WMILL_FRONTEND_AI_EVAL_CONFIG.systemPrompt must include mode "append" or "replace" and non-empty content'
 			)
 		}
-		return {
-			type: 'default-with-custom',
-			custom
-		}
 	}
 
-	const content =
-		config.content ?? (config.contentPath ? await readPromptFile(manifestPath, config.contentPath) : undefined)
-	if (!content) {
-		throw new Error(
-			`Frontend variant ${manifestPath} must provide systemPrompt.content or systemPrompt.contentPath`
-		)
-	}
-	return {
-		type: 'custom',
-		content
-	}
+	return parsed
 }
 
-async function readPromptFile(manifestPath: string, relativePath: string): Promise<string> {
-	return await readFile(join(dirname(manifestPath), relativePath), 'utf8')
+function parseOptionalJsonStringArray(value: string | undefined): string[] {
+	if (!value) {
+		return []
+	}
+	const parsed = JSON.parse(value) as unknown
+	if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== 'string')) {
+		throw new Error('WMILL_FRONTEND_AI_EVAL_CASE_IDS must be a JSON string array')
+	}
+	return parsed
+}
+
+function parseSurface(value: string | undefined): FrontendBenchmarkSurface {
+	if (value === 'flow' || value === 'app' || value === 'script') {
+		return value
+	}
+	throw new Error('WMILL_FRONTEND_AI_EVAL_SURFACE must be "flow", "app", or "script"')
+}
+
+function parsePositiveInteger(value: string | undefined, envName: string): number {
+	const parsed = Number.parseInt(value ?? '', 10)
+	if (!Number.isInteger(parsed) || parsed < 1) {
+		throw new Error(`${envName} must be a positive integer`)
+	}
+	return parsed
 }
 
 function getApiKeyForProvider(provider: AIProvider): string {
@@ -504,32 +445,6 @@ async function runRepeated<T>(runs: number, fn: (attempt: number) => Promise<T>)
 		results.push(await fn(attempt))
 	}
 	return results
-}
-
-function parseJsonStringArray(value: string | undefined, envName: string): string[] {
-	if (!value) {
-		throw new Error(`Missing required ${envName}`)
-	}
-	const parsed = JSON.parse(value) as unknown
-	if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== 'string')) {
-		throw new Error(`${envName} must be a JSON string array`)
-	}
-	return parsed
-}
-
-function parseSurface(value: string | undefined): FrontendBenchmarkSurface {
-	if (value === 'flow' || value === 'app' || value === 'script') {
-		return value
-	}
-	throw new Error('WMILL_FRONTEND_AI_EVAL_SURFACE must be "flow", "app", or "script"')
-}
-
-function parsePositiveInteger(value: string | undefined, envName: string): number {
-	const parsed = Number.parseInt(value ?? '', 10)
-	if (!Number.isInteger(parsed) || parsed < 1) {
-		throw new Error(`${envName} must be a positive integer`)
-	}
-	return parsed
 }
 
 function uniqueStrings(values: string[]): string[] {

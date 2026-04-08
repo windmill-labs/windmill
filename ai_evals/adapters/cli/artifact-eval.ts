@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { writeAiGuidanceFiles } from "../../../cli/src/guidance/writer.ts";
+import { getGeneratedSkillsSource } from "./runtime";
 import {
   loadEvalCases,
   type CliExpectedFileCheck
@@ -15,7 +16,6 @@ import {
   runPromptAndCapture,
   type PromptRunResult,
 } from "./runtime";
-import type { CliVariant } from "./variants";
 
 export type ExpectedFile = CliExpectedFileCheck;
 
@@ -44,7 +44,14 @@ export interface CliArtifactEvalResult {
   checks: ArtifactCheck[];
   expectedFiles: FileArtifactResult[];
   passed: boolean;
-  variantId: string;
+  guidanceLabel: string;
+}
+
+export interface CliGuidanceConfig {
+  label: string;
+  skillsSourcePath?: string;
+  agentsSourcePath?: string;
+  claudeSourcePath?: string;
 }
 
 const CLAUDE_PROJECT_PREAMBLE = [
@@ -72,10 +79,10 @@ export async function loadCliArtifactEvalCases(): Promise<CliArtifactEvalCase[]>
 export async function runCliArtifactEvalCase(
   evalCase: CliArtifactEvalCase,
   options: {
-    variant: CliVariant;
+    guidance: CliGuidanceConfig;
   }
 ): Promise<CliArtifactEvalResult> {
-  const workspaceDir = await createIsolatedWorkspace(evalCase.id, options.variant);
+  const workspaceDir = await createIsolatedWorkspace(evalCase.id, options.guidance);
 
   try {
     const renderedPrompt = await renderPrompt(evalCase.prompt, workspaceDir);
@@ -94,7 +101,7 @@ export async function runCliArtifactEvalCase(
       checks,
       expectedFiles: fileResults,
       passed: checks.every((check) => check.required === false || check.passed),
-      variantId: options.variant.id
+      guidanceLabel: options.guidance.label
     };
   } catch (error) {
     if (!shouldKeepWorkspace()) {
@@ -114,7 +121,7 @@ export function shouldKeepWorkspace(): boolean {
 
 async function createIsolatedWorkspace(
   caseId: string,
-  variant: CliVariant
+  guidance: CliGuidanceConfig
 ): Promise<string> {
   const workspaceDir = await mkdtemp(join(tmpdir(), `wmill-cli-artifact-${caseId}-`));
   await mkdir(dirname(join(workspaceDir, ".claude", "skills")), { recursive: true });
@@ -122,9 +129,9 @@ async function createIsolatedWorkspace(
     targetDir: workspaceDir,
     nonDottedPaths: true,
     overwriteProjectGuidance: true,
-    skillsSourcePath: variant.skillsSourcePath,
-    agentsSourcePath: variant.agentsSourcePath,
-    claudeSourcePath: variant.claudeSourcePath,
+    skillsSourcePath: guidance.skillsSourcePath ?? getGeneratedSkillsSource(),
+    agentsSourcePath: guidance.agentsSourcePath,
+    claudeSourcePath: guidance.claudeSourcePath,
   });
   await writeFile(join(workspaceDir, "rt.d.ts"), "export namespace RT {}\n", "utf8");
 

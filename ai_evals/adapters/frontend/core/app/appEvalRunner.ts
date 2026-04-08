@@ -129,34 +129,3 @@ export async function runAppEval(
 		await cleanup()
 	}
 }
-
-/**
- * Per-variant provider override.
- */
-export interface VariantProviderOverride {
-	provider: AIProvider
-	apiKey: string
-}
-
-/**
- * Runs the same prompt against multiple variants sequentially for comparison.
- * Accepts optional per-variant provider/apiKey overrides.
- */
-export async function runVariantComparison(
-	userPrompt: string,
-	variants: VariantConfig[],
-	defaultApiKey: string,
-	baseOptions?: Omit<AppEvalOptions, 'variant'>,
-	providerOverrides?: VariantProviderOverride[]
-): Promise<AppEvalResult[]> {
-	return await Promise.all(
-		variants.map(async (variant, i) => {
-			const override = providerOverrides?.[i]
-			return await runAppEval(userPrompt, override?.apiKey ?? defaultApiKey, {
-				...baseOptions,
-				variant,
-				provider: override?.provider ?? baseOptions?.provider
-			})
-		})
-	)
-}

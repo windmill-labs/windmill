@@ -49,6 +49,13 @@ Append one official run snapshot with:
 node ai_evals/scripts/append-official-run.mjs --input /path/to/run.json
 ```
 
+From the benchmark CLI, the usual path is:
+
+```bash
+cd ai_evals
+bun run cli -- promote-result ai_evals/results/some-run.json --label main
+```
+
 This command will:
 
 1. validate the input shape

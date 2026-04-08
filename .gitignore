@@ -26,6 +26,7 @@ backend/target
 frontend/node_modules
 typescript-client/node_modules
 ai_evals/node_modules
+ai_evals/results/
 frontend/.svelte-kit
 backend/chrome_profiler.json
 .fast-check/

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "cli": "bun cli/index.ts",
-    "list-cases": "bun cli/index.ts list-cases --surface cli"
+    "list-cases": "bun cli/index.ts list-cases"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.25",
