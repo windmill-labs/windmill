@@ -1018,6 +1018,11 @@ pub async fn run_server(
         return Err(anyhow::anyhow!("Failed to send port, exiting early: {e:#}"));
     }
 
+    // Announce this server is ready so coordinated restarts can detect a healthy peer.
+    if let Err(e) = announce_server_started(&db).await {
+        tracing::warn!("Failed to announce server started: {e:#}");
+    }
+
     let server = server.with_graceful_shutdown(async move {
         killpill_rx.recv().await.ok();
         #[cfg(feature = "agent_worker_server")]
@@ -1157,4 +1162,84 @@ pub async fn wait_for_db_migrations(
     db::wait_for_migrations(db, killpill_rx)
         .await
         .map_err(|e| anyhow::anyhow!("Error waiting for db migrations: {e:#}"))
+}
+
+/// Write a server-started heartbeat to the restart coordination record so that
+/// other instances waiting to restart can detect this server is healthy.
+async fn announce_server_started(db: &DB) -> anyhow::Result<()> {
+    use windmill_common::global_settings::RESTART_COORDINATION_SETTING;
+    use windmill_common::INSTANCE_NAME;
+
+    let instance = INSTANCE_NAME.as_str();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Upsert a server_started entry into the coordination record.
+    // Read-modify-write under advisory lock to avoid races.
+    const RESTART_LOCK_ID: i64 = 737_483_920;
+    let mut tx = db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(RESTART_LOCK_ID)
+        .execute(&mut *tx)
+        .await?;
+
+    let existing: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT value FROM global_settings WHERE name = $1")
+            .bind(RESTART_COORDINATION_SETTING)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let mut val = existing.unwrap_or_else(|| serde_json::json!({}));
+    let obj = val.as_object_mut().unwrap();
+
+    // Maintain a "server_heartbeats" map: { instance_name: timestamp }
+    let heartbeats = obj
+        .entry("server_heartbeats")
+        .or_insert_with(|| serde_json::json!({}));
+    if let Some(map) = heartbeats.as_object_mut() {
+        // Prune stale heartbeats (older than 5 minutes)
+        let cutoff = (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339();
+        map.retain(|_, v| v.as_str().map_or(false, |ts| ts > cutoff.as_str()));
+        map.insert(instance.to_string(), serde_json::json!(now));
+    }
+
+    sqlx::query(
+        "INSERT INTO global_settings (name, value, updated_at) \
+         VALUES ($1, $2, now()) \
+         ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
+    )
+    .bind(RESTART_COORDINATION_SETTING)
+    .bind(&val)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    tracing::info!("Announced server started for instance {instance}");
+    Ok(())
+}
+
+/// Check whether any server instance (other than ourselves) has announced
+/// itself as started recently.
+pub async fn check_any_server_started(db: &DB) -> bool {
+    use windmill_common::global_settings::RESTART_COORDINATION_SETTING;
+    use windmill_common::INSTANCE_NAME;
+
+    let val: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT value FROM global_settings WHERE name = $1")
+            .bind(RESTART_COORDINATION_SETTING)
+            .fetch_optional(db)
+            .await
+            .ok()
+            .flatten();
+
+    let Some(val) = val else { return false };
+    let Some(heartbeats) = val.get("server_heartbeats").and_then(|v| v.as_object()) else {
+        return false;
+    };
+
+    let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(120)).to_rfc3339();
+    let my_instance = INSTANCE_NAME.as_str();
+
+    heartbeats
+        .iter()
+        .any(|(inst, ts)| inst != my_instance && ts.as_str().map_or(false, |t| t > cutoff.as_str()))
 }
