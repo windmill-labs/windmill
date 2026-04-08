@@ -530,6 +530,73 @@ export async function deleteItemInWorkspace(
 // ---------------------------------------------------------------------------
 
 /**
+ * Get the value of an item for diff comparison.
+ * Returns a normalized representation suitable for JSON comparison.
+ */
+export async function getItemValue(
+  provider: DeployProvider,
+  kind: DeployKind,
+  path: string,
+  workspace: string
+): Promise<unknown> {
+  try {
+    if (kind === "flow") {
+      const flow = await provider.getFlowByPath({ workspace, path });
+      getAllModules(flow.value?.modules ?? [], flow.value?.failure_module).forEach(
+        (x: any) => {
+          if (x.value?.type === "script" && x.value.hash != undefined) {
+            x.value.hash = undefined;
+          }
+        }
+      );
+      return {
+        summary: flow.summary,
+        description: flow.description,
+        value: flow.value,
+      };
+    } else if (kind === "script") {
+      const script = await provider.getScriptByPath({ workspace, path });
+      return {
+        content: script.content,
+        lock: script.lock,
+        schema: script.schema,
+        summary: script.summary,
+        language: script.language,
+      };
+    } else if (kind === "app" || kind === "raw_app") {
+      return await provider.getAppByPath({ workspace, path });
+    } else if (kind === "variable") {
+      const variable = await provider.getVariable({
+        workspace,
+        path,
+        decryptSecret: true,
+      });
+      return variable.value;
+    } else if (kind === "resource") {
+      const resource = await provider.getResource({ workspace, path });
+      return resource.value;
+    } else if (kind === "resource_type") {
+      const rt = await provider.getResourceType({ workspace, path });
+      return rt.schema;
+    } else if (kind === "folder") {
+      const folder = await provider.getFolder({
+        workspace,
+        name: folderName(path),
+      });
+      return {
+        name: folder.name,
+        owners: folder.owners,
+        extra_perms: folder.extra_perms,
+        summary: folder.summary,
+      };
+    }
+  } catch {
+    // Item may not exist
+  }
+  return {};
+}
+
+/**
  * Fetch the on_behalf_of value for a deployable item.
  * Returns an email for flows/scripts/apps, or undefined if not applicable.
  */

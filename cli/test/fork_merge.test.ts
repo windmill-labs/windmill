@@ -77,8 +77,23 @@ async function deleteFork(backend: TestBackend, forkId: string) {
   try {
     await api(backend, `/api/w/${forkId}/workspaces/delete`, { method: "POST" });
   } catch {}
-  await runSQL(backend, `DELETE FROM workspace_diff WHERE fork_workspace_id = '${forkId}'`);
-  await runSQL(backend, `DELETE FROM skip_workspace_diff_tally WHERE workspace_id = '${forkId}'`);
+  // Force-clean via SQL to ensure workspace slot is freed (CE limits to 2)
+  const esc = forkId.replace(/'/g, "''");
+  await runSQL(backend, `
+    SET session_replication_role = replica;
+    DO $$ DECLARE r RECORD; BEGIN
+      FOR r IN SELECT c.table_name FROM information_schema.columns c
+        JOIN information_schema.tables t ON c.table_name = t.table_name AND c.table_schema = t.table_schema
+        WHERE c.column_name = 'workspace_id' AND c.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+        GROUP BY c.table_name
+      LOOP EXECUTE format('DELETE FROM %I WHERE workspace_id = ''${esc}''', r.table_name);
+      END LOOP;
+    END $$;
+    DELETE FROM workspace WHERE id = '${esc}';
+    DELETE FROM workspace_diff WHERE fork_workspace_id = '${esc}';
+    DELETE FROM skip_workspace_diff_tally WHERE workspace_id = '${esc}';
+    SET session_replication_role = DEFAULT;
+  `);
 }
 
 async function createTestItems(backend: TestBackend, workspace: string) {
@@ -334,11 +349,187 @@ test(
       console.log("  ✓ Sub-test 5 passed: resetDiffTally cleaned unchanged items");
 
       // ---------------------------------------------------------------
+      // Sub-test 6: All item types in one merge
+      // ---------------------------------------------------------------
+      console.log("\n--- Sub-test 6: all item types (script, variable, resource, resource_type, flow, app) ---");
+      await deleteFork(backend, FORK_ID);
+
+      // Create resource type + resource in parent
+      await api(backend, `/api/w/${parentWs}/resources/type/create`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "merge_test_type", schema: { type: "object" }, description: "Type" }),
+      });
+      await api(backend, `/api/w/${parentWs}/resources/create`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: "f/merge_test/res_t6", resource_type: "merge_test_type", value: { key: "parent" }, description: "R" }),
+      });
+      // Create flow in parent
+      await api(backend, `/api/w/${parentWs}/flows/create`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "f/merge_test/flow_t6", summary: "Flow", schema: { type: "object", properties: {}, required: [] },
+          value: { modules: [{ id: "a", value: { type: "rawscript", content: "export function main() { return 1; }", language: "bun", input_transforms: {} } }], failure_module: null, same_worker: false },
+        }),
+      });
+      // Create app in parent
+      await api(backend, `/api/w/${parentWs}/apps/create`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: "f/merge_test/app_t6", summary: "App",
+          value: { type: "rawscript", content: { v: 1 } },
+          policy: { on_behalf_of: "", on_behalf_of_email: "", extra_perms: {}, execution_mode: "publisher" },
+        }),
+      });
+
+      await createFork(backend, parentWs, FORK_ID);
+
+      // Modify all in fork
+      const forkRes = await (await api(backend, `/api/w/${FORK_ID}/resources/get/f/merge_test/res_t6`)).json();
+      await api(backend, `/api/w/${FORK_ID}/resources/update/f/merge_test/res_t6`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: forkRes.path, value: { key: "fork" }, description: "Fork" }),
+      });
+
+      const forkFlow = await (await api(backend, `/api/w/${FORK_ID}/flows/get/f/merge_test/flow_t6`)).json();
+      forkFlow.value.modules[0].value.content = "export function main() { return 2; }";
+      await api(backend, `/api/w/${FORK_ID}/flows/update/f/merge_test/flow_t6`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(forkFlow),
+      });
+
+      const forkApp = await (await api(backend, `/api/w/${FORK_ID}/apps/get/p/f/merge_test/app_t6`)).json();
+      await api(backend, `/api/w/${FORK_ID}/apps/update/f/merge_test/app_t6`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...forkApp, summary: "Fork App" }),
+      });
+
+      await populateWorkspaceDiff(backend, parentWs, FORK_ID, [
+        { path: "f/merge_test/res_t6", kind: "resource", ahead: 1, behind: 0 },
+        { path: "f/merge_test/flow_t6", kind: "flow", ahead: 1, behind: 0 },
+        { path: "f/merge_test/app_t6", kind: "app", ahead: 1, behind: 0 },
+      ]);
+
+      const comp6 = await (await api(backend, `/api/w/${parentWs}/workspaces/compare/${FORK_ID}`)).json();
+      const ahead6 = comp6.diffs.filter((d: any) => d.ahead > 0);
+      expect(ahead6.length).toBeGreaterThanOrEqual(3);
+
+      // Deploy all
+      for (const d of ahead6) {
+        if (d.kind === "resource") {
+          const r = await (await api(backend, `/api/w/${FORK_ID}/resources/get/${d.path}`)).json();
+          await api(backend, `/api/w/${parentWs}/resources/update/${d.path}`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path: d.path, value: r.value, description: r.description ?? "" }),
+          });
+        } else if (d.kind === "flow") {
+          const f = await (await api(backend, `/api/w/${FORK_ID}/flows/get/${d.path}`)).json();
+          for (const m of f.value?.modules ?? []) { if (m.value?.hash) m.value.hash = undefined; }
+          await api(backend, `/api/w/${parentWs}/flows/update/${d.path}`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(f),
+          });
+        } else if (d.kind === "app") {
+          const a = await (await api(backend, `/api/w/${FORK_ID}/apps/get/p/${d.path}`)).json();
+          await api(backend, `/api/w/${parentWs}/apps/update/${d.path}`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(a),
+          });
+        }
+      }
+
+      // Verify
+      const pRes = await (await api(backend, `/api/w/${parentWs}/resources/get/f/merge_test/res_t6`)).json();
+      expect(JSON.stringify(pRes.value)).toContain("fork");
+      const pFlow = await (await api(backend, `/api/w/${parentWs}/flows/get/f/merge_test/flow_t6`)).json();
+      expect(pFlow.value.modules[0].value.content).toContain("return 2");
+      const pApp = await (await api(backend, `/api/w/${parentWs}/apps/get/p/f/merge_test/app_t6`)).json();
+      expect(pApp.summary).toBe("Fork App");
+      console.log("  ✓ Sub-test 6 passed: all item types merged");
+
+      // ---------------------------------------------------------------
+      // Sub-test 7: Secret variables preserved across fork/merge
+      // ---------------------------------------------------------------
+      console.log("\n--- Sub-test 7: secret variable ---");
+      await api(backend, `/api/w/${FORK_ID}/variables/create`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: "f/merge_test/secret_fork", value: "s3cret!", is_secret: true, description: "Secret" }),
+      });
+      await populateWorkspaceDiff(backend, parentWs, FORK_ID, [
+        { path: "f/merge_test/secret_fork", kind: "variable", ahead: 1, behind: 0 },
+      ]);
+      const comp7 = await (await api(backend, `/api/w/${parentWs}/workspaces/compare/${FORK_ID}`)).json();
+      const secDiff = comp7.diffs.find((d: any) => d.path === "f/merge_test/secret_fork");
+      expect(secDiff).toBeDefined();
+
+      const secVar = await (await api(backend, `/api/w/${FORK_ID}/variables/get/f/merge_test/secret_fork?decrypt_secret=true`)).json();
+      await api(backend, `/api/w/${parentWs}/variables/create`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: secVar.path, value: secVar.value ?? "", is_secret: secVar.is_secret, description: secVar.description ?? "" }),
+      });
+      const pSec = await (await api(backend, `/api/w/${parentWs}/variables/get/f/merge_test/secret_fork?decrypt_secret=true`)).json();
+      expect(pSec.value).toBe("s3cret!");
+      expect(pSec.is_secret).toBe(true);
+      console.log("  ✓ Sub-test 7 passed: secret variable preserved");
+
+      // ---------------------------------------------------------------
+      // Sub-test 8: Special characters in variable values
+      // ---------------------------------------------------------------
+      console.log("\n--- Sub-test 8: special characters ---");
+      await api(backend, `/api/w/${FORK_ID}/variables/create`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: "f/merge_test/special", value: "hello\nworld\t\"quotes\" 'single' \\back 日本語 🎉", is_secret: false, description: "" }),
+      });
+      await populateWorkspaceDiff(backend, parentWs, FORK_ID, [
+        { path: "f/merge_test/special", kind: "variable", ahead: 1, behind: 0 },
+      ]);
+      const forkSpecial = await (await api(backend, `/api/w/${FORK_ID}/variables/get/f/merge_test/special?decrypt_secret=true`)).json();
+      await api(backend, `/api/w/${parentWs}/variables/create`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: forkSpecial.path, value: forkSpecial.value ?? "", is_secret: false, description: "" }),
+      });
+      const pSpecial = await (await api(backend, `/api/w/${parentWs}/variables/get/f/merge_test/special?decrypt_secret=true`)).json();
+      expect(pSpecial.value).toBe(forkSpecial.value);
+      console.log("  ✓ Sub-test 8 passed: special characters preserved");
+
+      // ---------------------------------------------------------------
+      // Sub-test 9: Partial deploy — only deployed items cleaned by resetDiffTally
+      // ---------------------------------------------------------------
+      console.log("\n--- Sub-test 9: partial deploy + resetDiffTally ---");
+      await api(backend, `/api/w/${FORK_ID}/variables/create`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: "f/merge_test/partial_a", value: "a", is_secret: false, description: "A" }),
+      });
+      await api(backend, `/api/w/${FORK_ID}/variables/create`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: "f/merge_test/partial_b", value: "b", is_secret: false, description: "B" }),
+      });
+      await populateWorkspaceDiff(backend, parentWs, FORK_ID, [
+        { path: "f/merge_test/partial_a", kind: "variable", ahead: 1, behind: 0 },
+        { path: "f/merge_test/partial_b", kind: "variable", ahead: 1, behind: 0 },
+      ]);
+
+      // Deploy only partial_a
+      const va = await (await api(backend, `/api/w/${FORK_ID}/variables/get/f/merge_test/partial_a?decrypt_secret=true`)).json();
+      await api(backend, `/api/w/${parentWs}/variables/create`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: va.path, value: va.value ?? "", is_secret: false, description: "" }),
+      });
+
+      await api(backend, `/api/w/${parentWs}/workspaces/reset_diff_tally/${FORK_ID}`, { method: "POST" });
+      await new Promise(r => setTimeout(r, 500));
+      const comp9 = await (await api(backend, `/api/w/${parentWs}/workspaces/compare/${FORK_ID}`)).json();
+      const bAfter = comp9.diffs.find((d: any) => d.path === "f/merge_test/partial_b");
+      // partial_b was NOT deployed, so it must still appear in diffs
+      expect(bAfter).toBeDefined();
+      expect(bAfter?.ahead).toBeGreaterThan(0);
+      console.log("  ✓ Sub-test 9 passed: partial deploy + resetDiffTally");
+
+      // ---------------------------------------------------------------
       // Cleanup
       // ---------------------------------------------------------------
       await deleteFork(backend, FORK_ID);
       console.log("\n✅ All sub-tests passed!");
     });
   },
-  180_000
+  300_000
 );
