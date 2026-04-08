@@ -3723,7 +3723,7 @@ async fn clone_scripts(
             extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
-            delete_after_use, restart_unless_cancelled, concurrency_key,
+            delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
             visible_to_runner_only, auto_kind, codebase, has_preprocessor,
             on_behalf_of_email, assets, modules
         )
@@ -3733,7 +3733,7 @@ async fn clone_scripts(
             extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
             dedicated_worker, ws_error_handler_muted, priority, timeout,
-            delete_after_use, restart_unless_cancelled, concurrency_key,
+            delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
             visible_to_runner_only, auto_kind, codebase, has_preprocessor,
             on_behalf_of_email, assets, modules
         FROM script
