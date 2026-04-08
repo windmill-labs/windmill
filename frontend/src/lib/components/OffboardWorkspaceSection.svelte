@@ -18,6 +18,7 @@
 		folders: Array<{ label: string; value: string }>
 		size?: 'sm' | 'md'
 		csvFilename?: string
+		instanceLevel?: boolean
 	}
 
 	let {
@@ -31,7 +32,8 @@
 		users,
 		folders,
 		size = 'md',
-		csvFilename = `offboard-${username}.csv`
+		csvFilename = `offboard-${username}.csv`,
+		instanceLevel = false
 	}: Props = $props()
 
 	let ownedCount = $derived(countPaths(preview.owned))
@@ -60,7 +62,7 @@
 			paths={preview.executing_on_behalf}
 		/>
 	{/if}
-	{#if deleteUser}
+	{#if deleteUser && (!instanceLevel || (preview.tokens?.length ?? 0) > 0)}
 		<div
 			class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700/40 rounded-md p-3"
 		>
@@ -74,16 +76,17 @@
 						>Tokens ({preview.tokens?.length})</span
 					>
 				</button>
+				<p class="text-xs text-yellow-700 dark:text-yellow-100/70 mt-1 ml-5">
+					All workspace tokens for this user will be deleted. This may break webhooks and HTTP
+					triggers using these tokens.
+				</p>
 			{:else}
 				<p class="text-xs font-medium text-yellow-800 dark:text-yellow-100/90">Tokens</p>
+				<p class="text-xs text-yellow-700 dark:text-yellow-100/70 mt-1">
+					All workspace tokens for this user will be deleted. This may break webhooks and HTTP
+					triggers using these tokens.
+				</p>
 			{/if}
-			<p
-				class="text-xs text-yellow-700 dark:text-yellow-100/70 mt-1 {(preview.tokens?.length ?? 0) >
-				0
-					? 'ml-5'
-					: ''}"
-				>All workspace tokens for this user will be deleted. Only scoped tokens are listed below.</p
-			>
 			{#if tokensExpanded && (preview.tokens?.length ?? 0) > 0}
 				<div
 					class="flex flex-col gap-0.5 text-xs text-yellow-800 dark:text-yellow-100/90 mt-1.5 ml-5"

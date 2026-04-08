@@ -55,7 +55,7 @@
 	)
 
 	let canSubmit = $derived(
-		!doReassign || ((!hasItems || reassignTo != null) && selectedOperator != null)
+		!doReassign || !hasItems || (reassignTo != null && selectedOperator != null)
 	)
 
 	$effect(() => {
@@ -197,7 +197,7 @@
 									<Alert type="warning" title="Items will not be reassigned">
 										<p class="text-xs">
 											All items owned by {username} ({ownedCount} owned, {onBehalfCount} running on behalf)
-											will be left as-is. Schedules and triggers may stop working if the user is removed.
+											will be left as-is. Triggers and runnables may stop working if the user is removed.
 										</p>
 									</Alert>
 								{/if}

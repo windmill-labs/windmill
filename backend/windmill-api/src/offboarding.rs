@@ -205,9 +205,9 @@ async fn get_offboard_preview(
         }
     }
 
-    // ---- Tokens (only scoped ones for display, all will be deleted) ----
+    // ---- Tokens (all workspace-scoped tokens that will be deleted) ----
     let token_rows = sqlx::query!(
-        "SELECT label, scopes, expiration FROM token WHERE email = $1 AND workspace_id = $2 AND scopes IS NOT NULL AND array_length(scopes, 1) > 0",
+        "SELECT label, scopes, expiration FROM token WHERE email = $1 AND workspace_id = $2",
         email,
         w_id
     )
@@ -654,7 +654,7 @@ async fn validate_target(db: &DB, w_id: &str, kind: &str, name: &str) -> Result<
             .await?
             .unwrap_or(false);
             if !exists {
-                return Err(Error::NotFound(format!(
+                return Err(Error::BadRequest(format!(
                     "target user '{}' not found in workspace '{}'",
                     name, w_id
                 )));
@@ -670,7 +670,7 @@ async fn validate_target(db: &DB, w_id: &str, kind: &str, name: &str) -> Result<
             .await?
             .unwrap_or(false);
             if !exists {
-                return Err(Error::NotFound(format!(
+                return Err(Error::BadRequest(format!(
                     "target folder '{}' not found in workspace '{}'",
                     name, w_id
                 )));
@@ -837,8 +837,8 @@ async fn offboard_user_from_workspace<'c>(
     let flows_reassigned = sqlx::query_scalar!(
         r#"WITH inserted AS (
             INSERT INTO flow
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at)
-            SELECT workspace_id, REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs)
+            SELECT workspace_id, REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs
                 FROM flow
                 WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3
             RETURNING 1
@@ -1052,43 +1052,9 @@ async fn offboard_user_from_workspace<'c>(
         .await?;
     }
 
-    // ---- Clean up extra_perms ----
-    let extra_perms_tables = [
-        "script",
-        "flow",
-        "app",
-        "resource",
-        "variable",
-        "schedule",
-        "group_",
-        "folder",
-        "raw_app",
-        "http_trigger",
-        "websocket_trigger",
-        "kafka_trigger",
-        "postgres_trigger",
-        "mqtt_trigger",
-        "nats_trigger",
-        "sqs_trigger",
-        "gcp_trigger",
-        "email_trigger",
-    ];
-    for table in &extra_perms_tables {
-        sqlx::query(&format!(
-            "UPDATE {table} SET extra_perms = extra_perms - ('u/' || $1) \
-             WHERE extra_perms ? ('u/' || $1) AND workspace_id = $2"
-        ))
-        .bind(username)
-        .bind(w_id)
-        .execute(&mut **tx)
-        .await?;
-    }
-
-    // ---- Clean up folder owners ----
-    sqlx::query!(
-        "UPDATE folder SET owners = array_remove(owners, 'u/' || $1) WHERE ('u/' || $1) = ANY(owners) AND workspace_id = $2",
-        username, w_id
-    ).execute(&mut **tx).await?;
+    // NOTE: extra_perms cleanup, folder owners, favorites, inputs, captures,
+    // and token deletion are handled by delete_workspace_user_internal when delete_user=true.
+    // They are NOT done here for reassign-only (delete_user=false) since the user stays.
 
     // ---- Related path tables ----
     sqlx::query!(
@@ -1127,7 +1093,7 @@ async fn offboard_user_from_workspace<'c>(
         &new_prefix, username, w_id
     ).execute(&mut **tx).await?;
 
-    // ---- Drafts ----
+    // ---- Drafts (stale after path reassignment) ----
     let drafts_deleted = sqlx::query_scalar!(
         r#"WITH deleted AS (
             DELETE FROM draft WHERE path LIKE ('u/' || $1 || '/%') AND workspace_id = $2
@@ -1139,40 +1105,6 @@ async fn offboard_user_from_workspace<'c>(
     .fetch_one(&mut **tx)
     .await?
     .unwrap_or(0);
-
-    // ---- Personal data ----
-    sqlx::query!(
-        "DELETE FROM favorite WHERE usr = $1 AND workspace_id = $2",
-        username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    sqlx::query!(
-        "DELETE FROM input WHERE created_by = $1 AND workspace_id = $2",
-        username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    sqlx::query!(
-        "DELETE FROM capture WHERE created_by = $1 AND workspace_id = $2",
-        username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    // ---- Tokens ----
-    sqlx::query!(
-        "DELETE FROM token WHERE email = $1 AND workspace_id = $2",
-        email,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
 
     Ok(OffboardSummary {
         scripts_reassigned,

@@ -245,6 +245,7 @@
 													folders={cfg.folders}
 													size="sm"
 													csvFilename="offboard-{email}-{wp.workspace_id}.csv"
+													instanceLevel
 												/>
 											{/if}
 										</div>
@@ -253,7 +254,7 @@
 									<Alert type="warning" title="Items will not be reassigned">
 										<p class="text-xs">
 											All items across {workspacesWithItems.length} workspace(s) will be left as-is.
-											Schedules and triggers may stop working if the user is removed.
+											Triggers and runnables may stop working if the user is removed.
 										</p>
 									</Alert>
 								{/if}
@@ -263,7 +264,7 @@
 								<Alert type="warning" title="All tokens will be deleted">
 									<p class="text-xs">
 										All tokens for {email} will be permanently deleted across all workspaces, including
-										non-workspace-scoped tokens.
+										non-workspace-scoped tokens. This may break any API calls using these credentials.
 									</p>
 								</Alert>
 							{/if}
@@ -292,7 +293,7 @@
 					{/if}
 
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-						{#if workspacesWithItems.length > 0}
+						{#if workspacesWithItems.length > 0 || deleteUser}
 							<Button
 								disabled={submitting || !canSubmit}
 								onclick={submit}
