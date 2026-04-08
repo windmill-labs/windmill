@@ -23,6 +23,7 @@ async function main() {
         "  bun run cli -- cases",
         "  bun run cli -- cases flow",
         "  bun run cli -- run flow",
+        "  bun run cli -- run flow flow-test0-sum-two-numbers --verbose",
         "  bun run cli -- run flow flow-test5-simple-modification --runs 3",
         "  bun run cli -- run cli bun-hello-script",
       ].join("\n")
@@ -43,6 +44,7 @@ async function main() {
     .argument("[caseIds...]", "specific case ids to run")
     .option("--runs <n>", "number of attempts per case", parsePositiveInteger, 1)
     .option("--output <path>", "write the result JSON to this path")
+    .option("--verbose", "stream assistant output during frontend runs")
     .action(
       async (
         mode: EvalMode,
@@ -50,6 +52,7 @@ async function main() {
         options: {
           runs: number;
           output?: string;
+          verbose?: boolean;
         }
       ) => {
         await handleRun({
@@ -57,6 +60,7 @@ async function main() {
           caseIds,
           runs: options.runs,
           outputPath: options.output,
+          verbose: options.verbose ?? false,
         });
       }
     );
@@ -82,6 +86,7 @@ async function handleRun(input: {
   caseIds: string[];
   runs: number;
   outputPath?: string;
+  verbose: boolean;
 }) {
   const selectedCases = await loadSelectedCases(input.mode, input.caseIds);
   process.stderr.write(`Starting ${input.mode} benchmark...\n`);
@@ -93,6 +98,7 @@ async function handleRun(input: {
           mode: input.mode,
           caseIds: input.caseIds,
           runs: input.runs,
+          verbose: input.verbose,
         });
 
   const resultPath = await writeRunResult(result, input.outputPath);

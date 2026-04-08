@@ -30,6 +30,34 @@ export type FrontendBenchmarkProgressEvent =
 			judgeScore: number | null
 			error: string | null
 	  }
+	| {
+			type: 'assistant-message-start'
+			surface: FrontendBenchmarkProgressSurface
+			caseId: string
+			caseNumber: number
+			totalCases: number
+			attempt: number
+			runs: number
+	  }
+	| {
+			type: 'assistant-chunk'
+			surface: FrontendBenchmarkProgressSurface
+			caseId: string
+			caseNumber: number
+			totalCases: number
+			attempt: number
+			runs: number
+			chunk: string
+	  }
+	| {
+			type: 'assistant-message-end'
+			surface: FrontendBenchmarkProgressSurface
+			caseId: string
+			caseNumber: number
+			totalCases: number
+			attempt: number
+			runs: number
+	  }
 
 export const FRONTEND_BENCHMARK_PROGRESS_PREFIX = 'WMILL_FRONTEND_AI_EVAL_PROGRESS '
 
@@ -77,6 +105,10 @@ export function formatFrontendBenchmarkProgressEvent(
 			}
 			return parts.join(' | ')
 		}
+		case 'assistant-message-start':
+		case 'assistant-chunk':
+		case 'assistant-message-end':
+			return ''
 	}
 }
 

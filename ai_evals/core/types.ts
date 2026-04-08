@@ -32,13 +32,29 @@ export interface ModeRunOutput<TActual> {
   skillsInvoked: string[];
 }
 
+export interface ModeRunContext {
+  caseId: string;
+  caseNumber: number;
+  totalCases: number;
+  attempt: number;
+  runs: number;
+  verbose: boolean;
+  onAssistantMessageStart?: () => void;
+  onAssistantChunk?: (chunk: string) => void;
+  onAssistantMessageEnd?: () => void;
+}
+
 export interface ModeRunner<TInitial, TExpected, TActual> {
   mode: EvalMode;
   concurrency: number;
   judgeThreshold?: number;
   loadInitial(path?: string): Promise<TInitial | undefined>;
   loadExpected(path?: string): Promise<TExpected | undefined>;
-  run(prompt: string, initial: TInitial | undefined): Promise<ModeRunOutput<TActual>>;
+  run(
+    prompt: string,
+    initial: TInitial | undefined,
+    context: ModeRunContext
+  ): Promise<ModeRunOutput<TActual>>;
   validate(input: {
     prompt: string;
     initial: TInitial | undefined;
@@ -115,4 +131,32 @@ export type FrontendBenchmarkProgressEvent =
       durationMs: number;
       judgeScore: number | null;
       error: string | null;
+    }
+  | {
+      type: "assistant-message-start";
+      surface: Exclude<EvalMode, "cli">;
+      caseId: string;
+      caseNumber: number;
+      totalCases: number;
+      attempt: number;
+      runs: number;
+    }
+  | {
+      type: "assistant-chunk";
+      surface: Exclude<EvalMode, "cli">;
+      caseId: string;
+      caseNumber: number;
+      totalCases: number;
+      attempt: number;
+      runs: number;
+      chunk: string;
+    }
+  | {
+      type: "assistant-message-end";
+      surface: Exclude<EvalMode, "cli">;
+      caseId: string;
+      caseNumber: number;
+      totalCases: number;
+      attempt: number;
+      runs: number;
     };

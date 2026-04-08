@@ -16,6 +16,7 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
   const caseIds = parseOptionalJsonStringArray(process.env.WMILL_FRONTEND_AI_EVAL_CASE_IDS);
   const runs = parsePositiveInteger(process.env.WMILL_FRONTEND_AI_EVAL_RUNS, "WMILL_FRONTEND_AI_EVAL_RUNS");
   const emitProgress = process.env.WMILL_FRONTEND_AI_EVAL_PROGRESS === "1";
+  const verbose = process.env.WMILL_FRONTEND_AI_EVAL_VERBOSE === "1";
 
   const selectedCases = await loadSelectedCases(mode, caseIds);
   const modeRunner = getModeRunner(mode);
@@ -25,6 +26,8 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
     runs,
     runModel: getFrontendRunModelLabel(),
     judgeModel: DEFAULT_JUDGE_MODEL,
+    concurrency: verbose ? 1 : undefined,
+    verbose,
     onProgress: emitProgress ? (event) => emitFrontendBenchmarkProgress(event) : undefined,
   });
 

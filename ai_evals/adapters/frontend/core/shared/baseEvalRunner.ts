@@ -34,6 +34,9 @@ export interface RunEvalParams<THelpers, TOutput> {
 	getOutput: () => TOutput
 	/** Optional configuration */
 	options?: EvalRunnerOptions
+	onAssistantMessageStart?: () => void
+	onAssistantToken?: (token: string) => void
+	onAssistantMessageEnd?: () => void
 }
 
 /**
@@ -79,8 +82,12 @@ export async function runEval<THelpers, TOutput>(
 		helpers,
 		apiKey,
 		getOutput,
-		options
+		options,
+		onAssistantMessageStart,
+		onAssistantToken,
+		onAssistantMessageEnd
 	} = params
+	let shouldEmitMessageStart = true
 
 	const model = options?.model ?? 'gpt-4o'
 	const maxIterations = options?.maxIterations ?? 20
@@ -124,8 +131,17 @@ export async function runEval<THelpers, TOutput>(
 	} = {
 		setToolStatus: () => {},
 		removeToolStatus: () => {},
-		onNewToken: () => {},
-		onMessageEnd: () => {}
+		onNewToken: (token: string) => {
+			if (shouldEmitMessageStart) {
+				onAssistantMessageStart?.()
+				shouldEmitMessageStart = false
+			}
+			onAssistantToken?.(token)
+		},
+		onMessageEnd: () => {
+			onAssistantMessageEnd?.()
+			shouldEmitMessageStart = true
+		}
 	}
 
 	const abortController = new AbortController()

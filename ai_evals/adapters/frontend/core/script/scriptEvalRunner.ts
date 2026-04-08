@@ -12,6 +12,7 @@ import {
 import type { Tool as ProductionTool } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
 import { createScriptFileHelpers, type ScriptEvalState } from './fileHelpers'
 import { runEval } from '../shared'
+import type { ModeRunContext } from '../../../../core/types'
 
 export interface ScriptEvalResult {
 	success: boolean
@@ -28,6 +29,7 @@ export interface ScriptEvalOptions {
 	maxIterations?: number
 	provider?: AIProvider
 	workspaceRoot?: string
+	runContext?: ModeRunContext
 }
 
 function resolveModelProvider(
@@ -79,6 +81,9 @@ export async function runScriptEval(
 			helpers,
 			apiKey,
 			getOutput: getScript,
+			onAssistantMessageStart: options.runContext?.onAssistantMessageStart,
+			onAssistantToken: options.runContext?.onAssistantChunk,
+			onAssistantMessageEnd: options.runContext?.onAssistantMessageEnd,
 			options: {
 				maxIterations: options.maxIterations,
 				model,

@@ -49,7 +49,7 @@ export function createCliModeRunner(): ModeRunner<CliWorkspaceFixture, CliWorksp
           }
         : undefined;
     },
-    async run(prompt, initial) {
+    async run(prompt, initial, _context) {
       const workspaceDir = await mkdtemp(join(tmpdir(), "wmill-cli-benchmark-"));
 
       try {

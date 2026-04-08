@@ -15,6 +15,7 @@ import type { Tool as ProductionTool } from '../../../../../frontend/src/lib/com
 import { createAppFileHelpers } from './fileHelpers'
 import { runEval } from '../shared'
 import type { AIProvider } from '$lib/gen/types.gen'
+import type { ModeRunContext } from '../../../../core/types'
 
 export interface AppEvalResult {
 	success: boolean
@@ -32,6 +33,7 @@ export interface AppEvalOptions {
 	maxIterations?: number
 	provider?: AIProvider
 	workspaceRoot?: string
+	runContext?: ModeRunContext
 }
 
 export async function runAppEval(
@@ -62,6 +64,9 @@ export async function runAppEval(
 			helpers,
 			apiKey,
 			getOutput: getFiles,
+			onAssistantMessageStart: options?.runContext?.onAssistantMessageStart,
+			onAssistantToken: options?.runContext?.onAssistantChunk,
+			onAssistantMessageEnd: options?.runContext?.onAssistantMessageEnd,
 			options: {
 				maxIterations: options?.maxIterations,
 				model,

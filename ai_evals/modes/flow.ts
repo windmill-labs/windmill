@@ -15,11 +15,12 @@ export function createFlowModeRunner(): ModeRunner<FlowState, FlowState, FlowSta
     async loadExpected(path) {
       return path ? await readJsonFile<FlowState>(path) : undefined;
     },
-    async run(prompt, initial) {
+    async run(prompt, initial, context) {
       const result = await runFlowEval(prompt, getFrontendApiKey(), {
         initialFlow: initial,
         provider: FRONTEND_PROVIDER,
         model: FRONTEND_MODEL,
+        runContext: context,
       });
 
       return {

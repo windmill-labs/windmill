@@ -14,10 +14,12 @@ export async function runSuite<TInitial, TExpected, TActual>(input: {
   runs: number;
   runModel: string | null;
   judgeModel?: string | null;
+  concurrency?: number;
+  verbose?: boolean;
   onProgress?: (event: FrontendBenchmarkProgressEvent) => void;
 }): Promise<BenchmarkCaseResult[]> {
   const judgeModel = input.judgeModel ?? DEFAULT_JUDGE_MODEL;
-  const concurrency = Math.max(1, input.modeRunner.concurrency);
+  const concurrency = Math.max(1, input.concurrency ?? input.modeRunner.concurrency);
   const results = new Array<BenchmarkCaseResult>(input.cases.length);
   let cursor = 0;
 
@@ -51,6 +53,7 @@ export async function runSuite<TInitial, TExpected, TActual>(input: {
           judgeThreshold: input.modeRunner.judgeThreshold ?? 80,
           modeRunner: input.modeRunner,
           totalCases: input.cases.length,
+          verbose: input.verbose ?? false,
           onProgress: input.onProgress,
         }),
       };
@@ -72,6 +75,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
   judgeThreshold: number;
   modeRunner: ModeRunner<TInitial, TExpected, TActual>;
   totalCases: number;
+  verbose: boolean;
   onProgress?: (event: FrontendBenchmarkProgressEvent) => void;
 }): Promise<BenchmarkAttemptResult[]> {
   const attempts: BenchmarkAttemptResult[] = [];
@@ -92,7 +96,51 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
     const expected = await input.modeRunner.loadExpected(input.evalCase.expectedPath);
 
     try {
-      const run = await input.modeRunner.run(input.evalCase.prompt, initial);
+      const run = await input.modeRunner.run(input.evalCase.prompt, initial, {
+        caseId: input.evalCase.id,
+        caseNumber: input.caseIndex + 1,
+        totalCases: input.totalCases,
+        attempt,
+        runs: input.runs,
+        verbose: input.verbose,
+        onAssistantMessageStart: input.verbose
+          ? () =>
+              input.onProgress?.({
+                type: "assistant-message-start",
+                surface: input.modeRunner.mode as Exclude<typeof input.modeRunner.mode, "cli">,
+                caseId: input.evalCase.id,
+                caseNumber: input.caseIndex + 1,
+                totalCases: input.totalCases,
+                attempt,
+                runs: input.runs,
+              })
+          : undefined,
+        onAssistantChunk: input.verbose
+          ? (chunk: string) =>
+              input.onProgress?.({
+                type: "assistant-chunk",
+                surface: input.modeRunner.mode as Exclude<typeof input.modeRunner.mode, "cli">,
+                caseId: input.evalCase.id,
+                caseNumber: input.caseIndex + 1,
+                totalCases: input.totalCases,
+                attempt,
+                runs: input.runs,
+                chunk,
+              })
+          : undefined,
+        onAssistantMessageEnd: input.verbose
+          ? () =>
+              input.onProgress?.({
+                type: "assistant-message-end",
+                surface: input.modeRunner.mode as Exclude<typeof input.modeRunner.mode, "cli">,
+                caseId: input.evalCase.id,
+                caseNumber: input.caseIndex + 1,
+                totalCases: input.totalCases,
+                attempt,
+                runs: input.runs,
+              })
+          : undefined,
+      });
       const checks: BenchmarkCheck[] = [
         buildCheck("run succeeded", run.success, run.error),
         ...input.modeRunner.validate({

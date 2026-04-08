@@ -16,7 +16,7 @@ export function createScriptModeRunner(): ModeRunner<ScriptEvalState, ScriptEval
     async loadExpected(path) {
       return path ? await readJsonFile<ScriptEvalState>(path) : undefined;
     },
-    async run(prompt, initial) {
+    async run(prompt, initial, context) {
       if (!initial) {
         throw new Error("Script evals require an initial script fixture");
       }
@@ -25,6 +25,7 @@ export function createScriptModeRunner(): ModeRunner<ScriptEvalState, ScriptEval
         initialScript: initial,
         provider: FRONTEND_PROVIDER,
         model: FRONTEND_MODEL,
+        runContext: context,
       });
 
       return {

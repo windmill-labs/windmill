@@ -16,12 +16,13 @@ export function createAppModeRunner(): ModeRunner<AppFilesState, AppFilesState, 
     async loadExpected(path) {
       return path ? (await loadAppFixture(path)) : undefined;
     },
-    async run(prompt, initial) {
+    async run(prompt, initial, context) {
       const result = await runAppEval(prompt, getFrontendApiKey(), {
         initialFrontend: initial?.frontend,
         initialBackend: initial?.backend as AppFiles["backend"] | undefined,
         provider: FRONTEND_PROVIDER,
         model: FRONTEND_MODEL,
+        runContext: context,
       });
 
       return {

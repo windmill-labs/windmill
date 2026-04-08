@@ -13,6 +13,7 @@ import {
 import type { Tool as ProductionTool } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
 import { createFlowFileHelpers } from './fileHelpers'
 import { runEval } from '../shared'
+import type { ModeRunContext } from '../../../../core/types'
 
 export interface FlowFixture {
 	value?: {
@@ -36,6 +37,7 @@ export interface FlowEvalOptions {
 	maxIterations?: number
 	provider?: AIProvider
 	workspaceRoot?: string
+	runContext?: ModeRunContext
 }
 
 export async function runFlowEval(
@@ -66,6 +68,9 @@ export async function runFlowEval(
 			helpers,
 			apiKey,
 			getOutput: getFlow,
+			onAssistantMessageStart: options?.runContext?.onAssistantMessageStart,
+			onAssistantToken: options?.runContext?.onAssistantChunk,
+			onAssistantMessageEnd: options?.runContext?.onAssistantMessageEnd,
 			options: {
 				maxIterations: options?.maxIterations,
 				model,
