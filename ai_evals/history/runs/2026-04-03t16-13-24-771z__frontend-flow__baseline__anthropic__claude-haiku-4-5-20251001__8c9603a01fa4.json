@@ -4,7 +4,7 @@
   "suite_version": "cli-benchmark-v1",
   "scoring_version": "cli-deterministic-v1",
   "surface": "frontend-flow",
-  "variant_name": "baseline",
+  "label": "baseline",
   "provider": "anthropic",
   "model": "claude-haiku-4-5-20251001",
   "judge_model": "claude-sonnet-4-6",

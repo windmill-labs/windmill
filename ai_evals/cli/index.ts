@@ -335,7 +335,7 @@ async function handleHistory(limit: number, json: boolean) {
   process.stdout.write(`Official runs: ${entries.length}\n`);
   for (const entry of entries) {
     process.stdout.write(
-      `- ${entry.timestamp} | ${formatSurfaceLabel(entry.surface)} | ${entry.variant_name} | ${formatPercent(entry.metrics.quality.pass_rate)} | flake ${formatPercent(entry.metrics.reliability.flake_rate)} | avg ${formatNumber(entry.metrics.efficiency.latency_ms_mean)} ms | ${entry.case_count} cases x ${entry.runs_per_case} runs\n`
+      `- ${entry.timestamp} | ${formatSurfaceLabel(entry.surface)} | ${entry.label} | ${formatPercent(entry.metrics.quality.pass_rate)} | flake ${formatPercent(entry.metrics.reliability.flake_rate)} | avg ${formatNumber(entry.metrics.efficiency.latency_ms_mean)} ms | ${entry.case_count} cases x ${entry.runs_per_case} runs\n`
     );
   }
 }

@@ -27,7 +27,6 @@ untracked location.
 - `benchmark-run.schema.json`: contract for one official run snapshot
 - `runs/`: detailed per-run JSON snapshots
 - `summary.jsonl`: one compact summary row per official run
-- `rollups/`: chart-ready aggregates rebuilt from `summary.jsonl`
 
 ## Summary Metrics
 
@@ -61,7 +60,6 @@ This command will:
 1. validate the input shape
 2. write the detailed snapshot under `runs/`
 3. upsert one summary row in `summary.jsonl`
-4. rebuild the rollup JSON files
 
-The writer is intentionally simple so frontend and CLI runners can adopt the
-same format later.
+The writer is intentionally simple. Official history is just the detailed run
+files plus the compact summary index.

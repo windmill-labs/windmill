@@ -224,7 +224,7 @@ export function buildOfficialRunFromResult(
     suite_version: "cli-benchmark-v1",
     scoring_version: "cli-deterministic-v1",
     surface: result.canonicalSurface,
-    variant_name: labelOverride ?? result.label,
+    label: labelOverride ?? result.label,
     provider: result.provider,
     model: result.model,
     judge_model: result.judgeModel,

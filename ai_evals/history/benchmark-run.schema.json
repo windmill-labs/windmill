@@ -9,7 +9,6 @@
     "suite_version",
     "scoring_version",
     "surface",
-    "variant_name",
     "provider",
     "model",
     "runs_per_case",
@@ -42,7 +41,7 @@
       "type": "string",
       "minLength": 1
     },
-    "variant_name": {
+    "label": {
       "type": "string",
       "minLength": 1
     },

@@ -7,7 +7,6 @@ const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_HISTORY_DIR = MODULE_DIR;
 const SUMMARY_FILENAME = "summary.jsonl";
 const RUNS_DIRNAME = "runs";
-const ROLLUPS_DIRNAME = "rollups";
 
 export async function appendOfficialRun(input, options = {}) {
   const absoluteHistoryDir = path.resolve(options.historyDir ?? DEFAULT_HISTORY_DIR);
@@ -26,7 +25,6 @@ export async function appendOfficialRun(input, options = {}) {
   const nextSummaries = upsertSummaryEntry(summaries, summaryEntry);
 
   await writeSummaryEntries(summaryPath, nextSummaries);
-  await writeRollups(absoluteHistoryDir, nextSummaries);
 
   return {
     status: "ok",
@@ -36,31 +34,9 @@ export async function appendOfficialRun(input, options = {}) {
   };
 }
 
-export async function loadLatestHistoryRollup(historyDir = DEFAULT_HISTORY_DIR) {
-  const rollupPath = path.join(path.resolve(historyDir), ROLLUPS_DIRNAME, "latest.json");
-  return await loadJsonFile(rollupPath);
-}
-
-export async function loadHistoryRollup(
-  name,
-  historyDir = DEFAULT_HISTORY_DIR
-) {
-  const rollupPath = path.join(path.resolve(historyDir), ROLLUPS_DIRNAME, name);
-  return await loadJsonFile(rollupPath);
-}
-
 export async function loadSummaryHistory(historyDir = DEFAULT_HISTORY_DIR) {
   const summaryPath = path.join(path.resolve(historyDir), SUMMARY_FILENAME);
   return await loadSummaryEntries(summaryPath);
-}
-
-async function loadJsonFile(filePath) {
-  const raw = await readFile(filePath, "utf8");
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    throw new Error(`Failed to parse JSON from ${filePath}: ${error.message}`);
-  }
 }
 
 function normalizeRun(input) {
@@ -74,7 +50,7 @@ function normalizeRun(input) {
     "scoring_version"
   );
   const surface = assertNonEmptyString(input.surface, "surface");
-  const variantName = assertNonEmptyString(input.variant_name, "variant_name");
+  const label = assertNonEmptyString(input.label, "label");
   const provider = assertNonEmptyString(input.provider, "provider");
   const model = assertNonEmptyString(input.model, "model");
   const judgeModel =
@@ -98,7 +74,7 @@ function normalizeRun(input) {
       : buildRunId({
           timestamp,
           surface,
-          variantName,
+          label,
           provider,
           model,
           gitSha
@@ -112,7 +88,7 @@ function normalizeRun(input) {
     suite_version: suiteVersion,
     scoring_version: scoringVersion,
     surface,
-    variant_name: variantName,
+    label,
     provider,
     model,
     judge_model: judgeModel,
@@ -230,14 +206,14 @@ function normalizeCases(input) {
   });
 }
 
-function buildRunId({ timestamp, surface, variantName, provider, model, gitSha }) {
+function buildRunId({ timestamp, surface, label, provider, model, gitSha }) {
   const timestampSlug = timestamp.replaceAll(":", "-").replaceAll(".", "-");
   const shortSha = gitSha.slice(0, 12);
 
   return [
     slugify(timestampSlug),
     slugify(surface),
-    slugify(variantName),
+    slugify(label),
     slugify(provider),
     slugify(model),
     shortSha
@@ -254,7 +230,7 @@ function buildSummaryEntry(run, runRelativePath) {
     suite_version: run.suite_version,
     scoring_version: run.scoring_version,
     surface: run.surface,
-    variant_name: run.variant_name,
+    label: run.label,
     provider: run.provider,
     model: run.model,
     judge_model: run.judge_model,
@@ -303,76 +279,8 @@ async function writeSummaryEntries(summaryPath, entries) {
   await writeFile(summaryPath, content, "utf8");
 }
 
-async function writeRollups(historyDir, summaries) {
-  const rollupsDir = path.join(historyDir, ROLLUPS_DIRNAME);
-  const generatedAt = new Date().toISOString();
-  const latestFirst = [...summaries].sort((left, right) =>
-    right.timestamp.localeCompare(left.timestamp)
-  );
-  const latestBySurface = {};
-
-  for (const summary of latestFirst) {
-    if (!(summary.surface in latestBySurface)) {
-      latestBySurface[summary.surface] = summary;
-    }
-  }
-
-  const latestRollup = {
-    generatedAt,
-    latestRun: latestFirst[0] ?? null,
-    latestBySurface
-  };
-  const bySurfaceRollup = {
-    generatedAt,
-    groupKey: "surface",
-    groups: groupSummaries(summaries, (summary) => summary.surface)
-  };
-  const byVariantRollup = {
-    generatedAt,
-    groupKey: "surface:variant_name",
-    groups: groupSummaries(
-      summaries,
-      (summary) => `${summary.surface}:${summary.variant_name}`
-    )
-  };
-  const byModelRollup = {
-    generatedAt,
-    groupKey: "provider:model",
-    groups: groupSummaries(
-      summaries,
-      (summary) => `${summary.provider}:${summary.model}`
-    )
-  };
-
-  await Promise.all([
-    writeJsonFile(path.join(rollupsDir, "latest.json"), latestRollup),
-    writeJsonFile(path.join(rollupsDir, "by_surface.json"), bySurfaceRollup),
-    writeJsonFile(path.join(rollupsDir, "by_variant.json"), byVariantRollup),
-    writeJsonFile(path.join(rollupsDir, "by_model.json"), byModelRollup)
-  ]);
-}
-
-function groupSummaries(summaries, getGroupKey) {
-  const groups = {};
-
-  for (const summary of summaries) {
-    const key = getGroupKey(summary);
-    groups[key] ??= [];
-    groups[key].push(summary);
-  }
-
-  for (const groupEntries of Object.values(groups)) {
-    groupEntries.sort((left, right) => left.timestamp.localeCompare(right.timestamp));
-  }
-
-  return groups;
-}
-
 async function ensureHistoryLayout(historyDir) {
-  await Promise.all([
-    mkdir(path.join(historyDir, RUNS_DIRNAME), { recursive: true }),
-    mkdir(path.join(historyDir, ROLLUPS_DIRNAME), { recursive: true })
-  ]);
+  await mkdir(path.join(historyDir, RUNS_DIRNAME), { recursive: true });
 }
 
 async function writeJsonFile(filePath, value) {
