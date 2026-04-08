@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE dependency_map SET importer_path = REGEXP_REPLACE(importer_path, 'u/' || $2 || '/(.*)', $1 || '/\\1') WHERE importer_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "18da9eefebe0e8760f476c20ace2949fbd5f44329d3514da78fc75f854b2a94e"
+}

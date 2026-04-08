@@ -895,6 +895,17 @@ async fn offboard_user_from_workspace<'c>(
         &new_permissioned_as, username, w_id
     ).execute(&mut **tx).await?;
 
+    // ---- raw_app (mirrors app paths) ----
+    sqlx::query!(
+        r#"UPDATE raw_app SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1')
+        WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        &new_prefix,
+        username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     // ---- resources ----
     let resources_reassigned = sqlx::query_scalar!(
         r#"WITH updated AS (
@@ -1102,6 +1113,17 @@ async fn offboard_user_from_workspace<'c>(
 
     sqlx::query!(
         r#"UPDATE asset SET usage_path = REGEXP_REPLACE(usage_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE usage_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        &new_prefix, username, w_id
+    ).execute(&mut **tx).await?;
+
+    // ---- dependency_map ----
+    sqlx::query!(
+        r#"UPDATE dependency_map SET importer_path = REGEXP_REPLACE(importer_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE importer_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        &new_prefix, username, w_id
+    ).execute(&mut **tx).await?;
+
+    sqlx::query!(
+        r#"UPDATE dependency_map SET imported_path = REGEXP_REPLACE(imported_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE imported_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         &new_prefix, username, w_id
     ).execute(&mut **tx).await?;
 
