@@ -5,435 +5,59 @@ import * as log from "../../core/log.ts";
 import { setClient } from "../../core/client.ts";
 import { tryResolveBranchWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
+import {
+  deployItem,
+  deleteItemInWorkspace,
+  getOnBehalfOf,
+  type DeployKind,
+  type DeployProvider,
+} from "../../../windmill-utils-internal/src/deploy.ts";
 
 // ---------------------------------------------------------------------------
-// Types
+// Provider adapter — wraps CLI's standalone API functions
 // ---------------------------------------------------------------------------
 
-type Kind =
-  | "script"
-  | "flow"
-  | "app"
-  | "raw_app"
-  | "resource"
-  | "variable"
-  | "resource_type"
-  | "folder";
-
-interface DeployResult {
-  success: boolean;
-  error?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Flow module helpers (ported from frontend/src/lib/components/flows/flowExplorer.ts)
-// ---------------------------------------------------------------------------
-
-// deno-lint-ignore no-explicit-any
-function getSubModules(flowModule: any): any[][] {
-  const type = flowModule?.value?.type;
-  if (type === "forloopflow" || type === "whileloopflow") {
-    return [flowModule.value.modules ?? []];
-  } else if (type === "branchall") {
-    return (flowModule.value.branches ?? []).map(
-      // deno-lint-ignore no-explicit-any
-      (branch: any) => branch.modules ?? []
-    );
-  } else if (type === "branchone") {
-    return [
-      // deno-lint-ignore no-explicit-any
-      ...(flowModule.value.branches ?? []).map((b: any) => b.modules ?? []),
-      flowModule.value.default ?? [],
-    ];
-  } else if (type === "aiagent") {
-    if (flowModule.value.tools) {
-      return [
-        flowModule.value.tools
-          // deno-lint-ignore no-explicit-any
-          .filter((t: any) => t.value?.type === "script" || t.value?.type === "flow")
-          // deno-lint-ignore no-explicit-any
-          .map((t: any) => ({
-            id: t.id,
-            value: t.value,
-            summary: t.summary,
-          })),
-      ];
-    }
-  }
-  return [];
-}
-
-// deno-lint-ignore no-explicit-any
-function getAllSubmodules(flowModule: any): any[] {
-  return getSubModules(flowModule)
-    .map((modules) =>
-      // deno-lint-ignore no-explicit-any
-      modules.flatMap((m: any) => [m, ...getAllSubmodules(m)])
-    )
-    .flat();
-}
-
-// deno-lint-ignore no-explicit-any
-function getAllModules(flowModules: any[]): any[] {
-  return [
-    ...flowModules,
-    ...flowModules.flatMap((x) => getAllSubmodules(x)),
-  ];
-}
-
-// ---------------------------------------------------------------------------
-// Folder path helper
-// ---------------------------------------------------------------------------
-
-function folderName(path: string): string {
-  return path.replace(/^f\//, "");
-}
-
-// ---------------------------------------------------------------------------
-// checkItemExists — ported from frontend/src/lib/utils_workspace_deploy.ts
-// ---------------------------------------------------------------------------
-
-async function checkItemExists(
-  kind: Kind,
-  path: string,
-  workspace: string
-): Promise<boolean> {
-  if (kind === "flow") {
-    return wmill.existsFlowByPath({ workspace, path });
-  } else if (kind === "script") {
-    return wmill.existsScriptByPath({ workspace, path });
-  } else if (kind === "app" || kind === "raw_app") {
-    return wmill.existsApp({ workspace, path });
-  } else if (kind === "variable") {
-    return wmill.existsVariable({ workspace, path });
-  } else if (kind === "resource") {
-    return wmill.existsResource({ workspace, path });
-  } else if (kind === "resource_type") {
-    return wmill.existsResourceType({ workspace, path });
-  } else if (kind === "folder") {
-    return wmill.existsFolder({ workspace, name: folderName(path) });
-  }
-  throw new Error(`Unknown kind: ${kind}`);
-}
-
-// ---------------------------------------------------------------------------
-// deployItem — ported from frontend/src/lib/utils_workspace_deploy.ts
-// ---------------------------------------------------------------------------
-
-async function deployItem(
-  kind: Kind,
-  path: string,
-  workspaceFrom: string,
-  workspaceTo: string,
-  onBehalfOf?: string
-): Promise<DeployResult> {
-  const preserveOnBehalfOf = onBehalfOf !== undefined;
-
-  try {
-    const alreadyExists = await checkItemExists(kind, path, workspaceTo);
-
-    if (kind === "flow") {
-      // deno-lint-ignore no-explicit-any
-      const flow = (await wmill.getFlowByPath({ workspace: workspaceFrom, path })) as any;
-      // Clear inline script hashes (same as frontend)
-      getAllModules(flow.value?.modules ?? []).forEach(
-        // deno-lint-ignore no-explicit-any
-        (x: any) => {
-          if (x.value?.type === "script" && x.value.hash != undefined) {
-            x.value.hash = undefined;
-          }
-        }
-      );
-      if (alreadyExists) {
-        await wmill.updateFlow({
-          workspace: workspaceTo,
-          path,
-          requestBody: {
-            ...flow,
-            preserve_on_behalf_of: preserveOnBehalfOf,
-            on_behalf_of_email: onBehalfOf,
-          },
-        });
-      } else {
-        await wmill.createFlow({
-          workspace: workspaceTo,
-          requestBody: {
-            ...flow,
-            preserve_on_behalf_of: preserveOnBehalfOf,
-            on_behalf_of_email: onBehalfOf,
-          },
-        });
-      }
-    } else if (kind === "script") {
-      // deno-lint-ignore no-explicit-any
-      const script = (await wmill.getScriptByPath({ workspace: workspaceFrom, path })) as any;
-      let parentHash: string | undefined;
-      if (alreadyExists) {
-        // deno-lint-ignore no-explicit-any
-        const existing = (await wmill.getScriptByPath({ workspace: workspaceTo, path })) as any;
-        parentHash = existing.hash;
-      }
-      await wmill.createScript({
-        workspace: workspaceTo,
-        requestBody: {
-          ...script,
-          lock: script.lock,
-          parent_hash: parentHash,
-          preserve_on_behalf_of: preserveOnBehalfOf,
-          on_behalf_of_email: onBehalfOf,
-        },
-      });
-    } else if (kind === "app" || kind === "raw_app") {
-      // deno-lint-ignore no-explicit-any
-      const app = (await wmill.getAppByPath({ workspace: workspaceFrom, path })) as any;
-      if (alreadyExists) {
-        if (app.raw_app) {
-          const secret = await wmill.getPublicSecretOfLatestVersionOfApp({
-            workspace: workspaceFrom,
-            path: app.path,
-          });
-          const js = await wmill.getRawAppData({
-            secretWithExtension: `${secret}.js`,
-            workspace: workspaceFrom,
-          });
-          const css = await wmill.getRawAppData({
-            secretWithExtension: `${secret}.css`,
-            workspace: workspaceFrom,
-          });
-          await wmill.updateAppRaw({
-            workspace: workspaceTo,
-            path,
-            formData: {
-              app: { ...app, preserve_on_behalf_of: preserveOnBehalfOf },
-              css,
-              js,
-            },
-          });
-        } else {
-          await wmill.updateApp({
-            workspace: workspaceTo,
-            path,
-            requestBody: {
-              ...app,
-              preserve_on_behalf_of: preserveOnBehalfOf,
-            },
-          });
-        }
-      } else {
-        if (app.raw_app) {
-          const secret = await wmill.getPublicSecretOfLatestVersionOfApp({
-            workspace: workspaceFrom,
-            path: app.path,
-          });
-          const js = await wmill.getRawAppData({
-            secretWithExtension: `${secret}.js`,
-            workspace: workspaceFrom,
-          });
-          const css = await wmill.getRawAppData({
-            secretWithExtension: `${secret}.css`,
-            workspace: workspaceFrom,
-          });
-          await wmill.createAppRaw({
-            workspace: workspaceTo,
-            formData: {
-              app: { ...app, preserve_on_behalf_of: preserveOnBehalfOf },
-              css,
-              js,
-            },
-          });
-        } else {
-          await wmill.createApp({
-            workspace: workspaceTo,
-            requestBody: {
-              ...app,
-              preserve_on_behalf_of: preserveOnBehalfOf,
-            },
-          });
-        }
-      }
-    } else if (kind === "variable") {
-      const variable = await wmill.getVariable({
-        workspace: workspaceFrom,
-        path,
-        decryptSecret: true,
-      });
-      if (alreadyExists) {
-        await wmill.updateVariable({
-          workspace: workspaceTo,
-          path,
-          requestBody: {
-            path,
-            value: variable.value ?? "",
-            is_secret: variable.is_secret,
-            description: variable.description ?? "",
-          },
-          alreadyEncrypted: false,
-        });
-      } else {
-        await wmill.createVariable({
-          workspace: workspaceTo,
-          requestBody: {
-            path,
-            value: variable.value ?? "",
-            is_secret: variable.is_secret,
-            description: variable.description ?? "",
-          },
-        });
-      }
-    } else if (kind === "resource") {
-      const resource = await wmill.getResource({
-        workspace: workspaceFrom,
-        path,
-      });
-      if (alreadyExists) {
-        await wmill.updateResource({
-          workspace: workspaceTo,
-          path,
-          requestBody: {
-            path,
-            value: resource.value ?? "",
-            description: resource.description ?? "",
-          },
-        });
-      } else {
-        await wmill.createResource({
-          workspace: workspaceTo,
-          requestBody: {
-            path,
-            value: resource.value ?? "",
-            resource_type: resource.resource_type,
-            description: resource.description ?? "",
-          },
-        });
-      }
-    } else if (kind === "resource_type") {
-      const rt = await wmill.getResourceType({
-        workspace: workspaceFrom,
-        path,
-      });
-      if (alreadyExists) {
-        await wmill.updateResourceType({
-          workspace: workspaceTo,
-          path,
-          requestBody: {
-            schema: rt.schema,
-            description: rt.description ?? "",
-          },
-        });
-      } else {
-        await wmill.createResourceType({
-          workspace: workspaceTo,
-          requestBody: {
-            name: rt.name,
-            schema: rt.schema,
-            description: rt.description ?? "",
-          },
-        });
-      }
-    } else if (kind === "folder") {
-      const name = folderName(path);
-      const folder = await wmill.getFolder({ workspace: workspaceFrom, name });
-      if (alreadyExists) {
-        await wmill.updateFolder({
-          workspace: workspaceTo,
-          name,
-          requestBody: {
-            owners: folder.owners,
-            // deno-lint-ignore no-explicit-any
-            extra_perms: folder.extra_perms as any,
-            summary: folder.summary ?? undefined,
-          },
-        });
-      } else {
-        await wmill.createFolder({
-          workspace: workspaceTo,
-          requestBody: {
-            name,
-            owners: folder.owners,
-            // deno-lint-ignore no-explicit-any
-            extra_perms: folder.extra_perms as any,
-            summary: folder.summary ?? undefined,
-          },
-        });
-      }
-    } else {
-      throw new Error(`Unknown kind: ${kind}`);
-    }
-
-    return { success: true };
-  } catch (e: unknown) {
-    const err = e as { body?: string; message?: string };
-    return { success: false, error: err.body || err.message || String(e) };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// deleteItemInWorkspace — archive/delete an item in a workspace
-// Used when deploying a deletion (item was deleted in source, remove from target)
-// ---------------------------------------------------------------------------
-
-async function deleteItemInWorkspace(
-  kind: Kind,
-  path: string,
-  workspace: string
-): Promise<DeployResult> {
-  try {
-    if (kind === "script") {
-      await wmill.archiveScriptByPath({ workspace, path });
-    } else if (kind === "flow") {
-      await wmill.archiveFlowByPath({
-        workspace,
-        path,
-        requestBody: { archived: true },
-      });
-    } else if (kind === "app" || kind === "raw_app") {
-      await wmill.deleteApp({ workspace, path });
-    } else if (kind === "variable") {
-      await wmill.deleteVariable({ workspace, path });
-    } else if (kind === "resource") {
-      await wmill.deleteResource({ workspace, path });
-    } else if (kind === "resource_type") {
-      await wmill.deleteResourceType({ workspace, path });
-    } else if (kind === "folder") {
-      await wmill.deleteFolder({ workspace, name: folderName(path) });
-    } else {
-      throw new Error(`Deletion not supported for kind: ${kind}`);
-    }
-    return { success: true };
-  } catch (e: unknown) {
-    const err = e as { body?: string; message?: string };
-    return { success: false, error: err.body || err.message || String(e) };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// getOnBehalfOf — fetch source item's on_behalf_of value
-// ---------------------------------------------------------------------------
-
-async function getOnBehalfOfForItem(
-  kind: Kind,
-  path: string,
-  workspace: string
-): Promise<string | undefined> {
-  try {
-    if (kind === "flow") {
-      // deno-lint-ignore no-explicit-any
-      const flow = (await wmill.getFlowByPath({ workspace, path })) as any;
-      return flow.on_behalf_of_email;
-    } else if (kind === "script") {
-      // deno-lint-ignore no-explicit-any
-      const script = (await wmill.getScriptByPath({ workspace, path })) as any;
-      return script.on_behalf_of_email;
-    } else if (kind === "app" || kind === "raw_app") {
-      // deno-lint-ignore no-explicit-any
-      const app = (await wmill.getAppByPath({ workspace, path })) as any;
-      return app.policy?.on_behalf_of_email;
-    }
-  } catch {
-    // Item may not exist
-  }
-  return undefined;
-}
+const provider: DeployProvider = {
+  existsFlowByPath: wmill.existsFlowByPath,
+  existsScriptByPath: wmill.existsScriptByPath,
+  existsApp: wmill.existsApp,
+  existsVariable: wmill.existsVariable,
+  existsResource: wmill.existsResource,
+  existsResourceType: wmill.existsResourceType,
+  existsFolder: wmill.existsFolder,
+  getFlowByPath: wmill.getFlowByPath,
+  createFlow: wmill.createFlow,
+  updateFlow: wmill.updateFlow,
+  archiveFlowByPath: wmill.archiveFlowByPath,
+  getScriptByPath: wmill.getScriptByPath,
+  createScript: wmill.createScript,
+  archiveScriptByPath: wmill.archiveScriptByPath,
+  getAppByPath: wmill.getAppByPath,
+  createApp: wmill.createApp,
+  updateApp: wmill.updateApp,
+  createAppRaw: wmill.createAppRaw,
+  updateAppRaw: wmill.updateAppRaw,
+  getPublicSecretOfLatestVersionOfApp:
+    wmill.getPublicSecretOfLatestVersionOfApp,
+  getRawAppData: wmill.getRawAppData,
+  deleteApp: wmill.deleteApp,
+  getVariable: wmill.getVariable,
+  createVariable: wmill.createVariable,
+  updateVariable: wmill.updateVariable,
+  deleteVariable: wmill.deleteVariable,
+  getResource: wmill.getResource,
+  createResource: wmill.createResource,
+  updateResource: wmill.updateResource,
+  deleteResource: wmill.deleteResource,
+  getResourceType: wmill.getResourceType,
+  createResourceType: wmill.createResourceType,
+  updateResourceType: wmill.updateResourceType,
+  deleteResourceType: wmill.deleteResourceType,
+  getFolder: wmill.getFolder,
+  createFolder: wmill.createFolder,
+  updateFolder: wmill.updateFolder,
+  deleteFolder: wmill.deleteFolder,
+};
 
 // ---------------------------------------------------------------------------
 // Main merge command
@@ -546,9 +170,7 @@ async function mergeWorkspaces(
     .render();
 
   // 5. Display diffs table
-  const diffs = comparison.diffs.filter(
-    (d) => d.has_changes !== false
-  );
+  const diffs = comparison.diffs.filter((d) => d.has_changes !== false);
   if (diffs.length === 0) {
     log.info(colors.green("No effective changes to deploy."));
     return;
@@ -610,17 +232,15 @@ async function mergeWorkspaces(
   // 7. Filter selectable diffs based on direction
   const selectableDiffs = diffs.filter((d) => {
     if (direction === "to-parent") {
-      return d.ahead > 0 && (d.exists_in_fork || d.exists_in_source);
+      return d.ahead > 0;
     } else {
-      return d.behind > 0 && (d.exists_in_source || d.exists_in_fork);
+      return d.behind > 0;
     }
   });
 
   if (selectableDiffs.length === 0) {
     log.info(
-      colors.yellow(
-        `No items to deploy in the '${direction}' direction.`
-      )
+      colors.yellow(`No items to deploy in the '${direction}' direction.`)
     );
     return;
   }
@@ -629,21 +249,18 @@ async function mergeWorkspaces(
   let selectedDiffs = selectableDiffs;
 
   if (opts.all) {
-    // Select everything
     selectedDiffs = selectableDiffs;
   } else if (opts.skipConflicts) {
     selectedDiffs = selectableDiffs.filter(
       (d) => !(d.ahead > 0 && d.behind > 0)
     );
   } else if (opts.yes && !opts.include && !opts.exclude) {
-    // Non-interactive default: all for to-parent, non-conflicts for to-fork
     if (direction === "to-fork") {
       selectedDiffs = selectableDiffs.filter(
         (d) => !(d.ahead > 0 && d.behind > 0)
       );
     }
   } else if (!opts.yes) {
-    // Interactive selection
     const { Checkbox } = await import("@cliffy/prompt/checkbox");
     const defaultForToFork = direction === "to-fork";
     const selectedValues = await Checkbox.prompt({
@@ -654,9 +271,7 @@ async function mergeWorkspaces(
         return {
           name: label,
           value: `${d.kind}:${d.path}`,
-          checked: defaultForToFork
-            ? !isConflict
-            : true,
+          checked: defaultForToFork ? !isConflict : true,
         };
       }),
     });
@@ -715,8 +330,7 @@ async function mergeWorkspaces(
     `\nDeploying ${colors.bold(String(selectedDiffs.length))} item(s)...`
   );
 
-  // 9. Sort: folders first (cast to string — backend can return "folder" even though
-  // the generated type union doesn't include it)
+  // 9. Sort: folders first
   const sorted = [...selectedDiffs].sort((a, b) => {
     const aFolder = (a.kind as string) === "folder" ? 0 : 1;
     const bFolder = (b.kind as string) === "folder" ? 0 : 1;
@@ -736,34 +350,35 @@ async function mergeWorkspaces(
   for (const diff of sorted) {
     const label = `${diff.kind}:${diff.path}`;
 
-    // Check if the item was deleted in the source workspace.
-    // If so, archive/delete it in the target instead of copying.
+    // Check if the item was deleted in the source workspace
     const itemDeletedInSource =
       direction === "to-parent"
         ? diff.exists_in_fork === false
         : diff.exists_in_source === false;
 
-    let result: DeployResult;
+    let result;
     if (itemDeletedInSource) {
       log.info(colors.yellow(`  ⌫ ${label} (removing from target)`));
       result = await deleteItemInWorkspace(
-        diff.kind as Kind,
+        provider,
+        diff.kind as DeployKind,
         diff.path,
         workspaceTo
       );
     } else {
-      // Resolve on_behalf_of if requested
       let onBehalfOf: string | undefined;
       if (opts.preserveOnBehalfOf) {
-        onBehalfOf = await getOnBehalfOfForItem(
-          diff.kind as Kind,
+        onBehalfOf = await getOnBehalfOf(
+          provider,
+          diff.kind as DeployKind,
           diff.path,
           workspaceFrom
         );
       }
 
       result = await deployItem(
-        diff.kind as Kind,
+        provider,
+        diff.kind as DeployKind,
         diff.path,
         workspaceFrom,
         workspaceTo,
@@ -788,7 +403,7 @@ async function mergeWorkspaces(
         forkWorkspaceId: forkWorkspaceId,
       });
     } catch {
-      // Non-critical — tally will refresh on next comparison
+      // Non-critical
     }
   }
 
