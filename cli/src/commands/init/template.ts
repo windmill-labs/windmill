@@ -34,13 +34,14 @@ export interface ConfigOption {
   example?: string;
   inlineComment?: string;
   groupNote?: string;
+  skipInTemplate?: boolean;
 }
 
 /** Keys to strip from ConfigOption entries when generating JSON Schema. */
 const NON_SCHEMA_KEYS = new Set([
   "name", "default",
   "section", "sectionNote", "commented", "templateValue",
-  "example", "inlineComment", "groupNote",
+  "example", "inlineComment", "groupNote", "skipInTemplate",
 ]);
 
 // Reusable sub-schemas for nested types
@@ -57,12 +58,13 @@ const SPECIFIC_ITEMS_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const BRANCH_CONFIG_SCHEMA = {
+const WORKSPACE_CONFIG_SCHEMA = {
   type: "object",
   properties: {
-    baseUrl: { type: "string", description: "Windmill instance URL for this branch" },
-    workspaceId: { type: "string", description: "Workspace ID to sync with for this branch" },
-    overrides: { type: "object", description: "Override any top-level sync option for this branch" },
+    gitBranch: { type: "string", description: "Git branch name (defaults to the workspace name/key)" },
+    workspaceId: { type: "string", description: "Workspace ID to sync with (defaults to the workspace name/key)" },
+    baseUrl: { type: "string", description: "Windmill instance URL for this workspace" },
+    overrides: { type: "object", description: "Override any top-level sync option for this workspace" },
     promotionOverrides: { type: "object", description: "Overrides applied when using --promotion flag" },
     specificItems: SPECIFIC_ITEMS_SCHEMA,
   },
@@ -168,34 +170,35 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     ].join("\n"),
   },
 
-  // ── Git branches ──────────────────────────────────────────────────────
-  { name: "gitBranches", type: "object", default: "{}", description: "Map git branches to workspaces and per-branch sync overrides",
+  // ── Workspace bindings ─────────────────────────────────────────────────
+  { name: "workspaces", type: "object", default: "{}", description: "Map workspace names to Windmill instances and per-workspace sync overrides",
     properties: { commonSpecificItems: SPECIFIC_ITEMS_SCHEMA },
-    additionalProperties: BRANCH_CONFIG_SCHEMA,
-    section: "Git branch / environment bindings",
-    sectionNote: "Map git branches to Windmill workspaces and override settings per branch.\nUse \"environments\" as an alias if you prefer environment-based terminology.",
+    additionalProperties: WORKSPACE_CONFIG_SCHEMA,
+    section: "Workspace bindings",
+    sectionNote: "Map workspace names to Windmill instances and override settings per workspace.\nThe key is a human-friendly workspace name. gitBranch and workspaceId default to the key name.",
     templateValue: "\n  {{BRANCH}}:\n    overrides: {}",
     example: [
       "{{BASEURL_LINE}}",
       "{{WORKSPACE_ID_LINE}}",
-      "    # promotionOverrides:                  # overrides applied during --promotion",
+      "    # gitBranch: main                        # git branch (defaults to workspace name)",
+      "    # promotionOverrides:                    # overrides applied during --promotion",
       "    #   skipSecrets: false",
-      "    # specificItems:                       # only sync these specific items",
+      "    # specificItems:                         # only sync these specific items",
       '    #   variables: ["f/my_folder/my_var"]',
       '    #   resources: ["f/my_folder/my_res"]',
       '    #   triggers: ["f/my_folder/my_trigger"]',
       '    #   folders: ["my_folder"]',
       "    #   settings: true",
       "",
-      "  # Example: staging branch bound to a different workspace",
+      "  # Example: staging workspace on a different instance",
       "  # staging:",
       "  #   baseUrl: https://staging.windmill.dev",
-      "  #   workspaceId: staging-workspace",
+      "  #   workspaceId: staging-workspace          # defaults to 'staging' if omitted",
       "  #   overrides:",
       "  #     skipSecrets: false",
       "  #     includeSchedules: true",
       "",
-      "  # Items shared across ALL branches",
+      "  # Items shared across ALL workspaces",
       "  # commonSpecificItems:",
       '  #   variables: ["f/shared/api_key"]',
       '  #   resources: ["f/shared/db_conn"]',
@@ -203,18 +206,27 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     ].join("\n"),
   },
 
-  { name: "environments", type: "object", default: "{}", description: "Alias for gitBranches — use if you prefer environment-based terminology",
+  { name: "gitBranches", type: "object", default: "{}", description: "[Deprecated] Use 'workspaces' instead. Map git branches to workspaces.",
     properties: { commonSpecificItems: SPECIFIC_ITEMS_SCHEMA },
-    additionalProperties: BRANCH_CONFIG_SCHEMA,
-    commented: true },
+    additionalProperties: WORKSPACE_CONFIG_SCHEMA,
+    commented: true, skipInTemplate: true },
+  { name: "environments", type: "object", default: "{}", description: "[Deprecated] Use 'workspaces' instead.",
+    properties: { commonSpecificItems: SPECIFIC_ITEMS_SCHEMA },
+    additionalProperties: WORKSPACE_CONFIG_SCHEMA,
+    commented: true, skipInTemplate: true },
 ];
 
 // ─── Template generator ─────────────────────────────────────────────────────
 
-export interface BranchBinding {
+export interface WorkspaceBinding {
+  name: string;
   baseUrl: string;
   workspaceId: string;
+  gitBranch?: string;
 }
+
+/** @deprecated Use WorkspaceBinding instead */
+export type BranchBinding = Pick<WorkspaceBinding, "baseUrl" | "workspaceId">;
 
 /** Quote a string for use as a YAML key if it contains special characters. */
 function yamlKey(s: string): string {
@@ -228,7 +240,7 @@ function yamlKey(s: string): string {
   return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
-export function generateCommentedTemplate(branchName?: string, binding?: BranchBinding): string {
+export function generateCommentedTemplate(branchName?: string, binding?: BranchBinding, bindings?: WorkspaceBinding[]): string {
   const branch = yamlKey(branchName ?? "main");
   const lines: string[] = [
     "# yaml-language-server: $schema=wmill.schema.json",
@@ -238,6 +250,8 @@ export function generateCommentedTemplate(branchName?: string, binding?: BranchB
   ];
 
   for (const opt of CONFIG_REFERENCE) {
+    if (opt.skipInTemplate) continue;
+
     if (opt.section) {
       const ruler = "-".repeat(Math.max(0, 65 - opt.section.length));
       lines.push(`# --- ${opt.section} ${ruler}`);
@@ -251,6 +265,27 @@ export function generateCommentedTemplate(branchName?: string, binding?: BranchB
 
     if (opt.groupNote) {
       lines.push(`# ${opt.groupNote}`);
+    }
+
+    // For the workspaces section, generate from bindings if available
+    if (opt.name === "workspaces" && bindings && bindings.length > 0) {
+      lines.push(`# ${opt.description}`);
+      lines.push("workspaces:");
+      for (const ws of bindings) {
+        const key = yamlKey(ws.name);
+        lines.push(`  ${key}:`);
+        lines.push(`    baseUrl: ${ws.baseUrl}`);
+        if (ws.workspaceId !== ws.name) {
+          lines.push(`    workspaceId: ${ws.workspaceId}`);
+        }
+        if (ws.gitBranch && ws.gitBranch !== ws.name) {
+          lines.push(`    gitBranch: ${ws.gitBranch}`);
+        }
+        lines.push(`    overrides: {}`);
+      }
+      lines.push("");
+      // Skip the default template/example rendering for this opt
+      continue;
     }
 
     const value = opt.templateValue ?? opt.default;
@@ -278,8 +313,8 @@ export function generateCommentedTemplate(branchName?: string, binding?: BranchB
           .replace("{{WORKSPACE_ID_LINE}}", `    workspaceId: ${binding.workspaceId}`);
       } else {
         resolvedExample = resolvedExample
-          .replace("{{BASEURL_LINE}}", "    # baseUrl: https://app.windmill.dev    # Windmill instance URL for this branch")
-          .replace("{{WORKSPACE_ID_LINE}}", "    # workspaceId: my-workspace            # workspace to sync with");
+          .replace("{{BASEURL_LINE}}", "    # baseUrl: https://app.windmill.dev    # Windmill instance URL")
+          .replace("{{WORKSPACE_ID_LINE}}", "    # workspaceId: my-workspace            # defaults to workspace name");
       }
       for (const exLine of resolvedExample.split("\n")) {
         lines.push(exLine);
@@ -328,15 +363,18 @@ export function formatConfigReference(): string {
   for (const opt of CONFIG_REFERENCE) {
     allRows.push({ name: opt.name, description: opt.description, default: opt.default });
 
+    // Don't expand deprecated entries (they duplicate the primary entry's schema)
+    if (opt.skipInTemplate) continue;
+
     // Auto-expand array item properties (e.g., codebases[].*)
     if (opt.items?.properties) {
       expandSchema(`${opt.name}[]`, opt.items, allRows);
     }
-    // Auto-expand additionalProperties (e.g., gitBranches.<branch>.*)
+    // Auto-expand additionalProperties (e.g., workspaces.<workspace>.*)
     if (opt.additionalProperties && typeof opt.additionalProperties === "object" && opt.additionalProperties.properties) {
-      expandSchema(`${opt.name}.<branch>`, opt.additionalProperties as Record<string, any>, allRows);
+      expandSchema(`${opt.name}.<workspace>`, opt.additionalProperties as Record<string, any>, allRows);
     }
-    // Auto-expand named properties (e.g., gitBranches.commonSpecificItems)
+    // Auto-expand named properties (e.g., workspaces.commonSpecificItems)
     if (opt.properties) {
       expandSchema(opt.name, opt, allRows);
     }

@@ -48,6 +48,9 @@ import {
   mergeConfigWithConfigFile,
   SyncOptions,
   validateBranchConfiguration,
+  getEffectiveGitBranch,
+  findWorkspaceByGitBranch,
+  WorkspaceEntryConfig,
 } from "../../core/conf.ts";
 import {
   fromBranchSpecificPath,
@@ -106,6 +109,26 @@ import {
   getScriptBasePathFromModulePath,
 } from "../../utils/resource_folders.ts";
 
+let branchDeprecationWarned = false;
+
+// Resolve workspace name from a --branch override (git branch → workspace name).
+// Falls back to using the branch value as-is (backward compat: old key = branch name).
+function resolveWsNameFromBranch(opts: SyncOptions, branchName: string): string {
+  const match = findWorkspaceByGitBranch(opts.workspaces, branchName);
+  return match ? match[0] : branchName;
+}
+
+// Resolve the effective git branch for file naming from a workspace name.
+// If the workspace name matches a config entry with a custom gitBranch, use that.
+// Otherwise, the workspace name is assumed to be the git branch (backward compat).
+function resolveGitBranchForFiles(opts: SyncOptions, wsName: string): string {
+  const wsEntry = (opts.workspaces as any)?.[wsName] as WorkspaceEntryConfig | undefined;
+  if (wsEntry) {
+    return getEffectiveGitBranch(wsName, wsEntry);
+  }
+  return wsName;
+}
+
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
   T extends GlobalOptions & SyncOptions & { repository?: string },
@@ -114,14 +137,14 @@ function mergeCliWithEffectiveOptions<
   return Object.assign({}, effectiveOpts, cliOpts) as T;
 }
 
-// Resolve effective sync options using branch-based configuration
+// Resolve effective sync options using workspace-based configuration
 async function resolveEffectiveSyncOptions(
   workspace: Workspace,
   localConfig: SyncOptions,
   promotion?: string,
-  branchOverride?: string,
+  workspaceNameOverride?: string,
 ): Promise<SyncOptions> {
-  return await getEffectiveSettings(localConfig, promotion, false, false, branchOverride);
+  return await getEffectiveSettings(localConfig, promotion, false, false, workspaceNameOverride);
 }
 
 type DynFSElement = {
@@ -2008,9 +2031,21 @@ export async function pull(
     opts.skipSecrets = false;
   }
 
-  // Validate branch configuration early (skipped when --branch is used)
+  // Resolve workspace name: --workspace (global) > --branch/--env (deprecated)
+  if (opts.branch && opts.workspace) {
+    log.warn("⚠️  Both --workspace and --branch provided. Using --workspace and ignoring --branch.");
+  }
+  if (opts.branch && !opts.workspace && !branchDeprecationWarned) {
+    log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
+    branchDeprecationWarned = true;
+  }
+  // --workspace takes priority. --branch resolves git branch → workspace name.
+  const wsNameForConfig = opts.workspace
+    ?? (opts.branch ? resolveWsNameFromBranch(opts, opts.branch) : undefined);
+
+  // Validate workspace configuration early (skipped when override is used)
   try {
-    await validateBranchConfiguration(opts, opts.branch);
+    await validateBranchConfiguration(opts, wsNameForConfig);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -2023,19 +2058,22 @@ export async function pull(
     await mkdir(path.join(process.cwd(), ".wmill"), { recursive: true });
   }
 
-  const workspace = await resolveWorkspace(opts, opts.branch);
+  const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
 
-  // Resolve effective sync options with branch awareness
+  // Resolve effective sync options with workspace awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
     opts,
     opts.promotion,
-    opts.branch,
+    wsNameForConfig,
   );
 
-  // Extract specific items configuration before merging overwrites gitBranches
-  const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
+  // Extract specific items configuration
+  const specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
+
+  // Compute the effective git branch for file naming (may differ from workspace name)
+  const gitBranchForFiles = wsNameForConfig ? resolveGitBranchForFiles(opts, wsNameForConfig) : undefined;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2101,7 +2139,7 @@ export async function pull(
     codebases,
     true,
     specificItems,
-    opts.branch,
+    gitBranchForFiles,
     true, // els1 (remote) is the remote source
   );
 
@@ -2125,7 +2163,7 @@ export async function pull(
               branch_specific_path: getBranchSpecificPath(
                 change.path,
                 specificItems,
-                opts.branch,
+                gitBranchForFiles,
               ),
             }
           : {}),
@@ -2138,7 +2176,7 @@ export async function pull(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems, opts.branch);
+      prettyChanges(changes, specificItems, gitBranchForFiles);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2164,7 +2202,7 @@ export async function pull(
         const branchSpecificPath = getBranchSpecificPath(
           change.path,
           specificItems,
-          opts.branch,
+          gitBranchForFiles,
         );
         if (branchSpecificPath) {
           targetPath = branchSpecificPath;
@@ -2374,7 +2412,7 @@ export async function pull(
                 branch_specific_path: getBranchSpecificPath(
                   change.path,
                   specificItems,
-                  opts.branch,
+                  gitBranchForFiles,
                 ),
               }
             : {}),
@@ -2508,9 +2546,20 @@ export async function push(
     opts.skipSecrets = false;
   }
 
-  // Validate branch configuration early (skipped when --branch is used)
+  // Resolve workspace name: --workspace (global) > --branch/--env (deprecated)
+  if (opts.branch && opts.workspace) {
+    log.warn("⚠️  Both --workspace and --branch provided. Using --workspace and ignoring --branch.");
+  }
+  if (opts.branch && !opts.workspace && !branchDeprecationWarned) {
+    log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
+    branchDeprecationWarned = true;
+  }
+  const wsNameForConfig = opts.workspace
+    ?? (opts.branch ? resolveWsNameFromBranch(opts, opts.branch) : undefined);
+
+  // Validate workspace configuration early (skipped when override is used)
   try {
-    await validateBranchConfiguration(opts, opts.branch);
+    await validateBranchConfiguration(opts, wsNameForConfig);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -2519,19 +2568,22 @@ export async function push(
     throw error;
   }
 
-  const workspace = await resolveWorkspace(opts, opts.branch);
+  const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
 
-  // Resolve effective sync options with branch awareness
+  // Resolve effective sync options with workspace awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
     opts,
     opts.promotion,
-    opts.branch,
+    wsNameForConfig,
   );
 
-  // Extract specific items configuration BEFORE merging overwrites gitBranches
-  const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
+  // Extract specific items configuration
+  const specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
+
+  // Compute the effective git branch for file naming (may differ from workspace name)
+  const gitBranchForFiles = wsNameForConfig ? resolveGitBranchForFiles(opts, wsNameForConfig) : undefined;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2633,7 +2685,7 @@ export async function push(
     codebases,
     false,
     specificItems,
-    opts.branch,
+    gitBranchForFiles,
     false, // els1 (local) is not the remote source
   );
 
@@ -2805,7 +2857,7 @@ export async function push(
       const branchPath = getBranchSpecificPath(
         `f/${folderName}/folder.meta.yaml`,
         specificItems,
-        opts.branch,
+        gitBranchForFiles,
       );
       let found = false;
       // Check branch-specific variant first (e.g. folder.dev.meta.yaml)
@@ -2868,7 +2920,7 @@ export async function push(
               branch_specific_path: getBranchSpecificPath(
                 change.path,
                 specificItems,
-                opts.branch,
+                gitBranchForFiles,
               ),
             }
           : {}),
@@ -2881,7 +2933,7 @@ export async function push(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems, opts.branch);
+      prettyChanges(changes, specificItems, gitBranchForFiles);
     }
 
     if (opts.dryRun) {
@@ -2941,7 +2993,7 @@ export async function push(
     const pool = new Set();
     const queue = [...groupedChangesArray];
     // Cache git branch at the start to avoid repeated execSync calls per change
-    const cachedBranchForPush = opts.branch || (isGitRepository() ? getCurrentGitBranch() : null);
+    const cachedBranchForPush = gitBranchForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
 
     while (queue.length > 0 || pool.size > 0) {
       // Fill the pool until we reach parallelizationFactor
@@ -3106,7 +3158,7 @@ export async function push(
                 originalBranchSpecificPath = getBranchSpecificPath(
                   change.path,
                   specificItems,
-                  opts.branch,
+                  gitBranchForFiles,
                 );
               }
 
@@ -3172,7 +3224,7 @@ export async function push(
                 const branchSpecificPath = getBranchSpecificPath(
                   change.path,
                   specificItems,
-                  opts.branch,
+                  gitBranchForFiles,
                 );
                 if (branchSpecificPath) {
                   localFilePath = branchSpecificPath;
@@ -3566,7 +3618,7 @@ export async function push(
                 branch_specific_path: getBranchSpecificPath(
                   change.path,
                   specificItems,
-                  opts.branch,
+                  gitBranchForFiles,
                 ),
               }
             : {}),
@@ -3659,7 +3711,7 @@ const command = new Command()
   )
   .option(
     "--branch, --env <branch:string>",
-    "Override the current git branch/environment (works even outside a git repository)",
+    "[Deprecated: use --workspace] Override the current git branch/environment",
   )
   .action(pull as any)
   .command("push")
@@ -3716,7 +3768,7 @@ const command = new Command()
   )
   .option(
     "--branch, --env <branch:string>",
-    "Override the current git branch/environment (works even outside a git repository)",
+    "[Deprecated: use --workspace] Override the current git branch/environment",
   )
   .option("--lint", "Run lint validation before pushing")
   .option(

@@ -222,9 +222,9 @@
         "additionalProperties": false
       }
     },
-    "gitBranches": {
+    "workspaces": {
       "type": "object",
-      "description": "Map git branches to workspaces and per-branch sync overrides",
+      "description": "Map workspace names to Windmill instances and per-workspace sync overrides",
       "properties": {
         "commonSpecificItems": {
           "type": "object",
@@ -269,17 +269,131 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
-          "baseUrl": {
+          "gitBranch": {
             "type": "string",
-            "description": "Windmill instance URL for this branch"
+            "description": "Git branch name (defaults to the workspace name/key)"
           },
           "workspaceId": {
             "type": "string",
-            "description": "Workspace ID to sync with for this branch"
+            "description": "Workspace ID to sync with (defaults to the workspace name/key)"
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "Windmill instance URL for this workspace"
           },
           "overrides": {
             "type": "object",
-            "description": "Override any top-level sync option for this branch"
+            "description": "Override any top-level sync option for this workspace"
+          },
+          "promotionOverrides": {
+            "type": "object",
+            "description": "Overrides applied when using --promotion flag"
+          },
+          "specificItems": {
+            "type": "object",
+            "description": "Sync only specific items",
+            "properties": {
+              "variables": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Specific variable paths to sync"
+              },
+              "resources": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Specific resource paths to sync"
+              },
+              "triggers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Specific trigger paths to sync"
+              },
+              "folders": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Specific folder paths to sync"
+              },
+              "settings": {
+                "type": "boolean",
+                "description": "Whether to sync settings"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "gitBranches": {
+      "type": "object",
+      "description": "[Deprecated] Use 'workspaces' instead. Map git branches to workspaces.",
+      "properties": {
+        "commonSpecificItems": {
+          "type": "object",
+          "description": "Sync only specific items",
+          "properties": {
+            "variables": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Specific variable paths to sync"
+            },
+            "resources": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Specific resource paths to sync"
+            },
+            "triggers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Specific trigger paths to sync"
+            },
+            "folders": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Specific folder paths to sync"
+            },
+            "settings": {
+              "type": "boolean",
+              "description": "Whether to sync settings"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "gitBranch": {
+            "type": "string",
+            "description": "Git branch name (defaults to the workspace name/key)"
+          },
+          "workspaceId": {
+            "type": "string",
+            "description": "Workspace ID to sync with (defaults to the workspace name/key)"
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "Windmill instance URL for this workspace"
+          },
+          "overrides": {
+            "type": "object",
+            "description": "Override any top-level sync option for this workspace"
           },
           "promotionOverrides": {
             "type": "object",
@@ -330,7 +444,7 @@
     },
     "environments": {
       "type": "object",
-      "description": "Alias for gitBranches — use if you prefer environment-based terminology",
+      "description": "[Deprecated] Use 'workspaces' instead.",
       "properties": {
         "commonSpecificItems": {
           "type": "object",
@@ -375,17 +489,21 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
-          "baseUrl": {
+          "gitBranch": {
             "type": "string",
-            "description": "Windmill instance URL for this branch"
+            "description": "Git branch name (defaults to the workspace name/key)"
           },
           "workspaceId": {
             "type": "string",
-            "description": "Workspace ID to sync with for this branch"
+            "description": "Workspace ID to sync with (defaults to the workspace name/key)"
+          },
+          "baseUrl": {
+            "type": "string",
+            "description": "Windmill instance URL for this workspace"
           },
           "overrides": {
             "type": "object",
-            "description": "Override any top-level sync option for this branch"
+            "description": "Override any top-level sync option for this workspace"
           },
           "promotionOverrides": {
             "type": "object",

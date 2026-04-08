@@ -550,40 +550,52 @@ async function bind(
     return;
   }
 
-  // For unbind, check if branch exists
-  if (!bindWorkspace && (!config.gitBranches || !config.gitBranches[branch])) {
-    log.error(
-      colors.red(`Branch '${branch}' not found in wmill.yaml gitBranches`)
-    );
-    return;
+  // For unbind, check if branch matches a workspace
+  if (!bindWorkspace) {
+    const { findWorkspaceByGitBranch } = await import("../../core/conf.ts");
+    const match = findWorkspaceByGitBranch(config.workspaces, branch);
+    if (!match) {
+      log.error(
+        colors.red(`No workspace matching branch '${branch}' found in wmill.yaml workspaces`)
+      );
+      return;
+    }
   }
 
-  // Update the branch configuration with workspace binding
-  if (!config.gitBranches) {
-    config.gitBranches = {};
+  // Update the workspace configuration with binding
+  if (!config.workspaces) {
+    config.workspaces = {} as any;
   }
-  if (!config.gitBranches[branch]) {
-    config.gitBranches[branch] = { overrides: {} };
-  }
+
+  const { findWorkspaceByGitBranch: findWs } = await import("../../core/conf.ts");
 
   if (bindWorkspace && activeWorkspace) {
-    config.gitBranches[branch].baseUrl = activeWorkspace.remote;
-    config.gitBranches[branch].workspaceId = activeWorkspace.workspaceId;
+    // Find existing entry by branch match, or create new with key = branch name
+    const existing = findWs(config.workspaces, branch);
+    const wsKey = existing ? existing[0] : branch;
+    if (!(config.workspaces as any)[wsKey]) {
+      (config.workspaces as any)[wsKey] = { overrides: {} };
+    }
+    (config.workspaces as any)[wsKey].baseUrl = activeWorkspace.remote;
+    (config.workspaces as any)[wsKey].workspaceId = activeWorkspace.workspaceId;
 
     log.info(
       colors.green(
-        `✓ Bound branch '${branch}' to workspace '${activeWorkspace.name}'\n` +
+        `✓ Bound workspace '${wsKey}' to profile '${activeWorkspace.name}'\n` +
           `  ${activeWorkspace.workspaceId} on ${activeWorkspace.remote}`
       )
     );
   } else {
     // Unbind
-    delete config.gitBranches[branch].baseUrl;
-    delete config.gitBranches[branch].workspaceId;
-
-    log.info(
-      colors.green(`✓ Removed workspace binding from branch '${branch}'`)
-    );
+    const existing = findWs(config.workspaces, branch);
+    if (existing) {
+      const [wsKey, wsEntry] = existing;
+      delete (wsEntry as any).baseUrl;
+      delete (wsEntry as any).workspaceId;
+      log.info(
+        colors.green(`✓ Removed workspace binding from '${wsKey}'`)
+      );
+    }
   }
 
   // Write back the updated config
@@ -638,12 +650,12 @@ const command = new Command()
   .description("List forked workspaces on the remote server")
   .action(listForks as any)
   .command("bind")
-  .description("Bind the current Git branch to the active workspace. This adds the branch to gitBranches in wmill.yaml so sync operations use the correct workspace for each branch.")
-  .option("--branch, --env <branch:string>", "Specify branch/environment (defaults to current)")
+  .description("Bind the current Git branch to the active workspace. This adds an entry to the 'workspaces' section in wmill.yaml.")
+  .option("--branch, --env <branch:string>", "[Deprecated: use --workspace] Specify branch/environment (defaults to current)")
   .action((opts) => bind(opts as any, true))
   .command("unbind")
   .description("Remove workspace binding from the current Git branch")
-  .option("--branch, --env <branch:string>", "Specify branch/environment (defaults to current)")
+  .option("--branch, --env <branch:string>", "[Deprecated: use --workspace] Specify branch/environment (defaults to current)")
   .action((opts) => bind(opts as any, false))
   .command("fork")
   .description("Create a forked workspace")

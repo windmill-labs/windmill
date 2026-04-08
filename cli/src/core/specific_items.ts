@@ -1,7 +1,11 @@
 import { minimatch } from "minimatch";
 import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
 import { isFileResource, isFilesetResource } from "../utils/utils.ts";
-import { SyncOptions } from "./conf.ts";
+import {
+  SyncOptions,
+  findWorkspaceByGitBranch,
+  WorkspaceEntryConfig,
+} from "./conf.ts";
 import { TRIGGER_TYPES } from "../types.ts";
 
 export interface SpecificItemsConfig {
@@ -68,28 +72,32 @@ function buildYamlTypePattern(): string {
 }
 
 /**
- * Get the specific items configuration for the current git branch
- * Merges commonSpecificItems with branch-specific specificItems
+ * Get the specific items configuration for the current workspace.
+ * workspaceNameOverride selects by workspace name (O(1)).
+ * When not provided, auto-detects from the current git branch.
+ * Merges commonSpecificItems with workspace-specific specificItems.
  */
-export function getSpecificItemsForCurrentBranch(config: SyncOptions, branchOverride?: string): SpecificItemsConfig | undefined {
-  if (!config.gitBranches) {
+export function getSpecificItemsForCurrentBranch(config: SyncOptions, workspaceNameOverride?: string): SpecificItemsConfig | undefined {
+  if (!config.workspaces) {
     return undefined;
   }
 
-  // Use branch override if provided, otherwise detect from git
-  let currentBranch: string | null = null;
-  if (branchOverride) {
-    currentBranch = branchOverride;
+  let wsEntry: WorkspaceEntryConfig | undefined;
+
+  if (workspaceNameOverride) {
+    wsEntry = config.workspaces[workspaceNameOverride] as WorkspaceEntryConfig | undefined;
   } else if (isGitRepository()) {
-    currentBranch = getCurrentGitBranch();
+    const currentBranch = getCurrentGitBranch();
+    if (currentBranch) {
+      const match = findWorkspaceByGitBranch(config.workspaces, currentBranch);
+      if (match) {
+        wsEntry = match[1];
+      }
+    }
   }
 
-  if (!currentBranch) {
-    return undefined;
-  }
-
-  const commonItems = config.gitBranches.commonSpecificItems;
-  const branchItems = config.gitBranches[currentBranch]?.specificItems;
+  const commonItems = config.workspaces.commonSpecificItems;
+  const branchItems = wsEntry?.specificItems;
 
   // If neither common nor branch-specific items exist, return undefined
   if (!commonItems && !branchItems) {
@@ -349,21 +357,21 @@ export function fromBranchSpecificPath(branchSpecificPath: string, branchName: s
 }
 
 /**
- * Get the branch-specific path for the current branch if the item should be branch-specific
+ * Get the branch-specific path for the current branch if the item should be branch-specific.
+ * gitBranchOverride is the effective git branch name (for file naming on disk).
  */
 export function getBranchSpecificPath(
   basePath: string,
   specificItems: SpecificItemsConfig | undefined,
-  branchOverride?: string
+  gitBranchOverride?: string
 ): string | undefined {
   if (!specificItems) {
     return undefined;
   }
 
-  // Use branch override if provided, otherwise detect from git
   let currentBranch: string | null = null;
-  if (branchOverride) {
-    currentBranch = branchOverride;
+  if (gitBranchOverride) {
+    currentBranch = gitBranchOverride;
   } else if (isGitRepository()) {
     currentBranch = getCurrentGitBranch();
   }
@@ -383,13 +391,13 @@ export function getBranchSpecificPath(
 const branchPatternCache = new Map<string, RegExp>();
 
 /**
- * Check if a path is a branch-specific file for the current branch
+ * Check if a path is a branch-specific file for the current branch.
+ * gitBranchOverride is the effective git branch name (for file naming on disk).
  */
-export function isCurrentBranchFile(path: string, branchOverride?: string): boolean {
-  // Use branch override if provided, otherwise detect from git
+export function isCurrentBranchFile(path: string, gitBranchOverride?: string): boolean {
   let currentBranch: string | null = null;
-  if (branchOverride) {
-    currentBranch = branchOverride;
+  if (gitBranchOverride) {
+    currentBranch = gitBranchOverride;
   } else if (isGitRepository()) {
     currentBranch = getCurrentGitBranch();
   }
