@@ -228,7 +228,7 @@ sync local with a remote instance or the opposite (push or pull)
   - `--dry-run` - Perform a dry run without making changes
   - `--skip-users` - Skip pulling users
   - `--skip-settings` - Skip pulling settings
-  - `--skip-configs` - Skip pulling configs (worker groups and SMTP)
+  - `--skip-configs` - Skip pulling configs (worker groups)
   - `--skip-groups` - Skip pulling instance groups
   - `--include-workspaces` - Also pull workspaces
   - `--folder-per-instance` - Create a folder per instance
@@ -240,7 +240,7 @@ sync local with a remote instance or the opposite (push or pull)
   - `--dry-run` - Perform a dry run without making changes
   - `--skip-users` - Skip pushing users
   - `--skip-settings` - Skip pushing settings
-  - `--skip-configs` - Skip pushing configs (worker groups and SMTP)
+  - `--skip-configs` - Skip pushing configs (worker groups)
   - `--skip-groups` - Skip pushing instance groups
   - `--include-workspaces` - Also push workspaces
   - `--folder-per-instance` - Create a folder per instance
@@ -544,7 +544,7 @@ display worker groups, pull and push worker groups configs
   - `--instance` - Name of the instance to push to, override the active instance
   - `--base-url` - Base url to be passed to the instance settings instead of the local one
   - `--yes` - Pull without needing confirmation
-- `worker-groups push` - Push instance settings, users, configs, group and overwrite remote
+- `worker-groups push` - Push worker groups (similar to `wmill instance push --skip-users --skip-settings --skip-groups`)
   - `--instance [instance]` - Name of the instance to push to, override the active instance
   - `--base-url [baseUrl]` - If used with --token, will be used as the base url for the instance
   - `--yes` - Push without needing confirmation
