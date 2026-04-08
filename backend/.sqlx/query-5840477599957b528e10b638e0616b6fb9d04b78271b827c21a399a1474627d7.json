@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            variable.path,\n            variable.account as account_id,\n            (now() > account.expires_at) as \"is_expired: bool\"\n        FROM variable\n        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2\n        WHERE variable.path = $1 AND variable.workspace_id = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_expired: bool",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "5840477599957b528e10b638e0616b6fb9d04b78271b827c21a399a1474627d7"
+}

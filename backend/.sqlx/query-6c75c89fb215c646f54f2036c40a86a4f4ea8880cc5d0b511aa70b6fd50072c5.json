@@ -1,0 +1,39 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT external_id, webhook_token_hash FROM native_trigger WHERE workspace_id = $1 AND service_name = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "external_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "webhook_token_hash",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "native_trigger_service",
+            "kind": {
+              "Enum": [
+                "nextcloud",
+                "google"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "6c75c89fb215c646f54f2036c40a86a4f4ea8880cc5d0b511aa70b6fd50072c5"
+}

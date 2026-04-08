@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO mcp_oauth_server_client (client_id, client_name, redirect_uris)\n         VALUES ($1, $2, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6376f88654dbbd85a68c507480fc4918958244abd7a1f81f32a0e60f7e5f9464"
+}

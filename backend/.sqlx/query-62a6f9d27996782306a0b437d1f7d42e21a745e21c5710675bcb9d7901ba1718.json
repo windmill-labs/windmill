@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, 'alice', 'all')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "62a6f9d27996782306a0b437d1f7d42e21a745e21c5710675bcb9d7901ba1718"
+}

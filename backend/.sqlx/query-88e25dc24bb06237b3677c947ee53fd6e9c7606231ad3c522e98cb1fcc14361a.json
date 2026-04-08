@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT leased_by FROM volume WHERE workspace_id = $1 AND name = $2 AND lease_until > now()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "leased_by",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "88e25dc24bb06237b3677c947ee53fd6e9c7606231ad3c522e98cb1fcc14361a"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET deploy_ui = $1 WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c3364a5cd3fb7d43a6a6f484009f47a3b108bbf61c9f4afd364ed869deac75a5"
+}

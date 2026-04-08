@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT extra_perms::text FROM script WHERE path = 'f/test-folder/shared_script' AND workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "extra_perms",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "123eee0c5ebf28441646fb85fa53f9cb89756c62af95f2423609b8fa74b02ce4"
+}

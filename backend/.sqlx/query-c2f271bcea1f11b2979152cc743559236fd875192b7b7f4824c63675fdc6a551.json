@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE workspace_settings\n        SET success_handler = '{\"path\": \"flow/f/test/success_flow\"}'::jsonb\n        WHERE workspace_id = 'test-workspace'\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "c2f271bcea1f11b2979152cc743559236fd875192b7b7f4824c63675fdc6a551"
+}
