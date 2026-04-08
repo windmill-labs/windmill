@@ -87,6 +87,10 @@ pub fn public_service() -> Router {
     Router::new().route("/custom_component/{name}", get(custom_component))
 }
 
+fn is_false(b: &bool) -> bool {
+    !b
+}
+
 #[derive(FromRow, Serialize, Deserialize)]
 pub struct ResourceType {
     pub workspace_id: String,
@@ -125,7 +129,7 @@ pub struct Resource {
     pub extra_perms: serde_json::Value,
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub ws_specific: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
@@ -147,7 +151,7 @@ pub struct ListableResource {
     pub is_expired: Option<bool>,
     pub refresh_error: Option<String>,
     pub account: Option<i32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub ws_specific: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
