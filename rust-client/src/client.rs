@@ -418,7 +418,6 @@ impl Windmill {
                     description: None,
                     value: Some(value),
                     resource_type: Some(resource_type.to_owned()),
-                    ws_specific: None,
                     labels: None,
                 },
             )

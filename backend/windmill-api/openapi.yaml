@@ -21659,9 +21659,6 @@ components:
         resource_type:
           type: string
           description: The new resource_type to be associated with the resource
-        ws_specific:
-          type: boolean
-          description: When true, the resource is excluded from workspace diff comparisons
         labels:
           type: array
           items:

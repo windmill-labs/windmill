@@ -125,8 +125,6 @@ pub struct Resource {
     pub extra_perms: serde_json::Value,
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(default)]
-    pub ws_specific: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
 }
@@ -147,8 +145,6 @@ pub struct ListableResource {
     pub is_expired: Option<bool>,
     pub refresh_error: Option<String>,
     pub account: Option<i32>,
-    #[serde(default)]
-    pub ws_specific: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
 }
@@ -159,8 +155,6 @@ pub struct CreateResource {
     pub value: Option<Box<RawValue>>,
     pub description: Option<String>,
     pub resource_type: String,
-    #[serde(default)]
-    pub ws_specific: Option<bool>,
     pub labels: Option<Vec<String>>,
 }
 #[derive(Deserialize)]
@@ -168,7 +162,6 @@ struct EditResource {
     path: Option<String>,
     description: Option<String>,
     value: Option<Box<RawValue>>,
-    ws_specific: Option<bool>,
     labels: Option<Vec<String>>,
 }
 
@@ -266,7 +259,6 @@ async fn list_resources(
             "account.refresh_error",
             "resource.created_by",
             "resource.edited_at",
-            "resource.ws_specific",
             "resource.labels",
         ])
         .left()
@@ -843,16 +835,15 @@ async fn create_resource(
     }
     sqlx::query!(
         "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type, created_by, edited_at, ws_specific, labels)
-            VALUES ($1, $2, $3, $4, $5, $6, now(), $7, $8) ON CONFLICT (workspace_id, path)
-            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now(), ws_specific = EXCLUDED.ws_specific, labels = EXCLUDED.labels",
+            (workspace_id, path, value, description, resource_type, created_by, edited_at, labels)
+            VALUES ($1, $2, $3, $4, $5, $6, now(), $7) ON CONFLICT (workspace_id, path)
+            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now(), labels = EXCLUDED.labels",
         w_id,
         resource.path,
         raw_json as sqlx::types::Json<&RawValue>,
         resource.description,
         resource.resource_type,
         authed.username,
-        resource.ws_specific.unwrap_or(false),
         resource.labels.as_deref() as Option<&[String]>
     )
     .execute(&mut *tx)
@@ -1220,10 +1211,6 @@ async fn update_resource(
     if let Some(ndesc) = ns.description {
         sqlb.set_str("description", ndesc);
     }
-    if let Some(nd) = ns.ws_specific {
-        sqlb.set_str("ws_specific", if nd { "true" } else { "false" });
-    }
-
     sqlb.set_str("edited_at", "now()");
 
     sqlb.returning("path");
