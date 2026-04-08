@@ -1164,82 +1164,51 @@ pub async fn wait_for_db_migrations(
         .map_err(|e| anyhow::anyhow!("Error waiting for db migrations: {e:#}"))
 }
 
-/// Write a server-started heartbeat to the restart coordination record so that
+const SERVER_HEARTBEAT_TASK: &str = "server_heartbeat";
+
+/// Write a server-started heartbeat to `background_task_state` so that
 /// other instances waiting to restart can detect this server is healthy.
 async fn announce_server_started(db: &DB) -> anyhow::Result<()> {
-    use windmill_common::global_settings::RESTART_COORDINATION_SETTING;
     use windmill_common::INSTANCE_NAME;
 
     let instance = INSTANCE_NAME.as_str();
-    let now = chrono::Utc::now().to_rfc3339();
-
-    // Upsert a server_started entry into the coordination record.
-    // Read-modify-write under advisory lock to avoid races.
-    const RESTART_LOCK_ID: i64 = 737_483_920;
-    let mut tx = db.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock($1)")
-        .bind(RESTART_LOCK_ID)
-        .execute(&mut *tx)
-        .await?;
-
-    let existing: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT value FROM global_settings WHERE name = $1")
-            .bind(RESTART_COORDINATION_SETTING)
-            .fetch_optional(&mut *tx)
-            .await?;
-
-    let mut val = existing.unwrap_or_else(|| serde_json::json!({}));
-    let obj = val.as_object_mut().unwrap();
-
-    // Maintain a "server_heartbeats" map: { instance_name: timestamp }
-    let heartbeats = obj
-        .entry("server_heartbeats")
-        .or_insert_with(|| serde_json::json!({}));
-    if let Some(map) = heartbeats.as_object_mut() {
-        // Prune stale heartbeats (older than 5 minutes)
-        let cutoff = (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339();
-        map.retain(|_, v| v.as_str().map_or(false, |ts| ts > cutoff.as_str()));
-        map.insert(instance.to_string(), serde_json::json!(now));
-    }
 
     sqlx::query(
-        "INSERT INTO global_settings (name, value, updated_at) \
-         VALUES ($1, $2, now()) \
-         ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
+        "INSERT INTO background_task_state (name, value, running, owner, started_at, updated_at)
+         VALUES ($1, '\"started\"'::jsonb, true, $2, NOW(), NOW())
+         ON CONFLICT (name)
+         DO UPDATE SET updated_at = NOW(), running = true, owner = $2",
     )
-    .bind(RESTART_COORDINATION_SETTING)
-    .bind(&val)
-    .execute(&mut *tx)
+    .bind(format!("{SERVER_HEARTBEAT_TASK}:{instance}"))
+    .bind(instance)
+    .execute(db)
     .await?;
 
-    tx.commit().await?;
     tracing::info!("Announced server started for instance {instance}");
     Ok(())
 }
 
 /// Check whether any server instance (other than ourselves) has announced
-/// itself as started recently.
-pub async fn check_any_server_started(db: &DB) -> bool {
-    use windmill_common::global_settings::RESTART_COORDINATION_SETTING;
+/// itself as started after `not_before` (i.e. after the restart was initiated).
+pub async fn check_any_server_started(db: &DB, not_before: chrono::DateTime<chrono::Utc>) -> bool {
     use windmill_common::INSTANCE_NAME;
 
-    let val: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT value FROM global_settings WHERE name = $1")
-            .bind(RESTART_COORDINATION_SETTING)
-            .fetch_optional(db)
-            .await
-            .ok()
-            .flatten();
-
-    let Some(val) = val else { return false };
-    let Some(heartbeats) = val.get("server_heartbeats").and_then(|v| v.as_object()) else {
-        return false;
-    };
-
-    let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(120)).to_rfc3339();
     let my_instance = INSTANCE_NAME.as_str();
+    let prefix = format!("{SERVER_HEARTBEAT_TASK}:");
 
-    heartbeats
-        .iter()
-        .any(|(inst, ts)| inst != my_instance && ts.as_str().map_or(false, |t| t > cutoff.as_str()))
+    sqlx::query_scalar!(
+        "SELECT EXISTS(
+            SELECT 1 FROM background_task_state
+            WHERE name LIKE $1
+              AND owner != $2
+              AND running = true
+              AND updated_at > $3
+        ) AS \"exists!\"",
+        format!("{prefix}%"),
+        my_instance,
+        not_before
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or(false)
 }

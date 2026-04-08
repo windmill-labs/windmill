@@ -2117,6 +2117,9 @@ async fn spawn_graceful_killpill(
     let tx = tx.clone();
     let db = db.clone();
     let context = context.to_string();
+    // Capture the current time so the health check only considers heartbeats
+    // written *after* this restart was initiated (not stale pre-restart ones).
+    let not_before = chrono::Utc::now();
     tokio::spawn(async move {
         if !is_first {
             // Non-first instance: wait for another server to announce itself as
@@ -2125,7 +2128,7 @@ async fn spawn_graceful_killpill(
             let started_waiting = tokio::time::Instant::now();
             let max_wait = Duration::from_secs(delay.max(safety_margin_secs).max(120));
             loop {
-                if windmill_api::check_any_server_started(&db).await {
+                if windmill_api::check_any_server_started(&db, not_before).await {
                     tracing::info!(
                         "{context}: healthy peer detected after {:.1}s, proceeding with shutdown",
                         started_waiting.elapsed().as_secs_f64()
