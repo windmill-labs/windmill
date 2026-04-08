@@ -20,7 +20,6 @@ import {
   detectFrameworks,
   ensureNodeModules,
   getDevBuildOptions,
-  importEsbuild,
 } from "./bundle.ts";
 import { wmillTsDev as wmillTs } from "./wmillTsDev.ts";
 import * as wmill from "../../../gen/services.gen.ts";
@@ -385,6 +384,9 @@ async function dev(opts: DevOptions, appFolder?: string) {
   const rawApp = (await yamlParseFile(rawAppPath)) as any;
   const appPath = rawApp?.custom_path ?? "u/unknown/newapp";
 
+  // Dynamically import esbuild only when the dev command is called
+  const esbuild = await import("esbuild");
+
   const port = opts.port ??
     (await getPort.default({
       port: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((p) => p + DEFAULT_PORT),
@@ -409,12 +411,9 @@ async function dev(opts: DevOptions, appFolder?: string) {
     process.exit(1);
   }
 
-  // Ensure node_modules exists before importing esbuild
+  // Ensure node_modules exists
   const appDir = path.dirname(entryPoint) || process.cwd();
   await ensureNodeModules(appDir);
-
-  // Import esbuild after npm install to prefer app's version (avoids host/binary version mismatch)
-  const esbuild = await importEsbuild(appDir);
 
   // In-memory cache of inferred schemas (runnableId -> schema)
   // Used to generate wmill.d.ts without modifying raw_app.yaml
