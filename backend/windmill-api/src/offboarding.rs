@@ -534,6 +534,17 @@ pub(crate) async fn offboard_global_user(
 
     let mut tx = db.begin().await?;
 
+    let mut total_summary = OffboardSummary {
+        scripts_reassigned: 0,
+        flows_reassigned: 0,
+        apps_reassigned: 0,
+        resources_reassigned: 0,
+        variables_reassigned: 0,
+        schedules_reassigned: 0,
+        triggers_reassigned: 0,
+        drafts_deleted: 0,
+    };
+
     for ws in &workspaces {
         if let Some(reassignment) = req.reassignments.get(&ws.workspace_id) {
             let perm_as = resolved_permissioned_as
@@ -541,7 +552,7 @@ pub(crate) async fn offboard_global_user(
                 .ok_or_else(|| {
                     Error::InternalErr("missing resolved permissioned_as".to_string())
                 })?;
-            offboard_user_from_workspace(
+            let ws_summary = offboard_user_from_workspace(
                 &mut tx,
                 &db,
                 &ws.workspace_id,
@@ -551,9 +562,17 @@ pub(crate) async fn offboard_global_user(
                 perm_as,
             )
             .await?;
+            total_summary.scripts_reassigned += ws_summary.scripts_reassigned;
+            total_summary.flows_reassigned += ws_summary.flows_reassigned;
+            total_summary.apps_reassigned += ws_summary.apps_reassigned;
+            total_summary.resources_reassigned += ws_summary.resources_reassigned;
+            total_summary.variables_reassigned += ws_summary.variables_reassigned;
+            total_summary.schedules_reassigned += ws_summary.schedules_reassigned;
+            total_summary.triggers_reassigned += ws_summary.triggers_reassigned;
+            total_summary.drafts_deleted += ws_summary.drafts_deleted;
         }
 
-        if req.delete_user && req.reassignments.contains_key(&ws.workspace_id) {
+        if req.delete_user {
             delete_workspace_user_internal(&ws.workspace_id, &ws.username, &email, &mut tx, None)
                 .await?;
         }
@@ -597,16 +616,7 @@ pub(crate) async fn offboard_global_user(
 
     Ok(Json(OffboardResponse {
         conflicts: vec![],
-        summary: Some(OffboardSummary {
-            scripts_reassigned: 0,
-            flows_reassigned: 0,
-            apps_reassigned: 0,
-            resources_reassigned: 0,
-            variables_reassigned: 0,
-            schedules_reassigned: 0,
-            triggers_reassigned: 0,
-            drafts_deleted: 0,
-        }),
+        summary: Some(total_summary),
     }))
 }
 
@@ -742,10 +752,15 @@ async fn check_path_conflicts(
     ];
 
     for table_name in &tables {
+        let extra_filter = match *table_name {
+            "script" => " AND NOT t1.archived AND NOT t1.deleted",
+            "flow" => " AND NOT t1.archived",
+            _ => "",
+        };
         let rows: Vec<String> = sqlx::query_scalar(&format!(
             "SELECT REGEXP_REPLACE(t1.path, '^u/' || $1 || '/', $3) \
              FROM {table} t1 \
-             WHERE t1.path LIKE ('u/' || $1 || '/%') AND t1.workspace_id = $2 \
+             WHERE t1.path LIKE ('u/' || $1 || '/%') AND t1.workspace_id = $2{extra_filter} \
              AND EXISTS ( \
                  SELECT 1 FROM {table} t2 \
                  WHERE t2.path = REGEXP_REPLACE(t1.path, '^u/' || $1 || '/', $3) \

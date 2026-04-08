@@ -60,6 +60,12 @@
 
 	$effect(() => {
 		if (open) {
+			doReassign = true
+			targetKind = 'user'
+			selectedUser = undefined
+			selectedFolder = undefined
+			selectedOperator = undefined
+			conflicts = []
 			loadPreview()
 		}
 	})

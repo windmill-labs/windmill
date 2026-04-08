@@ -101,10 +101,12 @@
 		if (!hashHandled && triggers.length > 0 && emailTriggerEditor) {
 			let hash = $page.url.hash
 			if (hash.length > 1) {
-				hashHandled = true
 				let path = hash.slice(1)
 				let trigger = triggers.find((t) => t.path === path)
-				if (trigger) emailTriggerEditor?.openEdit(path, trigger.is_flow)
+				if (trigger) {
+					hashHandled = true
+					emailTriggerEditor?.openEdit(path, trigger.is_flow)
+				}
 			}
 		}
 	})
@@ -365,11 +367,11 @@
 
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
-							{#if labels?.length}
-								{#each labels as label}
-									<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
-								{/each}
-							{/if}
+									{#if labels?.length}
+										{#each labels as label}
+											<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+										{/each}
+									{/if}
 								</div>
 
 								<TriggerModeToggle

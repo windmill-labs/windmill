@@ -117,10 +117,12 @@
 		if (!hashHandled && triggers.length > 0 && routeEditor) {
 			let hash = $page.url.hash
 			if (hash.length > 1) {
-				hashHandled = true
 				let path = hash.slice(1)
 				let trigger = triggers.find((t) => t.path === path)
-				if (trigger) routeEditor?.openEdit(path, trigger.is_flow)
+				if (trigger) {
+					hashHandled = true
+					routeEditor?.openEdit(path, trigger.is_flow)
+				}
 			}
 		}
 	})

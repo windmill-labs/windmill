@@ -168,10 +168,12 @@
 		if (!hashHandled && schedules.length > 0 && scheduleEditor) {
 			let hash = $page.url.hash
 			if (hash.length > 1) {
-				hashHandled = true
 				let path = hash.slice(1)
 				let schedule = schedules.find((s) => s.path === path)
-				if (schedule) scheduleEditor?.openEdit(path, schedule.is_flow)
+				if (schedule) {
+					hashHandled = true
+					scheduleEditor?.openEdit(path, schedule.is_flow)
+				}
 			}
 		}
 	})
