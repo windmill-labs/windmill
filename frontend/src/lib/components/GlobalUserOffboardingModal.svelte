@@ -259,6 +259,15 @@
 								{/if}
 							{/if}
 
+							{#if deleteUser}
+								<Alert type="warning" title="All tokens will be deleted">
+									<p class="text-xs">
+										All tokens for {email} will be permanently deleted across all workspaces, including
+										non-workspace-scoped tokens.
+									</p>
+								</Alert>
+							{/if}
+
 							{#if workspacePreviews.length > workspacesWithItems.length}
 								<p class="text-xs text-tertiary">
 									{workspacePreviews.length - workspacesWithItems.length} workspace(s) with no items
