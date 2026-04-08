@@ -368,6 +368,45 @@ async function deployItem(
 }
 
 // ---------------------------------------------------------------------------
+// deleteItemInWorkspace — archive/delete an item in a workspace
+// Used when deploying a deletion (item was deleted in source, remove from target)
+// ---------------------------------------------------------------------------
+
+async function deleteItemInWorkspace(
+  kind: Kind,
+  path: string,
+  workspace: string
+): Promise<DeployResult> {
+  try {
+    if (kind === "script") {
+      await wmill.archiveScriptByPath({ workspace, path });
+    } else if (kind === "flow") {
+      await wmill.archiveFlowByPath({
+        workspace,
+        path,
+        requestBody: { archived: true },
+      });
+    } else if (kind === "app" || kind === "raw_app") {
+      await wmill.deleteApp({ workspace, path });
+    } else if (kind === "variable") {
+      await wmill.deleteVariable({ workspace, path });
+    } else if (kind === "resource") {
+      await wmill.deleteResource({ workspace, path });
+    } else if (kind === "resource_type") {
+      await wmill.deleteResourceType({ workspace, path });
+    } else if (kind === "folder") {
+      await wmill.deleteFolder({ workspace, name: folderName(path) });
+    } else {
+      throw new Error(`Deletion not supported for kind: ${kind}`);
+    }
+    return { success: true };
+  } catch (e: unknown) {
+    const err = e as { body?: string; message?: string };
+    return { success: false, error: err.body || err.message || String(e) };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // getOnBehalfOf — fetch source item's on_behalf_of value
 // ---------------------------------------------------------------------------
 
@@ -697,23 +736,40 @@ async function mergeWorkspaces(
   for (const diff of sorted) {
     const label = `${diff.kind}:${diff.path}`;
 
-    // Resolve on_behalf_of if requested
-    let onBehalfOf: string | undefined;
-    if (opts.preserveOnBehalfOf) {
-      onBehalfOf = await getOnBehalfOfForItem(
+    // Check if the item was deleted in the source workspace.
+    // If so, archive/delete it in the target instead of copying.
+    const itemDeletedInSource =
+      direction === "to-parent"
+        ? diff.exists_in_fork === false
+        : diff.exists_in_source === false;
+
+    let result: DeployResult;
+    if (itemDeletedInSource) {
+      log.info(colors.yellow(`  ⌫ ${label} (removing from target)`));
+      result = await deleteItemInWorkspace(
         diff.kind as Kind,
         diff.path,
-        workspaceFrom
+        workspaceTo
+      );
+    } else {
+      // Resolve on_behalf_of if requested
+      let onBehalfOf: string | undefined;
+      if (opts.preserveOnBehalfOf) {
+        onBehalfOf = await getOnBehalfOfForItem(
+          diff.kind as Kind,
+          diff.path,
+          workspaceFrom
+        );
+      }
+
+      result = await deployItem(
+        diff.kind as Kind,
+        diff.path,
+        workspaceFrom,
+        workspaceTo,
+        onBehalfOf
       );
     }
-
-    const result = await deployItem(
-      diff.kind as Kind,
-      diff.path,
-      workspaceFrom,
-      workspaceTo,
-      onBehalfOf
-    );
 
     if (result.success) {
       log.info(colors.green(`  ✓ ${label}`));

@@ -319,6 +319,46 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 }
 
 /**
+ * Delete/archive an item in a workspace.
+ * Used when deploying a deletion from one workspace to another:
+ * if the item was deleted in the source, we archive/delete it in the target.
+ *
+ * Scripts and flows are archived (reversible). Other types are deleted.
+ */
+export async function deleteItemInWorkspace(
+	kind: Kind,
+	path: string,
+	workspace: string
+): Promise<DeployResult> {
+	try {
+		if (kind === 'script') {
+			await ScriptService.archiveScriptByPath({ workspace, path })
+		} else if (kind === 'flow') {
+			await FlowService.archiveFlowByPath({
+				workspace,
+				path,
+				requestBody: { archived: true }
+			})
+		} else if (kind === 'app' || kind === 'raw_app') {
+			await AppService.deleteApp({ workspace, path })
+		} else if (kind === 'variable') {
+			await VariableService.deleteVariable({ workspace, path })
+		} else if (kind === 'resource') {
+			await ResourceService.deleteResource({ workspace, path })
+		} else if (kind === 'resource_type') {
+			await ResourceService.deleteResourceType({ workspace, path })
+		} else if (kind === 'folder') {
+			await FolderService.deleteFolder({ workspace, name: folderName(path) })
+		} else {
+			throw new Error(`Deletion not supported for kind: ${kind}`)
+		}
+		return { success: true }
+	} catch (e: any) {
+		return { success: false, error: e.body || e.message }
+	}
+}
+
+/**
  * Check if an item already exists in the target workspace.
  */
 export async function checkItemExists(

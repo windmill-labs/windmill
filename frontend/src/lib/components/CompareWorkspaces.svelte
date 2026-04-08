@@ -44,7 +44,13 @@
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
 	import type { Kind } from '$lib/utils_deployable'
-	import { deployItem, getItemValue, getOnBehalfOf } from '$lib/utils_workspace_deploy'
+	import {
+		deployItem,
+		deleteItemInWorkspace,
+		getItemValue,
+		getOnBehalfOf,
+		type DeployResult
+	} from '$lib/utils_workspace_deploy'
 	import Tooltip from './Tooltip.svelte'
 	import OnBehalfOfSelector, {
 		needsOnBehalfOfSelection,
@@ -307,13 +313,27 @@
 	) {
 		deploymentStatus[statusPath] = { status: 'loading' }
 
-		const result = await deployItem({
-			kind,
-			path,
-			workspaceFrom,
-			workspaceTo: workspaceToDeployTo,
-			onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind)
-		})
+		// Check if the item was deleted in the source workspace.
+		// If so, archive/delete it in the target workspace instead of copying.
+		const diff = comparison?.diffs.find((d) => getItemKey(d) === statusPath)
+		const itemDeletedInSource = diff
+			? mergeIntoParent
+				? diff.exists_in_fork === false
+				: diff.exists_in_source === false
+			: false
+
+		let result: DeployResult
+		if (itemDeletedInSource) {
+			result = await deleteItemInWorkspace(kind, path, workspaceToDeployTo)
+		} else {
+			result = await deployItem({
+				kind,
+				path,
+				workspaceFrom,
+				workspaceTo: workspaceToDeployTo,
+				onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind)
+			})
+		}
 
 		if (result.success) {
 			deploymentStatus[statusPath] = { status: 'deployed' }
