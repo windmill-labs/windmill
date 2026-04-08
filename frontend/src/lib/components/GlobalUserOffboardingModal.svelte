@@ -2,14 +2,13 @@
 	import { Alert, Button } from '$lib/components/common'
 	import { fade } from 'svelte/transition'
 	import { classNames } from '$lib/utils'
-	import { AlertTriangle, CornerDownLeft, Download, Loader2 } from 'lucide-svelte'
-	import Select from '$lib/components/select/Select.svelte'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { AlertTriangle, CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import { UserService, FolderService } from '$lib/gen'
-	import type { WorkspaceOffboardPreview, OffboardAffectedPaths } from '$lib/gen'
+	import type { WorkspaceOffboardPreview } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import OffboardWorkspaceSection from './OffboardWorkspaceSection.svelte'
+	import { countPaths } from './offboarding-utils'
 
 	type Props = {
 		open: boolean
@@ -24,6 +23,7 @@
 	let workspacePreviews: WorkspaceOffboardPreview[] = $state([])
 	let loading = $state(false)
 	let submitting = $state(false)
+	let doReassign = $state(true)
 	let deleteUser = $state(true)
 
 	$effect(() => {
@@ -41,23 +41,6 @@
 			folders: Array<{ label: string; value: string }>
 		}
 	> = $state({})
-
-	function pl(n: number, singular: string): string {
-		return `${n} ${singular}${n === 1 ? '' : 's'}`
-	}
-
-	function countPaths(p: OffboardAffectedPaths | undefined | null): number {
-		if (!p) return 0
-		return (
-			(p.scripts?.length ?? 0) +
-			(p.flows?.length ?? 0) +
-			(p.apps?.length ?? 0) +
-			(p.resources?.length ?? 0) +
-			(p.variables?.length ?? 0) +
-			(p.schedules?.length ?? 0) +
-			(p.triggers?.length ?? 0)
-		)
-	}
 
 	let workspacesWithItems = $derived(
 		workspacePreviews.filter(
@@ -78,7 +61,7 @@
 			workspacePreviews = result.workspaces
 
 			for (const wp of result.workspaces) {
-				if (countPaths(wp.preview.owned) > 0) {
+				if (countPaths(wp.preview.owned) > 0 || countPaths(wp.preview.executing_on_behalf) > 0) {
 					const [usernamesList, foldersList] = await Promise.all([
 						UserService.listUsernames({ workspace: wp.workspace_id }),
 						FolderService.listFolders({ workspace: wp.workspace_id })
@@ -116,13 +99,14 @@
 	}
 
 	let canSubmit = $derived(
-		workspacesWithItems.every((wp) => {
-			const target = getReassignTo(wp.workspace_id)
-			const cfg = wsConfigs[wp.workspace_id]
-			if (!target) return false
-			if (!cfg?.selectedOperator) return false
-			return true
-		})
+		!doReassign ||
+			workspacesWithItems.every((wp) => {
+				const target = getReassignTo(wp.workspace_id)
+				const cfg = wsConfigs[wp.workspace_id]
+				if (!target) return false
+				if (!cfg?.selectedOperator) return false
+				return true
+			})
 	)
 
 	async function submit() {
@@ -161,36 +145,9 @@
 		}
 	}
 
-	function downloadAffectedCsv() {
-		const rows: string[][] = [['workspace', 'type', 'path']]
-
-		for (const wp of workspacePreviews) {
-			if (wp.preview.referencing) {
-				for (const [kind, list] of Object.entries(wp.preview.referencing)) {
-					if (Array.isArray(list)) {
-						for (const p of list) rows.push([wp.workspace_id, kind, p])
-					}
-				}
-			}
-		}
-
-		const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n')
-		const blob = new Blob([csv], { type: 'text/csv' })
-		const url = URL.createObjectURL(blob)
-		const a = document.createElement('a')
-		a.href = url
-		a.download = `offboard-${email}.csv`
-		a.click()
-		URL.revokeObjectURL(url)
-	}
-
 	function fadeFast(node: HTMLElement) {
 		return fade(node, { duration: 100 })
 	}
-
-	let hasAnyWarnings = $derived(
-		workspacePreviews.some((wp) => wp.preview.http_triggers > 0 || wp.preview.email_triggers > 0)
-	)
 </script>
 
 {#if open}
@@ -237,150 +194,51 @@
 									This user has no owned items in any workspace.
 								</p>
 							{:else}
-								{#each workspacesWithItems as wp}
-									{@const cfg = wsConfigs[wp.workspace_id]}
-									{@const owned = countPaths(wp.preview.owned)}
-									<div class="border border-border rounded-md p-3">
-										<div class="flex items-center justify-between mb-2">
-											<span class="text-sm font-medium text-primary">
-												{wp.workspace_id}
-												<span class="text-secondary font-normal">({wp.username})</span>
-											</span>
-											<span class="text-xs text-tertiary">{owned} item{owned !== 1 ? 's' : ''}</span
-											>
-										</div>
-
-										<!-- Compact item summary -->
-										<div class="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-secondary mb-3">
-											{#if (wp.preview.owned.scripts?.length ?? 0) > 0}<span
-													>{pl(wp.preview.owned.scripts?.length ?? 0, 'script')}</span
-												>{/if}
-											{#if (wp.preview.owned.flows?.length ?? 0) > 0}<span
-													>{pl(wp.preview.owned.flows?.length ?? 0, 'flow')}</span
-												>{/if}
-											{#if (wp.preview.owned.apps?.length ?? 0) > 0}<span
-													>{pl(wp.preview.owned.apps?.length ?? 0, 'app')}</span
-												>{/if}
-											{#if (wp.preview.owned.resources?.length ?? 0) > 0}<span
-													>{pl(wp.preview.owned.resources?.length ?? 0, 'resource')}</span
-												>{/if}
-											{#if (wp.preview.owned.variables?.length ?? 0) > 0}<span
-													>{pl(wp.preview.owned.variables?.length ?? 0, 'variable')}</span
-												>{/if}
-											{#if (wp.preview.owned.schedules?.length ?? 0) > 0}<span
-													>{pl(wp.preview.owned.schedules?.length ?? 0, 'schedule')}</span
-												>{/if}
-											{#if (wp.preview.owned.triggers?.length ?? 0) > 0}<span
-													>{pl(wp.preview.owned.triggers?.length ?? 0, 'trigger')}</span
-												>{/if}
-											{#if (wp.preview.tokens?.length ?? 0) > 0}<span
-													>{pl(wp.preview.tokens?.length ?? 0, 'token')} (deleted)</span
-												>{/if}
-										</div>
-
-										{#if cfg}
-											<!-- Reassign target -->
-											<div class="mb-2">
-												<span class="text-xs font-medium text-secondary block mb-1"
-													>Reassign to</span
-												>
-												<ToggleButtonGroup
-													selected={cfg.targetKind}
-													on:selected={(e) => {
-														cfg.targetKind = e.detail
-													}}
-													class="mb-1.5"
-												>
-													{#snippet children({ item })}
-														<ToggleButton value="user" label="User" small {item} />
-														<ToggleButton value="folder" label="Folder" small {item} />
-													{/snippet}
-												</ToggleButtonGroup>
-												{#if cfg.targetKind === 'user'}
-													<Select
-														items={cfg.users}
-														bind:value={cfg.selectedUser}
-														placeholder="Select a user..."
-														size="sm"
-													/>
-												{:else}
-													<Select
-														items={cfg.folders}
-														bind:value={cfg.selectedFolder}
-														placeholder="Select a folder..."
-														size="sm"
-													/>
-												{/if}
-											</div>
-											<div>
-												<span class="text-xs font-medium text-secondary block mb-0.5"
-													>New on_behalf_of user</span
-												>
-												<Select
-													items={cfg.users}
-													bind:value={cfg.selectedOperator}
-													placeholder="Select a user..."
-													size="sm"
-												/>
-											</div>
-										{/if}
-									</div>
-								{/each}
-
-								<!-- Referencing items box -->
-								{@const totalReferencing = workspacePreviews.reduce(
-									(s, wp) => s + countPaths(wp.preview.referencing),
-									0
-								)}
-								{#if totalReferencing > 0}
-									<div
-										class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700/40 rounded-md p-3"
-									>
-										<div class="flex items-start justify-between gap-2">
-											<div>
-												<p
-													class="text-xs font-medium text-yellow-800 dark:text-yellow-100/90 mb-0.5"
-													>Referencing items ({totalReferencing})</p
-												>
-												<p class="text-xs text-yellow-700 dark:text-yellow-100/90"
-													>Content or values reference this user's paths across workspaces. These
-													may break after reassignment. Check the exported list and update them
-													manually.</p
-												>
-											</div>
-											<Button
-												variant="subtle"
-												size="xs2"
-												startIcon={{ icon: Download }}
-												onclick={downloadAffectedCsv}>Export CSV</Button
-											>
-										</div>
-									</div>
+								{#if !reassignOnly}
+									<Toggle
+										bind:checked={doReassign}
+										size="xs"
+										options={{ right: 'Reassign items before removing' }}
+									/>
 								{/if}
 
-								<!-- Global warnings -->
-								{#if hasAnyWarnings}
-									{@const totalHttp = workspacePreviews.reduce(
-										(s, wp) => s + wp.preview.http_triggers,
-										0
-									)}
-									{@const totalEmail = workspacePreviews.reduce(
-										(s, wp) => s + wp.preview.email_triggers,
-										0
-									)}
-									{#if totalHttp > 0 || totalEmail > 0}
-										<Alert type="warning" title="Webhook and email trigger URLs will change">
-											<p class="text-xs">
-												{#if totalHttp > 0}{totalHttp} HTTP trigger(s) will have new webhook URLs.{/if}
-												{#if totalEmail > 0}{totalEmail} email trigger(s) will have new addresses.{/if}
-												Update any external integrations that reference these endpoints.
-											</p>
-										</Alert>
-									{/if}
+								{#if doReassign}
+									{#each workspacesWithItems as wp}
+										{@const cfg = wsConfigs[wp.workspace_id]}
+										<div class="border border-border rounded-md p-3 space-y-2">
+											<div class="flex items-center justify-between">
+												<span class="text-sm font-medium text-primary">
+													{wp.workspace_id}
+													<span class="text-secondary font-normal">({wp.username})</span>
+												</span>
+											</div>
+
+											{#if cfg}
+												<OffboardWorkspaceSection
+													preview={wp.preview}
+													username={wp.username}
+													bind:targetKind={cfg.targetKind}
+													bind:selectedUser={cfg.selectedUser}
+													bind:selectedFolder={cfg.selectedFolder}
+													bind:selectedOperator={cfg.selectedOperator}
+													users={cfg.users}
+													folders={cfg.folders}
+													size="sm"
+													csvFilename="offboard-{email}-{wp.workspace_id}.csv"
+												/>
+											{/if}
+										</div>
+									{/each}
+								{:else}
+									<Alert type="warning" title="Items will not be reassigned">
+										<p class="text-xs">
+											All items across {workspacesWithItems.length} workspace(s) will be left as-is.
+											Schedules and triggers may stop working if the user is removed.
+										</p>
+									</Alert>
 								{/if}
 							{/if}
 
-							<!-- Workspaces without items -->
 							{#if workspacePreviews.length > workspacesWithItems.length}
 								<p class="text-xs text-tertiary">
 									{workspacePreviews.length - workspacesWithItems.length} workspace(s) with no items
@@ -388,11 +246,13 @@
 								</p>
 							{/if}
 
-							<!-- Delete user toggle -->
 							{#if !reassignOnly}
-								<div class="flex items-center gap-2 pt-1">
-									<Toggle bind:checked={deleteUser} size="xs" />
-									<span class="text-sm text-secondary">Also remove user from instance</span>
+								<div class="pt-1">
+									<Toggle
+										bind:checked={deleteUser}
+										size="xs"
+										options={{ right: 'Also remove user from instance' }}
+									/>
 								</div>
 							{/if}
 						</div>

@@ -20392,9 +20392,11 @@ components:
           items:
             type: string
         triggers:
-          type: array
-          items:
-            type: string
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
 
     OffboardPreview:
       type: object

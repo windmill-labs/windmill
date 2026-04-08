@@ -52,8 +52,8 @@ struct OffboardAffectedPaths {
     variables: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     schedules: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    triggers: Vec<String>,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    triggers: HashMap<String, Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -191,7 +191,7 @@ async fn get_offboard_preview(
         "gcp_trigger",
         "email_trigger",
     ];
-    let mut triggers = Vec::new();
+    let mut triggers = HashMap::new();
     for table in &trigger_tables {
         let paths: Vec<String> = sqlx::query_scalar(&format!(
             "SELECT path FROM {table} WHERE path LIKE $1 AND workspace_id = $2"
@@ -200,7 +200,9 @@ async fn get_offboard_preview(
         .bind(w_id)
         .fetch_all(db)
         .await?;
-        triggers.extend(paths);
+        if !paths.is_empty() {
+            triggers.insert(table.to_string(), paths);
+        }
     }
 
     // ---- Tokens ----
@@ -242,7 +244,7 @@ async fn get_offboard_preview(
         &user_owner, &user_prefix, w_id
     ).fetch_all(db).await?;
 
-    let mut obo_triggers = Vec::new();
+    let mut obo_triggers = HashMap::new();
     for table in &trigger_tables {
         let paths: Vec<String> = sqlx::query_scalar(&format!(
             "SELECT path FROM {table} WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3"
@@ -252,7 +254,9 @@ async fn get_offboard_preview(
         .bind(w_id)
         .fetch_all(db)
         .await?;
-        obo_triggers.extend(paths);
+        if !paths.is_empty() {
+            obo_triggers.insert(table.to_string(), paths);
+        }
     }
 
     // ---- Objects whose content/value references u/{username}/ paths ----

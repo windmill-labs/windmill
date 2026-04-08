@@ -18,6 +18,7 @@
 		capitalize
 	} from '$lib/utils'
 	import { base } from '$app/paths'
+	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -123,6 +124,19 @@
 	})
 	let websocketTriggerEditor: WebsocketTriggerEditor | undefined = $state()
 
+	let hashHandled = false
+	$effect(() => {
+		if (!hashHandled && triggers.length > 0 && websocketTriggerEditor) {
+			let hash = $page.url.hash
+			if (hash.length > 1) {
+				hashHandled = true
+				let path = hash.slice(1)
+				let trigger = triggers.find((t) => t.path === path)
+				if (trigger) websocketTriggerEditor?.openEdit(path, trigger.is_flow)
+			}
+		}
+	})
+
 	let filteredItems: (TriggerW & { marked?: any })[] | undefined = $state([])
 	let items: typeof filteredItems | undefined = $state([])
 	let preFilteredItems: typeof filteredItems | undefined = $state([])
@@ -209,12 +223,14 @@
 		setQuery(
 			new URL(window.location.href),
 			TRIGGER_PATH_KIND_FILTER_SETTING,
-			selectedFilterKind
+			selectedFilterKind,
+			window.location.hash || undefined
 		).then(() => {
 			setQuery(
 				new URL(window.location.href),
 				FILTER_USER_FOLDER_SETTING_NAME,
-				String(filterUserFolders)
+				String(filterUserFolders),
+				window.location.hash || undefined
 			)
 		})
 	}
