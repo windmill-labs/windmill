@@ -5127,6 +5127,10 @@ Show all available wmill.yaml configuration options
 **Options:**
 - \`--json\` - Output as JSON for programmatic consumption
 
+**Subcommands:**
+
+- \`config migrate\` - Migrate wmill.yaml from gitBranches/environments to workspaces format
+
 ### dependencies
 
 workspace dependencies related commands
@@ -5648,7 +5652,7 @@ workspace related commands
 - \`workspace list\` - List local workspace profiles
 - \`workspace list-remote\` - List workspaces on the remote server that you have access to
 - \`workspace list-forks\` - List forked workspaces on the remote server
-- \`workspace bind\` - Bind the current Git branch to the active workspace. This adds an entry to the 'workspaces' section in wmill.yaml.
+- \`workspace bind\`
   - \`--branch, --env <branch:string>\` - [Deprecated: use --workspace] Specify branch/environment (defaults to current)
 - \`workspace unbind\` - Remove workspace binding from the current Git branch
   - \`--branch, --env <branch:string>\` - [Deprecated: use --workspace] Specify branch/environment (defaults to current)
