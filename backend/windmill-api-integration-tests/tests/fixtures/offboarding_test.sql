@@ -53,3 +53,19 @@ VALUES ('test-workspace', 1003, 'u/test-user/conflict_script', 'Conflict Script'
 -- Script under test-user-2 that would conflict
 INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, schema, language, kind, lock, extra_perms)
 VALUES ('test-workspace', 1004, 'u/test-user-2/conflict_script', 'Conflict Script 2', '', 'print("conflict2")', 'test-user-2', '{}', 'python3', 'script', '', '{}');
+
+-- Second workspace for global offboard tests
+INSERT INTO workspace (id, name, owner) VALUES ('test-workspace-2', 'test-workspace-2', 'test-user');
+INSERT INTO workspace_settings (workspace_id) VALUES ('test-workspace-2');
+INSERT INTO workspace_key (workspace_id, kind, key) VALUES ('test-workspace-2', 'cloud', 'test-key-2');
+INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ('test-workspace-2', 'all', 'All users', '{}');
+INSERT INTO usr (workspace_id, email, username, is_admin, role) VALUES ('test-workspace-2', 'test@windmill.dev', 'test-user', true, 'Admin');
+INSERT INTO usr (workspace_id, email, username, is_admin, role) VALUES ('test-workspace-2', 'test2@windmill.dev', 'test-user-2', false, 'User');
+
+-- Script owned by test-user-2 in second workspace
+INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, schema, language, kind, lock, extra_perms)
+VALUES ('test-workspace-2', 2001, 'u/test-user-2/script_ws2', 'Script WS2', '', 'print("ws2")', 'test-user-2', '{}', 'python3', 'script', '', '{}');
+
+-- Folder in second workspace for reassignment
+INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by)
+VALUES ('test-workspace-2', 'shared', 'Shared', ARRAY['u/test-user'], '{}', 'test-user');

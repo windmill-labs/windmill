@@ -74,16 +74,16 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
     let port = server.addr.port();
 
     // Remove conflict scripts so offboard can proceed
-    sqlx::query!("DELETE FROM script WHERE hash = 1003 AND workspace_id = 'test-workspace'")
-        .execute(&db)
-        .await?;
-    sqlx::query!("DELETE FROM script WHERE hash = 1004 AND workspace_id = 'test-workspace'")
-        .execute(&db)
-        .await?;
+    sqlx::query!(
+        "DELETE FROM script WHERE hash IN (1003, 1004) AND workspace_id = 'test-workspace'"
+    )
+    .execute(&db)
+    .await?;
 
     let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
         .json(&json!({
             "reassign_to": "u/test-user",
+            "new_on_behalf_of_user": "test-user",
             "delete_user": true
         }))
         .send()
@@ -411,13 +411,158 @@ async fn test_global_offboard_preview(db: Pool<Postgres>) -> anyhow::Result<()> 
     let workspaces = body["workspaces"]
         .as_array()
         .expect("should have workspaces");
-    assert_eq!(workspaces.len(), 1);
-    assert_eq!(workspaces[0]["workspace_id"], "test-workspace");
-    assert_eq!(workspaces[0]["username"], "test-user-2");
-    assert!(!workspaces[0]["preview"]["owned"]["scripts"]
-        .as_array()
-        .unwrap()
-        .is_empty());
+    assert_eq!(workspaces.len(), 2, "user is in two workspaces");
+
+    // Both workspaces should have the user's items
+    for ws in workspaces {
+        assert_eq!(ws["username"], "test-user-2");
+        assert!(
+            !ws["preview"]["owned"]["scripts"]
+                .as_array()
+                .unwrap()
+                .is_empty(),
+            "workspace {} should have owned scripts",
+            ws["workspace_id"]
+        );
+    }
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "offboarding_test"))]
+async fn test_global_offboard_execution(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Remove conflict scripts so offboard can proceed in test-workspace
+    sqlx::query!(
+        "DELETE FROM script WHERE hash IN (1003, 1004) AND workspace_id = 'test-workspace'"
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(global_url(port, "offboard/test2@windmill.dev")))
+        .json(&json!({
+            "reassignments": {
+                "test-workspace": {
+                    "reassign_to": "u/test-user",
+                    "new_on_behalf_of_user": "test-user"
+                },
+                "test-workspace-2": {
+                    "reassign_to": "u/test-user",
+                    "new_on_behalf_of_user": "test-user"
+                }
+            },
+            "delete_user": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+
+    let body: serde_json::Value = resp.json().await?;
+    assert!(
+        body["conflicts"].as_array().map_or(true, |c| c.is_empty()),
+        "should have no conflicts"
+    );
+    assert!(body["summary"].is_object(), "should have a summary");
+    let summary = &body["summary"];
+    assert!(
+        summary["scripts_reassigned"].as_i64().unwrap() > 0,
+        "should have reassigned scripts across workspaces"
+    );
+
+    // Verify items moved in workspace 1
+    let ws1_moved = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM script WHERE path LIKE 'u/test-user/%' AND workspace_id = 'test-workspace' AND NOT archived AND NOT deleted"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+    assert!(ws1_moved > 0, "scripts should be moved in test-workspace");
+
+    // Verify items moved in workspace 2
+    let ws2_moved = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM script WHERE path LIKE 'u/test-user/%' AND workspace_id = 'test-workspace-2' AND NOT archived AND NOT deleted"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+    assert!(ws2_moved > 0, "scripts should be moved in test-workspace-2");
+
+    // Verify user deleted from both workspaces
+    let ws1_user = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE email = 'test2@windmill.dev' AND workspace_id = 'test-workspace')"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(true);
+    assert!(!ws1_user, "user should be removed from test-workspace");
+
+    let ws2_user = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE email = 'test2@windmill.dev' AND workspace_id = 'test-workspace-2')"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(true);
+    assert!(!ws2_user, "user should be removed from test-workspace-2");
+
+    // Verify global auth deleted (password row)
+    let password_exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM password WHERE email = 'test2@windmill.dev')"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(true);
+    assert!(!password_exists, "password should be deleted from instance");
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "offboarding_test"))]
+async fn test_offboard_invalid_target(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Reassign to nonexistent user
+    let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
+        .json(&json!({
+            "reassign_to": "u/nonexistent-user",
+            "delete_user": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "should reject reassignment to nonexistent user"
+    );
+
+    // Reassign to nonexistent folder
+    let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
+        .json(&json!({
+            "reassign_to": "f/nonexistent-folder",
+            "new_on_behalf_of_user": "test-user",
+            "delete_user": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "should reject reassignment to nonexistent folder"
+    );
+
+    // Invalid target format
+    let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
+        .json(&json!({
+            "reassign_to": "invalid-format",
+            "delete_user": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400, "should reject invalid target format");
 
     Ok(())
 }
