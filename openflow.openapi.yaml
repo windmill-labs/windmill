@@ -94,6 +94,9 @@ components:
           description: Cache duration in seconds for flow results
         cache_ignore_s3_path:
           type: boolean
+        delete_after_secs:
+          type: integer
+          description: If set, delete the flow job's args, result and logs after this many seconds following job completion
         flow_env:
           type: object
           description: "Environment variables available to all steps. Values can be strings, JSON values, or special references: '$var:path' (workspace variable) or '$res:path' (resource)."
@@ -303,9 +306,9 @@ components:
         timeout:
           description: Maximum execution time in seconds (static value or expression)
           $ref: '#/components/schemas/InputTransform'
-        delete_after_use:
-          type: boolean
-          description: If true, this step's result is deleted after use to save memory
+        delete_after_secs:
+          type: integer
+          description: If set, delete the step's args, result and logs after this many seconds following job completion
         summary:
           type: string
           description: Short description of what this step does

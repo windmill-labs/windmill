@@ -43,6 +43,39 @@ pub fn get_has_preprocessor_from_content_and_lang(
     Ok(has_preprocessor)
 }
 
+pub async fn schedule_job_deletion(
+    db: &DB,
+    job_id: uuid::Uuid,
+    w_id: &str,
+    delete_after_secs: i32,
+) -> crate::error::Result<()> {
+    sqlx::query!(
+        "INSERT INTO job_delete_schedule (job_id, workspace_id, delete_at) \
+         VALUES ($1, $2, now() + make_interval(secs => $3::double precision)) \
+         ON CONFLICT (job_id) DO NOTHING",
+        job_id,
+        w_id,
+        delete_after_secs as f64,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Resolve effective delete behavior from delete_after_use (bool) and delete_after_secs.
+/// Returns Some(secs) if deletion should happen, None otherwise.
+pub fn resolve_delete_after_secs(
+    delete_after_use: Option<bool>,
+    delete_after_secs: Option<i32>,
+) -> Option<i32> {
+    match (delete_after_use, delete_after_secs) {
+        (_, Some(secs)) if secs >= 0 => Some(secs),
+        (_, Some(_)) => None,          // reject negative values
+        (Some(true), None) => Some(0), // backward compat: immediate
+        _ => None,
+    }
+}
+
 pub async fn script_path_to_payload<'e>(
     script_path: &str,
     db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
@@ -54,88 +87,94 @@ pub async fn script_path_to_payload<'e>(
     Option<Tag>,
     Option<bool>,
     Option<i32>,
+    Option<i32>,
     Option<OnBehalfOf>,
 )> {
-    let (job_payload, tag, delete_after_use, script_timeout, on_behalf_of) = if script_path
-        .starts_with("hub/")
-    {
-        let hub_script =
-            get_full_hub_script_by_path(StripPath(script_path.to_string()), &HTTP_CLIENT, None)
-                .await?;
+    let (job_payload, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
+        if script_path.starts_with("hub/") {
+            let hub_script =
+                get_full_hub_script_by_path(StripPath(script_path.to_string()), &HTTP_CLIENT, None)
+                    .await?;
 
-        let has_preprocessor =
-            get_has_preprocessor_from_content_and_lang(&hub_script.content, &hub_script.language)?;
+            let has_preprocessor = get_has_preprocessor_from_content_and_lang(
+                &hub_script.content,
+                &hub_script.language,
+            )?;
 
-        (
-            JobPayload::ScriptHub {
-                path: script_path.to_owned(),
-                apply_preprocessor: has_preprocessor && !skip_preprocessor.unwrap_or(false),
-            },
-            None,
-            None,
-            None,
-            None,
-        )
-    } else {
-        let ScriptHashInfo {
-            hash,
-            tag,
-            runnable_settings:
-                super::scripts::ScriptRunnableSettingsInline {
-                    concurrency_settings,
-                    debouncing_settings,
+            (
+                JobPayload::ScriptHub {
+                    path: script_path.to_owned(),
+                    apply_preprocessor: has_preprocessor && !skip_preprocessor.unwrap_or(false),
                 },
-            cache_ttl,
-            cache_ignore_s3_path,
-            language,
-            dedicated_worker,
-            priority,
-            delete_after_use,
-            timeout,
-            has_preprocessor,
-            on_behalf_of_email,
-            created_by,
-            labels,
-            ..
-        } = get_latest_deployed_hash_for_path(db_authed, db.clone(), w_id, script_path)
-            .await?
-            .prefetch_cached(&db)
-            .await?;
-
-        let on_behalf_of = if let Some(email) = on_behalf_of_email {
-            Some(OnBehalfOf {
-                email,
-                permissioned_as: username_to_permissioned_as(created_by.as_str()),
-            })
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
         } else {
-            None
-        };
-
-        (
-            JobPayload::ScriptHash {
-                hash: ScriptHash(hash),
-                path: script_path.to_owned(),
+            let ScriptHashInfo {
+                hash,
+                tag,
+                runnable_settings:
+                    super::scripts::ScriptRunnableSettingsInline {
+                        concurrency_settings,
+                        debouncing_settings,
+                    },
                 cache_ttl,
                 cache_ignore_s3_path,
                 language,
                 dedicated_worker,
                 priority,
-                apply_preprocessor: !skip_preprocessor.unwrap_or(false)
-                    && has_preprocessor.unwrap_or(false),
-                debouncing_settings,
-                concurrency_settings,
+                delete_after_use,
+                delete_after_secs,
+                timeout,
+                has_preprocessor,
+                on_behalf_of_email,
+                created_by,
                 labels,
-            },
-            tag,
-            delete_after_use,
-            timeout,
-            on_behalf_of,
-        )
-    };
+                ..
+            } = get_latest_deployed_hash_for_path(db_authed, db.clone(), w_id, script_path)
+                .await?
+                .prefetch_cached(&db)
+                .await?;
+
+            let on_behalf_of = if let Some(email) = on_behalf_of_email {
+                Some(OnBehalfOf {
+                    email,
+                    permissioned_as: username_to_permissioned_as(created_by.as_str()),
+                })
+            } else {
+                None
+            };
+
+            (
+                JobPayload::ScriptHash {
+                    hash: ScriptHash(hash),
+                    path: script_path.to_owned(),
+                    cache_ttl,
+                    cache_ignore_s3_path,
+                    language,
+                    dedicated_worker,
+                    priority,
+                    apply_preprocessor: !skip_preprocessor.unwrap_or(false)
+                        && has_preprocessor.unwrap_or(false),
+                    debouncing_settings,
+                    concurrency_settings,
+                    labels,
+                },
+                tag,
+                delete_after_use,
+                delete_after_secs,
+                timeout,
+                on_behalf_of,
+            )
+        };
     Ok((
         job_payload,
         tag,
         delete_after_use,
+        delete_after_secs,
         script_timeout,
         on_behalf_of,
     ))
@@ -146,7 +185,7 @@ pub async fn get_payload_tag_from_prefixed_path(
     db: &DB,
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>, Option<OnBehalfOf>), Error> {
-    let (payload, tag, _, _, on_behalf_of) = if path.starts_with("script/") {
+    let (payload, tag, _, _, _, on_behalf_of) = if path.starts_with("script/") {
         script_path_to_payload(
             path.strip_prefix("script/").unwrap(),
             None,
@@ -170,6 +209,7 @@ pub async fn get_payload_tag_from_prefixed_path(
                 None,
                 None,
                 None,
+                None,
             )
         } else {
             let FlowVersionInfo { dedicated_worker, tag, version, labels, .. } =
@@ -183,6 +223,7 @@ pub async fn get_payload_tag_from_prefixed_path(
                     labels,
                 },
                 tag,
+                None,
                 None,
                 None,
                 None,

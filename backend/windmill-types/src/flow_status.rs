@@ -111,6 +111,15 @@ pub struct FlowCleanupModule {
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub flow_jobs_to_clean: Vec<Uuid>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub flow_jobs_to_schedule_clean: Vec<FlowJobScheduledClean>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FlowJobScheduledClean {
+    pub id: Uuid,
+    pub delete_after_secs: i32,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -513,7 +522,10 @@ impl FlowStatus {
             } else {
                 None
             },
-            cleanup_module: FlowCleanupModule { flow_jobs_to_clean: vec![] },
+            cleanup_module: FlowCleanupModule {
+                flow_jobs_to_clean: vec![],
+                flow_jobs_to_schedule_clean: vec![],
+            },
             retry: RetryStatus { fail_count: 0, failed_jobs: vec![] },
             restarted_from: None,
             user_states: HashMap::new(),

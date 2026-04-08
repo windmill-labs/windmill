@@ -4281,49 +4281,51 @@ pub async fn run_workflow_as_code(
         )
         .await?;
 
-    let (job_payload, tag, _delete_after_use, timeout, on_behalf_of) = match job.job_kind {
-        JobKind::Preview => (
-            JobPayload::Code(RawCode {
-                hash: None,
-                content: raw_code.unwrap_or_default(),
-                path: job.script_path,
-                language: job.language.unwrap_or_else(|| ScriptLang::Deno),
-                lock: raw_lock,
-                concurrency_settings: concurrency_settings
-                    .maybe_fallback(
-                        windmill_queue::custom_concurrency_key(&db, &job.id)
-                            .await
-                            .map_err(to_anyhow)?,
-                        job.concurrent_limit,
-                        job.concurrency_time_window_s,
-                    )
-                    .into(),
-                cache_ttl: job.cache_ttl,
-                cache_ignore_s3_path: job.cache_ignore_s3_path,
-                dedicated_worker: None,
-                // TODO(debouncing): enable for this mode
-                debouncing_settings: DebouncingSettings::default(),
-                modules: None,
-            }),
-            Some(job.tag.clone()),
-            None,
-            run_query.timeout,
-            None,
-        ),
-        JobKind::Script => {
-            let userdb_authed =
-                UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
-            script_path_to_payload(
-                job.script_path(),
-                Some(userdb_authed),
-                db.clone(),
-                &w_id,
-                run_query.skip_preprocessor,
-            )
-            .await?
-        }
-        _ => return Err(anyhow::anyhow!("Not supported").into()),
-    };
+    let (job_payload, tag, _delete_after_use, _delete_after_secs, timeout, on_behalf_of) =
+        match job.job_kind {
+            JobKind::Preview => (
+                JobPayload::Code(RawCode {
+                    hash: None,
+                    content: raw_code.unwrap_or_default(),
+                    path: job.script_path,
+                    language: job.language.unwrap_or_else(|| ScriptLang::Deno),
+                    lock: raw_lock,
+                    concurrency_settings: concurrency_settings
+                        .maybe_fallback(
+                            windmill_queue::custom_concurrency_key(&db, &job.id)
+                                .await
+                                .map_err(to_anyhow)?,
+                            job.concurrent_limit,
+                            job.concurrency_time_window_s,
+                        )
+                        .into(),
+                    cache_ttl: job.cache_ttl,
+                    cache_ignore_s3_path: job.cache_ignore_s3_path,
+                    dedicated_worker: None,
+                    // TODO(debouncing): enable for this mode
+                    debouncing_settings: DebouncingSettings::default(),
+                    modules: None,
+                }),
+                Some(job.tag.clone()),
+                None,
+                None,
+                run_query.timeout,
+                None,
+            ),
+            JobKind::Script => {
+                let userdb_authed =
+                    UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+                script_path_to_payload(
+                    job.script_path(),
+                    Some(userdb_authed),
+                    db.clone(),
+                    &w_id,
+                    run_query.skip_preprocessor,
+                )
+                .await?
+            }
+            _ => return Err(anyhow::anyhow!("Not supported").into()),
+        };
 
     if *CLOUD_HOSTED {
         tracing::info!("workflow_as_code_tracing id {i} ");
@@ -4554,14 +4556,15 @@ pub async fn run_wait_result_job_by_path_get(
 
     let user_db_with_authed =
         UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
-    let (job_payload, tag, delete_after_use, timeout, on_behalf_authed) = script_path_to_payload(
-        script_path,
-        Some(user_db_with_authed),
-        db.clone(),
-        &w_id,
-        run_query.skip_preprocessor,
-    )
-    .await?;
+    let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_authed) =
+        script_path_to_payload(
+            script_path,
+            Some(user_db_with_authed),
+            db.clone(),
+            &w_id,
+            run_query.skip_preprocessor,
+        )
+        .await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
@@ -4617,9 +4620,7 @@ pub async fn run_wait_result_job_by_path_get(
     tx.commit().await?;
 
     let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
-    if delete_after_use.unwrap_or(false) {
-        delete_job_metadata_after_use(&db, uuid).await?;
-    }
+    handle_delete_after_completion(&db, uuid, &w_id, delete_after_use, delete_after_secs).await?;
     return wait_result;
 }
 
@@ -4699,14 +4700,15 @@ pub async fn run_wait_result_script_by_path_internal(
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
 
     let db_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
-    let (job_payload, tag, delete_after_use, timeout, on_behalf_of) = script_path_to_payload(
-        script_path.to_path(),
-        Some(db_authed),
-        db.clone(),
-        &w_id,
-        run_query.skip_preprocessor,
-    )
-    .await?;
+    let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
+        script_path_to_payload(
+            script_path.to_path(),
+            Some(db_authed),
+            db.clone(),
+            &w_id,
+            run_query.skip_preprocessor,
+        )
+        .await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
@@ -4762,9 +4764,7 @@ pub async fn run_wait_result_script_by_path_internal(
     tx.commit().await?;
 
     let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
-    if delete_after_use.unwrap_or(false) {
-        delete_job_metadata_after_use(&db, uuid).await?;
-    }
+    handle_delete_after_completion(&db, uuid, &w_id, delete_after_use, delete_after_secs).await?;
     return wait_result;
 }
 
@@ -4802,6 +4802,7 @@ pub async fn run_wait_result_script_by_hash(
         dedicated_worker,
         priority,
         delete_after_use,
+        delete_after_secs,
         timeout,
         has_preprocessor,
         on_behalf_of_email,
@@ -4888,9 +4889,7 @@ pub async fn run_wait_result_script_by_hash(
     tx.commit().await?;
 
     let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
-    if delete_after_use.unwrap_or(false) {
-        delete_job_metadata_after_use(&db, uuid).await?;
-    }
+    handle_delete_after_completion(&db, uuid, &w_id, delete_after_use, delete_after_secs).await?;
     return wait_result;
 }
 
@@ -5060,7 +5059,7 @@ pub async fn stream_job(
             (uuid, None)
         }
         RunnableId::ScriptId(ScriptId::ScriptHash(script_hash)) => {
-            let (uuid, _) = run_job_by_hash_inner(
+            let (uuid, _, _) = run_job_by_hash_inner(
                 authed.clone(),
                 db.clone(),
                 user_db,
@@ -6543,7 +6542,7 @@ pub async fn run_job_by_hash(
         )
         .await?;
 
-    let (uuid, _) = run_job_by_hash_inner(
+    let (uuid, _, _) = run_job_by_hash_inner(
         authed,
         db,
         user_db,
@@ -6567,7 +6566,7 @@ pub async fn run_job_by_hash_inner(
     run_query: RunJobQuery,
     args: PushArgsOwned,
     trigger: Option<TriggerMetadata>,
-) -> error::Result<(Uuid, Option<bool>)> {
+) -> error::Result<(Uuid, Option<bool>, Option<i32>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -6588,6 +6587,7 @@ pub async fn run_job_by_hash_inner(
         on_behalf_of_email,
         created_by,
         delete_after_use,
+        delete_after_secs,
         labels,
         ..
     } = get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash)
@@ -6668,7 +6668,7 @@ pub async fn run_job_by_hash_inner(
     .await?;
     tx.commit().await?;
 
-    Ok((uuid, delete_after_use))
+    Ok((uuid, delete_after_use, delete_after_secs))
 }
 
 async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {

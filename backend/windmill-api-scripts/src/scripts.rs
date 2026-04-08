@@ -113,6 +113,8 @@ pub struct ScriptWDraft<SR> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delete_after_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub delete_after_secs: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visible_to_runner_only: Option<bool>,
@@ -178,6 +180,7 @@ impl ScriptWDraft<ScriptRunnableSettingsHandle> {
             priority: self.priority,
             restart_unless_cancelled: self.restart_unless_cancelled,
             delete_after_use: self.delete_after_use,
+            delete_after_secs: self.delete_after_secs,
             timeout: self.timeout,
             visible_to_runner_only: self.visible_to_runner_only,
             auto_kind: self.auto_kind,
@@ -943,8 +946,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)",
+         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)",
         &w_id,
         &hash.0,
         ns.path,
@@ -970,12 +973,13 @@ async fn create_script_internal<'c>(
         ns.priority,
         ns.restart_unless_cancelled,
         ns.delete_after_use,
+        ns.delete_after_secs,
         ns.timeout,
         guarded_concurrency_key,
         ns.visible_to_runner_only,
         auto_kind.as_deref(),
         codebase,
-        has_preprocessor.filter(|x: &bool| *x), // should be Some(true) or None
+        has_preprocessor.filter(|x: &bool| *x),
         windmill_common::resolve_on_behalf_of_email(
             ns.on_behalf_of_email.as_deref(),
             ns.preserve_on_behalf_of.unwrap_or(false),
