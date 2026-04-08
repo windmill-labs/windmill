@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import process from "node:process";
 import { spawn } from "node:child_process";
 import * as log from "../../core/log.ts";
@@ -156,6 +157,26 @@ export async function ensureNodeModules(appDir?: string): Promise<void> {
 }
 
 /**
+ * Import esbuild, preferring the app's own version to avoid host/binary version mismatch.
+ *
+ * When `npm install` runs in the app directory, it may install a different esbuild version
+ * than the CLI bundles. esbuild's native binary resolution (`require.resolve`) can then
+ * find the app's binary while the JS host comes from the CLI, causing a version mismatch.
+ * By importing from the app's node_modules when available, JS host and binary always match.
+ */
+export async function importEsbuild(appDir: string): Promise<typeof import("esbuild")> {
+  const appEsbuildMain = path.join(appDir, "node_modules", "esbuild", "lib", "main.js");
+  if (fs.existsSync(appEsbuildMain)) {
+    try {
+      return await import(pathToFileURL(appEsbuildMain).href);
+    } catch {
+      // Fall through to CLI's bundled esbuild
+    }
+  }
+  return await import("esbuild");
+}
+
+/**
  * Creates an esbuild bundle for the app
  * @param options Bundle configuration options
  * @returns Bundle result containing JS and CSS blobs
@@ -163,9 +184,6 @@ export async function ensureNodeModules(appDir?: string): Promise<void> {
 export async function createBundle(
   options: BundleOptions = {}
 ): Promise<BundleResult> {
-  // Dynamically import esbuild
-  const esbuild = await import("esbuild");
-
   // Detect frameworks to determine default entry point.
   // Use the entryPoint's directory if provided, otherwise fall back to cwd.
   const appDir = options.entryPoint ? path.dirname(options.entryPoint) : process.cwd();
@@ -187,6 +205,9 @@ export async function createBundle(
 
   // Ensure node_modules exists in the app directory
   await ensureNodeModules(appDir);
+
+  // Import esbuild after npm install so we can prefer the app's version
+  const esbuild = await importEsbuild(appDir);
 
   // Load framework-specific plugins (svelte, vue) based on package.json
   const frameworkPlugins = await createFrameworkPlugins(appDir);
