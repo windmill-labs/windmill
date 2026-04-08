@@ -2,11 +2,24 @@
 
 import { Command, InvalidArgumentError } from "commander";
 import { loadCases, loadSelectedCases } from "../core/cases";
-import { buildRunResult, formatRunSummary, writeRunResult } from "../core/results";
+import {
+  EVAL_MODELS,
+  formatRunModelLabel,
+  getCliEvalModel,
+  getEvalModelHelpText,
+  resolveEvalModel,
+} from "../core/models";
+import {
+  buildRunResult,
+  formatRunSummary,
+  resolveRunOutputPath,
+  writeRunArtifacts,
+  writeRunResult,
+} from "../core/results";
 import { runSuite } from "../core/runSuite";
 import { EVAL_MODES, type EvalMode } from "../core/types";
 import { DEFAULT_JUDGE_MODEL } from "../core/judge";
-import { createCliModeRunner, getCliRunModelLabel } from "../modes/cli";
+import { createCliModeRunner } from "../modes/cli";
 import { runFrontendBenchmarkAdapter } from "../adapters/frontend/runtime";
 
 async function main() {
@@ -20,14 +33,26 @@ async function main() {
       [
         "",
         "Examples:",
+        "  bun run cli -- models",
         "  bun run cli -- cases",
         "  bun run cli -- cases flow",
         "  bun run cli -- run flow",
+        "  bun run cli -- run flow --model 4o",
         "  bun run cli -- run flow flow-test0-sum-two-numbers --verbose",
         "  bun run cli -- run flow flow-test5-simple-modification --runs 3",
         "  bun run cli -- run cli bun-hello-script",
+        "",
+        "Models:",
+        getEvalModelHelpText(),
       ].join("\n")
     );
+
+  program
+    .command("models")
+    .description("List available model aliases")
+    .action(() => {
+      handleModels();
+    });
 
   program
     .command("cases")
@@ -44,6 +69,7 @@ async function main() {
     .argument("[caseIds...]", "specific case ids to run")
     .option("--runs <n>", "number of attempts per case", parsePositiveInteger, 1)
     .option("--output <path>", "write the result JSON to this path")
+    .option("--model <name>", `model alias (${EVAL_MODELS.map((entry) => entry.id).join(", ")})`)
     .option("--verbose", "stream assistant output during frontend runs")
     .action(
       async (
@@ -52,6 +78,7 @@ async function main() {
         options: {
           runs: number;
           output?: string;
+          model?: string;
           verbose?: boolean;
         }
       ) => {
@@ -60,6 +87,7 @@ async function main() {
           caseIds,
           runs: options.runs,
           outputPath: options.output,
+          model: options.model,
           verbose: options.verbose ?? false,
         });
       }
@@ -81,47 +109,73 @@ async function handleCases(mode?: EvalMode) {
   }
 }
 
+function handleModels() {
+  process.stdout.write("Available models\n");
+  for (const model of EVAL_MODELS) {
+    const supports = [
+      ...(model.frontend ? ["flow", "script", "app"] : []),
+      ...(model.cli ? ["cli"] : []),
+    ];
+    const aliases = [model.id, ...model.aliases.filter((alias) => alias !== model.id)];
+    process.stdout.write(`- ${model.id}: ${model.label}\n`);
+    process.stdout.write(`  aliases: ${aliases.join(", ")}\n`);
+    process.stdout.write(`  modes: ${supports.join(", ")}\n`);
+  }
+  process.stdout.write(`\nJudge model: ${DEFAULT_JUDGE_MODEL}\n`);
+}
+
 async function handleRun(input: {
   mode: EvalMode;
   caseIds: string[];
   runs: number;
   outputPath?: string;
+  model?: string;
   verbose: boolean;
 }) {
   const selectedCases = await loadSelectedCases(input.mode, input.caseIds);
+  const model = resolveEvalModel(input.mode, input.model);
+  const runModel = formatRunModelLabel(input.mode, model);
   process.stderr.write(`Starting ${input.mode} benchmark...\n`);
 
   const result =
     input.mode === "cli"
-      ? await runCliBenchmark(selectedCases, input.runs)
+      ? await runCliBenchmark(selectedCases, input.runs, getCliEvalModel(model), runModel)
       : await runFrontendBenchmarkAdapter({
           mode: input.mode,
           caseIds: input.caseIds,
           runs: input.runs,
+          model: model.id,
           verbose: input.verbose,
         });
 
-  const resultPath = await writeRunResult(result, input.outputPath);
+  const resolvedOutputPath = resolveRunOutputPath(input.mode, input.outputPath);
+  const artifactsPath = await writeRunArtifacts(result, resolvedOutputPath);
+  const resultPath = await writeRunResult(result, resolvedOutputPath);
   process.stdout.write(`${formatRunSummary(result)}\n`);
   process.stdout.write(`Saved: ${resultPath}\n`);
+  if (artifactsPath) {
+    process.stdout.write(`Artifacts: ${artifactsPath}\n`);
+  }
 }
 
 async function runCliBenchmark(
   cases: Awaited<ReturnType<typeof loadSelectedCases>>,
-  runs: number
+  runs: number,
+  model: ReturnType<typeof getCliEvalModel>,
+  runModel: string
 ) {
   const caseResults = await runSuite({
-    modeRunner: createCliModeRunner(),
+    modeRunner: createCliModeRunner(model),
     cases,
     runs,
-    runModel: getCliRunModelLabel(),
+    runModel,
     judgeModel: DEFAULT_JUDGE_MODEL,
   });
 
   return buildRunResult({
     mode: "cli",
     runs,
-    runModel: getCliRunModelLabel(),
+    runModel,
     judgeModel: DEFAULT_JUDGE_MODEL,
     caseResults,
   });

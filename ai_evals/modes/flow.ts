@@ -1,19 +1,22 @@
 import { readJsonFile } from "../core/files";
+import type { FrontendEvalModelConfig } from "../core/models";
 import { validateFlowState, type FlowState } from "../core/validators";
-import type { ModeRunner } from "../core/types";
+import type { BenchmarkArtifactFile, ModeRunner } from "../core/types";
 import {
   runFlowEval,
   type FlowFixture,
 } from "../adapters/frontend/core/flow/flowEvalRunner";
 import type { FlowWorkspaceFixtures } from "../adapters/frontend/core/flow/fileHelpers";
-import { FRONTEND_MODEL, FRONTEND_PROVIDER, getFrontendApiKey } from "./frontendCommon";
+import { DEFAULT_FRONTEND_EVAL_MODEL, getFrontendApiKey } from "./frontendCommon";
 
 interface FlowInitialFixture {
   flow?: FlowFixture;
   workspace?: FlowWorkspaceFixtures;
 }
 
-export function createFlowModeRunner(): ModeRunner<FlowInitialFixture, FlowState, FlowState> {
+export function createFlowModeRunner(
+  modelConfig: FrontendEvalModelConfig = DEFAULT_FRONTEND_EVAL_MODEL
+): ModeRunner<FlowInitialFixture, FlowState, FlowState> {
   return {
     mode: "flow",
     concurrency: 5,
@@ -31,11 +34,11 @@ export function createFlowModeRunner(): ModeRunner<FlowInitialFixture, FlowState
       return normalizeFlowStateFixture(await readJsonFile<unknown>(path));
     },
     async run(prompt, initial, context) {
-      const result = await runFlowEval(prompt, getFrontendApiKey(), {
+      const result = await runFlowEval(prompt, getFrontendApiKey(modelConfig.provider), {
         initialFlow: initial?.flow,
         workspaceFixtures: initial?.workspace,
-        provider: FRONTEND_PROVIDER,
-        model: FRONTEND_MODEL,
+        provider: modelConfig.provider,
+        model: modelConfig.model,
         runContext: context,
       });
 
@@ -52,8 +55,21 @@ export function createFlowModeRunner(): ModeRunner<FlowInitialFixture, FlowState
         skillsInvoked: [],
       };
     },
-    validate({ actual, initial, expected }) {
-      return validateFlowState({ actual, initial: initial?.flow, expected });
+    validate({ evalCase, actual, initial, expected }) {
+      return validateFlowState({
+        actual,
+        initial: initial?.flow,
+        expected,
+        validate: evalCase.validate,
+      });
+    },
+    buildArtifacts(actual): BenchmarkArtifactFile[] {
+      return [
+        {
+          path: "flow.json",
+          content: JSON.stringify(actual, null, 2) + "\n",
+        },
+      ];
     },
   };
 }

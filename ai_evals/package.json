@@ -6,9 +6,10 @@
     "cli": "bun cli/index.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
     "@anthropic-ai/claude-agent-sdk": "^0.2.25",
-    "commander": "^14.0.3"
+    "@anthropic-ai/sdk": "^0.39.0",
+    "commander": "^14.0.3",
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@types/bun": "latest",

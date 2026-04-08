@@ -1,5 +1,5 @@
 import ts from "typescript";
-import type { BenchmarkCheck } from "./types";
+import type { BenchmarkCheck, FlowModuleValidation, FlowValidationSpec } from "./types";
 
 export interface ScriptState {
   path: string;
@@ -31,6 +31,7 @@ export interface AppRunnableState {
 }
 
 const TS_LIKE_LANGUAGES = new Set(["bun", "deno", "nativets", "bunnative", "ts", "typescript"]);
+const CONTROL_FLOW_MODULE_TYPES = new Set(["branchone", "branchall", "forloopflow", "whileloopflow"]);
 
 export function validateScriptState(input: {
   actual: ScriptState;
@@ -81,6 +82,7 @@ export function validateFlowState(input: {
   actual: FlowState;
   initial?: FlowState;
   expected?: FlowState;
+  validate?: FlowValidationSpec;
 }): BenchmarkCheck[] {
   const actualModules = getFlowModules(input.actual);
   const checks: BenchmarkCheck[] = [check("flow has modules", actualModules.length > 0)];
@@ -95,6 +97,9 @@ export function validateFlowState(input: {
   }
 
   if (!input.expected) {
+    if (input.validate) {
+      checks.push(...validateFlowRequirements(input.actual, input.validate));
+    }
     return checks;
   }
 
@@ -231,6 +236,10 @@ export function validateFlowState(input: {
     }
   }
 
+  if (input.validate) {
+    checks.push(...validateFlowRequirements(input.actual, input.validate));
+  }
+
   return checks;
 }
 
@@ -318,7 +327,7 @@ export function validateCliWorkspace(input: {
 }
 
 function check(name: string, passed: boolean, details?: string): BenchmarkCheck {
-  return details ? { name, passed, details } : { name, passed };
+  return !passed && details ? { name, passed, details } : { name, passed };
 }
 
 function normalizeText(value: string): string {
@@ -341,8 +350,16 @@ function getScriptSyntaxErrors(code: string, lang: string): string[] {
     return [];
   }
 
-  const sourceFile = ts.createSourceFile("eval.ts", code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  return sourceFile.parseDiagnostics.map((diagnostic) =>
+  const result = ts.transpileModule(code, {
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+    },
+    reportDiagnostics: true,
+    fileName: "eval.ts",
+  });
+
+  return (result.diagnostics ?? []).map((diagnostic) =>
     ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
   );
 }
@@ -351,10 +368,450 @@ function getFlowModules(flow: FlowState): Array<Record<string, unknown>> {
   return Array.isArray(flow.value?.modules) ? flow.value.modules : [];
 }
 
+function validateFlowRequirements(
+  flow: FlowState,
+  validate: FlowValidationSpec
+): BenchmarkCheck[] {
+  const checks: BenchmarkCheck[] = [];
+
+  for (const requiredPath of validate.schemaRequiredPaths ?? []) {
+    checks.push(
+      check(
+        `schema includes ${requiredPath}`,
+        hasSchemaPath(flow.schema, requiredPath),
+        `missing schema path ${requiredPath}`
+      )
+    );
+  }
+
+  if (validate.resolveResultsRefs) {
+    const unresolved = collectUnresolvedResultsRefs(flow);
+    checks.push(
+      check(
+        "results references resolve",
+        unresolved.length === 0,
+        unresolved.length > 0 ? unresolved.join("; ") : undefined
+      )
+    );
+  }
+
+  for (const requirement of validate.modules ?? []) {
+    const matched = findMatchingFlowModule(flow, requirement);
+    checks.push(
+      check(
+        requirement.name,
+        Boolean(matched),
+        matched ? undefined : describeMissingModuleRequirement(requirement)
+      )
+    );
+  }
+
+  return checks;
+}
+
 function getTopLevelFlowModuleIds(flow: FlowState): string[] {
   return getFlowModules(flow)
     .map((module) => module.id)
     .filter((value): value is string => typeof value === "string");
+}
+
+function hasSchemaPath(schema: Record<string, unknown> | undefined, dottedPath: string): boolean {
+  if (!schema || typeof schema !== "object") {
+    return false;
+  }
+
+  const segments = dottedPath.split(".").filter(Boolean);
+  if (segments.length === 0) {
+    return false;
+  }
+
+  let current: Record<string, unknown> | undefined = schema;
+  for (const segment of segments) {
+    const properties = current?.properties;
+    if (!properties || typeof properties !== "object") {
+      return false;
+    }
+
+    const next = (properties as Record<string, unknown>)[segment];
+    if (!next || typeof next !== "object") {
+      return false;
+    }
+    current = next as Record<string, unknown>;
+  }
+
+  return true;
+}
+
+function collectUnresolvedResultsRefs(flow: FlowState): string[] {
+  const unresolved = new Set<string>();
+  validateModuleSequence(getFlowModules(flow), new Map<string, Record<string, unknown>>(), unresolved);
+  return [...unresolved];
+}
+
+function validateModuleSequence(
+  modules: Array<Record<string, unknown>>,
+  parentVisibleModules: Map<string, Record<string, unknown>>,
+  unresolved: Set<string>
+): void {
+  const visibleModules = new Map(parentVisibleModules);
+
+  for (const module of modules) {
+    validateResultsRefsInRecord(module, visibleModules, unresolved);
+    validateNestedModuleResultsRefs(module, visibleModules, unresolved);
+
+    if (typeof module.id === "string" && module.id.length > 0) {
+      visibleModules.set(module.id, module);
+    }
+  }
+}
+
+function validateNestedModuleResultsRefs(
+  module: Record<string, unknown>,
+  visibleModules: Map<string, Record<string, unknown>>,
+  unresolved: Set<string>
+): void {
+  const value = isObjectRecord(module.value) ? module.value : null;
+  if (!value) {
+    return;
+  }
+
+  const nestedSequences: Array<Array<Record<string, unknown>>> = [];
+
+  if (Array.isArray(value.modules)) {
+    nestedSequences.push(asModuleArray(value.modules));
+  }
+
+  if (Array.isArray(value.default)) {
+    nestedSequences.push(asModuleArray(value.default));
+  }
+
+  if (Array.isArray(value.branches)) {
+    for (const branch of value.branches) {
+      if (!isObjectRecord(branch)) {
+        continue;
+      }
+      if (typeof branch.expr === "string") {
+        validateResultsRefsInExpression(
+          branch.expr,
+          `branch ${module.id ?? "(unnamed)"}`,
+          visibleModules,
+          unresolved
+        );
+      }
+      if (Array.isArray(branch.modules)) {
+        nestedSequences.push(asModuleArray(branch.modules));
+      }
+    }
+  }
+
+  for (const sequence of nestedSequences) {
+    validateModuleSequence(sequence, visibleModules, unresolved);
+  }
+}
+
+function validateResultsRefsInRecord(
+  value: unknown,
+  visibleModules: Map<string, Record<string, unknown>>,
+  unresolved: Set<string>,
+  context = "expression"
+): void {
+  if (typeof value === "string") {
+    validateResultsRefsInExpression(value, context, visibleModules, unresolved);
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      validateResultsRefsInRecord(entry, visibleModules, unresolved, context);
+    }
+    return;
+  }
+
+  if (!isObjectRecord(value)) {
+    return;
+  }
+
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "content" || key === "modules" || key === "branches" || key === "default") {
+      continue;
+    }
+    validateResultsRefsInRecord(entry, visibleModules, unresolved, key);
+  }
+}
+
+function validateResultsRefsInExpression(
+  expression: string,
+  context: string,
+  visibleModules: Map<string, Record<string, unknown>>,
+  unresolved: Set<string>
+): void {
+  for (const ref of extractResultsRefs(expression)) {
+    const module = visibleModules.get(ref.root);
+    if (!module) {
+      unresolved.add(`${context} references missing results.${ref.root}`);
+      continue;
+    }
+    validateNestedResultsRefPath(ref.root, ref.path, module, context, unresolved);
+  }
+}
+
+function extractResultsRefs(
+  expression: string
+): Array<{ root: string; path: string[] }> {
+  const matches = expression.matchAll(/\bresults\.([A-Za-z0-9_-]+)((?:\.[A-Za-z0-9_-]+)*)/g);
+  const refs = new Map<string, { root: string; path: string[] }>();
+
+  for (const match of matches) {
+    const root = match[1];
+    const path = match[2]
+      .split(".")
+      .filter(Boolean);
+    const key = `${root}:${path.join(".")}`;
+    refs.set(key, { root, path });
+  }
+
+  return [...refs.values()];
+}
+
+function validateNestedResultsRefPath(
+  rootId: string,
+  path: string[],
+  module: Record<string, unknown>,
+  context: string,
+  unresolved: Set<string>
+): void {
+  if (path.length === 0) {
+    return;
+  }
+
+  const moduleType = getModuleType(module);
+  if (!moduleType || !CONTROL_FLOW_MODULE_TYPES.has(moduleType)) {
+    return;
+  }
+
+  const nestedIds = new Set(getImmediateNestedModuleIds(module));
+  const [firstSegment] = path;
+  if (nestedIds.has(firstSegment)) {
+    unresolved.add(
+      `${context} references nested results.${rootId}.${firstSegment} inside ${moduleType} ${rootId}`
+    );
+  }
+}
+
+function findMatchingFlowModule(
+  flow: FlowState,
+  requirement: FlowModuleValidation
+): Record<string, unknown> | null {
+  for (const module of getAllFlowModules(flow)) {
+    if (matchesFlowModuleRequirement(module, requirement)) {
+      return module;
+    }
+  }
+  return null;
+}
+
+function matchesFlowModuleRequirement(
+  module: Record<string, unknown>,
+  requirement: FlowModuleValidation
+): boolean {
+  if (requirement.typeAnyOf && requirement.typeAnyOf.length > 0) {
+    const actualType = getModuleType(module);
+    if (!actualType || !requirement.typeAnyOf.includes(actualType)) {
+      return false;
+    }
+  }
+
+  const inputRefs = getModuleInputRefs(module);
+  if (requirement.inputRefsAny && requirement.inputRefsAny.length > 0) {
+    if (!requirement.inputRefsAny.some((ref) => inputRefs.includes(ref))) {
+      return false;
+    }
+  }
+
+  if (requirement.inputRefsAll && requirement.inputRefsAll.length > 0) {
+    if (!requirement.inputRefsAll.every((ref) => inputRefs.includes(ref))) {
+      return false;
+    }
+  }
+
+  if (requirement.inputRefsContainAny && requirement.inputRefsContainAny.length > 0) {
+    if (!requirement.inputRefsContainAny.some((snippet) => inputRefs.some((ref) => ref.includes(snippet)))) {
+      return false;
+    }
+  }
+
+  if (requirement.inputRefsContainAll && requirement.inputRefsContainAll.length > 0) {
+    if (!requirement.inputRefsContainAll.every((snippet) => inputRefs.some((ref) => ref.includes(snippet)))) {
+      return false;
+    }
+  }
+
+  const code = getModuleCode(module);
+  if (requirement.codeContainsAny && requirement.codeContainsAny.length > 0) {
+    if (!code || !requirement.codeContainsAny.some((snippet) => code.includes(snippet))) {
+      return false;
+    }
+  }
+
+  if (requirement.codeContainsAll && requirement.codeContainsAll.length > 0) {
+    if (!code || !requirement.codeContainsAll.every((snippet) => code.includes(snippet))) {
+      return false;
+    }
+  }
+
+  if (requirement.codeRegexAll && requirement.codeRegexAll.length > 0) {
+    if (!code) {
+      return false;
+    }
+    for (const pattern of requirement.codeRegexAll) {
+      const regex = new RegExp(pattern, "m");
+      if (!regex.test(code)) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+function describeMissingModuleRequirement(requirement: FlowModuleValidation): string {
+  const parts: string[] = [];
+  if (requirement.typeAnyOf?.length) {
+    parts.push(`type in [${requirement.typeAnyOf.join(", ")}]`);
+  }
+  if (requirement.inputRefsAny?.length) {
+    parts.push(`any input refs [${requirement.inputRefsAny.join(", ")}]`);
+  }
+  if (requirement.inputRefsAll?.length) {
+    parts.push(`all input refs [${requirement.inputRefsAll.join(", ")}]`);
+  }
+  if (requirement.inputRefsContainAny?.length) {
+    parts.push(`any input refs containing [${requirement.inputRefsContainAny.join(", ")}]`);
+  }
+  if (requirement.inputRefsContainAll?.length) {
+    parts.push(`all input refs containing [${requirement.inputRefsContainAll.join(", ")}]`);
+  }
+  if (requirement.codeContainsAny?.length) {
+    parts.push(`code contains any [${requirement.codeContainsAny.join(", ")}]`);
+  }
+  if (requirement.codeContainsAll?.length) {
+    parts.push(`code contains all [${requirement.codeContainsAll.join(", ")}]`);
+  }
+  if (requirement.codeRegexAll?.length) {
+    parts.push(`code matches [${requirement.codeRegexAll.join(", ")}]`);
+  }
+  return parts.join("; ");
+}
+
+function getAllFlowModules(flow: FlowState): Array<Record<string, unknown>> {
+  const modules: Array<Record<string, unknown>> = [];
+  const specialModules = ["preprocessor_module", "failure_module"] as const;
+
+  for (const key of specialModules) {
+    const specialModule = getSpecialFlowModule(flow, key);
+    if (specialModule) {
+      modules.push(specialModule);
+      modules.push(...collectNestedModules(specialModule));
+    }
+  }
+
+  for (const module of getFlowModules(flow)) {
+    modules.push(module);
+    modules.push(...collectNestedModules(module));
+  }
+
+  return modules;
+}
+
+function collectNestedModules(module: Record<string, unknown>): Array<Record<string, unknown>> {
+  const nested: Array<Record<string, unknown>> = [];
+  const value = isObjectRecord(module.value) ? module.value : null;
+  if (!value) {
+    return nested;
+  }
+
+  if (Array.isArray(value.modules)) {
+    for (const child of asModuleArray(value.modules)) {
+      nested.push(child, ...collectNestedModules(child));
+    }
+  }
+
+  if (Array.isArray(value.default)) {
+    for (const child of asModuleArray(value.default)) {
+      nested.push(child, ...collectNestedModules(child));
+    }
+  }
+
+  if (Array.isArray(value.branches)) {
+    for (const branch of value.branches) {
+      if (!isObjectRecord(branch) || !Array.isArray(branch.modules)) {
+        continue;
+      }
+      for (const child of asModuleArray(branch.modules)) {
+        nested.push(child, ...collectNestedModules(child));
+      }
+    }
+  }
+
+  return nested;
+}
+
+function getImmediateNestedModuleIds(module: Record<string, unknown>): string[] {
+  const ids: string[] = [];
+  const value = isObjectRecord(module.value) ? module.value : null;
+  if (!value) {
+    return ids;
+  }
+
+  if (Array.isArray(value.modules)) {
+    ids.push(...asModuleArray(value.modules).flatMap((child) => (typeof child.id === "string" ? [child.id] : [])));
+  }
+
+  if (Array.isArray(value.default)) {
+    ids.push(...asModuleArray(value.default).flatMap((child) => (typeof child.id === "string" ? [child.id] : [])));
+  }
+
+  if (Array.isArray(value.branches)) {
+    for (const branch of value.branches) {
+      if (!isObjectRecord(branch) || !Array.isArray(branch.modules)) {
+        continue;
+      }
+      ids.push(
+        ...asModuleArray(branch.modules).flatMap((child) => (typeof child.id === "string" ? [child.id] : []))
+      );
+    }
+  }
+
+  return ids;
+}
+
+function getModuleInputRefs(module: Record<string, unknown>): string[] {
+  const value = isObjectRecord(module.value) ? module.value : null;
+  const inputTransforms = isObjectRecord(value?.input_transforms) ? value?.input_transforms : null;
+  if (!inputTransforms) {
+    return [];
+  }
+
+  return Object.values(inputTransforms)
+    .flatMap((entry) => {
+      if (!isObjectRecord(entry) || typeof entry.expr !== "string") {
+        return [];
+      }
+      return [entry.expr.trim()];
+    });
+}
+
+function getModuleCode(module: Record<string, unknown>): string | null {
+  const value = isObjectRecord(module.value) ? module.value : null;
+  return typeof value?.content === "string" ? value.content : null;
+}
+
+function asModuleArray(value: unknown[]): Array<Record<string, unknown>> {
+  return value.filter(isObjectRecord);
+}
+
+function isObjectRecord(value: unknown): value is Record<string, any> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function getSpecialFlowModule(

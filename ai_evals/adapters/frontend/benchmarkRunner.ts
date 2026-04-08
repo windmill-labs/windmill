@@ -1,4 +1,9 @@
 import { loadSelectedCases } from "../../core/cases";
+import {
+  formatRunModelLabel,
+  getFrontendEvalModel,
+  resolveEvalModel,
+} from "../../core/models";
 import { buildRunResult } from "../../core/results";
 import { runSuite } from "../../core/runSuite";
 import type { BenchmarkRunResult, ModeRunner } from "../../core/types";
@@ -7,7 +12,6 @@ import { createAppModeRunner } from "../../modes/app";
 import { createFlowModeRunner } from "../../modes/flow";
 import { createScriptModeRunner } from "../../modes/script";
 import { DEFAULT_JUDGE_MODEL } from "../../core/judge";
-import { getFrontendRunModelLabel } from "../../modes/frontendCommon";
 
 export type FrontendBenchmarkMode = "flow" | "app" | "script";
 
@@ -17,14 +21,16 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
   const runs = parsePositiveInteger(process.env.WMILL_FRONTEND_AI_EVAL_RUNS, "WMILL_FRONTEND_AI_EVAL_RUNS");
   const emitProgress = process.env.WMILL_FRONTEND_AI_EVAL_PROGRESS === "1";
   const verbose = process.env.WMILL_FRONTEND_AI_EVAL_VERBOSE === "1";
+  const model = resolveEvalModel(mode, process.env.WMILL_FRONTEND_AI_EVAL_MODEL);
 
   const selectedCases = await loadSelectedCases(mode, caseIds);
-  const modeRunner = getModeRunner(mode);
+  const modeRunner = getModeRunner(mode, getFrontendEvalModel(model));
+  const runModel = formatRunModelLabel(mode, model);
   const caseResults = await runSuite({
     modeRunner,
     cases: selectedCases,
     runs,
-    runModel: getFrontendRunModelLabel(),
+    runModel,
     judgeModel: DEFAULT_JUDGE_MODEL,
     concurrency: verbose ? 1 : undefined,
     verbose,
@@ -34,20 +40,23 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
   return buildRunResult({
     mode,
     runs,
-    runModel: getFrontendRunModelLabel(),
+    runModel,
     judgeModel: DEFAULT_JUDGE_MODEL,
     caseResults,
   });
 }
 
-function getModeRunner(mode: FrontendBenchmarkMode): ModeRunner<any, any, any> {
+function getModeRunner(
+  mode: FrontendBenchmarkMode,
+  model: ReturnType<typeof getFrontendEvalModel>
+): ModeRunner<any, any, any> {
   switch (mode) {
     case "flow":
-      return createFlowModeRunner();
+      return createFlowModeRunner(model);
     case "app":
-      return createAppModeRunner();
+      return createAppModeRunner(model);
     case "script":
-      return createScriptModeRunner();
+      return createScriptModeRunner(model);
   }
 }
 

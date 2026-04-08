@@ -1,8 +1,0 @@
-[
-  {
-    "id": "script-test1-greet-user",
-    "prompt": "THIS IS A TEST, CODE SHOULD BE MINIMAL FUNCTIONING CODE.\n\nUpdate the current bun script so it exports `main(name: string)` and returns the plain string `Hello, ${name}!`.\nDo not return an object or array.\nDo not add external dependencies.",
-    "initial": "ai_evals/fixtures/frontend/script/initial/test1_empty_bun.json",
-    "expected": "ai_evals/fixtures/frontend/script/expected/test1_greet_user.json"
-  }
-]

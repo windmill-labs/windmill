@@ -1,0 +1,21 @@
+- id: bun-hello-script
+  prompt: |-
+    This is a benchmark harness. Create exactly one Windmill Bun/TypeScript script at {{workspace_root}}/f/evals/hello.ts.
+    The script must export async function main(name: string) and return an object { greeting: `Hello, ${name}!` }.
+    Keep it minimal.
+    Do not create other scripts.
+    Do not run any CLI commands.
+    After writing the file, tell me exactly which wmill commands I should run next.
+  expected: ai_evals/fixtures/cli/expected/bun-hello-script
+
+- id: bun-hello-flow
+  prompt: |-
+    This is a benchmark harness. Create exactly one Windmill flow folder at {{workspace_root}}/f/evals/hello__flow.
+    The flow must contain flow.yaml and one inline Bun script file named hello.ts.
+    The flow should accept a name string input and return an object { greeting: `Hello, ${name}!` }.
+    Use a single rawscript step wired to that input.
+    Keep it minimal.
+    Do not create any other flows or scripts.
+    Do not run any CLI commands.
+    After writing the files, tell me exactly which wmill commands I should run next.
+  expected: ai_evals/fixtures/cli/expected/bun-hello-flow

@@ -29,8 +29,8 @@ export async function judgeOutput(input: {
   const system = [
     "You evaluate benchmark outputs for Windmill AI generation.",
     "Deterministic checks already run separately. Focus on whether the final output satisfies the user request.",
-    "If expected state is provided, treat it as a strong reference and reward semantically equivalent outputs.",
-    "Be strict about missing requested functionality.",
+    "If expected state is provided, treat it as a valid example and reward semantically equivalent outputs.",
+    "Be strict about missing requested functionality. Inputs, module ids, and other details do not need to be exactly the same, but the functionality must be the same.",
     `Always respond by calling the ${JUDGE_TOOL_NAME} tool exactly once.`,
   ].join("\n\n");
 

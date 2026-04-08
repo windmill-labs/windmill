@@ -144,6 +144,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
       const checks: BenchmarkCheck[] = [
         buildCheck("run succeeded", run.success, run.error),
         ...input.modeRunner.validate({
+          evalCase: input.evalCase,
           prompt: input.evalCase.prompt,
           initial,
           expected,
@@ -177,6 +178,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
         );
       }
 
+      const artifactFiles = input.modeRunner.buildArtifacts?.(run.actual) ?? [];
       const attemptResult: BenchmarkAttemptResult = {
         attempt,
         passed: checks.every((check) => check.passed),
@@ -189,6 +191,8 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
         judgeScore,
         judgeSummary,
         error: run.error ?? null,
+        artifactsPath: null,
+        artifactFiles,
       };
 
       input.onProgress?.({

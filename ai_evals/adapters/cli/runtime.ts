@@ -1,6 +1,7 @@
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
 import { join } from "path";
 import { fileURLToPath } from "url";
+import { getCliEvalModel, resolveEvalModel, type CliEvalModelConfig } from "../../core/models";
 
 export interface ToolInvocation {
   tool: string;
@@ -17,8 +18,7 @@ export interface PromptRunResult {
 }
 
 const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
-export const CLI_BENCHMARK_PROVIDER = "anthropic";
-export const CLI_BENCHMARK_MODEL = "haiku";
+export const DEFAULT_CLI_EVAL_MODEL: CliEvalModelConfig = getCliEvalModel(resolveEvalModel("cli"));
 
 export function getGeneratedSkillsSource(): string {
   return join(REPO_ROOT, "system_prompts", "auto-generated", "skills");
@@ -27,7 +27,8 @@ export function getGeneratedSkillsSource(): string {
 export async function runPromptAndCapture(
   prompt: string,
   cwd: string,
-  maxTurns: number = 3
+  maxTurns: number = 3,
+  modelConfig: CliEvalModelConfig = DEFAULT_CLI_EVAL_MODEL
 ): Promise<PromptRunResult> {
   const toolsUsed: ToolInvocation[] = [];
   const skillsInvoked: string[] = [];
@@ -37,7 +38,7 @@ export async function runPromptAndCapture(
 
   const options: Options = {
     cwd,
-    model: CLI_BENCHMARK_MODEL,
+    model: modelConfig.model,
     maxTurns,
     settingSources: ["project"],
     allowedTools: ["Skill", "Read", "Glob", "Grep", "Bash", "Write", "Edit"]
@@ -90,6 +91,10 @@ export function wasSkillInvoked(result: PromptRunResult, skillName: string): boo
 
 export function wasToolUsed(result: PromptRunResult, toolName: string): boolean {
   return result.toolsUsed.some((tool) => tool.tool === toolName);
+}
+
+export function formatCliRunModelLabel(modelConfig: CliEvalModelConfig): string {
+  return `${modelConfig.provider}:${modelConfig.model}`;
 }
 
 export function getToolInputs(

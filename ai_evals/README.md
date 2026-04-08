@@ -59,9 +59,14 @@ bun run cli -- run cli bun-hello-script
 `run` always writes a JSON result file under `ai_evals/results/` unless you pass
 `--output`.
 
+It also writes generated artifacts next to that summary file, for example:
+
+- summary: `ai_evals/results/2026-04-08T13-00-00.000Z__flow.json`
+- artifacts: `ai_evals/results/2026-04-08T13-00-00.000Z__flow/<case-id>/attempt-1/flow.json`
+
 ## Layout
 
-- `cases/`: one JSON file per mode
+- `cases/`: one YAML file per mode
 - `fixtures/`: initial and expected fixtures
 - `core/`: shared case loading, validation, judging, and result writing
 - `modes/`: one runner per mode

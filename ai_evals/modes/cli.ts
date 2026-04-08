@@ -4,10 +4,16 @@ import path from "node:path";
 import { dirname, join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { writeAiGuidanceFiles } from "../../cli/src/guidance/writer.ts";
-import { getGeneratedSkillsSource, runPromptAndCapture, CLI_BENCHMARK_MODEL, CLI_BENCHMARK_PROVIDER } from "../adapters/cli/runtime";
+import type { CliEvalModelConfig } from "../core/models";
+import {
+  DEFAULT_CLI_EVAL_MODEL,
+  formatCliRunModelLabel,
+  getGeneratedSkillsSource,
+  runPromptAndCapture,
+} from "../adapters/cli/runtime";
 import { copyDirectory, readDirectoryFiles } from "../core/files";
 import { validateCliWorkspace } from "../core/validators";
-import type { ModeRunner } from "../core/types";
+import type { BenchmarkArtifactFile, ModeRunner } from "../core/types";
 
 const IGNORE_WORKSPACE_FILES = new Set([".claude", "AGENTS.md", "CLAUDE.md", "rt.d.ts"]);
 
@@ -28,7 +34,9 @@ const CLAUDE_PROJECT_PREAMBLE = [
   "Do not skip the Skill step.",
 ].join(" ");
 
-export function createCliModeRunner(): ModeRunner<CliWorkspaceFixture, CliWorkspaceFixture, CliRunActual> {
+export function createCliModeRunner(
+  modelConfig: CliEvalModelConfig = DEFAULT_CLI_EVAL_MODEL
+): ModeRunner<CliWorkspaceFixture, CliWorkspaceFixture, CliRunActual> {
   return {
     mode: "cli",
     concurrency: 1,
@@ -66,7 +74,7 @@ export function createCliModeRunner(): ModeRunner<CliWorkspaceFixture, CliWorksp
         await writeFile(join(workspaceDir, "rt.d.ts"), "export namespace RT {}\n", "utf8");
 
         const renderedPrompt = await renderPrompt(prompt, workspaceDir);
-        const run = await runPromptAndCapture(renderedPrompt, workspaceDir, 6);
+        const run = await runPromptAndCapture(renderedPrompt, workspaceDir, 6, modelConfig);
         const workspaceFiles = await readDirectoryFiles(workspaceDir, { ignore: IGNORE_WORKSPACE_FILES });
 
         return {
@@ -105,11 +113,30 @@ export function createCliModeRunner(): ModeRunner<CliWorkspaceFixture, CliWorksp
         initialFiles: initial?.files,
       });
     },
+    buildArtifacts(actual): BenchmarkArtifactFile[] {
+      const artifacts: BenchmarkArtifactFile[] = [
+        {
+          path: "assistant-output.txt",
+          content: `${actual.assistantOutput}\n`,
+        },
+      ];
+
+      for (const [filePath, content] of Object.entries(actual.workspaceFiles)) {
+        artifacts.push({
+          path: filePath,
+          content,
+        });
+      }
+
+      return artifacts;
+    },
   };
 }
 
-export function getCliRunModelLabel(): string {
-  return `${CLI_BENCHMARK_PROVIDER}:${CLI_BENCHMARK_MODEL}`;
+export function getCliRunModelLabel(
+  modelConfig: CliEvalModelConfig = DEFAULT_CLI_EVAL_MODEL
+): string {
+  return formatCliRunModelLabel(modelConfig);
 }
 
 async function renderPrompt(prompt: string, workspaceDir: string): Promise<string> {

@@ -2,11 +2,30 @@ export const EVAL_MODES = ["cli", "flow", "script", "app"] as const;
 
 export type EvalMode = (typeof EVAL_MODES)[number];
 
+export interface FlowModuleValidation {
+  name: string;
+  typeAnyOf?: string[];
+  inputRefsAny?: string[];
+  inputRefsAll?: string[];
+  inputRefsContainAny?: string[];
+  inputRefsContainAll?: string[];
+  codeContainsAny?: string[];
+  codeContainsAll?: string[];
+  codeRegexAll?: string[];
+}
+
+export interface FlowValidationSpec {
+  schemaRequiredPaths?: string[];
+  resolveResultsRefs?: boolean;
+  modules?: FlowModuleValidation[];
+}
+
 export interface EvalCase {
   id: string;
   prompt: string;
   initialPath?: string;
   expectedPath?: string;
+  validate?: FlowValidationSpec;
 }
 
 export interface BenchmarkCheck {
@@ -20,6 +39,11 @@ export interface JudgeResult {
   score: number;
   summary: string;
   error?: string;
+}
+
+export interface BenchmarkArtifactFile {
+  path: string;
+  content: string;
 }
 
 export interface ModeRunOutput<TActual> {
@@ -56,12 +80,14 @@ export interface ModeRunner<TInitial, TExpected, TActual> {
     context: ModeRunContext
   ): Promise<ModeRunOutput<TActual>>;
   validate(input: {
+    evalCase: EvalCase;
     prompt: string;
     initial: TInitial | undefined;
     expected: TExpected | undefined;
     actual: TActual;
     run: ModeRunOutput<TActual>;
   }): BenchmarkCheck[];
+  buildArtifacts?(actual: TActual): BenchmarkArtifactFile[];
 }
 
 export interface BenchmarkAttemptResult {
@@ -76,6 +102,8 @@ export interface BenchmarkAttemptResult {
   judgeScore: number | null;
   judgeSummary: string | null;
   error: string | null;
+  artifactsPath?: string | null;
+  artifactFiles?: BenchmarkArtifactFile[];
 }
 
 export interface BenchmarkCaseResult {
@@ -99,6 +127,7 @@ export interface BenchmarkRunResult {
   passedAttempts: number;
   passRate: number;
   averageDurationMs: number;
+  artifactsPath?: string | null;
   cases: BenchmarkCaseResult[];
 }
 

@@ -19,6 +19,7 @@ export async function runFrontendBenchmarkAdapter(input: {
 	mode: FrontendMode
 	caseIds: string[]
 	runs: number
+	model?: string
 	verbose?: boolean
 }): Promise<BenchmarkRunResult> {
 	const tempDir = await mkdtemp(path.join(tmpdir(), 'wmill-frontend-benchmark-'))
@@ -44,6 +45,7 @@ export async function runFrontendBenchmarkAdapter(input: {
 					WMILL_FRONTEND_AI_EVAL_MODE: input.mode,
 					WMILL_FRONTEND_AI_EVAL_CASE_IDS: JSON.stringify(input.caseIds),
 					WMILL_FRONTEND_AI_EVAL_RUNS: String(input.runs),
+					WMILL_FRONTEND_AI_EVAL_MODEL: input.model ?? "",
 					WMILL_FRONTEND_AI_EVAL_PROGRESS: '1',
 					WMILL_FRONTEND_AI_EVAL_VERBOSE: input.verbose ? '1' : '0'
 				}
