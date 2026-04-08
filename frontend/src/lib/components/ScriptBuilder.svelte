@@ -1764,11 +1764,11 @@
 											/>
 										</div>
 									</Section>
-									<Section label="On behalf of last editor">
+									<Section label="Run on behalf of a specified user">
 										{#snippet header()}
 											<Tooltip>
 												When this option is enabled, the script will be run with the permissions of
-												the last editor.
+												the corresponding user.
 											</Tooltip>
 										{/snippet}
 										<div class="flex gap-2 shrink flex-col">
