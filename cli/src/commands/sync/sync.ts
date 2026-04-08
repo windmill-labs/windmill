@@ -48,16 +48,15 @@ import {
   mergeConfigWithConfigFile,
   SyncOptions,
   validateBranchConfiguration,
-  getEffectiveGitBranch,
   findWorkspaceByGitBranch,
   WorkspaceEntryConfig,
 } from "../../core/conf.ts";
 import {
-  fromBranchSpecificPath,
-  getBranchSpecificPath,
+  fromWorkspaceSpecificPath,
+  getWorkspaceSpecificPath,
   getSpecificItemsForCurrentBranch,
-  isBranchSpecificFile,
-  isCurrentBranchFile,
+  isWorkspaceSpecificFile,
+  isCurrentWorkspaceFile,
   isItemTypeConfigured,
   isSpecificItem,
   SpecificItemsConfig,
@@ -150,14 +149,9 @@ function warnWorkspaceOverride(opts: SyncOptions, wsNameForConfig: string | unde
   }
 }
 
-// Resolve the effective git branch for file naming from a workspace name.
-// If the workspace name matches a config entry with a custom gitBranch, use that.
-// Otherwise, the workspace name is assumed to be the git branch (backward compat).
-function resolveGitBranchForFiles(opts: SyncOptions, wsName: string): string {
-  const wsEntry = (opts.workspaces as any)?.[wsName] as WorkspaceEntryConfig | undefined;
-  if (wsEntry) {
-    return getEffectiveGitBranch(wsName, wsEntry);
-  }
+// The workspace name is used as the file suffix for workspace-specific files.
+// This is a pass-through — the workspace name (config key) IS the suffix.
+function resolveWsNameForFiles(_opts: SyncOptions, wsName: string): string {
   return wsName;
 }
 
@@ -1319,7 +1313,7 @@ export async function elementsToMap(
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
   // Cache git branch at the start to avoid repeated execSync calls per file
-  const cachedBranch = branchOverride ?? getCurrentGitBranch() ?? undefined;
+  const cachedWsName = branchOverride ?? getCurrentGitBranch() ?? undefined;
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     // console.log("FOO", entry.path, entry.ignored, entry.isDirectory)
     if (entry.isDirectory || entry.ignored) {
@@ -1426,10 +1420,10 @@ export async function elementsToMap(
       // If getTypeStrFromPath can't determine the type, continue processing the file
     }
 
-    // Handle branch-specific files - skip files for other branches
-    if (specificItems && isBranchSpecificFile(path)) {
-      if (!isCurrentBranchFile(path, cachedBranch)) {
-        // Skip branch-specific files for other branches
+    // Handle workspace-specific files - skip files for other branches
+    if (specificItems && isWorkspaceSpecificFile(path)) {
+      if (!isCurrentWorkspaceFile(path, cachedWsName)) {
+        // Skip workspace-specific files for other branches
         continue;
       }
     }
@@ -1462,13 +1456,13 @@ export async function elementsToMap(
       }
     }
 
-    // Handle branch-specific path mapping after all filtering
-    if (cachedBranch && isCurrentBranchFile(path, cachedBranch)) {
-      // This is a branch-specific file for current branch
-      const currentBranch = cachedBranch;
-      const basePath = fromBranchSpecificPath(path, currentBranch);
+    // Handle workspace-specific path mapping after all filtering
+    if (cachedWsName && isCurrentWorkspaceFile(path, cachedWsName)) {
+      // This is a workspace-specific file for current branch
+      const currentBranch = cachedWsName;
+      const basePath = fromWorkspaceSpecificPath(path, currentBranch);
 
-      // Only use branch-specific files if the item type IS configured as branch-specific
+      // Only use workspace-specific files if the item type IS configured as branch-specific
       // AND matches the pattern. Otherwise, skip and use base file instead.
       if (!isItemTypeConfigured(basePath, specificItems)) {
         // Type not configured as branch-specific - skip, use base file instead
@@ -1482,10 +1476,10 @@ export async function elementsToMap(
       // Type configured AND matches - map to base path
       map[basePath] = content;
       processedBasePaths.add(basePath);
-    } else if (!isBranchSpecificFile(path)) {
+    } else if (!isWorkspaceSpecificFile(path)) {
       // This is a regular base file
       if (processedBasePaths.has(path)) {
-        // Skip base file, we already processed branch-specific version
+        // Skip base file, we already processed workspace-specific version
         continue;
       }
       // Skip base file if it's configured as branch-specific (expect branch version)
@@ -1495,7 +1489,7 @@ export async function elementsToMap(
       }
       map[path] = content;
     }
-    // Note: branch-specific files for other branches are already filtered out earlier
+    // Note: workspace-specific files for other branches are already filtered out earlier
   }
   return map;
 }
@@ -2113,7 +2107,7 @@ export async function pull(
   const specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
 
   // Compute the effective git branch for file naming (may differ from workspace name)
-  const gitBranchForFiles = wsNameForConfig ? resolveGitBranchForFiles(opts, wsNameForConfig) : undefined;
+  const wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : undefined;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2179,7 +2173,7 @@ export async function pull(
     codebases,
     true,
     specificItems,
-    gitBranchForFiles,
+    wsNameForFiles,
     true, // els1 (remote) is the remote source
   );
 
@@ -2199,11 +2193,11 @@ export async function pull(
           : {}),
         ...(specificItems && isSpecificItem(change.path, specificItems)
           ? {
-              branch_specific: true,
-              branch_specific_path: getBranchSpecificPath(
+              workspace_specific: true,
+              workspace_specific_path: getWorkspaceSpecificPath(
                 change.path,
                 specificItems,
-                gitBranchForFiles,
+                wsNameForFiles,
               ),
             }
           : {}),
@@ -2216,7 +2210,7 @@ export async function pull(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems, gitBranchForFiles);
+      prettyChanges(changes, specificItems, wsNameForFiles);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2236,16 +2230,16 @@ export async function pull(
 
     log.info(colors.gray(`Applying changes to files ...`));
     for await (const change of changes) {
-      // Determine if this file should be written to a branch-specific path
+      // Determine if this file should be written to a workspace-specific path
       let targetPath = change.path;
       if (specificItems && isSpecificItem(change.path, specificItems)) {
-        const branchSpecificPath = getBranchSpecificPath(
+        const workspaceSpecificPath = getWorkspaceSpecificPath(
           change.path,
           specificItems,
-          gitBranchForFiles,
+          wsNameForFiles,
         );
-        if (branchSpecificPath) {
-          targetPath = branchSpecificPath;
+        if (workspaceSpecificPath) {
+          targetPath = workspaceSpecificPath;
         }
       }
 
@@ -2296,7 +2290,7 @@ export async function pull(
           log.info(
             `Editing script content of ${targetPath}${
               targetPath !== change.path
-                ? colors.gray(` (branch-specific override for ${change.path})`)
+                ? colors.gray(` (workspace-specific override for ${change.path})`)
                 : ""
             }`,
           );
@@ -2307,7 +2301,7 @@ export async function pull(
           log.info(
             `Editing ${getTypeStrFromPath(change.path)} ${targetPath}${
               targetPath !== change.path
-                ? colors.gray(` (branch-specific override for ${change.path})`)
+                ? colors.gray(` (workspace-specific override for ${change.path})`)
                 : ""
             }`,
           );
@@ -2325,7 +2319,7 @@ export async function pull(
           log.info(
             `Adding ${getTypeStrFromPath(change.path)} ${targetPath}${
               targetPath !== change.path
-                ? colors.gray(` (branch-specific override for ${change.path})`)
+                ? colors.gray(` (workspace-specific override for ${change.path})`)
                 : ""
             }`,
           );
@@ -2334,7 +2328,7 @@ export async function pull(
         log.info(
           `Writing ${getTypeStrFromPath(change.path)} ${targetPath}${
             targetPath !== change.path
-              ? colors.gray(` (branch-specific override for ${change.path})`)
+              ? colors.gray(` (workspace-specific override for ${change.path})`)
               : ""
           }`,
         );
@@ -2448,11 +2442,11 @@ export async function pull(
             : {}),
           ...(specificItems && isSpecificItem(change.path, specificItems)
             ? {
-                branch_specific: true,
-                branch_specific_path: getBranchSpecificPath(
+                workspace_specific: true,
+                workspace_specific_path: getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
-                  gitBranchForFiles,
+                  wsNameForFiles,
                 ),
               }
             : {}),
@@ -2481,18 +2475,18 @@ export async function pull(
 function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig, branchOverride?: string) {
   for (const change of changes) {
     let displayPath = change.path;
-    let branchNote = "";
+    let wsNote = "";
 
-    // Check if this will be written as a branch-specific file
+    // Check if this will be written as a workspace-specific file
     if (specificItems && isSpecificItem(change.path, specificItems)) {
-      const branchSpecificPath = getBranchSpecificPath(
+      const workspaceSpecificPath = getWorkspaceSpecificPath(
         change.path,
         specificItems,
         branchOverride,
       );
-      if (branchSpecificPath) {
-        displayPath = branchSpecificPath;
-        branchNote = " (branch-specific)";
+      if (workspaceSpecificPath) {
+        displayPath = workspaceSpecificPath;
+        wsNote = " (workspace-specific)";
       }
     }
 
@@ -2501,7 +2495,7 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig, b
         colors.green(
           `+ ${getTypeStrFromPath(change.path)} ` +
             displayPath +
-            colors.gray(branchNote),
+            colors.gray(wsNote),
         ),
       );
     } else if (change.name === "deleted") {
@@ -2509,7 +2503,7 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig, b
         colors.red(
           `- ${getTypeStrFromPath(change.path)} ` +
             displayPath +
-            colors.gray(branchNote),
+            colors.gray(wsNote),
         ),
       );
     } else if (change.name === "edited") {
@@ -2517,7 +2511,7 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig, b
         colors.yellow(
           `~ ${getTypeStrFromPath(change.path)} ` +
             displayPath +
-            colors.gray(branchNote) +
+            colors.gray(wsNote) +
             (change.codebase ? ` (codebase changed)` : ""),
         ),
       );
@@ -2627,7 +2621,7 @@ export async function push(
   const specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
 
   // Compute the effective git branch for file naming (may differ from workspace name)
-  const gitBranchForFiles = wsNameForConfig ? resolveGitBranchForFiles(opts, wsNameForConfig) : undefined;
+  const wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : undefined;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2729,7 +2723,7 @@ export async function push(
     codebases,
     false,
     specificItems,
-    gitBranchForFiles,
+    wsNameForFiles,
     false, // els1 (local) is not the remote source
   );
 
@@ -2898,10 +2892,10 @@ export async function push(
     }
     for (const folderName of folderNames) {
       const basePath = path.join("f", folderName, "folder.meta.yaml");
-      const branchPath = getBranchSpecificPath(
+      const branchPath = getWorkspaceSpecificPath(
         `f/${folderName}/folder.meta.yaml`,
         specificItems,
-        gitBranchForFiles,
+        wsNameForFiles,
       );
       let found = false;
       // Check branch-specific variant first (e.g. folder.dev.meta.yaml)
@@ -2960,11 +2954,11 @@ export async function push(
           : {}),
         ...(specificItems && isSpecificItem(change.path, specificItems)
           ? {
-              branch_specific: true,
-              branch_specific_path: getBranchSpecificPath(
+              workspace_specific: true,
+              workspace_specific_path: getWorkspaceSpecificPath(
                 change.path,
                 specificItems,
-                gitBranchForFiles,
+                wsNameForFiles,
               ),
             }
           : {}),
@@ -2977,7 +2971,7 @@ export async function push(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems, gitBranchForFiles);
+      prettyChanges(changes, specificItems, wsNameForFiles);
     }
 
     if (opts.dryRun) {
@@ -3037,7 +3031,7 @@ export async function push(
     const pool = new Set();
     const queue = [...groupedChangesArray];
     // Cache git branch at the start to avoid repeated execSync calls per change
-    const cachedBranchForPush = gitBranchForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
+    const cachedWsNameForPush = wsNameForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
 
     while (queue.length > 0 || pool.size > 0) {
       // Fill the pool until we reach parallelizationFactor
@@ -3136,12 +3130,12 @@ export async function push(
                   );
 
                   // For branch-specific resources, push to the base path on the workspace server
-                  // This ensures branch-specific files are stored with their base names in the workspace
+                  // This ensures workspace-specific files are stored with their base names in the workspace
                   let serverPath = resourceFilePath;
-                  const currentBranch = cachedBranchForPush;
+                  const currentBranch = cachedWsNameForPush;
 
-                  if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
-                    serverPath = fromBranchSpecificPath(
+                  if (currentBranch && isWorkspaceSpecificFile(resourceFilePath)) {
+                    serverPath = fromWorkspaceSpecificPath(
                       resourceFilePath,
                       currentBranch,
                     );
@@ -3171,10 +3165,10 @@ export async function push(
                   );
 
                   let serverPath = resourceFilePath;
-                  const currentBranch = cachedBranchForPush;
+                  const currentBranch = cachedWsNameForPush;
 
-                  if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
-                    serverPath = fromBranchSpecificPath(
+                  if (currentBranch && isWorkspaceSpecificFile(resourceFilePath)) {
+                    serverPath = fromWorkspaceSpecificPath(
                       resourceFilePath,
                       currentBranch,
                     );
@@ -3196,13 +3190,13 @@ export async function push(
               const oldObj = parseFromPath(change.path, change.before);
               const newObj = parseFromPath(change.path, change.after);
 
-              // Check if this is a branch-specific item and get the original branch-specific path
-              let originalBranchSpecificPath: string | undefined;
+              // Check if this is a branch-specific item and get the original workspace-specific path
+              let originalWorkspaceSpecificPath: string | undefined;
               if (specificItems && isSpecificItem(change.path, specificItems)) {
-                originalBranchSpecificPath = getBranchSpecificPath(
+                originalWorkspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
-                  gitBranchForFiles,
+                  wsNameForFiles,
                 );
               }
 
@@ -3214,7 +3208,7 @@ export async function push(
                 opts.plainSecrets ?? false,
                 alreadySynced,
                 opts.message,
-                originalBranchSpecificPath,
+                originalWorkspaceSpecificPath,
               );
 
               if (stateTarget) {
@@ -3262,16 +3256,16 @@ export async function push(
               const obj = parseFromPath(change.path, change.content);
 
               // Determine the actual local file path for this change
-              // For branch-specific items, we read from branch-specific files but push to base server paths
+              // For branch-specific items, we read from workspace-specific files but push to base server paths
               let localFilePath = change.path;
               if (specificItems && isSpecificItem(change.path, specificItems)) {
-                const branchSpecificPath = getBranchSpecificPath(
+                const workspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
-                  gitBranchForFiles,
+                  wsNameForFiles,
                 );
-                if (branchSpecificPath) {
-                  localFilePath = branchSpecificPath;
+                if (workspaceSpecificPath) {
+                  localFilePath = workspaceSpecificPath;
                 }
               }
 
@@ -3658,11 +3652,11 @@ export async function push(
             : {}),
           ...(specificItems && isSpecificItem(change.path, specificItems)
             ? {
-                branch_specific: true,
-                branch_specific_path: getBranchSpecificPath(
+                workspace_specific: true,
+                workspace_specific_path: getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
-                  gitBranchForFiles,
+                  wsNameForFiles,
                 ),
               }
             : {}),

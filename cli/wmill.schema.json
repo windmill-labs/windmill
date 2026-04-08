@@ -228,7 +228,7 @@
       "properties": {
         "commonSpecificItems": {
           "type": "object",
-          "description": "Items to sync per-workspace (stored as <file>.<gitBranch>.<type>.yaml on disk)",
+          "description": "Items to sync per-workspace (stored as <file>.<workspaceName>.<type>.yaml on disk)",
           "properties": {
             "variables": {
               "type": "array",
@@ -291,7 +291,7 @@
           },
           "specificItems": {
             "type": "object",
-            "description": "Items to sync per-workspace (stored as <file>.<gitBranch>.<type>.yaml on disk)",
+            "description": "Items to sync per-workspace (stored as <file>.<workspaceName>.<type>.yaml on disk)",
             "properties": {
               "variables": {
                 "type": "array",
@@ -338,7 +338,7 @@
       "properties": {
         "commonSpecificItems": {
           "type": "object",
-          "description": "Items to sync per-workspace (stored as <file>.<gitBranch>.<type>.yaml on disk)",
+          "description": "Items to sync per-workspace (stored as <file>.<workspaceName>.<type>.yaml on disk)",
           "properties": {
             "variables": {
               "type": "array",
@@ -401,7 +401,7 @@
           },
           "specificItems": {
             "type": "object",
-            "description": "Items to sync per-workspace (stored as <file>.<gitBranch>.<type>.yaml on disk)",
+            "description": "Items to sync per-workspace (stored as <file>.<workspaceName>.<type>.yaml on disk)",
             "properties": {
               "variables": {
                 "type": "array",
@@ -448,7 +448,7 @@
       "properties": {
         "commonSpecificItems": {
           "type": "object",
-          "description": "Items to sync per-workspace (stored as <file>.<gitBranch>.<type>.yaml on disk)",
+          "description": "Items to sync per-workspace (stored as <file>.<workspaceName>.<type>.yaml on disk)",
           "properties": {
             "variables": {
               "type": "array",
@@ -511,7 +511,7 @@
           },
           "specificItems": {
             "type": "object",
-            "description": "Items to sync per-workspace (stored as <file>.<gitBranch>.<type>.yaml on disk)",
+            "description": "Items to sync per-workspace (stored as <file>.<workspaceName>.<type>.yaml on disk)",
             "properties": {
               "variables": {
                 "type": "array",

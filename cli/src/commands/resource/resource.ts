@@ -18,7 +18,7 @@ import { sep as SEP } from "node:path";
 import * as wmill from "../../../gen/services.gen.ts";
 import { Resource } from "../../../gen/types.gen.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
-import { isBranchSpecificFile } from "../../core/specific_items.ts";
+import { isWorkspaceSpecificFile } from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
 
 export interface ResourceFile {
@@ -75,7 +75,7 @@ export async function pushResource(
 
       let pathToRead = basePath;
 
-      if (originalLocalPath && isBranchSpecificFile(originalLocalPath)) {
+      if (originalLocalPath && isWorkspaceSpecificFile(originalLocalPath)) {
         const currentBranch = getCurrentGitBranch();
         if (currentBranch) {
           // Directly construct branch-specific resource file path
