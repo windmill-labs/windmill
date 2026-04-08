@@ -173,11 +173,15 @@ function getAllSubmodules(flowModule: any): any[] {
     .flat();
 }
 
-/** Recursively collect all modules from a flow definition. */
-export function getAllModules(flowModules: any[]): any[] {
+/** Recursively collect all modules from a flow definition, including the failure module. */
+export function getAllModules(
+  flowModules: any[],
+  failureModule?: any
+): any[] {
   return [
     ...flowModules,
     ...flowModules.flatMap((x) => getAllSubmodules(x)),
+    ...(failureModule ? [failureModule] : []),
   ];
 }
 
@@ -242,7 +246,10 @@ export async function deployItem(
         path,
       });
       // Clear inline script hashes so the target workspace resolves by path
-      getAllModules(flow.value?.modules ?? []).forEach((x: any) => {
+      getAllModules(
+        flow.value?.modules ?? [],
+        flow.value?.failure_module
+      ).forEach((x: any) => {
         if (x.value?.type === "script" && x.value.hash != undefined) {
           x.value.hash = undefined;
         }
