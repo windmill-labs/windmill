@@ -50,7 +50,8 @@
 		createWebsearchTool,
 		createAiAgentTool,
 		SPECIAL_TOOL_KINDS,
-		agentToolToFlowModule
+		agentToolToFlowModule,
+		removeAgentToolByIdDeep
 	} from '../agentToolUtils'
 	import { loadFlowModuleState } from '../flowStateUtils.svelte'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
@@ -257,7 +258,7 @@
 	 * Tools are always leaf nodes, so we just need to delete their state directly
 	 */
 	function removeAgentToolById(tools: AgentTool[], id: string): AgentTool[] {
-		const index = tools.findIndex((tool) => tool.id == id)
+		const index = tools.findIndex((tool) => tool.id === id)
 		if (index != -1) {
 			const [removed] = tools.splice(index, 1)
 			deleteFlowStateById(removed.id, flowStateStore)
@@ -383,6 +384,15 @@
 	}
 
 	export function deleteMultiple(ids: string[]) {
+		const structureIds: string[] = []
+		const toolIds: string[] = []
+		for (const id of ids) {
+			if (findInStructure(proxy.items, id)) {
+				structureIds.push(id)
+			} else {
+				toolIds.push(id)
+			}
+		}
 		const deletingSet = new Set(ids)
 		const allDeps: Record<string, string[]> = {}
 		for (const id of ids) {
@@ -395,18 +405,30 @@
 		}
 
 		const opts = { displayState: groupDisplayState }
-		const { emptiedGroups, duplicateGroups, commit } = proxy.prepareMutation((tree) => {
-			for (const id of ids) {
-				const found = findInStructure(tree, id)
-				if (found) found.parentChildren.splice(found.index, 1)
-			}
-		}, opts)
+		const { emptiedGroups, duplicateGroups, commit } =
+			structureIds.length > 0
+				? proxy.prepareMutation((tree) => {
+						for (const id of structureIds) {
+							const found = findInStructure(tree, id)
+							if (found) found.parentChildren.splice(found.index, 1)
+						}
+					}, opts)
+				: {
+						emptiedGroups: [],
+						duplicateGroups: [],
+						commit: () => {}
+					}
 
 		const affectedGroups = [...emptiedGroups, ...duplicateGroups]
 
 		const cb = () => {
 			push(history, flowStore.val)
 			commit({ removeDuplicates: duplicateGroups.length > 0 })
+			for (const id of toolIds) {
+				removeAgentToolByIdDeep(flowStore.val.value.modules, id, (removed) => {
+					deleteFlowStateById(removed.id, flowStateStore)
+				})
+			}
 			for (const id of ids) {
 				delete flowStateStore.val[id]
 			}
@@ -669,6 +691,25 @@
 						refreshStateStore(flowStore)
 						onDelete?.(id)
 						delete flowStateStore.val[id]
+					}
+					if (Object.keys(dependents).length > 0) {
+						deleteCallback = cb
+					} else {
+						cb()
+					}
+					return
+				}
+
+				if (!findInStructure(proxy.items, id)) {
+					const cb = () => {
+						push(history, flowStore.val)
+						selectNextId(id)
+						const removed = removeAgentToolByIdDeep(flowStore.val.value.modules, id, (tool) => {
+							deleteFlowStateById(tool.id, flowStateStore)
+						})
+						if (!removed) return
+						refreshStateStore(flowStore)
+						onDelete?.(id)
 					}
 					if (Object.keys(dependents).length > 0) {
 						deleteCallback = cb

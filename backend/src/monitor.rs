@@ -1205,6 +1205,92 @@ pub async fn delete_expired_items(db: &DB) -> () {
     }
 }
 
+#[cfg(feature = "enterprise")]
+async fn cleanup_scheduled_job_deletions(db: &Pool<Postgres>) {
+    const BATCH_SIZE: i64 = 1000;
+    const MAX_BATCHES: i32 = 10;
+
+    let mut total_deleted = 0u64;
+    for batch_num in 0..MAX_BATCHES {
+        let mut tx = match db.begin().await {
+            Ok(tx) => tx,
+            Err(e) => {
+                tracing::error!("Error starting transaction for scheduled job deletion: {e:?}");
+                break;
+            }
+        };
+
+        let rows = match sqlx::query_scalar!(
+            "DELETE FROM job_delete_schedule
+             WHERE job_id IN (
+                 SELECT job_id FROM job_delete_schedule
+                 WHERE delete_at <= now()
+                 ORDER BY delete_at
+                 LIMIT $1
+                 FOR UPDATE SKIP LOCKED
+             )
+             RETURNING job_id",
+            BATCH_SIZE,
+        )
+        .fetch_all(&mut *tx)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::error!("Error in scheduled job deletion batch {batch_num}: {e:?}");
+                break;
+            }
+        };
+
+        if rows.is_empty() {
+            break;
+        }
+
+        let job_ids = rows;
+        let count = job_ids.len() as u64;
+
+        let cleanup_result: Result<(), sqlx::Error> = async {
+            sqlx::query!(
+                "UPDATE v2_job SET args = '{}'::jsonb WHERE id = ANY($1)",
+                &job_ids,
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!(
+                "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
+                &job_ids,
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!(
+                "UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = ANY($1)",
+                &job_ids,
+            )
+            .execute(&mut *tx)
+            .await?;
+            Ok(())
+        }
+        .await;
+
+        if let Err(e) = cleanup_result {
+            // Roll back so schedule rows survive for retry on next cycle
+            tracing::error!("Error cleaning job data in batch {batch_num}, rolling back: {e:?}");
+            break;
+        }
+
+        if let Err(e) = tx.commit().await {
+            tracing::error!("Error committing scheduled job deletion batch {batch_num}: {e:?}");
+            break;
+        }
+
+        total_deleted += count;
+    }
+
+    if total_deleted > 0 {
+        tracing::info!("Scheduled job deletion: cleaned {total_deleted} jobs");
+    }
+}
+
 pub async fn check_expiring_tokens(db: &DB) {
     // Find tokens expiring within 7 days that still have a pending notification row.
     // The notification table stores token_hash (not plaintext) so the join works
@@ -1352,18 +1438,37 @@ async fn delete_log_files_from_disk_and_store(
     tmp_dir: &str,
     _s3_prefix: &str,
 ) {
+    // S3 bulk delete (batched via delete_stream — on S3 this uses the DeleteObjects
+    // API, up to 1000 objects per request).
     #[cfg(feature = "parquet")]
-    let os = windmill_object_store::get_object_store().await;
-    #[cfg(not(feature = "parquet"))]
-    let os: Option<()> = None;
+    {
+        let should_del_from_store = *MONITOR_LOGS_ON_OBJECT_STORE.read().await;
+        if should_del_from_store {
+            if let Some(os) = windmill_object_store::get_object_store().await {
+                let s3_paths: Vec<_> = paths_to_delete
+                    .iter()
+                    .map(|p| {
+                        windmill_object_store::object_store_reexports::Path::from(format!(
+                            "{}{}",
+                            _s3_prefix, p
+                        ))
+                    })
+                    .map(Ok)
+                    .collect();
+                let stream = futures::stream::iter(s3_paths).boxed();
+                let mut result = os.delete_stream(stream);
+                while let Some(r) = result.next().await {
+                    if let Err(e) = r {
+                        tracing::error!("Failed to delete from object store: {e}");
+                    }
+                }
+            }
+        }
+    }
 
-    let _should_del_from_store = MONITOR_LOGS_ON_OBJECT_STORE.read().await.clone();
-
+    // Disk delete in parallel.
     let delete_futures = FuturesUnordered::new();
-
     for path in paths_to_delete {
-        let _os2 = &os;
-
         delete_futures.push(async move {
             let disk_path = std::path::Path::new(tmp_dir).join(&path);
             if tokio::fs::metadata(&disk_path).await.is_ok() {
@@ -1372,31 +1477,10 @@ async fn delete_log_files_from_disk_and_store(
                         "Failed to delete from disk {}: {e}",
                         disk_path.to_string_lossy()
                     );
-                } else {
-                    tracing::debug!(
-                        "Succesfully deleted {} from disk",
-                        disk_path.to_string_lossy()
-                    );
-                }
-            }
-
-            #[cfg(feature = "parquet")]
-            if _should_del_from_store {
-                if let Some(os) = _os2 {
-                    let p = windmill_object_store::object_store_reexports::Path::from(format!(
-                        "{}{}",
-                        _s3_prefix, path
-                    ));
-                    if let Err(e) = os.delete(&p).await {
-                        tracing::error!("Failed to delete from object store {}: {e}", p.to_string())
-                    } else {
-                        tracing::debug!("Succesfully deleted {} from object store", p.to_string());
-                    }
                 }
             }
         });
     }
-
     let _: Vec<_> = delete_futures.collect().await;
 }
 
@@ -2330,6 +2414,15 @@ pub async fn monitor_db(
         }
     };
 
+    let cleanup_scheduled_job_deletions_f = async {
+        #[cfg(feature = "enterprise")]
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                cleanup_scheduled_job_deletions(&db).await;
+            }
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -2353,6 +2446,7 @@ pub async fn monitor_db(
         cleanup_notify_events_f,
         check_expiring_tokens_f,
         manage_audit_partitions_f,
+        cleanup_scheduled_job_deletions_f,
     );
 }
 

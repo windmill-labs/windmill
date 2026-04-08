@@ -401,7 +401,7 @@ pub struct PrepareQueryResult {
     pub error: Option<String>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct PgDatabase {
     pub host: String,
     pub user: Option<String>,
@@ -630,6 +630,180 @@ impl PgDatabase {
             region: None,
         })
     }
+}
+
+/// Validate a database name to prevent SQL injection.
+/// Must start with a letter, contain only alphanumeric characters or underscores, and be <= 63 chars.
+pub fn validate_dbname(dbname: &str) -> error::Result<()> {
+    let dbname = dbname.trim();
+    if dbname.is_empty() {
+        return Err(error::Error::BadRequest(
+            "Database name cannot be empty".to_string(),
+        ));
+    }
+    if dbname.len() > 63 {
+        return Err(error::Error::BadRequest(
+            "Database name cannot exceed 63 characters".to_string(),
+        ));
+    }
+    if !dbname
+        .chars()
+        .next()
+        .map_or(false, |c| c.is_ascii_alphabetic())
+    {
+        return Err(error::Error::BadRequest(
+            "Database name must start with a letter".to_string(),
+        ));
+    }
+    if !dbname
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(error::Error::BadRequest(
+            "Database name must contain only alphanumeric characters or underscores".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Drop a custom instance database: validate, terminate connections, DROP DATABASE, remove from global_settings.
+pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Result<()> {
+    let dbname = dbname.trim();
+    validate_dbname(dbname)?;
+
+    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+    if wmill_pg_creds.dbname.trim().eq_ignore_ascii_case(dbname) {
+        return Err(error::Error::BadRequest(
+            "Cannot drop the main Windmill database".to_string(),
+        ));
+    }
+
+    let db_exists = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+        dbname
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    if db_exists {
+        // Terminate active connections
+        if let Err(e) = sqlx::query(&format!(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}' AND pid <> pg_backend_pid()",
+            dbname.replace('\'', "''")
+        ))
+        .execute(db)
+        .await
+        {
+            tracing::warn!("Failed to terminate connections to '{}': {}", dbname, e);
+        }
+
+        // Drop the database
+        sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", dbname))
+            .execute(db)
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!("Failed to drop database '{}': {}", dbname, e))
+            })?;
+
+        tracing::info!("Dropped instance database '{}'", dbname);
+    } else {
+        tracing::info!("Database '{}' does not exist, skipping drop", dbname);
+    }
+
+    // Always remove from global_settings
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
+        dbname
+    )
+    .execute(db)
+    .await?;
+
+    Ok(())
+}
+
+/// Create a custom instance database: CREATE DATABASE, grant permissions, register in global_settings.
+/// The `tag` is stored in global_settings metadata (e.g. "datatable" or "ducklake").
+pub async fn create_custom_instance_database(
+    db: &DB,
+    dbname: &str,
+    tag: &str,
+) -> error::Result<()> {
+    let dbname = dbname.trim();
+    validate_dbname(dbname)?;
+
+    let db_exists = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+        dbname
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    if db_exists {
+        return Err(error::Error::BadRequest(format!(
+            "Database '{}' already exists",
+            dbname
+        )));
+    }
+
+    sqlx::query(&format!("CREATE DATABASE \"{}\"", dbname))
+        .execute(db)
+        .await
+        .map_err(|e| {
+            error::Error::internal_err(format!("Failed to create database '{}': {}", dbname, e))
+        })?;
+
+    // Grant permissions to custom_instance_user
+    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+    let new_pg_creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
+    let (client, connection) = new_pg_creds.connect().await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+
+    if let Err(e) = client
+        .batch_execute(&format!(
+            "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
+             GRANT USAGE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
+        ))
+        .await
+    {
+        tracing::warn!(
+            "Failed to grant permissions on '{}': {}. Continuing.",
+            dbname,
+            e
+        );
+    }
+
+    drop(client);
+    join_handle
+        .await
+        .map_err(|e| error::Error::internal_err(format!("join error: {}", e)))?
+        .map_err(|e| error::Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+
+    // Register in global_settings
+    let status_json = serde_json::json!({
+        "logs": {
+            "created_database": "OK",
+            "db_connect": "OK",
+            "grant_permissions": "OK"
+        },
+        "success": true,
+        "error": null,
+        "tag": tag
+    });
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
+        serde_json::json!({ (dbname): status_json })
+    )
+    .execute(db)
+    .await?;
+
+    tracing::info!("Created custom instance database '{}'", dbname);
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -863,10 +1037,12 @@ pub struct ScriptHashInfo<SR> {
     pub dedicated_worker: Option<bool>,
     pub priority: Option<i16>,
     pub delete_after_use: Option<bool>,
+    pub delete_after_secs: Option<i32>,
     pub timeout: Option<i32>,
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
     pub created_by: String,
+    pub labels: Option<Vec<String>>,
     #[sqlx(flatten)]
     pub runnable_settings: SR,
 }
@@ -892,10 +1068,12 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
             dedicated_worker: self.dedicated_worker,
             priority: self.priority,
             delete_after_use: self.delete_after_use,
+            delete_after_secs: self.delete_after_secs,
             timeout: self.timeout,
             has_preprocessor: self.has_preprocessor,
             on_behalf_of_email: self.on_behalf_of_email,
             created_by: self.created_by,
+            labels: self.labels,
             runnable_settings: ScriptRunnableSettingsInline {
                 concurrency_settings: concurrency_settings.maybe_fallback(
                     self.runnable_settings.concurrency_key,
@@ -1060,10 +1238,12 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
                 dedicated_worker,
                 priority,
                 delete_after_use,
+                delete_after_secs,
                 timeout,
                 has_preprocessor,
                 on_behalf_of_email,
                 created_by,
+                labels,
                 path
             FROM script WHERE hash = $1 AND workspace_id = $2",
     )
@@ -1083,6 +1263,7 @@ pub struct FlowVersionInfo {
     pub on_behalf_of_email: Option<String>,
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
+    pub labels: Option<Vec<String>>,
 }
 
 struct CachedFlowPath(String);
@@ -1210,7 +1391,8 @@ pub fn get_flow_version_info_from_version<
                                     flow.tag,
                                     flow.dedicated_worker,
                                     flow.on_behalf_of_email,
-                                    flow.edited_by
+                                    flow.edited_by,
+                                    flow.labels
                                 FROM
                                     flow_version
                                 INNER JOIN flow
@@ -1291,9 +1473,10 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<String>,
     String,
     Option<i64>,
+    Option<Vec<String>>,
 )> {
     let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by, labels FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
             script_path,
@@ -1322,6 +1505,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         script.on_behalf_of_email,
         script.created_by,
         script.runnable_settings_handle,
+        script.labels,
     ))
 }
 

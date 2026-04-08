@@ -45,31 +45,41 @@
       },
       {
         "ordinal": 8,
-        "name": "is_expired",
-        "type_info": "Bool"
+        "name": "labels",
+        "type_info": "TextArray"
       },
       {
         "ordinal": 9,
-        "name": "is_refreshed",
+        "name": "ws_specific",
         "type_info": "Bool"
       },
       {
         "ordinal": 10,
-        "name": "refresh_error",
-        "type_info": "Text"
+        "name": "is_expired",
+        "type_info": "Bool"
       },
       {
         "ordinal": 11,
-        "name": "is_linked",
+        "name": "is_refreshed",
         "type_info": "Bool"
       },
       {
         "ordinal": 12,
+        "name": "refresh_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "is_linked",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 14,
         "name": "is_oauth?",
         "type_info": "Bool"
       },
       {
-        "ordinal": 13,
+        "ordinal": 15,
         "name": "account",
         "type_info": "Int4"
       }
@@ -89,6 +99,8 @@
       false,
       true,
       true,
+      true,
+      false,
       null,
       null,
       true,

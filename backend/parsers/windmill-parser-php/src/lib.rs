@@ -101,6 +101,7 @@ pub fn parse_php_signature(
             args,
             auto_kind: None,
             has_preprocessor,
+            ..Default::default()
         })
     } else {
         Ok(MainArgSignature {
@@ -109,6 +110,7 @@ pub fn parse_php_signature(
             args: vec![],
             auto_kind: Some("lib".to_string()),
             has_preprocessor,
+            ..Default::default()
         })
     }
 }
@@ -180,7 +182,8 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                     }
                 ],
                 auto_kind: None,
-                has_preprocessor: None
+                has_preprocessor: None,
+                ..Default::default()
             }
         );
 

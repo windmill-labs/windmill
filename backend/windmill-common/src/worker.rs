@@ -157,6 +157,8 @@ lazy_static::lazy_static! {
 
     pub static ref NATIVE_MODE: bool = std::env::var("NATIVE_MODE").ok().is_some_and(|x| x == "1" || x == "true");
 
+    pub static ref LIMIT_WINDOWS_TO_1CU: bool = std::env::var("LIMIT_WINDOWS_TO_1CU").ok().is_some_and(|x| x == "1" || x == "true");
+
     pub static ref CGROUP_V2_PATH_RE: Regex = Regex::new(r#"(?m)^0::(/.*)$"#).unwrap();
     pub static ref CGROUP_V2_CPU_RE: Regex = Regex::new(r#"(?m)^(\d+) \S+$"#).unwrap();
     pub static ref CGROUP_V1_INACTIVE_FILE_RE: Regex = Regex::new(r#"(?m)^total_inactive_file (\d+)$"#).unwrap();
@@ -1052,6 +1054,9 @@ pub fn get_vcpus() -> Option<i64> {
 
 #[cfg(windows)]
 pub fn get_vcpus() -> Option<i64> {
+    if *LIMIT_WINDOWS_TO_1CU {
+        return Some(100000); // 1 vCPU
+    }
     let mut sys = System::new();
     sys.refresh_cpu_all();
     (sys.cpus().len() * 100000).try_into().ok()
@@ -1101,6 +1106,9 @@ pub fn get_memory() -> Option<i64> {
 
 #[cfg(windows)]
 pub fn get_memory() -> Option<i64> {
+    if *LIMIT_WINDOWS_TO_1CU {
+        return Some(2 * 1024 * 1024 * 1024); // 2 GB
+    }
     let mut sys = System::new();
     sys.refresh_memory();
     Some(sys.total_memory() as i64)

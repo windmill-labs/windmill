@@ -1435,6 +1435,7 @@ async fn restart_job_if_perpetual_inner(
                 },
                 // TODO(debouncing): handle properly
                 debouncing_settings: DebouncingSettings::default(),
+                labels: None, // labels already set on original job
             },
             PushArgs::from(&args.0),
             &queued_job.created_by,
@@ -3637,11 +3638,22 @@ pub fn resolve_debounce_key<'b>(
                 .join(":"),
         ));
 
-    tracing::debug!("Original debounce key: {}", original_debounce_key);
+    tracing::debug!("Original debounce key (len={}): {}", original_debounce_key.len(), original_debounce_key);
 
-    // If debounce_key is not too long (< 255 chars), keep it as is, otherwise hash it
+
+    // If debounce_key is not too long (< 255 chars), keep it as is, otherwise hash it.
+    // On cloud, we prepend "{workspace_id}:" so we must reserve space for that prefix
+    // to avoid exceeding the VARCHAR(255) column limit.
     const MAX_DEBOUNCE_KEY_LENGTH: usize = 255;
-    let resolved = if original_debounce_key.len() <= MAX_DEBOUNCE_KEY_LENGTH {
+
+    #[cfg(feature = "cloud")]
+    let prefix = format!("{workspace_id}:");
+    #[cfg(not(feature = "cloud"))]
+    let prefix = String::new();
+
+    let max_key_length = MAX_DEBOUNCE_KEY_LENGTH - prefix.len();
+
+    let resolved = if original_debounce_key.len() <= max_key_length {
         original_debounce_key
     } else {
         let hash = calculate_hash(&original_debounce_key);
@@ -3650,13 +3662,16 @@ pub fn resolve_debounce_key<'b>(
             original_debounce_key.len(),
             hash
         );
-        hash
+        if hash.len() > max_key_length {
+            hash[..max_key_length].to_string()
+        } else {
+            hash
+        }
     };
 
-    #[cfg(feature = "cloud")]
-    let resolved = format!("{workspace_id}:{resolved}");
+    let resolved = format!("{prefix}{resolved}");
 
-    tracing::debug!("Final debounce key: {}", resolved);
+    tracing::debug!("Final debounce key (len={}): {}", resolved.len(), resolved);
     resolved
 }
 
@@ -4739,6 +4754,7 @@ async fn push_inner<'c, 'd>(
         _low_level_priority: Option<i16>,
         concurrency_settings: ConcurrencySettings,
         debouncing_settings: DebouncingSettings,
+        labels: Option<Vec<String>>,
     }
     let mut preprocessed = None;
     #[allow(unused)]
@@ -4756,6 +4772,7 @@ async fn push_inner<'c, 'd>(
         _low_level_priority,
         mut concurrency_settings,
         debouncing_settings,
+        labels,
     } = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -4768,6 +4785,7 @@ async fn push_inner<'c, 'd>(
             apply_preprocessor,
             concurrency_settings,
             debouncing_settings,
+            labels,
         } => {
             if apply_preprocessor {
                 preprocessed = Some(false);
@@ -4784,6 +4802,7 @@ async fn push_inner<'c, 'd>(
                 cache_ignore_s3_path,
                 dedicated_worker,
                 _low_level_priority: priority,
+                labels,
                 ..Default::default()
             }
         }
@@ -5198,6 +5217,8 @@ async fn push_inner<'c, 'd>(
                 preprocessor_module: None,
                 chat_input_enabled: None,
                 flow_env: None,
+                delete_after_use: None,
+                delete_after_secs: None,
             };
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
@@ -5214,7 +5235,7 @@ async fn push_inner<'c, 'd>(
                 ..Default::default()
             }
         }
-        JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version } => {
+        JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version, labels } => {
             let mut ntx = tx.into_tx().await?;
             // Do not use the lite version unless all workers are updated.
             let data = if *DISABLE_FLOW_SCRIPT
@@ -5280,6 +5301,7 @@ async fn push_inner<'c, 'd>(
                 _low_level_priority: priority,
                 concurrency_settings,
                 debouncing_settings,
+                labels,
                 ..Default::default()
             }
         }
@@ -5719,10 +5741,11 @@ async fn push_inner<'c, 'd>(
                 priority, -- 26
                 trigger_kind, -- 39
                 script_entrypoint_override, -- 12
-                preprocessed -- 27,
+                preprocessed, -- 27,
+                labels -- 44
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $38, $21, $22, $23, $24, $25, $26, $39::job_trigger_kind,
-            ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27)
+            ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27, $44)
         ),
         inserted_runtime AS (
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
@@ -5778,6 +5801,7 @@ async fn push_inner<'c, 'd>(
         end_user_email,
         cache_ignore_s3_path,
         runnable_settings_handle,
+        labels.as_deref() as Option<&[String]>,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)

@@ -31,6 +31,8 @@ export function usePreparedAssetSqlQueries(
 			queries = queries.filter(
 				([_, q]) => q.source_kind === 'datatable' || q.source_kind === 'ducklake'
 			)
+			// Skip queries with raw interpolations — they can't be prepared
+			queries = queries.filter(([_, q]) => !q.has_raw_interpolation)
 			// We only support preparing single-statement queries for now.
 			queries = queries.filter(([_, q]) => getQueryStmtCountHeuristic(q.query_string) === 1)
 

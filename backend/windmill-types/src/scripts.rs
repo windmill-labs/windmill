@@ -357,8 +357,10 @@ pub struct Script<SR> {
     pub cache_ignore_s3_path: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing, default)]
     pub delete_after_use: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delete_after_secs: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restart_unless_cancelled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -377,6 +379,8 @@ pub struct Script<SR> {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(json(nullable))]
     pub modules: Option<HashMap<String, ScriptModule>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
     #[serde(flatten)]
     #[sqlx(flatten)]
     pub runnable_settings: SR,
@@ -442,6 +446,8 @@ pub struct ListableScript {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
     pub kind: ScriptKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 fn is_false(x: &bool) -> bool {
@@ -501,7 +507,9 @@ pub struct NewScript {
     pub ws_error_handler_muted: Option<bool>,
     pub priority: Option<i16>,
     pub timeout: Option<i32>,
+    #[serde(skip_serializing, default)]
     pub delete_after_use: Option<bool>,
+    pub delete_after_secs: Option<i32>,
     pub restart_unless_cancelled: Option<bool>,
     pub deployment_message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -517,6 +525,8 @@ pub struct NewScript {
     pub modules: Option<HashMap<String, ScriptModule>>,
     #[serde(default)]
     pub auto_parent: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 
 // IMPORTANT: update this Hash impl when adding fields to NewScript
@@ -553,6 +563,7 @@ impl Hash for NewScript {
         self.on_behalf_of_email.hash(state);
         self.preserve_on_behalf_of.hash(state);
         self.assets.hash(state);
+        self.labels.hash(state);
         if let Some(modules) = &self.modules {
             let mut sorted: Vec<_> = modules.iter().collect();
             sorted.sort_by_key(|(k, _)| *k);
@@ -638,6 +649,7 @@ pub struct ListScriptQuery {
     #[serde(default, deserialize_with = "from_seq")]
     pub languages: Option<Vec<ScriptLang>>,
     pub dedicated_worker: Option<bool>,
+    pub label: Option<String>,
 }
 
 fn from_seq<'de, D>(deserializer: D) -> Result<Option<Vec<ScriptLang>>, D::Error>

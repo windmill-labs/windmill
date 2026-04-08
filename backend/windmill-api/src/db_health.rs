@@ -6,7 +6,12 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use axum::{extract::Query, routing::get, Extension, Json, Router};
+use axum::{
+    extract::Query,
+    http::StatusCode,
+    routing::{get, post},
+    Extension, Json, Router,
+};
 use serde::{Deserialize, Serialize};
 
 use windmill_common::error::JsonResult;
@@ -15,7 +20,11 @@ use crate::db::{ApiAuthed, DB};
 use crate::utils::require_super_admin;
 
 pub fn global_service() -> Router {
-    Router::new().route("/", get(get_db_health))
+    Router::new()
+        .route("/", get(get_db_health))
+        .route("/jobs", get(get_db_health_jobs))
+        .route("/slow_queries", get(get_slow_queries))
+        .route("/slow_queries/reset", post(reset_slow_queries))
 }
 
 // --- Response types ---
@@ -31,12 +40,16 @@ pub enum HealthLevel {
 #[derive(Serialize)]
 pub struct DbHealthResponse {
     pub database_size: DatabaseSizeInfo,
-    pub job_retention: JobRetentionInfo,
-    pub large_results: LargeResultsInfo,
     pub connection_pool: ConnectionPoolInfo,
     pub table_maintenance: Vec<TableMaintenanceInfo>,
     pub slow_queries: Option<SlowQueriesInfo>,
     pub datatables: Vec<DatatableInfo>,
+}
+
+#[derive(Serialize)]
+pub struct DbHealthJobsResponse {
+    pub job_retention: JobRetentionInfo,
+    pub large_results: LargeResultsInfo,
 }
 
 #[derive(Serialize)]
@@ -102,6 +115,8 @@ pub struct TableMaintenanceInfo {
 pub struct SlowQueriesInfo {
     pub queries: Vec<SlowQueryRow>,
     pub message: Option<String>,
+    /// When stats were last reset (from pg_stat_statements_info.stats_reset, PG 14+)
+    pub stats_reset: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Serialize)]
@@ -130,42 +145,93 @@ struct DbHealthQuery {
     scan_limit: Option<i64>,
 }
 
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+enum SlowQuerySort {
+    Total,
+    Mean,
+    Calls,
+}
+
+impl SlowQuerySort {
+    fn order_by(&self) -> &'static str {
+        match self {
+            SlowQuerySort::Total => "total_exec_time DESC",
+            SlowQuerySort::Mean => "mean_exec_time DESC",
+            SlowQuerySort::Calls => "calls DESC",
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct SlowQueriesQuery {
+    sort: Option<SlowQuerySort>,
+}
+
 async fn get_db_health(
     ApiAuthed { email, .. }: ApiAuthed,
     Extension(db): Extension<DB>,
-    Query(query): Query<DbHealthQuery>,
 ) -> JsonResult<DbHealthResponse> {
     require_super_admin(&db, &email).await?;
 
-    let scan_limit = query.scan_limit.unwrap_or(10_000).clamp(1_000, 1_000_000);
-
-    let (
-        database_size,
-        job_retention,
-        large_results,
-        connection_pool,
-        table_maintenance,
-        slow_queries,
-        datatables,
-    ) = tokio::try_join!(
+    let (database_size, connection_pool, table_maintenance, slow_queries, datatables) = tokio::try_join!(
         fetch_database_size(&db),
-        fetch_job_retention(&db),
-        fetch_large_results(&db, scan_limit),
         fetch_connection_pool(&db),
         fetch_table_maintenance(&db),
-        fetch_slow_queries(&db),
+        fetch_slow_queries(&db, SlowQuerySort::Total),
         fetch_datatables(&db),
     )?;
 
     Ok(Json(DbHealthResponse {
         database_size,
-        job_retention,
-        large_results,
         connection_pool,
         table_maintenance,
         slow_queries,
         datatables,
     }))
+}
+
+async fn get_db_health_jobs(
+    ApiAuthed { email, .. }: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<DbHealthQuery>,
+) -> JsonResult<DbHealthJobsResponse> {
+    require_super_admin(&db, &email).await?;
+
+    let scan_limit = query.scan_limit.unwrap_or(10_000).clamp(1_000, 1_000_000);
+
+    let (job_retention, large_results) = tokio::try_join!(
+        fetch_job_retention(&db),
+        fetch_large_results(&db, scan_limit),
+    )?;
+
+    Ok(Json(DbHealthJobsResponse { job_retention, large_results }))
+}
+
+async fn get_slow_queries(
+    ApiAuthed { email, .. }: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<SlowQueriesQuery>,
+) -> JsonResult<Option<SlowQueriesInfo>> {
+    require_super_admin(&db, &email).await?;
+    let sort = query.sort.unwrap_or(SlowQuerySort::Total);
+    Ok(Json(fetch_slow_queries(&db, sort).await?))
+}
+
+async fn reset_slow_queries(
+    ApiAuthed { email, .. }: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> windmill_common::error::Result<StatusCode> {
+    require_super_admin(&db, &email).await?;
+    sqlx::query("SELECT pg_stat_statements_reset()")
+        .execute(&db)
+        .await
+        .map_err(|e| {
+            windmill_common::error::Error::InternalErr(format!(
+                "Failed to reset pg_stat_statements (is the extension enabled?): {e}"
+            ))
+        })?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // --- Diagnostic queries ---
@@ -407,6 +473,7 @@ async fn fetch_table_maintenance(
             LEFT JOIN pg_class p ON p.oid = i.inhparent
         ) sub
         GROUP BY table_name
+        HAVING SUM(live_tuples) + SUM(dead_tuples) >= 1000
         ORDER BY SUM(dead_tuples) DESC"#
     )
     .fetch_all(db)
@@ -441,7 +508,10 @@ async fn fetch_table_maintenance(
         .collect())
 }
 
-async fn fetch_slow_queries(db: &DB) -> windmill_common::error::Result<Option<SlowQueriesInfo>> {
+async fn fetch_slow_queries(
+    db: &DB,
+    sort: SlowQuerySort,
+) -> windmill_common::error::Result<Option<SlowQueriesInfo>> {
     let ext_exists: bool = sqlx::query_scalar!(
         r#"SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements') as "exists!""#
     )
@@ -455,35 +525,54 @@ async fn fetch_slow_queries(db: &DB) -> windmill_common::error::Result<Option<Sl
                 "pg_stat_statements extension is not installed. Enable it for slow query insights."
                     .to_string(),
             ),
+            stats_reset: None,
         }));
     }
 
-    // Use raw query since pg_stat_statements may not exist at compile time
-    let rows: Vec<SlowQueryRow> = sqlx::query_as::<_, (String, i64, f64, f64)>(
+    // Use raw query since pg_stat_statements may not exist at compile time.
+    // ORDER BY column is controlled via an enum (SlowQuerySort) so only safe
+    // whitelisted column names reach the query — no SQL injection risk.
+    let query = format!(
         r#"SELECT
-            LEFT(query, 200),
+            LEFT(query, 500),
             calls::bigint,
             total_exec_time::float8,
             mean_exec_time::float8
         FROM pg_stat_statements
         WHERE query NOT LIKE '%pg_stat_statements%'
-        ORDER BY mean_exec_time DESC
-        LIMIT 10"#,
-    )
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(
-        |(query, calls, total_exec_time_ms, mean_exec_time_ms)| SlowQueryRow {
-            query,
-            calls,
-            total_exec_time_ms,
-            mean_exec_time_ms,
-        },
-    )
-    .collect();
+        ORDER BY {}
+        LIMIT 50"#,
+        sort.order_by()
+    );
+    let rows: Vec<SlowQueryRow> = sqlx::query_as::<_, (String, i64, f64, f64)>(&query)
+        .fetch_all(db)
+        .await?
+        .into_iter()
+        .map(
+            |(query, calls, total_exec_time_ms, mean_exec_time_ms)| SlowQueryRow {
+                query,
+                calls,
+                total_exec_time_ms,
+                mean_exec_time_ms,
+            },
+        )
+        .collect();
 
-    Ok(Some(SlowQueriesInfo { queries: rows, message: None }))
+    // pg_stat_statements_info exists in PG 14+; tolerate its absence
+    let stats_reset: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar::<_, Option<chrono::DateTime<chrono::Utc>>>(
+            "SELECT stats_reset FROM pg_stat_statements_info",
+        )
+        .fetch_one(db)
+        .await
+        .ok()
+        .flatten();
+
+    Ok(Some(SlowQueriesInfo {
+        queries: rows,
+        message: None,
+        stats_reset,
+    }))
 }
 
 async fn fetch_datatables(db: &DB) -> windmill_common::error::Result<Vec<DatatableInfo>> {

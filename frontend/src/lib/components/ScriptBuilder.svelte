@@ -82,6 +82,7 @@
 	import DefaultScripts from './DefaultScripts.svelte'
 	import { onMount, setContext, untrack } from 'svelte'
 	import Summary from './Summary.svelte'
+	import LabelsInput from './LabelsInput.svelte'
 
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
@@ -597,7 +598,6 @@
 					ws_error_handler_muted: script.ws_error_handler_muted,
 					priority: script.priority,
 					restart_unless_cancelled: script.restart_unless_cancelled,
-					delete_after_use: script.delete_after_use,
 					timeout: script.timeout,
 					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key,
 					visible_to_runner_only: script.visible_to_runner_only,
@@ -607,7 +607,8 @@
 					on_behalf_of_email: script.on_behalf_of_email,
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					assets: script.assets,
-					modules: script.modules
+					modules: script.modules,
+					labels: script.labels
 				}
 			})
 
@@ -755,7 +756,6 @@
 						ws_error_handler_muted: script.ws_error_handler_muted,
 						priority: script.priority,
 						restart_unless_cancelled: script.restart_unless_cancelled,
-						delete_after_use: script.delete_after_use,
 						timeout: script.timeout,
 						concurrency_key: emptyString(script.concurrency_key)
 							? undefined
@@ -765,7 +765,8 @@
 						has_preprocessor: script.has_preprocessor,
 						on_behalf_of_email: script.on_behalf_of_email,
 						assets: script.assets,
-						modules: script.modules
+						modules: script.modules,
+						labels: script.labels
 					}
 				})
 			}
@@ -1195,6 +1196,7 @@
 													}}
 												/>
 											</Label>
+											<LabelsInput bind:labels={script.labels} class="-mt-4" />
 											<Label label="Path">
 												{#snippet header()}
 													<Tooltip
@@ -1640,7 +1642,7 @@
 											>
 										{/snippet}
 									</Section>
-									<Section label="Delete after use">
+									<Section label="Delete after completion">
 										{#snippet header()}
 											<Tooltip
 												documentationLink="https://www.windmill.dev/docs/script_editor/settings#delete-after-use"
@@ -1651,7 +1653,8 @@
 												<br />
 												<br />
 												The logs, arguments and results of the job will be completely deleted from Windmill
-												once it is complete and the result has been returned.
+												after the specified delay once it is complete and the result has been returned.
+												Set to 0 for immediate deletion.
 												<br />
 												<br />
 												The deletion is irreversible.
@@ -1666,18 +1669,24 @@
 											<Toggle
 												disabled={!$enterpriseLicense}
 												size="sm"
-												checked={Boolean(script.delete_after_use)}
+												checked={script.delete_after_secs != null}
 												on:change={() => {
-													if (script.delete_after_use) {
-														script.delete_after_use = undefined
+													if (script.delete_after_secs != null) {
+														script.delete_after_secs = undefined
 													} else {
-														script.delete_after_use = true
+														script.delete_after_secs = 0
 													}
 												}}
 												options={{
-													right: 'Delete logs, arguments and results after use'
+													right: 'Delete logs, arguments and results after completion'
 												}}
 											/>
+											{#if script.delete_after_secs != null}
+												<SecondsInput
+													bind:seconds={script.delete_after_secs}
+													disabled={!$enterpriseLicense}
+												/>
+											{/if}
 										</div>
 									</Section>
 									{#if !isCloudHosted()}

@@ -36,10 +36,6 @@ app related commands
   - `--fix` - Attempt to fix common issues (not implemented yet)
 - `app new` - create a new raw app from a template
 - `app generate-agents [app_folder:string]` - regenerate AGENTS.md and DATATABLES.md from remote workspace
-- `app generate-locks [app_folder:string]` - re-generate the lockfiles for app runnables inline scripts that have changed
-  - `--yes` - Skip confirmation prompt
-  - `--dry-run` - Perform a dry run without making changes
-  - `--default-ts <runtime:string>` - Default TypeScript runtime (bun or deno)
 
 ### audit
 
@@ -108,11 +104,6 @@ flow related commands
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
   - `--remote` - Use deployed workspace scripts for PathScript steps instead of local files.
-- `flow generate-locks [flow:file]` - re-generate the lock files of all inline scripts of all updated flows
-  - `--yes` - Skip confirmation prompt
-  - `--dry-run` - Perform a dry run without making changes
-  - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
-  - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which file to NOT take into account.
 - `flow new <flow_path:string>` - create a new empty flow
   - `--summary <summary:string>` - flow summary
   - `--description <description:string>` - flow description
@@ -396,13 +387,6 @@ script related commands
 - `script bootstrap <path:file> <language:string>` - create a new script (alias for new)
   - `--summary <summary:string>` - script summary
   - `--description <description:string>` - script description
-- `script generate-metadata [script:file]` - re-generate the metadata file updating the lock and the script schema (for flows, use `wmill flow generate-locks`)
-  - `--yes` - Skip confirmation prompt
-  - `--dry-run` - Perform a dry run without making changes
-  - `--lock-only` - re-generate only the lock
-  - `--schema-only` - re-generate only script schema
-  - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
-  - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which file to NOT take into account.
 - `script history <path:string>` - show version history for a script
   - `--json` - Output as JSON (for piping to jq)
 
@@ -597,6 +581,17 @@ workspace related commands
   - `--branch, --env <branch:string>` - Specify branch/environment (defaults to current)
 - `workspace fork [workspace_name:string] [workspace_id:string]` - Create a forked workspace
   - `--create-workspace-name <workspace_name:string>` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
+  - `--color <color:string>` - Workspace color (hex code, e.g. #ff0000)
+  - `--datatable-behavior <behavior:string>` - How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)
+  - `-y --yes` - Skip interactive prompts (defaults datatable behavior to 'skip')
 - `workspace delete-fork <fork_name:string>` - Delete a forked workspace and git branch
   - `-y --yes` - Skip confirmation prompt
+- `workspace merge` - Compare and deploy changes between a fork and its parent workspace
+  - `--direction <direction:string>` - Deploy direction: to-parent or to-fork
+  - `--all` - Deploy all changed items including conflicts
+  - `--skip-conflicts` - Skip items modified in both workspaces
+  - `--include <items:string>` - Comma-separated kind:path items to include (e.g. script:f/test/main,flow:f/my/flow)
+  - `--exclude <items:string>` - Comma-separated kind:path items to exclude
+  - `--preserve-on-behalf-of` - Preserve original on_behalf_of/permissioned_as values
+  - `-y --yes` - Non-interactive mode (deploy without prompts)
 

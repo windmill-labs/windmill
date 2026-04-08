@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.672.0
+  version: 1.679.0
   title: Windmill API
 
   contact:
@@ -1171,6 +1171,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/CustomInstanceDb"
 
+  /settings/drop_custom_instance_pg_database/{name}:
+    post:
+      summary: Drops a custom instance database (superadmin only, irreversible)
+      operationId: dropCustomInstanceDb
+      tags:
+        - setting
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+          description: The name of the database to drop
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /settings/global/{key}:
     get:
       summary: get global settings
@@ -1448,6 +1469,152 @@ paths:
               schema:
                 type: string
 
+  /settings/object_storage_usage:
+    get:
+      summary: get current or last object storage usage computation (null if never run)
+      operationId: getObjectStorageUsage
+      tags:
+        - setting
+      responses:
+        "200":
+          description: current or last storage-usage computation state
+          content:
+            application/json:
+              schema:
+                nullable: true
+                type: object
+                properties:
+                  running:
+                    type: boolean
+                  started_at:
+                    type: string
+                    format: date-time
+                  finished_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  current_prefix:
+                    type: string
+                    nullable: true
+                  scanned_objects:
+                    type: integer
+                    format: int64
+                  folders:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        prefix:
+                          type: string
+                        size:
+                          type: integer
+                          format: int64
+                        partial:
+                          type: boolean
+                      required:
+                        - prefix
+                        - size
+                  error:
+                    type: string
+                    nullable: true
+                required:
+                  - running
+                  - started_at
+                  - scanned_objects
+                  - folders
+    post:
+      summary: start a background computation of object storage usage by top-level folder
+      operationId: computeObjectStorageUsage
+      tags:
+        - setting
+      responses:
+        "202":
+          description: computation started
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/run_log_cleanup:
+    post:
+      summary: start a manual cleanup of expired logs from object storage
+      operationId: runLogCleanup
+      tags:
+        - setting
+      responses:
+        "202":
+          description: cleanup started
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/log_cleanup_status:
+    get:
+      summary: get status of the manual log cleanup task
+      operationId: getLogCleanupStatus
+      tags:
+        - setting
+      responses:
+        "200":
+          description: current or last log cleanup status (null if never run)
+          content:
+            application/json:
+              schema:
+                nullable: true
+                type: object
+                properties:
+                  running:
+                    type: boolean
+                  started_at:
+                    type: string
+                    format: date-time
+                  finished_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  phase:
+                    type: string
+                  total_service:
+                    type: integer
+                    format: int64
+                  processed_service:
+                    type: integer
+                    format: int64
+                  total_jobs:
+                    type: integer
+                    format: int64
+                  processed_jobs:
+                    type: integer
+                    format: int64
+                  s3_deleted:
+                    type: integer
+                    format: int64
+                  orphans_scanned:
+                    type: integer
+                    format: int64
+                  orphans_deleted:
+                    type: integer
+                    format: int64
+                  errors:
+                    type: integer
+                    format: int64
+                  last_error:
+                    type: string
+                    nullable: true
+                required:
+                  - running
+                  - started_at
+                  - phase
+                  - total_service
+                  - processed_service
+                  - total_jobs
+                  - processed_jobs
+                  - s3_deleted
+                  - orphans_scanned
+                  - orphans_deleted
+                  - errors
+
   /settings/send_stats:
     post:
       summary: send stats
@@ -1457,6 +1624,28 @@ paths:
       responses:
         "200":
           description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/restart_worker_group/{worker_group}:
+    post:
+      summary: restart worker group
+      description: Send a restart signal to all workers in the specified worker group. Workers will gracefully shut down and are expected to be restarted by their supervisor. Requires devops role.
+      operationId: restartWorkerGroup
+      tags:
+        - setting
+      parameters:
+        - name: worker_group
+          in: path
+          required: true
+          schema:
+            type: string
+          description: the name of the worker group to restart
+      responses:
+        "200":
+          description: restart signal sent
           content:
             text/plain:
               schema:
@@ -1708,6 +1897,129 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/VaultSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
+  /settings/test_azure_kv_backend:
+    post:
+      summary: test Azure Key Vault connection
+      operationId: testAzureKvBackend
+      tags:
+        - setting
+      requestBody:
+        description: Azure Key Vault settings to test
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AzureKeyVaultSettings"
+      responses:
+        "200":
+          description: connection successful
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/migrate_secrets_to_azure_kv:
+    post:
+      summary: migrate secrets from database to Azure Key Vault
+      operationId: migrateSecretsToAzureKv
+      tags:
+        - setting
+      requestBody:
+        description: Azure Key Vault settings for migration target
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AzureKeyVaultSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
+  /settings/migrate_secrets_from_azure_kv:
+    post:
+      summary: migrate secrets from Azure Key Vault to database
+      operationId: migrateSecretsFromAzureKv
+      tags:
+        - setting
+      requestBody:
+        description: Azure Key Vault settings for migration source
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AzureKeyVaultSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
+  /settings/test_aws_sm_backend:
+    post:
+      summary: test connection to AWS Secrets Manager
+      operationId: testAwsSmBackend
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AwsSecretsManagerSettings"
+      responses:
+        "200":
+          description: connection test result
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/migrate_secrets_to_aws_sm:
+    post:
+      summary: migrate secrets from database to AWS Secrets Manager
+      operationId: migrateSecretsToAwsSm
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AwsSecretsManagerSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
+  /settings/migrate_secrets_from_aws_sm:
+    post:
+      summary: migrate secrets from AWS Secrets Manager to database
+      operationId: migrateSecretsFromAwsSm
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AwsSecretsManagerSettings"
       responses:
         "200":
           description: migration report
@@ -3556,7 +3868,16 @@ paths:
               schema:
                 type: array
                 items:
-                  type: string
+                  type: object
+                  required: [name, resource_type, resource_path]
+                  properties:
+                    name:
+                      type: string
+                    resource_type:
+                      type: string
+                      enum: [postgres, instance]
+                    resource_path:
+                      type: string
 
   /w/{workspace}/workspaces/list_datatable_schemas:
     get:
@@ -3628,6 +3949,211 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/workspaces/create_pg_database:
+    post:
+      summary: create a new PostgreSQL database for a datatable
+      operationId: createPgDatabase
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Create pg database request
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, target_dbname]
+              properties:
+                source:
+                  type: string
+                  description: "Datatable source to determine connection info: 'datatable://name' or '$res:path'"
+                target_dbname:
+                  type: string
+                  description: "Name for the new database"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/drop_forked_datatable_databases:
+    post:
+      summary: drop forked datatable databases
+      operationId: dropForkedDatatableDatabases
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [datatable_names]
+              properties:
+                datatable_names:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: list of errors (empty if all succeeded)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/workspaces/import_pg_database:
+    post:
+      summary: import a PostgreSQL database from source to target via pg_dump
+      operationId: importPgDatabase
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Import pg database request
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, target, fork_behavior]
+              properties:
+                source:
+                  type: string
+                  description: "Source database: 'datatable://name' or '$res:path'"
+                target:
+                  type: string
+                  description: "Target database: 'datatable://name' or '$res:path'"
+                target_dbname_override:
+                  type: string
+                  description: "Override the target database name"
+                fork_behavior:
+                  type: string
+                  enum:
+                    - schema_only
+                    - schema_and_data
+                    - keep_original
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/export_pg_schema:
+    post:
+      summary: export the schema of a PostgreSQL database
+      operationId: exportPgSchema
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Export pg schema request
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source]
+              properties:
+                source:
+                  type: string
+                  description: "Source database: 'datatable://name' or '$res:path'"
+      responses:
+        "200":
+          description: schema dump
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/get_datatable_full_schema:
+    post:
+      summary: get the full schema of a datatable database as TableEditorValues
+      operationId: getDatatableFullSchema
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source]
+              properties:
+                source:
+                  type: string
+                  description: "Source datatable, e.g. 'datatable://main'"
+      responses:
+        "200":
+          description: "Schema as { schema_name: { table_name: TableEditorValues } }"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    required: [name, columns, foreign_keys]
+                    properties:
+                      name:
+                        type: string
+                      columns:
+                        type: array
+                        items:
+                          type: object
+                          required: [name, datatype]
+                          properties:
+                            name:
+                              type: string
+                            datatype:
+                              type: string
+                            primary_key:
+                              type: boolean
+                            default_value:
+                              type: string
+                            nullable:
+                              type: boolean
+                      foreign_keys:
+                        type: array
+                        items:
+                          type: object
+                          required: [columns, on_delete, on_update]
+                          properties:
+                            target_table:
+                              type: string
+                            columns:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  source_column:
+                                    type: string
+                                  target_column:
+                                    type: string
+                            on_delete:
+                              type: string
+                            on_update:
+                              type: string
+                            fk_constraint_name:
+                              type: string
+                      pk_constraint_name:
+                        type: string
 
   /w/{workspace}/workspaces/git_sync_enabled:
     get:
@@ -4442,6 +4968,12 @@ paths:
             type: string
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - name: label
+          description: Filter by label
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: variable list
@@ -5565,6 +6097,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          description: Filter by label
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: resource list
@@ -6538,6 +7076,12 @@ paths:
             If false, show only scripts with dedicated_worker disabled.
           schema:
             type: boolean
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
 
       responses:
         "200":
@@ -8120,6 +8664,12 @@ paths:
             If false, show only flows with dedicated_worker disabled.
           schema:
             type: boolean
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: All flow
@@ -8614,6 +9164,35 @@ paths:
                 items:
                   $ref: "#/components/schemas/FlowConversationMessage"
 
+  /w/{workspace}/path_autocomplete/list_paths:
+    get:
+      summary: list all paths in a workspace for client-side autocomplete
+      description: |
+        Returns the flat list of all item paths visible to the caller across
+        scripts, flows, apps, raw apps, variables, and resources. Intended to
+        feed an entirely client-side path autocomplete UI: the frontend fetches
+        once (server caches per workspace for 60s) and performs all prefix/segment
+        computation locally. Capped at 20,000 paths (5,000 per table).
+      operationId: listPathAutocompletePaths
+      tags:
+        - path_autocomplete
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: deduplicated path list, sorted lexicographically
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paths:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - paths
+
   /w/{workspace}/raw_apps/list:
     get:
       summary: list all raw apps
@@ -8643,6 +9222,12 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: All raw apps
@@ -8742,6 +9327,12 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: All apps
@@ -8794,6 +9385,10 @@ paths:
                 preserve_on_behalf_of:
                   type: boolean
                   description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                labels:
+                  type: array
+                  items:
+                    type: string
               required:
                 - path
                 - value
@@ -8842,6 +9437,10 @@ paths:
                     preserve_on_behalf_of:
                       type: boolean
                       description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                    labels:
+                      type: array
+                      items:
+                        type: string
                   required:
                     - path
                     - value
@@ -9156,6 +9755,10 @@ paths:
                 preserve_on_behalf_of:
                   type: boolean
                   description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                labels:
+                  type: array
+                  items:
+                    type: string
       responses:
         "200":
           description: app updated
@@ -9198,6 +9801,10 @@ paths:
                     preserve_on_behalf_of:
                       type: boolean
                       description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                    labels:
+                      type: array
+                      items:
+                        type: string
                 js:
                   type: string
                 css:
@@ -10751,6 +11358,23 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs_u/get_flow_all_logs/{id}:
+    get:
+      summary: get all logs for a flow job
+      operationId: getFlowAllLogs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: concatenated logs of all flow steps
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/jobs_u/get_completed_logs_tail/{id}:
     get:
       summary: get completed job logs tail
@@ -11983,6 +12607,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: schedule list
@@ -12226,6 +12856,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: http trigger list
@@ -12421,6 +13057,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: websocket trigger list
@@ -12615,6 +13257,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: kafka trigger list
@@ -12850,6 +13498,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: nats trigger list
@@ -13039,6 +13693,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: sqs trigger list
@@ -13483,6 +14143,12 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: native triggers list
@@ -13793,6 +14459,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: mqtt trigger list
@@ -13982,6 +14654,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: gcp trigger list
@@ -14486,6 +15164,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: postgres trigger list
@@ -14675,6 +15359,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
       responses:
         "200":
           description: email trigger list
@@ -15766,6 +16456,64 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /configs/list_all_workspace_dependencies:
+    get:
+      summary: list all workspace dependencies
+      operationId: listAllWorkspaceDependencies
+      tags:
+        - config
+      responses:
+        "200":
+          description: a list of workspace dependency summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    workspace_id:
+                      type: string
+                    name:
+                      type: string
+                    language:
+                      $ref: "#/components/schemas/ScriptLang"
+                  required:
+                    - workspace_id
+                    - language
+
+  /configs/list_all_dedicated_with_deps:
+    get:
+      summary: list all dedicated scripts with their dependencies
+      operationId: listAllDedicatedWithDeps
+      tags:
+        - config
+      responses:
+        "200":
+          description: a list of dedicated scripts with workspace dependencies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    workspace_id:
+                      type: string
+                    path:
+                      type: string
+                    language:
+                      $ref: "#/components/schemas/ScriptLang"
+                    workspace_dep_names:
+                      type: array
+                      items:
+                        type: string
+                  required:
+                    - workspace_id
+                    - path
+                    - language
+                    - workspace_dep_names
 
   /agent_workers/create_agent_token:
     post:
@@ -17951,7 +18699,7 @@ paths:
                                 type: object
                                 description: The columns used (for tables)
                                 additionalProperties:
-                                  $ref: "#/components/schemas/AssetUsageAccessType"                 
+                                  $ref: "#/components/schemas/AssetUsageAccessType"
                               created_at:
                                 type: string
                                 format: date-time
@@ -18054,7 +18802,6 @@ paths:
                     path:
                       type: string
                       description: The asset path
-
 
   /w/{workspace}/volumes/list:
     get:
@@ -19038,6 +19785,50 @@ components:
           type: string
           description: Static Vault token for testing/development (optional, if provided this is used instead of JWT authentication)
 
+    AzureKeyVaultSettings:
+      type: object
+      required:
+        - vault_url
+        - tenant_id
+        - client_id
+      properties:
+        vault_url:
+          type: string
+          description: Azure Key Vault URL (e.g., https://myvault.vault.azure.net)
+        tenant_id:
+          type: string
+          description: Azure AD tenant ID
+        client_id:
+          type: string
+          description: Azure AD application (client) ID
+        client_secret:
+          type: string
+          description: Azure AD client secret
+        token:
+          type: string
+          description: Static Bearer token for testing/development (optional, if provided this is used instead of OAuth2 authentication)
+
+    AwsSecretsManagerSettings:
+      type: object
+      required:
+        - region
+      properties:
+        region:
+          type: string
+          description: AWS region (e.g., us-east-1)
+        access_key_id:
+          type: string
+          description: AWS Access Key ID (optional, uses default credential chain if not provided)
+        secret_access_key:
+          type: string
+          description: AWS Secret Access Key (optional)
+        endpoint_url:
+          type: string
+          description: Custom endpoint URL for testing (e.g., LocalStack)
+        prefix:
+          type: string
+          description: Prefix for secret names (e.g., windmill/)
+
     SecretMigrationFailure:
       type: object
       required:
@@ -19466,8 +20257,9 @@ components:
           type: boolean
         timeout:
           type: integer
-        delete_after_use:
-          type: boolean
+        delete_after_secs:
+          type: integer
+          description: If set, delete the job's args, result and logs after this many seconds following job completion
         visible_to_runner_only:
           type: boolean
         auto_kind:
@@ -19484,6 +20276,11 @@ components:
           description: "Additional script modules keyed by relative file path"
           additionalProperties:
             $ref: "#/components/schemas/ScriptModule"
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
 
       required:
         - hash
@@ -19501,6 +20298,7 @@ components:
         - kind
         - starred
         - has_preprocessor
+
 
     NewScript:
       type: object
@@ -19552,8 +20350,9 @@ components:
           type: boolean
         timeout:
           type: integer
-        delete_after_use:
-          type: boolean
+        delete_after_secs:
+          type: integer
+          description: If set, delete the job's args, result and logs after this many seconds following job completion
         deployment_message:
           type: string
         concurrency_key:
@@ -19607,6 +20406,10 @@ components:
           description: "Additional script modules keyed by relative file path"
           additionalProperties:
             $ref: "#/components/schemas/ScriptModule"
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -20638,6 +21441,10 @@ components:
         expires_at:
           type: string
           format: date-time
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - workspace_id
         - path
@@ -20686,6 +21493,10 @@ components:
           type: string
           description: The expiration date of the variable
           format: date-time
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - value
@@ -20707,6 +21518,10 @@ components:
         description:
           type: string
           description: The new description of the variable
+        labels:
+          type: array
+          items:
+            type: string
 
     AuditLog:
       type: object
@@ -21099,6 +21914,10 @@ components:
         resource_type:
           type: string
           description: The resource_type associated with the resource
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - value
@@ -21117,6 +21936,13 @@ components:
         resource_type:
           type: string
           description: The new resource_type to be associated with the resource
+        ws_specific:
+          type: boolean
+          description: When true, the resource is excluded from workspace diff comparisons
+        labels:
+          type: array
+          items:
+            type: string
 
     Resource:
       type: object
@@ -21141,6 +21967,10 @@ components:
         edited_at:
           type: string
           format: date-time
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - resource_type
@@ -21179,6 +22009,10 @@ components:
         edited_at:
           type: string
           format: date-time
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - resource_type
@@ -21330,6 +22164,11 @@ components:
           type: string
           nullable: true
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
       required:
         - path
         - edited_by
@@ -21342,6 +22181,7 @@ components:
         - enabled
         - email
         - permissioned_as
+
 
     ScheduleWJobs:
       allOf:
@@ -21469,6 +22309,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - schedule
@@ -21564,6 +22408,10 @@ components:
           type: boolean
           nullable: true
           description: "If true and user is admin/wm_deployers, preserve the provided permissioned_as instead of using the deploying user's identity"
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - schedule
         - timezone
@@ -21628,6 +22476,11 @@ components:
         mode:
           $ref: "#/components/schemas/TriggerMode"
           description: Trigger mode (enabled/disabled)
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
       required:
         - path
         - script_path
@@ -21638,6 +22491,7 @@ components:
         - edited_at
         - is_flow
         - mode
+
 
     AuthenticationMethod:
       type: string
@@ -21926,6 +22780,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -22018,6 +22876,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -22063,6 +22925,27 @@ components:
           type: number
         google_count:
           type: number
+
+    WebsocketHeartbeat:
+      type: object
+      properties:
+        interval_secs:
+          type: integer
+          minimum: 1
+          description: Interval in seconds between heartbeat messages
+        message:
+          type: string
+          description: >-
+            Message to send as heartbeat. Use {{state}} as a placeholder
+            for a value extracted from incoming messages (see state_field).
+        state_field:
+          type: string
+          description: >-
+            Optional. Top-level JSON field to extract from incoming messages.
+            The extracted value replaces {{state}} in the heartbeat message.
+      required:
+        - interval_secs
+        - message
 
     WebsocketTrigger:
       allOf:
@@ -22117,6 +23000,10 @@ components:
         can_return_error_result:
           type: boolean
           description: If true, error results are sent back through the WebSocket
+        heartbeat:
+          $ref: "#/components/schemas/WebsocketHeartbeat"
+          nullable: true
+          description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
           description: Path to a script or flow to run when the triggered job fails
@@ -22185,6 +23072,10 @@ components:
         can_return_error_result:
           type: boolean
           description: If true, error results are sent back through the WebSocket
+        heartbeat:
+          $ref: "#/components/schemas/WebsocketHeartbeat"
+          nullable: true
+          description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
           description: Path to a script or flow to run when the triggered job fails
@@ -22200,6 +23091,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -22260,6 +23155,10 @@ components:
         can_return_error_result:
           type: boolean
           description: If true, error results are sent back through the WebSocket
+        heartbeat:
+          $ref: "#/components/schemas/WebsocketHeartbeat"
+          nullable: true
+          description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
           description: Path to a script or flow to run when the triggered job fails
@@ -22275,6 +23174,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -22450,6 +23353,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -22510,6 +23417,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -22652,6 +23563,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -22820,6 +23735,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - queue_url
         - aws_resource_path
@@ -22872,6 +23791,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - queue_url
         - aws_resource_path
@@ -23036,6 +23959,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -23084,6 +24011,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -23233,6 +24164,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -23310,6 +24245,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -23417,6 +24356,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -23472,6 +24415,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -23526,6 +24473,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
 
       required:
         - path
@@ -23558,6 +24509,10 @@ components:
         preserve_permissioned_as:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
       required:
         - path
         - script_path
@@ -23781,6 +24736,18 @@ components:
           type: string
         color:
           type: string
+        forked_datatables:
+          type: array
+          items:
+            type: object
+            required: [name, new_dbname]
+            properties:
+              name:
+                type: string
+                description: "Datatable name"
+              new_dbname:
+                type: string
+                description: "New database name for the fork"
       required:
         - id
         - name
@@ -23968,12 +24935,18 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
       required:
         - path
         - edited_by
         - edited_at
         - archived
         - extra_perms
+
 
     OpenFlowWPath:
       allOf:
@@ -23999,6 +24972,10 @@ components:
             preserve_on_behalf_of:
               type: boolean
               description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+            labels:
+              type: array
+              items:
+                type: string
           required:
             - path
 
@@ -24093,6 +25070,11 @@ components:
           enum: [viewer, publisher, anonymous]
         raw_app:
           type: boolean
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
       required:
         - id
         - workspace_id
@@ -24102,6 +25084,7 @@ components:
         - extra_perms
         - edited_at
         - execution_mode
+
 
     ScopeDefinition:
       type: object
@@ -24156,6 +25139,11 @@ components:
         edited_at:
           type: string
           format: date-time
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
       required:
         - workspace_id
         - path
@@ -24163,6 +25151,7 @@ components:
         - extra_perms
         - version
         - edited_at
+
 
     AppWithLastVersion:
       type: object
@@ -24200,6 +25189,11 @@ components:
           type: boolean
         bundle_secret:
           type: string
+        labels:
+          type: array
+          items:
+            type: string
+          default: []
       required:
         - id
         - workspace_id
@@ -24213,6 +25207,7 @@ components:
         - execution_mode
         - extra_perms
         - raw_app
+
 
     AppWithLastVersionWDraft:
       allOf:
@@ -24404,7 +25399,14 @@ components:
                     type: string
                 required:
                   - resource_type
-
+              forked_from:
+                type: object
+                description: Fork origin info with schema snapshot
+                properties:
+                  schema:
+                    type: object
+                    description: Schema snapshot at fork time
+                    additionalProperties: true
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]
@@ -24986,7 +25988,15 @@ components:
         kind:
           type: string
           enum:
-            ["script", "flow", "app", "raw_app", "resource", "variable", "resource_type"]
+            [
+              "script",
+              "flow",
+              "app",
+              "raw_app",
+              "resource",
+              "variable",
+              "resource_type",
+            ]
           description: Type of the item
         path:
           type: string

@@ -401,7 +401,7 @@ pub fn build_parameters(columns: &[SimpleColumn], db_type: DbType) -> String {
         .map(|(i, col)| {
             let base_type = col.datatype.split('(').next().unwrap_or(&col.datatype);
             match db_type {
-                DbType::Postgresql => format!("-- ${} {}", i + 1, col.field),
+                DbType::Postgresql => format!("-- ${} {} ({})", i + 1, col.field, base_type),
                 DbType::Mysql => format!("-- :{} ({})", col.field, base_type),
                 DbType::MsSqlServer => {
                     format!("-- @p{} {} ({})", i + 1, col.field, base_type)
@@ -765,7 +765,7 @@ pub fn make_select_query(
                 quicksearch
             ));
             query.push_str(&format!(" ORDER BY {}\n", order_by));
-            query.push_str(" LIMIT $1::INT OFFSET $2::INT");
+            query.push_str(" LIMIT $1 OFFSET $2");
             Ok(query)
         }
         DbType::MsSqlServer => {
@@ -1158,13 +1158,11 @@ pub fn make_delete_query(table: &str, columns: &[ColumnDef], db_type: DbType) ->
                 .map(|(i, c)| {
                     let qf = qi(&c.field, db_type);
                     format!(
-                        "(${}::text::{} IS NULL AND {} IS NULL OR {} = ${}::text::{})",
+                        "(${} IS NULL AND {} IS NULL OR {} = ${})",
                         i + 1,
-                        c.datatype,
                         qf,
                         qf,
                         i + 1,
-                        c.datatype
                     )
                 })
                 .collect::<Vec<_>>()
@@ -1266,6 +1264,8 @@ fn get_user_default_value(column: &ColumnDef) -> Option<String> {
     if let Some(ref val) = column.default_user_value {
         if is_truthy(val) {
             return match val {
+                // SAFETY: not escaped — this SQL runs against the user's own external database
+                // (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
                 serde_json::Value::String(s) => Some(format!("'{}'", s)),
                 other => Some(other.to_string()),
             };
@@ -1280,7 +1280,7 @@ fn format_insert_values(columns: &[ColumnDef], db_type: DbType, start_index: usi
         .enumerate()
         .map(|(i, c)| match db_type {
             DbType::Mysql => format!(":{}", c.field),
-            DbType::Postgresql => format!("${}::{}", start_index + i, c.datatype),
+            DbType::Postgresql => format!("${}", start_index + i),
             DbType::MsSqlServer => format!("@p{}", start_index + i),
             DbType::Snowflake => "?".to_string(),
             DbType::Bigquery => format!("@{}", c.field),
@@ -1458,21 +1458,19 @@ pub fn make_update_query(
                 .map(|(i, c)| {
                     let qf = qi(&c.field, db_type);
                     format!(
-                        "(${}::text::{} IS NULL AND {} IS NULL OR {} = ${}::text::{})",
+                        "(${} IS NULL AND {} IS NULL OR {} = ${})",
                         i + 2,
-                        c.datatype,
                         qf,
                         qf,
                         i + 2,
-                        c.datatype
                     )
                 })
                 .collect::<Vec<_>>()
                 .join("\n    AND ");
 
             query.push_str(&format!(
-                "\nUPDATE {} SET {} = $1::text::{} \nWHERE {}\tRETURNING 1",
-                qt, qcol, column.datatype, conditions
+                "\nUPDATE {} SET {} = $1 \nWHERE {}\tRETURNING 1",
+                qt, qcol, conditions
             ));
         }
         DbType::Mysql => {
@@ -1753,6 +1751,8 @@ fn format_default_value(s: &str, datatype: &str, db_type: DbType) -> String {
         return s[1..s.len() - 1].to_string();
     }
     let escaped = escape_sql_literal(s);
+    // SAFETY: datatype is not escaped — this SQL runs against the user's own external database
+    // (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
     if db_type == DbType::Postgresql {
         return format!("CAST('{}' AS {})", escaped, datatype);
     }
@@ -1831,6 +1831,8 @@ fn render_fk_ddl(
         quote_table_name(&target_table_raw, db_type),
         target_quoted.join(", ")
     ));
+    // SAFETY: on_delete/on_update are not validated — this SQL runs against the user's own
+    // external database (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
     if fk.on_delete != "NO ACTION" {
         sql.push_str(&format!(" ON DELETE {}", fk.on_delete));
     }
@@ -1967,6 +1969,8 @@ fn render_fk_inline(fk: &TableEditorForeignKey, use_schema: bool, db_type: DbTyp
         target_table,
         target_cols.join(", ")
     );
+    // SAFETY: on_delete/on_update are not validated — this SQL runs against the user's own
+    // external database (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
     if fk.on_delete != "NO ACTION" {
         sql.push_str(&format!(" ON DELETE {}", fk.on_delete));
     }
@@ -2210,6 +2214,8 @@ fn render_alter_column(
     Ok(queries)
 }
 
+// SAFETY: datatype is not escaped — this SQL runs against the user's own external database
+// (DB Studio), not Windmill's internal DB. Users can already run arbitrary SQL.
 fn render_alter_datatype(table_ref: &str, col: &str, datatype: &str, db_type: DbType) -> String {
     let qc = qi(col, db_type);
     match db_type {
@@ -2706,7 +2712,7 @@ mod tests {
     fn test_build_parameters_postgresql() {
         let cols = vec![simple_col("limit", "int"), simple_col("offset", "int")];
         let result = build_parameters(&cols, DbType::Postgresql);
-        assert_eq!(result, "-- $1 limit\n-- $2 offset");
+        assert_eq!(result, "-- $1 limit (int)\n-- $2 offset (int)");
     }
 
     #[test]
@@ -2815,11 +2821,11 @@ mod tests {
             make_select_query("my_table", &cols, None, DbType::Postgresql, None, None).unwrap();
 
         assert!(result.starts_with(
-            "-- $1 limit\n-- $2 offset\n-- $3 quicksearch\n-- $4 order_by\n-- $5 is_desc\n"
+            "-- $1 limit (int)\n-- $2 offset (int)\n-- $3 quicksearch (text)\n-- $4 order_by (text)\n-- $5 is_desc (boolean)\n"
         ));
         assert!(result.contains("SELECT \"id\"::text, \"name\"::text FROM \"my_table\"\n"));
         assert!(result.contains("($3 = '' OR CONCAT(\"id\", \"name\") ILIKE '%' || $3 || '%')"));
-        assert!(result.contains("LIMIT $1::INT OFFSET $2::INT"));
+        assert!(result.contains("LIMIT $1 OFFSET $2"));
         assert!(result.contains("$4 = 'id' AND $5 IS false THEN \"id\"::text"));
         assert!(result.contains("$4 = 'name' AND $5 IS true THEN \"name\"::text END) DESC"));
     }
@@ -3011,7 +3017,7 @@ mod tests {
         let cols = vec![col("id", "int4"), col("name", "text")];
         let result = make_count_query(DbType::Postgresql, "my_table", None, &cols).unwrap();
 
-        assert!(result.contains("-- $1 quicksearch"));
+        assert!(result.contains("-- $1 quicksearch (text)"));
         assert!(result.contains("SELECT COUNT(*) as count FROM \"my_table\""));
         assert!(result.contains("($1 = '' OR CONCAT(\"id\", \"name\") ILIKE '%' || $1 || '%')"));
         // Should use WHERE not AND
@@ -3148,13 +3154,10 @@ mod tests {
         let cols = vec![col("id", "int4"), col("name", "text")];
         let result = make_delete_query("my_table", &cols, DbType::Postgresql);
 
-        assert!(result.contains("-- $1 id\n-- $2 name"));
+        assert!(result.contains("-- $1 id (int4)\n-- $2 name (text)"));
         assert!(result.contains("DELETE FROM \"my_table\""));
-        assert!(result
-            .contains("($1::text::int4 IS NULL AND \"id\" IS NULL OR \"id\" = $1::text::int4)"));
-        assert!(result.contains(
-            "($2::text::text IS NULL AND \"name\" IS NULL OR \"name\" = $2::text::text)"
-        ));
+        assert!(result.contains("($1 IS NULL AND \"id\" IS NULL OR \"id\" = $1)"));
+        assert!(result.contains("($2 IS NULL AND \"name\" IS NULL OR \"name\" = $2)"));
         assert!(result.contains("RETURNING 1;"));
     }
 
@@ -3221,9 +3224,8 @@ mod tests {
         let cols = vec![col("id", "int4"), col("name", "text")];
         let result = make_insert_query("my_table", &cols, DbType::Postgresql).unwrap();
 
-        assert!(result.contains("-- $1 id\n-- $2 name"));
-        assert!(result
-            .contains("INSERT INTO \"my_table\" (\"id\", \"name\") VALUES ($1::int4, $2::text)"));
+        assert!(result.contains("-- $1 id (int4)\n-- $2 name (text)"));
+        assert!(result.contains("INSERT INTO \"my_table\" (\"id\", \"name\") VALUES ($1, $2)"));
     }
 
     #[test]
@@ -3279,7 +3281,7 @@ mod tests {
             make_insert_query("my_table", &[id_col, name_col], DbType::Postgresql).unwrap();
 
         // id should be skipped from insert columns (has nextval default in pg)
-        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1::text)"));
+        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1)"));
     }
 
     #[test]
@@ -3293,9 +3295,7 @@ mod tests {
             make_insert_query("my_table", &[id_col, name_col], DbType::Postgresql).unwrap();
 
         // name should be in insert params, id should be in defaults
-        assert!(
-            result.contains("INSERT INTO \"my_table\" (\"name\", \"id\") VALUES ($1::text, '42')")
-        );
+        assert!(result.contains("INSERT INTO \"my_table\" (\"name\", \"id\") VALUES ($1, '42')"));
     }
 
     #[test]
@@ -3308,7 +3308,7 @@ mod tests {
         let result =
             make_insert_query("my_table", &[id_col, name_col], DbType::Postgresql).unwrap();
 
-        assert!(result.contains("VALUES ($1::text, NULL)"));
+        assert!(result.contains("VALUES ($1, NULL)"));
     }
 
     #[test]
@@ -3323,7 +3323,7 @@ mod tests {
             make_insert_query("my_table", &[id_col, name_col], DbType::Postgresql).unwrap();
 
         // Column is hidden, not nullable, has db default, no user default -> omit (use db default)
-        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1::text)"));
+        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1)"));
     }
 
     #[test]
@@ -3337,7 +3337,7 @@ mod tests {
             make_insert_query("my_table", &[id_col, name_col], DbType::Postgresql).unwrap();
 
         // Always identity should be omitted
-        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1::text)"));
+        assert!(result.contains("INSERT INTO \"my_table\" (\"name\") VALUES ($1)"));
     }
 
     #[test]
@@ -3375,13 +3375,12 @@ mod tests {
         let where_cols = vec![simple_col("id", "int4"), simple_col("email", "text")];
         let result = make_update_query("my_table", &update_col, &where_cols, DbType::Postgresql);
 
-        assert!(result.contains("-- $1 value_to_update\n-- $2 id\n-- $3 email"));
-        assert!(result.contains("UPDATE \"my_table\" SET \"name\" = $1::text::text"));
-        assert!(result
-            .contains("($2::text::int4 IS NULL AND \"id\" IS NULL OR \"id\" = $2::text::int4)"));
-        assert!(result.contains(
-            "($3::text::text IS NULL AND \"email\" IS NULL OR \"email\" = $3::text::text)"
-        ));
+        assert!(
+            result.contains("-- $1 value_to_update (text)\n-- $2 id (int4)\n-- $3 email (text)")
+        );
+        assert!(result.contains("UPDATE \"my_table\" SET \"name\" = $1"));
+        assert!(result.contains("($2 IS NULL AND \"id\" IS NULL OR \"id\" = $2)"));
+        assert!(result.contains("($3 IS NULL AND \"email\" IS NULL OR \"email\" = $3)"));
         assert!(result.contains("RETURNING 1"));
     }
 
@@ -3463,10 +3462,8 @@ mod tests {
         let cols = vec![col("a", "int4"), col("b", "text"), col("c", "bool")];
         let result = make_delete_query("t", &cols, DbType::Postgresql);
         // Check all three conditions are present and joined
-        assert!(result
-            .contains("AND ($2::text::text IS NULL AND \"b\" IS NULL OR \"b\" = $2::text::text)"));
-        assert!(result
-            .contains("AND ($3::text::bool IS NULL AND \"c\" IS NULL OR \"c\" = $3::text::bool)"));
+        assert!(result.contains("AND ($2 IS NULL AND \"b\" IS NULL OR \"b\" = $2)"));
+        assert!(result.contains("AND ($3 IS NULL AND \"c\" IS NULL OR \"c\" = $3)"));
     }
 
     #[test]
@@ -3518,7 +3515,7 @@ mod tests {
         let result = make_insert_query("my_table", &[name_col, col1], DbType::Postgresql).unwrap();
 
         // Numeric value should not be quoted
-        assert!(result.contains("VALUES ($1::text, 5)"));
+        assert!(result.contains("VALUES ($1, 5)"));
     }
 
     // -----------------------------------------------------------------------
@@ -3540,7 +3537,7 @@ mod tests {
         assert!(result.is_some());
         let sql = result.unwrap().unwrap().code;
         assert!(sql.contains("SELECT \"id\"::text, \"name\"::text FROM \"my_table\""));
-        assert!(sql.contains("LIMIT $1::INT OFFSET $2::INT"));
+        assert!(sql.contains("LIMIT $1 OFFSET $2"));
     }
 
     #[test]
@@ -3571,16 +3568,14 @@ mod tests {
     fn test_expand_insert_marker() {
         let marker = r#"-- WM_INTERNAL_DB_INSERT {"table":"my_table","columns":[{"field":"id","datatype":"int4"},{"field":"name","datatype":"text"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(
-            sql.contains("INSERT INTO \"my_table\" (\"id\", \"name\") VALUES ($1::int4, $2::text)")
-        );
+        assert!(sql.contains("INSERT INTO \"my_table\" (\"id\", \"name\") VALUES ($1, $2)"));
     }
 
     #[test]
     fn test_expand_update_marker() {
         let marker = r#"-- WM_INTERNAL_DB_UPDATE {"table":"my_table","column":{"field":"name","datatype":"text"},"columns":[{"field":"id","datatype":"int4"}]}"#;
         let sql = expand_code(marker, &ScriptLang::Postgresql);
-        assert!(sql.contains("UPDATE \"my_table\" SET \"name\" = $1::text::text"));
+        assert!(sql.contains("UPDATE \"my_table\" SET \"name\" = $1"));
         assert!(sql.contains("RETURNING 1"));
     }
 
@@ -4475,4 +4470,225 @@ mod tests {
         let sql = expand_code(marker, &ScriptLang::Snowflake);
         assert_eq!(sql, "SHOW PRIMARY KEYS IN ACCOUNT");
     }
+}
+
+// ============================================================================
+// Full schema introspection types and logic (used by get_datatable_full_schema)
+// ============================================================================
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FullSchemaColumn {
+    pub name: String,
+    pub datatype: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub primary_key: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nullable: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FullSchemaForeignKeyColumn {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_column: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_column: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FullSchemaForeignKey {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_table: Option<String>,
+    pub columns: Vec<FullSchemaForeignKeyColumn>,
+    pub on_delete: String,
+    pub on_update: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fk_constraint_name: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FullSchemaTable {
+    pub name: String,
+    pub columns: Vec<FullSchemaColumn>,
+    pub foreign_keys: Vec<FullSchemaForeignKey>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pk_constraint_name: Option<String>,
+}
+
+/// Full database schema: { schema_name: { table_name: FullSchemaTable } }
+pub type FullDatabaseSchema =
+    std::collections::HashMap<String, std::collections::HashMap<String, FullSchemaTable>>;
+
+fn pg_action_to_string(action: &str) -> String {
+    match action {
+        "a" => "NO ACTION".to_string(),
+        "r" => "RESTRICT".to_string(),
+        "c" => "CASCADE".to_string(),
+        "n" => "SET NULL".to_string(),
+        "d" => "SET DEFAULT".to_string(),
+        _ => "NO ACTION".to_string(),
+    }
+}
+
+/// Introspect a PostgreSQL database and return the full schema.
+/// Takes a connected tokio_postgres Client.
+pub async fn pg_get_full_schema(
+    client: &tokio_postgres::Client,
+) -> Result<FullDatabaseSchema, String> {
+    let column_rows = client
+        .query(
+            "SELECT
+                ns.nspname AS schema_name,
+                c.relname AS table_name,
+                a.attname AS column_name,
+                pg_catalog.format_type(a.atttypid, a.atttypmod) AS datatype,
+                (SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) for 128)
+                 FROM pg_catalog.pg_attrdef d
+                 WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef) AS default_value,
+                CASE a.attnotnull WHEN false THEN true ELSE false END AS nullable,
+                EXISTS (
+                    SELECT 1 FROM pg_catalog.pg_index i
+                    WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)
+                ) AS is_primary_key,
+                (SELECT con.conname FROM pg_catalog.pg_constraint con
+                 WHERE con.conrelid = c.oid AND con.contype = 'p' LIMIT 1) AS pk_constraint_name
+            FROM pg_catalog.pg_attribute a
+            JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
+            JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid
+            WHERE c.relkind = 'r'
+                AND a.attnum > 0
+                AND NOT a.attisdropped
+                AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY ns.nspname, c.relname, a.attnum",
+            &[],
+        )
+        .await
+        .map_err(|e| format!("Failed to query columns: {}", e))?;
+
+    let fk_rows = client
+        .query(
+            "SELECT
+                ns.nspname AS schema_name,
+                c.relname AS table_name,
+                con.conname AS fk_constraint_name,
+                att_src.attname AS source_column,
+                ns_ref.nspname AS ref_schema,
+                c_ref.relname AS ref_table,
+                att_ref.attname AS ref_column,
+                con.confdeltype::text AS on_delete,
+                con.confupdtype::text AS on_update
+            FROM pg_catalog.pg_constraint con
+            JOIN pg_catalog.pg_class c ON con.conrelid = c.oid
+            JOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid
+            JOIN pg_catalog.pg_class c_ref ON con.confrelid = c_ref.oid
+            JOIN pg_catalog.pg_namespace ns_ref ON c_ref.relnamespace = ns_ref.oid
+            CROSS JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY AS u(src_attnum, ref_attnum, ord)
+            JOIN pg_catalog.pg_attribute att_src ON att_src.attrelid = c.oid AND att_src.attnum = u.src_attnum
+            JOIN pg_catalog.pg_attribute att_ref ON att_ref.attrelid = c_ref.oid AND att_ref.attnum = u.ref_attnum
+            WHERE con.contype = 'f'
+                AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY ns.nspname, c.relname, con.conname, u.ord",
+            &[],
+        )
+        .await
+        .map_err(|e| format!("Failed to query foreign keys: {}", e))?;
+
+    let mut result: FullDatabaseSchema = std::collections::HashMap::new();
+
+    for row in &column_rows {
+        let schema_name: &str = row.get("schema_name");
+        let table_name: &str = row.get("table_name");
+        let column_name: &str = row.get("column_name");
+        let datatype: &str = row.get("datatype");
+        let default_value: Option<&str> = row.get("default_value");
+        let nullable: bool = row.get("nullable");
+        let is_primary_key: bool = row.get("is_primary_key");
+        let pk_constraint_name: Option<&str> = row.get("pk_constraint_name");
+
+        let schema_tables = result.entry(schema_name.to_string()).or_default();
+        let table = schema_tables
+            .entry(table_name.to_string())
+            .or_insert_with(|| FullSchemaTable {
+                name: table_name.to_string(),
+                columns: vec![],
+                foreign_keys: vec![],
+                pk_constraint_name: pk_constraint_name.map(|s| s.to_string()),
+            });
+
+        table.columns.push(FullSchemaColumn {
+            name: column_name.to_string(),
+            datatype: datatype.to_string(),
+            primary_key: if is_primary_key { Some(true) } else { None },
+            default_value: default_value.map(|s| s.to_string()),
+            nullable: Some(nullable),
+        });
+    }
+
+    let mut fk_map: std::collections::HashMap<
+        (String, String, String),
+        (
+            Option<String>,
+            Vec<FullSchemaForeignKeyColumn>,
+            String,
+            String,
+        ),
+    > = std::collections::HashMap::new();
+
+    for row in &fk_rows {
+        let schema_name: &str = row.get("schema_name");
+        let table_name: &str = row.get("table_name");
+        let fk_name: &str = row.get("fk_constraint_name");
+        let source_column: &str = row.get("source_column");
+        let ref_schema: &str = row.get("ref_schema");
+        let ref_table: &str = row.get("ref_table");
+        let ref_column: &str = row.get("ref_column");
+        let on_delete: &str = row.get("on_delete");
+        let on_update: &str = row.get("on_update");
+
+        let target_table = if ref_schema == schema_name {
+            ref_table.to_string()
+        } else {
+            format!("{}.{}", ref_schema, ref_table)
+        };
+
+        let key = (
+            schema_name.to_string(),
+            table_name.to_string(),
+            fk_name.to_string(),
+        );
+        let entry = fk_map.entry(key).or_insert_with(|| {
+            (
+                Some(target_table.clone()),
+                vec![],
+                pg_action_to_string(on_delete),
+                pg_action_to_string(on_update),
+            )
+        });
+        entry.1.push(FullSchemaForeignKeyColumn {
+            source_column: Some(source_column.to_string()),
+            target_column: Some(ref_column.to_string()),
+        });
+    }
+
+    let mut fk_entries: Vec<_> = fk_map.into_iter().collect();
+    fk_entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+    for ((schema_name, table_name, fk_name), (target_table, columns, on_delete, on_update)) in
+        fk_entries
+    {
+        if let Some(schema_tables) = result.get_mut(&schema_name) {
+            if let Some(table) = schema_tables.get_mut(&table_name) {
+                table.foreign_keys.push(FullSchemaForeignKey {
+                    target_table,
+                    columns,
+                    on_delete,
+                    on_update,
+                    fk_constraint_name: Some(fk_name),
+                });
+            }
+        }
+    }
+
+    Ok(result)
 }

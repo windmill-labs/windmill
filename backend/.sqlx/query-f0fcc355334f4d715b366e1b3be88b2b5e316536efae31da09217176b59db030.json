@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO script (\n            workspace_id, hash, path, parent_hashes, summary, description, content,\n            created_by, created_at, archived, schema, deleted, is_template,\n            extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,\n            envs, concurrent_limit, concurrency_time_window_s, cache_ttl,\n            dedicated_worker, ws_error_handler_muted, priority, timeout,\n            delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,\n            visible_to_runner_only, auto_kind, codebase, has_preprocessor,\n            on_behalf_of_email, assets, modules\n        )\n        SELECT\n            $1, hash, path, parent_hashes, summary, description, content,\n            created_by, created_at, archived, schema, deleted, is_template,\n            extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,\n            envs, concurrent_limit, concurrency_time_window_s, cache_ttl,\n            dedicated_worker, ws_error_handler_muted, priority, timeout,\n            delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,\n            visible_to_runner_only, auto_kind, codebase, has_preprocessor,\n            on_behalf_of_email, assets, modules\n        FROM script\n        WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f0fcc355334f4d715b366e1b3be88b2b5e316536efae31da09217176b59db030"
+}
