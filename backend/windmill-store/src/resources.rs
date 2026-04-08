@@ -950,6 +950,14 @@ async fn delete_resource(
         q.fetch_all(&mut *tx).await?
     };
 
+    sqlx::query!(
+        "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
+        w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
+
     let deleted_path = sqlx::query_scalar!(
         "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
         path,
@@ -1125,6 +1133,14 @@ async fn delete_resources_bulk(
         }
     }
 
+    sqlx::query!(
+        "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
+        w_id,
+        &request.paths
+    )
+    .execute(&mut *tx)
+    .await?;
+
     let deleted_paths = sqlx::query_scalar!(
         "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2 RETURNING path",
         &request.paths,
@@ -1263,6 +1279,15 @@ async fn update_resource(
 
             sqlx::query!(
                 "UPDATE workspace_integrations SET resource_path = $1 WHERE workspace_id = $2 AND resource_path = $3",
+                npath,
+                w_id,
+                path
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query!(
+                "UPDATE ws_specific SET path = $1 WHERE workspace_id = $2 AND item_kind = 'resource' AND path = $3",
                 npath,
                 w_id,
                 path
