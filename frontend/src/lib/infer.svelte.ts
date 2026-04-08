@@ -68,6 +68,13 @@ export function usePreparedAssetSqlQueries(
 
 type QueryEntry = [string, InferAssetsSqlQueryDetails]
 
+// DuckDB prepare replaces $N params with NULL. Some functions (read_parquet, read_csv, etc.)
+// reject NULL arguments, which is expected — the query will work at execution time with real args.
+function isNullParamSubstitutionError(error?: string): boolean {
+	if (!error) return false
+	return error.includes('cannot take NULL') || error.includes('Could not choose a best candidate')
+}
+
 function mapPrepareResults(
 	res: { error?: string; columns?: { name: string; type: string }[] }[],
 	chunk: QueryEntry[]
@@ -83,7 +90,9 @@ function mapPrepareResults(
 						r.columns.map(({ name, type: t }) => [name, sqlDataTypeToJsTypeHeuristic(t)])
 					)
 				}
-			: { error: r.error ?? "Couldn't prepare query " }
+			: isNullParamSubstitutionError(r.error)
+				? { columns: {} }
+				: { error: r.error ?? "Couldn't prepare query " }
 	])
 }
 
