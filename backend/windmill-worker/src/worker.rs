@@ -2075,6 +2075,10 @@ pub async fn run_worker(
     let mut last_suspend_first = Instant::now();
     let mut killed_but_draining_same_worker_jobs = false;
 
+    let batch_pull_size = *windmill_common::worker::BATCH_PULL_SIZE;
+    let mut batch_pull_buffer: std::collections::VecDeque<windmill_queue::PulledJob> =
+        std::collections::VecDeque::new();
+
     let mut killpill_rx2 = killpill_rx.resubscribe();
 
     loop {
@@ -2318,6 +2322,53 @@ pub async fn run_worker(
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     continue;
                 }
+            } else if batch_pull_size > 0 && !batch_pull_buffer.is_empty() {
+                // Serve from batch pull buffer
+                Ok(batch_pull_buffer
+                    .pop_front()
+                    .map(|job| NextJob::Sql { flow_runners: None, job }))
+            } else if batch_pull_size > 0 && matches!(&conn, Connection::Sql(_)) {
+                // Batch pull: try to refill buffer from DB
+                let db = conn.as_sql().unwrap();
+                let queries = windmill_common::worker::WORKER_BATCH_PULL_QUERIES
+                    .read()
+                    .await;
+                if queries.is_empty() {
+                    drop(queries);
+                    // Queries not populated yet, fall through to normal pull below
+                    None
+                } else {
+                    let mut pulled = Vec::new();
+                    for query in queries.iter() {
+                        match windmill_queue::batch_pull(db, &worker_name, query, batch_pull_size)
+                            .await
+                        {
+                            Ok(jobs) if !jobs.is_empty() => {
+                                pulled = jobs;
+                                break;
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                tracing::error!(worker = %worker_name, "batch pull error: {e:#}");
+                            }
+                        }
+                    }
+                    drop(queries);
+                    if pulled.is_empty() {
+                        Some(Ok(None))
+                    } else {
+                        let mut iter = pulled.into_iter();
+                        let first = iter.next();
+                        for job in iter {
+                            batch_pull_buffer.push_back(job);
+                        }
+                        Some(Ok(first.map(|job| NextJob::Sql { flow_runners: None, job })))
+                    }
+                }
+                .unwrap_or_else(|| {
+                    // Fall through: queries not ready yet
+                    Ok(None)
+                })
             } else {
                 match &conn {
                     Connection::Sql(db) => {
