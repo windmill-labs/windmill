@@ -2078,6 +2078,8 @@ pub async fn run_worker(
     let batch_pull_size = *windmill_common::worker::BATCH_PULL_SIZE;
     let mut batch_pull_buffer: std::collections::VecDeque<windmill_queue::PulledJob> =
         std::collections::VecDeque::new();
+    let mut agent_batch_buffer: std::collections::VecDeque<windmill_queue::JobAndPerms> =
+        std::collections::VecDeque::new();
 
     let mut killpill_rx2 = killpill_rx.resubscribe();
 
@@ -2504,10 +2506,36 @@ pub async fn run_worker(
                         }
                     }
 
-                    Connection::Http(client) => crate::agent_workers::pull_job(&client, None, None)
-                        .await
-                        .map_err(|e| error::Error::InternalErr(e.to_string()))
-                        .map(|x| x.map(|y| NextJob::Http(y))),
+                    Connection::Http(client) => {
+                        if batch_pull_size > 0 {
+                            // Agent-batch mode: serve from buffer, refill via batch pull
+                            if let Some(job) = agent_batch_buffer.pop_front() {
+                                Ok(Some(NextJob::Http(job)))
+                            } else {
+                                match crate::agent_workers::batch_pull_jobs(
+                                    &client,
+                                    batch_pull_size,
+                                )
+                                .await
+                                {
+                                    Ok(mut jobs) if !jobs.is_empty() => {
+                                        let first = jobs.remove(0);
+                                        for job in jobs {
+                                            agent_batch_buffer.push_back(job);
+                                        }
+                                        Ok(Some(NextJob::Http(first)))
+                                    }
+                                    Ok(_) => Ok(None),
+                                    Err(e) => Err(error::Error::InternalErr(e.to_string())),
+                                }
+                            }
+                        } else {
+                            crate::agent_workers::pull_job(&client, None, None)
+                                .await
+                                .map_err(|e| error::Error::InternalErr(e.to_string()))
+                                .map(|x| x.map(|y| NextJob::Http(y)))
+                        }
+                    }
                 }
             }
         };
