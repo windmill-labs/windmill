@@ -2031,17 +2031,24 @@ export async function pull(
     opts.skipSecrets = false;
   }
 
-  // Resolve workspace name: --workspace (global) > --branch/--env (deprecated)
-  if (opts.branch && opts.workspace) {
-    log.warn("⚠️  Both --workspace and --branch provided. Using --workspace and ignoring --branch.");
+  // Resolve workspace name for config lookups.
+  // --branch resolves git branch → workspace name (deprecated but still supported).
+  // --workspace (without --base-url) selects a workspace config entry by name.
+  // When --base-url is used with --workspace, --workspace is a profile selector only;
+  // --branch should still drive config lookups.
+  const hasExplicitCredentials = !!opts.baseUrl;
+  let wsNameForConfig: string | undefined;
+
+  if (opts.branch) {
+    if (!hasExplicitCredentials && !branchDeprecationWarned) {
+      log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
+      branchDeprecationWarned = true;
+    }
+    wsNameForConfig = resolveWsNameFromBranch(opts, opts.branch);
+  } else if (opts.workspace && !hasExplicitCredentials) {
+    // --workspace without --base-url: use as workspace config name
+    wsNameForConfig = opts.workspace;
   }
-  if (opts.branch && !opts.workspace && !branchDeprecationWarned) {
-    log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
-    branchDeprecationWarned = true;
-  }
-  // --workspace takes priority. --branch resolves git branch → workspace name.
-  const wsNameForConfig = opts.workspace
-    ?? (opts.branch ? resolveWsNameFromBranch(opts, opts.branch) : undefined);
 
   // Validate workspace configuration early (skipped when override is used)
   try {
@@ -2546,16 +2553,19 @@ export async function push(
     opts.skipSecrets = false;
   }
 
-  // Resolve workspace name: --workspace (global) > --branch/--env (deprecated)
-  if (opts.branch && opts.workspace) {
-    log.warn("⚠️  Both --workspace and --branch provided. Using --workspace and ignoring --branch.");
+  // Resolve workspace name for config lookups (same logic as pull)
+  const hasExplicitCredentials = !!opts.baseUrl;
+  let wsNameForConfig: string | undefined;
+
+  if (opts.branch) {
+    if (!hasExplicitCredentials && !branchDeprecationWarned) {
+      log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
+      branchDeprecationWarned = true;
+    }
+    wsNameForConfig = resolveWsNameFromBranch(opts, opts.branch);
+  } else if (opts.workspace && !hasExplicitCredentials) {
+    wsNameForConfig = opts.workspace;
   }
-  if (opts.branch && !opts.workspace && !branchDeprecationWarned) {
-    log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
-    branchDeprecationWarned = true;
-  }
-  const wsNameForConfig = opts.workspace
-    ?? (opts.branch ? resolveWsNameFromBranch(opts, opts.branch) : undefined);
 
   // Validate workspace configuration early (skipped when override is used)
   try {
