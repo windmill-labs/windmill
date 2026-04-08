@@ -462,6 +462,73 @@ pub async fn batch_pull(
     Ok(jobs)
 }
 
+/// Batch-commit multiple completed jobs in a single transaction.
+/// Only for simple jobs (no flows, no schedules, no concurrency limits).
+/// Returns (job_id, duration_ms) for each committed job.
+pub async fn batch_commit_completed_jobs(
+    db: &Pool<Postgres>,
+    jobs: &[(Uuid, bool, &serde_json::value::RawValue, i32, Option<i64>)], // (id, success, result, mem_peak, duration)
+) -> windmill_common::error::Result<Vec<(Uuid, i64)>> {
+    if jobs.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut tx = db.begin().await.map_err(|e| {
+        windmill_common::error::Error::InternalErr(format!("batch commit begin: {e:#}"))
+    })?;
+
+    let mut results = Vec::with_capacity(jobs.len());
+
+    for &(job_id, success, result, mem_peak, duration) in jobs {
+        let status = if success { "success" } else { "failure" };
+        let duration_ms: Option<i64> = sqlx::query_scalar(
+            "INSERT INTO v2_job_completed AS cj
+                (workspace_id, id, started_at, duration_ms, result,
+                 flow_status, workflow_as_code_status,
+                 memory_peak, status, worker)
+            SELECT q.workspace_id, q.id, started_at,
+                COALESCE($3::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000),
+                $2::jsonb, flow_status, workflow_as_code_status,
+                $4, $5::job_status, q.worker
+            FROM v2_job_queue q LEFT JOIN v2_job_status USING (id)
+            WHERE q.id = $1
+            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $2::jsonb
+            RETURNING duration_ms",
+        )
+        .bind(job_id)
+        .bind(result.get())
+        .bind(duration)
+        .bind(if mem_peak > 0 { Some(mem_peak) } else { None })
+        .bind(status)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| {
+            windmill_common::error::Error::InternalErr(format!(
+                "batch commit insert job {job_id}: {e:#}"
+            ))
+        })?;
+
+        if let Some(dur) = duration_ms {
+            sqlx::query!("DELETE FROM v2_job_queue WHERE id = $1", job_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    windmill_common::error::Error::InternalErr(format!(
+                        "batch commit delete job {job_id}: {e:#}"
+                    ))
+                })?;
+            results.push((job_id, dur));
+        } else {
+            tracing::warn!("batch commit: job {job_id} not found in queue, skipping");
+        }
+    }
+
+    tx.commit()
+        .await
+        .map_err(|e| windmill_common::error::Error::InternalErr(format!("batch commit: {e:#}")))?;
+
+    Ok(results)
+}
+
 pub const PERIODIC_SCRIPT_TAG: &str = "periodic_bash_script";
 pub const INIT_SCRIPT_TAG: &str = "init_script";
 pub const INIT_SCRIPT_PATH_PREFIX: &str = "init_script_";

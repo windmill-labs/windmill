@@ -218,6 +218,22 @@ enum JobCompletedRx {
     WakeUp,
 }
 
+fn is_batchable(jc: &JobCompleted) -> bool {
+    jc.success
+        && !jc.job.is_flow_step()
+        && jc.job.flow_step_id.as_deref() != Some("preprocessor")
+        && jc.preprocessed_args.is_none()
+        && jc.job.tag.as_str() != INIT_SCRIPT_TAG
+        && !matches!(
+            jc.job.kind,
+            JobKind::Dependencies | JobKind::FlowDependencies
+        )
+        && jc.canceled_by.is_none()
+        && jc.cached_res_path.is_none()
+        && jc.job.concurrent_limit.is_none()
+        && jc.job.schedule_path().is_none()
+}
+
 pub fn start_background_processor(
     job_completed_rx: JobCompletedReceiver,
     job_completed_sender: JobCompletedSender,
@@ -264,6 +280,8 @@ pub fn start_background_processor(
             }
         });
 
+        let mut batch_result_buffer: Vec<windmill_queue::JobCompleted> = Vec::new();
+
         //if we have been killed, we want to drain the queue of jobs
         while let Some(sr) = {
             if has_been_killed {
@@ -303,61 +321,152 @@ pub fn start_background_processor(
                     result: SendResultPayload::JobCompleted(jc),
                     time,
                 }) => {
-                    let is_init_script_and_failure =
-                        !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
-                    let is_dependency_job = matches!(
-                        jc.job.kind,
-                        JobKind::Dependencies | JobKind::FlowDependencies
-                    );
-                    #[cfg(feature = "benchmark")]
-                    let bench_job_id = jc.job.id;
-                    #[cfg(feature = "benchmark")]
-                    let is_top_level_job = jc.job.parent_job.is_none();
+                    let batch_mode = windmill_common::utils::MODE_AND_ADDONS.mode
+                        == windmill_common::utils::Mode::AgentBatch;
 
-                    process_jc(
-                        jc,
-                        &worker_name,
-                        &base_internal_url,
-                        &db,
-                        &worker_dir,
-                        Some(&same_worker_tx),
-                        &job_completed_sender,
-                        &stats_map,
-                        &killpill_rx,
-                        #[cfg(feature = "benchmark")]
-                        &mut bench,
-                        #[cfg(feature = "benchmark")]
-                        &mut infos,
-                    )
-                    .warn_after_seconds(10)
-                    .await;
+                    if batch_mode && is_batchable(&jc) {
+                        // Accumulate for batch commit
+                        batch_result_buffer.push(jc);
 
-                    if is_init_script_and_failure {
-                        tracing::error!("init script errored, exiting");
-                        killpill_tx.send();
-                        break;
-                    }
-                    if is_dependency_job && is_dedicated_worker {
-                        tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
-                        sqlx::query!(
-                                "UPDATE config SET config = config WHERE name = $1",
-                                format!("worker__{}", *WORKER_GROUP)
-                            )
-                            .execute(&db)
-                            .await
-                            .expect("update config to trigger restart of all dedicated workers at that config");
-                        killpill_tx.send();
-                    }
-                    add_time!(bench, "job completed processed");
-
-                    #[cfg(feature = "benchmark")]
-                    {
-                        if infos.add_iter(bench, bench_job_id, is_top_level_job) {
-                            infos.shared_iters.fetch_add(1, Ordering::Relaxed);
+                        // Drain any additional ready results
+                        while let Ok(SendResult {
+                            result: SendResultPayload::JobCompleted(jc2),
+                            ..
+                        }) = bounded_rx.try_recv()
+                        {
+                            if is_batchable(&jc2) {
+                                batch_result_buffer.push(jc2);
+                            } else {
+                                process_jc(
+                                    jc2,
+                                    &worker_name,
+                                    &base_internal_url,
+                                    &db,
+                                    &worker_dir,
+                                    Some(&same_worker_tx),
+                                    &job_completed_sender,
+                                    &stats_map,
+                                    &killpill_rx,
+                                    #[cfg(feature = "benchmark")]
+                                    &mut bench,
+                                    #[cfg(feature = "benchmark")]
+                                    &mut infos,
+                                )
+                                .warn_after_seconds(10)
+                                .await;
+                            }
+                            if batch_result_buffer.len() >= 50 {
+                                break;
+                            }
                         }
+
+                        // Flush batch
+                        if !batch_result_buffer.is_empty() {
+                            let batch_items: Vec<_> = batch_result_buffer
+                                .iter()
+                                .map(|jc| {
+                                    (
+                                        jc.job.id,
+                                        jc.success,
+                                        jc.result.as_ref() as &serde_json::value::RawValue,
+                                        jc.mem_peak,
+                                        jc.duration,
+                                    )
+                                })
+                                .collect();
+                            match windmill_queue::batch_commit_completed_jobs(&db, &batch_items)
+                                .await
+                            {
+                                Ok(committed) => {
+                                    tracing::debug!("batch committed {} jobs", committed.len());
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        "batch commit failed, falling back to individual: {e:#}"
+                                    );
+                                    for jc in batch_result_buffer.drain(..) {
+                                        process_jc(
+                                            jc,
+                                            &worker_name,
+                                            &base_internal_url,
+                                            &db,
+                                            &worker_dir,
+                                            Some(&same_worker_tx),
+                                            &job_completed_sender,
+                                            &stats_map,
+                                            &killpill_rx,
+                                            #[cfg(feature = "benchmark")]
+                                            &mut bench,
+                                            #[cfg(feature = "benchmark")]
+                                            &mut infos,
+                                        )
+                                        .warn_after_seconds(10)
+                                        .await;
+                                    }
+                                }
+                            }
+                            batch_result_buffer.clear();
+                        }
+
+                        last_processing_duration
+                            .store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
+                    } else {
+                        let is_init_script_and_failure =
+                            !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
+                        let is_dependency_job = matches!(
+                            jc.job.kind,
+                            JobKind::Dependencies | JobKind::FlowDependencies
+                        );
+                        #[cfg(feature = "benchmark")]
+                        let bench_job_id = jc.job.id;
+                        #[cfg(feature = "benchmark")]
+                        let is_top_level_job = jc.job.parent_job.is_none();
+
+                        process_jc(
+                            jc,
+                            &worker_name,
+                            &base_internal_url,
+                            &db,
+                            &worker_dir,
+                            Some(&same_worker_tx),
+                            &job_completed_sender,
+                            &stats_map,
+                            &killpill_rx,
+                            #[cfg(feature = "benchmark")]
+                            &mut bench,
+                            #[cfg(feature = "benchmark")]
+                            &mut infos,
+                        )
+                        .warn_after_seconds(10)
+                        .await;
+
+                        if is_init_script_and_failure {
+                            tracing::error!("init script errored, exiting");
+                            killpill_tx.send();
+                            break;
+                        }
+                        if is_dependency_job && is_dedicated_worker {
+                            tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
+                            sqlx::query!(
+                                    "UPDATE config SET config = config WHERE name = $1",
+                                    format!("worker__{}", *WORKER_GROUP)
+                                )
+                                .execute(&db)
+                                .await
+                                .expect("update config to trigger restart of all dedicated workers at that config");
+                            killpill_tx.send();
+                        }
+                        add_time!(bench, "job completed processed");
+
+                        #[cfg(feature = "benchmark")]
+                        {
+                            if infos.add_iter(bench, bench_job_id, is_top_level_job) {
+                                infos.shared_iters.fetch_add(1, Ordering::Relaxed);
+                            }
+                        }
+                        last_processing_duration
+                            .store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
                     }
-                    last_processing_duration
-                        .store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
                 }
                 JobCompletedRx::JobCompleted(SendResult {
                     result:

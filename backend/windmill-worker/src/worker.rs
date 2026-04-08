@@ -2075,7 +2075,18 @@ pub async fn run_worker(
     let mut last_suspend_first = Instant::now();
     let mut killed_but_draining_same_worker_jobs = false;
 
-    let batch_pull_size = *windmill_common::worker::BATCH_PULL_SIZE;
+    let is_agent_batch =
+        windmill_common::utils::MODE_AND_ADDONS.mode == windmill_common::utils::Mode::AgentBatch;
+    let batch_pull_size = if is_agent_batch {
+        let s = *windmill_common::worker::BATCH_PULL_SIZE;
+        if s > 0 {
+            s
+        } else {
+            100
+        }
+    } else {
+        0
+    };
     let mut batch_pull_buffer: std::collections::VecDeque<windmill_queue::PulledJob> =
         std::collections::VecDeque::new();
     let mut agent_batch_buffer: std::collections::VecDeque<windmill_queue::JobAndPerms> =
