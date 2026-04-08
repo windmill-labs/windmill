@@ -187,6 +187,7 @@ export type InferAssetsSqlQueryDetails = {
 	source_kind: 'datatable' | 'ducklake' // AssetKind equivalent
 	source_name: string // e.g., "main", "dt"
 	source_schema?: string // e.g., "public", optional
+	has_raw_interpolation?: boolean // true if any ${sql.raw(...)} was used
 	prepared?: PreparedAssetsSqlQuery
 }
 

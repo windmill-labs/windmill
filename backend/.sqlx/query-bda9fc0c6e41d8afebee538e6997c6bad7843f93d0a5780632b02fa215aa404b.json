@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path, value FROM variable\n           WHERE path LIKE ('u/' || $1 || '/%')\n           AND workspace_id = $2\n           AND is_secret = true\n           AND value LIKE '$vault:%'",
+  "query": "SELECT path, value FROM variable\n           WHERE path LIKE ('u/' || $1 || '/%')\n           AND workspace_id = $2\n           AND is_secret = true\n           AND (value LIKE '$vault:%' OR value LIKE '$azure_kv:%')",
   "describe": {
     "columns": [
       {
@@ -25,5 +25,5 @@
       false
     ]
   },
-  "hash": "2fcddda99dd0aacf5007ed459cb27caa754424e062427edf5ddcb95f9d96888e"
+  "hash": "bda9fc0c6e41d8afebee538e6997c6bad7843f93d0a5780632b02fa215aa404b"
 }

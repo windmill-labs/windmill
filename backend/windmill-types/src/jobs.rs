@@ -105,6 +105,30 @@ pub enum JobStatus {
 }
 
 impl JobKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            JobKind::Script => "script",
+            JobKind::Script_Hub => "script_hub",
+            JobKind::Preview => "preview",
+            JobKind::Dependencies => "dependencies",
+            JobKind::Flow => "flow",
+            JobKind::FlowPreview => "flowpreview",
+            JobKind::SingleStepFlow => "singlestepflow",
+            JobKind::Identity => "identity",
+            JobKind::FlowDependencies => "flowdependencies",
+            JobKind::AppDependencies => "appdependencies",
+            JobKind::Noop => "noop",
+            JobKind::DeploymentCallback => "deploymentcallback",
+            JobKind::FlowScript => "flowscript",
+            JobKind::FlowNode => "flownode",
+            JobKind::AppScript => "appscript",
+            JobKind::AIAgent => "aiagent",
+            JobKind::UnassignedScript => "unassigned_script",
+            JobKind::UnassignedFlow => "unassigned_flow",
+            JobKind::UnassignedSinglestepFlow => "unassigned_singlestepflow",
+        }
+    }
+
     pub fn is_flow(&self) -> bool {
         matches!(
             self,

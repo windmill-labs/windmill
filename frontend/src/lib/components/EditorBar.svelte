@@ -791,7 +791,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		itemName="data table"
 		loadItems={async () =>
 			(await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? 'NO_W' })).map(
-				(path) => ({ path })
+				(d) => ({ path: d.name })
 			)}
 	>
 		{#snippet submission()}

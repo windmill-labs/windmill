@@ -3,19 +3,18 @@ import { colors } from "@cliffy/ansi/colors";
 import { Input } from "@cliffy/prompt/input";
 import * as log from "../../core/log.ts";
 import { setClient } from "../../core/client.ts";
-import {   allWorkspaces, list, removeWorkspace } from "./workspace.ts";
+import { allWorkspaces, list, removeWorkspace } from "./workspace.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { getCurrentGitBranch, getOriginalBranchForWorkspaceForks, isGitRepository } from "../../utils/git.ts";
 import { WM_FORK_PREFIX } from "../../core/constants.ts";
 import { tryResolveBranchWorkspace } from "../../core/context.ts";
 
-// NOTE: This import will work after regenerating the API client
-// Run ./gen_wm_client.sh to regenerate after backend changes
-// import * as wmill from "../../../gen/services.gen.ts";
-
 async function createWorkspaceFork(
   opts: GlobalOptions & {
     createWorkspaceName: string | undefined;
+    color: string | undefined;
+    datatableBehavior: string | undefined;
+    yes: boolean | undefined;
   },
   workspaceName: string | undefined,
   workspaceId: string | undefined = undefined,
@@ -104,21 +103,139 @@ async function createWorkspaceFork(
     throw new Error(`This forked workspace '${workspaceId}' (${workspaceName}) already exists. Choose a different id`);
   }
 
+  // --- Datatable cloning (matches ForkDatatableSection.svelte) ---
+  interface ForkedDatatableInfo {
+    name: string;
+    new_dbname: string;
+  }
+  const forkedDatatables: ForkedDatatableInfo[] = [];
+
+  let datatables: Awaited<ReturnType<typeof wmill.listDataTables>> = [];
   try {
-    // TODO: Update to createWorkspaceFork after regenerating client from new OpenAPI spec
+    datatables = await wmill.listDataTables({
+      workspace: workspace.workspaceId,
+    });
+  } catch (e) {
+    log.info(
+      colors.yellow(
+        `Note: Could not list datatables: ${(e as Error).message}`
+      )
+    );
+  }
+
+  if (datatables && datatables.length > 0) {
+    const behavior = opts.datatableBehavior ?? (opts.yes ? "skip" : undefined);
+
+    if (behavior !== "skip") {
+      log.info(`\nFound ${datatables.length} datatable(s):`);
+
+      for (const dt of datatables) {
+        let dtBehavior: string;
+
+        if (behavior === "schema_only" || behavior === "schema_and_data") {
+          dtBehavior = behavior;
+        } else {
+          // Interactive prompt
+          const { Select } = await import("@cliffy/prompt/select");
+          dtBehavior = await Select.prompt({
+            message: `Datatable "${dt.name}" (${dt.resource_type}):`,
+            options: [
+              { name: "Keep original (no cloning)", value: "keep_original" },
+              { name: "Clone schema only", value: "schema_only" },
+              { name: "Clone schema and data", value: "schema_and_data" },
+            ],
+          });
+        }
+
+        if (dtBehavior === "keep_original") {
+          continue;
+        }
+
+        const newDbName = `${trueWorkspaceId.replace(/-/g, "_")}__${dt.name}`;
+
+        try {
+          log.info(
+            colors.blue(`  Creating database "${newDbName}" for datatable "${dt.name}"...`)
+          );
+
+          await wmill.createPgDatabase({
+            workspace: workspace.workspaceId,
+            requestBody: {
+              source: `datatable://${dt.name}`,
+              target_dbname: newDbName,
+            },
+          });
+
+          log.info(
+            colors.blue(
+              `  Importing ${dtBehavior === "schema_only" ? "schema" : "schema + data"}...`
+            )
+          );
+
+          await wmill.importPgDatabase({
+            workspace: workspace.workspaceId,
+            requestBody: {
+              source: `datatable://${dt.name}`,
+              target: `datatable://${dt.name}`,
+              target_dbname_override: newDbName,
+              fork_behavior: dtBehavior as "schema_only" | "schema_and_data",
+            },
+          });
+
+          log.info(colors.green(`  ✓ Datatable "${dt.name}" cloned.`));
+          forkedDatatables.push({ name: dt.name, new_dbname: newDbName });
+        } catch (e) {
+          log.info(
+            colors.yellow(
+              `  ✗ Failed to clone datatable "${dt.name}": ${(e as Error).message}`
+            )
+          );
+        }
+      }
+    }
+  }
+
+  // --- Create git branch for fork (matches UI: createWorkspaceForkGitBranch) ---
+  const forkColor = opts.color;
+  try {
+    const gitSyncJobIds = await wmill.createWorkspaceForkGitBranch({
+      workspace: workspace.workspaceId,
+      requestBody: {
+        id: trueWorkspaceId,
+        name: opts.createWorkspaceName ?? trueWorkspaceId,
+        color: forkColor,
+      },
+    });
+    if (gitSyncJobIds && gitSyncJobIds.length > 0) {
+      log.info(
+        colors.blue(
+          `Git sync branch creation triggered (${gitSyncJobIds.length} job(s)). These will complete asynchronously.`
+        )
+      );
+    }
+  } catch (e) {
+    log.error(
+      colors.red(
+        `Failed to create git branch for fork: ${(e as Error).message}`
+      )
+    );
+    throw e;
+  }
+
+  // --- Create the fork workspace ---
+  try {
     const result = await wmill.createWorkspaceFork({
       workspace: workspace.workspaceId,
       requestBody: {
         id: trueWorkspaceId,
         name: opts.createWorkspaceName ?? trueWorkspaceId,
-        color: undefined,
+        color: forkColor,
+        forked_datatables: forkedDatatables,
       },
     });
 
     log.info(colors.green(`✅ ${result}`));
-
   } catch (error) {
-    // If workspace creation fails, we should clean up the git branch
     log.error(
       colors.red(`Failed to create forked workspace: ${(error as Error).message}`),
     );
@@ -135,8 +252,8 @@ async function createWorkspaceFork(
 When doing operations on the forked workspace, it will use the remote setup in gitBranches for the branch it was forked from.
 
 To merge changes back to the parent workspace, you can:
+  - Use the CLI: ` + colors.white(`git checkout ${newBranchName} && wmill workspace merge`) + `
   - Use the Merge UI from the forked workspace home page
-  - Deploy individual items via the Deploy to staging/prod UI
   - Use git: ` + colors.white(`git checkout ${clonedBranchName} && git merge ${newBranchName} && wmill sync push`) + `
   See: https://www.windmill.dev/docs/advanced/workspace_forks`);
 }

@@ -83,6 +83,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_rawscript_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000001,
         })
         .arg("x", json!(5))
@@ -119,6 +120,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_script_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000002,
         })
         .arg("x", json!(7))
@@ -157,6 +159,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_multi_step_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000003,
         })
         .arg("x", json!(5))
@@ -198,6 +201,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Bun,
             priority: None,
             apply_preprocessor: false,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -239,6 +243,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Bun,
             priority: None,
             apply_preprocessor: false,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -256,6 +261,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Bun,
             priority: None,
             apply_preprocessor: false,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -318,6 +324,7 @@ mod dedicated_worker_tests {
                     path: "f/system/dedicated_flow_runners".to_string(),
                     dedicated_worker: None,
                     apply_preprocessor: false,
+                    labels: None,
                     version: 3000000000000004,
                 })
                 .run_until_complete(&db, false, port)
@@ -346,6 +353,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_deno_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000005,
         })
         .arg("x", json!(5))
@@ -380,6 +388,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_python_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000006,
         })
         .arg("x", json!(5))
@@ -415,6 +424,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_bunnative_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000007,
         })
         .arg("x", json!(5))
@@ -452,6 +462,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_nodejs_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000008,
         })
         .arg("x", json!(5))
@@ -486,6 +497,7 @@ mod dedicated_worker_tests {
             path: "f/system/conflict_flow_a".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000009,
         })
         .arg("x", json!(5))
@@ -496,6 +508,7 @@ mod dedicated_worker_tests {
             path: "f/system/conflict_flow_b".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000010,
         })
         .arg("x", json!(5))
@@ -546,6 +559,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Bun,
             priority: None,
             apply_preprocessor: true,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -603,6 +617,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Bun,
             priority: None,
             apply_preprocessor: false,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -616,6 +631,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_conflict_standalone_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000011,
         })
         .arg("x", json!(7))
@@ -664,6 +680,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_mixed_lang_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000012,
         })
         .arg("x", json!(5))
@@ -721,6 +738,7 @@ mod dedicated_worker_tests {
                     path: "f/system/dedicated_flow_runners_bash".to_string(),
                     dedicated_worker: None,
                     apply_preprocessor: false,
+                    labels: None,
                     version: 3000000000000013,
                 })
                 .run_until_complete(&db, false, port)
@@ -753,6 +771,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Python3,
             priority: None,
             apply_preprocessor: false,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -770,6 +789,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Python3,
             priority: None,
             apply_preprocessor: false,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -822,6 +842,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Bun,
             priority: None,
             apply_preprocessor: true,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -840,6 +861,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Bun,
             priority: None,
             apply_preprocessor: false,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -900,6 +922,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_branch_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000014,
         })
         .arg("x", json!(20))
@@ -911,6 +934,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_branch_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000014,
         })
         .arg("x", json!(5))
@@ -958,6 +982,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Python3,
             priority: None,
             apply_preprocessor: true,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -1007,6 +1032,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Deno,
             priority: None,
             apply_preprocessor: true,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -1057,6 +1083,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Bunnative,
             priority: None,
             apply_preprocessor: true,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -1109,6 +1136,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Python3,
             priority: None,
             apply_preprocessor: true,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -1126,6 +1154,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Python3,
             priority: None,
             apply_preprocessor: false,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -1187,6 +1216,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Bun,
             priority: None,
             apply_preprocessor: false,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -1204,6 +1234,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Bun,
             priority: None,
             apply_preprocessor: false,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -1257,6 +1288,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Bun,
             priority: None,
             apply_preprocessor: false,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -1300,6 +1332,7 @@ mod dedicated_worker_tests {
             language: windmill_common::scripts::ScriptLang::Python3,
             priority: None,
             apply_preprocessor: false,
+            labels: None,
             concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
             ),
             debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
@@ -1338,6 +1371,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_forloop_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000015,
         })
         .push(&db)
@@ -1374,6 +1408,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_forloop_multi_step_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000019,
         })
         .push(&db)
@@ -1412,6 +1447,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_whileloop_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000016,
         })
         .arg("x", json!(1))
@@ -1450,6 +1486,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_branchall_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000017,
         })
         .arg("x", json!(5))
@@ -1488,6 +1525,7 @@ mod dedicated_worker_tests {
             path: "f/system/dedicated_nested_flow".to_string(),
             dedicated_worker: Some(true),
             apply_preprocessor: false,
+            labels: None,
             version: 3000000000000018,
         })
         .push(&db)

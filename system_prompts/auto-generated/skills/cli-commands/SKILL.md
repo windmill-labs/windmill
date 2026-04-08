@@ -586,6 +586,17 @@ workspace related commands
   - `--branch, --env <branch:string>` - Specify branch/environment (defaults to current)
 - `workspace fork [workspace_name:string] [workspace_id:string]` - Create a forked workspace
   - `--create-workspace-name <workspace_name:string>` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
+  - `--color <color:string>` - Workspace color (hex code, e.g. #ff0000)
+  - `--datatable-behavior <behavior:string>` - How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)
+  - `-y --yes` - Skip interactive prompts (defaults datatable behavior to 'skip')
 - `workspace delete-fork <fork_name:string>` - Delete a forked workspace and git branch
   - `-y --yes` - Skip confirmation prompt
+- `workspace merge` - Compare and deploy changes between a fork and its parent workspace
+  - `--direction <direction:string>` - Deploy direction: to-parent or to-fork
+  - `--all` - Deploy all changed items including conflicts
+  - `--skip-conflicts` - Skip items modified in both workspaces
+  - `--include <items:string>` - Comma-separated kind:path items to include (e.g. script:f/test/main,flow:f/my/flow)
+  - `--exclude <items:string>` - Comma-separated kind:path items to exclude
+  - `--preserve-on-behalf-of` - Preserve original on_behalf_of/permissioned_as values
+  - `-y --yes` - Non-interactive mode (deploy without prompts)
 

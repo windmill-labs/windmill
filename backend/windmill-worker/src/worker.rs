@@ -1316,6 +1316,11 @@ pub fn create_span_with_name(
         script_path = field::Empty,
         flow_step_id = field::Empty,
         parent_job = field::Empty,
+        job_kind = %arc_job.kind.as_str(),
+        created_by = %arc_job.created_by,
+        trigger_kind = field::Empty,
+        trigger = field::Empty,
+        script_hash = field::Empty,
         otel.name = field::Empty
     );
 
@@ -1341,6 +1346,15 @@ pub fn create_span_with_name(
     }
     if let Some(hostname) = hostname {
         span.record("hostname", hostname);
+    }
+    if let Some(trigger_kind) = arc_job.trigger_kind.as_ref() {
+        span.record("trigger_kind", trigger_kind.to_string().as_str());
+    }
+    if let Some(trigger) = arc_job.trigger.as_ref() {
+        span.record("trigger", trigger.as_str());
+    }
+    if let Some(script_hash) = arc_job.runnable_id.as_ref() {
+        span.record("script_hash", script_hash.to_string().as_str());
     }
 
     windmill_common::otel_oss::set_span_parent(&span, &rj);

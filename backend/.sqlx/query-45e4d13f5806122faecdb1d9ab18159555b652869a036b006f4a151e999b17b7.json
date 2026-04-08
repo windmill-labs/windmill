@@ -47,6 +47,11 @@
         "ordinal": 8,
         "name": "labels",
         "type_info": "TextArray"
+      },
+      {
+        "ordinal": 9,
+        "name": "ws_specific",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -63,7 +68,8 @@
       false,
       true,
       true,
-      true
+      true,
+      false
     ]
   },
   "hash": "45e4d13f5806122faecdb1d9ab18159555b652869a036b006f4a151e999b17b7"

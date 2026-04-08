@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value, description, resource_type\n         FROM resource\n         WHERE workspace_id = $1 AND path = $2",
+  "query": "SELECT value, description, resource_type, ws_specific\n         FROM resource\n         WHERE workspace_id = $1 AND path = $2",
   "describe": {
     "columns": [
       {
@@ -17,6 +17,11 @@
         "ordinal": 2,
         "name": "resource_type",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "ws_specific",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -28,8 +33,9 @@
     "nullable": [
       true,
       true,
+      false,
       false
     ]
   },
-  "hash": "819c233915383e89af1bcf1a56c5f67c4e1fc217f216f609e36a9944a7807b33"
+  "hash": "83d537bb8a4bb0121b6c7c2c6f7ce67c1281e16025aa3cf559a4f7a6a034d734"
 }
