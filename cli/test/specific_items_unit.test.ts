@@ -267,7 +267,7 @@ test("branchOverride: isCurrentBranchFile with override handles sanitized branch
 test("branchOverride: getSpecificItemsForCurrentBranch with override returns correct config", () => {
   // Test that getSpecificItemsForCurrentBranch uses the override branch
   const config = {
-    gitBranches: {
+    workspaces: {
       staging: {
         specificItems: {
           variables: ["f/**"],
@@ -298,7 +298,7 @@ test("branchOverride: getSpecificItemsForCurrentBranch with override returns cor
 
 test("branchOverride: getSpecificItemsForCurrentBranch with non-existent branch returns undefined", () => {
   const config = {
-    gitBranches: {
+    workspaces: {
       staging: {
         specificItems: {
           variables: ["f/**"],
@@ -314,7 +314,7 @@ test("branchOverride: getSpecificItemsForCurrentBranch with non-existent branch 
 
 test("branchOverride: getSpecificItemsForCurrentBranch merges common and branch items", () => {
   const config = {
-    gitBranches: {
+    workspaces: {
       commonSpecificItems: {
         variables: ["common/**"],
         resources: ["shared/**"],
