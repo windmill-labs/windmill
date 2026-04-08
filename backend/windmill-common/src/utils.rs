@@ -122,6 +122,21 @@ lazy_static::lazy_static! {
                 }
                 #[cfg(feature = "enterprise")]
                 Mode::Agent
+            } else if &x == "agent-batch" {
+                println!("Binary is in 'agent-batch' mode with BASE_INTERNAL_URL={}", std::env::var("BASE_INTERNAL_URL").unwrap_or_default());
+                if std::env::var("BASE_INTERNAL_URL").is_err() {
+                    panic!("BASE_INTERNAL_URL is required in agent-batch mode")
+                }
+                if std::env::var("AGENT_TOKEN").is_err() {
+                    println!("AGENT_TOKEN is not passed. This is required for the agent to work and contains the JWT to authenticate with the server.")
+                }
+
+                #[cfg(not(feature = "enterprise"))]
+                {
+                    panic!("Agent-batch mode is only available in the EE, ignoring...");
+                }
+                #[cfg(feature = "enterprise")]
+                Mode::AgentBatch
             } else if &x == "indexer" {
                 tracing::info!("Binary is in 'indexer' mode");
                 #[cfg(not(feature = "tantivy"))]
@@ -474,6 +489,7 @@ pub fn map_string_to_number(s: &str, max_number: u64) -> u64 {
 pub enum Mode {
     Worker,
     Agent,
+    AgentBatch,
     Server,
     Standalone,
     Indexer,
@@ -485,6 +501,7 @@ impl std::fmt::Display for Mode {
         match self {
             Mode::Worker => write!(f, "worker"),
             Mode::Agent => write!(f, "agent"),
+            Mode::AgentBatch => write!(f, "agent-batch"),
             Mode::Server => write!(f, "server"),
             Mode::Standalone => write!(f, "standalone"),
             Mode::Indexer => write!(f, "indexer"),

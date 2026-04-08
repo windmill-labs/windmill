@@ -37,6 +37,15 @@ pub async fn pull_job(
         .await
 }
 
+pub async fn batch_pull_jobs(
+    client: &HttpClient,
+    batch_size: i32,
+) -> anyhow::Result<Vec<JobAndPerms>> {
+    client
+        .post("/api/agent_workers/batch_pull", None, &batch_size)
+        .await
+}
+
 pub async fn send_result(client: &HttpClient, jc: JobCompleted) -> anyhow::Result<String> {
     client
         .post(

@@ -754,7 +754,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         .and_then(|x| x.parse().ok())
         .unwrap_or(IpAddr::from(default_bind_addr));
 
-    let (conn, first_suffix, agent_config) = if mode == Mode::Agent {
+    let (conn, first_suffix, agent_config) = if matches!(mode, Mode::Agent | Mode::AgentBatch) {
         let agent_config = match AgentConfig::from_env() {
             Ok(config) => config,
             Err(e) => {
@@ -829,7 +829,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
-    let is_agent = mode == Mode::Agent;
+    let is_agent = matches!(mode, Mode::Agent | Mode::AgentBatch);
 
     let mut migration_handle: Option<JoinHandle<()>> = None;
     #[cfg(feature = "parquet")]
@@ -953,7 +953,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         }
     }
 
-    let conn = if mode == Mode::Agent {
+    let conn = if matches!(mode, Mode::Agent | Mode::AgentBatch) {
         conn
     } else {
         // Drop the initial connection pool before creating the main one.
@@ -1289,7 +1289,7 @@ Windmill Community Edition {GIT_VERSION}
                                 )
                             },
                             worker_name: worker_name_with_suffix(
-                                mode == Mode::Agent,
+                                matches!(mode, Mode::Agent | Mode::AgentBatch),
                                 WORKER_GROUP.as_str(),
                                 &suffix,
                             ),

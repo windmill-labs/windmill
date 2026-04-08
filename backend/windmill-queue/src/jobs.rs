@@ -443,6 +443,25 @@ pub async fn append_logs(
     }
 }
 
+/// Pull up to `batch_size` jobs at once using the given batch pull query.
+/// The query must use $1 for worker_name and $2 for batch_size (i32).
+pub async fn batch_pull(
+    db: &Pool<Postgres>,
+    worker_name: &str,
+    batch_query: &str,
+    batch_size: i32,
+) -> windmill_common::error::Result<Vec<PulledJob>> {
+    let jobs = sqlx::query_as::<_, PulledJob>(batch_query)
+        .bind(worker_name)
+        .bind(batch_size)
+        .fetch_all(db)
+        .await
+        .map_err(|e| {
+            windmill_common::error::Error::InternalErr(format!("batch pull error: {e:#}"))
+        })?;
+    Ok(jobs)
+}
+
 pub const PERIODIC_SCRIPT_TAG: &str = "periodic_bash_script";
 pub const INIT_SCRIPT_TAG: &str = "init_script";
 pub const INIT_SCRIPT_PATH_PREFIX: &str = "init_script_";
@@ -3638,8 +3657,11 @@ pub fn resolve_debounce_key<'b>(
                 .join(":"),
         ));
 
-    tracing::debug!("Original debounce key (len={}): {}", original_debounce_key.len(), original_debounce_key);
-
+    tracing::debug!(
+        "Original debounce key (len={}): {}",
+        original_debounce_key.len(),
+        original_debounce_key
+    );
 
     // If debounce_key is not too long (< 255 chars), keep it as is, otherwise hash it.
     // On cloud, we prepend "{workspace_id}:" so we must reserve space for that prefix
