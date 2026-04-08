@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT mqtt_resource_path, client_version AS \"client_version: String\",\n               script_path, mode AS \"mode: String\"\n        FROM mqtt_trigger\n        WHERE workspace_id = $1 AND path = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "mqtt_resource_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "client_version: String",
+        "type_info": {
+          "Custom": {
+            "name": "mqtt_client_version",
+            "kind": {
+              "Enum": [
+                "v3",
+                "v5"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "mode: String",
+        "type_info": {
+          "Custom": {
+            "name": "trigger_mode",
+            "kind": {
+              "Enum": [
+                "enabled",
+                "disabled",
+                "suspended"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "899a162192d93c7fb7d47d38f4fb0fadcafc2bb0c61efa8ee496af7252d18270"
+}

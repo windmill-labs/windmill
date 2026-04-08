@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO volume (workspace_id, name, size_bytes, created_by)\n         VALUES ($1, $2, 0, $3)\n         ON CONFLICT (workspace_id, name) DO NOTHING\n         RETURNING name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a3970c15271a124307301c0dafa263e7168fa325c5ceb44e9dd1595bdb7e7ce6"
+}

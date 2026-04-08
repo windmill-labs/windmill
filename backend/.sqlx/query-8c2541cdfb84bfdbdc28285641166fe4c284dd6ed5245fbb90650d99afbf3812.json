@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT CAST(ROUND(AVG(duration_ms), 0) AS BIGINT) AS avg_duration_s FROM\n                (SELECT duration_ms FROM concurrency_key LEFT JOIN v2_job_completed ON v2_job_completed.id = concurrency_key.job_id WHERE key = $1 AND ended_at IS NOT NULL\n                ORDER BY ended_at\n                DESC LIMIT 10) AS t",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "avg_duration_s",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8c2541cdfb84bfdbdc28285641166fe4c284dd6ed5245fbb90650d99afbf3812"
+}

@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT provider, model, mode,\n               COUNT(*)::BIGINT as \"session_count!\",\n               COALESCE(SUM(message_count), 0)::BIGINT as \"message_count!\"\n        FROM ai_chat_usage\n        WHERE created_at > NOW() - INTERVAL '30 days'\n        GROUP BY provider, model, mode\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "provider",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "model",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "mode",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "session_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "message_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "3ec92c1682f3ce701028f66f7ce83030e7a7ce32971a5621aceb738a3673f943"
+}

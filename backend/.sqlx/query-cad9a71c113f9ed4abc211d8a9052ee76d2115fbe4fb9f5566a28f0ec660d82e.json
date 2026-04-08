@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM email_to_igroup WHERE email = 'alice@example.com' AND igroup = 'engineering'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "cad9a71c113f9ed4abc211d8a9052ee76d2115fbe4fb9f5566a28f0ec660d82e"
+}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT flow_version.value AS \"value!: sqlx::types::Json<Box<sqlx::types::JsonRawValue>>\"\n                FROM flow\n                LEFT JOIN flow_version\n                    ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]\n                WHERE flow.path = $1 AND flow.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value!: sqlx::types::Json<Box<sqlx::types::JsonRawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "02bf9763298f301d4fc75490c070a0663142d4d23a2df007361622b94d4783e1"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE concurrency_locks SET\n            last_locked_at = now()\n            WHERE id = $1 AND owner = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "57e270e032e8c04dda7b5c1ca949861756b3ad367a4a500728332a7cb91560a4"
+}

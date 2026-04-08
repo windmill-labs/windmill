@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT threshold_alert_amount, last_alert_sent FROM cloud_workspace_settings WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "threshold_alert_amount",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "last_alert_sent",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "f74589aaa72d0eb9f44157cc60eb121e63a7f31ed849834bb8ac9e8c726e81f1"
+}

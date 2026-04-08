@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE flow SET value = $1\n         WHERE workspace_id = 'wm-fork-test-workspace' AND path = 'f/shared/original_flow'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e42bb9155be93cbc750702cf7f9a3c54d1a236421861880fe3749052bd2ab43f"
+}

@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            path, route_path, script_path,\n            http_method AS \"http_method: String\",\n            authentication_method AS \"authentication_method: String\"\n        FROM http_trigger\n        WHERE workspace_id = $1 AND path = $2\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "route_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "http_method: String",
+        "type_info": {
+          "Custom": {
+            "name": "http_method",
+            "kind": {
+              "Enum": [
+                "get",
+                "post",
+                "put",
+                "delete",
+                "patch"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "authentication_method: String",
+        "type_info": {
+          "Custom": {
+            "name": "authentication_method",
+            "kind": {
+              "Enum": [
+                "none",
+                "windmill",
+                "api_key",
+                "basic_http",
+                "custom_script",
+                "signature"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "653e7a8509194f60e442848346ee106c8c24445130880be87c12a764e7921bff"
+}

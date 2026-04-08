@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE workspace_settings\n        SET git_app_installations = (\n            SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)\n            FROM jsonb_array_elements(git_app_installations) AS elem\n            WHERE (elem->>'installation_id')::bigint != $1\n        )\n        WHERE workspace_id = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ad288f9f242f930fc571d04d5ba217f653437f60c890b6b73059fdaa7eb45302"
+}

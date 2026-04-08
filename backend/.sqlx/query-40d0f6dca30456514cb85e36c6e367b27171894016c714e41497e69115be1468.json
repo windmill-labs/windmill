@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            name as \"name!\",\n            size_bytes as \"size_bytes!\",\n            file_count as \"file_count!\",\n            created_at as \"created_at!\",\n            created_by as \"created_by!\",\n            updated_at,\n            updated_by,\n            description as \"description!\",\n            last_used_at,\n            extra_perms as \"extra_perms!\"\n         FROM (\n            SELECT\n                COALESCE(v.name, a.path) as name,\n                COALESCE(v.size_bytes, 0) as size_bytes,\n                COALESCE(v.file_count, 0) as file_count,\n                COALESCE(v.created_at, a.min_created_at) as created_at,\n                COALESCE(v.created_by, 'unknown') as created_by,\n                v.updated_at,\n                v.updated_by,\n                COALESCE(v.description, '') as description,\n                v.last_used_at,\n                COALESCE(v.extra_perms, '{}'::jsonb) as extra_perms\n            FROM (\n                SELECT path, MIN(created_at) as min_created_at\n                FROM asset\n                WHERE workspace_id = $1 AND kind = 'volume'\n                GROUP BY path\n            ) a\n            FULL OUTER JOIN volume v ON v.workspace_id = $1 AND v.name = a.path\n            WHERE v.workspace_id = $1 OR a.path IS NOT NULL\n         ) combined\n         ORDER BY name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "size_bytes!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "file_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "description!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "last_used_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "extra_perms!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      true,
+      true,
+      null,
+      true,
+      null
+    ]
+  },
+  "hash": "40d0f6dca30456514cb85e36c6e367b27171894016c714e41497e69115be1468"
+}

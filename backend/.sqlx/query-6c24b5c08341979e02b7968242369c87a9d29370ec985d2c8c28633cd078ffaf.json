@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO usr_to_group (workspace_id, group_, usr) VALUES ('test-workspace', 'editors', 'charlie')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "6c24b5c08341979e02b7968242369c87a9d29370ec985d2c8c28633cd078ffaf"
+}

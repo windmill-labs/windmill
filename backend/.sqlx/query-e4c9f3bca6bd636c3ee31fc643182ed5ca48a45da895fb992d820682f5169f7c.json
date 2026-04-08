@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id\n        FROM v2_job\n        WHERE workspace_id = 'test-workspace'\n            AND permissioned_as_email = 'error_handler@windmill.dev'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e4c9f3bca6bd636c3ee31fc643182ed5ca48a45da895fb992d820682f5169f7c"
+}

@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH step_index AS (\n            SELECT idx::text AS idx\n            FROM v2_job_status,\n                 jsonb_array_elements(flow_status->'modules') WITH ORDINALITY arr(elem, idx)\n            WHERE id = $1\n              AND elem->>'id' = $5\n            LIMIT 1\n        ), completed AS (\n            INSERT INTO v2_job_completed\n                (workspace_id, id, started_at, duration_ms, result,\n                 flow_status, workflow_as_code_status, status, worker)\n            SELECT\n                q.workspace_id, q.id, q.started_at,\n                (EXTRACT('epoch' FROM now()) - EXTRACT('epoch' FROM COALESCE(q.started_at, now()))) * 1000,\n                $3::text::jsonb,\n                CASE WHEN si.idx IS NOT NULL\n                    THEN jsonb_set(\n                        s.flow_status,\n                        ARRAY['modules', (si.idx::int - 1)::text],\n                        $6::jsonb\n                    )\n                    ELSE s.flow_status\n                END,\n                s.workflow_as_code_status,\n                'skipped'::job_status,\n                q.worker\n            FROM v2_job_queue q\n            LEFT JOIN v2_job_status s ON s.id = q.id\n            LEFT JOIN step_index si ON true\n            WHERE q.id = $1\n            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = EXCLUDED.result\n            RETURNING 1 AS x\n        ), _deleted AS (\n            DELETE FROM v2_job_queue WHERE id = $1\n        ), _logged AS (\n            INSERT INTO job_logs (logs, job_id, workspace_id)\n            VALUES ($4, $1, $2)\n            ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, EXCLUDED.logs)\n        )\n        SELECT x FROM completed\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "x",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4461fe84370e7f07b4423ea5e71b913dd6ee9c655f9ec7087cc0fec9b9c3099a"
+}
