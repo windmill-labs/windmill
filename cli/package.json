@@ -20,7 +20,7 @@
     "@cliffy/table": "npm:@jsr/cliffy__table@1.0.0",
     "@windmill-labs/shared-utils": "^1.0.12",
     "diff": "^5.2.0",
-    "esbuild": "0.24.2",
+    "esbuild": "0.28.0",
     "get-port": "7.1.0",
     "jszip": "3.8.0",
     "minimatch": "^10.0.0",
