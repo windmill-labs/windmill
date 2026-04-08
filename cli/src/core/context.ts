@@ -354,10 +354,23 @@ export async function tryResolveBranchWorkspace(
   }
 
   const workspaceId = getEffectiveWorkspaceId(wsName, wsEntry);
+  const effectiveGitBranch = (wsEntry as any).gitBranch ?? wsName;
   const { baseUrl } = wsEntry;
 
+  // Explain why this workspace was selected
+  let reason: string;
+  if (workspaceNameOverride) {
+    reason = `selected via --workspace`;
+  } else if (originalBranchIfForked) {
+    reason = `matched via fork branch '${rawBranch}' → original branch '${originalBranchIfForked}'`;
+  } else if (effectiveGitBranch !== wsName) {
+    reason = `matched git branch '${effectiveGitBranch}' on current branch '${rawBranch}'`;
+  } else {
+    reason = `matched current git branch '${rawBranch}'`;
+  }
+
   log.info(
-    `Using workspace '${wsName}' configuration (${workspaceId} on ${baseUrl})`
+    `Using workspace '${wsName}' (${reason}) → ${workspaceId} on ${baseUrl}`
   );
 
   let normalizedBaseUrl: string;
