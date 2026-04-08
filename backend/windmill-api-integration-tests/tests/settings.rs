@@ -116,7 +116,7 @@ async fn test_settings_2xx(db: Pool<Postgres>) -> anyhow::Result<()> {
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_alert_config_in_global_settings(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_alert_job_queue_waiting_in_global_settings(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -135,29 +135,33 @@ async fn test_alert_config_in_global_settings(db: Pool<Postgres>) -> anyhow::Res
         ]
     });
 
-    // Set alert_config in global_settings
-    let resp = authed(client().post(format!("{settings_base}/global/alert_config")))
+    // Set alert_job_queue_waiting in global_settings
+    let resp = authed(client().post(format!("{settings_base}/global/alert_job_queue_waiting")))
         .json(&json!({"value": alert_payload}))
         .send()
         .await?;
     assert_2xx(
         resp.status().as_u16(),
         &resp.text().await?,
-        "POST /settings/global/alert_config",
+        "POST /settings/global/alert_job_queue_waiting",
     );
 
     // Read it back
-    let resp = authed(client().get(format!("{settings_base}/global/alert_config")))
+    let resp = authed(client().get(format!("{settings_base}/global/alert_job_queue_waiting")))
         .send()
         .await?;
     let status = resp.status().as_u16();
     let body = resp.text().await?;
-    assert_2xx(status, &body, "GET /settings/global/alert_config");
+    assert_2xx(
+        status,
+        &body,
+        "GET /settings/global/alert_job_queue_waiting",
+    );
     let value: serde_json::Value = serde_json::from_str(&body)?;
     assert_eq!(value["alerts"][0]["name"], "Test Alert");
     assert_eq!(value["alerts"][0]["jobs_num_threshold"], 5);
 
-    // Verify alert_config does NOT appear in list_worker_groups
+    // Verify alert_job_queue_waiting does NOT appear in list_worker_groups
     let resp = authed(client().get(format!("{configs_base}/list_worker_groups")))
         .send()
         .await?;
@@ -169,29 +173,29 @@ async fn test_alert_config_in_global_settings(db: Pool<Postgres>) -> anyhow::Res
     });
     assert!(
         alert_in_groups.is_none(),
-        "alert_config should not appear in worker groups"
+        "alert_job_queue_waiting should not appear in worker groups"
     );
 
     // Delete by setting to null
-    let resp = authed(client().post(format!("{settings_base}/global/alert_config")))
+    let resp = authed(client().post(format!("{settings_base}/global/alert_job_queue_waiting")))
         .json(&json!({"value": null}))
         .send()
         .await?;
     assert_2xx(
         resp.status().as_u16(),
         &resp.text().await?,
-        "POST /settings/global/alert_config (null)",
+        "POST /settings/global/alert_job_queue_waiting (null)",
     );
 
     // Verify it reads back as null
-    let resp = authed(client().get(format!("{settings_base}/global/alert_config")))
+    let resp = authed(client().get(format!("{settings_base}/global/alert_job_queue_waiting")))
         .send()
         .await?;
     let body = resp.text().await?;
     let value: serde_json::Value = serde_json::from_str(&body)?;
     assert!(
         value.is_null(),
-        "alert_config should be null after deletion"
+        "alert_job_queue_waiting should be null after deletion"
     );
 
     Ok(())

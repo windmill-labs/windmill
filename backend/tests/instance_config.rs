@@ -1173,18 +1173,20 @@ async fn test_alert_config_in_global_settings_roundtrip(db: Pool<Postgres>) {
     });
 
     // Insert alert_config into global_settings
-    insert_global_setting(&db, "alert_config", alert_value.clone()).await;
+    insert_global_setting(&db, "alert_job_queue_waiting", alert_value.clone()).await;
 
     // Verify it appears in InstanceConfig global_settings (via extra)
     let config = InstanceConfig::from_db(&db).await.unwrap();
     assert_eq!(
-        config.global_settings.extra["alert_config"], alert_value,
+        config.global_settings.extra["alert_job_queue_waiting"], alert_value,
         "alert_config should appear in global_settings extra"
     );
 
     // Verify it does NOT appear in worker_configs
     assert!(
-        !config.worker_configs.contains_key("alert_config"),
+        !config
+            .worker_configs
+            .contains_key("alert_job_queue_waiting"),
         "alert_config should not appear in worker_configs"
     );
 
@@ -1203,11 +1205,11 @@ async fn test_alert_config_in_global_settings_roundtrip(db: Pool<Postgres>) {
 
     let current = config.global_settings.to_settings_map();
     let mut desired = current.clone();
-    desired.insert("alert_config".to_string(), updated_value.clone());
+    desired.insert("alert_job_queue_waiting".to_string(), updated_value.clone());
 
     let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
     assert!(
-        diff.upserts.contains_key("alert_config"),
+        diff.upserts.contains_key("alert_job_queue_waiting"),
         "alert_config change should be detected in diff"
     );
 
@@ -1215,7 +1217,10 @@ async fn test_alert_config_in_global_settings_roundtrip(db: Pool<Postgres>) {
 
     // Re-read and verify the update
     let config2 = InstanceConfig::from_db(&db).await.unwrap();
-    assert_eq!(config2.global_settings.extra["alert_config"], updated_value);
+    assert_eq!(
+        config2.global_settings.extra["alert_job_queue_waiting"],
+        updated_value
+    );
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -1223,7 +1228,12 @@ async fn test_alert_config_not_in_worker_configs(db: Pool<Postgres>) {
     clear_settings_and_configs(&db).await;
 
     // Insert alert_config in global_settings (the correct location)
-    insert_global_setting(&db, "alert_config", serde_json::json!({"alerts": []})).await;
+    insert_global_setting(
+        &db,
+        "alert_job_queue_waiting",
+        serde_json::json!({"alerts": []}),
+    )
+    .await;
 
     // Also insert a real worker config
     insert_config(
@@ -1237,7 +1247,10 @@ async fn test_alert_config_not_in_worker_configs(db: Pool<Postgres>) {
 
     // alert_config should be in global_settings, not worker_configs
     assert!(
-        config.global_settings.extra.contains_key("alert_config"),
+        config
+            .global_settings
+            .extra
+            .contains_key("alert_job_queue_waiting"),
         "alert_config should be in global_settings.extra"
     );
     assert_eq!(config.worker_configs.len(), 1);

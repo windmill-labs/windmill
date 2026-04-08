@@ -48,7 +48,7 @@
 
 	async function fetchConfig() {
 		try {
-			const response = await SettingService.getGlobal({ key: 'alert_config' })
+			const response = await SettingService.getGlobal({ key: 'alert_job_queue_waiting' })
 			queueAlertConfig = (response as any)?.alerts || []
 			expandedTagRows = []
 		} catch (error) {
@@ -190,7 +190,7 @@
 
 	async function saveQueueAlertConfig() {
 		await SettingService.setGlobal({
-			key: 'alert_config',
+			key: 'alert_job_queue_waiting',
 			requestBody: { value: { alerts: queueAlertConfig } }
 		})
 	}
