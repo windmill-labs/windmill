@@ -79,24 +79,39 @@ export function validateScriptState(input: {
 
 export function validateFlowState(input: {
   actual: FlowState;
+  initial?: FlowState;
   expected?: FlowState;
 }): BenchmarkCheck[] {
   const actualModules = getFlowModules(input.actual);
   const checks: BenchmarkCheck[] = [check("flow has modules", actualModules.length > 0)];
+
+  if (input.initial) {
+    checks.push(
+      check(
+        "flow differs from initial",
+        normalizeJson(input.actual) !== normalizeJson(input.initial)
+      )
+    );
+  }
 
   if (!input.expected) {
     return checks;
   }
 
   const expectedModules = getFlowModules(input.expected);
-  const actualTypes = new Set(actualModules.map((module) => String(module.type ?? "")));
-  const expectedTypes = new Set(expectedModules.map((module) => String(module.type ?? "")));
+  const actualTypes = new Set(actualModules.map((module) => getModuleType(module) ?? ""));
+  const expectedTypes = new Set(expectedModules.map((module) => getModuleType(module) ?? ""));
   const missingTypes = [...expectedTypes].filter((type) => type && !actualTypes.has(type));
   const actualTopLevelIds = getTopLevelFlowModuleIds(input.actual);
   const expectedTopLevelIds = getTopLevelFlowModuleIds(input.expected);
   const missingIds = expectedTopLevelIds.filter((id) => !actualTopLevelIds.includes(id));
   const expectedSchemaRootType = getSchemaRootType(input.expected.schema);
   const actualSchemaRootType = getSchemaRootType(input.actual.schema);
+  const actualModuleById = new Map(
+    actualModules
+      .map((module) => [typeof module.id === "string" ? module.id : "", module] as const)
+      .filter(([id]) => id.length > 0)
+  );
 
   checks.push(
     check(
@@ -124,6 +139,96 @@ export function validateFlowState(input: {
         missingIds.length > 0 ? `missing: ${missingIds.join(", ")}` : undefined
       )
     );
+  }
+
+  for (const expectedModule of expectedModules) {
+    const expectedId = typeof expectedModule.id === "string" ? expectedModule.id : null;
+    if (!expectedId) {
+      continue;
+    }
+
+    const actualModule = actualModuleById.get(expectedId);
+    if (!actualModule) {
+      continue;
+    }
+
+    const expectedType = getModuleType(expectedModule);
+    if (expectedType) {
+      checks.push(
+        check(
+          `${expectedId} type matches expected`,
+          getModuleType(actualModule) === expectedType,
+          `expected ${expectedType}, got ${getModuleType(actualModule) ?? "(missing)"}`
+        )
+      );
+    }
+
+    const expectedPath = getModulePath(expectedModule);
+    if (expectedPath) {
+      checks.push(
+        check(
+          `${expectedId} path matches expected`,
+          getModulePath(actualModule) === expectedPath,
+          `expected ${expectedPath}, got ${getModulePath(actualModule) ?? "(missing)"}`
+        )
+      );
+    }
+
+    if (hasSuspendConfig(expectedModule)) {
+      checks.push(check(`${expectedId} includes suspend config`, hasSuspendConfig(actualModule)));
+    }
+
+    const expectedContinueOnError = getContinueOnError(expectedModule);
+    if (expectedContinueOnError !== undefined) {
+      checks.push(
+        check(
+          `${expectedId} continue_on_error matches expected`,
+          getContinueOnError(actualModule) === expectedContinueOnError
+        )
+      );
+    }
+
+    if (hasRetryConfig(expectedModule)) {
+      checks.push(check(`${expectedId} includes retry config`, hasRetryConfig(actualModule)));
+    }
+
+    const expectedParallel = getModuleParallel(expectedModule);
+    if (expectedParallel !== undefined) {
+      checks.push(
+        check(
+          `${expectedId} parallel matches expected`,
+          getModuleParallel(actualModule) === expectedParallel
+        )
+      );
+    }
+  }
+
+  for (const specialKey of ["preprocessor_module", "failure_module"] as const) {
+    const expectedSpecial = getSpecialFlowModule(input.expected, specialKey);
+    if (!expectedSpecial) {
+      continue;
+    }
+
+    const actualSpecial = getSpecialFlowModule(input.actual, specialKey);
+    checks.push(check(`${specialKey} exists`, Boolean(actualSpecial)));
+    if (!actualSpecial) {
+      continue;
+    }
+
+    const expectedType = getModuleType(expectedSpecial);
+    if (expectedType) {
+      checks.push(
+        check(
+          `${specialKey} type matches expected`,
+          getModuleType(actualSpecial) === expectedType,
+          `expected ${expectedType}, got ${getModuleType(actualSpecial) ?? "(missing)"}`
+        )
+      );
+    }
+
+    if (hasRetryConfig(expectedSpecial)) {
+      checks.push(check(`${specialKey} includes retry config`, hasRetryConfig(actualSpecial)));
+    }
   }
 
   return checks;
@@ -220,6 +325,10 @@ function normalizeText(value: string): string {
   return value.replace(/\r\n/g, "\n").trim();
 }
 
+function normalizeJson(value: unknown): string {
+  return JSON.stringify(value);
+}
+
 function hasSupportedEntrypoint(code: string): boolean {
   return (
     /export\s+(async\s+)?function\s+main\s*\(/.test(code) ||
@@ -246,6 +355,61 @@ function getTopLevelFlowModuleIds(flow: FlowState): string[] {
   return getFlowModules(flow)
     .map((module) => module.id)
     .filter((value): value is string => typeof value === "string");
+}
+
+function getSpecialFlowModule(
+  flow: FlowState,
+  key: "preprocessor_module" | "failure_module"
+): Record<string, unknown> | null {
+  if (!flow.value || typeof flow.value !== "object") {
+    return null;
+  }
+  const module = (flow.value as Record<string, unknown>)[key];
+  return module && typeof module === "object" ? (module as Record<string, unknown>) : null;
+}
+
+function getModuleType(module: Record<string, unknown>): string | null {
+  const value = module.value;
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return typeof (value as Record<string, unknown>).type === "string"
+    ? ((value as Record<string, string>).type)
+    : null;
+}
+
+function getModulePath(module: Record<string, unknown>): string | null {
+  const value = module.value;
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return typeof (value as Record<string, unknown>).path === "string"
+    ? ((value as Record<string, string>).path)
+    : null;
+}
+
+function hasSuspendConfig(module: Record<string, unknown>): boolean {
+  return typeof module.suspend === "object" && module.suspend !== null;
+}
+
+function getContinueOnError(module: Record<string, unknown>): boolean | undefined {
+  return typeof module.continue_on_error === "boolean"
+    ? (module.continue_on_error as boolean)
+    : undefined;
+}
+
+function hasRetryConfig(module: Record<string, unknown>): boolean {
+  return typeof module.retry === "object" && module.retry !== null;
+}
+
+function getModuleParallel(module: Record<string, unknown>): boolean | undefined {
+  const value = module.value;
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  return typeof (value as Record<string, unknown>).parallel === "boolean"
+    ? ((value as Record<string, boolean>).parallel)
+    : undefined;
 }
 
 function getSchemaRootType(schema: Record<string, unknown> | undefined): string | null {

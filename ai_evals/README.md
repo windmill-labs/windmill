@@ -13,6 +13,10 @@ Each case is just:
 - an optional `initial` fixture
 - an optional `expected` fixture
 
+For `flow` mode, an `initial` fixture can also include a benchmark workspace catalog of
+existing scripts and flows. That lets the real `search_workspace` /
+`get_runnable_details` tools discover reusable building blocks during evals.
+
 Each attempt runs:
 
 1. the real production prompt/tool/guidance path

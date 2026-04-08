@@ -1,0 +1,29 @@
+{
+  "workspace": {
+    "scripts": [
+      {
+        "path": "f/evals/add_two_numbers.ts",
+        "summary": "Add two numbers",
+        "description": "Returns the sum of two numeric inputs.",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "a": {
+              "type": "number"
+            },
+            "b": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "a",
+            "b"
+          ]
+        },
+        "content": "export async function main(a: number, b: number) {\n  return a + b;\n}\n"
+      }
+    ]
+  }
+}

@@ -956,6 +956,86 @@ export function formatScriptLintResult(lintResult: ScriptLintResult): string {
 
 // ============= Workspace Runnables Search =============
 
+export interface BenchmarkWorkspaceScript {
+	path: string
+	summary: string
+	description?: string
+	language: Script['language']
+	schema?: Record<string, unknown>
+	content: string
+}
+
+export interface BenchmarkWorkspaceFlow {
+	path: string
+	summary: string
+	description?: string
+	schema?: Record<string, unknown>
+	value: Flow['value']
+}
+
+export interface BenchmarkWorkspaceRunnables {
+	scripts?: BenchmarkWorkspaceScript[]
+	flows?: BenchmarkWorkspaceFlow[]
+}
+
+const benchmarkWorkspaceRunnables = new Map<string, BenchmarkWorkspaceRunnables>()
+const BENCHMARK_TIMESTAMP = '1970-01-01T00:00:00.000Z'
+
+function getBenchmarkWorkspaceCatalog(workspace: string): BenchmarkWorkspaceRunnables | undefined {
+	return benchmarkWorkspaceRunnables.get(workspace)
+}
+
+function buildBenchmarkScript(script: BenchmarkWorkspaceScript): Script {
+	return {
+		workspace_id: 'benchmark',
+		hash: `benchmark:${script.path}`,
+		path: script.path,
+		parent_hashes: [],
+		summary: script.summary,
+		description: script.description ?? '',
+		content: script.content,
+		created_by: 'benchmark',
+		created_at: BENCHMARK_TIMESTAMP,
+		archived: false,
+		schema: script.schema ?? {},
+		deleted: false,
+		is_template: false,
+		extra_perms: {},
+		language: script.language,
+		kind: 'script',
+		starred: false,
+		has_preprocessor: false,
+		modules: null
+	}
+}
+
+function buildBenchmarkFlow(flow: BenchmarkWorkspaceFlow): Flow {
+	return {
+		path: flow.path,
+		summary: flow.summary,
+		description: flow.description ?? '',
+		value: flow.value,
+		schema: flow.schema ?? {},
+		edited_by: 'benchmark',
+		edited_at: BENCHMARK_TIMESTAMP,
+		archived: false,
+		extra_perms: {}
+	} as Flow
+}
+
+export function registerBenchmarkWorkspaceRunnables(
+	workspace: string,
+	runnables: BenchmarkWorkspaceRunnables
+): void {
+	benchmarkWorkspaceRunnables.set(workspace, runnables)
+	workspaceRunnablesSearch.reset(workspace)
+}
+
+export function unregisterBenchmarkWorkspaceRunnables(workspace: string): void {
+	benchmarkWorkspaceRunnables.delete(workspace)
+	workspaceRunnablesSearch.reset(workspace)
+}
+
 export class WorkspaceRunnablesSearch {
 	private uf: uFuzzy
 	private scriptsWorkspace: string | undefined = undefined
@@ -970,16 +1050,53 @@ export class WorkspaceRunnablesSearch {
 		this.uf = new uFuzzy()
 	}
 
+	reset(workspace?: string) {
+		if (!workspace) {
+			this.scripts = undefined
+			this.flows = undefined
+			this.scriptsWorkspace = undefined
+			this.flowsWorkspace = undefined
+			this.scriptCache.clear()
+			this.flowCache.clear()
+			return
+		}
+
+		if (this.scriptsWorkspace === workspace) {
+			this.scripts = undefined
+			this.scriptsWorkspace = undefined
+		}
+		if (this.flowsWorkspace === workspace) {
+			this.flows = undefined
+			this.flowsWorkspace = undefined
+		}
+		for (const key of this.scriptCache.keys()) {
+			if (key.startsWith(`${workspace}:`)) {
+				this.scriptCache.delete(key)
+			}
+		}
+		for (const key of this.flowCache.keys()) {
+			if (key.startsWith(`${workspace}:`)) {
+				this.flowCache.delete(key)
+			}
+		}
+	}
+
 	private async initScripts(workspace: string) {
 		if (this.scripts === undefined || this.scriptsWorkspace !== workspace) {
-			this.scripts = await ScriptService.listScripts({ workspace })
+			const benchmark = getBenchmarkWorkspaceCatalog(workspace)
+			this.scripts = benchmark
+				? (benchmark.scripts ?? []).map(buildBenchmarkScript)
+				: await ScriptService.listScripts({ workspace })
 			this.scriptsWorkspace = workspace
 		}
 	}
 
 	private async initFlows(workspace: string) {
 		if (this.flows === undefined || this.flowsWorkspace !== workspace) {
-			this.flows = await FlowService.listFlows({ workspace })
+			const benchmark = getBenchmarkWorkspaceCatalog(workspace)
+			this.flows = benchmark
+				? (benchmark.flows ?? []).map(buildBenchmarkFlow)
+				: await FlowService.listFlows({ workspace })
 			this.flowsWorkspace = workspace
 		}
 	}
@@ -1056,6 +1173,15 @@ export class WorkspaceRunnablesSearch {
 	}
 
 	async getScript(path: string, workspace: string) {
+		const benchmark = getBenchmarkWorkspaceCatalog(workspace)
+		if (benchmark) {
+			const script = benchmark.scripts?.find((entry) => entry.path === path)
+			if (!script) {
+				throw new Error(`Script "${path}" not found in benchmark workspace`)
+			}
+			return buildBenchmarkScript(script)
+		}
+
 		const key = `${workspace}:${path}`
 		let cached = this.scriptCache.get(key)
 		if (!cached) {
@@ -1066,6 +1192,15 @@ export class WorkspaceRunnablesSearch {
 	}
 
 	async getFlow(path: string, workspace: string) {
+		const benchmark = getBenchmarkWorkspaceCatalog(workspace)
+		if (benchmark) {
+			const flow = benchmark.flows?.find((entry) => entry.path === path)
+			if (!flow) {
+				throw new Error(`Flow "${path}" not found in benchmark workspace`)
+			}
+			return buildBenchmarkFlow(flow)
+		}
+
 		const key = `${workspace}:${path}`
 		let cached = this.flowCache.get(key)
 		if (!cached) {

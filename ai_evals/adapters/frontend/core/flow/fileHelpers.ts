@@ -9,6 +9,12 @@ import {
 	inlineScriptStore,
 	restoreInlineScriptReferences
 } from '../../../../../frontend/src/lib/components/copilot/chat/flow/inlineScriptsUtils'
+import {
+	registerBenchmarkWorkspaceRunnables,
+	unregisterBenchmarkWorkspaceRunnables,
+	type BenchmarkWorkspaceFlow,
+	type BenchmarkWorkspaceScript
+} from '../../../../../frontend/src/lib/components/copilot/chat/shared'
 
 const EMPTY_SCRIPT_LINT_RESULT: ScriptLintResult = {
 	errorCount: 0,
@@ -17,10 +23,16 @@ const EMPTY_SCRIPT_LINT_RESULT: ScriptLintResult = {
 	warnings: []
 }
 
+export interface FlowWorkspaceFixtures {
+	scripts?: BenchmarkWorkspaceScript[]
+	flows?: BenchmarkWorkspaceFlow[]
+}
+
 export async function createFlowFileHelpers(
 	initialModules: FlowModule[] = [],
 	initialSchema?: Record<string, any>,
-	workspaceRoot?: string
+	workspaceRoot?: string,
+	workspaceFixtures?: FlowWorkspaceFixtures
 ): Promise<{
 	helpers: FlowAIChatHelpers
 	getFlow: () => ExtendedOpenFlow
@@ -50,6 +62,10 @@ export async function createFlowFileHelpers(
 	}
 
 	await persistFlow()
+
+	if (workspaceRoot && workspaceFixtures) {
+		registerBenchmarkWorkspaceRunnables(workspaceRoot, workspaceFixtures)
+	}
 
 	const helpers: FlowAIChatHelpers = {
 		getFlowAndSelectedId: () => ({ flow, selectedId: '' }),
@@ -112,6 +128,9 @@ export async function createFlowFileHelpers(
 		getFlow: () => flow,
 		getModules: () => flow.value.modules,
 		cleanup: async () => {
+			if (workspaceRoot) {
+				unregisterBenchmarkWorkspaceRunnables(workspaceRoot)
+			}
 			if (workspaceRoot) {
 				await rm(workspaceRoot, { recursive: true, force: true })
 			}

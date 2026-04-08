@@ -11,7 +11,7 @@ import {
 	type FlowAIChatHelpers
 } from '../../../../../frontend/src/lib/components/copilot/chat/flow/core'
 import type { Tool as ProductionTool } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
-import { createFlowFileHelpers } from './fileHelpers'
+import { createFlowFileHelpers, type FlowWorkspaceFixtures } from './fileHelpers'
 import { runEval } from '../shared'
 import type { ModeRunContext } from '../../../../core/types'
 
@@ -33,6 +33,7 @@ export interface FlowEvalResult {
 
 export interface FlowEvalOptions {
 	initialFlow?: FlowFixture
+	workspaceFixtures?: FlowWorkspaceFixtures
 	model?: string
 	maxIterations?: number
 	provider?: AIProvider
@@ -51,7 +52,8 @@ export async function runFlowEval(
 	const { helpers, getFlow, cleanup } = await createFlowFileHelpers(
 		options?.initialFlow?.value?.modules ?? [],
 		options?.initialFlow?.schema,
-		workspaceRoot
+		workspaceRoot,
+		options?.workspaceFixtures
 	)
 
 	try {
