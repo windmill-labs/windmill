@@ -77,11 +77,6 @@ function makeProvider(): DeployProvider {
 	}
 }
 
-/** Folder diff paths carry the `f/` prefix (e.g. `f/test`), but folder API endpoints expect just the name. */
-function folderName(path: string): string {
-	return path.replace(/^f\//, '')
-}
-
 // ---------------------------------------------------------------------------
 // Public API — thin wrappers that add trigger handling (frontend-specific)
 // ---------------------------------------------------------------------------
