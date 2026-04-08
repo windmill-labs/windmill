@@ -47,13 +47,13 @@ const NON_SCHEMA_KEYS = new Set([
 // Reusable sub-schemas for nested types
 const SPECIFIC_ITEMS_SCHEMA = {
   type: "object",
-  description: "Sync only specific items",
+  description: "Items to sync per-workspace (stored as <file>.<gitBranch>.<type>.yaml on disk)",
   properties: {
-    variables: { type: "array", items: { type: "string" }, description: "Specific variable paths to sync" },
-    resources: { type: "array", items: { type: "string" }, description: "Specific resource paths to sync" },
-    triggers: { type: "array", items: { type: "string" }, description: "Specific trigger paths to sync" },
-    folders: { type: "array", items: { type: "string" }, description: "Specific folder paths to sync" },
-    settings: { type: "boolean", description: "Whether to sync settings" },
+    variables: { type: "array", items: { type: "string" }, description: "Variable path patterns to sync per-workspace" },
+    resources: { type: "array", items: { type: "string" }, description: "Resource path patterns to sync per-workspace" },
+    triggers: { type: "array", items: { type: "string" }, description: "Trigger path patterns to sync per-workspace" },
+    folders: { type: "array", items: { type: "string" }, description: "Folder path patterns to sync per-workspace" },
+    settings: { type: "boolean", description: "Whether to sync settings per-workspace" },
   },
   additionalProperties: false,
 } as const;
@@ -183,7 +183,8 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
       "    # gitBranch: main                        # git branch (defaults to workspace name)",
       "    # promotionOverrides:                    # overrides applied during --promotion",
       "    #   skipSecrets: false",
-      "    # specificItems:                         # only sync these specific items",
+      "    # specificItems:                         # items stored per-workspace on disk",
+      "    #                                        # e.g. file.main.variable.yaml (suffix = gitBranch)",
       '    #   variables: ["f/my_folder/my_var"]',
       '    #   resources: ["f/my_folder/my_res"]',
       '    #   triggers: ["f/my_folder/my_trigger"]',
