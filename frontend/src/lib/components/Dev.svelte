@@ -112,6 +112,8 @@
 	let darkModeToggle: DarkModeToggle | undefined = $state()
 	let darkMode: boolean = $state(document.documentElement.classList.contains('dark'))
 	let modeInitialized = $state(false)
+	let paneWidth = $state(0)
+	let compactPreview = $derived(paneWidth < 800)
 	function initializeMode() {
 		modeInitialized = true
 		darkModeToggle?.toggle()
@@ -847,7 +849,7 @@
 	{:else}
 		<!-- <div class="h-full w-full grid grid-cols-2"> -->
 		<div class="h-full w-full">
-			<div class="flex flex-col max-h-screen h-full relative">
+			<div class="flex flex-col max-h-screen h-full relative" bind:clientWidth={paneWidth}>
 				<div class="absolute top-0 left-2">
 					<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
 					{#if $userStore}
@@ -857,7 +859,7 @@
 					{/if}
 				</div>
 
-				<div class="flex justify-center pt-1 z-50 absolute -translate-x-[100%] right-2 top-2 gap-2">
+				<div class="flex justify-center pt-1 z-50 absolute gap-2 {compactPreview ? 'left-1/2 -translate-x-1/2 top-14' : '-translate-x-[100%] right-2 top-2'}">
 					<FlowPreviewButtons
 						{suspendStatus}
 						bind:this={flowPreviewButtons}

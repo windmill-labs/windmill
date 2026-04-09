@@ -64,6 +64,7 @@ export interface Setting {
 	hiddenInEe?: boolean
 	hideInQuickSetup?: boolean
 	requiresReloadOnChange?: boolean
+	triggersRestart?: boolean
 	isValid?: (value: any) => boolean
 	validate?: (value: any) => Record<string, string>
 	error?: string
@@ -121,7 +122,8 @@ export const scimSamlSetting: Setting[] = [
 		fieldType: 'textarea',
 		placeholder: 'https://dev-2578259.okta.com/app/exkaell8gidiiUWrg5d7/sso/saml/metadata ',
 		storage: 'setting',
-		ee_only: ''
+		ee_only: '',
+		triggersRestart: true
 	}
 ]
 
@@ -150,6 +152,7 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'text',
 			placeholder: 'mail.windmill.com',
 			storage: 'setting',
+			triggersRestart: true,
 			error: 'Must be a valid domain',
 			isValid: (value: string | undefined) =>
 				value == undefined ||
@@ -165,7 +168,8 @@ export const settings: Record<string, Setting[]> = {
 			key: 'request_size_limit_mb',
 			fieldType: 'number',
 			placeholder: '50',
-			storage: 'setting'
+			storage: 'setting',
+			triggersRestart: true
 		},
 		{
 			label: 'License key',
@@ -639,7 +643,8 @@ export const settings: Record<string, Setting[]> = {
 			key: 'otel',
 			fieldType: 'otel',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			triggersRestart: true
 		},
 		{
 			label: 'HTTP Request Tracing',
@@ -649,6 +654,7 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'otel_tracing_proxy',
 			storage: 'setting',
 			ee_only: 'HTTP Request Tracing is an EE feature',
+			triggersRestart: true,
 			defaultValue: () => ({ enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] })
 		},
 		{
@@ -658,7 +664,8 @@ export const settings: Record<string, Setting[]> = {
 			key: 'expose_metrics',
 			fieldType: 'boolean',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			triggersRestart: true
 		}
 	],
 	Indexer: [
