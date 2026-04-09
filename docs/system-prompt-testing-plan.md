@@ -1,5 +1,11 @@
 # System Prompt And Skill Output Testing Plan
 
+Historical note:
+
+- This file is a planning document and no longer matches the current benchmark CLI in every detail.
+- The current source of truth is [ai_evals/README.md](/home/farhad/windmill__worktrees/prompt-testing-plan/ai_evals/README.md) and [system-prompt-testing-status.md](/home/farhad/windmill__worktrees/prompt-testing-plan/docs/system-prompt-testing-status.md).
+- In particular, the current tool no longer has the old variants, compare, or history workflow described below.
+
 ## Goal
 
 Build a single testing strategy that answers one question reliably:
