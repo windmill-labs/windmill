@@ -150,10 +150,15 @@ async function initAction(opts: InitOptions) {
           `✓ Bound workspace '${wsBindings[0].name}' → ${wsBindings[0].workspaceId} on ${wsBindings[0].baseUrl}`
         )
       );
+      log.info(
+        colors.gray("To bind additional workspaces, run: wmill workspace bind")
+      );
+    } else {
+      log.warn(
+        "⚠️  No workspace bound. Sync commands will not work without a workspace.\n" +
+        "   Run 'wmill workspace bind' to bind a workspace to this project."
+      );
     }
-    log.info(
-      colors.gray("To bind additional workspaces, run: wmill workspace bind")
-    );
 
     // Create lock file
     await readLockfile();
