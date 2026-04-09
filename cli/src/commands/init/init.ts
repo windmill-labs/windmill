@@ -169,12 +169,10 @@ async function initAction(opts: InitOptions) {
     // Check for backend git-sync settings — only if a workspace was bound and not --use-default
     if (!opts.useDefault && didBindWorkspace && boundProfile) {
       try {
-        const { requireLogin } = await import("../../core/auth.ts");
         const { setClient } = await import("../../core/client.ts");
 
-        // Use the profile we selected during bind — no need to re-resolve
+        // Use the bound profile directly — skip requireLogin which would resolve to the active profile
         setClient(boundProfile.token, boundProfile.remote.replace(/\/$/, ""));
-        await requireLogin(opts as GlobalOptions);
 
         const wmill = await import("../../../gen/services.gen.ts");
         const settings = await wmill.getSettings({
