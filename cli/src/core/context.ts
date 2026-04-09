@@ -603,7 +603,52 @@ export async function resolveWorkspace(
     }
   }
 
-  // Fall back to active workspace
+  // If workspaces config exists, use it rather than falling back to active profile
+  const config = await readConfigFile({ warnIfMissing: false });
+  const { getWorkspaceNames } = await import("./conf.ts");
+  const wsNames = getWorkspaceNames(config.workspaces);
+
+  if (wsNames.length > 0) {
+    let pickedWsName: string;
+
+    if (wsNames.length === 1) {
+      pickedWsName = wsNames[0];
+      const wsEntry = (config.workspaces as any)[pickedWsName];
+      log.info(
+        `Auto-selected workspace '${pickedWsName}' (only workspace in config). Use --workspace to override.`
+      );
+    } else if (process.stdin.isTTY) {
+      log.info(
+        `Multiple workspaces configured but none matched the current context. Use --workspace to skip this prompt.`
+      );
+      pickedWsName = await Select.prompt({
+        message: "Select workspace",
+        options: wsNames.map((n) => {
+          const entry = (config.workspaces as any)[n];
+          const gitBranch = entry.gitBranch ?? n;
+          const info = entry.baseUrl ? ` (${entry.workspaceId ?? n} on ${entry.baseUrl})` : "";
+          return { name: `${n}${info}`, value: n };
+        }),
+      });
+    } else {
+      log.error(
+        colors.red.bold(
+          `Multiple workspaces configured but none matched the current context.\n` +
+          `Use --workspace to select one: ${wsNames.join(", ")}`
+        )
+      );
+      return process.exit(-1);
+    }
+
+    // Resolve the picked workspace via config
+    const pickedResult = await tryResolveBranchWorkspace(opts, pickedWsName);
+    if (pickedResult) {
+      (opts as any).__secret_workspace = pickedResult;
+      return pickedResult;
+    }
+  }
+
+  // Fall back to active workspace (only when no workspaces config)
   const activeWorkspace = await getActiveWorkspace(opts);
   if (activeWorkspace) {
     (opts as any).__secret_workspace = activeWorkspace;

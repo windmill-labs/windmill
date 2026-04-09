@@ -155,6 +155,28 @@ function resolveWsNameForFiles(_opts: SyncOptions, wsName: string): string {
   return wsName;
 }
 
+// After resolveWorkspace, infer the workspace config name from the resolved profile
+// by matching baseUrl + workspaceId against the workspaces config entries.
+function inferWsNameFromProfile(opts: SyncOptions, profile: { remote: string; workspaceId: string }): string | undefined {
+  if (!opts.workspaces) return undefined;
+  const wsNames = Object.keys(opts.workspaces).filter((k) => k !== "commonSpecificItems");
+  for (const name of wsNames) {
+    const entry = (opts.workspaces as any)[name] as WorkspaceEntryConfig;
+    if (!entry?.baseUrl) continue;
+    try {
+      const entryUrl = new URL(entry.baseUrl).toString();
+      const profileUrl = new URL(profile.remote).toString();
+      const entryWsId = entry.workspaceId ?? name;
+      if (entryUrl === profileUrl && entryWsId === profile.workspaceId) {
+        return name;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
   T extends GlobalOptions & SyncOptions & { repository?: string },
@@ -2095,6 +2117,11 @@ export async function pull(
   const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
 
+  // If wsNameForConfig wasn't set from flags, infer from the resolved profile
+  if (!wsNameForConfig) {
+    wsNameForConfig = inferWsNameFromProfile(opts, workspace);
+  }
+
   // Resolve effective sync options with workspace awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
@@ -2106,7 +2133,7 @@ export async function pull(
   // Extract specific items configuration
   const specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
 
-  // Compute the effective git branch for file naming (may differ from workspace name)
+  // Compute the workspace name for file naming
   const wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : undefined;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
@@ -2609,6 +2636,11 @@ export async function push(
   const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
 
+  // If wsNameForConfig wasn't set from flags, infer from the resolved profile
+  if (!wsNameForConfig) {
+    wsNameForConfig = inferWsNameFromProfile(opts, workspace);
+  }
+
   // Resolve effective sync options with workspace awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
@@ -2620,7 +2652,7 @@ export async function push(
   // Extract specific items configuration
   const specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
 
-  // Compute the effective git branch for file naming (may differ from workspace name)
+  // Compute the workspace name for file naming
   const wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : undefined;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
