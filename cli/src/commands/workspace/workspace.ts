@@ -682,6 +682,28 @@ async function bind(
     await writeFile("wmill.yaml", yamlStringify(config), "utf-8");
   } catch (error) {
     log.error(colors.red(`Failed to save configuration: ${(error as Error).message}`));
+    return;
+  }
+
+  // After a successful bind, offer to generate resource type namespace
+  if (doBind && isInteractive) {
+    const { Confirm } = await import("@cliffy/prompt/confirm");
+    const generate = await Confirm.prompt({
+      message: "Generate resource type namespace from this workspace?",
+      default: true,
+    });
+    if (generate) {
+      try {
+        const { generateRTNamespace } = await import("../resource-type/resource-type.ts");
+        await generateRTNamespace(opts);
+      } catch (error) {
+        log.warn(
+          `Could not generate resource type namespace: ${
+            error instanceof Error ? error.message : error
+          }`
+        );
+      }
+    }
   }
 }
 

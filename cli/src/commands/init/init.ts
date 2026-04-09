@@ -374,6 +374,10 @@ async function initAction(opts: InitOptions) {
         }`
       );
     }
+  } else {
+    log.info(
+      colors.gray("Skipped resource type namespace generation (no workspace bound). Run 'wmill workspace bind' then 'wmill init' to generate it.")
+    );
   }
 }
 
