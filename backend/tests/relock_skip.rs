@@ -33,7 +33,7 @@ mod relock_skip {
             schema: std::collections::HashMap::new(),
             ws_error_handler_muted: Some(false),
             priority: None,
-            delete_after_use: None,
+            delete_after_secs: None,
             timeout: None,
             restart_unless_cancelled: None,
             deployment_message: None,

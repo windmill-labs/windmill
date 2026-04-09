@@ -22,6 +22,10 @@ pub mod vault_oss;
 pub mod azure_kv_ee;
 pub mod azure_kv_oss;
 
+#[cfg(feature = "private")]
+pub mod aws_sm_ee;
+pub mod aws_sm_oss;
+
 #[cfg(test)]
 mod tests;
 
@@ -36,6 +40,12 @@ pub use azure_kv_ee::*;
 
 #[cfg(not(feature = "private"))]
 pub use azure_kv_oss::*;
+
+#[cfg(feature = "private")]
+pub use aws_sm_ee::*;
+
+#[cfg(not(feature = "private"))]
+pub use aws_sm_oss::*;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -91,6 +101,8 @@ pub enum SecretBackendConfig {
     HashiCorpVault(VaultSettings),
     /// Store secrets in Azure Key Vault (Enterprise Edition only)
     AzureKeyVault(AzureKeyVaultSettings),
+    /// Store secrets in AWS Secrets Manager (Enterprise Edition only)
+    AwsSecretsManager(AwsSecretsManagerSettings),
 }
 
 impl Default for SecretBackendConfig {
@@ -134,6 +146,25 @@ pub struct AzureKeyVaultSettings {
     /// If provided, this is used instead of OAuth2 client credentials authentication
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+}
+
+/// Settings for AWS Secrets Manager integration
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AwsSecretsManagerSettings {
+    /// AWS region (e.g., "us-east-1")
+    pub region: String,
+    /// Static AWS access key ID (optional - uses default credential chain if not provided)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_key_id: Option<String>,
+    /// Static AWS secret access key (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret_access_key: Option<String>,
+    /// Custom endpoint URL for LocalStack/testing (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint_url: Option<String>,
+    /// Prefix for secret names in AWS Secrets Manager (e.g., "windmill/")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
 }
 
 /// Result of a secret migration operation

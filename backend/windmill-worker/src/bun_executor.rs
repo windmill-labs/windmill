@@ -2590,7 +2590,7 @@ pub async fn handle_wac_v2_output(
                         }
                         "script" => {
                             // Resolve script path to job payload (handles hash, lang, etc.)
-                            let (payload, _, _, _, _) = script_path_to_payload(
+                            let (payload, _, _, _, _, _) = script_path_to_payload(
                                 &step.script,
                                 None, // no authed db for background workers
                                 db.clone(),

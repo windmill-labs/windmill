@@ -1205,6 +1205,92 @@ pub async fn delete_expired_items(db: &DB) -> () {
     }
 }
 
+#[cfg(feature = "enterprise")]
+async fn cleanup_scheduled_job_deletions(db: &Pool<Postgres>) {
+    const BATCH_SIZE: i64 = 1000;
+    const MAX_BATCHES: i32 = 10;
+
+    let mut total_deleted = 0u64;
+    for batch_num in 0..MAX_BATCHES {
+        let mut tx = match db.begin().await {
+            Ok(tx) => tx,
+            Err(e) => {
+                tracing::error!("Error starting transaction for scheduled job deletion: {e:?}");
+                break;
+            }
+        };
+
+        let rows = match sqlx::query_scalar!(
+            "DELETE FROM job_delete_schedule
+             WHERE job_id IN (
+                 SELECT job_id FROM job_delete_schedule
+                 WHERE delete_at <= now()
+                 ORDER BY delete_at
+                 LIMIT $1
+                 FOR UPDATE SKIP LOCKED
+             )
+             RETURNING job_id",
+            BATCH_SIZE,
+        )
+        .fetch_all(&mut *tx)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::error!("Error in scheduled job deletion batch {batch_num}: {e:?}");
+                break;
+            }
+        };
+
+        if rows.is_empty() {
+            break;
+        }
+
+        let job_ids = rows;
+        let count = job_ids.len() as u64;
+
+        let cleanup_result: Result<(), sqlx::Error> = async {
+            sqlx::query!(
+                "UPDATE v2_job SET args = '{}'::jsonb WHERE id = ANY($1)",
+                &job_ids,
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!(
+                "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
+                &job_ids,
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!(
+                "UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = ANY($1)",
+                &job_ids,
+            )
+            .execute(&mut *tx)
+            .await?;
+            Ok(())
+        }
+        .await;
+
+        if let Err(e) = cleanup_result {
+            // Roll back so schedule rows survive for retry on next cycle
+            tracing::error!("Error cleaning job data in batch {batch_num}, rolling back: {e:?}");
+            break;
+        }
+
+        if let Err(e) = tx.commit().await {
+            tracing::error!("Error committing scheduled job deletion batch {batch_num}: {e:?}");
+            break;
+        }
+
+        total_deleted += count;
+    }
+
+    if total_deleted > 0 {
+        tracing::info!("Scheduled job deletion: cleaned {total_deleted} jobs");
+    }
+}
+
 pub async fn check_expiring_tokens(db: &DB) {
     // Find tokens expiring within 7 days that still have a pending notification row.
     // The notification table stores token_hash (not plaintext) so the join works
@@ -2328,6 +2414,15 @@ pub async fn monitor_db(
         }
     };
 
+    let cleanup_scheduled_job_deletions_f = async {
+        #[cfg(feature = "enterprise")]
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                cleanup_scheduled_job_deletions(&db).await;
+            }
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -2351,6 +2446,7 @@ pub async fn monitor_db(
         cleanup_notify_events_f,
         check_expiring_tokens_f,
         manage_audit_partitions_f,
+        cleanup_scheduled_job_deletions_f,
     );
 }
 

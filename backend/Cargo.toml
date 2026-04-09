@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.675.0"
+version = "1.680.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -85,7 +85,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.675.0"
+version = "1.680.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -560,6 +560,7 @@ aws-sdk-bedrock = "1.129.0"
 aws-sdk-bedrockruntime = "=1.122.0"
 aws-credential-types = "^1"
 aws-smithy-types = "^1"
+aws-sdk-secretsmanager = "^1"
 aws-sdk-sqs = "=1.77.0"
 aws-sdk-sts = "=1.79.0"
 aws-sdk-sso = "=1.77.0"

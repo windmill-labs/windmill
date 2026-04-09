@@ -34,6 +34,7 @@
 		selectedTables?: SelectedTable[]
 		/** Tables that are already added and should show as disabled */
 		disabledTables?: SelectedTable[]
+		onImport?: (mode: 'schema_and_data' | 'schema_only') => void
 	}
 
 	let {
@@ -45,7 +46,8 @@
 		dbSelector,
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
-		disabledTables = []
+		disabledTables = [],
+		onImport
 	}: Props = $props()
 
 	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[getDbSchemasPath(input)])
@@ -149,6 +151,7 @@
 			</div>
 			<DbManager
 				dbSupportsSchemas={input?.type == 'database' && dbSupportsSchemas(input.resourceType)}
+				databaseIsEmpty={!Object.values(dbSchema.schema).flatMap((s) => Object.values(s)).length}
 				{dbSchema}
 				colDefs={colDefs.current}
 				dbTableOpsFactory={({ colDefs, tableKey }) =>
@@ -172,6 +175,7 @@
 				{dbType}
 				refresh={() => refresh()}
 				{dbSelector}
+				{onImport}
 				bind:selectedSchemaKey
 				bind:selectedTableKey
 				{multiSelectMode}

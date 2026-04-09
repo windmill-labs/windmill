@@ -26,7 +26,7 @@ use windmill_common::{
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use windmill_common::{
     global_settings::{load_value_from_global_settings, SECRET_BACKEND_SETTING},
-    secret_backend::{AzureKeyVaultBackend, AzureKeyVaultSettings, SecretBackendConfig, VaultBackend, VaultSettings},
+    secret_backend::{AwsSecretsManagerBackend, AwsSecretsManagerSettings, AzureKeyVaultBackend, AzureKeyVaultSettings, SecretBackendConfig, VaultBackend, VaultSettings},
 };
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
@@ -56,6 +56,18 @@ lazy_static::lazy_static! {
     static ref AZURE_KV_BACKEND_CACHE: RwLock<Option<CachedAzureKvBackend>> = RwLock::new(None);
 }
 
+// Cached AWS Secrets Manager backend
+#[cfg(all(feature = "private", feature = "enterprise"))]
+struct CachedAwsSmBackend {
+    backend: Arc<dyn SecretBackend>,
+    settings: AwsSecretsManagerSettings,
+}
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+lazy_static::lazy_static! {
+    static ref AWS_SM_BACKEND_CACHE: RwLock<Option<CachedAwsSmBackend>> = RwLock::new(None);
+}
+
 /// Get the current secret backend based on global settings
 ///
 /// OSS: Always returns DatabaseBackend
@@ -79,6 +91,9 @@ pub async fn get_secret_backend(db: &DB) -> Result<Arc<dyn SecretBackend>> {
         }
         SecretBackendConfig::AzureKeyVault(settings) => {
             get_or_create_azure_kv_backend(db, settings).await
+        }
+        SecretBackendConfig::AwsSecretsManager(settings) => {
+            get_or_create_aws_sm_backend(db, settings).await
         }
     }
 }
@@ -163,6 +178,37 @@ async fn get_or_create_azure_kv_backend(
     Ok(backend)
 }
 
+/// Get a cached AWS SM backend or create a new one if settings changed
+#[cfg(all(feature = "private", feature = "enterprise"))]
+async fn get_or_create_aws_sm_backend(
+    _db: &DB,
+    settings: AwsSecretsManagerSettings,
+) -> Result<Arc<dyn SecretBackend>> {
+    {
+        let cache = AWS_SM_BACKEND_CACHE.read().await;
+        if let Some(ref cached) = *cache {
+            if cached.settings == settings {
+                return Ok(cached.backend.clone());
+            }
+        }
+    }
+
+    let mut cache = AWS_SM_BACKEND_CACHE.write().await;
+
+    if let Some(ref cached) = *cache {
+        if cached.settings == settings {
+            return Ok(cached.backend.clone());
+        }
+    }
+
+    let backend: Arc<dyn SecretBackend> =
+        Arc::new(AwsSecretsManagerBackend::new_with_client(settings.clone()).await?);
+
+    *cache = Some(CachedAwsSmBackend { backend: backend.clone(), settings });
+
+    Ok(backend)
+}
+
 /// Check if a Vault backend is currently configured
 ///
 /// OSS: Always returns false
@@ -179,7 +225,7 @@ pub async fn is_vault_backend_configured(db: &DB) -> Result<bool> {
         None => SecretBackendConfig::default(),
     };
 
-    Ok(matches!(config, SecretBackendConfig::HashiCorpVault(_) | SecretBackendConfig::AzureKeyVault(_)))
+    Ok(matches!(config, SecretBackendConfig::HashiCorpVault(_) | SecretBackendConfig::AzureKeyVault(_) | SecretBackendConfig::AwsSecretsManager(_)))
 }
 
 /// Get a secret value using the configured backend
@@ -207,6 +253,9 @@ pub async fn get_secret_value(
             backend.get_secret(workspace_id, path).await
         }
         "azure_key_vault" => {
+            backend.get_secret(workspace_id, path).await
+        }
+        "aws_secrets_manager" => {
             backend.get_secret(workspace_id, path).await
         }
         _ => Err(Error::internal_err(format!(
@@ -243,6 +292,10 @@ pub async fn store_secret_value(
             backend.set_secret(workspace_id, path, plain_value).await?;
             Ok(format!("$azure_kv:{}", path))
         }
+        "aws_secrets_manager" => {
+            backend.set_secret(workspace_id, path, plain_value).await?;
+            Ok(format!("$aws_sm:{}", path))
+        }
         _ => Err(Error::internal_err(format!(
             "Unknown backend: {}",
             backend.backend_name()
@@ -278,9 +331,14 @@ pub fn is_azure_kv_stored_value(value: &str) -> bool {
     value.starts_with("$azure_kv:")
 }
 
+/// Check if a value is stored in AWS Secrets Manager (indicated by the $aws_sm: prefix)
+pub fn is_aws_sm_stored_value(value: &str) -> bool {
+    value.starts_with("$aws_sm:")
+}
+
 /// Check if a value is stored in any external secret backend
 pub fn is_external_stored_value(value: &str) -> bool {
-    is_vault_stored_value(value) || is_azure_kv_stored_value(value)
+    is_vault_stored_value(value) || is_azure_kv_stored_value(value) || is_aws_sm_stored_value(value)
 }
 
 /// Rename a secret in Vault when a variable path changes (EE only)
@@ -308,6 +366,14 @@ pub async fn rename_vault_secret(
         );
         return Ok(Some(format!("$azure_kv:{}", new_path)));
     }
+    if is_aws_sm_stored_value(current_value) {
+        tracing::warn!(
+            "Variable has $aws_sm: prefix but AWS Secrets Manager requires Enterprise Edition. \
+             Updating DB reference to {}",
+            new_path
+        );
+        return Ok(Some(format!("$aws_sm:{}", new_path)));
+    }
     Ok(None)
 }
 
@@ -325,6 +391,8 @@ pub async fn rename_vault_secret(
 
     let marker_prefix = if current_value.starts_with("$azure_kv:") {
         "$azure_kv:"
+    } else if current_value.starts_with("$aws_sm:") {
+        "$aws_sm:"
     } else {
         "$vault:"
     };
@@ -405,6 +473,8 @@ pub async fn rename_vault_secrets_with_prefix(
 
         let marker_prefix = if value.starts_with("$azure_kv:") {
             "$azure_kv:"
+        } else if value.starts_with("$aws_sm:") {
+            "$aws_sm:"
         } else {
             "$vault:"
         };

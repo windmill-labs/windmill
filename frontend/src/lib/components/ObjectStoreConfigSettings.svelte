@@ -78,20 +78,56 @@
 		}
 	}
 
-	let usageLoading = $state(false)
-	let usageError = $state<string | undefined>(undefined)
-	let usageData = $state<Array<{ prefix: string; size: number }> | undefined>(undefined)
+	type UsageStatus = {
+		running: boolean
+		started_at: string
+		finished_at?: string | null
+		current_prefix?: string | null
+		scanned_objects: number
+		folders: Array<{ prefix: string; size: number; partial?: boolean }>
+		error?: string | null
+	}
 
-	async function loadUsage() {
-		usageLoading = true
-		usageError = undefined
+	let usageStatus = $state<UsageStatus | null | undefined>(undefined)
+	let usageStarting = $state(false)
+	let usagePollHandle: ReturnType<typeof setInterval> | undefined = undefined
+
+	async function fetchUsageStatus() {
 		try {
-			usageData = await SettingService.getObjectStorageUsage()
+			usageStatus = (await SettingService.getObjectStorageUsage()) ?? null
 		} catch (e: any) {
-			usageError = e?.body ?? e?.message ?? 'Failed to load storage usage'
-			usageData = undefined
+			// Silent — polling errors shouldn't spam toasts.
+			console.warn('failed to fetch storage usage status', e)
+		}
+	}
+
+	function startUsagePolling() {
+		if (usagePollHandle !== undefined) return
+		usagePollHandle = setInterval(async () => {
+			await fetchUsageStatus()
+			if (usageStatus && !usageStatus.running) {
+				stopUsagePolling()
+			}
+		}, 1500)
+	}
+
+	function stopUsagePolling() {
+		if (usagePollHandle !== undefined) {
+			clearInterval(usagePollHandle)
+			usagePollHandle = undefined
+		}
+	}
+
+	async function startUsage() {
+		usageStarting = true
+		try {
+			await SettingService.computeObjectStorageUsage()
+			await fetchUsageStatus()
+			startUsagePolling()
+		} catch (e: any) {
+			sendUserToast(e?.body ?? e?.message ?? 'Failed to start storage usage computation', true)
 		} finally {
-			usageLoading = false
+			usageStarting = false
 		}
 	}
 
@@ -99,11 +135,14 @@
 		running: boolean
 		started_at: string
 		finished_at?: string | null
+		phase: string
 		total_service: number
 		processed_service: number
 		total_jobs: number
 		processed_jobs: number
 		s3_deleted: number
+		orphans_scanned: number
+		orphans_deleted: number
 		errors: number
 		last_error?: string | null
 	}
@@ -167,16 +206,26 @@
 					startPolling()
 				}
 			})
+			fetchUsageStatus().then(() => {
+				if (!cancelled && usageStatus?.running) {
+					startUsagePolling()
+				}
+			})
 			return () => {
 				cancelled = true
 			}
 		} else {
 			stopPolling()
+			stopUsagePolling()
 			cleanupStatus = undefined
+			usageStatus = undefined
 		}
 	})
 
-	onDestroy(stopPolling)
+	onDestroy(() => {
+		stopPolling()
+		stopUsagePolling()
+	})
 
 	let simpleEditor: SimpleEditor | undefined = $state(undefined)
 	let serviceAccountKeyCode = $state(
@@ -248,45 +297,84 @@
 		</div>
 
 		<div class="border rounded-md p-3 my-2">
-			<div class="flex items-center justify-between">
-				<span class="text-xs font-semibold text-emphasis">Storage usage by folder</span>
-				<Button spacingSize="sm" size="xs" btnClasses="h-8" variant="border" on:click={loadUsage}>
-					{#if usageLoading}
+			<div class="flex items-center justify-between gap-2">
+				<div class="flex flex-col">
+					<span class="text-xs font-semibold text-emphasis">Storage usage by folder</span>
+					<span class="text-tertiary text-2xs">
+						Runs in the background — large buckets can take several minutes.
+					</span>
+				</div>
+				<Button
+					spacingSize="sm"
+					size="xs"
+					btnClasses="h-8"
+					variant="border"
+					disabled={usageStarting || usageStatus?.running}
+					on:click={startUsage}
+				>
+					{#if usageStarting || usageStatus?.running}
 						<Loader2 class="animate-spin mr-2 !h-4 !w-4" />
 					{:else}
 						<HardDrive class="mr-2 !h-4 !w-4" />
 					{/if}
-					{usageData ? 'Refresh' : 'Show usage'}
+					{usageStatus?.running
+						? 'Running…'
+						: usageStatus && usageStatus.folders.length > 0
+							? 'Refresh'
+							: 'Show usage'}
 				</Button>
 			</div>
 
-			{#if usageError}
-				<div class="text-red-500 text-xs mt-2">{usageError}</div>
-			{/if}
-
-			{#if usageData}
-				{#if usageData.length === 0}
-					<div class="text-tertiary text-xs mt-2">No objects found in the bucket.</div>
-				{:else}
-					<div class="flex flex-col gap-0.5 mt-2">
-						{#each usageData as item (item.prefix)}
-							<div
-								class="flex justify-between items-center text-xs py-1 px-2 rounded hover:bg-surface-hover"
-							>
-								<span class="font-mono text-secondary">{item.prefix}</span>
-								<span class="text-tertiary font-semibold">{displaySize(item.size) ?? '0 B'}</span>
-							</div>
-						{/each}
-						<div
-							class="flex justify-between items-center text-xs py-1 px-2 border-t mt-1 pt-2 font-semibold"
-						>
-							<span>Total</span>
-							<span
-								>{displaySize(usageData.reduce((acc, item) => acc + item.size, 0)) ?? '0 B'}</span
-							>
+			{#if usageStatus}
+				<div class="mt-2 flex flex-col gap-1">
+					{#if usageStatus.running}
+						<div class="text-2xs text-tertiary">
+							Scanning…
+							{usageStatus.scanned_objects.toLocaleString()} objects inspected
+							{#if usageStatus.current_prefix}
+								— currently under
+								<span class="font-mono">{usageStatus.current_prefix}</span>
+							{/if}
 						</div>
-					</div>
-				{/if}
+					{:else if usageStatus.finished_at}
+						<div class="text-2xs text-tertiary">
+							Scanned {usageStatus.scanned_objects.toLocaleString()} objects · finished at {new Date(
+								usageStatus.finished_at
+							).toLocaleString()}
+						</div>
+					{/if}
+					{#if usageStatus.error}
+						<div class="text-red-500 text-2xs">Error: {usageStatus.error}</div>
+					{/if}
+					{#if usageStatus.folders.length > 0}
+						<div class="flex flex-col gap-0.5 mt-1">
+							{#each usageStatus.folders as item (item.prefix)}
+								<div
+									class="flex justify-between items-center text-xs py-1 px-2 rounded hover:bg-surface-hover"
+									title={item.partial
+										? 'Listing errored mid-stream; size is a lower bound, not the true total.'
+										: undefined}
+								>
+									<span class="font-mono text-secondary">{item.prefix}</span>
+									<span class="text-tertiary font-semibold">
+										{displaySize(item.size) ?? '0 B'}{item.partial ? ' (partial)' : ''}
+									</span>
+								</div>
+							{/each}
+							<div
+								class="flex justify-between items-center text-xs py-1 px-2 border-t mt-1 pt-2 font-semibold"
+							>
+								<span>Total{usageStatus.running ? ' (partial)' : ''}</span>
+								<span
+									>{displaySize(usageStatus.folders.reduce((acc, item) => acc + item.size, 0)) ??
+										'0 B'}</span
+								>
+							</div>
+						</div>
+					{:else if !usageStatus.running && usageStatus.finished_at}
+						<div class="text-tertiary text-xs">No objects found in the bucket.</div>
+					{/if}
+				</div>
 			{/if}
 		</div>
 
@@ -295,8 +383,9 @@
 				<div class="flex flex-col">
 					<span class="text-xs font-semibold text-emphasis">Clean up expired logs</span>
 					<span class="text-tertiary text-2xs">
-						Delete expired service &amp; job logs from object storage and disk now. Uses batched
-						deletes (up to 1000 objects per request).
+						Delete expired service &amp; job logs from object storage and disk now, then scan the
+						bucket for orphan log files left behind by previously deleted jobs. Uses batched deletes
+						(up to 1000 objects per request).
 					</span>
 				</div>
 				<Button
@@ -325,7 +414,7 @@
 					</div>
 					<div class="flex justify-between text-2xs text-tertiary">
 						<span>
-							{processed.toLocaleString()} / {total.toLocaleString()} files ({cleanupProgress}%)
+							Phase: <span class="font-semibold">{cleanupStatus.phase}</span>
 						</span>
 						<span>
 							S3 deleted: {cleanupStatus.s3_deleted.toLocaleString()}
@@ -335,8 +424,13 @@
 						</span>
 					</div>
 					<div class="text-2xs text-tertiary">
-						Service logs: {cleanupStatus.processed_service.toLocaleString()} / {cleanupStatus.total_service.toLocaleString()}
-						&middot; Job logs: {cleanupStatus.processed_jobs.toLocaleString()} / {cleanupStatus.total_jobs.toLocaleString()}
+						DB: {processed.toLocaleString()} / {total.toLocaleString()} rows deleted ({cleanupProgress}%)
+						&middot; service {cleanupStatus.processed_service.toLocaleString()}/{cleanupStatus.total_service.toLocaleString()},
+						job {cleanupStatus.processed_jobs.toLocaleString()}/{cleanupStatus.total_jobs.toLocaleString()}
+					</div>
+					<div class="text-2xs text-tertiary">
+						Orphan scan: {cleanupStatus.orphans_scanned.toLocaleString()} scanned,
+						{cleanupStatus.orphans_deleted.toLocaleString()} deleted
 					</div>
 					{#if !cleanupStatus.running && cleanupStatus.finished_at}
 						<div class="text-2xs text-tertiary">

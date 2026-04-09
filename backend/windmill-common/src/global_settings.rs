@@ -66,6 +66,7 @@ pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
 pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
 pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
+pub const ALERT_CONFIG_SETTING: &str = "alert_job_queue_waiting";
 
 use std::sync::Arc;
 use tokio::sync::RwLock;

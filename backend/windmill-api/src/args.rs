@@ -5,8 +5,9 @@ use axum::{
     http::HeaderMap,
     response::{IntoResponse, Response},
 };
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use bytes::Bytes;
-use http::{header::CONTENT_TYPE, StatusCode};
+use http::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::JsonRawValue;
@@ -31,6 +32,7 @@ pub enum RawBody {
     Xml(String),
     UrlEncoded(Bytes),
     Multipart(Multipart),
+    RawBytes(Bytes),
     Empty,
 }
 
@@ -185,6 +187,16 @@ impl RawWebhookArgs {
                 body: Body::HashMap(HashMap::new()),
                 metadata: WebhookArgsMetadata { raw_string: Some(s), ..self.metadata },
             }),
+            RawBody::RawBytes(bytes) => {
+                let s = match String::from_utf8(bytes.to_vec()) {
+                    Ok(s) => s,
+                    Err(e) => BASE64_STANDARD.encode(e.into_bytes()),
+                };
+                Ok(WebhookArgs {
+                    body: Body::HashMap(HashMap::new()),
+                    metadata: WebhookArgsMetadata { raw_string: Some(s), ..self.metadata },
+                })
+            }
             RawBody::UrlEncoded(bytes) => {
                 let mut metadata = self.metadata;
                 if use_raw {
@@ -447,7 +459,10 @@ where
 
         Ok(RawWebhookArgs { body: RawBody::Multipart(multipart), metadata })
     } else {
-        Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response())
+        let bytes = Bytes::from_request(request, _state)
+            .await
+            .map_err(IntoResponse::into_response)?;
+        Ok(RawWebhookArgs { body: RawBody::RawBytes(bytes), metadata })
     }
 }
 

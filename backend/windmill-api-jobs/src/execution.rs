@@ -476,6 +476,25 @@ pub async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<()
     Ok(())
 }
 
+pub use windmill_common::jobs::resolve_delete_after_secs;
+pub use windmill_common::jobs::schedule_job_deletion;
+
+/// Handle deletion or scheduling for a completed job.
+pub async fn handle_delete_after_completion(
+    db: &DB,
+    job_uuid: Uuid,
+    w_id: &str,
+    delete_after_use: Option<bool>,
+    delete_after_secs: Option<i32>,
+) -> Result<(), Error> {
+    match resolve_delete_after_secs(delete_after_use, delete_after_secs) {
+        Some(0) => delete_job_metadata_after_use(db, job_uuid).await?,
+        Some(secs) => schedule_job_deletion(db, job_uuid, w_id, secs).await?,
+        None => {}
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Queue limit check
 // ---------------------------------------------------------------------------
@@ -799,7 +818,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     trigger: Option<TriggerMetadata>,
 ) -> error::Result<(
     Uuid,
-    Option<bool>,
+    Option<i32>,
     Option<sqlx::Transaction<'c, sqlx::Postgres>>,
 )> {
     #[cfg(feature = "enterprise")]
@@ -809,14 +828,16 @@ pub async fn push_script_job_by_path_into_queue<'c>(
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
 
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
-    let (job_payload, tag, delete_after_use, timeout, on_behalf_of) = script_path_to_payload(
-        script_path,
-        Some(userdb_authed),
-        db.clone(),
-        &w_id,
-        run_query.skip_preprocessor,
-    )
-    .await?;
+    let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
+        script_path_to_payload(
+            script_path,
+            Some(userdb_authed),
+            db.clone(),
+            &w_id,
+            run_query.skip_preprocessor,
+        )
+        .await?;
+    let resolved_delete_secs = resolve_delete_after_secs(delete_after_use, delete_after_secs);
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
     let tag = run_query.tag.clone().or(tag);
@@ -886,9 +907,9 @@ pub async fn push_script_job_by_path_into_queue<'c>(
 
     // If we were given a transaction, return it; otherwise commit it
     if return_tx {
-        Ok((uuid, delete_after_use, Some(tx)))
+        Ok((uuid, resolved_delete_secs, Some(tx)))
     } else {
         tx.commit().await?;
-        Ok((uuid, delete_after_use, None))
+        Ok((uuid, resolved_delete_secs, None))
     }
 }

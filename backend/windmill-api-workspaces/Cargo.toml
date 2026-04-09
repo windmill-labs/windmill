@@ -27,6 +27,7 @@ windmill-git-sync.workspace = true
 windmill-queue.workspace = true
 windmill-api-jobs.workspace = true
 windmill-dep-map.workspace = true
+windmill-store.workspace = true
 
 axum.workspace = true
 chrono.workspace = true

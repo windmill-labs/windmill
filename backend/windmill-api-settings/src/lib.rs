@@ -8,11 +8,15 @@
 
 use std::{collections::HashMap, time::Duration};
 
+#[cfg(feature = "parquet")]
+mod background_task;
 #[cfg(feature = "private")]
 mod ee;
 pub mod ee_oss;
 #[cfg(feature = "parquet")]
 mod log_cleanup;
+#[cfg(feature = "parquet")]
+mod storage_usage;
 
 use windmill_api_auth::{require_devops_role, require_super_admin, ApiAuthed};
 use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
@@ -37,7 +41,7 @@ use serde::{Deserialize, Serialize};
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use windmill_common::secret_backend::{
-    AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
+    AwsSecretsManagerSettings, AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
 };
 use windmill_common::{
     ai_cache::bump_instance_ai_config_revision,
@@ -98,6 +102,10 @@ pub fn global_service() -> Router {
             post(setup_custom_instance_pg_database),
         )
         .route(
+            "/drop_custom_instance_pg_database/{name}",
+            post(drop_custom_instance_pg_database),
+        )
+        .route(
             "/critical_alerts/acknowledge_all",
             post(acknowledge_all_critical_alerts),
         )
@@ -127,13 +135,25 @@ pub fn global_service() -> Router {
         .route(
             "/migrate_secrets_from_azure_kv",
             post(migrate_secrets_from_azure_kv),
+        )
+        .route("/test_aws_sm_backend", post(test_aws_sm_backend))
+        .route(
+            "/migrate_secrets_to_aws_sm",
+            post(migrate_secrets_to_aws_sm),
+        )
+        .route(
+            "/migrate_secrets_from_aws_sm",
+            post(migrate_secrets_from_aws_sm),
         );
 
     #[cfg(feature = "parquet")]
     {
         return r
             .route("/test_object_storage_config", post(test_s3_bucket))
-            .route("/object_storage_usage", get(object_storage_usage))
+            .route(
+                "/object_storage_usage",
+                get(get_object_storage_usage).post(compute_object_storage_usage),
+            )
             .route("/run_log_cleanup", post(run_log_cleanup))
             .route("/log_cleanup_status", get(log_cleanup_status));
     }
@@ -234,68 +254,23 @@ pub async fn test_s3_bucket(
 }
 
 #[cfg(feature = "parquet")]
-#[derive(Serialize)]
-struct FolderUsage {
-    prefix: String,
-    size: u64,
+async fn get_object_storage_usage(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::JsonResult<Option<storage_usage::StorageUsageProgress>> {
+    require_super_admin(&db, &authed.email).await?;
+    Ok(Json(storage_usage::get_status(&db).await?))
 }
 
 #[cfg(feature = "parquet")]
-async fn object_storage_usage(
+async fn compute_object_storage_usage(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
-) -> error::JsonResult<Vec<FolderUsage>> {
-    use futures::StreamExt;
-
+) -> error::Result<axum::http::StatusCode> {
     require_super_admin(&db, &authed.email).await?;
-
-    let client = windmill_object_store::get_object_store()
-        .await
-        .ok_or_else(|| error::Error::BadRequest("Object storage is not configured".to_string()))?;
-
-    // Overall cap on the whole listing operation — a bucket with millions of
-    // objects under a single prefix would otherwise hold an HTTP connection
-    // and memory for minutes. On timeout we return 504 and let the caller retry.
-    let work = async {
-        let list_result = client.list_with_delimiter(None).await?;
-
-        let mut usage: Vec<FolderUsage> = Vec::new();
-
-        let root_size: u64 = list_result.objects.iter().map(|o| o.size).sum();
-        if root_size > 0 {
-            usage.push(FolderUsage { prefix: "(root files)".to_string(), size: root_size });
-        }
-
-        for prefix in list_result.common_prefixes {
-            let prefix_str = prefix.to_string();
-            let mut total_size: u64 = 0;
-            let mut stream = client.list(Some(&prefix));
-            while let Some(item) = stream.next().await {
-                match item {
-                    Ok(meta) => total_size += meta.size,
-                    Err(e) => {
-                        tracing::warn!("Error listing objects under {prefix_str}: {e:#}");
-                        break;
-                    }
-                }
-            }
-            usage.push(FolderUsage { prefix: prefix_str, size: total_size });
-        }
-
-        usage.sort_by(|a, b| b.size.cmp(&a.size));
-        Ok::<_, windmill_object_store::object_store_reexports::ObjectStoreError>(usage)
-    };
-
-    let usage = tokio::time::timeout(std::time::Duration::from_secs(60), work)
-        .await
-        .map_err(|_| {
-            error::Error::internal_err(
-                "Listing object storage timed out after 60s — bucket may be too large".to_string(),
-            )
-        })?
-        .map_err(|e| error::Error::internal_err(format!("Failed to list objects: {e:#}")))?;
-
-    Ok(Json(usage))
+    storage_usage::try_start(&db).await?;
+    storage_usage::spawn_compute(db.clone());
+    Ok(axum::http::StatusCode::ACCEPTED)
 }
 
 #[cfg(feature = "parquet")]
@@ -304,16 +279,9 @@ async fn run_log_cleanup(
     authed: ApiAuthed,
 ) -> error::Result<axum::http::StatusCode> {
     require_super_admin(&db, &authed.email).await?;
-
-    match log_cleanup::try_start().await {
-        Ok(()) => {
-            log_cleanup::spawn_cleanup(db.clone());
-            Ok(axum::http::StatusCode::ACCEPTED)
-        }
-        Err(_) => Err(error::Error::BadRequest(
-            "Log cleanup is already running".to_string(),
-        )),
-    }
+    log_cleanup::try_start(&db).await?;
+    log_cleanup::spawn_cleanup(db.clone());
+    Ok(axum::http::StatusCode::ACCEPTED)
 }
 
 #[cfg(feature = "parquet")]
@@ -322,8 +290,7 @@ async fn log_cleanup_status(
     authed: ApiAuthed,
 ) -> error::JsonResult<Option<log_cleanup::LogCleanupProgress>> {
     require_super_admin(&db, &authed.email).await?;
-    let guard = log_cleanup::LOG_CLEANUP_STATUS.read().await;
-    Ok(Json(guard.clone()))
+    Ok(Json(log_cleanup::get_status(&db).await?))
 }
 
 #[derive(Deserialize)]
@@ -1216,6 +1183,18 @@ async fn setup_custom_instance_pg_database_inner(
     Ok(())
 }
 
+async fn drop_custom_instance_pg_database(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(dbname): Path<String>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    windmill_common::drop_custom_instance_database(&db, &dbname).await?;
+
+    Ok(format!("Database '{}' dropped successfully", dbname))
+}
+
 // ============================================================================
 // Secret Backend Settings (HashiCorp Vault Integration) - Enterprise Edition
 // ============================================================================
@@ -1327,6 +1306,43 @@ pub async fn migrate_secrets_from_azure_kv(
     let report =
         windmill_common::secret_backend::migrate_secrets_from_azure_kv(&db, &settings).await?;
 
+    Ok(Json(report))
+}
+
+/// Test connection to AWS Secrets Manager
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn test_aws_sm_backend(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AwsSecretsManagerSettings>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    windmill_common::secret_backend::test_aws_sm_connection(&settings).await?;
+    Ok("Successfully connected to AWS Secrets Manager".to_string())
+}
+
+/// Migrate existing secrets from database to AWS Secrets Manager
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_to_aws_sm(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AwsSecretsManagerSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+    let report = windmill_common::secret_backend::migrate_secrets_to_aws_sm(&db, &settings).await?;
+    Ok(Json(report))
+}
+
+/// Migrate secrets from AWS Secrets Manager back to database
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_from_aws_sm(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AwsSecretsManagerSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+    let report =
+        windmill_common::secret_backend::migrate_secrets_from_aws_sm(&db, &settings).await?;
     Ok(Json(report))
 }
 
