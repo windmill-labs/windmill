@@ -71,6 +71,22 @@ The OpenFlow schema (openflow.openapi.yaml) is the source of truth for flow stru
 - \`flow_input.iter.value\` - Current item when inside a for-loop
 - \`flow_input.iter.index\` - Current index when inside a for-loop
 
+## Branch Output Rules
+
+- For \`branchone\`, downstream steps should consume the branch step's result via \`results.branch_step_id\`
+- Do NOT reference inner branch module ids from outside the branch container, such as \`results.branch_step_id.some_inner_step\`
+- If later steps need a stable fulfillment/result object, make each branch return the same shape and read that from \`results.branch_step_id\`
+
+Correct downstream access:
+\`\`\`json
+{"fulfillment": {"type": "javascript", "expr": "results.branch_on_inventory"}}
+\`\`\`
+
+Incorrect downstream access:
+\`\`\`json
+{"fulfillment": {"type": "javascript", "expr": "results.branch_on_inventory.create_shipment || results.branch_on_inventory.create_backorder"}}
+\`\`\`
+
 ## Input Transforms
 
 Every rawscript module needs \`input_transforms\` to map function parameters to values:
