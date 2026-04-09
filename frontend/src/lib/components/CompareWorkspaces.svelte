@@ -18,7 +18,6 @@
 		Upload
 	} from 'lucide-svelte'
 	import type { CiTestResult } from '$lib/gen'
-	import { base } from '$lib/base'
 	import { Alert, Badge } from './common'
 	import {
 		AppService,
