@@ -22,7 +22,16 @@
 	}
 
 	document.getElementById('svelte-global-loader')?.remove()
+
+	function handleWheel(e: WheelEvent) {
+		const target = e.target as HTMLElement
+		if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'number') {
+			target.blur()
+		}
+	}
 </script>
+
+<svelte:document onwheel={handleWheel} />
 
 <svelte:head>
 	<!-- {#if !import.meta.env.PROD}
