@@ -53,6 +53,7 @@ cd ai_evals
 bun run cli -- run flow
 bun run cli -- run flow flow-test4-order-processing-loop --model opus
 bun run cli -- run flow flow-test0-sum-two-numbers --runs 3 --verbose
+bun run cli -- run flow --record
 bun run cli -- run cli bun-hello-script
 ```
 
@@ -68,6 +69,7 @@ Public CLI surface:
 - `--output <path>`: custom result JSON path
 - `--model <alias>`: choose the model under test
 - `--verbose`: stream assistant output for frontend runs
+- `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl`
 
 ## Models
 
@@ -124,6 +126,19 @@ Every run writes:
 - a summary JSON under `ai_evals/results/`
 - generated artifacts in a sibling directory
 
+If `--record` is used, the CLI also appends one compact JSON line to:
+
+- `ai_evals/history/flow.jsonl`
+- `ai_evals/history/script.jsonl`
+- `ai_evals/history/app.jsonl`
+- `ai_evals/history/cli.jsonl`
+
+Each recorded line contains:
+
+- run metadata (`createdAt`, `gitSha`, `mode`, `runModel`, `judgeModel`)
+- suite totals (`caseCount`, `attemptCount`, `passedAttempts`, `passRate`, `averageDurationMs`)
+- `failedCaseIds`
+
 Example:
 
 - summary: `ai_evals/results/2026-04-09T09-40-33.051Z__flow.json`
@@ -142,6 +157,7 @@ Typical artifacts by mode:
 - `fixtures/`: initial and expected fixtures
 - `core/`: shared loading, model resolution, validation, judging, and result writing
 - `modes/`: one runner per mode
+- `history/`: optional tracked pass-rate history written by `run --record`, one JSONL file per mode
 - `results/`: local benchmark output and artifacts
 
 ## Notes

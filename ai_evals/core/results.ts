@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { getAiEvalsRoot, getRepoRoot } from "./cases";
@@ -17,6 +17,15 @@ export async function writeRunResult(
   await mkdir(path.dirname(targetPath), { recursive: true });
   await writeFile(targetPath, JSON.stringify(toSerializableRunResult(result), null, 2) + "\n", "utf8");
   return targetPath;
+}
+
+export async function appendHistoryRecord(
+  result: BenchmarkRunResult,
+  historyPath = resolveHistoryPath(result.mode)
+): Promise<string> {
+  await mkdir(path.dirname(historyPath), { recursive: true });
+  await appendFile(historyPath, JSON.stringify(toHistoryRecord(result)) + "\n", "utf8");
+  return historyPath;
 }
 
 export async function writeRunArtifacts(
@@ -126,6 +135,10 @@ export function resolveRunOutputPath(mode: EvalMode, outputPath?: string): strin
   return outputPath ?? path.join(getAiEvalsRoot(), "results", defaultFileName(mode));
 }
 
+export function resolveHistoryPath(mode: EvalMode): string {
+  return path.join(getAiEvalsRoot(), "history", `${mode}.jsonl`);
+}
+
 function defaultArtifactsRoot(resultPath: string): string {
   return resultPath.endsWith(".json")
     ? resultPath.slice(0, -".json".length)
@@ -160,6 +173,29 @@ function toSerializableRunResult(result: BenchmarkRunResult): BenchmarkRunResult
       ...caseResult,
       attempts: caseResult.attempts.map(({ artifactFiles, ...attempt }) => attempt),
     })),
+  };
+}
+
+function toHistoryRecord(result: BenchmarkRunResult) {
+  return {
+    createdAt: result.createdAt,
+    gitSha: result.gitSha,
+    mode: result.mode,
+    runs: result.runs,
+    runModel: result.runModel,
+    judgeModel: result.judgeModel,
+    caseCount: result.caseCount,
+    attemptCount: result.attemptCount,
+    passedAttempts: result.passedAttempts,
+    passRate: result.passRate,
+    averageDurationMs: result.averageDurationMs,
+    failedCaseIds: Array.from(
+      new Set(
+        result.cases
+          .filter((caseResult) => caseResult.attempts.some((attempt) => !attempt.passed))
+          .map((caseResult) => caseResult.id)
+      )
+    ),
   };
 }
 

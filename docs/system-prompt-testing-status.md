@@ -29,9 +29,11 @@ Public `run` options:
 - `--output <path>`
 - `--model <alias>`
 - `--verbose`
+- `--record`
 
-There is no variant workflow, no benchmark history workflow, and no compare
-command in the current tool.
+There is no variant workflow and no compare command in the current tool.
+Tracked history is intentionally minimal: `run --record` appends one compact
+summary line to `ai_evals/history/<mode>.jsonl`.
 
 ## How It Works
 
@@ -46,11 +48,15 @@ Results are written locally under `ai_evals/results/` as:
 - a summary JSON file
 - a sibling artifacts directory containing the generated flow/script/app/workspace
 
+If `--record` is used, the CLI also appends a compact JSONL summary line to the
+tracked file for that mode under `ai_evals/history/`.
+
 ## Current Architecture
 
 - `ai_evals/cases/`: one YAML manifest per mode
 - `ai_evals/fixtures/`: initial and expected fixtures
 - `ai_evals/core/`: shared case loading, model resolution, validation, judging, and result writing
+- `ai_evals/history/`: optional tracked pass-rate history written by `run --record`, one JSONL file per mode
 - `ai_evals/modes/`: one runner per mode
 
 Execution model:

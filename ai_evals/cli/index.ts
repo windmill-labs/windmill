@@ -10,6 +10,7 @@ import {
   resolveEvalModel,
 } from "../core/models";
 import {
+  appendHistoryRecord,
   buildRunResult,
   formatRunSummary,
   resolveRunOutputPath,
@@ -39,6 +40,7 @@ async function main() {
         "  bun run cli -- run flow",
         "  bun run cli -- run flow --model 4o",
         "  bun run cli -- run flow flow-test0-sum-two-numbers --verbose",
+        "  bun run cli -- run flow --record",
         "  bun run cli -- run flow flow-test5-simple-modification --runs 3",
         "  bun run cli -- run cli bun-hello-script",
         "",
@@ -71,6 +73,7 @@ async function main() {
     .option("--output <path>", "write the result JSON to this path")
     .option("--model <name>", `model alias (${EVAL_MODELS.map((entry) => entry.id).join(", ")})`)
     .option("--verbose", "stream assistant output during frontend runs")
+    .option("--record", "append a compact summary line to ai_evals/history/<mode>.jsonl")
     .action(
       async (
         mode: EvalMode,
@@ -80,6 +83,7 @@ async function main() {
           output?: string;
           model?: string;
           verbose?: boolean;
+          record?: boolean;
         }
       ) => {
         await handleRun({
@@ -89,6 +93,7 @@ async function main() {
           outputPath: options.output,
           model: options.model,
           verbose: options.verbose ?? false,
+          record: options.record ?? false,
         });
       }
     );
@@ -131,6 +136,7 @@ async function handleRun(input: {
   outputPath?: string;
   model?: string;
   verbose: boolean;
+  record: boolean;
 }) {
   const selectedCases = await loadSelectedCases(input.mode, input.caseIds);
   const model = resolveEvalModel(input.mode, input.model);
@@ -151,10 +157,14 @@ async function handleRun(input: {
   const resolvedOutputPath = resolveRunOutputPath(input.mode, input.outputPath);
   const artifactsPath = await writeRunArtifacts(result, resolvedOutputPath);
   const resultPath = await writeRunResult(result, resolvedOutputPath);
+  const historyPath = input.record ? await appendHistoryRecord(result) : null;
   process.stdout.write(`${formatRunSummary(result)}\n`);
   process.stdout.write(`Saved: ${resultPath}\n`);
   if (artifactsPath) {
     process.stdout.write(`Artifacts: ${artifactsPath}\n`);
+  }
+  if (historyPath) {
+    process.stdout.write(`Recorded: ${historyPath}\n`);
   }
 }
 
