@@ -77,10 +77,11 @@ const WORKSPACE_CONFIG_SCHEMA = {
  */
 export const CONFIG_REFERENCE: ConfigOption[] = [
   // ── Core ──────────────────────────────────────────────────────────────
-  { name: "defaultTs", type: "string", enum: ["bun", "deno"], default: "bun", description: "Default TypeScript runtime for new scripts" },
+  { name: "defaultTs", type: "string", enum: ["bun", "deno"], default: "bun", description: "Default TypeScript runtime for new scripts",
+    inlineComment: "bun or deno" },
   { name: "includes", type: "array", items: { type: "string" }, default: '["f/**"]', description: "Glob patterns for files to include in sync",
-    templateValue: '\n  - "f/**"' },
-  { name: "extraIncludes", type: "array", items: { type: "string" }, default: "[]", description: "Additional glob patterns merged with includes (useful in branch overrides)",
+    templateValue: '\n  - "f/**"', inlineComment: 'use ** for all, f/** for folder-scoped' },
+  { name: "extraIncludes", type: "array", items: { type: "string" }, default: "[]", description: "Additional glob patterns merged with includes (useful in workspace overrides)",
     commented: true },
   { name: "excludes", type: "array", items: { type: "string" }, default: "[]", description: "Glob patterns for files to exclude from sync" },
 
@@ -125,7 +126,8 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     commented: true, templateValue: "staging" },
   { name: "skipBranchValidation", type: "boolean", default: "false", description: "Skip validation that current git branch matches a configured branch",
     commented: true },
-  { name: "nonDottedPaths", type: "boolean", default: "true", description: "Use __flow/__app/__raw_app suffixes instead of .flow/.app/.raw_app" },
+  { name: "nonDottedPaths", type: "boolean", default: "true", description: "Use __flow/__app/__raw_app suffixes instead of .flow/.app/.raw_app",
+    inlineComment: "recommended for new projects" },
 
   // ── Codebase bundling ─────────────────────────────────────────────────
   { name: "codebases", type: "array", default: "[]", description: "Codebase bundling configurations for shared libraries",
@@ -277,12 +279,17 @@ export function generateCommentedTemplate(branchName?: string, binding?: BranchB
         lines.push(`  ${key}:`);
         lines.push(`    baseUrl: ${ws.baseUrl}`);
         if (ws.workspaceId !== ws.name) {
-          lines.push(`    workspaceId: ${ws.workspaceId}`);
+          lines.push(`    workspaceId: ${ws.workspaceId}${" ".repeat(Math.max(1, 30 - ws.workspaceId.length))}# windmill workspace id (defaults to key name)`);
         }
         if (ws.gitBranch && ws.gitBranch !== ws.name) {
-          lines.push(`    gitBranch: ${ws.gitBranch}`);
+          lines.push(`    gitBranch: ${ws.gitBranch}${" ".repeat(Math.max(1, 32 - ws.gitBranch.length))}# git branch to auto-detect this workspace (defaults to key name)`);
         }
-        lines.push(`    # specificItems:                       # items synced per-workspace (suffix = workspace name)`);
+        lines.push(`    # overrides:                           # override top-level sync options for this workspace`);
+        lines.push(`    #   skipSecrets: false`);
+        lines.push(`    #   includeSchedules: true`);
+        lines.push(`    # promotionOverrides:                  # overrides when using --promotion`);
+        lines.push(`    #   skipSecrets: false`);
+        lines.push(`    # specificItems:                       # items synced per-workspace (file suffix = workspace name)`);
         lines.push(`    #   variables: []`);
         lines.push(`    #   resources: []`);
         lines.push(`    #   triggers: []`);
