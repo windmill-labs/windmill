@@ -50,6 +50,8 @@ export interface InitOptions {
  * Bootstrap a windmill project with a wmill.yaml file
  */
 async function initAction(opts: InitOptions) {
+  let didBindWorkspace = false;
+
   if (await stat("wmill.yaml").catch(() => null)) {
     log.info("wmill.yaml already exists, skipping config generation");
   } else {
@@ -142,6 +144,7 @@ async function initAction(opts: InitOptions) {
     await writeFile("wmill.yaml", generateCommentedTemplate(branchName, undefined, wsBindings), "utf-8");
     log.info(colors.green("wmill.yaml created with default settings"));
     if (wsBindings && wsBindings.length > 0) {
+      didBindWorkspace = true;
       log.info(
         colors.green(
           `✓ Bound workspace '${wsBindings[0].name}' → ${wsBindings[0].workspaceId} on ${wsBindings[0].baseUrl}`
@@ -156,7 +159,7 @@ async function initAction(opts: InitOptions) {
     await readLockfile();
 
     // Check for backend git-sync settings — only if a workspace was bound and not --use-default
-    if (!opts.useDefault && wsBindings && wsBindings.length > 0) {
+    if (!opts.useDefault && didBindWorkspace) {
       try {
         const { requireLogin } = await import("../../core/auth.ts");
         const { resolveWorkspace } = await import("../../core/context.ts");
@@ -360,15 +363,17 @@ async function initAction(opts: InitOptions) {
     }
   }
 
-  // Generate resource type namespace
-  try {
-    await generateRTNamespace(opts as GlobalOptions);
-  } catch (error) {
-    log.warn(
-      `Could not pull resource types and generate TypeScript namespace: ${
-        error instanceof Error ? error.message : error
-      }`
-    );
+  // Generate resource type namespace (only if a workspace was bound)
+  if (didBindWorkspace) {
+    try {
+      await generateRTNamespace(opts as GlobalOptions);
+    } catch (error) {
+      log.warn(
+        `Could not pull resource types and generate TypeScript namespace: ${
+          error instanceof Error ? error.message : error
+        }`
+      );
+    }
   }
 }
 
