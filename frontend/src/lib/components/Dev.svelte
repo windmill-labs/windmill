@@ -11,6 +11,7 @@
 		JobService,
 		OpenAPI,
 		type Preview,
+		type FlowModule,
 		type OpenFlow,
 		WorkspaceService,
 		type InputTransform,
@@ -698,6 +699,36 @@
 	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 
 	const selectedId = $derived(selectionManager.getSelectedId())
+
+	function findModule(modules: FlowModule[], id: string): FlowModule | undefined {
+		for (const m of modules) {
+			if (m.id === id) return m
+			const v = m.value
+			if (v.type === 'forloopflow' || v.type === 'whileloopflow') {
+				const found = findModule(v.modules, id)
+				if (found) return found
+			} else if (v.type === 'branchone') {
+				for (const b of v.branches) {
+					const found = findModule(b.modules, id)
+					if (found) return found
+				}
+				const found = findModule(v.default, id)
+				if (found) return found
+			} else if (v.type === 'branchall') {
+				for (const b of v.branches) {
+					const found = findModule(b.modules, id)
+					if (found) return found
+				}
+			}
+		}
+		return undefined
+	}
+
+	const selectedModule = $derived(
+		selectedId && flowStore.val?.value?.modules
+			? findModule(flowStore.val.value.modules, selectedId)
+			: undefined
+	)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -870,7 +901,7 @@
 						}}
 					/>
 				</div>
-				<Splitpanes horizontal class="h-full max-h-screen grow">
+				<Splitpanes horizontal class="max-h-screen grow min-h-0">
 					<Pane size={67}>
 						{#if flowStore.val?.value?.modules}
 							<div id="flow-editor"></div>
@@ -925,6 +956,17 @@
 						{/key}
 					</Pane>
 				</Splitpanes>
+				{#if selectedModule}
+					<div class="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-surface shrink-0">
+						<span class="text-xs text-secondary shrink-0">{selectedModule.id} summary</span>
+						<input
+							type="text"
+							class="text-xs w-full bg-transparent border border-border rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+							placeholder="Summary"
+							bind:value={selectedModule.summary}
+						/>
+					</div>
+				{/if}
 			</div>
 		</div>
 	{/if}

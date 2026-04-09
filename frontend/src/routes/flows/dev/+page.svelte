@@ -11,7 +11,7 @@
 	} from '$lib/components/flows/types'
 	import { SelectionManager } from '$lib/components/graph/selectionUtils.svelte'
 	import { writable } from 'svelte/store'
-	import { OpenAPI, type Job, type OpenFlow, type TriggersCount } from '$lib/gen'
+	import { OpenAPI, type FlowModule, type Job, type OpenFlow, type TriggersCount } from '$lib/gen'
 	import { initHistory } from '$lib/history.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
@@ -248,6 +248,37 @@
 		}
 	}
 
+	function findModule(modules: FlowModule[], id: string): FlowModule | undefined {
+		for (const m of modules) {
+			if (m.id === id) return m
+			const v = m.value
+			if (v.type === 'forloopflow' || v.type === 'whileloopflow') {
+				const found = findModule(v.modules, id)
+				if (found) return found
+			} else if (v.type === 'branchone') {
+				for (const b of v.branches) {
+					const found = findModule(b.modules, id)
+					if (found) return found
+				}
+				const found = findModule(v.default, id)
+				if (found) return found
+			} else if (v.type === 'branchall') {
+				for (const b of v.branches) {
+					const found = findModule(b.modules, id)
+					if (found) return found
+				}
+			}
+		}
+		return undefined
+	}
+
+	const selectedId = $derived(selectionManager.getSelectedId())
+	const selectedModule = $derived(
+		selectedId && flowStore.val?.value?.modules
+			? findModule(flowStore.val.value.modules, selectedId)
+			: undefined
+	)
+
 	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
 	$effect(() => {
 		darkModeToggle &&
@@ -275,6 +306,7 @@
 			}}
 		/>
 		<div class="flex flex-col max-h-screen h-full relative" bind:clientWidth={paneWidth}>
+			<div id="flow-editor"></div>
 			<div class="absolute top-0 left-2">
 				<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
 				{#if $userStore}
@@ -287,7 +319,7 @@
 			<div class="flex justify-center pt-1 z-50 absolute gap-2 {compactPreview ? 'left-1/2 -translate-x-1/2 top-14' : 'right-2 top-2'}">
 				<FlowPreviewButtons bind:this={flowPreviewButtons} {suspendStatus} />
 			</div>
-			<Splitpanes horizontal class="h-full max-h-screen grow">
+			<Splitpanes horizontal class="max-h-screen grow min-h-0">
 				<Pane size={33}>
 					{#if flowStore.val?.value?.modules}
 						<FlowModuleSchemaMap
@@ -315,6 +347,17 @@
 					/>
 				</Pane>
 			</Splitpanes>
+			{#if selectedModule}
+				<div class="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-surface shrink-0">
+					<span class="text-xs text-secondary shrink-0">{selectedModule.id} summary</span>
+					<input
+						type="text"
+						class="text-xs w-full bg-transparent border border-border rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+						placeholder="Summary"
+						bind:value={selectedModule.summary}
+					/>
+				</div>
+			{/if}
 		</div>
 	</div>
 </main>
