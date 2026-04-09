@@ -722,6 +722,7 @@ pub async fn start_worker(
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: windmill_common::client::AuthedClient,
+    concurrency_semaphore: Option<std::sync::Arc<tokio::sync::Semaphore>>,
 ) -> Result<()> {
     use windmill_common::variables;
 
@@ -791,6 +792,7 @@ pub async fn start_worker(
         "deno",
         client,
         false,
+        concurrency_semaphore,
     )
     .await
 }

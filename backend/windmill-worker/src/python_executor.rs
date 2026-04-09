@@ -2780,6 +2780,7 @@ pub async fn start_worker(
     jobs_rx: tokio::sync::mpsc::Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     client: windmill_common::client::AuthedClient,
+    concurrency_semaphore: Option<std::sync::Arc<tokio::sync::Semaphore>>,
 ) -> error::Result<()> {
     use crate::PyV;
     tracing::info!("script path: {}", script_path);
@@ -2922,6 +2923,7 @@ pub async fn start_worker(
         "python",
         client,
         false,
+        concurrency_semaphore,
     )
     .await
 }

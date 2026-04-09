@@ -107,7 +107,8 @@
                 "gcp",
                 "mqtt",
                 "nextcloud",
-                "google"
+                "google",
+                "ci_test"
               ]
             }
           }
