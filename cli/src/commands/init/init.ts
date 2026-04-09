@@ -220,14 +220,16 @@ async function initAction(opts: InitOptions) {
             const { pullGitSyncSettings } = await import(
               "../gitsync-settings/gitsync-settings.ts"
             );
-            await pullGitSyncSettings({
+            const gsOpts = {
               ...(opts as GlobalOptions),
               workspace: boundProfile.name,
               repository: opts.repository,
               jsonOutput: false,
               diff: false,
               replace: true,
-            });
+            };
+            (gsOpts as any).__secret_workspace = boundProfile;
+            await pullGitSyncSettings(gsOpts);
             log.info(colors.green("Git-sync settings applied from backend"));
           }
         }
@@ -343,9 +345,12 @@ async function initAction(opts: InitOptions) {
   }
 
   // Generate resource type namespace (only if a workspace was bound)
-  if (didBindWorkspace) {
+  if (didBindWorkspace && boundProfile) {
     try {
-      await generateRTNamespace(opts as GlobalOptions);
+      // Cache the bound profile so resolveWorkspace doesn't re-resolve and prompt again
+      const rtOpts = { ...opts } as GlobalOptions;
+      (rtOpts as any).__secret_workspace = boundProfile;
+      await generateRTNamespace(rtOpts);
     } catch (error) {
       log.warn(
         `Could not pull resource types and generate TypeScript namespace: ${
