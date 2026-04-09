@@ -16,6 +16,9 @@ export interface FlowModuleValidation {
 
 export interface FlowValidationSpec {
   schemaRequiredPaths?: string[];
+  schemaAnyOf?: Array<{
+    requiredPaths: string[];
+  }>;
   resolveResultsRefs?: boolean;
   modules?: FlowModuleValidation[];
 }

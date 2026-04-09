@@ -384,6 +384,24 @@ function validateFlowRequirements(
     );
   }
 
+  if (validate.schemaAnyOf && validate.schemaAnyOf.length > 0) {
+    const matchingVariant = validate.schemaAnyOf.find((variant) =>
+      variant.requiredPaths.every((requiredPath) => hasSchemaPath(flow.schema, requiredPath))
+    );
+
+    checks.push(
+      check(
+        "schema matches one accepted input shape",
+        Boolean(matchingVariant),
+        matchingVariant
+          ? undefined
+          : `expected one of: ${validate.schemaAnyOf
+              .map((variant) => `[${variant.requiredPaths.join(", ")}]`)
+              .join(" or ")}`
+      )
+    );
+  }
+
   if (validate.resolveResultsRefs) {
     const unresolved = collectUnresolvedResultsRefs(flow);
     checks.push(

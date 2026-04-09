@@ -45,26 +45,34 @@
     - send a confirmation using placeholder email logic
     - return a final order summary with the status
   validate:
-    schemaRequiredPaths:
-      - order
-      - order.items
-      - order.customer_email
-      - order.shipping_address
+    schemaAnyOf:
+      - requiredPaths:
+          - order
+          - order.items
+          - order.customer_email
+          - order.shipping_address
+      - requiredPaths:
+          - items
+          - customer_email
+          - shipping_address
     resolveResultsRefs: true
     modules:
       - name: validates order item price and quantity
         inputRefsContainAny:
+          - items
           - order
         codeContainsAll:
           - price
           - quantity
       - name: calculates totals with 8 percent tax
         inputRefsContainAny:
+          - items
           - order
         codeContainsAll:
           - "0.08"
       - name: checks inventory for each item
         inputRefsContainAny:
+          - items
           - itemDetails
           - order
         codeContainsAll:
@@ -83,6 +91,7 @@
           - BO-
       - name: sends confirmation to the customer
         inputRefsContainAny:
+          - customer_email
           - order
         codeContainsAny:
           - customer_email
