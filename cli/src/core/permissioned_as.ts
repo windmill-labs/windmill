@@ -6,17 +6,18 @@ import { Confirm } from "@cliffy/prompt/confirm";
 import { getTypeStrFromPath } from "../types.ts";
 
 export interface PermissionedAsRule {
-  username: string;
+  username?: string;
+  email?: string;
   path_pattern: string;
 }
 
 export interface PermissionedAsContext {
   rules: PermissionedAsRule[];
-  usernameToEmailCache: Map<string, string>;
+  userCache: Map<string, { username: string; email: string }>;
   userIsAdminOrDeployer: boolean;
 }
 
-const KNOWN_RULE_FIELDS = new Set(["username", "path_pattern"]);
+const KNOWN_RULE_FIELDS = new Set(["username", "email", "path_pattern"]);
 
 /**
  * Validates defaultPermissionedAs rules from wmill.yaml.
@@ -42,7 +43,7 @@ export function validatePermissionedAsRules(
     const ruleLabel = `defaultPermissionedAs[${i}] in ${source}`;
 
     if (typeof rule !== "object" || rule === null) {
-      throw new Error(`Invalid ${ruleLabel}: expected an object with 'username' and 'path_pattern' fields`);
+      throw new Error(`Invalid ${ruleLabel}: expected an object with ('username' or 'email') and 'path_pattern' fields`);
     }
 
     // Check for unknown/misspelled fields
@@ -50,14 +51,21 @@ export function validatePermissionedAsRules(
     if (unknownFields.length > 0) {
       throw new Error(
         `Invalid ${ruleLabel}: unknown field(s) ${unknownFields.map((f) => `'${f}'`).join(", ")}. ` +
-          `Valid fields are: 'username', 'path_pattern'`
+          `Valid fields are: 'username', 'email', 'path_pattern'`
       );
     }
 
-    // Validate required fields
-    if (typeof rule.username !== "string" || rule.username.trim() === "") {
+    // Validate: must have exactly one of username or email
+    const hasUsername = typeof rule.username === "string" && rule.username.trim() !== "";
+    const hasEmail = typeof rule.email === "string" && rule.email.trim() !== "";
+    if (!hasUsername && !hasEmail) {
       throw new Error(
-        `Invalid ${ruleLabel}: 'username' is required and must be a non-empty string`
+        `Invalid ${ruleLabel}: either 'username' (e.g. 'u/admin') or 'email' is required`
+      );
+    }
+    if (hasUsername && hasEmail) {
+      throw new Error(
+        `Invalid ${ruleLabel}: provide either 'username' or 'email', not both`
       );
     }
     if (typeof rule.path_pattern !== "string" || rule.path_pattern.trim() === "") {
@@ -77,7 +85,10 @@ export function validatePermissionedAsRules(
       );
     }
 
-    validated.push({ username: rule.username, path_pattern: rule.path_pattern });
+    validated.push({
+      ...(hasUsername ? { username: rule.username } : { email: rule.email }),
+      path_pattern: rule.path_pattern,
+    });
   }
 
   return validated;
@@ -100,40 +111,68 @@ export function resolvePermissionedAsRule(
 }
 
 /**
- * Looks up an email by username using the workspace users API.
- * Results are cached in the provided map.
+ * Populates the user cache from the workspace users API (fetched once).
  */
-export async function lookupEmailByUsername(
+async function ensureUserCache(
   workspace: string,
-  username: string,
-  cache: Map<string, string>
+  cache: Map<string, { username: string; email: string }>
+): Promise<void> {
+  if (cache.size > 0) return;
+  const users = await wmill.listUsers({ workspace });
+  for (const user of users) {
+    cache.set(user.username, { username: user.username, email: user.email });
+    cache.set(user.email, { username: user.username, email: user.email });
+  }
+}
+
+/**
+ * Resolves the email for a rule. If the rule already has an email, returns it directly.
+ * If it has a username, looks up the email from the workspace users cache.
+ */
+export async function resolveRuleEmail(
+  workspace: string,
+  rule: PermissionedAsRule,
+  cache: Map<string, { username: string; email: string }>
 ): Promise<string> {
-  if (cache.has(username)) {
-    return cache.get(username)!;
-  }
-
-  // Populate entire cache from users list (only fetched once)
-  if (cache.size === 0) {
-    const users = await wmill.listUsers({ workspace });
-    for (const user of users) {
-      cache.set(user.username, user.email);
-    }
-  }
-
-  const email = cache.get(username);
-  if (!email) {
+  if (rule.email) return rule.email;
+  await ensureUserCache(workspace, cache);
+  const entry = cache.get(rule.username!);
+  if (!entry) {
     throw new Error(
-      `Could not find email for username '${username}' in workspace. ` +
-        `Make sure the user exists in the workspace.`
+      `Could not find user '${rule.username}' in workspace. Make sure the user exists.`
     );
   }
-  return email;
+  return entry.email;
+}
+
+/**
+ * Resolves the username (in u/username format) for a rule. If the rule already has a username,
+ * returns it directly. If it has an email, looks up the username from the workspace users cache.
+ */
+export async function resolveRuleUsername(
+  workspace: string,
+  rule: PermissionedAsRule,
+  cache: Map<string, { username: string; email: string }>
+): Promise<string> {
+  if (rule.username) return rule.username;
+  await ensureUserCache(workspace, cache);
+  const entry = cache.get(rule.email!);
+  if (!entry) {
+    throw new Error(
+      `Could not find user with email '${rule.email}' in workspace. Make sure the user exists.`
+    );
+  }
+  return `u/${entry.username}`;
+}
+
+/** Returns a display label for a rule (whichever identifier was provided). */
+export function ruleLabel(rule: PermissionedAsRule): string {
+  return rule.username ?? rule.email!;
 }
 
 /**
  * Looks up a username by email using the workspace users API.
  * Used by standalone set-permissioned-as commands that accept an email argument.
- * Results are cached in the provided map.
  */
 export async function lookupUsernameByEmail(
   workspace: string,
@@ -143,15 +182,12 @@ export async function lookupUsernameByEmail(
   if (cache.has(email)) {
     return cache.get(email)!;
   }
-
-  // Populate entire cache from users list (only fetched once)
   if (cache.size === 0) {
     const users = await wmill.listUsers({ workspace });
     for (const user of users) {
       cache.set(user.email, user.username);
     }
   }
-
   const username = cache.get(email);
   if (!username) {
     throw new Error(

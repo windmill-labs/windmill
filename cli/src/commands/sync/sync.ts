@@ -2924,7 +2924,7 @@ export async function push(
       log.debug(`permissioned_as: ${validatedRules.length} rules loaded`);
       permissionedAsContext = {
         rules: validatedRules,
-        usernameToEmailCache: new Map<string, string>(),
+        userCache: new Map(),
         userIsAdminOrDeployer,
       };
 

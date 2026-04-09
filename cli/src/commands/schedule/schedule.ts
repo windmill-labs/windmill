@@ -22,6 +22,8 @@ import { Schedule } from "../../../gen/types.gen.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import {
   resolvePermissionedAsRule,
+  resolveRuleUsername,
+  ruleLabel,
   lookupUsernameByEmail,
 } from "../../core/permissioned_as.ts";
 
@@ -140,9 +142,14 @@ export async function pushSchedule(
         permissionedAsContext.rules
       );
       if (rule) {
-        preserveFields.permissioned_as = rule.username;
+        const username = await resolveRuleUsername(
+          workspace,
+          rule,
+          permissionedAsContext.userCache
+        );
+        preserveFields.permissioned_as = username;
         preserveFields.preserve_permissioned_as = true;
-        log.info(`Setting schedule ${path} to run permissioned as ${rule.username} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
+        log.info(`Setting schedule ${path} to run permissioned as ${ruleLabel(rule)} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
       }
     }
   }

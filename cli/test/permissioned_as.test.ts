@@ -29,7 +29,7 @@ describe("validatePermissionedAsRules", () => {
     expect(validatePermissionedAsRules([], "wmill.yaml")).toEqual([]);
   });
 
-  test("validates a correct rule", () => {
+  test("validates a correct rule with username", () => {
     const rules = [{ username: "u/admin", path_pattern: "f/**" }];
     const result = validatePermissionedAsRules(rules, "wmill.yaml");
     expect(result).toEqual([
@@ -37,15 +37,23 @@ describe("validatePermissionedAsRules", () => {
     ]);
   });
 
-  test("validates multiple correct rules", () => {
+  test("validates a correct rule with email", () => {
+    const rules = [{ email: "admin@company.com", path_pattern: "f/**" }];
+    const result = validatePermissionedAsRules(rules, "wmill.yaml");
+    expect(result).toEqual([
+      { email: "admin@company.com", path_pattern: "f/**" },
+    ]);
+  });
+
+  test("validates mixed username and email rules", () => {
     const rules = [
       { username: "u/admin", path_pattern: "f/production/**" },
-      { username: "u/deploy", path_pattern: "f/**" },
+      { email: "deploy@company.com", path_pattern: "f/**" },
     ];
     const result = validatePermissionedAsRules(rules, "wmill.yaml");
     expect(result).toHaveLength(2);
     expect(result[0].username).toBe("u/admin");
-    expect(result[1].username).toBe("u/deploy");
+    expect(result[1].email).toBe("deploy@company.com");
   });
 
   test("throws on non-array input", () => {
@@ -67,7 +75,7 @@ describe("validatePermissionedAsRules", () => {
     expect(() =>
       validatePermissionedAsRules(["not-an-object"], "wmill.yaml")
     ).toThrow(
-      "defaultPermissionedAs[0] in wmill.yaml: expected an object with 'username' and 'path_pattern' fields"
+      "defaultPermissionedAs[0] in wmill.yaml: expected an object with ('username' or 'email') and 'path_pattern' fields"
     );
   });
 
@@ -75,7 +83,7 @@ describe("validatePermissionedAsRules", () => {
     expect(() =>
       validatePermissionedAsRules([null], "wmill.yaml")
     ).toThrow(
-      "defaultPermissionedAs[0] in wmill.yaml: expected an object with 'username' and 'path_pattern' fields"
+      "defaultPermissionedAs[0] in wmill.yaml: expected an object with ('username' or 'email') and 'path_pattern' fields"
     );
   });
 
@@ -123,42 +131,51 @@ describe("validatePermissionedAsRules", () => {
         [{ usernamee: "u/admin", path_pattern: "f/**" }],
         "wmill.yaml"
       )
-    ).toThrow("Valid fields are: 'username', 'path_pattern'");
+    ).toThrow("Valid fields are: 'username', 'email', 'path_pattern'");
   });
 
   // --- Missing required fields ---
 
-  test("throws on missing username", () => {
+  test("throws when neither username nor email provided", () => {
     expect(() =>
       validatePermissionedAsRules(
         [{ path_pattern: "f/**" }],
         "wmill.yaml"
       )
-    ).toThrow("'username' is required and must be a non-empty string");
+    ).toThrow("either 'username' (e.g. 'u/admin') or 'email' is required");
   });
 
-  test("throws on empty username", () => {
+  test("throws on empty username with no email", () => {
     expect(() =>
       validatePermissionedAsRules(
         [{ username: "", path_pattern: "f/**" }],
         "wmill.yaml"
       )
-    ).toThrow("'username' is required and must be a non-empty string");
+    ).toThrow("either 'username' (e.g. 'u/admin') or 'email' is required");
   });
 
-  test("throws on non-string username", () => {
+  test("throws when both username and email provided", () => {
     expect(() =>
       validatePermissionedAsRules(
-        [{ username: 123, path_pattern: "f/**" }],
+        [{ username: "u/admin", email: "admin@co.com", path_pattern: "f/**" }],
         "wmill.yaml"
       )
-    ).toThrow("'username' is required and must be a non-empty string");
+    ).toThrow("provide either 'username' or 'email', not both");
   });
 
-  test("throws on missing path_pattern", () => {
+  test("throws on missing path_pattern (username rule)", () => {
     expect(() =>
       validatePermissionedAsRules(
         [{ username: "u/admin" }],
+        "wmill.yaml"
+      )
+    ).toThrow("'path_pattern' is required and must be a non-empty string");
+  });
+
+  test("throws on missing path_pattern (email rule)", () => {
+    expect(() =>
+      validatePermissionedAsRules(
+        [{ email: "admin@co.com" }],
         "wmill.yaml"
       )
     ).toThrow("'path_pattern' is required and must be a non-empty string");
@@ -405,6 +422,11 @@ describe("preCheckPermissionedAs", () => {
   test("admin: added flow with has_on_behalf_of: true and matching rule is not flagged", async () => {
     const rules = [{ username: "u/admin", path_pattern: "f/**" }];
     await preCheckPermissionedAs([flowAdded("summary: test\nhas_on_behalf_of: true\n")], userEmail, true, false, false, rules);
+  });
+
+  test("admin: added script with has_on_behalf_of: true and matching email rule is not flagged", async () => {
+    const rules = [{ email: "admin@co.com", path_pattern: "f/**" }];
+    await preCheckPermissionedAs([scriptAdded("summary: test\nhas_on_behalf_of: true\n")], userEmail, true, false, false, rules);
   });
 
   test("admin: added script with has_on_behalf_of: false is not flagged (no obo)", async () => {

@@ -58,7 +58,7 @@ import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
 import { execSync } from "node:child_process";
 import { NewScript, Script, ScriptModule } from "../../../gen/types.gen.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
-import { resolvePermissionedAsRule, lookupEmailByUsername } from "../../core/permissioned_as.ts";
+import { resolvePermissionedAsRule, resolveRuleEmail, ruleLabel } from "../../core/permissioned_as.ts";
 import {
   isRawAppBackendPath as isRawAppBackendPathInternal,
   isAppInlineScriptPath as isAppInlineScriptPathInternal,
@@ -505,14 +505,14 @@ export async function handleFile(
           permissionedAsContext.rules
         );
         if (rule) {
-          const email = await lookupEmailByUsername(
+          const email = await resolveRuleEmail(
             workspace,
-            rule.username,
-            permissionedAsContext.usernameToEmailCache
+            rule,
+            permissionedAsContext.userCache
           );
           requestBodyCommon.on_behalf_of_email = email;
           requestBodyCommon.preserve_on_behalf_of = true;
-          log.info(`Setting script ${remotePath} to run permissioned as ${rule.username} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
+          log.info(`Setting script ${remotePath} to run permissioned as ${ruleLabel(rule)} (matched rule '${rule.path_pattern}' in wmill.yaml)`);
         }
       }
     }
