@@ -55,11 +55,10 @@ export function createFlowModeRunner(
         skillsInvoked: [],
       };
     },
-    validate({ evalCase, actual, initial, expected }) {
+    validate({ evalCase, actual, initial }) {
       return validateFlowState({
         actual,
         initial: initial?.flow,
-        expected,
         validate: evalCase.validate,
       });
     },

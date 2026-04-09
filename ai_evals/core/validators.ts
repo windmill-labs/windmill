@@ -1,5 +1,5 @@
 import ts from "typescript";
-import type { BenchmarkCheck, FlowModuleValidation, FlowValidationSpec } from "./types";
+import type { BenchmarkCheck, FlowValidationSpec } from "./types";
 
 export interface ScriptState {
   path: string;
@@ -81,11 +81,20 @@ export function validateScriptState(input: {
 export function validateFlowState(input: {
   actual: FlowState;
   initial?: FlowState;
-  expected?: FlowState;
   validate?: FlowValidationSpec;
 }): BenchmarkCheck[] {
   const actualModules = getFlowModules(input.actual);
-  const checks: BenchmarkCheck[] = [check("flow has modules", actualModules.length > 0)];
+  const placeholderModuleIds = getInlineScriptPlaceholderModuleIds(input.actual);
+  const checks: BenchmarkCheck[] = [
+    check("flow has modules", actualModules.length > 0),
+    check(
+      "flow has no inline placeholder code",
+      placeholderModuleIds.length === 0,
+      placeholderModuleIds.length > 0
+        ? `placeholder content in: ${placeholderModuleIds.join(", ")}`
+        : undefined
+    ),
+  ];
 
   if (input.initial) {
     checks.push(
@@ -94,146 +103,6 @@ export function validateFlowState(input: {
         normalizeJson(input.actual) !== normalizeJson(input.initial)
       )
     );
-  }
-
-  if (!input.expected) {
-    if (input.validate) {
-      checks.push(...validateFlowRequirements(input.actual, input.validate));
-    }
-    return checks;
-  }
-
-  const expectedModules = getFlowModules(input.expected);
-  const actualTypes = new Set(actualModules.map((module) => getModuleType(module) ?? ""));
-  const expectedTypes = new Set(expectedModules.map((module) => getModuleType(module) ?? ""));
-  const missingTypes = [...expectedTypes].filter((type) => type && !actualTypes.has(type));
-  const actualTopLevelIds = getTopLevelFlowModuleIds(input.actual);
-  const expectedTopLevelIds = getTopLevelFlowModuleIds(input.expected);
-  const missingIds = expectedTopLevelIds.filter((id) => !actualTopLevelIds.includes(id));
-  const expectedSchemaRootType = getSchemaRootType(input.expected.schema);
-  const actualSchemaRootType = getSchemaRootType(input.actual.schema);
-  const actualModuleById = new Map(
-    actualModules
-      .map((module) => [typeof module.id === "string" ? module.id : "", module] as const)
-      .filter(([id]) => id.length > 0)
-  );
-
-  checks.push(
-    check(
-      "flow includes expected module types",
-      missingTypes.length === 0,
-      missingTypes.length > 0 ? `missing: ${missingTypes.join(", ")}` : undefined
-    )
-  );
-
-  if (expectedSchemaRootType) {
-    checks.push(
-      check(
-        "flow schema root type matches expected",
-        actualSchemaRootType === expectedSchemaRootType,
-        `expected ${expectedSchemaRootType}, got ${actualSchemaRootType ?? "(missing)"}`
-      )
-    );
-  }
-
-  if (expectedTopLevelIds.length > 0) {
-    checks.push(
-      check(
-        "flow includes expected top-level step ids",
-        missingIds.length === 0,
-        missingIds.length > 0 ? `missing: ${missingIds.join(", ")}` : undefined
-      )
-    );
-  }
-
-  for (const expectedModule of expectedModules) {
-    const expectedId = typeof expectedModule.id === "string" ? expectedModule.id : null;
-    if (!expectedId) {
-      continue;
-    }
-
-    const actualModule = actualModuleById.get(expectedId);
-    if (!actualModule) {
-      continue;
-    }
-
-    const expectedType = getModuleType(expectedModule);
-    if (expectedType) {
-      checks.push(
-        check(
-          `${expectedId} type matches expected`,
-          getModuleType(actualModule) === expectedType,
-          `expected ${expectedType}, got ${getModuleType(actualModule) ?? "(missing)"}`
-        )
-      );
-    }
-
-    const expectedPath = getModulePath(expectedModule);
-    if (expectedPath) {
-      checks.push(
-        check(
-          `${expectedId} path matches expected`,
-          getModulePath(actualModule) === expectedPath,
-          `expected ${expectedPath}, got ${getModulePath(actualModule) ?? "(missing)"}`
-        )
-      );
-    }
-
-    if (hasSuspendConfig(expectedModule)) {
-      checks.push(check(`${expectedId} includes suspend config`, hasSuspendConfig(actualModule)));
-    }
-
-    const expectedContinueOnError = getContinueOnError(expectedModule);
-    if (expectedContinueOnError !== undefined) {
-      checks.push(
-        check(
-          `${expectedId} continue_on_error matches expected`,
-          getContinueOnError(actualModule) === expectedContinueOnError
-        )
-      );
-    }
-
-    if (hasRetryConfig(expectedModule)) {
-      checks.push(check(`${expectedId} includes retry config`, hasRetryConfig(actualModule)));
-    }
-
-    const expectedParallel = getModuleParallel(expectedModule);
-    if (expectedParallel !== undefined) {
-      checks.push(
-        check(
-          `${expectedId} parallel matches expected`,
-          getModuleParallel(actualModule) === expectedParallel
-        )
-      );
-    }
-  }
-
-  for (const specialKey of ["preprocessor_module", "failure_module"] as const) {
-    const expectedSpecial = getSpecialFlowModule(input.expected, specialKey);
-    if (!expectedSpecial) {
-      continue;
-    }
-
-    const actualSpecial = getSpecialFlowModule(input.actual, specialKey);
-    checks.push(check(`${specialKey} exists`, Boolean(actualSpecial)));
-    if (!actualSpecial) {
-      continue;
-    }
-
-    const expectedType = getModuleType(expectedSpecial);
-    if (expectedType) {
-      checks.push(
-        check(
-          `${specialKey} type matches expected`,
-          getModuleType(actualSpecial) === expectedType,
-          `expected ${expectedType}, got ${getModuleType(actualSpecial) ?? "(missing)"}`
-        )
-      );
-    }
-
-    if (hasRetryConfig(expectedSpecial)) {
-      checks.push(check(`${specialKey} includes retry config`, hasRetryConfig(actualSpecial)));
-    }
   }
 
   if (input.validate) {
@@ -413,24 +282,55 @@ function validateFlowRequirements(
     );
   }
 
-  for (const requirement of validate.modules ?? []) {
-    const matched = findMatchingFlowModule(flow, requirement);
+  for (const specialModule of validate.requireSpecialModules ?? []) {
     checks.push(
       check(
-        requirement.name,
-        Boolean(matched),
-        matched ? undefined : describeMissingModuleRequirement(requirement)
+        `${specialModule} exists`,
+        Boolean(getSpecialFlowModule(flow, specialModule))
       )
     );
   }
 
-  return checks;
-}
+  for (const suspendStep of validate.requireSuspendSteps ?? []) {
+    const module = findFlowModuleById(flow, suspendStep.id);
+    checks.push(check(`${suspendStep.id} step exists`, Boolean(module)));
+    if (!module) {
+      continue;
+    }
 
-function getTopLevelFlowModuleIds(flow: FlowState): string[] {
-  return getFlowModules(flow)
-    .map((module) => module.id)
-    .filter((value): value is string => typeof value === "string");
+    checks.push(check(`${suspendStep.id} includes suspend config`, hasSuspendConfig(module)));
+    if (!hasSuspendConfig(module)) {
+      continue;
+    }
+
+    if (suspendStep.requiredEvents !== undefined) {
+      checks.push(
+        check(
+          `${suspendStep.id} requires ${suspendStep.requiredEvents} approval event${suspendStep.requiredEvents === 1 ? "" : "s"}`,
+          getSuspendRequiredEvents(module) === suspendStep.requiredEvents,
+          `expected ${suspendStep.requiredEvents}, got ${getSuspendRequiredEvents(module) ?? "(missing)"}`
+        )
+      );
+    }
+
+    if (
+      suspendStep.resumeRequiredStringFieldAnyOf &&
+      suspendStep.resumeRequiredStringFieldAnyOf.length > 0
+    ) {
+      const requiredFields = getSuspendResumeRequiredStringFields(module);
+      checks.push(
+        check(
+          `${suspendStep.id} resume form requires one accepted comment field`,
+          suspendStep.resumeRequiredStringFieldAnyOf.some((field) =>
+            requiredFields.includes(field)
+          ),
+          `required one of [${suspendStep.resumeRequiredStringFieldAnyOf.join(", ")}], got [${requiredFields.join(", ")}]`
+        )
+      );
+    }
+  }
+
+  return checks;
 }
 
 function hasSchemaPath(schema: Record<string, unknown> | undefined, dottedPath: string): boolean {
@@ -616,111 +516,6 @@ function validateNestedResultsRefPath(
   }
 }
 
-function findMatchingFlowModule(
-  flow: FlowState,
-  requirement: FlowModuleValidation
-): Record<string, unknown> | null {
-  for (const module of getAllFlowModules(flow)) {
-    if (matchesFlowModuleRequirement(module, requirement)) {
-      return module;
-    }
-  }
-  return null;
-}
-
-function matchesFlowModuleRequirement(
-  module: Record<string, unknown>,
-  requirement: FlowModuleValidation
-): boolean {
-  if (requirement.typeAnyOf && requirement.typeAnyOf.length > 0) {
-    const actualType = getModuleType(module);
-    if (!actualType || !requirement.typeAnyOf.includes(actualType)) {
-      return false;
-    }
-  }
-
-  const inputRefs = getModuleInputRefs(module);
-  if (requirement.inputRefsAny && requirement.inputRefsAny.length > 0) {
-    if (!requirement.inputRefsAny.some((ref) => inputRefs.includes(ref))) {
-      return false;
-    }
-  }
-
-  if (requirement.inputRefsAll && requirement.inputRefsAll.length > 0) {
-    if (!requirement.inputRefsAll.every((ref) => inputRefs.includes(ref))) {
-      return false;
-    }
-  }
-
-  if (requirement.inputRefsContainAny && requirement.inputRefsContainAny.length > 0) {
-    if (!requirement.inputRefsContainAny.some((snippet) => inputRefs.some((ref) => ref.includes(snippet)))) {
-      return false;
-    }
-  }
-
-  if (requirement.inputRefsContainAll && requirement.inputRefsContainAll.length > 0) {
-    if (!requirement.inputRefsContainAll.every((snippet) => inputRefs.some((ref) => ref.includes(snippet)))) {
-      return false;
-    }
-  }
-
-  const code = getModuleCode(module);
-  if (requirement.codeContainsAny && requirement.codeContainsAny.length > 0) {
-    if (!code || !requirement.codeContainsAny.some((snippet) => code.includes(snippet))) {
-      return false;
-    }
-  }
-
-  if (requirement.codeContainsAll && requirement.codeContainsAll.length > 0) {
-    if (!code || !requirement.codeContainsAll.every((snippet) => code.includes(snippet))) {
-      return false;
-    }
-  }
-
-  if (requirement.codeRegexAll && requirement.codeRegexAll.length > 0) {
-    if (!code) {
-      return false;
-    }
-    for (const pattern of requirement.codeRegexAll) {
-      const regex = new RegExp(pattern, "m");
-      if (!regex.test(code)) {
-        return false;
-      }
-    }
-  }
-
-  return true;
-}
-
-function describeMissingModuleRequirement(requirement: FlowModuleValidation): string {
-  const parts: string[] = [];
-  if (requirement.typeAnyOf?.length) {
-    parts.push(`type in [${requirement.typeAnyOf.join(", ")}]`);
-  }
-  if (requirement.inputRefsAny?.length) {
-    parts.push(`any input refs [${requirement.inputRefsAny.join(", ")}]`);
-  }
-  if (requirement.inputRefsAll?.length) {
-    parts.push(`all input refs [${requirement.inputRefsAll.join(", ")}]`);
-  }
-  if (requirement.inputRefsContainAny?.length) {
-    parts.push(`any input refs containing [${requirement.inputRefsContainAny.join(", ")}]`);
-  }
-  if (requirement.inputRefsContainAll?.length) {
-    parts.push(`all input refs containing [${requirement.inputRefsContainAll.join(", ")}]`);
-  }
-  if (requirement.codeContainsAny?.length) {
-    parts.push(`code contains any [${requirement.codeContainsAny.join(", ")}]`);
-  }
-  if (requirement.codeContainsAll?.length) {
-    parts.push(`code contains all [${requirement.codeContainsAll.join(", ")}]`);
-  }
-  if (requirement.codeRegexAll?.length) {
-    parts.push(`code matches [${requirement.codeRegexAll.join(", ")}]`);
-  }
-  return parts.join("; ");
-}
-
 function getAllFlowModules(flow: FlowState): Array<Record<string, unknown>> {
   const modules: Array<Record<string, unknown>> = [];
   const specialModules = ["preprocessor_module", "failure_module"] as const;
@@ -774,6 +569,30 @@ function collectNestedModules(module: Record<string, unknown>): Array<Record<str
   return nested;
 }
 
+function findFlowModuleById(flow: FlowState, id: string): Record<string, unknown> | null {
+  for (const module of getAllFlowModules(flow)) {
+    if (module.id === id) {
+      return module;
+    }
+  }
+  return null;
+}
+
+function getInlineScriptPlaceholderModuleIds(flow: FlowState): string[] {
+  return getAllFlowModules(flow).flatMap((module) => {
+    const code = getModuleCode(module)?.trim();
+    if (!code || !/^inline_script\.[A-Za-z0-9_-]+$/.test(code)) {
+      return [];
+    }
+
+    if (typeof module.id === "string" && module.id.length > 0) {
+      return [module.id];
+    }
+
+    return ["(unnamed)"];
+  });
+}
+
 function getImmediateNestedModuleIds(module: Record<string, unknown>): string[] {
   const ids: string[] = [];
   const value = isObjectRecord(module.value) ? module.value : null;
@@ -801,22 +620,6 @@ function getImmediateNestedModuleIds(module: Record<string, unknown>): string[] 
   }
 
   return ids;
-}
-
-function getModuleInputRefs(module: Record<string, unknown>): string[] {
-  const value = isObjectRecord(module.value) ? module.value : null;
-  const inputTransforms = isObjectRecord(value?.input_transforms) ? value?.input_transforms : null;
-  if (!inputTransforms) {
-    return [];
-  }
-
-  return Object.values(inputTransforms)
-    .flatMap((entry) => {
-      if (!isObjectRecord(entry) || typeof entry.expr !== "string") {
-        return [];
-      }
-      return [entry.expr.trim()];
-    });
 }
 
 function getModuleCode(module: Record<string, unknown>): string | null {
@@ -853,52 +656,35 @@ function getModuleType(module: Record<string, unknown>): string | null {
     : null;
 }
 
-function getModulePath(module: Record<string, unknown>): string | null {
-  const value = module.value;
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  return typeof (value as Record<string, unknown>).path === "string"
-    ? ((value as Record<string, string>).path)
-    : null;
-}
-
 function hasSuspendConfig(module: Record<string, unknown>): boolean {
   return typeof module.suspend === "object" && module.suspend !== null;
 }
 
-function getContinueOnError(module: Record<string, unknown>): boolean | undefined {
-  return typeof module.continue_on_error === "boolean"
-    ? (module.continue_on_error as boolean)
-    : undefined;
+function getSuspendRequiredEvents(module: Record<string, unknown>): number | null {
+  const suspend = isObjectRecord(module.suspend) ? module.suspend : null;
+  return typeof suspend?.required_events === "number" ? suspend.required_events : null;
 }
 
-function hasRetryConfig(module: Record<string, unknown>): boolean {
-  return typeof module.retry === "object" && module.retry !== null;
-}
+function getSuspendResumeRequiredStringFields(module: Record<string, unknown>): string[] {
+  const suspend = isObjectRecord(module.suspend) ? module.suspend : null;
+  const resumeForm = isObjectRecord(suspend?.resume_form) ? suspend.resume_form : null;
+  const schema = isObjectRecord(resumeForm?.schema) ? resumeForm.schema : null;
+  const required = Array.isArray(schema?.required) ? schema.required : [];
+  const properties = isObjectRecord(schema?.properties) ? schema.properties : null;
+  if (!properties) {
+    return [];
+  }
 
-function getModuleParallel(module: Record<string, unknown>): boolean | undefined {
-  const value = module.value;
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-  return typeof (value as Record<string, unknown>).parallel === "boolean"
-    ? ((value as Record<string, boolean>).parallel)
-    : undefined;
-}
-
-function getSchemaRootType(schema: Record<string, unknown> | undefined): string | null {
-  if (!schema || typeof schema !== "object") {
-    return null;
-  }
-  const properties = (schema.properties ?? {}) as Record<string, unknown>;
-  const root = properties["root"];
-  if (!root || typeof root !== "object") {
-    return null;
-  }
-  return typeof (root as { type?: unknown }).type === "string"
-    ? ((root as { type: string }).type)
-    : null;
+  return required.flatMap((field) => {
+    if (typeof field !== "string") {
+      return [];
+    }
+    const property = properties[field];
+    if (!isObjectRecord(property) || property.type !== "string") {
+      return [];
+    }
+    return [field];
+  });
 }
 
 function appStatesEqual(left: AppFilesState, right: AppFilesState): boolean {

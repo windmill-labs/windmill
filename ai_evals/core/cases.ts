@@ -13,6 +13,7 @@ interface RawEvalCase {
   initial?: string;
   expected?: string;
   validate?: FlowValidationSpec;
+  judgeChecklist?: string[];
 }
 
 export function getRepoRoot(): string {
@@ -34,6 +35,7 @@ export async function loadCases(mode: EvalMode): Promise<EvalCase[]> {
     initialPath: resolveFixturePath(entry.initial),
     expectedPath: resolveFixturePath(entry.expected),
     validate: entry.validate,
+    judgeChecklist: entry.judgeChecklist,
   }));
 }
 

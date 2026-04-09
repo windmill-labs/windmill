@@ -2,25 +2,18 @@ export const EVAL_MODES = ["cli", "flow", "script", "app"] as const;
 
 export type EvalMode = (typeof EVAL_MODES)[number];
 
-export interface FlowModuleValidation {
-  name: string;
-  typeAnyOf?: string[];
-  inputRefsAny?: string[];
-  inputRefsAll?: string[];
-  inputRefsContainAny?: string[];
-  inputRefsContainAll?: string[];
-  codeContainsAny?: string[];
-  codeContainsAll?: string[];
-  codeRegexAll?: string[];
-}
-
 export interface FlowValidationSpec {
   schemaRequiredPaths?: string[];
   schemaAnyOf?: Array<{
     requiredPaths: string[];
   }>;
   resolveResultsRefs?: boolean;
-  modules?: FlowModuleValidation[];
+  requireSpecialModules?: Array<"preprocessor_module" | "failure_module">;
+  requireSuspendSteps?: Array<{
+    id: string;
+    requiredEvents?: number;
+    resumeRequiredStringFieldAnyOf?: string[];
+  }>;
 }
 
 export interface EvalCase {
@@ -29,6 +22,7 @@ export interface EvalCase {
   initialPath?: string;
   expectedPath?: string;
   validate?: FlowValidationSpec;
+  judgeChecklist?: string[];
 }
 
 export interface BenchmarkCheck {

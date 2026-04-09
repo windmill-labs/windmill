@@ -8,6 +8,7 @@ const JUDGE_TOOL_NAME = "submit_judgement";
 export async function judgeOutput(input: {
   mode: EvalMode;
   prompt: string;
+  checklist?: string[];
   initial?: unknown;
   expected?: unknown;
   actual: unknown;
@@ -30,7 +31,10 @@ export async function judgeOutput(input: {
     "You evaluate benchmark outputs for Windmill AI generation.",
     "Deterministic checks already run separately. Focus on whether the final output satisfies the user request.",
     "If expected state is provided, treat it as a valid example and reward semantically equivalent outputs.",
-    "Be strict about missing requested functionality. Inputs, module ids, and other details do not need to be exactly the same, but the functionality must be the same.",
+    "If a checklist is provided, treat it as the explicit acceptance criteria for this case.",
+    "Be strict about missing requested functionality.",
+    "When the prompt wording is ambiguous, prefer the checklist over inferred structural requirements.",
+    "Do not require exact ids, exact topology, or exact field names unless the prompt, checklist, or expected state clearly requires them.",
     `Always respond by calling the ${JUDGE_TOOL_NAME} tool exactly once.`,
   ].join("\n\n");
 
@@ -39,6 +43,9 @@ export async function judgeOutput(input: {
     "",
     "User prompt:",
     input.prompt,
+    "",
+    "Checklist:",
+    formatChecklist(input.checklist),
     "",
     "Initial state:",
     formatJsonBlock(input.initial),
@@ -124,6 +131,14 @@ function formatJsonBlock(value: unknown): string {
     return "(none)";
   }
   return JSON.stringify(value, null, 2);
+}
+
+function formatChecklist(checklist: string[] | undefined): string {
+  if (!checklist || checklist.length === 0) {
+    return "(none)";
+  }
+
+  return checklist.map((item) => `- ${item}`).join("\n");
 }
 
 function normalizeScore(value: number): number {

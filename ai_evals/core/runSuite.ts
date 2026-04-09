@@ -160,6 +160,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
         const judge = await judgeOutput({
           mode: input.modeRunner.mode,
           prompt: input.evalCase.prompt,
+          checklist: input.evalCase.judgeChecklist,
           initial,
           expected,
           actual: run.actual,
