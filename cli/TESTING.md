@@ -29,6 +29,20 @@ binary and starts a shared backend instance.
 
 Examples: `sync_pull_push`, `dev_server`, `standalone_commands`
 
+## AI Benchmark Caveats
+
+The repo-level benchmark CLI lives under `ai_evals/`, but it currently depends on
+mocked frontend flow execution in a few places. Treat `flow` benchmark passes as
+artifact-shape signal, not full runtime correctness, when either of these apply:
+
+- deterministic flow validation does not currently reject syntactically invalid
+  `rawscript` module bodies
+- frontend benchmark calls to `test_run_flow` and `test_run_step` return mocked
+  completed jobs for `mock-job-id-*` workspaces instead of executing the flow
+
+If a prompt change depends on flow wiring or script runtime behavior, verify it
+with additional validation or a real run before trusting the benchmark result.
+
 ## Environment Variables
 
 | Variable | Purpose | Default |

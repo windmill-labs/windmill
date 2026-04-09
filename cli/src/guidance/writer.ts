@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { generateAgentsMdContent } from "./core.ts";
 import {
@@ -75,10 +75,8 @@ async function copySkillsFromSource(
   targetDir: string,
   skillsSourcePath: string
 ): Promise<SkillMetadata[]> {
-  const skillsDir = join(targetDir, ".claude", "skills");
-  await mkdir(join(targetDir, ".claude"), { recursive: true });
-  await rm(skillsDir, { recursive: true, force: true });
-  await cp(skillsSourcePath, skillsDir, { recursive: true, force: true });
+  const skillsDir = await ensureSkillsDirectory(targetDir);
+  await copyDirectoryContents(skillsSourcePath, skillsDir);
   return await readSkillMetadataFromDirectory(skillsDir);
 }
 
@@ -86,9 +84,7 @@ async function writeGeneratedSkills(
   targetDir: string,
   nonDottedPaths: boolean
 ): Promise<SkillMetadata[]> {
-  const skillsDir = join(targetDir, ".claude", "skills");
-  await rm(skillsDir, { recursive: true, force: true });
-  await mkdir(skillsDir, { recursive: true });
+  const skillsDir = await ensureSkillsDirectory(targetDir);
 
   await Promise.all(
     SKILLS.map(async (skill) => {
@@ -103,6 +99,25 @@ async function writeGeneratedSkills(
   );
 
   return SKILLS;
+}
+
+async function ensureSkillsDirectory(targetDir: string): Promise<string> {
+  const skillsDir = join(targetDir, ".claude", "skills");
+  await mkdir(skillsDir, { recursive: true });
+  return skillsDir;
+}
+
+async function copyDirectoryContents(sourceDir: string, targetDir: string): Promise<void> {
+  const entries = await readdir(sourceDir, { withFileTypes: true });
+
+  await Promise.all(
+    entries.map(async (entry) => {
+      await cp(join(sourceDir, entry.name), join(targetDir, entry.name), {
+        recursive: true,
+        force: true,
+      });
+    })
+  );
 }
 
 function renderGeneratedSkillContent(skillName: string, nonDottedPaths: boolean): string {
