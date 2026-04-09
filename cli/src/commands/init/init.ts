@@ -61,6 +61,7 @@ async function initAction(opts: InitOptions) {
     );
     let branchName: string | undefined;
     let wsBindings: WorkspaceBinding[] | undefined;
+    let boundProfile: Workspace | undefined; // The profile selected during bind (if any)
     const inGitRepo = isGitRepository();
     if (inGitRepo) {
       branchName = getCurrentGitBranch() ?? undefined;
@@ -124,6 +125,7 @@ async function initAction(opts: InitOptions) {
             workspaceId: selectedProfile.workspaceId !== wsName ? selectedProfile.workspaceId : wsName,
             gitBranch,
           }];
+          boundProfile = selectedProfile;
         }
       }
     } else if (opts.bindProfile === true) {
@@ -138,6 +140,7 @@ async function initAction(opts: InitOptions) {
           baseUrl: activeWorkspace.remote,
           workspaceId: activeWorkspace.workspaceId !== wsName ? activeWorkspace.workspaceId : wsName,
         }];
+        boundProfile = activeWorkspace;
       }
     }
 
@@ -164,20 +167,18 @@ async function initAction(opts: InitOptions) {
     await readLockfile();
 
     // Check for backend git-sync settings — only if a workspace was bound and not --use-default
-    const boundWsName = wsBindings?.[0]?.name;
-    if (!opts.useDefault && didBindWorkspace && boundWsName) {
+    if (!opts.useDefault && didBindWorkspace && boundProfile) {
       try {
         const { requireLogin } = await import("../../core/auth.ts");
-        const { resolveWorkspace } = await import("../../core/context.ts");
+        const { setClient } = await import("../../core/client.ts");
 
-        // Resolve using the workspace we just bound (not the active profile)
-        const initOpts = { ...opts, workspace: boundWsName } as GlobalOptions;
-        await requireLogin(initOpts);
-        const workspace = await resolveWorkspace(initOpts);
+        // Use the profile we selected during bind — no need to re-resolve
+        setClient(boundProfile.token, boundProfile.remote.replace(/\/$/, ""));
+        await requireLogin(opts as GlobalOptions);
 
         const wmill = await import("../../../gen/services.gen.ts");
         const settings = await wmill.getSettings({
-          workspace: workspace.workspaceId,
+          workspace: boundProfile.workspaceId,
         });
 
         if (
@@ -222,7 +223,8 @@ async function initAction(opts: InitOptions) {
               "../gitsync-settings/gitsync-settings.ts"
             );
             await pullGitSyncSettings({
-              ...initOpts,
+              ...(opts as GlobalOptions),
+              workspace: boundProfile.name,
               repository: opts.repository,
               jsonOutput: false,
               diff: false,
