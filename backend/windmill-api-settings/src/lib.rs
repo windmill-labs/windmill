@@ -997,16 +997,12 @@ async fn list_custom_instance_pg_databases(
     return Ok(Json(result));
 }
 
-pub async fn refresh_custom_instance_user_pwd_inner(db: &DB) -> Result<()> {
-    windmill_common::utils::refresh_custom_instance_user_pwd(db).await
-}
-
 async fn refresh_custom_instance_user_pwd(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<()> {
     require_super_admin(&db, &authed.email).await?;
-    refresh_custom_instance_user_pwd_inner(&db).await?;
+    windmill_common::utils::refresh_custom_instance_user_pwd(&db).await?;
     Ok(Json(()))
 }
 
