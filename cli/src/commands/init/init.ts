@@ -1,13 +1,20 @@
 import { stat, writeFile, rm, mkdir } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
-import { Checkbox } from "@cliffy/prompt/checkbox";
+import { Confirm } from "@cliffy/prompt/confirm";
+import { Select } from "@cliffy/prompt/select";
 import { Input } from "@cliffy/prompt/input";
 import * as log from "../../core/log.ts";
 import { type WorkspaceBinding } from "./template.ts";
 import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
-import { getActiveWorkspaceOrFallback, allWorkspaces } from "../workspace/workspace.ts";
+import {
+  getActiveWorkspaceOrFallback,
+  getActiveWorkspace,
+  allWorkspaces,
+  add as addWorkspaceProfile,
+  type Workspace,
+} from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
 import { SKILLS, SKILL_CONTENT, SCHEMAS, SCHEMA_MAPPINGS } from "../../guidance/skills.ts";
 import { generateAgentsMdContent } from "../../guidance/core.ts";
@@ -52,55 +59,70 @@ async function initAction(opts: InitOptions) {
     );
     let branchName: string | undefined;
     let wsBindings: WorkspaceBinding[] | undefined;
-    if (isGitRepository()) {
+    const inGitRepo = isGitRepository();
+    if (inGitRepo) {
       branchName = getCurrentGitBranch() ?? undefined;
     }
 
-    // Determine workspace bindings before writing the template
-    const shouldPrompt =
-      !!process.stdin.isTTY && !opts.useDefault && opts.bindProfile !== false;
+    const isInteractive = !!process.stdin.isTTY && !opts.useDefault;
 
-    if (shouldPrompt) {
-      // List all existing local profiles
-      const profiles = await allWorkspaces(opts.configDir);
+    if (isInteractive && opts.bindProfile !== false) {
+      const shouldBind = opts.bindProfile === true || await Confirm.prompt({
+        message: "Bind a workspace?",
+        default: true,
+      });
 
-      if (profiles.length > 0) {
-        log.info(colors.yellow("\nSet up workspaces section in wmill.yaml?"));
-        log.info(
-          colors.gray("  Select which profiles to include as workspace entries.\n" +
-            "  The workspace name is used as config key and defaults as the git branch name.")
-        );
+      if (shouldBind) {
+        // Step 1: Pick workspace profile (same as wmill workspace bind)
+        let profiles = await allWorkspaces(opts.configDir);
+        let selectedProfile: Workspace | undefined;
 
-        const activeProfile = await getActiveWorkspaceOrFallback(opts as GlobalOptions);
-        const selected = await Checkbox.prompt({
-          message: "Select workspace profiles to include",
-          options: profiles.map((p) => ({
-            name: `${p.name} (${p.workspaceId} on ${p.remote})`,
-            value: p.name,
-            checked: p.name === activeProfile?.name,
-          })),
-        });
-
-        if (selected.length > 0) {
-          wsBindings = [];
-          for (const profileName of selected) {
-            const profile = profiles.find((p) => p.name === profileName)!;
-            const wsName = await Input.prompt({
-              message: `Workspace name for profile '${profileName}'`,
-              default: profileName,
-            });
-
-            wsBindings.push({
-              name: wsName,
-              baseUrl: profile.remote,
-              workspaceId: profile.workspaceId !== wsName ? profile.workspaceId : wsName,
-            });
-          }
+        if (profiles.length === 0) {
+          log.info(colors.yellow("No workspace profiles found. Let's create one."));
+          await addWorkspaceProfile(opts as any, undefined, undefined, undefined);
+          profiles = await allWorkspaces(opts.configDir);
+          selectedProfile = profiles.length > 0
+            ? await getActiveWorkspace(opts as GlobalOptions)
+            : undefined;
+        } else {
+          const activeProfile = await getActiveWorkspace(opts as GlobalOptions);
+          const selectedName = await Select.prompt({
+            message: "Select workspace profile",
+            options: profiles.map((p) => ({
+              name: `${p.name} (${p.workspaceId} on ${p.remote})`,
+              value: p.name,
+            })),
+            default: activeProfile?.name,
+          });
+          selectedProfile = profiles.find((p) => p.name === selectedName);
         }
-      } else {
-        log.info(
-          colors.gray("No workspace profiles found. You can add one later with 'wmill workspace add'.")
-        );
+
+        if (selectedProfile) {
+          // Step 2: Pick workspace name
+          const wsName = await Input.prompt({
+            message: "Workspace name (key in wmill.yaml)",
+            default: selectedProfile.workspaceId,
+          });
+
+          // Step 3: Pick git branch (only in git repos)
+          let gitBranch: string | undefined;
+          if (inGitRepo) {
+            const branchInput = await Input.prompt({
+              message: "Git branch to associate",
+              default: branchName ?? wsName,
+            });
+            if (branchInput !== wsName) {
+              gitBranch = branchInput;
+            }
+          }
+
+          wsBindings = [{
+            name: wsName,
+            baseUrl: selectedProfile.remote,
+            workspaceId: selectedProfile.workspaceId !== wsName ? selectedProfile.workspaceId : wsName,
+            gitBranch,
+          }];
+        }
       }
     } else if (opts.bindProfile === true) {
       // Non-interactive bind: create a single workspace entry from active profile
@@ -122,10 +144,13 @@ async function initAction(opts: InitOptions) {
     if (wsBindings && wsBindings.length > 0) {
       log.info(
         colors.green(
-          `✓ Created ${wsBindings.length} workspace binding(s): ${wsBindings.map((w) => w.name).join(", ")}`
+          `✓ Bound workspace '${wsBindings[0].name}' → ${wsBindings[0].workspaceId} on ${wsBindings[0].baseUrl}`
         )
       );
     }
+    log.info(
+      colors.gray("To bind additional workspaces, run: wmill workspace bind")
+    );
 
     // Create lock file
     await readLockfile();
