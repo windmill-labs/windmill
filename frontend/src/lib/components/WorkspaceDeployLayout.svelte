@@ -21,6 +21,7 @@
 		deploymentStatus: Record<string, { status: 'loading' | 'deployed' | 'failed'; error?: string }>
 		allSelected?: boolean
 		emptyMessage?: string
+		children?: Snippet
 
 		// Snippets for customization
 		header?: Snippet
