@@ -1,3 +1,4 @@
+import path from "node:path";
 import ts from "typescript";
 import type { BenchmarkCheck, FlowValidationSpec } from "./types";
 
@@ -120,9 +121,27 @@ export function validateAppState(input: {
   const checks: BenchmarkCheck[] = [];
   const frontendEntries = Object.entries(input.actual.frontend ?? {});
   const backendEntries = Object.entries(input.actual.backend ?? {});
+  const frontendSyntaxProblems = getAppFrontendSyntaxProblems(input.actual.frontend);
+  const backendSyntaxProblems = getAppBackendSyntaxProblems(input.actual.backend);
+  const unresolvedBackendRefs = getUnresolvedBackendReferences(
+    input.actual.frontend,
+    input.actual.backend
+  );
 
   checks.push(check("app has frontend entrypoint", Boolean(input.actual.frontend["/index.tsx"])));
-  checks.push(check("app has non-empty frontend files", frontendEntries.some(([, content]) => content.trim().length > 0)));
+  checks.push(
+    check(
+      "app has non-empty frontend files",
+      frontendEntries.some(([, content]) => content.trim().length > 0)
+    )
+  );
+  checks.push(
+    check(
+      "frontend files have no syntax errors",
+      frontendSyntaxProblems.length === 0,
+      summarizeProblems(frontendSyntaxProblems)
+    )
+  );
   checks.push(
     check(
       "backend inline scripts have entrypoints",
@@ -132,6 +151,20 @@ export function validateAppState(input: {
         }
         return hasSupportedEntrypoint(runnable.inlineScript?.content ?? "");
       })
+    )
+  );
+  checks.push(
+    check(
+      "backend inline scripts have no syntax errors",
+      backendSyntaxProblems.length === 0,
+      summarizeProblems(backendSyntaxProblems)
+    )
+  );
+  checks.push(
+    check(
+      "frontend backend references resolve",
+      unresolvedBackendRefs.length === 0,
+      summarizeProblems(unresolvedBackendRefs)
     )
   );
 
@@ -207,6 +240,18 @@ function normalizeJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function summarizeProblems(problems: string[], limit = 5): string | undefined {
+  if (problems.length === 0) {
+    return undefined;
+  }
+
+  if (problems.length <= limit) {
+    return problems.join("; ");
+  }
+
+  return `${problems.slice(0, limit).join("; ")}; ...and ${problems.length - limit} more`;
+}
+
 function hasSupportedEntrypoint(code: string): boolean {
   return (
     /export\s+(async\s+)?function\s+main\s*\(/.test(code) ||
@@ -219,18 +264,86 @@ function getScriptSyntaxErrors(code: string, lang: string): string[] {
     return [];
   }
 
+  return getTypeScriptSyntaxErrors(code, "eval.ts");
+}
+
+function getTypeScriptSyntaxErrors(code: string, fileName: string): string[] {
   const result = ts.transpileModule(code, {
     compilerOptions: {
       target: ts.ScriptTarget.ES2022,
       module: ts.ModuleKind.ESNext,
+      jsx: ts.JsxEmit.ReactJSX,
     },
     reportDiagnostics: true,
-    fileName: "eval.ts",
+    fileName,
   });
 
   return (result.diagnostics ?? []).map((diagnostic) =>
     ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
   );
+}
+
+function getAppFrontendSyntaxProblems(frontend: Record<string, string>): string[] {
+  const problems: string[] = [];
+
+  for (const [filePath, content] of Object.entries(frontend)) {
+    if (!isFrontendCodeFile(filePath)) {
+      continue;
+    }
+
+    const errors = getTypeScriptSyntaxErrors(content, filePath);
+    for (const error of errors) {
+      problems.push(`${filePath}: ${error}`);
+    }
+  }
+
+  return problems;
+}
+
+function getAppBackendSyntaxProblems(backend: Record<string, AppRunnableState>): string[] {
+  const problems: string[] = [];
+
+  for (const [key, runnable] of Object.entries(backend)) {
+    if (runnable.type !== "inline") {
+      continue;
+    }
+
+    const language = runnable.inlineScript?.language ?? "";
+    const content = runnable.inlineScript?.content ?? "";
+    for (const error of getScriptSyntaxErrors(content, language)) {
+      problems.push(`${key}: ${error}`);
+    }
+  }
+
+  return problems;
+}
+
+function isFrontendCodeFile(filePath: string): boolean {
+  const extension = path.extname(filePath).toLowerCase();
+  return extension === ".ts" || extension === ".tsx" || extension === ".js" || extension === ".jsx";
+}
+
+function getUnresolvedBackendReferences(
+  frontend: Record<string, string>,
+  backend: Record<string, AppRunnableState>
+): string[] {
+  const backendKeys = new Set(Object.keys(backend));
+  const unresolved = new Set<string>();
+
+  for (const [filePath, content] of Object.entries(frontend)) {
+    for (const key of extractBackendCallKeys(content)) {
+      if (!backendKeys.has(key)) {
+        unresolved.add(`${filePath} references missing backend.${key}()`);
+      }
+    }
+  }
+
+  return [...unresolved];
+}
+
+function extractBackendCallKeys(content: string): string[] {
+  const matches = content.matchAll(/\bbackend\.([A-Za-z_][A-Za-z0-9_]*)\s*\(/g);
+  return [...new Set([...matches].map((match) => match[1]))];
 }
 
 function getFlowModules(flow: FlowState): Array<Record<string, unknown>> {
