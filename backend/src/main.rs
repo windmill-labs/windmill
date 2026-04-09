@@ -1600,7 +1600,7 @@ async fn process_notify_event(
         "restart_worker_group" => {
             if worker_mode && payload == *WORKER_GROUP {
                 tracing::info!("Restart requested for worker group '{payload}'");
-                spawn_graceful_killpill(tx, db, 10, "worker group restart requested").await;
+                spawn_graceful_killpill(tx, db, 30, "worker group restart requested").await;
             }
         }
         "notify_webhook_change" => {
@@ -1804,7 +1804,7 @@ async fn process_notify_event(
                     reload_otel_tracing_proxy_setting(conn).await;
                     if worker_mode {
                         tracing::info!("OTEL tracing proxy setting changed, restarting worker");
-                        spawn_graceful_killpill(tx, db, 10, "OTEL tracing proxy setting change")
+                        spawn_graceful_killpill(tx, db, 30, "OTEL tracing proxy setting change")
                             .await;
                     }
                 }
@@ -1813,12 +1813,12 @@ async fn process_notify_event(
                 }
                 EXPOSE_METRICS_SETTING => {
                     tracing::info!("Metrics setting changed, restarting");
-                    spawn_graceful_killpill(tx, db, 10, "metrics setting change").await;
+                    spawn_graceful_killpill(tx, db, 30, "metrics setting change").await;
                 }
                 EMAIL_DOMAIN_SETTING => {
                     tracing::info!("Email domain setting changed");
                     if server_mode {
-                        spawn_graceful_killpill(tx, db, 10, "email domain setting change").await;
+                        spawn_graceful_killpill(tx, db, 30, "email domain setting change").await;
                     }
                 }
                 EXPOSE_DEBUG_METRICS_SETTING => {
@@ -1854,19 +1854,19 @@ async fn process_notify_event(
                 }
                 OTEL_SETTING => {
                     tracing::info!("OTEL setting changed, restarting");
-                    spawn_graceful_killpill(tx, db, 10, "OTEL setting change").await;
+                    spawn_graceful_killpill(tx, db, 30, "OTEL setting change").await;
                 }
                 REQUEST_SIZE_LIMIT_SETTING => {
                     if server_mode {
                         tracing::info!("Request limit size change detected, killing server expecting to be restarted");
-                        spawn_graceful_killpill(tx, db, 10, "request size limit change").await;
+                        spawn_graceful_killpill(tx, db, 30, "request size limit change").await;
                     }
                 }
                 SAML_METADATA_SETTING => {
                     tracing::info!(
                         "SAML metadata change detected, killing server expecting to be restarted"
                     );
-                    spawn_graceful_killpill(tx, db, 10, "SAML metadata change").await;
+                    spawn_graceful_killpill(tx, db, 30, "SAML metadata change").await;
                 }
                 HUB_BASE_URL_SETTING => {
                     if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
@@ -2099,35 +2099,72 @@ async fn spawn_graceful_killpill(
     // Minimum delay before any restart to let in-flight requests drain
     const DRAIN_DELAY_SECS: u64 = 3;
 
-    let delay = match coordinate_restart_delay(db, safety_margin_secs, DRAIN_DELAY_SECS).await {
-        Ok(d) => d,
-        Err(e) => {
-            tracing::warn!(
-                "Failed to coordinate restart for {context}: {e:#}, \
-                 falling back to drain delay of {DRAIN_DELAY_SECS}s"
-            );
-            DRAIN_DELAY_SECS
-        }
-    };
+    let (delay, is_first) =
+        match coordinate_restart_delay(db, safety_margin_secs, DRAIN_DELAY_SECS).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to coordinate restart for {context}: {e:#}, \
+                     falling back to drain delay of {DRAIN_DELAY_SECS}s"
+                );
+                (DRAIN_DELAY_SECS, true)
+            }
+        };
 
-    tracing::info!("Scheduling {context} graceful shutdown in {delay}s");
+    tracing::info!(
+        "Scheduling {context} graceful shutdown in {delay}s (first_to_restart={is_first})"
+    );
     let tx = tx.clone();
+    let db = db.clone();
+    let context = context.to_string();
+    // Capture the current time so the health check only considers heartbeats
+    // written *after* this restart was initiated (not stale pre-restart ones).
+    let not_before = chrono::Utc::now();
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(delay)).await;
+        if !is_first {
+            // Non-first instance: wait for another server to announce itself as
+            // started (via the coordination record) before shutting down, ensuring
+            // zero-downtime. Falls back to the computed delay as a maximum timeout.
+            let started_waiting = tokio::time::Instant::now();
+            let max_wait = Duration::from_secs(delay.max(safety_margin_secs).max(120));
+            loop {
+                if windmill_api::check_any_server_started(&db, not_before).await {
+                    tracing::info!(
+                        "{context}: healthy peer detected after {:.1}s, proceeding with shutdown",
+                        started_waiting.elapsed().as_secs_f64()
+                    );
+                    break;
+                }
+                if started_waiting.elapsed() >= max_wait {
+                    tracing::warn!(
+                        "{context}: no healthy peer detected after {:.1}s, proceeding with shutdown anyway",
+                        started_waiting.elapsed().as_secs_f64()
+                    );
+                    break;
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        } else {
+            tokio::time::sleep(Duration::from_secs(delay)).await;
+        }
         tx.send();
     });
 }
 
 /// Coordinate a restart delay with other instances via the DB.
 ///
-/// Returns the delay (in seconds from now) at which this instance should restart.
-/// The first server gets `drain_delay_secs` (to let in-flight requests complete).
-/// Each subsequent server is spaced `safety_margin_secs` after the latest scheduled restart.
+/// Returns `(delay_secs, is_first)`:
+/// - `delay_secs`: how long to wait before restarting
+/// - `is_first`: whether this instance is the first to schedule a restart
+///
+/// The first server restarts immediately (0 delay) to maximize its head-start.
+/// Subsequent servers use a safety margin after the latest scheduled restart as a
+/// fallback timeout, but primarily wait for a health-check (see `spawn_graceful_killpill`).
 async fn coordinate_restart_delay(
     db: &Pool<Postgres>,
     safety_margin_secs: u64,
     drain_delay_secs: u64,
-) -> anyhow::Result<u64> {
+) -> anyhow::Result<(u64, bool)> {
     const RESTART_LOCK_ID: i64 = 737_483_920;
     // Stale threshold: ignore coordination entries older than this
     const STALE_THRESHOLD_SECS: i64 = 120;
@@ -2177,16 +2214,22 @@ async fn coordinate_restart_delay(
 
     // Find the latest scheduled restart
     let latest = scheduled.iter().map(|(_, dt)| *dt).max();
+    let is_first = latest.is_none();
     let earliest_allowed = now + chrono::Duration::seconds(drain_delay_secs as i64);
 
-    // Our restart time: drain_delay from now, or safety_margin after the latest existing restart
+    // Our restart time:
+    // - First instance (no prior scheduled restarts): brief 1s delay to let in-flight
+    //   requests (like the settings save) complete, then restart quickly to maximize
+    //   head-start before subsequent instances shut down.
+    // - Subsequent instances: safety_margin after the latest scheduled restart (used as
+    //   a fallback timeout; the actual shutdown is gated by a health-check in the caller).
     let our_restart = match latest {
         Some(last) => {
             let after_last = last + chrono::Duration::seconds(safety_margin_secs as i64);
             // Use whichever is later: drain delay or staggered position
             earliest_allowed.max(after_last)
         }
-        None => earliest_allowed,
+        None => now + chrono::Duration::seconds(1),
     };
 
     // Record our restart time (deduplicate: remove any prior entry for this instance)
@@ -2215,5 +2258,5 @@ async fn coordinate_restart_delay(
     tx.commit().await.context("commit restart coordination")?;
 
     let delay = (our_restart - now).num_seconds().max(0) as u64;
-    Ok(delay)
+    Ok((delay, is_first))
 }
