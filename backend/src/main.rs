@@ -562,7 +562,7 @@ async fn resync_custom_instance_user_pwd_if_needed(db: &Pool<Postgres>) {
     pg_creds.user = Some("custom_instance_user".to_string());
     pg_creds.password = Some(user_pwd);
 
-    match pg_creds.connect().await {
+    match pg_creds.connect(Some(db)).await {
         Ok(_) => {
             tracing::info!("custom_instance_user password is in sync");
         }

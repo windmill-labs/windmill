@@ -17,10 +17,10 @@ pub mod database;
 #[cfg(feature = "private")]
 pub mod vault_ee;
 
-pub mod vault_oss;
 #[cfg(feature = "private")]
 pub mod azure_kv_ee;
 pub mod azure_kv_oss;
+pub mod vault_oss;
 
 #[cfg(feature = "private")]
 pub mod aws_sm_ee;

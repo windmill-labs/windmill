@@ -80,7 +80,7 @@ async fn new_pg_connection(
             ));
         }
     } else {
-        database.connect().await?
+        database.connect(None).await?
     };
     let handle = tokio::spawn(async move {
         if let Err(e) = connection.await {

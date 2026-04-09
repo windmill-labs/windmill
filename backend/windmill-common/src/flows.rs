@@ -81,8 +81,7 @@ pub async fn get_full_hub_flow_by_path(
         .map_err(to_anyhow)
     {
         Ok(response) => response,
-        Err(_) if hub_base_url != DEFAULT_HUB_BASE_URL && flow_id < PRIVATE_HUB_MIN_VERSION =>
-        {
+        Err(_) if hub_base_url != DEFAULT_HUB_BASE_URL && flow_id < PRIVATE_HUB_MIN_VERSION => {
             tracing::info!("Not found on private hub, fallback to default hub for hub flow {path}");
             let fallback_url = format!("{DEFAULT_HUB_BASE_URL}/flows/{flow_id}/json");
             http_get_from_hub(http_client, &fallback_url, false, None, db)
