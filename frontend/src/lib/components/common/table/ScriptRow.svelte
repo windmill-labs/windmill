@@ -151,6 +151,14 @@
 				<Badge small color="indigo" baseClass="border border-indigo-200">wac</Badge>
 			</Popover>
 		{/if}
+		{#if script.auto_kind === 'test'}
+			<Popover notClickable>
+				{#snippet text()}
+					CI test script
+				{/snippet}
+				<Badge small color="yellow" baseClass="border">CI test</Badge>
+			</Popover>
+		{/if}
 		{#if script.kind !== 'script'}
 			<Badge color="blue" baseClass="border"
 				>{script.kind === 'failure' ? 'Error handler' : capitalize(script.kind)}</Badge

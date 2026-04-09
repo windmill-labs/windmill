@@ -89,6 +89,8 @@
 			| 'claudesandbox'
 			| 'wac_python'
 			| 'wac_typescript'
+			| 'ci_test_bun'
+			| 'ci_test_python'
 		collabMode?: boolean
 		collabLive?: boolean
 		collabUsers?: { name: string }[]

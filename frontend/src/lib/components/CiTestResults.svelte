@@ -26,6 +26,14 @@
 
 	let results: CiTestResult[] = $derived(ciTests.current ?? [])
 	let hasResults = $derived(results.length > 0)
+	let hasRunning = $derived(results.some((r) => r.status === 'running' || !r.status))
+
+	// Poll while any test is still running
+	$effect(() => {
+		if (!hasRunning) return
+		const interval = setInterval(() => ciTests.refetch(), 3000)
+		return () => clearInterval(interval)
+	})
 </script>
 
 {#if hasResults}

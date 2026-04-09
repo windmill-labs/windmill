@@ -3,7 +3,7 @@
 	import { WorkspaceService, ScriptService } from '$lib/gen'
 	import type { WorkspaceComparison } from '$lib/gen'
 	import { Button } from './common'
-	import { AlertTriangle, GitFork, CircleCheck, CircleX } from 'lucide-svelte'
+	import { AlertTriangle, GitFork, CircleCheck, CircleX, Loader2 } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { onMount, untrack } from 'svelte'
 
@@ -70,6 +70,7 @@
 
 	let ciTestPassing = $state(0)
 	let ciTestFailing = $state(0)
+	let ciTestRunning = $state(0)
 	let ciTestTotal = $state(0)
 
 	async function fetchCiTestSummary() {
@@ -85,16 +86,19 @@
 			})
 			let passing = 0
 			let failing = 0
+			let running = 0
 			let total = 0
 			for (const results of Object.values(batch)) {
 				for (const r of results) {
 					total++
 					if (r.status === 'success') passing++
 					else if (r.status === 'failure' || r.status === 'canceled') failing++
+					else running++
 				}
 			}
 			ciTestPassing = passing
 			ciTestFailing = failing
+			ciTestRunning = running
 			ciTestTotal = total
 		} catch (e) {
 			console.error('Failed to fetch CI test summary:', e)
@@ -105,6 +109,13 @@
 		if (comparison && comparison.summary.total_diffs > 0) {
 			fetchCiTestSummary()
 		}
+	})
+
+	// Poll while any CI test is still running
+	$effect(() => {
+		if (ciTestRunning <= 0) return
+		const interval = setInterval(fetchCiTestSummary, 3000)
+		return () => clearInterval(interval)
 	})
 
 	function forkAheadBehindMessage(changesAhead: number, changesBehind: number) {
@@ -213,6 +224,11 @@
 										<div class="flex items-center gap-1 text-red-600 dark:text-red-400">
 											<CircleX class="w-3 h-3" />
 											<span>CI: {ciTestFailing} failing</span>
+										</div>
+									{:else if ciTestRunning > 0}
+										<div class="flex items-center gap-1 text-yellow-600 dark:text-yellow-400">
+											<Loader2 class="w-3 h-3 animate-spin" />
+											<span>CI: {ciTestRunning} running</span>
 										</div>
 									{:else}
 										<div class="flex items-center gap-1 text-green-600 dark:text-green-400">

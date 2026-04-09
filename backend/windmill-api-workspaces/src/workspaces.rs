@@ -3490,6 +3490,9 @@ async fn clone_workspace_data(
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
 
+    // Clone CI test references
+    clone_ci_test_references(tx, source_workspace_id, target_workspace_id).await?;
+
     // Clone flows with new versions
     clone_flows(tx, source_workspace_id, target_workspace_id).await?;
 
@@ -3744,6 +3747,23 @@ async fn clone_scripts(
     .execute(&mut **tx)
     .await?;
 
+    Ok(())
+}
+
+async fn clone_ci_test_references(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO ci_test_reference (workspace_id, test_script_path, test_script_hash, tested_item_path, tested_item_kind)
+         SELECT $2, test_script_path, test_script_hash, tested_item_path, tested_item_kind
+         FROM ci_test_reference WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 

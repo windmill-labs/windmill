@@ -126,6 +126,8 @@
 			| 'claudesandbox'
 			| 'wac_python'
 			| 'wac_typescript'
+			| 'ci_test_bun'
+			| 'ci_test_python'
 		tag: string | undefined
 		initialArgs?: Record<string, any>
 		fixedOverflowWidgets?: boolean
@@ -1628,9 +1630,7 @@
 										{/key}
 										{#if showPsCommonParams}
 											<div class="mt-2">
-												<PowerShellCommonParams
-														bind:args={psCommonParams}
-												/>
+												<PowerShellCommonParams bind:args={psCommonParams} />
 											</div>
 										{/if}
 									</div>
