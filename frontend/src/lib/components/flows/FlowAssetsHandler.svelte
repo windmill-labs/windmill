@@ -32,7 +32,7 @@
 		type AssetWithAltAccessType
 	} from '../assets/lib'
 	import { getAllModules } from './flowExplorer'
-	import { getContext, untrack } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { FlowEditorContext, FlowGraphAssetContext } from './types'
 	import {
 		AssetService,
@@ -46,6 +46,7 @@
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import { watch } from 'runed'
+	import { sendUserToast } from '$lib/toast'
 
 	let {
 		modules,
@@ -120,7 +121,19 @@
 		}
 	})
 
-	async function parseAndUpdateRawScriptModule(v: RawScript, modId: string) {
+	function analyzeEntireFlow() {
+		for (const mod of allModules) {
+			if (mod.value.type === 'rawscript') {
+				parseAndUpdateRawScriptModule(mod.value, mod.id)
+			}
+		}
+	}
+
+	async function parseAndUpdateRawScriptModule(
+		v: RawScript,
+		modId: string,
+		isUserEdit: boolean = true
+	) {
 		console.log('Parsing assets for RawScript module', modId)
 		let inferAssetsResult = await inferAssets(v.language, v.content)
 		if (inferAssetsResult.status === 'error') return
@@ -131,24 +144,18 @@
 			if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
 		}
 		const normalizedAssets = newAssets.length > 0 ? newAssets : undefined
-		if (!deepEqual(v.assets, normalizedAssets)) v.assets = normalizedAssets
+		if (!deepEqual(v.assets, normalizedAssets)) {
+			if (!isUserEdit && normalizedAssets && normalizedAssets.length > 0) {
+				sendUserToast(
+					'Assets were detected in this step. Analyze entire flow for assets?',
+					'warning',
+					[{ label: 'Analyze entire flow', callback: () => analyzeEntireFlow() }]
+				)
+			} else {
+				v.assets = normalizedAssets
+			}
+		}
 	}
-
-	// Check for raw script modules whose assets were not parsed. Useful for flows created
-	// before the assets feature was introduced.
-	$effect(() => {
-		if (!enableParser) return
-		untrack(() => {
-			setTimeout(() => {
-				for (const mod of allModules) {
-					if (mod.value.type === 'rawscript' && mod.value.assets === undefined) {
-						console.log('RawScript module', mod.id, 'without assets field, parsing')
-						parseAndUpdateRawScriptModule(mod.value, mod.id)
-					}
-				}
-			}, 500) // ensure modules are loaded
-		})
-	})
 
 	$effect(() => {
 		if (!enableParser) return
@@ -166,7 +173,8 @@
 
 				// Also recompute if the module is selected
 				watch([() => selectedId === mod.id], () => {
-					if (selectedId === mod.id) parseAndUpdateRawScriptModule(modValue, mod.id)
+					if (selectedId === mod.id)
+						parseAndUpdateRawScriptModule(modValue, mod.id, modValue.assets !== undefined)
 				})
 			}
 		}
