@@ -3,6 +3,8 @@
 	import RawAppInlineScriptsPanel from './RawAppInlineScriptsPanel.svelte'
 	import type { JobById } from '../apps/types'
 	import RawAppEditorHeader from './RawAppEditorHeader.svelte'
+	import RawAppYamlEditor, { type RawAppYamlUpdate } from './RawAppYamlEditor.svelte'
+	import type Drawer from '../common/drawer/Drawer.svelte'
 	import { type Policy, WorkspaceService } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { encodeState } from '$lib/utils'
@@ -100,8 +102,25 @@
 	}
 
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
+	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 
 	let sidebarPanelSize = $state(15)
+
+	function handleYamlApply(update: RawAppYamlUpdate) {
+		if (update.summary !== undefined) {
+			summary = update.summary
+		}
+		if (update.files !== undefined) {
+			files = update.files
+		}
+		if (update.runnables !== undefined) {
+			runnables = update.runnables
+		}
+		if (update.data !== undefined) {
+			data = update.data
+		}
+		historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
+	}
 
 	let jobs: string[] = $state([])
 	let jobsById: Record<string, JobById> = $state({})
@@ -826,6 +845,16 @@
 		canRedo={historyManager.canRedo}
 		onUndo={handleUndo}
 		onRedo={handleRedo}
+		onOpenYamlEditor={() => yamlEditorDrawer?.openDrawer()}
+	/>
+
+	<RawAppYamlEditor
+		bind:drawer={yamlEditorDrawer}
+		{summary}
+		{files}
+		{runnables}
+		{data}
+		onApply={handleYamlApply}
 	/>
 
 	<Splitpanes id="o2" class="grow min-h-0">

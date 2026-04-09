@@ -105,6 +105,7 @@
 		canRedo?: boolean
 		onUndo?: () => void
 		onRedo?: () => void
+		onOpenYamlEditor?: () => void
 	}
 
 	let {
@@ -125,7 +126,8 @@
 		canUndo = false,
 		canRedo = false,
 		onUndo = undefined,
-		onRedo = undefined
+		onRedo = undefined,
+		onOpenYamlEditor = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state('')
@@ -575,6 +577,11 @@
 			action: () => {
 				appExport?.open(app)
 			}
+		},
+		{
+			displayName: 'Edit in YAML',
+			icon: FileJson,
+			action: () => onOpenYamlEditor?.()
 		},
 		{
 			displayName: 'Publish to Hub',
