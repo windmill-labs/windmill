@@ -51,6 +51,7 @@ export interface InitOptions {
  */
 async function initAction(opts: InitOptions) {
   let didBindWorkspace = false;
+  let boundProfile: Workspace | undefined;
 
   if (await stat("wmill.yaml").catch(() => null)) {
     log.info("wmill.yaml already exists, skipping config generation");
@@ -61,7 +62,7 @@ async function initAction(opts: InitOptions) {
     );
     let branchName: string | undefined;
     let wsBindings: WorkspaceBinding[] | undefined;
-    let boundProfile: Workspace | undefined; // The profile selected during bind (if any)
+    // boundProfile is set during bind (hoisted to function scope)
     const inGitRepo = isGitRepository();
     if (inGitRepo) {
       branchName = getCurrentGitBranch() ?? undefined;
