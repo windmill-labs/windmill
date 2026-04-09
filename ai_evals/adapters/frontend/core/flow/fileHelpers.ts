@@ -6,8 +6,7 @@ import type { FlowAIChatHelpers } from '../../../../../frontend/src/lib/componen
 import type { ScriptLintResult } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
 import { findModuleById } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
 import {
-	inlineScriptStore,
-	restoreInlineScriptReferences
+	createInlineScriptSession
 } from '../../../../../frontend/src/lib/components/copilot/chat/flow/inlineScriptsUtils'
 import {
 	registerBenchmarkWorkspaceRunnables,
@@ -50,6 +49,7 @@ export async function createFlowFileHelpers(
 			type: 'object'
 		}
 	}
+	const inlineScriptSession = createInlineScriptSession()
 
 	const flowFilePath = workspaceRoot ? join(workspaceRoot, 'flow.json') : null
 
@@ -74,6 +74,7 @@ export async function createFlowFileHelpers(
 			const module = findModuleById(flow.value.modules, id)
 			return module ? [module] : []
 		},
+		inlineScriptSession,
 		setSnapshot: () => {},
 		revertToSnapshot: () => {},
 		setCode: async (id: string, code: string) => {
@@ -81,7 +82,7 @@ export async function createFlowFileHelpers(
 			if (module && module.value.type === 'rawscript') {
 				module.value.content = code
 			}
-			inlineScriptStore.set(id, code)
+			inlineScriptSession.set(id, code)
 			await persistFlow()
 		},
 		setFlowJson: async (
@@ -89,7 +90,13 @@ export async function createFlowFileHelpers(
 			schema: Record<string, any> | undefined
 		) => {
 			if (modules) {
-				flow.value.modules = restoreInlineScriptReferences(modules)
+				flow.value.modules = inlineScriptSession.restoreInlineScriptReferences(modules)
+				const unresolvedRefs = inlineScriptSession.findUnresolvedInlineScriptRefs(flow.value.modules)
+				if (unresolvedRefs.length > 0) {
+					throw new Error(
+						`Unresolved inline script references: ${unresolvedRefs.join(', ')}`
+					)
+				}
 			}
 			if (schema !== undefined) {
 				flow.schema = schema

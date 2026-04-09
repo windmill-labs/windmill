@@ -60,7 +60,12 @@ export async function runFlowEval(
 		const systemMessage = prepareFlowSystemMessage()
 		const tools = flowTools as ProductionTool<FlowAIChatHelpers>[]
 		const model = options?.model ?? 'claude-haiku-4-5-20251001'
-		const userMessage = prepareFlowUserMessage(userPrompt, helpers.getFlowAndSelectedId(), [])
+		const userMessage = prepareFlowUserMessage(
+			userPrompt,
+			helpers.getFlowAndSelectedId(),
+			[],
+			helpers.inlineScriptSession
+		)
 
 		const rawResult = await runEval({
 			userPrompt,

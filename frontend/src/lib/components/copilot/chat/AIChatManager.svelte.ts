@@ -452,7 +452,9 @@ class AIChatManager {
 					} else if (this.mode === AIMode.FLOW) {
 						return prepareFlowUserMessage(
 							pendingPrompt,
-							this.flowAiChatHelpers!.getFlowAndSelectedId()
+							this.flowAiChatHelpers!.getFlowAndSelectedId(),
+							[],
+							this.flowAiChatHelpers!.inlineScriptSession
 						)
 					} else if (this.mode === AIMode.NAVIGATOR) {
 						return prepareNavigatorUserMessage(pendingPrompt)
@@ -650,7 +652,8 @@ class AIChatManager {
 					userMessage = prepareFlowUserMessage(
 						oldInstructions,
 						this.flowAiChatHelpers!.getFlowAndSelectedId(),
-						oldSelectedContext
+						oldSelectedContext,
+						this.flowAiChatHelpers!.inlineScriptSession
 					)
 					break
 				case AIMode.NAVIGATOR:

@@ -5,7 +5,7 @@
 	import { dfs } from '$lib/components/flows/previousResults'
 	import type { FlowModule, InputTransform, OpenFlow } from '$lib/gen'
 	import type { FlowAIChatHelpers } from './core'
-	import { restoreInlineScriptReferences } from './inlineScriptsUtils'
+	import { createInlineScriptSession } from './inlineScriptsUtils'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { aiChatManager } from '../AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
@@ -27,6 +27,7 @@
 	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const { exprsToSet } = getContext<FlowCopilotContext | undefined>('FlowCopilotContext') ?? {}
+	const inlineScriptSession = createInlineScriptSession()
 
 	// Get diffManager from the graph
 	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
@@ -62,6 +63,7 @@
 			}
 			return flowStore.val.value.modules
 		},
+		inlineScriptSession,
 		setSnapshot: (snapshot: ExtendedOpenFlow) => {
 			diffManager?.setBeforeFlow(snapshot)
 		},
@@ -103,6 +105,7 @@
 
 				// 2. Apply the code change
 				module.value.content = code
+				inlineScriptSession.set(id, code)
 				const { input_transforms, schema } = await loadSchemaFromModule(module)
 				module.value.input_transforms = input_transforms
 				refreshStateStore(flowStore)
@@ -216,7 +219,13 @@
 
 				if (modules) {
 					// Restore inline script references back to full content
-					const restoredModules = restoreInlineScriptReferences(modules)
+					const restoredModules = inlineScriptSession.restoreInlineScriptReferences(modules)
+					const unresolvedRefs = inlineScriptSession.findUnresolvedInlineScriptRefs(restoredModules)
+					if (unresolvedRefs.length > 0) {
+						throw new Error(
+							`Unresolved inline script references: ${unresolvedRefs.join(', ')}`
+						)
+					}
 					// Directly modify flowStore (immediate effect)
 					flowStore.val.value.modules = restoredModules
 				}
