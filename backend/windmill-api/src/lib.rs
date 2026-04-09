@@ -1018,6 +1018,11 @@ pub async fn run_server(
         return Err(anyhow::anyhow!("Failed to send port, exiting early: {e:#}"));
     }
 
+    // Announce this server is ready so coordinated restarts can detect a healthy peer.
+    if let Err(e) = announce_server_started(&db).await {
+        tracing::warn!("Failed to announce server started: {e:#}");
+    }
+
     let server = server.with_graceful_shutdown(async move {
         killpill_rx.recv().await.ok();
         #[cfg(feature = "agent_worker_server")]
@@ -1157,4 +1162,53 @@ pub async fn wait_for_db_migrations(
     db::wait_for_migrations(db, killpill_rx)
         .await
         .map_err(|e| anyhow::anyhow!("Error waiting for db migrations: {e:#}"))
+}
+
+const SERVER_HEARTBEAT_TASK: &str = "server_heartbeat";
+
+/// Write a server-started heartbeat to `background_task_state` so that
+/// other instances waiting to restart can detect this server is healthy.
+async fn announce_server_started(db: &DB) -> anyhow::Result<()> {
+    use windmill_common::INSTANCE_NAME;
+
+    let instance = INSTANCE_NAME.as_str();
+
+    sqlx::query(
+        "INSERT INTO background_task_state (name, value, running, owner, started_at, updated_at)
+         VALUES ($1, '\"started\"'::jsonb, true, $2, NOW(), NOW())
+         ON CONFLICT (name)
+         DO UPDATE SET updated_at = NOW(), running = true, owner = $2",
+    )
+    .bind(format!("{SERVER_HEARTBEAT_TASK}:{instance}"))
+    .bind(instance)
+    .execute(db)
+    .await?;
+
+    tracing::info!("Announced server started for instance {instance}");
+    Ok(())
+}
+
+/// Check whether any server instance (other than ourselves) has announced
+/// itself as started after `not_before` (i.e. after the restart was initiated).
+pub async fn check_any_server_started(db: &DB, not_before: chrono::DateTime<chrono::Utc>) -> bool {
+    use windmill_common::INSTANCE_NAME;
+
+    let my_instance = INSTANCE_NAME.as_str();
+    let prefix = format!("{SERVER_HEARTBEAT_TASK}:");
+
+    sqlx::query_scalar!(
+        "SELECT EXISTS(
+            SELECT 1 FROM background_task_state
+            WHERE name LIKE $1
+              AND owner != $2
+              AND running = true
+              AND updated_at > $3
+        ) AS \"exists!\"",
+        format!("{prefix}%"),
+        my_instance,
+        not_before
+    )
+    .fetch_one(db)
+    .await
+    .unwrap_or(false)
 }

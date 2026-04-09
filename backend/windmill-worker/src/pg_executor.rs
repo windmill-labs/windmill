@@ -103,7 +103,7 @@ fn otyp_to_pg_type(otyp: &str) -> error::Result<Type> {
         "int" | "integer" | "int4" | "serial" => (Type::INT4, Type::INT4_ARRAY),
         "bigint" | "bigserial" | "int8" | "serial8" => (Type::INT8, Type::INT8_ARRAY),
         "real" | "float4" => (Type::FLOAT4, Type::FLOAT4_ARRAY),
-        "double" | "float8" => (Type::FLOAT8, Type::FLOAT8_ARRAY),
+        "double" | "double precision" | "float8" => (Type::FLOAT8, Type::FLOAT8_ARRAY),
         "numeric" | "decimal" => (Type::NUMERIC, Type::NUMERIC_ARRAY),
         "text" => (Type::TEXT, Type::TEXT_ARRAY),
         "varchar" | "character varying" => (Type::VARCHAR, Type::VARCHAR_ARRAY),
@@ -633,7 +633,9 @@ fn convert_vec_val(
         "real" | "float4" => Ok(Box::new(map_as_single_type(vec, |v| {
             v.as_f64().map(|x| x as f32)
         })?)),
-        "double" | "float8" => Ok(Box::new(map_as_single_type(vec, |v| v.as_f64())?)),
+        "double" | "double precision" | "float8" => {
+            Ok(Box::new(map_as_single_type(vec, |v| v.as_f64())?))
+        }
         "uuid" => Ok(Box::new(map_as_single_type(vec, |v| {
             v.as_str().map(|x| Uuid::parse_str(x).ok()).flatten()
         })?)),
@@ -697,7 +699,7 @@ fn convert_val(
             "oid" => Ok(Box::new(None::<u32>)),
             "bigint" | "bigserial" | "int8" | "serial8" => Ok(Box::new(None::<i64>)),
             "real" | "float4" => Ok(Box::new(None::<f32>)),
-            "double" | "float8" => Ok(Box::new(None::<f64>)),
+            "double" | "double precision" | "float8" => Ok(Box::new(None::<f64>)),
             "uuid" => Ok(Box::new(None::<Uuid>)),
             "date" => Ok(Box::new(None::<chrono::NaiveDate>)),
             "time" | "timetz" => Ok(Box::new(None::<chrono::NaiveTime>)),
@@ -731,7 +733,10 @@ fn convert_val(
         Value::Number(n) if (arg_t == "real" || arg_t == "float4") && n.as_f64().is_some() => {
             Ok(Box::new(n.as_f64().unwrap() as f32))
         }
-        Value::Number(n) if (arg_t == "double" || arg_t == "float8") && n.as_f64().is_some() => {
+        Value::Number(n)
+            if (arg_t == "double" || arg_t == "double precision" || arg_t == "float8")
+                && n.as_f64().is_some() =>
+        {
             Ok(Box::new(n.as_f64().unwrap()))
         }
         Value::Number(n) if (arg_t == "numeric" || arg_t == "decimal") && n.is_i64() => Ok(

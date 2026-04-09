@@ -394,12 +394,29 @@ pub struct BreakingFeatures {
 // Helper functions
 // ---------------------------------------------------------------------------
 
+fn normalize_pg_type(typ: &str) -> &str {
+    match typ {
+        "double precision" => "float8",
+        "character varying" => "varchar",
+        "time with time zone" => "timetz",
+        "time without time zone" => "time",
+        "timestamp with time zone" => "timestamptz",
+        "timestamp without time zone" => "timestamp",
+        other => other,
+    }
+}
+
 pub fn build_parameters(columns: &[SimpleColumn], db_type: DbType) -> String {
     columns
         .iter()
         .enumerate()
         .map(|(i, col)| {
             let base_type = col.datatype.split('(').next().unwrap_or(&col.datatype);
+            let base_type = if db_type == DbType::Postgresql {
+                normalize_pg_type(base_type)
+            } else {
+                base_type
+            };
             match db_type {
                 DbType::Postgresql => format!("-- ${} {} ({})", i + 1, col.field, base_type),
                 DbType::Mysql => format!("-- :{} ({})", col.field, base_type),

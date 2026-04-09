@@ -198,6 +198,7 @@
 		diffBeforeFlow?: OpenFlow
 		currentInputSchema?: Record<string, any>
 		markRemovedAsShadowed?: boolean
+		outerDivClass?: string
 	}
 
 	let {
@@ -269,7 +270,8 @@
 		onDeleteMultiple = undefined,
 		onDuplicateMultiple = undefined,
 		onMoveMultiple = undefined,
-		movingIds = undefined
+		movingIds = undefined,
+		outerDivClass = ''
 	}: Props = $props()
 
 	// Initialize note manager with fine-grained reactivity
@@ -1059,7 +1061,7 @@
 {/if}
 <div
 	style={`height: ${height}px; max-height: ${maxHeight}px;`}
-	class="overflow-clip relative"
+	class="overflow-clip relative {outerDivClass}"
 	bind:clientWidth={debouncedWidth}
 	bind:this={flowContainer}
 >
