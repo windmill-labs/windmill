@@ -611,21 +611,28 @@ export async function resolveWorkspace(
   if (wsNames.length > 0) {
     let pickedWsName: string;
 
+    const wsListStr = wsNames.map((n) => {
+      const entry = (config.workspaces as any)[n];
+      const info = entry.baseUrl ? ` (${entry.workspaceId ?? n} on ${entry.baseUrl})` : "";
+      return `  - ${n}${info}`;
+    }).join("\n");
+
     if (wsNames.length === 1) {
       pickedWsName = wsNames[0];
-      const wsEntry = (config.workspaces as any)[pickedWsName];
       log.info(
-        `Auto-selected workspace '${pickedWsName}' (only workspace in config). Use --workspace to override.`
+        `Auto-selected workspace '${pickedWsName}' (only workspace in config).\n` +
+        `Use --workspace to override or 'wmill workspace bind' to add more workspaces.`
       );
     } else if (process.stdin.isTTY) {
       log.info(
-        `Multiple workspaces configured but none matched the current context. Use --workspace to skip this prompt.`
+        `Multiple workspaces configured but none matched the current context.\n` +
+        `Configured workspaces:\n${wsListStr}\n` +
+        `Use --workspace to skip this prompt.`
       );
       pickedWsName = await Select.prompt({
         message: "Select workspace",
         options: wsNames.map((n) => {
           const entry = (config.workspaces as any)[n];
-          const gitBranch = entry.gitBranch ?? n;
           const info = entry.baseUrl ? ` (${entry.workspaceId ?? n} on ${entry.baseUrl})` : "";
           return { name: `${n}${info}`, value: n };
         }),
@@ -634,7 +641,8 @@ export async function resolveWorkspace(
       log.error(
         colors.red.bold(
           `Multiple workspaces configured but none matched the current context.\n` +
-          `Use --workspace to select one: ${wsNames.join(", ")}`
+          `Configured workspaces:\n${wsListStr}\n` +
+          `Use --workspace to select one.`
         )
       );
       return process.exit(-1);
