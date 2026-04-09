@@ -2834,9 +2834,9 @@ async fn get_ci_test_results(
         CiTestResult,
         r#"SELECT
             ctr.test_script_path,
-            j.id as job_id,
-            COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as status,
-            j.created_at as started_at
+            j.id as "job_id?",
+            COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
+            j.created_at as "started_at?"
         FROM ci_test_reference ctr
         LEFT JOIN LATERAL (
             SELECT id, created_at FROM v2_job
@@ -2884,9 +2884,9 @@ async fn get_ci_test_results_batch(
             CiTestResult,
             r#"SELECT
                 ctr.test_script_path,
-                j.id as job_id,
-                COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as status,
-                j.created_at as started_at
+                j.id as "job_id?",
+                COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
+                j.created_at as "started_at?"
             FROM ci_test_reference ctr
             LEFT JOIN LATERAL (
                 SELECT id, created_at FROM v2_job
