@@ -687,10 +687,12 @@ async function bind(
 
   // After a successful bind, offer to generate resource type namespace
   if (doBind && isInteractive) {
+    const { stat: statFile } = await import("node:fs/promises");
+    const rtExists = await statFile("rt.d.ts").then(() => true, () => false);
     const { Confirm } = await import("@cliffy/prompt/confirm");
     const generate = await Confirm.prompt({
-      message: "Generate resource type namespace from this workspace?",
-      default: true,
+      message: "Generate rt.d.ts? (TypeScript types for your workspace's resource types, useful for autocompletion)",
+      default: !rtExists,
     });
     if (generate) {
       try {
