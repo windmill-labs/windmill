@@ -164,100 +164,74 @@ async function initAction(opts: InitOptions) {
     await readLockfile();
 
     // Check for backend git-sync settings — only if a workspace was bound and not --use-default
-    if (!opts.useDefault && didBindWorkspace) {
+    const boundWsName = wsBindings?.[0]?.name;
+    if (!opts.useDefault && didBindWorkspace && boundWsName) {
       try {
         const { requireLogin } = await import("../../core/auth.ts");
         const { resolveWorkspace } = await import("../../core/context.ts");
 
-        // Check if user has workspace configured
-        const { getActiveWorkspace } = await import(
-          "../workspace/workspace.ts"
-        );
-        const activeWorkspace = await getActiveWorkspace(opts as GlobalOptions);
+        // Resolve using the workspace we just bound (not the active profile)
+        const initOpts = { ...opts, workspace: boundWsName } as GlobalOptions;
+        await requireLogin(initOpts);
+        const workspace = await resolveWorkspace(initOpts);
 
-        if (!activeWorkspace) {
-          log.info("No workspace configured. Using default settings.");
-          log.info(
-            "You can configure a workspace later with 'wmill workspace add'"
-          );
-        } else {
-          await requireLogin(opts as GlobalOptions);
-          const workspace = await resolveWorkspace(opts as GlobalOptions);
+        const wmill = await import("../../../gen/services.gen.ts");
+        const settings = await wmill.getSettings({
+          workspace: workspace.workspaceId,
+        });
 
-          const wmill = await import("../../../gen/services.gen.ts");
-          const settings = await wmill.getSettings({
-            workspace: workspace.workspaceId,
-          });
+        if (
+          settings.git_sync?.repositories &&
+          settings.git_sync.repositories.length > 0
+        ) {
+          let useBackendSettings = opts.useBackend;
 
-          if (
-            settings.git_sync?.repositories &&
-            settings.git_sync.repositories.length > 0
-          ) {
-            let useBackendSettings = opts.useBackend;
+          // If repository is specified, implicitly use backend settings
+          if (opts.repository && !opts.useDefault) {
+            useBackendSettings = true;
+          }
 
-            // If repository is specified, implicitly use backend settings
-            if (opts.repository && !opts.useDefault) {
-              useBackendSettings = true;
-            }
+          if (useBackendSettings === undefined) {
+            const choice = await Select.prompt({
+              message:
+                "Git-sync settings found on backend. What would you like to do?",
+              options: [
+                { name: "Use backend git-sync settings", value: "backend" },
+                { name: "Use default settings", value: "default" },
+                { name: "Cancel", value: "cancel" },
+              ],
+            });
 
-            if (useBackendSettings === undefined) {
-              // Interactive prompt
-              const { Select } = await import("@cliffy/prompt/select");
-              const choice = await Select.prompt({
-                message:
-                  "Git-sync settings found on backend. What would you like to do?",
-                options: [
-                  {
-                    name: "Use backend git-sync settings",
-                    value: "backend",
-                  },
-                  {
-                    name: "Use default settings",
-                    value: "default",
-                  },
-                  {
-                    name: "Cancel",
-                    value: "cancel",
-                  },
-                ],
-              });
-
-              if (choice === "cancel") {
-                // Clean up the created files
-                try {
-                  await rm("wmill.yaml");
-                  await rm("wmill-lock.yaml");
-                } catch (e) {
-                  // Ignore cleanup errors
-                }
-                log.info("Init cancelled");
-                process.exit(0);
+            if (choice === "cancel") {
+              try {
+                await rm("wmill.yaml");
+                await rm("wmill-lock.yaml");
+              } catch {
+                // Ignore cleanup errors
               }
-
-              useBackendSettings = choice === "backend";
+              log.info("Init cancelled");
+              process.exit(0);
             }
 
-            if (useBackendSettings) {
-              log.info("Applying git-sync settings from backend...");
+            useBackendSettings = choice === "backend";
+          }
 
-              // Import and run the pull git-sync settings logic
-              const { pullGitSyncSettings } = await import(
-                "../gitsync-settings/gitsync-settings.ts"
-              );
-              await pullGitSyncSettings({
-                ...(opts as GlobalOptions),
-                repository: opts.repository,
-                jsonOutput: false,
-                diff: false,
-                replace: true, // Auto-replace when using backend settings during init
-              });
-
-              log.info(colors.green("Git-sync settings applied from backend"));
-            }
+          if (useBackendSettings) {
+            log.info("Applying git-sync settings from backend...");
+            const { pullGitSyncSettings } = await import(
+              "../gitsync-settings/gitsync-settings.ts"
+            );
+            await pullGitSyncSettings({
+              ...initOpts,
+              repository: opts.repository,
+              jsonOutput: false,
+              diff: false,
+              replace: true,
+            });
+            log.info(colors.green("Git-sync settings applied from backend"));
           }
         }
       } catch (error) {
-        // If there's an error checking backend settings, just continue with defaults
         log.warn(
           `Could not check backend for git-sync settings: ${(error as Error).message}`
         );
