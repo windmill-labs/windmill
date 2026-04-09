@@ -2881,6 +2881,12 @@ async fn get_ci_test_results_batch(
     Path(w_id): Path<String>,
     Json(req): Json<CiTestBatchRequest>,
 ) -> JsonResult<HashMap<String, Vec<CiTestResult>>> {
+    if req.items.len() > 200 {
+        return Err(Error::BadRequest(
+            "too many items in batch request (max 200)".to_string(),
+        ));
+    }
+
     let mut result_map: HashMap<String, Vec<CiTestResult>> = HashMap::new();
 
     for item in &req.items {

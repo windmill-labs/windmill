@@ -578,9 +578,7 @@
 						)}
 					>
 						{#if flow?.path}
-							<div class="mb-4">
-								<CiTestResults path={flow.path} kind="flow" />
-							</div>
+							<CiTestResults path={flow.path} kind="flow" />
 						{/if}
 
 						{#if flow?.archived}

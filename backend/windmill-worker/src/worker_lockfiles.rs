@@ -304,7 +304,7 @@ pub async fn handle_dependency_job(
             .await?;
 
             // Trigger CI tests for items that reference this script
-            tracing::info!(
+            tracing::debug!(
                 "CI test trigger: checking for tests referencing script {}",
                 script_path
             );

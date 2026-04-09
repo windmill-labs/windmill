@@ -26,7 +26,7 @@
 
 	let results: CiTestResult[] = $derived(ciTests.current ?? [])
 	let hasResults = $derived(results.length > 0)
-	let hasRunning = $derived(results.some((r) => r.status === 'running' || !r.status))
+	let hasRunning = $derived(results.some((r) => r.status === 'running'))
 
 	// Poll while any test is still running
 	$effect(() => {
@@ -37,7 +37,7 @@
 </script>
 
 {#if hasResults}
-	<div class="flex flex-col gap-1">
+	<div class="flex flex-col gap-1 mb-4">
 		<div class="flex items-center gap-1.5 text-xs font-semibold text-secondary">
 			<FlaskConical size={14} />
 			CI tests

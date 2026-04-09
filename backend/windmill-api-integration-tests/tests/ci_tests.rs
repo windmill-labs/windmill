@@ -115,7 +115,7 @@ async fn test_ci_test_annotation_creates_and_removes_references(
     Ok(())
 }
 
-/// Test 3: The CI test results API returns test references (with null job info when
+/// Test 2: The CI test results API returns test references (with null job info when
 /// no CI test job has run yet), and the batch endpoint aggregates correctly.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_ci_test_results_api(db: Pool<Postgres>) -> anyhow::Result<()> {

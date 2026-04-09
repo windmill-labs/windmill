@@ -93,7 +93,7 @@
 					total++
 					if (r.status === 'success') passing++
 					else if (r.status === 'failure' || r.status === 'canceled') failing++
-					else running++
+					else if (r.status === 'running') running++
 				}
 			}
 			ciTestPassing = passing

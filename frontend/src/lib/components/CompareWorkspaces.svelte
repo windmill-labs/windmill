@@ -536,7 +536,7 @@
 		const results = ciTestResults[key]
 		if (!results || results.length === 0) return null
 		if (results.some((r) => r.status === 'failure' || r.status === 'canceled')) return 'fail'
-		if (results.some((r) => r.status === 'running' || !r.status)) return 'running'
+		if (results.some((r) => r.status === 'running')) return 'running'
 		return 'pass'
 	}
 

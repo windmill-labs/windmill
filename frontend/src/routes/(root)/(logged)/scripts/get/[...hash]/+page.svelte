@@ -758,9 +758,7 @@
 						)}
 					>
 						{#if script?.path}
-							<div class="mb-4">
-								<CiTestResults path={script.path} kind="script" />
-							</div>
+							<CiTestResults path={script.path} kind="script" />
 						{/if}
 
 						<div class="flex flex-col gap-0.5 mb-1">
