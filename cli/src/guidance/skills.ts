@@ -5652,10 +5652,11 @@ workspace related commands
 - \`workspace list\` - List local workspace profiles
 - \`workspace list-remote\` - List workspaces on the remote server that you have access to
 - \`workspace list-forks\` - List forked workspaces on the remote server
-- \`workspace bind\`
-  - \`--branch, --env <branch:string>\` - [Deprecated: use --workspace] Specify branch/environment (defaults to current)
-- \`workspace unbind\` - Remove workspace binding from the current Git branch
-  - \`--branch, --env <branch:string>\` - [Deprecated: use --workspace] Specify branch/environment (defaults to current)
+- \`workspace bind\` - Create or update a workspace entry in wmill.yaml from the active profile
+  - \`--workspace <name:string>\` - Workspace name (default: current branch or workspaceId)
+  - \`--branch <branch:string>\` - Git branch to associate (default: workspace name)
+- \`workspace unbind\` - Remove baseUrl and workspaceId from a workspace entry
+  - \`--workspace <name:string>\` - Workspace to unbind
 - \`workspace fork [workspace_name:string] [workspace_id:string]\` - Create a forked workspace
   - \`--create-workspace-name <workspace_name:string>\` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
   - \`--color <color:string>\` - Workspace color (hex code, e.g. #ff0000)
