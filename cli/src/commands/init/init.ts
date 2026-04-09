@@ -1,11 +1,10 @@
 import { stat, writeFile, rm, mkdir } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
-import { Confirm } from "@cliffy/prompt/confirm";
 import { Checkbox } from "@cliffy/prompt/checkbox";
 import { Input } from "@cliffy/prompt/input";
 import * as log from "../../core/log.ts";
-import { type BranchBinding, type WorkspaceBinding } from "./template.ts";
+import { type WorkspaceBinding } from "./template.ts";
 import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
 import { getActiveWorkspaceOrFallback, allWorkspaces } from "../workspace/workspace.ts";
@@ -52,7 +51,6 @@ async function initAction(opts: InitOptions) {
       "../../utils/git.ts"
     );
     let branchName: string | undefined;
-    let binding: BranchBinding | undefined;
     let wsBindings: WorkspaceBinding[] | undefined;
     if (isGitRepository()) {
       branchName = getCurrentGitBranch() ?? undefined;
@@ -69,7 +67,8 @@ async function initAction(opts: InitOptions) {
       if (profiles.length > 0) {
         log.info(colors.yellow("\nSet up workspaces section in wmill.yaml?"));
         log.info(
-          colors.gray("  Select which profiles to include as workspace entries.")
+          colors.gray("  Select which profiles to include as workspace entries.\n" +
+            "  The workspace name is used as config key and defaults as the git branch name.")
         );
 
         const activeProfile = await getActiveWorkspaceOrFallback(opts as GlobalOptions);
@@ -88,80 +87,42 @@ async function initAction(opts: InitOptions) {
             const profile = profiles.find((p) => p.name === profileName)!;
             const wsName = await Input.prompt({
               message: `Workspace name for profile '${profileName}'`,
-              default: profile.workspaceId,
+              default: profileName,
             });
-
-            let gitBranch: string | undefined;
-            if (isGitRepository()) {
-              const suggestedBranch = wsName;
-              const branchInput = await Input.prompt({
-                message: `Git branch for workspace '${wsName}'`,
-                default: suggestedBranch,
-              });
-              if (branchInput !== wsName) {
-                gitBranch = branchInput;
-              }
-            }
 
             wsBindings.push({
               name: wsName,
               baseUrl: profile.remote,
               workspaceId: profile.workspaceId !== wsName ? profile.workspaceId : wsName,
-              gitBranch,
             });
           }
         }
       } else {
-        // No profiles found
         log.info(
           colors.gray("No workspace profiles found. You can add one later with 'wmill workspace add'.")
         );
-        if (isGitRepository() && branchName) {
-          // Fall back to simple active workspace binding
-          const activeWorkspace = await getActiveWorkspaceOrFallback(
-            opts as GlobalOptions
-          );
-          if (activeWorkspace) {
-            if (
-              opts.bindProfile === true ||
-              (await Confirm.prompt({
-                message: "Bind workspace profile to current Git branch?",
-                default: true,
-              }))
-            ) {
-              binding = {
-                baseUrl: activeWorkspace.remote,
-                workspaceId: activeWorkspace.workspaceId,
-              };
-            }
-          }
-        }
       }
-    } else if (opts.bindProfile === true && isGitRepository() && branchName) {
-      // Non-interactive bind
+    } else if (opts.bindProfile === true) {
+      // Non-interactive bind: create a single workspace entry from active profile
       const activeWorkspace = await getActiveWorkspaceOrFallback(
         opts as GlobalOptions
       );
       if (activeWorkspace) {
-        binding = {
+        const wsName = branchName ?? activeWorkspace.workspaceId;
+        wsBindings = [{
+          name: wsName,
           baseUrl: activeWorkspace.remote,
-          workspaceId: activeWorkspace.workspaceId,
-        };
+          workspaceId: activeWorkspace.workspaceId !== wsName ? activeWorkspace.workspaceId : wsName,
+        }];
       }
     }
 
-    await writeFile("wmill.yaml", generateCommentedTemplate(branchName, binding, wsBindings), "utf-8");
+    await writeFile("wmill.yaml", generateCommentedTemplate(branchName, undefined, wsBindings), "utf-8");
     log.info(colors.green("wmill.yaml created with default settings"));
     if (wsBindings && wsBindings.length > 0) {
       log.info(
         colors.green(
           `✓ Created ${wsBindings.length} workspace binding(s): ${wsBindings.map((w) => w.name).join(", ")}`
-        )
-      );
-    } else if (binding) {
-      log.info(
-        colors.green(
-          `✓ Bound branch '${branchName}' to workspace`
         )
       );
     }
