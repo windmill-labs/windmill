@@ -4611,6 +4611,31 @@ paths:
                 items:
                   $ref: "#/components/schemas/TruncatedToken"
 
+  /oidc/ext_jwt_tokens:
+    get:
+      summary: list external JWT tokens (ee only)
+      operationId: listExtJwtTokens
+      tags:
+        - oidc
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: list of external JWT tokens
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExternalJwtToken"
+
   /w/{workspace}/oidc/token/{audience}:
     post:
       summary: get OIDC token (ee only)
@@ -21100,6 +21125,39 @@ components:
       required:
         - token_prefix
         - created_at
+        - last_used_at
+
+    ExternalJwtToken:
+      type: object
+      properties:
+        jwt_hash:
+          type: integer
+          format: int64
+        email:
+          type: string
+        username:
+          type: string
+        is_admin:
+          type: boolean
+        is_operator:
+          type: boolean
+        workspace_id:
+          type: string
+        label:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        last_used_at:
+          type: string
+          format: date-time
+      required:
+        - jwt_hash
+        - email
+        - username
+        - is_admin
+        - is_operator
         - last_used_at
 
     NewToken:

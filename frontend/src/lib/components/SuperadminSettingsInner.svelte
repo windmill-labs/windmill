@@ -127,7 +127,7 @@
 
 	// The category name for InstanceSettings based on current sidebar tab
 	let instanceSettingsCategory = $derived(tabToCategoryMap[tab] ?? 'Core')
-	let authSubTab: 'sso' | 'oauth' | 'scim' = $derived(tabToAuthSubTab[tab] ?? 'sso')
+	let authSubTab: 'sso' | 'oauth' | 'scim' | 'ext_jwt' = $derived(tabToAuthSubTab[tab] ?? 'sso')
 
 	function handleNavigate(newTab: string) {
 		if (newTab === tab) return

@@ -176,7 +176,7 @@
 	// --- Full settings mode state ---
 	let fullTab = $state('general')
 	let instanceSettingsCategory = $derived(tabToCategoryMap[fullTab] ?? 'Core')
-	let authSubTab: 'sso' | 'oauth' | 'scim' = $derived(tabToAuthSubTab[fullTab] ?? 'sso')
+	let authSubTab: 'sso' | 'oauth' | 'scim' | 'ext_jwt' = $derived(tabToAuthSubTab[fullTab] ?? 'sso')
 	let yamlMode = $state(false)
 
 	function isAiStepActive(): boolean {
@@ -351,7 +351,10 @@
 			)
 		} catch (e: any) {
 			const msg = e?.body?.message || e?.body || e?.message || 'An error occurred'
-			if (typeof msg === 'string' && msg.includes('User creation is not implemented in the open-source version')) {
+			if (
+				typeof msg === 'string' &&
+				msg.includes('User creation is not implemented in the open-source version')
+			) {
 				ossAccountError = msg
 				showOssAccountDialog = true
 			} else {
@@ -723,8 +726,8 @@
 				{ossAccountError}
 			</Alert>
 			<span>
-				Click "Continue" to finish setup and log in with the default credentials
-				(admin@windmill.dev / changeme).
+				Click "Continue" to finish setup and log in with the default credentials (admin@windmill.dev
+				/ changeme).
 			</span>
 		</div>
 	</ConfirmationModal>

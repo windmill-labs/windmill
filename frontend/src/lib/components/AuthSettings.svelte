@@ -32,7 +32,8 @@
 		requirePreexistingUserForOauth?: boolean
 		baseUrl?: string
 		scim?: import('svelte').Snippet
-		tab?: 'sso' | 'oauth' | 'scim'
+		ext_jwt?: import('svelte').Snippet
+		tab?: 'sso' | 'oauth' | 'scim' | 'ext_jwt'
 		hideTabs?: boolean
 	}
 
@@ -42,6 +43,7 @@
 		requirePreexistingUserForOauth = $bindable(),
 		baseUrl,
 		scim,
+		ext_jwt,
 		tab = $bindable('sso'),
 		hideTabs = false
 	}: Props = $props()
@@ -222,6 +224,7 @@
 			<Tab value="sso" label="SSO" />
 			<Tab value="oauth" label="OAuth" />
 			<Tab value="scim" label="SCIM/SAML" />
+			<Tab value="ext_jwt" label="External JWTs" />
 		</Tabs>
 	</div>
 {/if}
@@ -577,6 +580,8 @@
 				link="https://www.windmill.dev/docs/misc/saml_and_scim"
 			/>
 			{@render scim?.()}
+		{:else if tab == 'ext_jwt'}
+			{@render ext_jwt?.()}
 		{/if}
 	{/if}
 </div>

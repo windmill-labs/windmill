@@ -22,12 +22,13 @@
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 	import WorkspaceRegistries from './instanceSettings/WorkspaceRegistries.svelte'
 	import DbHealth from './instanceSettings/DbHealth.svelte'
+	import ExternalJwtTokens from './instanceSettings/ExternalJwtTokens.svelte'
 
 	interface Props {
 		tab?: string
 		hideTabs?: boolean
 		closeDrawer?: (() => void) | undefined
-		authSubTab?: 'sso' | 'oauth' | 'scim'
+		authSubTab?: 'sso' | 'oauth' | 'scim' | 'ext_jwt'
 		onNavigateToTab?: (category: string) => void
 		quickSetup?: boolean
 		yamlMode?: boolean
@@ -1091,6 +1092,9 @@
 							/>
 						{/each}
 					</div>
+				{/snippet}
+				{#snippet ext_jwt()}
+					<ExternalJwtTokens />
 				{/snippet}
 			</AuthSettings>
 		{/if}
