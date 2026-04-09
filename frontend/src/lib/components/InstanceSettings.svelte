@@ -187,13 +187,14 @@
 		})
 
 		let shouldReloadPage = false
+		let willRestart = false
 		if ($values) {
 			// Trim license key before saving
 			if ($values['license_key'] && typeof $values['license_key'] === 'string') {
 				$values['license_key'] = $values['license_key'].trim()
 			}
 
-			// Check which settings require a page reload
+			// Check which settings require a page reload or server restart
 			const allSettings = [...Object.values(settings), scimSamlSetting].flat()
 			let licenseKeySet = false
 			for (const s of allSettings) {
@@ -203,6 +204,9 @@
 					}
 					if (s.requiresReloadOnChange) {
 						shouldReloadPage = true
+					}
+					if (s.triggersRestart) {
+						willRestart = true
 					}
 				}
 			}
@@ -241,6 +245,15 @@
 			sendUserToast('Settings updated, reloading page...')
 			await sleep(1000)
 			window.location.reload()
+		} else if (willRestart) {
+			sendUserToast(
+				'Settings updated. Servers are restarting and changes may take up to a minute to fully propagate.',
+				false,
+				[],
+				undefined,
+				8000
+			)
+			dispatch('saved')
 		} else {
 			sendUserToast('Settings updated')
 			dispatch('saved')
@@ -535,6 +548,7 @@
 		}
 
 		let shouldReloadPage = false
+		let willRestart = false
 		const categorySettings = getSettingsForCategory(category)
 
 		let licenseKeySet = false
@@ -552,6 +566,7 @@
 				.map(async (x) => {
 					if (x.key === 'license_key') licenseKeySet = true
 					if (x.requiresReloadOnChange) shouldReloadPage = true
+					if (x.triggersRestart) willRestart = true
 					let value = $values?.[x.key]
 					if (x.fieldType === 'codearea' && typeof value === 'string' && value.trim() === '') {
 						value = undefined
@@ -609,6 +624,15 @@
 			sendUserToast('Settings updated, reloading page...')
 			await sleep(1000)
 			window.location.reload()
+		} else if (willRestart) {
+			sendUserToast(
+				'Settings updated. Servers are restarting and changes may take up to a minute to fully propagate.',
+				false,
+				[],
+				undefined,
+				8000
+			)
+			dispatch('saved')
 		} else {
 			sendUserToast('Settings updated')
 			dispatch('saved')

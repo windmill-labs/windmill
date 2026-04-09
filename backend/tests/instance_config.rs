@@ -1151,3 +1151,125 @@ async fn test_replace_mode_protects_jwt_secret_and_rsa_keys(db: Pool<Postgres>) 
     );
     assert!(get_global_setting(&db, "normal_setting").await.is_none());
 }
+
+// ========================================================================
+// Alert config migration tests
+// ========================================================================
+
+#[sqlx::test(fixtures("base"))]
+async fn test_alert_config_in_global_settings_roundtrip(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    let alert_value = serde_json::json!({
+        "alerts": [
+            {
+                "name": "Test Alert",
+                "tags_to_monitor": ["default", "gpu"],
+                "jobs_num_threshold": 5,
+                "alert_cooldown_seconds": 300,
+                "alert_time_threshold_seconds": 60
+            }
+        ]
+    });
+
+    // Insert alert_config into global_settings
+    insert_global_setting(&db, "alert_job_queue_waiting", alert_value.clone()).await;
+
+    // Verify it appears in InstanceConfig global_settings (via extra)
+    let config = InstanceConfig::from_db(&db).await.unwrap();
+    assert_eq!(
+        config.global_settings.extra["alert_job_queue_waiting"], alert_value,
+        "alert_config should appear in global_settings extra"
+    );
+
+    // Verify it does NOT appear in worker_configs
+    assert!(
+        !config
+            .worker_configs
+            .contains_key("alert_job_queue_waiting"),
+        "alert_config should not appear in worker_configs"
+    );
+
+    // Modify the alert_config
+    let updated_value = serde_json::json!({
+        "alerts": [
+            {
+                "name": "Updated Alert",
+                "tags_to_monitor": ["batch"],
+                "jobs_num_threshold": 10,
+                "alert_cooldown_seconds": 600,
+                "alert_time_threshold_seconds": 120
+            }
+        ]
+    });
+
+    let current = config.global_settings.to_settings_map();
+    let mut desired = current.clone();
+    desired.insert("alert_job_queue_waiting".to_string(), updated_value.clone());
+
+    let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
+    assert!(
+        diff.upserts.contains_key("alert_job_queue_waiting"),
+        "alert_config change should be detected in diff"
+    );
+
+    apply_settings_diff(&db, &diff).await.unwrap();
+
+    // Re-read and verify the update
+    let config2 = InstanceConfig::from_db(&db).await.unwrap();
+    assert_eq!(
+        config2.global_settings.extra["alert_job_queue_waiting"],
+        updated_value
+    );
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_alert_config_not_in_worker_configs(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    // Insert alert_config in global_settings (the correct location)
+    insert_global_setting(
+        &db,
+        "alert_job_queue_waiting",
+        serde_json::json!({"alerts": []}),
+    )
+    .await;
+
+    // Also insert a real worker config
+    insert_config(
+        &db,
+        "worker__default",
+        serde_json::json!({"worker_tags": ["default"]}),
+    )
+    .await;
+
+    let config = InstanceConfig::from_db(&db).await.unwrap();
+
+    // alert_config should be in global_settings, not worker_configs
+    assert!(
+        config
+            .global_settings
+            .extra
+            .contains_key("alert_job_queue_waiting"),
+        "alert_config should be in global_settings.extra"
+    );
+    assert_eq!(config.worker_configs.len(), 1);
+    assert!(
+        config.worker_configs.contains_key("default"),
+        "only the real worker config should be in worker_configs"
+    );
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_no_alert_in_config_table_after_migration(db: Pool<Postgres>) {
+    // After the migration runs, no alert__* entries should remain in the config table
+    let rows: Vec<(String,)> = sqlx::query_as("SELECT name FROM config WHERE name LIKE 'alert__%'")
+        .fetch_all(&db)
+        .await
+        .unwrap();
+    assert!(
+        rows.is_empty(),
+        "No alert entries should remain in config table after migration, found: {:?}",
+        rows.iter().map(|(n,)| n.as_str()).collect::<Vec<_>>()
+    );
+}

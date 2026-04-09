@@ -233,7 +233,7 @@ sync local with a remote instance or the opposite (push or pull)
   - `--dry-run` - Perform a dry run without making changes
   - `--skip-users` - Skip pulling users
   - `--skip-settings` - Skip pulling settings
-  - `--skip-configs` - Skip pulling configs (worker groups and SMTP)
+  - `--skip-configs` - Skip pulling configs (worker groups)
   - `--skip-groups` - Skip pulling instance groups
   - `--include-workspaces` - Also pull workspaces
   - `--folder-per-instance` - Create a folder per instance
@@ -245,7 +245,7 @@ sync local with a remote instance or the opposite (push or pull)
   - `--dry-run` - Perform a dry run without making changes
   - `--skip-users` - Skip pushing users
   - `--skip-settings` - Skip pushing settings
-  - `--skip-configs` - Skip pushing configs (worker groups and SMTP)
+  - `--skip-configs` - Skip pushing configs (worker groups)
   - `--skip-groups` - Skip pushing instance groups
   - `--include-workspaces` - Also push workspaces
   - `--folder-per-instance` - Create a folder per instance
@@ -549,7 +549,7 @@ display worker groups, pull and push worker groups configs
   - `--instance` - Name of the instance to push to, override the active instance
   - `--base-url` - Base url to be passed to the instance settings instead of the local one
   - `--yes` - Pull without needing confirmation
-- `worker-groups push` - Push instance settings, users, configs, group and overwrite remote
+- `worker-groups push` - Push worker groups (similar to `wmill instance push --skip-users --skip-settings --skip-groups`)
   - `--instance [instance]` - Name of the instance to push to, override the active instance
   - `--base-url [baseUrl]` - If used with --token, will be used as the base url for the instance
   - `--yes` - Push without needing confirmation
@@ -586,6 +586,17 @@ workspace related commands
   - `--branch, --env <branch:string>` - Specify branch/environment (defaults to current)
 - `workspace fork [workspace_name:string] [workspace_id:string]` - Create a forked workspace
   - `--create-workspace-name <workspace_name:string>` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
+  - `--color <color:string>` - Workspace color (hex code, e.g. #ff0000)
+  - `--datatable-behavior <behavior:string>` - How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)
+  - `-y --yes` - Skip interactive prompts (defaults datatable behavior to 'skip')
 - `workspace delete-fork <fork_name:string>` - Delete a forked workspace and git branch
   - `-y --yes` - Skip confirmation prompt
+- `workspace merge` - Compare and deploy changes between a fork and its parent workspace
+  - `--direction <direction:string>` - Deploy direction: to-parent or to-fork
+  - `--all` - Deploy all changed items including conflicts
+  - `--skip-conflicts` - Skip items modified in both workspaces
+  - `--include <items:string>` - Comma-separated kind:path items to include (e.g. script:f/test/main,flow:f/my/flow)
+  - `--exclude <items:string>` - Comma-separated kind:path items to exclude
+  - `--preserve-on-behalf-of` - Preserve original on_behalf_of/permissioned_as values
+  - `-y --yes` - Non-interactive mode (deploy without prompts)
 

@@ -299,7 +299,7 @@
 
 	let minHeight = $state(0)
 	let flowPaneWidth = $state(0)
-	let compactTopbar = $derived(flowPaneWidth < 700)
+	let compactTopbar = $derived(flowPaneWidth < 800)
 
 	export function selectNextId(id: any) {
 		if (flowStore.val.value.modules) {

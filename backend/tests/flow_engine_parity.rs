@@ -20,7 +20,7 @@ use serde_json::json;
 use sqlx::{Pool, Postgres};
 
 use windmill_common::{
-    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Branch},
+    flows::{Branch, FlowModule, FlowModuleValue, FlowValue, InputTransform},
     jobs::JobPayload,
     scripts::ScriptLang,
 };
@@ -44,6 +44,7 @@ fn flow_module(id: &str, value: FlowModuleValue) -> FlowModule {
         timeout: None,
         priority: None,
         delete_after_use: None,
+        delete_after_secs: None,
         continue_on_error: None,
         skip_if: None,
         apply_preprocessor: None,
@@ -54,12 +55,18 @@ fn flow_module(id: &str, value: FlowModuleValue) -> FlowModule {
 
 /// Helper to create input transforms from JavaScript expressions
 fn js_input(key: &str, expr: &str) -> (String, InputTransform) {
-    (key.to_string(), InputTransform::Javascript { expr: expr.to_string() })
+    (
+        key.to_string(),
+        InputTransform::Javascript { expr: expr.to_string() },
+    )
 }
 
 /// Helper to create static input transforms
 fn static_input<T: serde::Serialize>(key: &str, value: T) -> (String, InputTransform) {
-    (key.to_string(), InputTransform::Static { value: windmill_common::worker::to_raw_value(&value) })
+    (
+        key.to_string(),
+        InputTransform::Static { value: windmill_common::worker::to_raw_value(&value) },
+    )
 }
 
 // =============================================================================
@@ -115,12 +122,13 @@ export function main(total: number, doubled_items: number[], filtered: number[],
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .arg("multiplier", json!(3))
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .arg("multiplier", json!(3))
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // Expected: sum=15, product=50, total=65, doubled=[2,4,6,8,10], filtered=[3,4,5], from_flow_input=45
     assert_eq!(result["total"], json!(65));
@@ -144,10 +152,12 @@ async fn test_flow_forloop_complex_expressions(db: Pool<Postgres>) -> anyhow::Re
     let flow = FlowValue {
         modules: vec![
             // Step a: return data to iterate over
-            flow_module("a", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "a",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {
         users: [
@@ -157,57 +167,66 @@ export function main() {
         ]
     };
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            // Step b: for-loop over filtered users
-            flow_module("b", FlowModuleValue::ForloopFlow {
-                iterator: InputTransform::Javascript {
-                    expr: "results.a.users.filter(u => u.score >= 80)".to_string()
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
                 },
-                skip_failures: false,
-                parallel: false,
-                squash: None,
-                parallelism: None,
-                modules: vec![
-                    flow_module("c", FlowModuleValue::RawScript {
-                        input_transforms: [
-                            js_input("user_name", "flow_input.iter.value.name"),
-                            js_input("user_score", "flow_input.iter.value.score"),
-                            js_input("bonus", "flow_input.iter.value.score >= 90 ? 10 : 5"),
-                            js_input("index", "flow_input.iter.index"),
-                        ].into(),
-                        language: ScriptLang::Deno,
-                        content: r#"
+            ),
+            // Step b: for-loop over filtered users
+            flow_module(
+                "b",
+                FlowModuleValue::ForloopFlow {
+                    iterator: InputTransform::Javascript {
+                        expr: "results.a.users.filter(u => u.score >= 80)".to_string(),
+                    },
+                    skip_failures: false,
+                    parallel: false,
+                    squash: None,
+                    parallelism: None,
+                    modules: vec![flow_module(
+                        "c",
+                        FlowModuleValue::RawScript {
+                            input_transforms: [
+                                js_input("user_name", "flow_input.iter.value.name"),
+                                js_input("user_score", "flow_input.iter.value.score"),
+                                js_input("bonus", "flow_input.iter.value.score >= 90 ? 10 : 5"),
+                                js_input("index", "flow_input.iter.index"),
+                            ]
+                            .into(),
+                            language: ScriptLang::Deno,
+                            content: r#"
 export function main(user_name: string, user_score: number, bonus: number, index: number) {
     return {name: user_name, final_score: user_score + bonus, position: index};
 }
-"#.to_string(),
-                        path: None,
-                        lock: None,
-                        tag: None,
-                        concurrency_settings: Default::default(),
-                        is_trigger: None,
-                        assets: None,
-                    }),
-                ],
-                modules_node: None,
-            }),
+"#
+                            .to_string(),
+                            path: None,
+                            lock: None,
+                            tag: None,
+                            concurrency_settings: Default::default(),
+                            is_trigger: None,
+                            assets: None,
+                        },
+                    )],
+                    modules_node: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // Only Alice (85) and Bob (92) pass the filter (score >= 80)
     // Alice gets bonus=5, Bob gets bonus=10
@@ -215,10 +234,10 @@ export function main(user_name: string, user_score: number, bonus: number, index
     let arr = result.as_array().unwrap();
     assert_eq!(arr.len(), 2);
     assert_eq!(arr[0]["name"], "Alice");
-    assert_eq!(arr[0]["final_score"], 90);  // 85 + 5
+    assert_eq!(arr[0]["final_score"], 90); // 85 + 5
     assert_eq!(arr[0]["position"], 0);
     assert_eq!(arr[1]["name"], "Bob");
-    assert_eq!(arr[1]["final_score"], 102);  // 92 + 10
+    assert_eq!(arr[1]["final_score"], 102); // 92 + 10
     assert_eq!(arr[1]["position"], 1);
 
     Ok(())
@@ -237,105 +256,122 @@ async fn test_flow_branchone_conditions(db: Pool<Postgres>) -> anyhow::Result<()
     let flow = FlowValue {
         modules: vec![
             // Step a: return data for branching
-            flow_module("a", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "a",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {status: "premium", score: 95, items: [1, 2, 3]};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
             // Step b: branch based on status and score
-            flow_module("b", FlowModuleValue::BranchOne {
-                branches: vec![
-                    Branch {
-                        summary: Some("Premium with high score".to_string()),
-                        expr: "results.a.status === 'premium' && results.a.score >= 90".to_string(),
-                        modules: vec![
-                            flow_module("premium_high", FlowModuleValue::RawScript {
-                                input_transforms: [
-                                    js_input("discount", "results.a.score >= 95 ? 30 : 20"),
-                                    js_input("score_from_a", "results.a.score"),
-                                ].into(),
-                                language: ScriptLang::Deno,
-                                content: r#"
+            flow_module(
+                "b",
+                FlowModuleValue::BranchOne {
+                    branches: vec![
+                        Branch {
+                            summary: Some("Premium with high score".to_string()),
+                            expr: "results.a.status === 'premium' && results.a.score >= 90"
+                                .to_string(),
+                            modules: vec![flow_module(
+                                "premium_high",
+                                FlowModuleValue::RawScript {
+                                    input_transforms: [
+                                        js_input("discount", "results.a.score >= 95 ? 30 : 20"),
+                                        js_input("score_from_a", "results.a.score"),
+                                    ]
+                                    .into(),
+                                    language: ScriptLang::Deno,
+                                    content: r#"
 export function main(discount: number, score_from_a: number) {
     return {branch: "premium_high", discount, score_from_a};
 }
-"#.to_string(),
-                                path: None,
-                                lock: None,
-                                tag: None,
-                                concurrency_settings: Default::default(),
-                                is_trigger: None,
-                                assets: None,
-                            }),
-                        ],
-                        modules_node: None,
-                        skip_failure: true,
-                        parallel: true,
-                    },
-                    Branch {
-                        summary: Some("Premium with low score".to_string()),
-                        expr: "results.a.status === 'premium' && results.a.score < 90".to_string(),
-                        modules: vec![
-                            flow_module("premium_low", FlowModuleValue::RawScript {
-                                input_transforms: Default::default(),
-                                language: ScriptLang::Deno,
-                                content: r#"
+"#
+                                    .to_string(),
+                                    path: None,
+                                    lock: None,
+                                    tag: None,
+                                    concurrency_settings: Default::default(),
+                                    is_trigger: None,
+                                    assets: None,
+                                },
+                            )],
+                            modules_node: None,
+                            skip_failure: true,
+                            parallel: true,
+                        },
+                        Branch {
+                            summary: Some("Premium with low score".to_string()),
+                            expr: "results.a.status === 'premium' && results.a.score < 90"
+                                .to_string(),
+                            modules: vec![flow_module(
+                                "premium_low",
+                                FlowModuleValue::RawScript {
+                                    input_transforms: Default::default(),
+                                    language: ScriptLang::Deno,
+                                    content: r#"
 export function main() {
     return {branch: "premium_low", discount: 10};
 }
-"#.to_string(),
-                                path: None,
-                                lock: None,
-                                tag: None,
-                                concurrency_settings: Default::default(),
-                                is_trigger: None,
-                                assets: None,
-                            }),
-                        ],
-                        modules_node: None,
-                        skip_failure: true,
-                        parallel: true,
-                    },
-                ],
-                default: vec![
-                    flow_module("default_branch", FlowModuleValue::RawScript {
-                        input_transforms: Default::default(),
-                        language: ScriptLang::Deno,
-                        content: r#"
+"#
+                                    .to_string(),
+                                    path: None,
+                                    lock: None,
+                                    tag: None,
+                                    concurrency_settings: Default::default(),
+                                    is_trigger: None,
+                                    assets: None,
+                                },
+                            )],
+                            modules_node: None,
+                            skip_failure: true,
+                            parallel: true,
+                        },
+                    ],
+                    default: vec![flow_module(
+                        "default_branch",
+                        FlowModuleValue::RawScript {
+                            input_transforms: Default::default(),
+                            language: ScriptLang::Deno,
+                            content: r#"
 export function main() {
     return {branch: "default", discount: 0};
 }
-"#.to_string(),
-                        path: None,
-                        lock: None,
-                        tag: None,
-                        concurrency_settings: Default::default(),
-                        is_trigger: None,
-                        assets: None,
-                    }),
-                ],
-                default_node: None,
-            }),
+"#
+                            .to_string(),
+                            path: None,
+                            lock: None,
+                            tag: None,
+                            concurrency_settings: Default::default(),
+                            is_trigger: None,
+                            assets: None,
+                        },
+                    )],
+                    default_node: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // status=premium, score=95 -> premium_high branch, discount=30
     assert_eq!(result["branch"], "premium_high");
@@ -357,69 +393,90 @@ async fn test_flow_previous_result_aggregation(db: Pool<Postgres>) -> anyhow::Re
 
     let flow = FlowValue {
         modules: vec![
-            flow_module("a", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "a",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {value: 10, items: [1, 2, 3]};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            flow_module("b", FlowModuleValue::RawScript {
-                input_transforms: [
-                    js_input("prev_value", "previous_result.value"),
-                    js_input("prev_items_sum", "previous_result.items.reduce((a, b) => a + b, 0)"),
-                ].into(),
-                language: ScriptLang::Deno,
-                content: r#"
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
+            flow_module(
+                "b",
+                FlowModuleValue::RawScript {
+                    input_transforms: [
+                        js_input("prev_value", "previous_result.value"),
+                        js_input(
+                            "prev_items_sum",
+                            "previous_result.items.reduce((a, b) => a + b, 0)",
+                        ),
+                    ]
+                    .into(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main(prev_value: number, prev_items_sum: number) {
     return {value: prev_value * 2, sum: prev_items_sum};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            flow_module("c", FlowModuleValue::RawScript {
-                input_transforms: [
-                    js_input("a_value", "results.a.value"),
-                    js_input("b_value", "results.b.value"),
-                    js_input("b_sum", "results.b.sum"),
-                    js_input("combined", "results.a.value + results.b.value + results.b.sum"),
-                ].into(),
-                language: ScriptLang::Deno,
-                content: r#"
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
+            flow_module(
+                "c",
+                FlowModuleValue::RawScript {
+                    input_transforms: [
+                        js_input("a_value", "results.a.value"),
+                        js_input("b_value", "results.b.value"),
+                        js_input("b_sum", "results.b.sum"),
+                        js_input(
+                            "combined",
+                            "results.a.value + results.b.value + results.b.sum",
+                        ),
+                    ]
+                    .into(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main(a_value: number, b_value: number, b_sum: number, combined: number) {
     return {a_value, b_value, b_sum, combined};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // a: value=10, items=[1,2,3]
     // b: prev_value=10, prev_items_sum=6 -> value=20, sum=6
@@ -504,11 +561,12 @@ export function main(cat_name: string, multiplier: number, values: number[], sum
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // Category A (multiplier=2): values=[20,40], total=60
     // Category B (multiplier=3): values=[30,60], total=90
@@ -601,11 +659,12 @@ export function main(admins: string[], active_count: number, admin_bonus: number
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // Admins: Alice, Charlie
     // Active count: 1 (only Alice)
@@ -638,72 +697,84 @@ async fn test_flow_skip_if_expressions(db: Pool<Postgres>) -> anyhow::Result<()>
 
     let flow = FlowValue {
         modules: vec![
-            flow_module("check", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "check",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {should_skip: true, value: 100};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            {
-                let mut module = flow_module("maybe_skipped", FlowModuleValue::RawScript {
-                    input_transforms: [
-                        js_input("input_val", "results.check.value * 2"),
-                    ].into(),
-                    language: ScriptLang::Deno,
-                    content: r#"
-export function main(input_val: number) {
-    return {processed: input_val, was_run: true};
-}
-"#.to_string(),
+"#
+                    .to_string(),
                     path: None,
                     lock: None,
                     tag: None,
                     concurrency_settings: Default::default(),
                     is_trigger: None,
                     assets: None,
-                });
+                },
+            ),
+            {
+                let mut module = flow_module(
+                    "maybe_skipped",
+                    FlowModuleValue::RawScript {
+                        input_transforms: [js_input("input_val", "results.check.value * 2")].into(),
+                        language: ScriptLang::Deno,
+                        content: r#"
+export function main(input_val: number) {
+    return {processed: input_val, was_run: true};
+}
+"#
+                        .to_string(),
+                        path: None,
+                        lock: None,
+                        tag: None,
+                        concurrency_settings: Default::default(),
+                        is_trigger: None,
+                        assets: None,
+                    },
+                );
                 module.skip_if = Some(windmill_common::flows::SkipIf {
                     expr: "results.check.should_skip === true".to_string(),
                 });
                 module
             },
-            flow_module("final", FlowModuleValue::RawScript {
-                input_transforms: [
-                    js_input("check_val", "results.check.value"),
-                    js_input("prev", "previous_result"),
-                ].into(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "final",
+                FlowModuleValue::RawScript {
+                    input_transforms: [
+                        js_input("check_val", "results.check.value"),
+                        js_input("prev", "previous_result"),
+                    ]
+                    .into(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main(check_val: number, prev: any) {
     return {check_val, previous: prev};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // maybe_skipped should be skipped because check.should_skip === true
     // So previous_result in final should be from check, not maybe_skipped
@@ -771,11 +842,12 @@ export function main(full_name: string, greeting: string, items_str: string, upp
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     assert_eq!(result["full_name"], "John Doe");
     assert_eq!(result["greeting"], "Hello, John! You have 42 items.");
@@ -850,11 +922,12 @@ export function main(city: string, missing_city: any, null_user_name: any, defau
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     assert_eq!(result["city"], "NYC");
     assert_eq!(result["missing_city"], serde_json::Value::Null);
@@ -877,62 +950,74 @@ async fn test_flow_parallel_forloop(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let flow = FlowValue {
         modules: vec![
-            flow_module("data", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "data",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {items: [1, 2, 3, 4, 5]};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            flow_module("parallel_loop", FlowModuleValue::ForloopFlow {
-                iterator: InputTransform::Javascript {
-                    expr: "results.data.items.map(x => ({ value: x, squared: x * x }))".to_string()
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
                 },
-                skip_failures: false,
-                parallel: true,
-                squash: None,
-                parallelism: None,
-                modules: vec![
-                    flow_module("process", FlowModuleValue::RawScript {
-                        input_transforms: [
-                            js_input("original", "flow_input.iter.value.value"),
-                            js_input("squared", "flow_input.iter.value.squared"),
-                            js_input("cubed", "flow_input.iter.value.value ** 3"),
-                        ].into(),
-                        language: ScriptLang::Deno,
-                        content: r#"
+            ),
+            flow_module(
+                "parallel_loop",
+                FlowModuleValue::ForloopFlow {
+                    iterator: InputTransform::Javascript {
+                        expr: "results.data.items.map(x => ({ value: x, squared: x * x }))"
+                            .to_string(),
+                    },
+                    skip_failures: false,
+                    parallel: true,
+                    squash: None,
+                    parallelism: None,
+                    modules: vec![flow_module(
+                        "process",
+                        FlowModuleValue::RawScript {
+                            input_transforms: [
+                                js_input("original", "flow_input.iter.value.value"),
+                                js_input("squared", "flow_input.iter.value.squared"),
+                                js_input("cubed", "flow_input.iter.value.value ** 3"),
+                            ]
+                            .into(),
+                            language: ScriptLang::Deno,
+                            content: r#"
 export function main(original: number, squared: number, cubed: number) {
     return {original, squared, cubed};
 }
-"#.to_string(),
-                        path: None,
-                        lock: None,
-                        tag: None,
-                        concurrency_settings: Default::default(),
-                        is_trigger: None,
-                        assets: None,
-                    }),
-                ],
-                modules_node: None,
-            }),
+"#
+                            .to_string(),
+                            path: None,
+                            lock: None,
+                            tag: None,
+                            concurrency_settings: Default::default(),
+                            is_trigger: None,
+                            assets: None,
+                        },
+                    )],
+                    modules_node: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // Results may be in any order due to parallel execution
     assert!(result.is_array());
@@ -940,7 +1025,8 @@ export function main(original: number, squared: number, cubed: number) {
     assert_eq!(arr.len(), 5);
 
     // Verify all expected values are present (order may vary)
-    let mut values: Vec<i64> = arr.iter()
+    let mut values: Vec<i64> = arr
+        .iter()
         .map(|r| r["original"].as_i64().unwrap())
         .collect();
     values.sort();
@@ -970,14 +1056,26 @@ async fn test_flow_env_access(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // Create flow_env with various types of values
     let mut flow_env = std::collections::HashMap::new();
-    flow_env.insert("ENV".to_string(), windmill_common::worker::to_raw_value(&json!("production")));
-    flow_env.insert("DEBUG".to_string(), windmill_common::worker::to_raw_value(&json!(false)));
-    flow_env.insert("TIMEOUT".to_string(), windmill_common::worker::to_raw_value(&json!(30)));
-    flow_env.insert("CONFIG".to_string(), windmill_common::worker::to_raw_value(&json!({
-        "apiUrl": "https://api.example.com",
-        "retries": 3,
-        "features": ["auth", "logging"]
-    })));
+    flow_env.insert(
+        "ENV".to_string(),
+        windmill_common::worker::to_raw_value(&json!("production")),
+    );
+    flow_env.insert(
+        "DEBUG".to_string(),
+        windmill_common::worker::to_raw_value(&json!(false)),
+    );
+    flow_env.insert(
+        "TIMEOUT".to_string(),
+        windmill_common::worker::to_raw_value(&json!(30)),
+    );
+    flow_env.insert(
+        "CONFIG".to_string(),
+        windmill_common::worker::to_raw_value(&json!({
+            "apiUrl": "https://api.example.com",
+            "retries": 3,
+            "features": ["auth", "logging"]
+        })),
+    );
 
     let flow = FlowValue {
         modules: vec![
@@ -1009,11 +1107,12 @@ export function main(env_name: string, is_debug: boolean, timeout_val: number, a
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     assert_eq!(result["env_name"], "production");
     assert_eq!(result["is_debug"], false);
@@ -1037,8 +1136,14 @@ async fn test_flow_input_and_env_combined(db: Pool<Postgres>) -> anyhow::Result<
 
     // flow_env with environment-specific configuration
     let mut flow_env = std::collections::HashMap::new();
-    flow_env.insert("ENV".to_string(), windmill_common::worker::to_raw_value(&json!("production")));
-    flow_env.insert("MAX_ITEMS".to_string(), windmill_common::worker::to_raw_value(&json!(100)));
+    flow_env.insert(
+        "ENV".to_string(),
+        windmill_common::worker::to_raw_value(&json!("production")),
+    );
+    flow_env.insert(
+        "MAX_ITEMS".to_string(),
+        windmill_common::worker::to_raw_value(&json!(100)),
+    );
 
     let flow = FlowValue {
         modules: vec![
@@ -1071,21 +1176,22 @@ export function main(effective_limit: number, env_prefix: string, is_prod: boole
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .arg("requested_limit", json!(150))
-        .arg("value", json!(25))
-        .arg("prod_mult", json!(3))
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .arg("requested_limit", json!(150))
+            .arg("value", json!(25))
+            .arg("prod_mult", json!(3))
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // effective_limit = min(150, 100) = 100
     assert_eq!(result["effective_limit"], 100);
     assert_eq!(result["env_prefix"], "[production]");
     assert_eq!(result["is_prod"], true);
-    assert_eq!(result["doubled_input"], 50);  // 25 * 2
-    // final_value = 50 * 3 (prod_mult because ENV is production)
+    assert_eq!(result["doubled_input"], 50); // 25 * 2
+                                             // final_value = 50 * 3 (prod_mult because ENV is production)
     assert_eq!(result["final_value"], 150);
 
     Ok(())
@@ -1104,10 +1210,12 @@ async fn test_flow_results_optional_chaining(db: Pool<Postgres>) -> anyhow::Resu
     let flow = FlowValue {
         modules: vec![
             // Step a: return nested data with some null values
-            flow_module("a", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "a",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {
         user: {
@@ -1127,39 +1235,59 @@ export function main() {
         null_field: null
     };
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
             // Step b: use optional chaining on results
-            flow_module("b", FlowModuleValue::RawScript {
-                input_transforms: [
-                    // Basic optional chaining
-                    js_input("user_name", "results.a.user?.name"),
-                    js_input("user_email", "results.a.user?.profile?.email"),
-                    // Optional chaining with null value
-                    js_input("user_phone", "results.a.user?.profile?.phone ?? 'no_phone'"),
-                    // Optional chaining on null settings
-                    js_input("user_setting", "results.a.user?.settings?.theme ?? 'default_theme'"),
-                    // Optional chaining with array access
-                    js_input("first_item_value", "results.a.items?.[0]?.value"),
-                    js_input("second_item_value", "results.a.items?.[1]?.value ?? 0"),
-                    // Optional chaining with find
-                    js_input("item_by_id", "results.a.items?.find(i => i.id === 1)?.value"),
-                    js_input("missing_item", "results.a.items?.find(i => i.id === 999)?.value ?? 'not_found'"),
-                    // Optional chaining on empty array
-                    js_input("empty_first", "results.a.empty_array?.[0]?.value ?? 'empty'"),
-                    // Nullish coalescing with null field
-                    js_input("null_with_default", "results.a.null_field ?? 'was_null'"),
-                    // Accessing missing property with ?.
-                    js_input("missing_prop", "results.a.nonexistent?.nested?.deep ?? 'missing'"),
-                ].into(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "b",
+                FlowModuleValue::RawScript {
+                    input_transforms: [
+                        // Basic optional chaining
+                        js_input("user_name", "results.a.user?.name"),
+                        js_input("user_email", "results.a.user?.profile?.email"),
+                        // Optional chaining with null value
+                        js_input("user_phone", "results.a.user?.profile?.phone ?? 'no_phone'"),
+                        // Optional chaining on null settings
+                        js_input(
+                            "user_setting",
+                            "results.a.user?.settings?.theme ?? 'default_theme'",
+                        ),
+                        // Optional chaining with array access
+                        js_input("first_item_value", "results.a.items?.[0]?.value"),
+                        js_input("second_item_value", "results.a.items?.[1]?.value ?? 0"),
+                        // Optional chaining with find
+                        js_input(
+                            "item_by_id",
+                            "results.a.items?.find(i => i.id === 1)?.value",
+                        ),
+                        js_input(
+                            "missing_item",
+                            "results.a.items?.find(i => i.id === 999)?.value ?? 'not_found'",
+                        ),
+                        // Optional chaining on empty array
+                        js_input(
+                            "empty_first",
+                            "results.a.empty_array?.[0]?.value ?? 'empty'",
+                        ),
+                        // Nullish coalescing with null field
+                        js_input("null_with_default", "results.a.null_field ?? 'was_null'"),
+                        // Accessing missing property with ?.
+                        js_input(
+                            "missing_prop",
+                            "results.a.nonexistent?.nested?.deep ?? 'missing'",
+                        ),
+                    ]
+                    .into(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main(
     user_name: string,
     user_email: string,
@@ -1179,24 +1307,27 @@ export function main(
         empty_first, null_with_default, missing_prop
     };
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     assert_eq!(result["user_name"], "Alice");
     assert_eq!(result["user_email"], "alice@example.com");
@@ -1225,10 +1356,12 @@ async fn test_flow_large_integers(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let flow = FlowValue {
         modules: vec![
-            flow_module("a", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "a",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {
         small_int: 42,
@@ -1238,29 +1371,37 @@ export function main() {
         large_safe: 9007199254740991,  // MAX_SAFE_INTEGER
     };
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            flow_module("b", FlowModuleValue::RawScript {
-                input_transforms: [
-                    js_input("small", "results.a.small_int"),
-                    js_input("i32_max", "results.a.i32_max"),
-                    js_input("over_i32", "results.a.i32_max_plus_1"),
-                    js_input("timestamp", "results.a.timestamp"),
-                    js_input("ts_plus_day", "results.a.timestamp + 86400000"),
-                    js_input("large", "results.a.large_safe"),
-                    // Arithmetic on large numbers
-                    js_input("large_minus_1", "results.a.large_safe - 1"),
-                    // Comparisons
-                    js_input("is_large_safe", "Number.isSafeInteger(results.a.large_safe)"),
-                ].into(),
-                language: ScriptLang::Deno,
-                content: r#"
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
+            flow_module(
+                "b",
+                FlowModuleValue::RawScript {
+                    input_transforms: [
+                        js_input("small", "results.a.small_int"),
+                        js_input("i32_max", "results.a.i32_max"),
+                        js_input("over_i32", "results.a.i32_max_plus_1"),
+                        js_input("timestamp", "results.a.timestamp"),
+                        js_input("ts_plus_day", "results.a.timestamp + 86400000"),
+                        js_input("large", "results.a.large_safe"),
+                        // Arithmetic on large numbers
+                        js_input("large_minus_1", "results.a.large_safe - 1"),
+                        // Comparisons
+                        js_input(
+                            "is_large_safe",
+                            "Number.isSafeInteger(results.a.large_safe)",
+                        ),
+                    ]
+                    .into(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main(
     small: number, i32_max: number, over_i32: number,
     timestamp: number, ts_plus_day: number,
@@ -1269,24 +1410,27 @@ export function main(
 ) {
     return {small, i32_max, over_i32, timestamp, ts_plus_day, large, large_minus_1, is_large_safe};
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     assert_eq!(result["small"], 42);
     assert_eq!(result["i32_max"], 2147483647_i64);
@@ -1365,11 +1509,12 @@ export function main(
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     assert_eq!(result["greeting"], "Hello World");
     assert_eq!(result["greeting_len"], 11);
@@ -1466,16 +1611,20 @@ export function main(
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     assert_eq!(result["sorted_asc"], json!([1, 2, 3, 4, 5, 6, 7, 8, 9]));
     assert_eq!(result["sorted_desc"], json!([9, 8, 7, 6, 5, 4, 3, 2, 1]));
     assert_eq!(result["active_names"], json!(["Alice", "Charlie", "Diana"]));
-    assert_eq!(result["high_scorers"], json!([{"name": "Bob", "score": 92}, {"name": "Diana", "score": 95}]));
+    assert_eq!(
+        result["high_scorers"],
+        json!([{"name": "Bob", "score": 92}, {"name": "Diana", "score": 95}])
+    );
     assert_eq!(result["total_score"], 350); // 85 + 92 + 78 + 95
     assert_eq!(result["avg_score"], 87.5);
     assert_eq!(result["top_scorer"], "Diana");
@@ -1582,17 +1731,21 @@ export function main(
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // subtotal = 10*2 + 20*3 + 30*1 = 20 + 60 + 30 = 110
     assert_eq!(result["subtotal"], 110);
     // discounted_total = 110 * (1 - 0.1) = 99
     assert_eq!(result["discounted_total"], 99.0);
-    assert_eq!(result["item_summary"]["names"], json!(["Item A", "Item B", "Item C"]));
+    assert_eq!(
+        result["item_summary"]["names"],
+        json!(["Item A", "Item B", "Item C"])
+    );
     assert_eq!(result["item_summary"]["total_qty"], 6);
     // safe_calculation = 110 * 1.08 = 118.8
     assert_eq!(result["safe_calculation"], 118.8);
@@ -1670,18 +1823,28 @@ export function main(
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
-    assert_eq!(result["merged_config"], json!({"host": "localhost", "port": 3000, "timeout": 5000}));
+    assert_eq!(
+        result["merged_config"],
+        json!({"host": "localhost", "port": 3000, "timeout": 5000})
+    );
     assert_eq!(result["all_tags"], json!(["api", "v1", "production"]));
-    assert_eq!(result["full_user"], json!({"name": "Alice", "role": "admin", "permissions": ["read", "write"]}));
+    assert_eq!(
+        result["full_user"],
+        json!({"name": "Alice", "role": "admin", "permissions": ["read", "write"]})
+    );
     assert_eq!(result["max_port"], 8080);
     assert_eq!(result["rest_config"], json!({"port": 3000}));
-    assert_eq!(result["combined"]["config"], json!({"host": "localhost", "port": 3000}));
+    assert_eq!(
+        result["combined"]["config"],
+        json!({"host": "localhost", "port": 3000})
+    );
     assert_eq!(result["combined"]["tags"], json!(["api", "v1"]));
     assert_eq!(result["combined"]["source"], "flow");
 
@@ -1701,42 +1864,51 @@ async fn test_flow_nested_forloop_results_access(db: Pool<Postgres>) -> anyhow::
     let flow = FlowValue {
         modules: vec![
             // Step a: outer data
-            flow_module("a", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "a",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return {
         multiplier: 10,
         categories: ["cat1", "cat2"]
     };
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            // Outer for-loop
-            flow_module("outer", FlowModuleValue::ForloopFlow {
-                iterator: InputTransform::Javascript {
-                    expr: "results.a.categories".to_string()
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
                 },
-                skip_failures: false,
-                parallel: false,
-                squash: None,
-                parallelism: None,
-                modules: vec![
-                    // Step b: generate inner items based on category
-                    flow_module("b", FlowModuleValue::RawScript {
-                        input_transforms: [
-                            js_input("category", "flow_input.iter.value"),
-                            js_input("multiplier", "results.a.multiplier"),  // Access outer step from inside for-loop
-                        ].into(),
-                        language: ScriptLang::Deno,
-                        content: r#"
+            ),
+            // Outer for-loop
+            flow_module(
+                "outer",
+                FlowModuleValue::ForloopFlow {
+                    iterator: InputTransform::Javascript {
+                        expr: "results.a.categories".to_string(),
+                    },
+                    skip_failures: false,
+                    parallel: false,
+                    squash: None,
+                    parallelism: None,
+                    modules: vec![
+                        // Step b: generate inner items based on category
+                        flow_module(
+                            "b",
+                            FlowModuleValue::RawScript {
+                                input_transforms: [
+                                    js_input("category", "flow_input.iter.value"),
+                                    js_input("multiplier", "results.a.multiplier"), // Access outer step from inside for-loop
+                                ]
+                                .into(),
+                                language: ScriptLang::Deno,
+                                content: r#"
 export function main(category: string, multiplier: number) {
     return {
         category,
@@ -1746,23 +1918,28 @@ export function main(category: string, multiplier: number) {
         }))
     };
 }
-"#.to_string(),
-                        path: None,
-                        lock: None,
-                        tag: None,
-                        concurrency_settings: Default::default(),
-                        is_trigger: None,
-                        assets: None,
-                    }),
-                    // Step c: process inner items and access previous step in loop
-                    flow_module("c", FlowModuleValue::RawScript {
-                        input_transforms: [
-                            js_input("items", "results.b.items"),  // Access sibling step
-                            js_input("category", "results.b.category"),
-                            js_input("original_mult", "results.a.multiplier"),  // Access outer step
-                        ].into(),
-                        language: ScriptLang::Deno,
-                        content: r#"
+"#
+                                .to_string(),
+                                path: None,
+                                lock: None,
+                                tag: None,
+                                concurrency_settings: Default::default(),
+                                is_trigger: None,
+                                assets: None,
+                            },
+                        ),
+                        // Step c: process inner items and access previous step in loop
+                        flow_module(
+                            "c",
+                            FlowModuleValue::RawScript {
+                                input_transforms: [
+                                    js_input("items", "results.b.items"), // Access sibling step
+                                    js_input("category", "results.b.category"),
+                                    js_input("original_mult", "results.a.multiplier"), // Access outer step
+                                ]
+                                .into(),
+                                language: ScriptLang::Deno,
+                                content: r#"
 export function main(items: any[], category: string, original_mult: number) {
     return {
         category,
@@ -1771,27 +1948,31 @@ export function main(items: any[], category: string, original_mult: number) {
         total_value: items.reduce((sum, i) => sum + i.value, 0)
     };
 }
-"#.to_string(),
-                        path: None,
-                        lock: None,
-                        tag: None,
-                        concurrency_settings: Default::default(),
-                        is_trigger: None,
-                        assets: None,
-                    }),
-                ],
-                modules_node: None,
-            }),
+"#
+                                .to_string(),
+                                path: None,
+                                lock: None,
+                                tag: None,
+                                concurrency_settings: Default::default(),
+                                is_trigger: None,
+                                assets: None,
+                            },
+                        ),
+                    ],
+                    modules_node: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // outer loop produces 2 results (for cat1 and cat2)
     assert!(result.is_array());
@@ -1827,36 +2008,49 @@ async fn test_flow_results_non_existent_step(db: Pool<Postgres>) -> anyhow::Resu
 
     let flow = FlowValue {
         modules: vec![
-            flow_module("a", FlowModuleValue::RawScript {
-                input_transforms: Default::default(),
-                language: ScriptLang::Deno,
-                content: r#"
+            flow_module(
+                "a",
+                FlowModuleValue::RawScript {
+                    input_transforms: Default::default(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main() {
     return { value: 42 };
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
-            flow_module("b", FlowModuleValue::RawScript {
-                input_transforms: [
-                    // Access existing step - should work
-                    js_input("existing", "results.a.value"),
-                    // Access non-existent step - should return null, not error
-                    // Note: The expression gets wrapped as (await results.nonexistent)
-                    // The proxy returns a Promise that resolves to null for non-existent steps
-                    js_input("non_existent", "results.nonexistent"),
-                    // Access non-existent step with nullish coalescing
-                    js_input("non_existent_with_default", "results.nonexistent ?? 'default_value'"),
-                    // Nested access on non-existent step (null?.value -> undefined -> ?? kicks in)
-                    js_input("non_existent_nested", "results.nonexistent?.value ?? 'nested_default'"),
-                ].into(),
-                language: ScriptLang::Deno,
-                content: r#"
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
+            flow_module(
+                "b",
+                FlowModuleValue::RawScript {
+                    input_transforms: [
+                        // Access existing step - should work
+                        js_input("existing", "results.a.value"),
+                        // Access non-existent step - should return null, not error
+                        // Note: The expression gets wrapped as (await results.nonexistent)
+                        // The proxy returns a Promise that resolves to null for non-existent steps
+                        js_input("non_existent", "results.nonexistent"),
+                        // Access non-existent step with nullish coalescing
+                        js_input(
+                            "non_existent_with_default",
+                            "results.nonexistent ?? 'default_value'",
+                        ),
+                        // Nested access on non-existent step (null?.value -> undefined -> ?? kicks in)
+                        js_input(
+                            "non_existent_nested",
+                            "results.nonexistent?.value ?? 'nested_default'",
+                        ),
+                    ]
+                    .into(),
+                    language: ScriptLang::Deno,
+                    content: r#"
 export function main(
     existing: number,
     non_existent: any,
@@ -1870,24 +2064,27 @@ export function main(
         non_existent_nested
     };
 }
-"#.to_string(),
-                path: None,
-                lock: None,
-                tag: None,
-                concurrency_settings: Default::default(),
-                is_trigger: None,
-                assets: None,
-            }),
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
         ],
         same_worker: false,
         ..Default::default()
     };
 
-    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-        .run_until_complete(&db, false, server.addr.port())
-        .await
-        .json_result()
-        .unwrap();
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
 
     // existing step should work
     assert_eq!(result["existing"], 42);

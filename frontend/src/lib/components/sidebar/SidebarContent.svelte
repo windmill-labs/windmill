@@ -46,6 +46,7 @@
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { clearStores } from '$lib/storeUtils'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { goto } from '$lib/navigation'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -81,8 +82,47 @@
 		goto('/user/workspaces')
 	}
 
+	type ForkedDatatable = {
+		name: string
+		resourceType: string
+		resourcePath: string
+		dropOnDelete: boolean
+	}
+	let forkedDatatables: ForkedDatatable[] = $state([])
+
+	async function loadForkedDatatables() {
+		if (!$workspaceStore) return
+		try {
+			const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore })
+			const datatables = settings.datatable?.datatables ?? {}
+			forkedDatatables = Object.entries(datatables)
+				.filter(([_, dt]) => dt.forked_from != null)
+				.map(([name, dt]) => ({
+					name,
+					resourceType: dt.database.resource_type ?? 'instance',
+					resourcePath: dt.database.resource_path ?? '',
+					dropOnDelete: true
+				}))
+		} catch {
+			forkedDatatables = []
+		}
+	}
+
 	async function deleteFork() {
-		await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
+		const workspace = $workspaceStore ?? ''
+		const dbsToDrop = forkedDatatables.filter((dt) => dt.dropOnDelete).map((dt) => dt.name)
+
+		if (dbsToDrop.length > 0) {
+			const errors = await WorkspaceService.dropForkedDatatableDatabases({
+				workspace,
+				requestBody: { datatable_names: dbsToDrop }
+			})
+			for (const err of errors) {
+				sendUserToast(err, true)
+			}
+		}
+
+		await WorkspaceService.deleteWorkspace({ workspace })
 		sendUserToast('You deleted the workspace')
 		clearStores()
 		goto('/user/workspaces')
@@ -440,7 +480,8 @@
 					? [
 							{
 								label: 'Delete Forked Workspace',
-								action: () => {
+								action: async () => {
+									await loadForkedDatatables()
 									deleteWorkspaceForkModal = true
 								},
 								icon: Trash2,
@@ -756,6 +797,29 @@
 	>
 		<div class="flex flex-col w-full space-y-4">
 			<span>Are you sure you want to delete this workspace fork? (deleting {$workspaceStore})</span>
+			{#if forkedDatatables.length > 0}
+				<div class="border rounded-md divide-y">
+					<div class="px-4 py-2 text-xs font-semibold text-secondary"> Forked databases </div>
+					{#each forkedDatatables as dt}
+						<div class="flex items-center justify-between px-4 py-2">
+							<div class="flex flex-col">
+								<span class="text-xs font-medium text-secondary">{dt.name}</span>
+								<span class="text-3xs text-hint">
+									{dt.resourceType === 'instance'
+										? dt.resourcePath
+										: `${$workspaceStore?.replace(/-/g, '_')}__${dt.name}`}
+								</span>
+							</div>
+							<Toggle
+								class="shrink-0"
+								size="xs"
+								bind:checked={dt.dropOnDelete}
+								options={{ right: 'Drop database' }}
+							/>
+						</div>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	</ConfirmationModal>
 {/if}
