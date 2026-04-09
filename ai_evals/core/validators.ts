@@ -214,11 +214,21 @@ export function validateCliWorkspace(input: {
         checks.push(
           check(
             `${filePath} contains expected content`,
-            actualContent.includes(expectedContent.trim())
+            cliFileContainsExpectedContent(actualContent, expectedContent)
           )
         );
       }
     }
+
+    const expectedPaths = new Set(Object.keys(input.expectedFiles));
+    const unexpectedPaths = Object.keys(input.actualFiles).filter((filePath) => !expectedPaths.has(filePath));
+    checks.push(
+      check(
+        "workspace contains no unexpected files",
+        unexpectedPaths.length === 0,
+        summarizeProblems(unexpectedPaths)
+      )
+    );
   }
 
   if (input.initialFiles) {
@@ -226,6 +236,28 @@ export function validateCliWorkspace(input: {
   }
 
   return checks;
+}
+
+function cliFileContainsExpectedContent(actualContent: string, expectedContent: string): boolean {
+  const expectedLines = expectedContent
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (expectedLines.length === 0) {
+    return true;
+  }
+
+  const actualLineSet = new Set(
+    actualContent
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+  );
+
+  return expectedLines.every((line) => actualLineSet.has(line));
 }
 
 function check(name: string, passed: boolean, details?: string): BenchmarkCheck {

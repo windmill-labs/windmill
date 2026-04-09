@@ -1,0 +1,20 @@
+summary: Simple greeting flow
+schema:
+  type: object
+  properties:
+    name:
+      type: string
+      description: Name to greet
+  required:
+    - name
+value:
+  modules:
+    - id: hello_step
+      value:
+        type: rawscript
+        language: bun
+        content: !inline hello.ts
+        input_transforms:
+          name:
+            type: javascript
+            expr: flow_input.name
