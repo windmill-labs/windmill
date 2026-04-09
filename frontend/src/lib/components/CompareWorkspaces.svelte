@@ -536,8 +536,9 @@
 		const results = ciTestResults[key]
 		if (!results || results.length === 0) return null
 		if (results.some((r) => r.status === 'failure' || r.status === 'canceled')) return 'fail'
-		if (results.some((r) => r.status === 'running')) return 'running'
-		return 'pass'
+		if (results.some((r) => r.status === 'running' || (r.job_id && !r.status))) return 'running'
+		if (results.every((r) => r.status === 'success')) return 'pass'
+		return null
 	}
 
 	// Deduplicated list of all CI tests across all items

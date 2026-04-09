@@ -26,7 +26,7 @@
 
 	let results: CiTestResult[] = $derived(ciTests.current ?? [])
 	let hasResults = $derived(results.length > 0)
-	let hasRunning = $derived(results.some((r) => r.status === 'running'))
+	let hasRunning = $derived(results.some((r) => r.status === 'running' || (r.job_id && !r.status)))
 
 	// Poll while any test is still running
 	$effect(() => {
