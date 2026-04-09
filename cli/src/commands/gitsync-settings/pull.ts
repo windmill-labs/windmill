@@ -171,7 +171,7 @@ export async function pullGitSyncSettings(
             updatedConfig.workspaces = {};
           }
           if (!updatedConfig.workspaces[currentBranch]) {
-            updatedConfig.workspaces[currentBranch] = { overrides: {} };
+            updatedConfig.workspaces[currentBranch] = {};
           }
         }
       }
@@ -369,7 +369,7 @@ export async function pullGitSyncSettings(
             updatedConfig.workspaces = {};
           }
           if (!updatedConfig.workspaces[currentBranch]) {
-            updatedConfig.workspaces[currentBranch] = { overrides: {} };
+            updatedConfig.workspaces[currentBranch] = {};
           }
 
           // Write updated configuration
@@ -435,7 +435,7 @@ export async function pullGitSyncSettings(
           updatedConfig.workspaces = {};
         }
         if (!updatedConfig.workspaces[currentBranch]) {
-          updatedConfig.workspaces[currentBranch] = { overrides: {} };
+          updatedConfig.workspaces[currentBranch] = {};
         }
       }
     }

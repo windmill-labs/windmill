@@ -472,7 +472,7 @@ export async function validateBranchConfiguration(
         if (!currentConfig.workspaces) {
           currentConfig.workspaces = {} as WorkspacesConfig;
         }
-        (currentConfig.workspaces as any)[currentBranch] = { overrides: {} };
+        (currentConfig.workspaces as any)[currentBranch] = {};
 
         await writeFile("wmill.yaml", yamlStringify(currentConfig), "utf-8");
 

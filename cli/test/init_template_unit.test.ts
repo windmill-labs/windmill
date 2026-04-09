@@ -28,7 +28,6 @@ describe("generateCommentedTemplate", () => {
   test("uses provided branch name in workspaces", () => {
     const config = parse(generateCommentedTemplate("my-feature"));
     expect(config.workspaces["my-feature"]).toBeDefined();
-    expect(config.workspaces["my-feature"].overrides).toEqual({});
   });
 
   test("defaults to 'main' when no branch name given", () => {

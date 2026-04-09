@@ -176,7 +176,7 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     additionalProperties: WORKSPACE_CONFIG_SCHEMA,
     section: "Workspace bindings",
     sectionNote: "Map workspace names to Windmill instances and override settings per workspace.\nThe key is a human-friendly workspace name. gitBranch and workspaceId default to the key name.",
-    templateValue: "\n  {{BRANCH}}:\n    overrides: {}",
+    templateValue: "\n  {{BRANCH}}: {}",
     example: [
       "{{BASEURL_LINE}}",
       "{{WORKSPACE_ID_LINE}}",
@@ -282,7 +282,13 @@ export function generateCommentedTemplate(branchName?: string, binding?: BranchB
         if (ws.gitBranch && ws.gitBranch !== ws.name) {
           lines.push(`    gitBranch: ${ws.gitBranch}`);
         }
-        lines.push(`    overrides: {}`);
+        lines.push(`    # specificItems:                       # items synced per-workspace (suffix = workspace name)`);
+        lines.push(`    #   variables: []`);
+        lines.push(`    #   resources: []`);
+        lines.push(`    #   triggers: []`);
+        lines.push(`    #   folders: []`);
+        lines.push(`    #   settings: false`);
+
       }
       lines.push("");
       // Skip the default template/example rendering for this opt
