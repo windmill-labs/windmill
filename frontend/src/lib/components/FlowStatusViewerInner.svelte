@@ -884,7 +884,8 @@
 					previewResult: job['result'],
 					previewArgs: job.args,
 					previewJobId: job.id,
-					previewSuccess: job['success']
+					previewSuccess: job['success'],
+					previewLogs: job['logs']
 				}
 			}
 
