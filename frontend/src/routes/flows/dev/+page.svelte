@@ -11,12 +11,13 @@
 	} from '$lib/components/flows/types'
 	import { SelectionManager } from '$lib/components/graph/selectionUtils.svelte'
 	import { writable } from 'svelte/store'
-	import { OpenAPI, type FlowModule, type Job, type OpenFlow, type TriggersCount } from '$lib/gen'
+	import { OpenAPI, type Job, type OpenFlow, type TriggersCount } from '$lib/gen'
 	import { initHistory } from '$lib/history.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from '$lib/components/flows/content/FlowEditorPanel.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { findModuleInFlow } from '$lib/components/flows/flowDiff'
 	import { page } from '$app/state'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
@@ -248,34 +249,10 @@
 		}
 	}
 
-	function findModule(modules: FlowModule[], id: string): FlowModule | undefined {
-		for (const m of modules) {
-			if (m.id === id) return m
-			const v = m.value
-			if (v.type === 'forloopflow' || v.type === 'whileloopflow') {
-				const found = findModule(v.modules, id)
-				if (found) return found
-			} else if (v.type === 'branchone') {
-				for (const b of v.branches) {
-					const found = findModule(b.modules, id)
-					if (found) return found
-				}
-				const found = findModule(v.default, id)
-				if (found) return found
-			} else if (v.type === 'branchall') {
-				for (const b of v.branches) {
-					const found = findModule(b.modules, id)
-					if (found) return found
-				}
-			}
-		}
-		return undefined
-	}
-
 	const selectedId = $derived(selectionManager.getSelectedId())
 	const selectedModule = $derived(
-		selectedId && flowStore.val?.value?.modules
-			? findModule(flowStore.val.value.modules, selectedId)
+		selectedId && flowStore.val?.value
+			? findModuleInFlow(flowStore.val.value, selectedId) ?? undefined
 			: undefined
 	)
 

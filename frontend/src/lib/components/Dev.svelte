@@ -11,7 +11,6 @@
 		JobService,
 		OpenAPI,
 		type Preview,
-		type FlowModule,
 		type OpenFlow,
 		WorkspaceService,
 		type InputTransform,
@@ -29,6 +28,7 @@
 	import FlowModuleSchemaMap from './flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from './flows/content/FlowEditorPanel.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { findModuleInFlow } from './flows/flowDiff'
 	import { writable } from 'svelte/store'
 	import type { FlowState } from './flows/flowState'
 	import { initHistory } from '$lib/history.svelte'
@@ -700,33 +700,9 @@
 
 	const selectedId = $derived(selectionManager.getSelectedId())
 
-	function findModule(modules: FlowModule[], id: string): FlowModule | undefined {
-		for (const m of modules) {
-			if (m.id === id) return m
-			const v = m.value
-			if (v.type === 'forloopflow' || v.type === 'whileloopflow') {
-				const found = findModule(v.modules, id)
-				if (found) return found
-			} else if (v.type === 'branchone') {
-				for (const b of v.branches) {
-					const found = findModule(b.modules, id)
-					if (found) return found
-				}
-				const found = findModule(v.default, id)
-				if (found) return found
-			} else if (v.type === 'branchall') {
-				for (const b of v.branches) {
-					const found = findModule(b.modules, id)
-					if (found) return found
-				}
-			}
-		}
-		return undefined
-	}
-
 	const selectedModule = $derived(
-		selectedId && flowStore.val?.value?.modules
-			? findModule(flowStore.val.value.modules, selectedId)
+		selectedId && flowStore.val?.value
+			? findModuleInFlow(flowStore.val.value, selectedId) ?? undefined
 			: undefined
 	)
 </script>
