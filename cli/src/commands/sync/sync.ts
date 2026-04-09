@@ -104,6 +104,7 @@ import {
   getModuleFolderSuffix,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
+  hasWrongFormatSuffix,
 } from "../../utils/resource_folders.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -1263,11 +1264,22 @@ export async function elementsToMap(
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
+  const wrongFormatPaths: string[] = [];
   // Cache git branch at the start to avoid repeated execSync calls per file
   const cachedBranch = branchOverride ?? getCurrentGitBranch() ?? undefined;
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     // console.log("FOO", entry.path, entry.ignored, entry.isDirectory)
-    if (entry.isDirectory || entry.ignored) {
+    if (entry.isDirectory) {
+      // Check for folder suffix format mismatch (only for local paths)
+      if (!isRemote) {
+        const dirName = entry.path.split(SEP).pop() ?? "";
+        if (hasWrongFormatSuffix(dirName)) {
+          wrongFormatPaths.push(entry.path);
+        }
+      }
+      continue;
+    }
+    if (entry.ignored) {
       continue;
     }
     const path = entry.path;
@@ -1442,6 +1454,20 @@ export async function elementsToMap(
     }
     // Note: branch-specific files for other branches are already filtered out earlier
   }
+
+  if (wrongFormatPaths.length > 0) {
+    const isNonDotted = getNonDottedPaths();
+    const foundFormat = isNonDotted ? ".flow/.app/.raw_app" : "__flow/__app/__raw_app";
+    const expectedFormat = isNonDotted ? "__flow/__app/__raw_app" : ".flow/.app/.raw_app";
+    const configHint = isNonDotted
+      ? "Either remove 'nonDottedPaths: true' from wmill.yaml, or rename these directories to use __flow/__app/__raw_app format."
+      : "Either add 'nonDottedPaths: true' to wmill.yaml, or rename these directories to use .flow/.app/.raw_app format.";
+    const pathList = wrongFormatPaths.map((p) => `  ${p}`).join("\n");
+    throw new Error(
+      `Found ${wrongFormatPaths.length} directory(ies) using ${foundFormat} format, but wmill.yaml expects ${expectedFormat}:\n${pathList}\n${configHint}`
+    );
+  }
+
   return map;
 }
 

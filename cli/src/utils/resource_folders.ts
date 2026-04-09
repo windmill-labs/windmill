@@ -156,6 +156,24 @@ export function getMetadataPathSuffix(
 // Path Detection Functions
 // ============================================================================
 
+/**
+ * Check if a directory name uses the *wrong* folder suffix format for the
+ * current nonDottedPaths setting. Returns the resource type if mismatched,
+ * null if the name is fine (or not a resource folder at all).
+ *
+ * - nonDottedPaths=false (dotted mode): flags __flow, __app, __raw_app
+ * - nonDottedPaths=true  (non-dotted):  flags .flow, .app, .raw_app
+ */
+export function hasWrongFormatSuffix(dirName: string): FolderResourceType | null {
+  const wrongSuffixes = _nonDottedPaths ? DOTTED_SUFFIXES : NON_DOTTED_SUFFIXES;
+  for (const [type, suffix] of Object.entries(wrongSuffixes)) {
+    if (dirName.endsWith(suffix)) {
+      return type as FolderResourceType;
+    }
+  }
+  return null;
+}
+
 /** Normalize path separators to forward slash for cross-platform matching */
 function normalizeSep(p: string): string {
   return p.replaceAll("\\", "/");
