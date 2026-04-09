@@ -155,8 +155,8 @@ async function initAction(opts: InitOptions) {
     // Create lock file
     await readLockfile();
 
-    // Check for backend git-sync settings unless --use-default is specified
-    if (!opts.useDefault) {
+    // Check for backend git-sync settings — only if a workspace was bound and not --use-default
+    if (!opts.useDefault && wsBindings && wsBindings.length > 0) {
       try {
         const { requireLogin } = await import("../../core/auth.ts");
         const { resolveWorkspace } = await import("../../core/context.ts");
