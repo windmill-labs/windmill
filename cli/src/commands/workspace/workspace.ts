@@ -525,7 +525,6 @@ async function bind(
   const { isGitRepository, getCurrentGitBranch } = await import(
     "../../utils/git.ts"
   );
-  const { Input } = await import("@cliffy/prompt/input");
   const { readConfigFile, findWorkspaceByGitBranch, getWorkspaceNames } = await import("../../core/conf.ts");
   const { stringify: yamlStringify } = await import("yaml");
   const config = await readConfigFile();
@@ -535,58 +534,101 @@ async function bind(
   }
 
   const isInteractive = !!process.stdin.isTTY;
-  const currentBranch = isGitRepository() ? getCurrentGitBranch() : null;
+  const inGitRepo = isGitRepository();
+  const currentBranch = inGitRepo ? getCurrentGitBranch() : null;
 
   if (doBind) {
     // ── BIND ──────────────────────────────────────────────────
-    const activeWorkspace = await getActiveWorkspaceOrFallback(opts);
-    if (!activeWorkspace) {
-      log.error(
-        colors.red(
-          "No active workspace profile. Use 'wmill workspace add' or 'wmill workspace switch' first."
-        )
-      );
+
+    // Step 1: Pick workspace profile (the source of baseUrl/workspaceId/token)
+    const profiles = await allWorkspaces(opts.configDir);
+    let selectedProfile: Workspace | undefined;
+
+    if (profiles.length === 0) {
+      // No profiles — run wmill workspace add flow
+      log.info(colors.yellow("No workspace profiles found. Let's create one."));
+      await add(opts as any, undefined, undefined, undefined);
+      // Re-read profiles after add
+      const updatedProfiles = await allWorkspaces(opts.configDir);
+      selectedProfile = updatedProfiles.length > 0
+        ? await getActiveWorkspace(opts)
+        : undefined;
+      if (!selectedProfile) {
+        log.error(colors.red("Profile creation failed or was cancelled."));
+        return;
+      }
+    } else if (opts.workspace && profiles.find((p) => p.name === opts.workspace)) {
+      // --workspace flag matches a profile name: use it directly
+      selectedProfile = profiles.find((p) => p.name === opts.workspace);
+    } else if (isInteractive) {
+      const { Select } = await import("@cliffy/prompt/select");
+      const activeProfile = await getActiveWorkspace(opts);
+      const selectedName = await Select.prompt({
+        message: "Select workspace profile to bind",
+        options: profiles.map((p) => ({
+          name: `${p.name} (${p.workspaceId} on ${p.remote})`,
+          value: p.name,
+        })),
+        default: activeProfile?.name,
+      });
+      selectedProfile = profiles.find((p) => p.name === selectedName);
+    } else {
+      // Non-interactive: use active profile
+      selectedProfile = await getActiveWorkspaceOrFallback(opts);
+    }
+
+    if (!selectedProfile) {
+      log.error(colors.red("No workspace profile selected. Aborting."));
       return;
     }
 
-    // 1. Resolve workspace name
+    // Step 2: Pick workspace name (the key in wmill.yaml workspaces section)
     let wsName: string;
     if (opts.workspace) {
       wsName = opts.workspace;
     } else if (isInteractive) {
+      const { Input } = await import("@cliffy/prompt/input");
       wsName = await Input.prompt({
-        message: "Workspace name",
-        default: currentBranch ?? activeWorkspace.workspaceId,
+        message: "Workspace name (key in wmill.yaml)",
+        default: selectedProfile.workspaceId,
       });
     } else {
-      wsName = currentBranch ?? activeWorkspace.workspaceId;
+      wsName = selectedProfile.workspaceId;
     }
 
-    // 2. Resolve git branch (optional)
+    // Step 3: Pick git branch (only in git repos)
     let gitBranch: string | undefined;
-    if (opts.branch) {
-      if (opts.branch !== wsName) {
-        gitBranch = opts.branch;
-      }
-    } else if (isInteractive && isGitRepository()) {
-      const branchInput = await Input.prompt({
-        message: "Git branch",
-        default: wsName,
-      });
-      if (branchInput !== wsName) {
-        gitBranch = branchInput;
+    if (inGitRepo) {
+      if (opts.branch) {
+        if (opts.branch !== wsName) {
+          gitBranch = opts.branch;
+        }
+      } else if (isInteractive) {
+        const { Input } = await import("@cliffy/prompt/input");
+        const branchInput = await Input.prompt({
+          message: "Git branch to associate",
+          default: currentBranch ?? wsName,
+        });
+        if (branchInput !== wsName) {
+          gitBranch = branchInput;
+        }
+      } else if (currentBranch && currentBranch !== wsName) {
+        gitBranch = currentBranch;
       }
     }
-    // When not interactive and no --branch: gitBranch stays undefined (defaults to wsName)
 
-    // 3. Write the entry
+    // Step 4: Write the entry
     const entry = (config.workspaces as any)[wsName] ?? {};
-    entry.baseUrl = activeWorkspace.remote;
-    if (activeWorkspace.workspaceId !== wsName) {
-      entry.workspaceId = activeWorkspace.workspaceId;
+    entry.baseUrl = selectedProfile.remote;
+    if (selectedProfile.workspaceId !== wsName) {
+      entry.workspaceId = selectedProfile.workspaceId;
+    } else {
+      delete entry.workspaceId; // clean up if it matches
     }
     if (gitBranch) {
       entry.gitBranch = gitBranch;
+    } else {
+      delete entry.gitBranch; // clean up if it matches
     }
     (config.workspaces as any)[wsName] = entry;
 
@@ -594,7 +636,7 @@ async function bind(
       colors.green(
         `✓ Bound workspace '${wsName}'` +
           (gitBranch ? ` (gitBranch: ${gitBranch})` : "") +
-          ` → ${activeWorkspace.workspaceId} on ${activeWorkspace.remote}`
+          ` → ${selectedProfile.workspaceId} on ${selectedProfile.remote}`
       )
     );
   } else {
@@ -604,7 +646,6 @@ async function bind(
     if (opts.workspace) {
       wsName = opts.workspace;
     } else if (currentBranch) {
-      // Find workspace by current git branch
       const match = findWorkspaceByGitBranch(config.workspaces, currentBranch);
       wsName = match?.[0];
     }
