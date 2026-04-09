@@ -92,8 +92,11 @@
 		infiniteList && !noHistory && untrack(() => initLoadInputs())
 	})
 
+	let lastSeenJobId: string | undefined = $state(undefined)
 	$effect(() => {
-		if (flowStateStore?.val[moduleId]?.previewJobId) {
+		const jobId = flowStateStore?.val[moduleId]?.previewJobId
+		if (jobId && jobId !== lastSeenJobId) {
+			lastSeenJobId = jobId
 			untrack(() => infiniteList?.loadData('forceRefresh'))
 		}
 	})
