@@ -2,11 +2,43 @@ import { colors } from "@cliffy/ansi/colors";
 import * as log from "./log.ts";
 import { setClient } from "./client.ts";
 import * as wmill from "../../gen/services.gen.ts";
-import { GlobalUserInfo } from "../../gen/types.gen.ts";
+import { GlobalUserInfo, User } from "../../gen/types.gen.ts";
+import { ApiError } from "../../gen/core/ApiError.ts";
 
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
 import { GlobalOptions } from "../types.ts";
 
+
+// Workspace-scoped tokens (tokens bound to a workspace via token.workspace_id)
+// cannot call /api/users/whoami because the backend rejects any token with a
+// workspace binding when the request path has no workspace in it. Fall back to
+// the workspace-scoped whoami endpoint in that case so the CLI still works.
+async function fetchWhoami(workspaceId: string): Promise<GlobalUserInfo> {
+  try {
+    return await wmill.globalWhoami();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      const user = await wmill.whoami({ workspace: workspaceId });
+      return workspaceUserToGlobalUserInfo(user);
+    }
+    throw error;
+  }
+}
+
+function workspaceUserToGlobalUserInfo(user: User): GlobalUserInfo {
+  return {
+    email: user.email,
+    login_type: "password",
+    super_admin: user.is_super_admin,
+    verified: true,
+    name: user.name,
+    username: user.username,
+    operator_only: user.operator,
+    first_time_user: false,
+    role_source: "manual",
+    disabled: user.disabled,
+  };
+}
 
 /**
  * Main authentication function - moved from context.ts to break circular dependencies
@@ -28,7 +60,7 @@ export async function requireLogin(
   setClient(token, workspace.remote.substring(0, workspace.remote.length - 1));
 
   try {
-    return await wmill.globalWhoami();
+    return await fetchWhoami(workspace.workspaceId);
   } catch (error) {
     // Check for network errors and provide clearer messages
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -62,6 +94,6 @@ export async function requireLogin(
       newToken,
       workspace.remote.substring(0, workspace.remote.length - 1)
     );
-    return await wmill.globalWhoami();
+    return await fetchWhoami(workspace.workspaceId);
   }
 }
