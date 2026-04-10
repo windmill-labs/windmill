@@ -10,8 +10,12 @@ export interface ScriptState {
 }
 
 export interface FlowState {
+  summary?: string;
   value?: {
+    preprocessor_module?: Record<string, unknown>;
+    failure_module?: Record<string, unknown>;
     modules?: Array<Record<string, unknown>>;
+    [key: string]: unknown;
   };
   schema?: Record<string, unknown>;
 }
@@ -82,6 +86,7 @@ export function validateScriptState(input: {
 export function validateFlowState(input: {
   actual: FlowState;
   initial?: FlowState;
+  expected?: FlowState;
   validate?: FlowValidationSpec;
 }): BenchmarkCheck[] {
   const actualModules = getFlowModules(input.actual);
@@ -104,6 +109,10 @@ export function validateFlowState(input: {
         normalizeJson(input.actual) !== normalizeJson(input.initial)
       )
     );
+  }
+
+  if (input.expected) {
+    checks.push(...validateFlowExpectedStructure(input.actual, input.expected));
   }
 
   if (input.validate) {
@@ -380,6 +389,112 @@ function getFlowModules(flow: FlowState): Array<Record<string, unknown>> {
   return Array.isArray(flow.value?.modules) ? flow.value.modules : [];
 }
 
+function validateFlowExpectedStructure(
+  actual: FlowState,
+  expected: FlowState
+): BenchmarkCheck[] {
+  const checks: BenchmarkCheck[] = [];
+  const expectedTopLevelModules = getFlowModules(expected);
+  const actualTopLevelModules = getFlowModules(actual);
+
+  const expectedSchemaFields = getTopLevelSchemaFields(expected.schema);
+  if (expectedSchemaFields.length > 0) {
+    checks.push(
+      check(
+        "flow schema includes expected top-level fields",
+        expectedSchemaFields.every((field) => hasSchemaPath(actual.schema, field)),
+        `missing one of: ${expectedSchemaFields.join(", ")}`
+      )
+    );
+  }
+
+  if (expectedTopLevelModules.length > 0) {
+    const actualIds = actualTopLevelModules
+      .map((module) => (typeof module.id === "string" ? module.id : null))
+      .filter((id): id is string => Boolean(id));
+    const expectedIds = expectedTopLevelModules
+      .map((module) => (typeof module.id === "string" ? module.id : null))
+      .filter((id): id is string => Boolean(id));
+
+    checks.push(
+      check(
+        "flow includes expected top-level step ids",
+        expectedIds.every((id) => actualIds.includes(id)),
+        `expected ids: ${expectedIds.join(", ")}; actual ids: ${actualIds.join(", ")}`
+      )
+    );
+
+    checks.push(
+      check(
+        "flow preserves expected top-level step order",
+        preservesRelativeOrder(actualIds, expectedIds),
+        `expected order: ${expectedIds.join(" -> ")}; actual ids: ${actualIds.join(" -> ")}`
+      )
+    );
+
+    for (const expectedModule of expectedTopLevelModules) {
+      const moduleId = typeof expectedModule.id === "string" ? expectedModule.id : null;
+      if (!moduleId) {
+        continue;
+      }
+
+      const actualModule = actualTopLevelModules.find((module) => module.id === moduleId);
+      if (!actualModule) {
+        continue;
+      }
+
+      const expectedType = getModuleType(expectedModule);
+      if (expectedType) {
+        checks.push(
+          check(
+            `${moduleId} type matches expected`,
+            getModuleType(actualModule) === expectedType,
+            `expected ${expectedType}, got ${getModuleType(actualModule) ?? "(missing)"}`
+          )
+        );
+      }
+
+      const expectedPath = getModulePath(expectedModule);
+      if (expectedPath) {
+        checks.push(
+          check(
+            `${moduleId} path matches expected`,
+            getModulePath(actualModule) === expectedPath,
+            `expected ${expectedPath}, got ${getModulePath(actualModule) ?? "(missing)"}`
+          )
+        );
+      }
+    }
+  }
+
+  for (const specialModuleKey of ["preprocessor_module", "failure_module"] as const) {
+    const expectedSpecialModule = getSpecialFlowModule(expected, specialModuleKey);
+    if (!expectedSpecialModule) {
+      continue;
+    }
+
+    const actualSpecialModule = getSpecialFlowModule(actual, specialModuleKey);
+    checks.push(check(`${specialModuleKey} matches expected presence`, Boolean(actualSpecialModule)));
+
+    if (!actualSpecialModule) {
+      continue;
+    }
+
+    const expectedType = getModuleType(expectedSpecialModule);
+    if (expectedType) {
+      checks.push(
+        check(
+          `${specialModuleKey} type matches expected`,
+          getModuleType(actualSpecialModule) === expectedType,
+          `expected ${expectedType}, got ${getModuleType(actualSpecialModule) ?? "(missing)"}`
+        )
+      );
+    }
+  }
+
+  return checks;
+}
+
 function validateFlowRequirements(
   flow: FlowState,
   validate: FlowValidationSpec
@@ -501,6 +616,37 @@ function hasSchemaPath(schema: Record<string, unknown> | undefined, dottedPath: 
   }
 
   return true;
+}
+
+function getTopLevelSchemaFields(schema: Record<string, unknown> | undefined): string[] {
+  if (!schema || typeof schema !== "object") {
+    return [];
+  }
+
+  const properties = schema.properties;
+  if (!properties || typeof properties !== "object") {
+    return [];
+  }
+
+  return Object.keys(properties as Record<string, unknown>).filter((key) => key.length > 0);
+}
+
+function preservesRelativeOrder(actualIds: string[], expectedIds: string[]): boolean {
+  if (expectedIds.length === 0) {
+    return true;
+  }
+
+  let cursor = 0;
+  for (const actualId of actualIds) {
+    if (actualId === expectedIds[cursor]) {
+      cursor += 1;
+      if (cursor === expectedIds.length) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 function collectUnresolvedResultsRefs(flow: FlowState): string[] {
@@ -796,6 +942,17 @@ function getModuleType(module: Record<string, unknown>): string | null {
   }
   return typeof (value as Record<string, unknown>).type === "string"
     ? ((value as Record<string, string>).type)
+    : null;
+}
+
+function getModulePath(module: Record<string, unknown>): string | null {
+  const value = module.value;
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return typeof (value as Record<string, unknown>).path === "string"
+    ? ((value as Record<string, string>).path)
     : null;
 }
 

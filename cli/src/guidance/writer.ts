@@ -9,6 +9,10 @@ import {
   type SkillMetadata,
 } from "./skills.ts";
 
+type ResolvedSkillMetadata = SkillMetadata & {
+  directoryName: string;
+};
+
 export interface WriteAiGuidanceOptions {
   targetDir: string;
   nonDottedPaths?: boolean;
@@ -65,16 +69,18 @@ export async function writeAiGuidanceFiles(
   };
 }
 
-function buildSkillsReference(skills: Pick<SkillMetadata, "name" | "description">[]): string {
+function buildSkillsReference(
+  skills: Pick<ResolvedSkillMetadata, "directoryName" | "description">[]
+): string {
   return skills
-    .map((skill) => `- \`.claude/skills/${skill.name}/SKILL.md\` - ${skill.description}`)
+    .map((skill) => `- \`.claude/skills/${skill.directoryName}/SKILL.md\` - ${skill.description}`)
     .join("\n");
 }
 
 async function copySkillsFromSource(
   targetDir: string,
   skillsSourcePath: string
-): Promise<SkillMetadata[]> {
+): Promise<ResolvedSkillMetadata[]> {
   const skillsDir = await ensureSkillsDirectory(targetDir);
   await copyDirectoryContents(skillsSourcePath, skillsDir);
   return await readSkillMetadataFromDirectory(skillsDir);
@@ -83,7 +89,7 @@ async function copySkillsFromSource(
 async function writeGeneratedSkills(
   targetDir: string,
   nonDottedPaths: boolean
-): Promise<SkillMetadata[]> {
+): Promise<ResolvedSkillMetadata[]> {
   const skillsDir = await ensureSkillsDirectory(targetDir);
 
   await Promise.all(
@@ -98,7 +104,10 @@ async function writeGeneratedSkills(
     })
   );
 
-  return SKILLS;
+  return SKILLS.map((skill) => ({
+    ...skill,
+    directoryName: skill.name,
+  }));
 }
 
 async function ensureSkillsDirectory(targetDir: string): Promise<string> {
@@ -168,9 +177,9 @@ function renderGeneratedSkillContent(skillName: string, nonDottedPaths: boolean)
   return `${skillContent}\n\n${schemaDocs.join("\n\n")}`;
 }
 
-async function readSkillMetadataFromDirectory(skillsDir: string): Promise<SkillMetadata[]> {
+async function readSkillMetadataFromDirectory(skillsDir: string): Promise<ResolvedSkillMetadata[]> {
   const entries = await readdir(skillsDir, { withFileTypes: true });
-  const skills: SkillMetadata[] = [];
+  const skills: ResolvedSkillMetadata[] = [];
 
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     if (!entry.isDirectory()) {
@@ -189,12 +198,13 @@ async function readSkillMetadataFromDirectory(skillsDir: string): Promise<SkillM
   return skills;
 }
 
-function parseSkillMetadata(content: string, fallbackName: string): SkillMetadata {
+function parseSkillMetadata(content: string, fallbackName: string): ResolvedSkillMetadata {
   const frontMatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!frontMatterMatch) {
     return {
       name: fallbackName,
       description: `Skill loaded from ${fallbackName}`,
+      directoryName: fallbackName,
     };
   }
 
@@ -217,7 +227,7 @@ function parseSkillMetadata(content: string, fallbackName: string): SkillMetadat
     }
   }
 
-  return { name, description };
+  return { name, description, directoryName: fallbackName };
 }
 
 async function writeProjectGuidanceFile(options: {

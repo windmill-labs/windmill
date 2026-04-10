@@ -102,4 +102,31 @@ Copied from source bundle.
       );
     });
   });
+
+  test("builds AGENTS skill references from copied directory names", async () => {
+    await withTempDir(async (tempDir) => {
+      const sourceSkillsDir = join(tempDir, "source-skills");
+      await writeSkill(
+        sourceSkillsDir,
+        "custom-folder",
+        `---
+name: write-flow
+description: Custom bundle skill
+---
+
+Copied from source bundle.
+`
+      );
+
+      await writeAiGuidanceFiles({
+        targetDir: tempDir,
+        overwriteProjectGuidance: false,
+        skillsSourcePath: sourceSkillsDir,
+      });
+
+      const agentsMd = await readFile(join(tempDir, "AGENTS.md"), "utf8");
+      expect(agentsMd).toContain(".claude/skills/custom-folder/SKILL.md");
+      expect(agentsMd).not.toContain(".claude/skills/write-flow/SKILL.md");
+    });
+  });
 });

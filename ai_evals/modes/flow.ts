@@ -44,10 +44,7 @@ export function createFlowModeRunner(
 
       return {
         success: result.success,
-        actual: {
-          value: { modules: result.flow.value?.modules ?? [] },
-          schema: result.flow.schema,
-        },
+        actual: normalizeFlowStateFixture(result.flow),
         error: result.error,
         assistantMessageCount: result.assistantMessageCount,
         toolCallCount: result.toolCallCount,
@@ -55,10 +52,11 @@ export function createFlowModeRunner(
         skillsInvoked: [],
       };
     },
-    validate({ evalCase, actual, initial }) {
+    validate({ evalCase, actual, initial, expected }) {
       return validateFlowState({
         actual,
         initial: initial?.flow,
+        expected,
         validate: evalCase.validate,
       });
     },
