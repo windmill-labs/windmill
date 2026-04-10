@@ -1015,7 +1015,7 @@ fn license_keys_same_client(a: &serde_json::Value, b: &serde_json::Value) -> boo
 }
 
 fn is_empty_or_null(value: &serde_json::Value) -> bool {
-    value.is_null() || value.as_str().map_or(false, |s| s.is_empty())
+    value.is_null() || value.as_str().map_or(false, |s| s.trim().is_empty())
 }
 
 /// Maximum retention period in seconds for CE builds (30 days).

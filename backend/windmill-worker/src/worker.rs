@@ -765,13 +765,14 @@ pub async fn read_ee_registry_with_workspace_override(
             .and_then(|m| m.get(w_id))
             .and_then(|ws| ws.get(setting_key))
             .and_then(|v| match v {
-                serde_json::Value::String(s) if !s.trim().is_empty() => Some(s.clone()),
+                serde_json::Value::String(s) => Some(s.clone()),
                 _ => None,
             })
     };
-    // Treat empty/whitespace-only values as unset, so a stale `""` left in
-    // `global_settings` doesn't trigger the spurious "requires Enterprise"
-    // warning on every CE job.
+    // An empty/whitespace-only value (from either source) means "unset" — a
+    // workspace override of `""` still takes precedence over the global
+    // value, but neither triggers the spurious "requires Enterprise" warning
+    // on CE jobs.
     let value = ws_value.or(global_value).filter(|s| !s.trim().is_empty());
     read_ee_registry(value, display_name, job_id, w_id, conn).await
 }
