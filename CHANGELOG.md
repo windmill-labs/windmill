@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.681.0](https://github.com/windmill-labs/windmill/compare/v1.680.0...v1.681.0) (2026-04-10)
+
+
+### Features
+
+* add CI test scripts with auto-trigger on deploy ([#8736](https://github.com/windmill-labs/windmill/issues/8736)) ([c57c769](https://github.com/windmill-labs/windmill/commit/c57c769deaa207e7ba7995f75649d3630774e898))
+* add edit yaml button to raw app settings ([#8771](https://github.com/windmill-labs/windmill/issues/8771)) ([b73be37](https://github.com/windmill-labs/windmill/commit/b73be37916de808dc64bec1337edf6e7d3993c5e))
+* add user offboarding flow with object reassignment ([#8647](https://github.com/windmill-labs/windmill/issues/8647)) ([435b25e](https://github.com/windmill-labs/windmill/commit/435b25e6a4c7272c0189cbcfb83526379f41ebf0))
+* allow selecting hub flows as raw app backend runnables ([#8772](https://github.com/windmill-labs/windmill/issues/8772)) ([5f57727](https://github.com/windmill-labs/windmill/commit/5f57727a4d956a9066b005b3c55f08dd6780475a))
+* list external JWT tokens in instance settings ([#8783](https://github.com/windmill-labs/windmill/issues/8783)) ([ce3e676](https://github.com/windmill-labs/windmill/commit/ce3e676f4ab0c442058c64db4ebf35545a805ef5))
+* oauth manual connect option ([#8770](https://github.com/windmill-labs/windmill/issues/8770)) ([4b87639](https://github.com/windmill-labs/windmill/commit/4b876392a0ce41ae42bd882ced10fe0187e532bc))
+* unify CLI config to workspaces, deprecate gitBranches/environments ([#8767](https://github.com/windmill-labs/windmill/issues/8767)) ([5b97092](https://github.com/windmill-labs/windmill/commit/5b9709299761b83a88df17a4259c431dfcd244f9))
+* **vault:** add skip_ssl_verify option for HashiCorp Vault ([#8791](https://github.com/windmill-labs/windmill/issues/8791)) ([6cf7ffc](https://github.com/windmill-labs/windmill/commit/6cf7ffc26bcbc8f4ef0e4ad2879fcd114332c4e2))
+
+
+### Bug Fixes
+
+* bypass sql type injection during formatting to prevent offset corruption ([#8786](https://github.com/windmill-labs/windmill/issues/8786)) ([8957d8f](https://github.com/windmill-labs/windmill/commit/8957d8f19bce3430871c2858b3accd53e0be178f))
+* CLI falls back to workspace whoami for workspace-scoped tokens ([#8789](https://github.com/windmill-labs/windmill/issues/8789)) ([d243eb3](https://github.com/windmill-labs/windmill/commit/d243eb31b014781a249f903b2a467aa58909ddd6))
+* disable scroll-to-change-number on number inputs ([#8777](https://github.com/windmill-labs/windmill/issues/8777)) ([e63924e](https://github.com/windmill-labs/windmill/commit/e63924e3778b40486813192dc2913e565e0a765e))
+* error on flow/app folder suffix format mismatch during sync push/pull ([#8775](https://github.com/windmill-labs/windmill/issues/8775)) ([1deb31f](https://github.com/windmill-labs/windmill/commit/1deb31f1e01d6168eee3c2cc242cb483272d1965))
+* flow dev page layout and compact toolbar improvements ([#8776](https://github.com/windmill-labs/windmill/issues/8776)) ([89920e7](https://github.com/windmill-labs/windmill/commit/89920e77f3f5dc45db939ec938d92c881dccc8a0))
+* Flow status viewer layout nits (avoid excess y space and scroll) ([#8780](https://github.com/windmill-labs/windmill/issues/8780)) ([6d36eca](https://github.com/windmill-labs/windmill/commit/6d36eca21684f9d3ab36658c2b66f85b9be8d331))
+* flow step testing UX improvements ([#8781](https://github.com/windmill-labs/windmill/issues/8781)) ([3fb557a](https://github.com/windmill-labs/windmill/commit/3fb557a7f51dbbd3fac445734196f1b9a1d2e287))
+* hide legacy global_settings.worker_configs ghost row ([#8790](https://github.com/windmill-labs/windmill/issues/8790)) ([4fff89f](https://github.com/windmill-labs/windmill/commit/4fff89f98ce72997a055cc313c8fe217d2f1fe78))
+* limit multi-runnable dedicated workers to one job at a time ([#8782](https://github.com/windmill-labs/windmill/issues/8782)) ([946848f](https://github.com/windmill-labs/windmill/commit/946848feef60aba2a54bc2f5b686b33cc96ec9ef))
+* normalize multi-word pg types in build_parameters to fix float8 serialization ([#8778](https://github.com/windmill-labs/windmill/issues/8778)) ([3d02be9](https://github.com/windmill-labs/windmill/commit/3d02be98f748d985f688243f3215d15ca4227f8f))
+* refresh custom instance user password if auth failed ([#8787](https://github.com/windmill-labs/windmill/issues/8787)) ([3d43d31](https://github.com/windmill-labs/windmill/commit/3d43d31aba276f23903f16f06035a4c4955b52e2))
+* treat empty global setting strings as unset ([#8793](https://github.com/windmill-labs/windmill/issues/8793)) ([ec9cec1](https://github.com/windmill-labs/windmill/commit/ec9cec1d02d87328db92a71a1b3a945e9e0c6bd2))
+* zero-downtime coordinated restarts for OTEL and other setting changes ([#8768](https://github.com/windmill-labs/windmill/issues/8768)) ([506b7f5](https://github.com/windmill-labs/windmill/commit/506b7f55e17472d1384e9676c1b6df7a9d7a118b))
+
 ## [1.680.0](https://github.com/windmill-labs/windmill/compare/v1.679.0...v1.680.0) (2026-04-08)
 
 
