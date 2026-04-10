@@ -249,7 +249,7 @@ async function createWorkspaceFork(
 
 \t`+colors.white(`git checkout -b ${newBranchName}`) + `
 
-When doing operations on the forked workspace, it will use the remote setup in gitBranches for the branch it was forked from.
+When doing operations on the forked workspace, it will use the remote setup in the workspaces section for the branch it was forked from.
 
 To merge changes back to the parent workspace, you can:
   - Use the CLI: ` + colors.white(`git checkout ${newBranchName} && wmill workspace merge`) + `
@@ -289,7 +289,7 @@ async function deleteWorkspaceFork(
     const parentWorkspace = await tryResolveBranchWorkspace(opts);
     if (!parentWorkspace) {
       throw new Error(
-        "Could not resolve parent workspace. Make sure you are in a git repo with gitBranches configured in wmill.yaml, or create a local workspace profile for the fork.",
+        "Could not resolve parent workspace. Make sure you are in a git repo with 'workspaces' configured in wmill.yaml, or create a local workspace profile for the fork.",
       );
     }
     forkWorkspaceId = name.startsWith(`${WM_FORK_PREFIX}-`) ? name : `${WM_FORK_PREFIX}-${name}`;

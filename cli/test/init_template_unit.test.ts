@@ -25,15 +25,14 @@ describe("generateCommentedTemplate", () => {
     expect(typeof config).toBe("object");
   });
 
-  test("uses provided branch name in gitBranches", () => {
+  test("uses provided branch name in workspaces", () => {
     const config = parse(generateCommentedTemplate("my-feature"));
-    expect(config.gitBranches["my-feature"]).toBeDefined();
-    expect(config.gitBranches["my-feature"].overrides).toEqual({});
+    expect(config.workspaces["my-feature"]).toBeDefined();
   });
 
   test("defaults to 'main' when no branch name given", () => {
     const config = parse(generateCommentedTemplate());
-    expect(config.gitBranches["main"]).toBeDefined();
+    expect(config.workspaces["main"]).toBeDefined();
   });
 
   test("quotes branch names with YAML-special characters", () => {
@@ -41,7 +40,7 @@ describe("generateCommentedTemplate", () => {
     for (const branch of specialBranches) {
       const yaml = generateCommentedTemplate(branch);
       const config = parse(yaml);
-      expect(config.gitBranches[branch]).toBeDefined();
+      expect(config.workspaces[branch]).toBeDefined();
     }
   });
 
@@ -50,19 +49,19 @@ describe("generateCommentedTemplate", () => {
     expect(yaml.startsWith("# yaml-language-server: $schema=wmill.schema.json")).toBe(true);
   });
 
-  test("includes all non-commented CONFIG_REFERENCE entries as active YAML keys", () => {
+  test("includes all non-commented, non-skipped CONFIG_REFERENCE entries as active YAML keys", () => {
     const config = parse(generateCommentedTemplate("main"));
     for (const opt of CONFIG_REFERENCE) {
-      if (!opt.commented) {
+      if (!opt.commented && !opt.skipInTemplate) {
         expect(config).toHaveProperty(opt.name);
       }
     }
   });
 
-  test("does not include commented entries as active YAML keys", () => {
+  test("does not include commented or skipped entries as active YAML keys", () => {
     const config = parse(generateCommentedTemplate("main"));
     for (const opt of CONFIG_REFERENCE) {
-      if (opt.commented && opt.name !== "environments") {
+      if (opt.commented || opt.skipInTemplate) {
         expect(config[opt.name]).toBeUndefined();
       }
     }
@@ -123,23 +122,31 @@ describe("generateJsonSchema", () => {
     expect(schema.properties.codebases.items.required).toContain("relative_path");
   });
 
-  test("includes gitBranches with branch config schema", () => {
-    const branchSchema = schema.properties.gitBranches.additionalProperties;
-    expect(branchSchema.properties.baseUrl).toBeDefined();
-    expect(branchSchema.properties.workspaceId).toBeDefined();
-    expect(branchSchema.properties.specificItems).toBeDefined();
-    expect(branchSchema.properties.specificItems.properties.variables).toBeDefined();
+  test("includes workspaces with workspace config schema", () => {
+    const wsSchema = schema.properties.workspaces.additionalProperties;
+    expect(wsSchema.properties.gitBranch).toBeDefined();
+    expect(wsSchema.properties.baseUrl).toBeDefined();
+    expect(wsSchema.properties.workspaceId).toBeDefined();
+    expect(wsSchema.properties.specificItems).toBeDefined();
+    expect(wsSchema.properties.specificItems.properties.variables).toBeDefined();
   });
 
-  test("includes environments as alias for gitBranches", () => {
+  test("includes gitBranches as deprecated alias for workspaces", () => {
+    expect(schema.properties.gitBranches).toBeDefined();
+    expect(schema.properties.gitBranches.additionalProperties).toEqual(
+      schema.properties.workspaces.additionalProperties
+    );
+  });
+
+  test("includes environments as deprecated alias for workspaces", () => {
     expect(schema.properties.environments).toBeDefined();
     expect(schema.properties.environments.additionalProperties).toEqual(
-      schema.properties.gitBranches.additionalProperties
+      schema.properties.workspaces.additionalProperties
     );
   });
 
   test("does not contain template-only keys in schema output", () => {
-    const templateKeys = ["section", "sectionNote", "commented", "templateValue", "example", "inlineComment", "groupNote"];
+    const templateKeys = ["section", "sectionNote", "commented", "templateValue", "example", "inlineComment", "groupNote", "skipInTemplate"];
     const json = JSON.stringify(schema);
     for (const key of templateKeys) {
       expect(json).not.toContain(`"${key}"`);
@@ -172,15 +179,23 @@ describe("formatConfigReference", () => {
     expect(output).toContain("codebases[].external");
   });
 
-  test("auto-expands gitBranches sub-fields", () => {
-    expect(output).toContain("gitBranches.<branch>.baseUrl");
-    expect(output).toContain("gitBranches.<branch>.workspaceId");
-    expect(output).toContain("gitBranches.<branch>.specificItems.variables");
+  test("auto-expands workspaces sub-fields", () => {
+    expect(output).toContain("workspaces.<workspace>.gitBranch");
+    expect(output).toContain("workspaces.<workspace>.baseUrl");
+    expect(output).toContain("workspaces.<workspace>.workspaceId");
+    expect(output).toContain("workspaces.<workspace>.specificItems.variables");
   });
 
   test("auto-expands commonSpecificItems sub-fields", () => {
-    expect(output).toContain("gitBranches.commonSpecificItems.variables");
-    expect(output).toContain("gitBranches.commonSpecificItems.settings");
+    expect(output).toContain("workspaces.commonSpecificItems.variables");
+    expect(output).toContain("workspaces.commonSpecificItems.settings");
+  });
+
+  test("deprecated entries are listed but not expanded", () => {
+    expect(output).toContain("gitBranches");
+    expect(output).toContain("[Deprecated]");
+    // Should NOT have expanded sub-fields for deprecated entries
+    expect(output).not.toContain("gitBranches.<workspace>");
   });
 });
 
@@ -207,7 +222,7 @@ describe("formatConfigReferenceJson", () => {
 
   test("does not contain template-only keys", () => {
     const parsed = JSON.parse(formatConfigReferenceJson());
-    const templateKeys = ["section", "sectionNote", "commented", "templateValue", "example", "inlineComment", "groupNote"];
+    const templateKeys = ["section", "sectionNote", "commented", "templateValue", "example", "inlineComment", "groupNote", "skipInTemplate"];
     for (const entry of parsed) {
       for (const key of templateKeys) {
         expect(entry).not.toHaveProperty(key);

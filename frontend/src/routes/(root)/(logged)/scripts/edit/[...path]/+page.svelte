@@ -118,7 +118,7 @@
 						const draft = cleanValueProperties(script)
 						sendUserToast('Script loaded from latest saved draft', false, [
 							{
-								label: 'Discard draft and load from latest deployed version',
+								label: 'Discard draft reset to deployed version',
 								callback: reloadAction
 							},
 							{
