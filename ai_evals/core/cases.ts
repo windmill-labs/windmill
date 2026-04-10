@@ -27,7 +27,11 @@ export function getAiEvalsRoot(): string {
 export async function loadCases(mode: EvalMode): Promise<EvalCase[]> {
   const filePath = path.join(CASES_DIR, `${mode}.yaml`);
   const raw = await readFile(filePath, "utf8");
-  const parsed = parse(raw) as RawEvalCase[];
+  const parsed = parse(raw);
+
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Expected ${filePath} to contain a YAML list of cases`);
+  }
 
   return parsed.map((entry) => ({
     id: entry.id,

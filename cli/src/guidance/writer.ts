@@ -25,7 +25,6 @@ export interface WriteAiGuidanceOptions {
 export interface WriteAiGuidanceResult {
   agentsWritten: boolean;
   claudeWritten: boolean;
-  skillsWritten: boolean;
   skillCount: number;
 }
 
@@ -40,8 +39,8 @@ export async function writeAiGuidanceFiles(
 ): Promise<WriteAiGuidanceResult> {
   const nonDottedPaths = options.nonDottedPaths ?? true;
   const skillMetadata = options.skillsSourcePath
-    ? await copySkillsFromSource(options.targetDir, options.skillsSourcePath)
-    : await writeGeneratedSkills(options.targetDir, nonDottedPaths);
+    ? await readSkillMetadataFromDirectory(options.skillsSourcePath)
+    : getGeneratedSkillMetadata();
 
   const agentsWritten = await writeProjectGuidanceFile({
     targetPath: join(options.targetDir, "AGENTS.md"),
@@ -61,10 +60,15 @@ export async function writeAiGuidanceFiles(
         : CLAUDE_MD_DEFAULT,
   });
 
+  if (options.skillsSourcePath) {
+    await copySkillsFromSource(options.targetDir, options.skillsSourcePath);
+  } else {
+    await writeGeneratedSkills(options.targetDir, nonDottedPaths);
+  }
+
   return {
     agentsWritten,
     claudeWritten,
-    skillsWritten: true,
     skillCount: skillMetadata.length,
   };
 }
@@ -104,6 +108,13 @@ async function writeGeneratedSkills(
     })
   );
 
+  return SKILLS.map((skill) => ({
+    ...skill,
+    directoryName: skill.name,
+  }));
+}
+
+function getGeneratedSkillMetadata(): ResolvedSkillMetadata[] {
   return SKILLS.map((skill) => ({
     ...skill,
     directoryName: skill.name,

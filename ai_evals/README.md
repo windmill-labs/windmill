@@ -69,7 +69,7 @@ Public CLI surface:
 - `--output <path>`: custom result JSON path
 - `--model <alias>`: choose the model under test
 - `--verbose`: stream assistant output for frontend runs
-- `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl`
+- `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl` for full-suite runs only
 
 ## Models
 

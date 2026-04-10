@@ -79,23 +79,26 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
   onProgress?: (event: FrontendBenchmarkProgressEvent) => void;
 }): Promise<BenchmarkAttemptResult[]> {
   const attempts: BenchmarkAttemptResult[] = [];
+  const surface = input.modeRunner.mode === "cli" ? null : input.modeRunner.mode;
 
   for (let attempt = 1; attempt <= input.runs; attempt += 1) {
-    input.onProgress?.({
-      type: "attempt-start",
-      surface: input.modeRunner.mode as Exclude<typeof input.modeRunner.mode, "cli">,
-      caseId: input.evalCase.id,
-      caseNumber: input.caseIndex + 1,
-      totalCases: input.totalCases,
-      attempt,
-      runs: input.runs,
-    });
+    if (surface) {
+      input.onProgress?.({
+        type: "attempt-start",
+        surface,
+        caseId: input.evalCase.id,
+        caseNumber: input.caseIndex + 1,
+        totalCases: input.totalCases,
+        attempt,
+        runs: input.runs,
+      });
+    }
 
     const startedAt = Date.now();
-    const initial = await input.modeRunner.loadInitial(input.evalCase.initialPath);
-    const expected = await input.modeRunner.loadExpected(input.evalCase.expectedPath);
 
     try {
+      const initial = await input.modeRunner.loadInitial(input.evalCase.initialPath);
+      const expected = await input.modeRunner.loadExpected(input.evalCase.expectedPath);
       const run = await input.modeRunner.run(input.evalCase.prompt, initial, {
         caseId: input.evalCase.id,
         caseNumber: input.caseIndex + 1,
@@ -103,11 +106,11 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
         attempt,
         runs: input.runs,
         verbose: input.verbose,
-        onAssistantMessageStart: input.verbose
+        onAssistantMessageStart: input.verbose && surface
           ? () =>
               input.onProgress?.({
                 type: "assistant-message-start",
-                surface: input.modeRunner.mode as Exclude<typeof input.modeRunner.mode, "cli">,
+                surface,
                 caseId: input.evalCase.id,
                 caseNumber: input.caseIndex + 1,
                 totalCases: input.totalCases,
@@ -115,11 +118,11 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
                 runs: input.runs,
               })
           : undefined,
-        onAssistantChunk: input.verbose
+        onAssistantChunk: input.verbose && surface
           ? (chunk: string) =>
               input.onProgress?.({
                 type: "assistant-chunk",
-                surface: input.modeRunner.mode as Exclude<typeof input.modeRunner.mode, "cli">,
+                surface,
                 caseId: input.evalCase.id,
                 caseNumber: input.caseIndex + 1,
                 totalCases: input.totalCases,
@@ -128,11 +131,11 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
                 chunk,
               })
           : undefined,
-        onAssistantMessageEnd: input.verbose
+        onAssistantMessageEnd: input.verbose && surface
           ? () =>
               input.onProgress?.({
                 type: "assistant-message-end",
-                surface: input.modeRunner.mode as Exclude<typeof input.modeRunner.mode, "cli">,
+                surface,
                 caseId: input.evalCase.id,
                 caseNumber: input.caseIndex + 1,
                 totalCases: input.totalCases,
@@ -196,19 +199,21 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
         artifactFiles,
       };
 
-      input.onProgress?.({
-        type: "attempt-finish",
-        surface: input.modeRunner.mode as Exclude<typeof input.modeRunner.mode, "cli">,
-        caseId: input.evalCase.id,
-        caseNumber: input.caseIndex + 1,
-        totalCases: input.totalCases,
-        attempt,
-        runs: input.runs,
-        passed: attemptResult.passed,
-        durationMs: attemptResult.durationMs,
-        judgeScore: attemptResult.judgeScore,
-        error: attemptResult.error,
-      });
+      if (surface) {
+        input.onProgress?.({
+          type: "attempt-finish",
+          surface,
+          caseId: input.evalCase.id,
+          caseNumber: input.caseIndex + 1,
+          totalCases: input.totalCases,
+          attempt,
+          runs: input.runs,
+          passed: attemptResult.passed,
+          durationMs: attemptResult.durationMs,
+          judgeScore: attemptResult.judgeScore,
+          error: attemptResult.error,
+        });
+      }
 
       attempts.push(attemptResult);
     } catch (error) {
@@ -226,19 +231,21 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
         judgeSummary: null,
         error: message,
       };
-      input.onProgress?.({
-        type: "attempt-finish",
-        surface: input.modeRunner.mode as Exclude<typeof input.modeRunner.mode, "cli">,
-        caseId: input.evalCase.id,
-        caseNumber: input.caseIndex + 1,
-        totalCases: input.totalCases,
-        attempt,
-        runs: input.runs,
-        passed: false,
-        durationMs: failedAttempt.durationMs,
-        judgeScore: null,
-        error: message,
-      });
+      if (surface) {
+        input.onProgress?.({
+          type: "attempt-finish",
+          surface,
+          caseId: input.evalCase.id,
+          caseNumber: input.caseIndex + 1,
+          totalCases: input.totalCases,
+          attempt,
+          runs: input.runs,
+          passed: false,
+          durationMs: failedAttempt.durationMs,
+          judgeScore: null,
+          error: message,
+        });
+      }
       attempts.push(failedAttempt);
     }
   }

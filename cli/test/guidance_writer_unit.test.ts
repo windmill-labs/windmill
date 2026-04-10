@@ -129,4 +129,20 @@ Copied from source bundle.
       expect(agentsMd).not.toContain(".claude/skills/write-flow/SKILL.md");
     });
   });
+
+  test("writes AGENTS.md and CLAUDE.md even if skills creation fails", async () => {
+    await withTempDir(async (tempDir) => {
+      await writeFile(join(tempDir, ".claude"), "not a directory\n", "utf8");
+
+      await expect(
+        writeAiGuidanceFiles({
+          targetDir: tempDir,
+          overwriteProjectGuidance: false,
+        })
+      ).rejects.toThrow();
+
+      expect(await readFile(join(tempDir, "AGENTS.md"), "utf8")).toContain(".claude/skills/");
+      expect(await readFile(join(tempDir, "CLAUDE.md"), "utf8")).toContain("@AGENTS.md");
+    });
+  });
 });

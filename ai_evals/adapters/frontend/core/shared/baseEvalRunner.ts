@@ -139,7 +139,9 @@ export async function runEval<THelpers, TOutput>(
 			onAssistantToken?.(token)
 		},
 		onMessageEnd: () => {
-			onAssistantMessageEnd?.()
+			if (!shouldEmitMessageStart) {
+				onAssistantMessageEnd?.()
+			}
 			shouldEmitMessageStart = true
 		}
 	}

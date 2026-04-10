@@ -17,7 +17,3 @@ export function getFrontendApiKey(provider: FrontendEvalModelConfig["provider"])
   }
   return apiKey;
 }
-
-export function getFrontendRunModelLabel(model: FrontendEvalModelConfig): string {
-  return `${model.provider}:${model.model}`;
-}

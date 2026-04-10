@@ -1,7 +1,7 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { writeAiGuidanceFiles } from "../../cli/src/guidance/writer.ts";
 import type { CliEvalModelConfig } from "../core/models";
@@ -69,7 +69,6 @@ export function createCliModeRunner(
         if (initial) {
           await copyDirectory(initial.sourceDir, workspaceDir);
         }
-        await mkdir(dirname(join(workspaceDir, ".claude", "skills")), { recursive: true });
         await writeAiGuidanceFiles({
           targetDir: workspaceDir,
           nonDottedPaths: true,

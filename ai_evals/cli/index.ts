@@ -138,6 +138,10 @@ async function handleRun(input: {
   verbose: boolean;
   record: boolean;
 }) {
+  if (input.record && input.caseIds.length > 0) {
+    throw new Error("--record only supports full-suite runs; omit case ids to record history");
+  }
+
   const selectedCases = await loadSelectedCases(input.mode, input.caseIds);
   const model = resolveEvalModel(input.mode, input.model);
   const runModel = formatRunModelLabel(input.mode, model);
