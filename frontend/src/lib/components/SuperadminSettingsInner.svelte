@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { UserService, type GlobalUserInfo, SettingService } from '$lib/gen'
+	import { UserService, type GlobalUserInfo, type ExternalJwtToken, SettingService } from '$lib/gen'
+	import { Tab, Tabs } from '$lib/components/common'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
@@ -49,6 +50,7 @@
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 	import SettingsSearchInput from './instanceSettings/SettingsSearchInput.svelte'
 	import InstanceAISettings from './instanceSettings/InstanceAISettings.svelte'
+	import ExternalJwtTokens from './instanceSettings/ExternalJwtTokens.svelte'
 
 	let filter = $state('')
 
@@ -88,6 +90,31 @@
 	$effect(() => {
 		listUsers(activeOnly)
 	})
+
+	let usersSubTab: 'users' | 'ext_jwt' = $state('users')
+	let extJwtTokens: ExternalJwtToken[] = $state([])
+	let extJwtHasMore = $state(true)
+	let extJwtLoading = $state(false)
+	let extJwtActiveOnly = $state(false)
+	const extJwtPerPage = 50
+
+	async function loadExtJwtPage(nextPage: number) {
+		extJwtLoading = true
+		try {
+			const res = await UserService.listExtJwtTokens({
+				page: nextPage,
+				perPage: extJwtPerPage,
+				activeOnly: extJwtActiveOnly
+			})
+			extJwtTokens = nextPage === 1 ? res : [...extJwtTokens, ...res]
+			extJwtHasMore = res.length === extJwtPerPage
+		} catch (e) {
+			sendUserToast(`Failed to load external JWT tokens: ${e}`, true)
+		} finally {
+			extJwtLoading = false
+		}
+	}
+	loadExtJwtPage(1)
 
 	let tab: string = $state('users')
 
@@ -291,312 +318,337 @@
 								</div>
 							{/if}
 
-							<SettingsPageHeader
-								title="Instance users ({users.length})"
-								description="Manage all users across your Windmill instance."
-								link="https://www.windmill.dev/docs/advanced/instance_settings#global-users"
-							/>
-							<div class="flex flex-row gap-2 items-center">
-								<TextInput
-									inputProps={{ placeholder: 'Search users' }}
-									bind:value={filter}
-									class="w-60"
-								/><Toggle
-									bind:checked={activeOnly}
-									options={{
-										left: 'Recently active only',
-										leftTooltip:
-											'Show only users who have logged in or performed an action in the last 30 days'
-									}}
-								/>
+							{#if extJwtTokens.length > 0}
+								<Tabs bind:selected={usersSubTab} class="mb-4">
+									<Tab value="users" label="Users" />
+									<Tab value="ext_jwt" label="External JWTs" />
+								</Tabs>
+							{/if}
 
-								<div class="flex-1"></div>
-								<Popover placement="bottom-end" disableFocusTrap closeButton>
-									{#snippet trigger()}
-										<Button
-											variant="accent"
-											unifiedSize="md"
-											startIcon={{ icon: UserPlus }}
-											nonCaptureEvent
-											wrapperClasses="w-fit shrink-0"
-										>
-											Add new user
-										</Button>
-									{/snippet}
-									{#snippet content()}
-										<InviteGlobalUser on:new={() => listUsers(activeOnly)} />
-									{/snippet}
-								</Popover>
-							</div>
-							<p class="text-hint text-2xs mt-2">
-								{filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''} found
-							</p>
-							<div class="mt-1">
-								<DataTable
-									shouldLoadMore={(filteredUsers?.length ?? 0) > 50}
-									loadMore={50}
-									on:loadMore={() => {
-										nbDisplayed += 50
-									}}
-								>
-									<Head>
-										<tr>
-											<Cell head first>Email</Cell>
-											{#if automateUsernameCreation}
-												<Cell head>Username</Cell>
-											{/if}
-											<Cell head>Name</Cell>
-											<Cell head>Auth</Cell>
-											{#if activeOnly}
-												<Cell head>Kind</Cell>
-											{/if}
-											<Cell head>Role</Cell>
-											<Cell head last>
-												<span class="sr-only">Actions</span>
-											</Cell>
-										</tr>
-									</Head>
-									<tbody>
-										{#if filteredUsers && users}
-											{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, role_source, disabled }, i (email)}
-												<tr
-													class="{i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'} {disabled
-														? 'opacity-60'
-														: ''}"
-												>
-													<Cell first class="max-w-[250px]">
-														<div class="flex items-center gap-1.5">
-															<a href="mailto:{email}" title={email} class="truncate block"
-																>{email}</a
-															>
-															{#if disabled}
-																<span
-																	class="text-2xs px-1.5 py-0.5 rounded bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-300 whitespace-nowrap"
-																	>Disabled</span
+							{#if usersSubTab === 'users' || extJwtTokens.length === 0}
+								<SettingsPageHeader
+									title="Instance users ({users.length})"
+									description="Manage all users across your Windmill instance."
+									link="https://www.windmill.dev/docs/advanced/instance_settings#global-users"
+								/>
+								<div class="flex flex-row gap-2 items-center">
+									<TextInput
+										inputProps={{ placeholder: 'Search users' }}
+										bind:value={filter}
+										class="w-60"
+									/><Toggle
+										bind:checked={activeOnly}
+										options={{
+											left: 'Recently active only',
+											leftTooltip:
+												'Show only users who have logged in or performed an action in the last 30 days'
+										}}
+									/>
+
+									<div class="flex-1"></div>
+									<Popover placement="bottom-end" disableFocusTrap closeButton>
+										{#snippet trigger()}
+											<Button
+												variant="accent"
+												unifiedSize="md"
+												startIcon={{ icon: UserPlus }}
+												nonCaptureEvent
+												wrapperClasses="w-fit shrink-0"
+											>
+												Add new user
+											</Button>
+										{/snippet}
+										{#snippet content()}
+											<InviteGlobalUser on:new={() => listUsers(activeOnly)} />
+										{/snippet}
+									</Popover>
+								</div>
+								<p class="text-hint text-2xs mt-2">
+									{filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''} found
+								</p>
+								<div class="mt-1">
+									<DataTable
+										shouldLoadMore={(filteredUsers?.length ?? 0) > 50}
+										loadMore={50}
+										on:loadMore={() => {
+											nbDisplayed += 50
+										}}
+									>
+										<Head>
+											<tr>
+												<Cell head first>Email</Cell>
+												{#if automateUsernameCreation}
+													<Cell head>Username</Cell>
+												{/if}
+												<Cell head>Name</Cell>
+												<Cell head>Auth</Cell>
+												{#if activeOnly}
+													<Cell head>Kind</Cell>
+												{/if}
+												<Cell head>Role</Cell>
+												<Cell head last>
+													<span class="sr-only">Actions</span>
+												</Cell>
+											</tr>
+										</Head>
+										<tbody>
+											{#if filteredUsers && users}
+												{#each filteredUsers.slice(0, nbDisplayed) as { email, super_admin, devops, login_type, name, username, operator_only, role_source, disabled }, i (email)}
+													<tr
+														class="{i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'} {disabled
+															? 'opacity-60'
+															: ''}"
+													>
+														<Cell first class="max-w-[250px]">
+															<div class="flex items-center gap-1.5">
+																<a href="mailto:{email}" title={email} class="truncate block"
+																	>{email}</a
 																>
-															{/if}
-														</div>
-													</Cell>
-													{#if automateUsernameCreation}
-														<Cell class="max-w-[150px]">
-															{#if username}
-																<span title={username} class="truncate block">{username}</span>
-															{:else}
-																{#key filteredUsers.map((u) => u.username).join()}
-																	<ChangeInstanceUsername
-																		username=""
+																{#if disabled}
+																	<span
+																		class="text-2xs px-1.5 py-0.5 rounded bg-red-100 text-red-600 dark:bg-red-900 dark:text-red-300 whitespace-nowrap"
+																		>Disabled</span
+																	>
+																{/if}
+															</div>
+														</Cell>
+														{#if automateUsernameCreation}
+															<Cell class="max-w-[150px]">
+																{#if username}
+																	<span title={username} class="truncate block">{username}</span>
+																{:else}
+																	{#key filteredUsers.map((u) => u.username).join()}
+																		<ChangeInstanceUsername
+																			username=""
+																			{email}
+																			isConflict
+																			on:renamed={() => {
+																				listUsers(activeOnly)
+																			}}
+																		/>
+																	{/key}
+																{/if}
+															</Cell>
+														{/if}
+														<Cell class="max-w-[150px]"
+															><span title={name ?? ''} class="truncate block"
+																>{truncate(name ?? '', 30)}</span
+															></Cell
+														>
+														<Cell class="max-w-[100px]"
+															><span title={login_type} class="truncate block">{login_type}</span
+															></Cell
+														>
+														{#if activeOnly}
+															<Cell>
+																{#if operator_only}
+																	Operator only
+																{:else}
+																	Developer
+																{/if}
+															</Cell>
+														{/if}
+														<Cell>
+															<div class="flex flex-col items-start">
+																{#key `${super_admin}_${devops}_${role_source}`}
+																	<ToggleButtonGroup
+																		selected={super_admin
+																			? 'super_admin'
+																			: devops
+																				? 'devops'
+																				: 'user'}
+																		on:selected={async (e) => {
+																			if (email == $userStore?.email) {
+																				sendUserToast('You cannot demote yourself', true)
+																				listUsers(activeOnly)
+																				return
+																			}
+
+																			let role = e.detail
+
+																			if (role === 'super_admin') {
+																				await UserService.globalUserUpdate({
+																					email,
+																					requestBody: {
+																						is_super_admin: true,
+																						is_devops: false
+																					}
+																				})
+																			}
+																			if (role === 'devops') {
+																				await UserService.globalUserUpdate({
+																					email,
+																					requestBody: {
+																						is_super_admin: false,
+																						is_devops: true
+																					}
+																				})
+																			}
+																			if (role === 'user') {
+																				await UserService.globalUserUpdate({
+																					email,
+																					requestBody: {
+																						is_super_admin: false,
+																						is_devops: false
+																					}
+																				})
+																			}
+																			sendUserToast('User updated')
+																			listUsers(activeOnly)
+																		}}
+																	>
+																		{#snippet children({ item })}
+																			<ToggleButton
+																				value={'user'}
+																				small
+																				label="User"
+																				disabled={role_source === 'instance_group' &&
+																					(super_admin || devops)}
+																				tooltip={role_source === 'instance_group' &&
+																				(super_admin || devops)
+																					? 'Role is set by an instance group. Remove the user from the group to demote to "User".'
+																					: undefined}
+																				showTooltipIcon={role_source === 'instance_group' &&
+																					(super_admin || devops)}
+																				{item}
+																			/>
+																			<ToggleButton
+																				value={'devops'}
+																				small
+																				label="Devops"
+																				tooltip="Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"
+																				{item}
+																			/>
+																			<ToggleButton
+																				value={'super_admin'}
+																				small
+																				label="Superadmin"
+																				{item}
+																			/>
+																		{/snippet}
+																	</ToggleButtonGroup>
+																{/key}
+																{#if role_source === 'instance_group' && (super_admin || devops)}
+																	<a
+																		href="{base}/groups"
+																		class="text-2xs text-tertiary mt-0.5 ml-1 hover:underline"
+																		title="Role set by instance group. You can upgrade to a higher role manually, but demoting to &quot;User&quot; requires removing them from the group."
+																		onclick={() => closeDrawer?.()}
+																	>
+																		Set by instance group
+																	</a>
+																{/if}
+															</div>
+														</Cell>
+														<Cell last>
+															<div class="flex items-center justify-end">
+																<div
+																	bind:this={editWrappers[email]}
+																	class="w-0 h-0 overflow-hidden"
+																>
+																	<InstanceNameEditor
+																		{login_type}
+																		value={name}
+																		{username}
 																		{email}
-																		isConflict
+																		on:refresh={() => {
+																			listUsers(activeOnly)
+																		}}
+																		on:save={(e) => {
+																			updateName(e.detail, email)
+																		}}
 																		on:renamed={() => {
 																			listUsers(activeOnly)
 																		}}
+																		{automateUsernameCreation}
 																	/>
-																{/key}
-															{/if}
-														</Cell>
-													{/if}
-													<Cell class="max-w-[150px]"
-														><span title={name ?? ''} class="truncate block"
-															>{truncate(name ?? '', 30)}</span
-														></Cell
-													>
-													<Cell class="max-w-[100px]"
-														><span title={login_type} class="truncate block">{login_type}</span
-														></Cell
-													>
-													{#if activeOnly}
-														<Cell>
-															{#if operator_only}
-																Operator only
-															{:else}
-																Developer
-															{/if}
-														</Cell>
-													{/if}
-													<Cell>
-														<div class="flex flex-col items-start">
-															{#key `${super_admin}_${devops}_${role_source}`}
-																<ToggleButtonGroup
-																	selected={super_admin
-																		? 'super_admin'
-																		: devops
-																			? 'devops'
-																			: 'user'}
-																	on:selected={async (e) => {
-																		if (email == $userStore?.email) {
-																			sendUserToast('You cannot demote yourself', true)
-																			listUsers(activeOnly)
-																			return
-																		}
-
-																		let role = e.detail
-
-																		if (role === 'super_admin') {
-																			await UserService.globalUserUpdate({
-																				email,
-																				requestBody: {
-																					is_super_admin: true,
-																					is_devops: false
-																				}
-																			})
-																		}
-																		if (role === 'devops') {
-																			await UserService.globalUserUpdate({
-																				email,
-																				requestBody: {
-																					is_super_admin: false,
-																					is_devops: true
-																				}
-																			})
-																		}
-																		if (role === 'user') {
-																			await UserService.globalUserUpdate({
-																				email,
-																				requestBody: {
-																					is_super_admin: false,
-																					is_devops: false
-																				}
-																			})
-																		}
-																		sendUserToast('User updated')
-																		listUsers(activeOnly)
-																	}}
-																>
-																	{#snippet children({ item })}
-																		<ToggleButton
-																			value={'user'}
-																			small
-																			label="User"
-																			disabled={role_source === 'instance_group' &&
-																				(super_admin || devops)}
-																			tooltip={role_source === 'instance_group' &&
-																			(super_admin || devops)
-																				? 'Role is set by an instance group. Remove the user from the group to demote to "User".'
-																				: undefined}
-																			showTooltipIcon={role_source === 'instance_group' &&
-																				(super_admin || devops)}
-																			{item}
-																		/>
-																		<ToggleButton
-																			value={'devops'}
-																			small
-																			label="Devops"
-																			tooltip="Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"
-																			{item}
-																		/>
-																		<ToggleButton
-																			value={'super_admin'}
-																			small
-																			label="Superadmin"
-																			{item}
-																		/>
-																	{/snippet}
-																</ToggleButtonGroup>
-															{/key}
-															{#if role_source === 'instance_group' && (super_admin || devops)}
-																<a
-																	href="{base}/groups"
-																	class="text-2xs text-tertiary mt-0.5 ml-1 hover:underline"
-																	title="Role set by instance group. You can upgrade to a higher role manually, but demoting to &quot;User&quot; requires removing them from the group."
-																	onclick={() => closeDrawer?.()}
-																>
-																	Set by instance group
-																</a>
-															{/if}
-														</div>
-													</Cell>
-													<Cell last>
-														<div class="flex items-center justify-end">
-															<div bind:this={editWrappers[email]} class="w-0 h-0 overflow-hidden">
-																<InstanceNameEditor
-																	{login_type}
-																	value={name}
-																	{username}
-																	{email}
-																	on:refresh={() => {
-																		listUsers(activeOnly)
-																	}}
-																	on:save={(e) => {
-																		updateName(e.detail, email)
-																	}}
-																	on:renamed={() => {
-																		listUsers(activeOnly)
-																	}}
-																	{automateUsernameCreation}
-																/>
-															</div>
-															<DropdownV2
-																items={[
-																	{
-																		displayName: 'Edit',
-																		icon: Pencil,
-																		action: () => {
-																			const btn = editWrappers[email]?.querySelector(
-																				'[aria-label="Popup button"]'
-																			)
-																			if (btn instanceof HTMLElement) btn.click()
-																		}
-																	},
-																	{
-																		displayName: disabled ? 'Enable' : 'Disable',
-																		icon: disabled ? CheckCircle2 : Ban,
-																		action: () => {
-																			if (!disabled) {
-																				disableUserEmail = email
-																				disableConfirmedCallback = async () => {
-																					try {
-																						await UserService.globalUserUpdate({
-																							email,
-																							requestBody: { disabled: true }
-																						})
-																						sendUserToast('User disabled')
-																						listUsers(activeOnly)
-																					} catch (e) {
-																						sendUserToast('Failed to disable user', true)
+																</div>
+																<DropdownV2
+																	items={[
+																		{
+																			displayName: 'Edit',
+																			icon: Pencil,
+																			action: () => {
+																				const btn = editWrappers[email]?.querySelector(
+																					'[aria-label="Popup button"]'
+																				)
+																				if (btn instanceof HTMLElement) btn.click()
+																			}
+																		},
+																		{
+																			displayName: disabled ? 'Enable' : 'Disable',
+																			icon: disabled ? CheckCircle2 : Ban,
+																			action: () => {
+																				if (!disabled) {
+																					disableUserEmail = email
+																					disableConfirmedCallback = async () => {
+																						try {
+																							await UserService.globalUserUpdate({
+																								email,
+																								requestBody: { disabled: true }
+																							})
+																							sendUserToast('User disabled')
+																							listUsers(activeOnly)
+																						} catch (e) {
+																							sendUserToast('Failed to disable user', true)
+																						}
 																					}
+																				} else {
+																					UserService.globalUserUpdate({
+																						email,
+																						requestBody: { disabled: false }
+																					})
+																						.then(() => {
+																							sendUserToast('User enabled')
+																							listUsers(activeOnly)
+																						})
+																						.catch(() => {
+																							sendUserToast('Failed to enable user', true)
+																						})
 																				}
-																			} else {
-																				UserService.globalUserUpdate({
-																					email,
-																					requestBody: { disabled: false }
-																				})
-																					.then(() => {
-																						sendUserToast('User enabled')
-																						listUsers(activeOnly)
-																					})
-																					.catch(() => {
-																						sendUserToast('Failed to enable user', true)
-																					})
+																			}
+																		},
+																		{
+																			displayName: 'Reassign',
+																			icon: ArrowRightLeft,
+																			action: () => {
+																				offboardingEmail = email
+																				offboardingReassignOnly = true
+																			}
+																		},
+																		{
+																			displayName: 'Remove',
+																			icon: UserMinus,
+																			type: 'delete',
+																			action: () => {
+																				offboardingEmail = email
+																				offboardingReassignOnly = false
 																			}
 																		}
-																	},
-																	{
-																		displayName: 'Reassign',
-																		icon: ArrowRightLeft,
-																		action: () => {
-																			offboardingEmail = email
-																			offboardingReassignOnly = true
-																		}
-																	},
-																	{
-																		displayName: 'Remove',
-																		icon: UserMinus,
-																		type: 'delete',
-																		action: () => {
-																			offboardingEmail = email
-																			offboardingReassignOnly = false
-																		}
-																	}
-																]}
-															/>
-														</div>
-													</Cell>
-												</tr>
-											{/each}
-										{/if}
-									</tbody>
-								</DataTable>
-							</div>
+																	]}
+																/>
+															</div>
+														</Cell>
+													</tr>
+												{/each}
+											{/if}
+										</tbody>
+									</DataTable>
+								</div>
+							{:else if usersSubTab === 'ext_jwt'}
+								<ExternalJwtTokens
+									tokens={extJwtTokens}
+									hasMore={extJwtHasMore}
+									loading={extJwtLoading}
+									activeOnly={extJwtActiveOnly}
+									onLoadMore={() =>
+										loadExtJwtPage(Math.floor(extJwtTokens.length / extJwtPerPage) + 1)}
+									onActiveOnlyChange={(v) => {
+										extJwtActiveOnly = v
+										loadExtJwtPage(1)
+									}}
+								/>
+							{/if}
 						</div>
 					{:else}
 						<InstanceSettings

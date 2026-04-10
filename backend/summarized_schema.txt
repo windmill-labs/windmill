@@ -161,7 +161,7 @@ token: token_hash(char), token_prefix(char), token(char), label(char), expiratio
 token_expiry_notification: token_hash(char), expiration(ts)
   INDEX: idx_token_expiry_notification_expiration (expiration)
 tutorial_progress: email(char), progress(bit64), skipped_all(bool)
-unique_ext_jwt_token: jwt_hash(bigint), last_used_at(ts)
+unique_ext_jwt_token: jwt_hash(bigint), last_used_at(ts), email(text), username(text), is_admin(bool), is_operator(bool), workspace_id(text?), label(text?), scopes(text[]?)
 usage: id(char), is_workspace(bool), month_(int), usage(int)
 usr: workspace_id(char), username(char), email(char), is_admin(bool), created_at(ts), operator(bool), disabled(bool), role(char), added_via(jsonb)
   FK: (workspace_id) -> workspace(id)

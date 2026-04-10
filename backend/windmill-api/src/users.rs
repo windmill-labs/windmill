@@ -15,7 +15,7 @@ use crate::db::ApiAuthed;
 use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
 use argon2::Argon2;
 use axum::{
-    extract::{Extension, Path},
+    extract::{Extension, Path, Query},
     routing::{get, post},
     Json, Router,
 };
@@ -52,6 +52,7 @@ pub fn global_service() -> Router {
         .route("/create", post(create_user))
         .route("/rename/{user}", post(rename_user))
         .route("/onboarding", post(submit_onboarding_data))
+        .route("/ext_jwt_tokens", get(list_ext_jwt_tokens))
         .route(
             "/offboard_preview/{user}",
             get(crate::offboarding::global_offboard_preview),
@@ -84,6 +85,56 @@ async fn submit_onboarding_data(
     Json(data): Json<crate::users_oss::OnboardingData>,
 ) -> Result<String> {
     crate::users_oss::submit_onboarding_data(authed, Extension(db), Json(data)).await
+}
+
+#[derive(serde::Serialize)]
+pub struct ExternalJwtToken {
+    pub jwt_hash: i64,
+    pub email: String,
+    pub username: String,
+    pub is_admin: bool,
+    pub is_operator: bool,
+    pub workspace_id: Option<String>,
+    pub label: Option<String>,
+    pub scopes: Option<Vec<String>>,
+    pub last_used_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(serde::Deserialize)]
+struct ListExtJwtTokensQuery {
+    page: Option<usize>,
+    per_page: Option<usize>,
+    #[serde(default)]
+    active_only: bool,
+}
+
+async fn list_ext_jwt_tokens(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<ListExtJwtTokensQuery>,
+) -> Result<Json<Vec<ExternalJwtToken>>> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let (per_page, offset) = windmill_common::utils::paginate(windmill_common::utils::Pagination {
+        page: query.page,
+        per_page: query.per_page,
+    });
+
+    let rows = sqlx::query_as!(
+        ExternalJwtToken,
+        "SELECT jwt_hash, email, username, is_admin, is_operator, workspace_id, label, scopes, last_used_at
+         FROM unique_ext_jwt_token
+         WHERE NOT $3 OR last_used_at > NOW() - INTERVAL '30 days'
+         ORDER BY last_used_at DESC
+         LIMIT $1 OFFSET $2",
+        per_page as i64,
+        offset as i64,
+        query.active_only,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(rows))
 }
 
 async fn set_password(
