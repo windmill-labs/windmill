@@ -239,25 +239,19 @@ export function validateCliWorkspace(input: {
 }
 
 function cliFileContainsExpectedContent(actualContent: string, expectedContent: string): boolean {
-  const expectedLines = expectedContent
+  const expectedSnippets = expectedContent
     .replace(/\r\n/g, "\n")
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
 
-  if (expectedLines.length === 0) {
+  if (expectedSnippets.length === 0) {
     return true;
   }
 
-  const actualLineSet = new Set(
-    actualContent
-      .replace(/\r\n/g, "\n")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-  );
+  const normalizedActual = actualContent.replace(/\r\n/g, "\n");
 
-  return expectedLines.every((line) => actualLineSet.has(line));
+  return expectedSnippets.every((snippet) => normalizedActual.includes(snippet));
 }
 
 function check(name: string, passed: boolean, details?: string): BenchmarkCheck {

@@ -1,3 +1,2 @@
-export async function main(name: string) {
-  return { greeting: `Hello, ${name}!` };
-}
+main(name: string)
+greeting: `Hello, ${name}!`

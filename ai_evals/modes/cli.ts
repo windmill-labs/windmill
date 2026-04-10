@@ -32,6 +32,11 @@ const CLAUDE_PROJECT_PREAMBLE = [
   "Before creating or modifying any Windmill entity, you MUST invoke the relevant Skill tool and follow it.",
   "Use the skill guidance for file layout, implementation details, and the exact next commands to tell the user.",
   "Do not skip the Skill step.",
+  "You are running inside an automated benchmark harness, not an interactive user session.",
+  "Act autonomously and complete the requested file changes directly in the workspace.",
+  "Do not ask for confirmation, do not ask the user to save or create files manually, and do not wait for approval.",
+  "Do not respond with a plan when you can make the change directly.",
+  "Only describe what was done after you have written the files.",
 ].join(" ");
 
 export function createCliModeRunner(
