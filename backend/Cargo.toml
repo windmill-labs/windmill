@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.679.0"
+version = "1.680.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -85,7 +85,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.679.0"
+version = "1.680.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -108,7 +108,7 @@ strip = "none"
 
 [features]
 default = []
-private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-object-store/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
+private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-dep-map/private", "windmill-object-store/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
 agent_worker_server = ["windmill-api/agent_worker_server", "dep:windmill-api-agent-workers", "windmill-test-utils/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-api-agent-workers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-object-store/enterprise"]
 local_reports = ["windmill-common/local_reports"]

@@ -50,36 +50,31 @@
       },
       {
         "ordinal": 9,
-        "name": "ws_specific",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 10,
         "name": "is_expired",
         "type_info": "Bool"
       },
       {
-        "ordinal": 11,
+        "ordinal": 10,
         "name": "is_refreshed",
         "type_info": "Bool"
       },
       {
-        "ordinal": 12,
+        "ordinal": 11,
         "name": "refresh_error",
         "type_info": "Text"
       },
       {
-        "ordinal": 13,
+        "ordinal": 12,
         "name": "is_linked",
         "type_info": "Bool"
       },
       {
-        "ordinal": 14,
+        "ordinal": 13,
         "name": "is_oauth?",
         "type_info": "Bool"
       },
       {
-        "ordinal": 15,
+        "ordinal": 14,
         "name": "account",
         "type_info": "Int4"
       }
@@ -100,7 +95,6 @@
       true,
       true,
       true,
-      false,
       null,
       null,
       true,

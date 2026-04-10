@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT test_script_path, tested_item_path, tested_item_kind FROM ci_test_reference WHERE workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "test_script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "tested_item_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "tested_item_kind",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "811861c8be204de3fcdc7635af56b9905f9c1846c8081a3b8fd265f4c484e809"
+}

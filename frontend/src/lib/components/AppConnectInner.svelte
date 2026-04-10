@@ -830,6 +830,12 @@
 						>Create a resource backed by an OAuth connection, whose token is fetched from the
 						external services and refreshed automatically if needed before expiration.</div
 					>
+					<button
+						onclick={() => (manual = true)}
+						class="text-xs font-normal text-accent w-fit mt-2"
+					>
+						Create resource manually instead
+					</button>
 				</div>
 
 				{#if resourceTypeInfo?.description}

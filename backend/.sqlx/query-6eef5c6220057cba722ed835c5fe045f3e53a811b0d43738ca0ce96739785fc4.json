@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT j.id, j.runnable_path, j.trigger_kind::text as trigger_kind FROM v2_job j WHERE j.workspace_id = 'test-workspace' AND j.trigger_kind = 'ci_test'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "trigger_kind",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "6eef5c6220057cba722ed835c5fe045f3e53a811b0d43738ca0ce96739785fc4"
+}

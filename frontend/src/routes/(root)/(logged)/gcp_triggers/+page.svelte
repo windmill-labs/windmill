@@ -18,6 +18,7 @@
 		removeTriggerKindIfUnused
 	} from '$lib/utils'
 	import { base } from '$app/paths'
+	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -134,6 +135,21 @@
 	})
 	let gcpTriggerEditor: GcpTriggerEditor | undefined = $state()
 
+	let hashHandled = false
+	$effect(() => {
+		if (!hashHandled && triggers.length > 0 && gcpTriggerEditor) {
+			let hash = $page.url.hash
+			if (hash.length > 1) {
+				let path = hash.slice(1)
+				let trigger = triggers.find((t) => t.path === path)
+				if (trigger) {
+					hashHandled = true
+					gcpTriggerEditor?.openEdit(path, trigger.is_flow)
+				}
+			}
+		}
+	})
+
 	let filteredItems: (TriggerD & { marked?: any })[] | undefined = $state([])
 	let items: typeof filteredItems | undefined = $state([])
 	let preFilteredItems: typeof filteredItems | undefined = $state([])
@@ -224,12 +240,14 @@
 		setQuery(
 			new URL(window.location.href),
 			TRIGGER_PATH_KIND_FILTER_SETTING,
-			selectedFilterKind
+			selectedFilterKind,
+			window.location.hash || undefined
 		).then(() => {
 			setQuery(
 				new URL(window.location.href),
 				FILTER_USER_FOLDER_SETTING_NAME,
-				String(filterUserFolders)
+				String(filterUserFolders),
+				window.location.hash || undefined
 			)
 		})
 	}
@@ -385,11 +403,11 @@
 
 							<div class="hidden lg:flex flex-row gap-1 items-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
-							{#if labels?.length}
-								{#each labels as label}
-									<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
-								{/each}
-							{/if}
+								{#if labels?.length}
+									{#each labels as label}
+										<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+									{/each}
+								{/if}
 							</div>
 
 							{#if delivery_type !== 'push'}

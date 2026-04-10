@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT extra_perms::text FROM http_trigger WHERE path = 'f/test-folder/webhook_shared' AND workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "extra_perms",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0f6e5e5306dca4b28526ee8bf24fc22b3a4af62ed52e6f8a04fdcecfa131cb0a"
+}

@@ -505,10 +505,10 @@
 		{#snippet left()}
 			<h1 class="text-sm font-semibold text-primary">run/{page.params.run}</h1>
 		{/snippet}
-			{#snippet right()}
-				{@const isScript = job?.job_kind === 'script'}
-				{@const isHubFlowPreview = isFlowPreview(job?.job_kind) && isHubFlowPath(job?.script_path)}
-				{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
+		{#snippet right()}
+			{@const isScript = job?.job_kind === 'script'}
+			{@const isHubFlowPreview = isFlowPreview(job?.job_kind) && isHubFlowPath(job?.script_path)}
+			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
 			{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
 				<Dropdown
 					items={[
@@ -561,18 +561,18 @@
 					</Dropdown>
 				</div>
 			{/if}
-				{#if isFlowPreview(job?.job_kind) || isScriptPreview(job?.job_kind)}
-					<Button
-						unifiedSize="md"
-						variant="default"
-						startIcon={{ icon: GitBranch }}
-						on:click={forkPreview}
-					>
-						{isHubFlowPreview
-							? 'Fork flow into workspace'
-							: `Fork ${isFlowPreview(job?.job_kind) ? 'flow' : 'code'} preview`}
-					</Button>
-				{/if}
+			{#if isFlowPreview(job?.job_kind) || isScriptPreview(job?.job_kind)}
+				<Button
+					unifiedSize="md"
+					variant="default"
+					startIcon={{ icon: GitBranch }}
+					on:click={forkPreview}
+				>
+					{isHubFlowPreview
+						? 'Fork flow into workspace'
+						: `Fork ${isFlowPreview(job?.job_kind) ? 'flow' : 'code'} preview`}
+				</Button>
+			{/if}
 			{#if persistentScriptDefinition !== undefined}
 				<Button
 					unifiedSize="md"
@@ -712,7 +712,7 @@
 			{/if}
 		{/snippet}
 	</ActionRow>
-	<div class="w-full pb-8">
+	<div class="w-full">
 		<!-- Flow Detail Header Card -->
 		<div class="max-w-7xl mx-auto px-4 py-0">
 			<Skeleton loading={!job} layout={[[24]]} />

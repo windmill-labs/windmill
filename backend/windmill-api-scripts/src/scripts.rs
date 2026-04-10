@@ -249,6 +249,9 @@ pub fn workspaced_service() -> Router {
         // Temporary raw script storage for CLI lock generation
         .route("/raw_temp/store", post(store_raw_script_temp))
         .route("/raw_temp/diff", post(diff_raw_scripts_with_deployed))
+        // CI test results
+        .route("/ci_test_results/{kind}/{*path}", get(get_ci_test_results))
+        .route("/ci_test_results_batch", post(get_ci_test_results_batch))
 }
 
 #[derive(Serialize, FromRow)]
@@ -582,11 +585,31 @@ async fn create_script(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    let script_path = ns.path.clone();
+    let email = authed.email.clone();
+    let username = authed.username.clone();
     let (hash, tx, hdm) =
-        create_script_internal(ns, w_id, authed, db.clone(), user_db, webhook).await?;
+        create_script_internal(ns, w_id.clone(), authed, db.clone(), user_db, webhook).await?;
     tx.commit().await?;
     if let Some(hdm) = hdm {
+        // hdm is Some when no lock generation is needed (script is ready immediately).
+        // Trigger CI tests for any items that reference this script.
         hdm.handle(&db).await?;
+        let db2 = db.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2,
+                &w_id,
+                &script_path,
+                "script",
+                &email,
+                &username,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after script deploy");
+            }
+        });
     }
     Ok((StatusCode::CREATED, format!("{}", hash)))
 }
@@ -914,6 +937,14 @@ async fn create_script_internal<'c>(
         }
     };
 
+    let ci_test_refs =
+        windmill_common::schema::parse_ci_test_annotation(&ns.content, &lang.as_comment_lit());
+    let auto_kind = if ci_test_refs.is_some() {
+        Some("test".to_string())
+    } else {
+        auto_kind
+    };
+
     let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
         RunnableSettings {
             debouncing_settings: ns.debouncing_settings.insert_cached(&db).await?,
@@ -997,6 +1028,34 @@ async fn create_script_internal<'c>(
     .execute(&mut *tx)
     .await?;
 
+    // Update ci_test_reference table for test scripts
+    // Delete by both new and old path to handle renames
+    let old_path = parent_hashes_and_perms.as_ref().map(|x| x.p_path.as_str());
+    sqlx::query!(
+        "DELETE FROM ci_test_reference WHERE workspace_id = $1 AND (test_script_path = $2 OR test_script_path = $3)",
+        &w_id,
+        &ns.path,
+        old_path.unwrap_or(&ns.path)
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    if let Some(ref refs) = ci_test_refs {
+        for item in refs {
+            sqlx::query!(
+                "INSERT INTO ci_test_reference (workspace_id, test_script_path, test_script_hash, tested_item_path, tested_item_kind) \
+                 VALUES ($1, $2, $3, $4, $5)",
+                &w_id,
+                &ns.path,
+                &hash.0,
+                &item.path,
+                &item.kind
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
     let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
     if let Some(ref p_path) = p_path_opt {
         sqlx::query!(
@@ -1048,6 +1107,16 @@ async fn create_script_internal<'c>(
         // Update dynamic_skip references when script is renamed
         sqlx::query!(
             "UPDATE schedule SET dynamic_skip = $1 WHERE dynamic_skip = $2 AND workspace_id = $3",
+            &ns.path,
+            &p_path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        // Update ci_test_reference when a tested item is renamed
+        sqlx::query!(
+            "UPDATE ci_test_reference SET tested_item_path = $1 WHERE tested_item_path = $2 AND workspace_id = $3 AND tested_item_kind = 'script'",
             &ns.path,
             &p_path,
             &w_id
@@ -2749,4 +2818,108 @@ async fn diff_raw_scripts_with_deployed(
         .collect();
 
     Ok(Json(mismatched))
+}
+
+#[derive(Serialize, FromRow)]
+struct CiTestResult {
+    test_script_path: String,
+    job_id: Option<sqlx::types::Uuid>,
+    status: Option<String>,
+    started_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+async fn get_ci_test_results(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, kind, path)): Path<(String, String, StripPath)>,
+) -> JsonResult<Vec<CiTestResult>> {
+    let path = path.to_path();
+    let results = sqlx::query_as!(
+        CiTestResult,
+        r#"SELECT
+            ctr.test_script_path,
+            j.id as "job_id?",
+            COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
+            j.created_at as "started_at?"
+        FROM ci_test_reference ctr
+        LEFT JOIN LATERAL (
+            SELECT id, created_at FROM v2_job
+            WHERE workspace_id = $1
+              AND runnable_path = ctr.test_script_path
+              AND trigger_kind = 'ci_test'
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) j ON true
+        LEFT JOIN v2_job_completed jc ON jc.id = j.id
+        WHERE ctr.workspace_id = $1
+          AND ctr.tested_item_path = $2
+          AND ctr.tested_item_kind = $3"#,
+        &w_id,
+        path,
+        &kind
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(results))
+}
+
+#[derive(Deserialize)]
+struct CiTestBatchItem {
+    path: String,
+    kind: String,
+}
+
+#[derive(Deserialize)]
+struct CiTestBatchRequest {
+    items: Vec<CiTestBatchItem>,
+}
+
+async fn get_ci_test_results_batch(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<CiTestBatchRequest>,
+) -> JsonResult<HashMap<String, Vec<CiTestResult>>> {
+    if req.items.len() > 200 {
+        return Err(Error::BadRequest(
+            "too many items in batch request (max 200)".to_string(),
+        ));
+    }
+
+    let mut result_map: HashMap<String, Vec<CiTestResult>> = HashMap::new();
+
+    for item in &req.items {
+        let results = sqlx::query_as!(
+            CiTestResult,
+            r#"SELECT
+                ctr.test_script_path,
+                j.id as "job_id?",
+                COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
+                j.created_at as "started_at?"
+            FROM ci_test_reference ctr
+            LEFT JOIN LATERAL (
+                SELECT id, created_at FROM v2_job
+                WHERE workspace_id = $1
+                  AND runnable_path = ctr.test_script_path
+                  AND trigger_kind = 'ci_test'
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) j ON true
+            LEFT JOIN v2_job_completed jc ON jc.id = j.id
+            WHERE ctr.workspace_id = $1
+              AND ctr.tested_item_path = $2
+              AND ctr.tested_item_kind = $3"#,
+            &w_id,
+            &item.path,
+            &item.kind
+        )
+        .fetch_all(&db)
+        .await?;
+
+        let key = format!("{}:{}", item.kind, item.path);
+        result_map.insert(key, results);
+    }
+
+    Ok(Json(result_map))
 }

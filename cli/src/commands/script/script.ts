@@ -185,11 +185,11 @@ export async function findResourceFile(path: string) {
 
   if (currentBranch) {
     // Add branch-specific candidates at the beginning (higher priority)
-    const branchSpecificJSON = specificItems.toBranchSpecificPath(
+    const branchSpecificJSON = specificItems.toWorkspaceSpecificPath(
       contentBasePathJSON,
       currentBranch
     );
-    const branchSpecificYAML = specificItems.toBranchSpecificPath(
+    const branchSpecificYAML = specificItems.toWorkspaceSpecificPath(
       contentBasePathYAML,
       currentBranch
     );

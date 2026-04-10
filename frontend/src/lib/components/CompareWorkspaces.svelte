@@ -7,13 +7,17 @@
 		ArrowUp,
 		ArrowUpRight,
 		Building,
+		CircleCheck,
+		CircleX,
 		DiffIcon,
 		FileJson,
+		FlaskConical,
 		GitFork,
 		Loader2,
 		Trash2,
 		Upload
 	} from 'lucide-svelte'
+	import type { CiTestResult } from '$lib/gen'
 	import { Alert, Badge } from './common'
 	import {
 		AppService,
@@ -503,6 +507,57 @@
 		extraLabel?: string
 	}
 
+	let ciTestResults = $state<Record<string, CiTestResult[]>>({})
+
+	async function fetchCiTests() {
+		if (!comparison?.diffs || !currentWorkspaceId) return
+		const items = comparison.diffs
+			.filter((d) => d.kind === 'script' || d.kind === 'flow' || d.kind === 'resource')
+			.map((d) => ({ path: d.path, kind: d.kind as 'script' | 'flow' | 'resource' }))
+		if (items.length === 0) return
+		try {
+			ciTestResults = await ScriptService.getCiTestResultsBatch({
+				workspace: currentWorkspaceId,
+				requestBody: { items }
+			})
+		} catch (e) {
+			console.error('Failed to fetch CI test results:', e)
+		}
+	}
+
+	$effect(() => {
+		if (comparison && comparison.diffs.length > 0) {
+			fetchCiTests()
+		}
+	})
+
+	function getCiTestStatus(diff: WorkspaceItemDiff): 'pass' | 'fail' | 'running' | null {
+		const key = `${diff.kind}:${diff.path}`
+		const results = ciTestResults[key]
+		if (!results || results.length === 0) return null
+		if (results.some((r) => r.status === 'failure' || r.status === 'canceled')) return 'fail'
+		if (results.some((r) => r.status === 'running' || (r.job_id && !r.status))) return 'running'
+		if (results.every((r) => r.status === 'success')) return 'pass'
+		return null
+	}
+
+	// Deduplicated list of all CI tests across all items
+	let allCiTests = $derived.by(() => {
+		const seen = new Map<string, CiTestResult>()
+		for (const results of Object.values(ciTestResults)) {
+			for (const r of results) {
+				const existing = seen.get(r.test_script_path)
+				if (
+					!existing ||
+					(r.started_at && (!existing.started_at || r.started_at > existing.started_at))
+				) {
+					seen.set(r.test_script_path, r)
+				}
+			}
+		}
+		return [...seen.values()]
+	})
+
 	let forkTriggers = $state<ForkTrigger[]>([])
 	let loadingTriggers = $state(true)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
@@ -827,6 +882,38 @@
 						</div>
 					</div>
 				{/snippet}
+				{#if allCiTests.length > 0}
+					<div class="flex flex-col gap-1.5 mt-3 p-3 border bg-surface-secondary rounded text-xs">
+						<div class="flex items-center gap-1.5 font-semibold text-secondary">
+							<FlaskConical size={14} />
+							CI tests
+						</div>
+						<div class="flex flex-col gap-1">
+							{#each allCiTests as test (test.test_script_path)}
+								<div class="flex items-center gap-2">
+									{#if test.status === 'success'}
+										<CircleCheck size={14} class="text-green-600" />
+									{:else if test.status === 'failure' || test.status === 'canceled'}
+										<CircleX size={14} class="text-red-600" />
+									{:else if test.status === 'running'}
+										<Loader2 size={14} class="text-yellow-600 animate-spin" />
+									{:else}
+										<div class="w-3.5 h-3.5 rounded-full border border-tertiary"></div>
+									{/if}
+									<span class="text-secondary">{test.test_script_path}</span>
+									{#if test.job_id}
+										<a
+											href="{base}/run/{test.job_id}?workspace={currentWorkspaceId}"
+											class="text-tertiary hover:text-secondary text-2xs"
+										>
+											view run
+										</a>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
 
 				{#snippet alerts()}
 					{#if mergeIntoParent}
@@ -963,6 +1050,16 @@
 							title="This item was newly created in '{currentWorkspaceId}'"
 							color="indigo"
 							size="xs">New</Badge
+						>
+					{/if}
+					{@const ciStatus = getCiTestStatus(diff)}
+					{#if ciStatus === 'pass'}
+						<Badge color="green" size="xs"><CircleCheck size={10} class="mr-0.5" />CI pass</Badge>
+					{:else if ciStatus === 'fail'}
+						<Badge color="red" size="xs"><CircleX size={10} class="mr-0.5" />CI fail</Badge>
+					{:else if ciStatus === 'running'}
+						<Badge color="yellow" size="xs"
+							><Loader2 size={10} class="mr-0.5 animate-spin" />CI</Badge
 						>
 					{/if}
 					{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}

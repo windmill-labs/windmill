@@ -10,7 +10,6 @@ import { AIConfig, Config, GlobalSetting } from "../../gen/types.gen.ts";
 import { compareInstanceObjects, InstanceSyncOptions } from "../commands/instance/instance.ts";
 import { isSuperset } from "../types.ts";
 import { deepEqual } from "../utils/utils.ts";
-import { removeWorkerPrefix } from "../commands/worker-groups/worker-groups.ts";
 import { decrypt, encrypt } from "../utils/local_encryption.ts";
 
 // New grouped config interfaces
@@ -625,12 +624,7 @@ export async function pullInstanceConfigs(
   opts: InstanceSyncOptions,
   preview = false
 ) {
-  const remoteConfigs = (await wmill.listConfigs()).map((x) => {
-    return {
-      ...x,
-      name: removeWorkerPrefix(x.name),
-    };
-  });
+  const remoteConfigs = await wmill.listWorkerGroups();
 
   if (preview) {
     const localConfigs: Config[] = await readLocalConfigs(opts);
@@ -658,12 +652,7 @@ export async function pushInstanceConfigs(
   opts: InstanceSyncOptions,
   preview: boolean = false
 ) {
-  const remoteConfigs = (await wmill.listConfigs()).map((x) => {
-    return {
-      ...x,
-      name: removeWorkerPrefix(x.name),
-    };
-  });
+  const remoteConfigs = await wmill.listWorkerGroups();
   const localConfigs = await readLocalConfigs(opts);
 
   if (preview) {
@@ -682,9 +671,7 @@ export async function pushInstanceConfigs(
       }
       try {
         await wmill.updateConfig({
-          name: config.name.startsWith("worker__")
-            ? config.name
-            : `worker__${config.name}`,
+          name: `worker__${config.name}`,
           requestBody: config.config,
         });
       } catch (err) {
@@ -698,7 +685,7 @@ export async function pushInstanceConfigs(
       if (!localMatch) {
         try {
           await wmill.deleteConfig({
-            name: removeConfig.name,
+            name: `worker__${removeConfig.name}`,
           });
         } catch (err) {
           log.error(`Failed to delete config ${removeConfig.name}: ${err}`);

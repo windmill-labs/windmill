@@ -3490,6 +3490,9 @@ async fn clone_workspace_data(
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
 
+    // Clone CI test references
+    clone_ci_test_references(tx, source_workspace_id, target_workspace_id).await?;
+
     // Clone flows with new versions
     clone_flows(tx, source_workspace_id, target_workspace_id).await?;
 
@@ -3744,6 +3747,23 @@ async fn clone_scripts(
     .execute(&mut **tx)
     .await?;
 
+    Ok(())
+}
+
+async fn clone_ci_test_references(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO ci_test_reference (workspace_id, test_script_path, test_script_hash, tested_item_path, tested_item_kind)
+         SELECT $2, test_script_path, test_script_hash, tested_item_path, tested_item_kind
+         FROM ci_test_reference WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -4160,7 +4180,7 @@ async fn create_workspace_fork_branch(
 
 /// Update a forked workspace's datatable config to point to the new database.
 /// For instance datatables: updates resource_path in the datatable config.
-/// For resource datatables: updates the resource's dbname and sets ws_specific.
+/// For resource datatables: updates the resource's dbname and marks it as ws_specific.
 /// Snapshot the schema from the source datatable by connecting to its database.
 async fn snapshot_datatable_schema(
     db: &DB,
@@ -4242,16 +4262,23 @@ async fn apply_forked_datatable(
         .execute(&mut **tx)
         .await?;
     } else {
-        // Resource: update the resource's dbname and set ws_specific
+        // Resource: update the resource's dbname and mark as ws_specific
         let resource_path = &dt.database.resource_path;
         sqlx::query!(
             r#"UPDATE resource
-               SET value = jsonb_set(value, '{dbname}', to_jsonb($3::text)),
-                   ws_specific = true
+               SET value = jsonb_set(value, '{dbname}', to_jsonb($3::text))
                WHERE workspace_id = $1 AND path = $2"#,
             forked_w_id,
             resource_path,
             &fdt.new_dbname,
+        )
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query!(
+            "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, 'resource', $2) ON CONFLICT DO NOTHING",
+            forked_w_id,
+            resource_path,
         )
         .execute(&mut **tx)
         .await?;
@@ -6081,7 +6108,7 @@ async fn compare_two_resources(
 ) -> Result<ItemComparison> {
     // Get resource from each workspace
     let source_resource = sqlx::query!(
-        "SELECT value, description, resource_type, ws_specific
+        "SELECT value, description, resource_type
          FROM resource
          WHERE workspace_id = $1 AND path = $2",
         source_workspace_id,
@@ -6091,7 +6118,7 @@ async fn compare_two_resources(
     .await?;
 
     let target_resource = sqlx::query!(
-        "SELECT value, description, resource_type, ws_specific
+        "SELECT value, description, resource_type
          FROM resource
          WHERE workspace_id = $1 AND path = $2",
         fork_workspace_id,
@@ -6101,8 +6128,24 @@ async fn compare_two_resources(
     .await?;
 
     // If either side is ws_specific, consider unchanged
-    let source_ws_specific = source_resource.as_ref().map_or(false, |r| r.ws_specific);
-    let target_ws_specific = target_resource.as_ref().map_or(false, |r| r.ws_specific);
+    let source_ws_specific = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2)",
+        source_workspace_id,
+        path
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    let target_ws_specific = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2)",
+        fork_workspace_id,
+        path
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
     if source_ws_specific || target_ws_specific {
         return Ok(ItemComparison {
             has_changes: false,

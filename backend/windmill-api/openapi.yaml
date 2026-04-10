@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.679.0
+  version: 1.680.0
   title: Windmill API
 
   contact:
@@ -802,6 +802,98 @@ paths:
             text/plain:
               schema:
                 type: string
+  /w/{workspace}/users/offboard_preview/{username}:
+    get:
+      summary: preview offboarding for a workspace user (require admin privilege)
+      operationId: offboardPreview
+      tags:
+        - user
+        - admin
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: offboard preview with object counts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OffboardPreview"
+  /w/{workspace}/users/offboard/{username}:
+    post:
+      summary: offboard a workspace user (reassign objects, optionally delete user)
+      operationId: offboardWorkspaceUser
+      tags:
+        - user
+        - admin
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OffboardRequest"
+      responses:
+        "200":
+          description: offboard response with conflicts or summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OffboardResponse"
+  /users/offboard_preview/{email}:
+    get:
+      summary: preview global offboarding for a user across all workspaces (require super admin)
+      operationId: globalOffboardPreview
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: per-workspace offboard previews
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GlobalOffboardPreview"
+  /users/offboard/{email}:
+    post:
+      summary: offboard a user globally (reassign objects across workspaces, optionally delete)
+      operationId: offboardGlobalUser
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GlobalOffboardRequest"
+      responses:
+        "200":
+          description: offboard result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OffboardResponse"
   /w/{workspace}/users/convert_to_group/{username}:
     post:
       summary: convert manual user to group user (require admin privilege)
@@ -7800,6 +7892,77 @@ paths:
                   job_id:
                     type: string
                     format: uuid
+
+  /w/{workspace}/scripts/ci_test_results/{kind}/{path}:
+    get:
+      summary: get CI test results for a script, flow, or resource
+      operationId: getCiTestResults
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [script, flow, resource]
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: CI test results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CiTestResult"
+
+  /w/{workspace}/scripts/ci_test_results_batch:
+    post:
+      summary: get CI test results for multiple items
+      operationId: getCiTestResultsBatch
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - items
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - path
+                      - kind
+                    properties:
+                      path:
+                        type: string
+                      kind:
+                        type: string
+                        enum: [script, flow, resource]
+      responses:
+        "200":
+          description: CI test results by item key
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CiTestResult"
 
   /w/{workspace}/scripts/raw_temp/store:
     post:
@@ -19376,6 +19539,25 @@ components:
     # This is why it is better to inline each of schemas for better compat
     # Do not change next line. It is used by python-client for pre-processing
     # -- INLINE START --
+    CiTestResult:
+      type: object
+      properties:
+        test_script_path:
+          type: string
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - test_script_path
+
     OpenFlow:
       $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
     FlowValue:
@@ -21105,6 +21287,191 @@ components:
         disabled:
           type: boolean
 
+    OffboardAffectedPaths:
+      type: object
+      properties:
+        scripts:
+          type: array
+          items:
+            type: string
+        flows:
+          type: array
+          items:
+            type: string
+        apps:
+          type: array
+          items:
+            type: string
+        resources:
+          type: array
+          items:
+            type: string
+        variables:
+          type: array
+          items:
+            type: string
+        schedules:
+          type: array
+          items:
+            type: string
+        triggers:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+    OffboardPreview:
+      type: object
+      properties:
+        owned:
+          $ref: "#/components/schemas/OffboardAffectedPaths"
+          description: "Objects under u/{username}/ that will be reassigned"
+        executing_on_behalf:
+          $ref: "#/components/schemas/OffboardAffectedPaths"
+          description: "Objects not under the user's path but that execute on behalf of this user (permissioned_as/on_behalf_of will be updated)"
+        referencing:
+          $ref: "#/components/schemas/OffboardAffectedPaths"
+          description: "Scripts/flows/apps/resources whose content or value references this user's paths (may break after reassignment)"
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/OffboardTokenInfo"
+          description: "Tokens owned by this user (will be deleted)"
+        http_triggers:
+          type: integer
+          description: "HTTP triggers under the user's path (webhook URLs will change)"
+        email_triggers:
+          type: integer
+          description: "Email triggers under the user's path (email addresses will change)"
+      required:
+        - owned
+        - executing_on_behalf
+        - referencing
+        - tokens
+        - http_triggers
+        - email_triggers
+
+    OffboardTokenInfo:
+      type: object
+      properties:
+        label:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        expiration:
+          type: string
+      required:
+        - label
+        - scopes
+
+    OffboardRequest:
+      type: object
+      properties:
+        reassign_to:
+          type: string
+          description: "Target for reassignment: 'u/{username}' or 'f/{folder}'"
+        new_on_behalf_of_user:
+          type: string
+          description: "Required when reassign_to is a folder. The username whose identity will be used as permissioned_as for schedules and triggers."
+        delete_user:
+          type: boolean
+          default: true
+          description: "Whether to also remove the user from the workspace"
+      required:
+        - reassign_to
+
+    OffboardResponse:
+      type: object
+      properties:
+        conflicts:
+          type: array
+          items:
+            type: string
+          description: "List of path conflicts that block the offboarding. Empty on success."
+        summary:
+          $ref: "#/components/schemas/OffboardSummary"
+
+    OffboardSummary:
+      type: object
+      properties:
+        scripts_reassigned:
+          type: integer
+        flows_reassigned:
+          type: integer
+        apps_reassigned:
+          type: integer
+        resources_reassigned:
+          type: integer
+        variables_reassigned:
+          type: integer
+        schedules_reassigned:
+          type: integer
+        triggers_reassigned:
+          type: integer
+        drafts_deleted:
+          type: integer
+      required:
+        - scripts_reassigned
+        - flows_reassigned
+        - apps_reassigned
+        - resources_reassigned
+        - variables_reassigned
+        - schedules_reassigned
+        - triggers_reassigned
+        - drafts_deleted
+
+    GlobalOffboardPreview:
+      type: object
+      properties:
+        workspaces:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceOffboardPreview"
+      required:
+        - workspaces
+
+    WorkspaceOffboardPreview:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        username:
+          type: string
+        preview:
+          $ref: "#/components/schemas/OffboardPreview"
+      required:
+        - workspace_id
+        - username
+        - preview
+
+    GlobalOffboardRequest:
+      type: object
+      properties:
+        reassignments:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/WorkspaceReassignment"
+          description: "Map of workspace_id to reassignment config"
+        delete_user:
+          type: boolean
+          default: true
+          description: "Whether to also remove the user from the instance"
+
+    WorkspaceReassignment:
+      type: object
+      properties:
+        reassign_to:
+          type: string
+          description: "Target: 'u/{username}' or 'f/{folder}'"
+        new_on_behalf_of_user:
+          type: string
+          description: "Required when reassign_to is a folder. Username to use as permissioned_as."
+      required:
+        - reassign_to
+
     TruncatedToken:
       type: object
       properties:
@@ -21722,9 +22089,6 @@ components:
         resource_type:
           type: string
           description: The new resource_type to be associated with the resource
-        ws_specific:
-          type: boolean
-          description: When true, the resource is excluded from workspace diff comparisons
         labels:
           type: array
           items:

@@ -31,6 +31,19 @@ use windmill_common::{
     DB,
 };
 
+/// Wraps the subcrate's workspaced_service with offboarding routes.
+pub fn workspaced_service() -> Router {
+    windmill_api_users::users::workspaced_service()
+        .route(
+            "/offboard_preview/{user}",
+            get(crate::offboarding::offboard_preview),
+        )
+        .route(
+            "/offboard/{user}",
+            post(crate::offboarding::offboard_workspace_user),
+        )
+}
+
 /// Wraps the subcrate's global_service with routes that depend on windmill-api internals.
 pub fn global_service() -> Router {
     windmill_api_users::users::global_service()
@@ -40,6 +53,14 @@ pub fn global_service() -> Router {
         .route("/rename/{user}", post(rename_user))
         .route("/onboarding", post(submit_onboarding_data))
         .route("/ext_jwt_tokens", get(list_ext_jwt_tokens))
+        .route(
+            "/offboard_preview/{user}",
+            get(crate::offboarding::global_offboard_preview),
+        )
+        .route(
+            "/offboard/{user}",
+            post(crate::offboarding::offboard_global_user),
+        )
 }
 
 /// Wraps the subcrate's make_unauthed_service with routes that depend on windmill-api internals.

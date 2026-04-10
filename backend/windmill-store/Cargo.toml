@@ -29,6 +29,7 @@ openidconnect = ["windmill-common/openidconnect"]
 windmill-common = { workspace = true, default-features = false }
 windmill-api-auth.workspace = true
 windmill-audit.workspace = true
+windmill-dep-map.workspace = true
 windmill-git-sync.workspace = true
 windmill-mcp = { workspace = true, optional = true }
 windmill-oauth = { workspace = true, optional = true }

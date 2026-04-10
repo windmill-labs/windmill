@@ -125,8 +125,6 @@ pub struct Resource {
     pub extra_perms: serde_json::Value,
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(default)]
-    pub ws_specific: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
 }
@@ -147,8 +145,6 @@ pub struct ListableResource {
     pub is_expired: Option<bool>,
     pub refresh_error: Option<String>,
     pub account: Option<i32>,
-    #[serde(default)]
-    pub ws_specific: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
 }
@@ -159,8 +155,6 @@ pub struct CreateResource {
     pub value: Option<Box<RawValue>>,
     pub description: Option<String>,
     pub resource_type: String,
-    #[serde(default)]
-    pub ws_specific: Option<bool>,
     pub labels: Option<Vec<String>>,
 }
 #[derive(Deserialize)]
@@ -168,7 +162,6 @@ struct EditResource {
     path: Option<String>,
     description: Option<String>,
     value: Option<Box<RawValue>>,
-    ws_specific: Option<bool>,
     labels: Option<Vec<String>>,
 }
 
@@ -266,7 +259,6 @@ async fn list_resources(
             "account.refresh_error",
             "resource.created_by",
             "resource.edited_at",
-            "resource.ws_specific",
             "resource.labels",
         ])
         .left()
@@ -843,16 +835,15 @@ async fn create_resource(
     }
     sqlx::query!(
         "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type, created_by, edited_at, ws_specific, labels)
-            VALUES ($1, $2, $3, $4, $5, $6, now(), $7, $8) ON CONFLICT (workspace_id, path)
-            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now(), ws_specific = EXCLUDED.ws_specific, labels = EXCLUDED.labels",
+            (workspace_id, path, value, description, resource_type, created_by, edited_at, labels)
+            VALUES ($1, $2, $3, $4, $5, $6, now(), $7) ON CONFLICT (workspace_id, path)
+            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now(), labels = EXCLUDED.labels",
         w_id,
         resource.path,
         raw_json as sqlx::types::Json<&RawValue>,
         resource.description,
         resource.resource_type,
         authed.username,
-        resource.ws_specific.unwrap_or(false),
         resource.labels.as_deref() as Option<&[String]>
     )
     .execute(&mut *tx)
@@ -958,6 +949,14 @@ async fn delete_resource(
         }
         q.fetch_all(&mut *tx).await?
     };
+
+    sqlx::query!(
+        "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
+        w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
 
     let deleted_path = sqlx::query_scalar!(
         "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
@@ -1134,6 +1133,14 @@ async fn delete_resources_bulk(
         }
     }
 
+    sqlx::query!(
+        "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
+        w_id,
+        &request.paths
+    )
+    .execute(&mut *tx)
+    .await?;
+
     let deleted_paths = sqlx::query_scalar!(
         "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2 RETURNING path",
         &request.paths,
@@ -1220,10 +1227,6 @@ async fn update_resource(
     if let Some(ndesc) = ns.description {
         sqlb.set_str("description", ndesc);
     }
-    if let Some(nd) = ns.ws_specific {
-        sqlb.set_str("ws_specific", if nd { "true" } else { "false" });
-    }
-
     sqlb.set_str("edited_at", "now()");
 
     sqlb.returning("path");
@@ -1282,6 +1285,25 @@ async fn update_resource(
             )
             .execute(&mut *tx)
             .await?;
+
+            // Update ci_test_reference when a tested resource is renamed
+            sqlx::query!(
+                "UPDATE ci_test_reference SET tested_item_path = $1 WHERE tested_item_path = $2 AND workspace_id = $3 AND tested_item_kind = 'resource'",
+                npath,
+                path,
+                w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query!(
+                "UPDATE ws_specific SET path = $1 WHERE workspace_id = $2 AND item_kind = 'resource' AND path = $3",
+                npath,
+                w_id,
+                path
+            )
+            .execute(&mut *tx)
+            .await?;
         }
     }
 
@@ -1331,11 +1353,28 @@ async fn update_resource(
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateResource {
-            workspace: w_id,
+            workspace: w_id.clone(),
             old_path: path.to_owned(),
             new_path: npath.clone(),
         },
     );
+
+    // Trigger CI tests for items that reference this resource
+    {
+        let db2 = db.clone();
+        let npath2 = npath.clone();
+        let email2 = authed.email.clone();
+        let username2 = authed.username.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2, &w_id, &npath2, "resource", &email2, &username2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after resource update");
+            }
+        });
+    }
 
     Ok(format!("resource {} updated (npath: {:?})", path, npath))
 }
@@ -1404,11 +1443,28 @@ async fn update_resource_value(
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateResource {
-            workspace: w_id,
+            workspace: w_id.clone(),
             old_path: path.to_owned(),
             new_path: path.to_owned(),
         },
     );
+
+    // Trigger CI tests for items that reference this resource
+    {
+        let db2 = db.clone();
+        let path2 = path.to_string();
+        let email2 = authed.email.clone();
+        let username2 = authed.username.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2, &w_id, &path2, "resource", &email2, &username2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after resource value update");
+            }
+        });
+    }
 
     Ok(format!("value of resource {} updated", path))
 }
