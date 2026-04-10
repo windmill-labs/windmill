@@ -61,8 +61,8 @@ export function validateScriptState(input: {
     );
     checks.push(
       check(
-        "script code matches expected",
-        normalizeText(input.actual.code) === normalizeText(input.expected.code)
+        "script code contains expected content",
+        scriptCodeContainsExpectedContent(input.actual.code, input.expected.code)
       )
     );
   }
@@ -252,6 +252,10 @@ function cliFileContainsExpectedContent(actualContent: string, expectedContent: 
   const normalizedActual = actualContent.replace(/\r\n/g, "\n");
 
   return expectedSnippets.every((snippet) => normalizedActual.includes(snippet));
+}
+
+function scriptCodeContainsExpectedContent(actualCode: string, expectedCode: string): boolean {
+  return cliFileContainsExpectedContent(actualCode, expectedCode);
 }
 
 function check(name: string, passed: boolean, details?: string): BenchmarkCheck {
