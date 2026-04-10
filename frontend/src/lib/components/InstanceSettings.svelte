@@ -657,8 +657,12 @@
 		'workspace_registries'
 	])
 
-	// Settings that should never appear in YAML export/import
-	const excludedKeys: Set<string> = new Set([])
+	// Settings that should never appear in YAML export/import.
+	// `worker_configs` is a legacy ghost key: worker configs live in the `config`
+	// table (managed from /workers), not in `global_settings`. Older DBs may
+	// still carry a stale `global_settings.worker_configs` row; filter it here
+	// so it never round-trips through this editor.
+	const excludedKeys: Set<string> = new Set(['worker_configs'])
 
 	// Nested fields inside object-valued settings that contain secrets.
 	// Each entry maps a top-level key to its sensitive sub-field names.

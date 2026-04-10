@@ -172,6 +172,79 @@ async fn test_from_db_unknown_settings_go_to_extra(db: Pool<Postgres>) {
     );
 }
 
+/// Regression: a legacy `global_settings.worker_configs` row must not leak
+/// into `GlobalSettings::extra`. Older Windmill versions stored worker configs
+/// as a single blob in `global_settings`; the row could silently drift from
+/// the real `config WHERE name LIKE 'worker__%'` rows and get resurrected on
+/// every bulk InstanceSettings save via the flatten+extra round-trip.
+#[sqlx::test(fixtures("base"))]
+async fn test_from_db_hides_legacy_worker_configs_ghost_row(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    insert_global_setting(
+        &db,
+        "worker_configs",
+        serde_json::json!({
+            "default": {"worker_tags": ["deno", "python3"]},
+            "sldc-standard": {"worker_tags": ["sldc-standard"]}
+        }),
+    )
+    .await;
+    insert_config(&db, "worker__sldc-standard", serde_json::json!({})).await;
+
+    let config = InstanceConfig::from_db(&db).await.unwrap();
+    assert!(
+        !config.global_settings.extra.contains_key("worker_configs"),
+        "legacy worker_configs row must be filtered out of GlobalSettings::extra"
+    );
+    assert!(
+        !config
+            .global_settings
+            .to_settings_map()
+            .contains_key("worker_configs"),
+        "legacy worker_configs row must not re-appear in to_settings_map()"
+    );
+    // The real config-table row is still read normally.
+    assert!(config.worker_configs.contains_key("sldc-standard"));
+}
+
+/// Regression: a bulk `diff_global_settings` upsert must reject a
+/// `worker_configs` key, even if a client PUT carries one in the flattened
+/// extra map. This is the write-side guard that prevents the ghost row from
+/// being resurrected on every InstanceSettings YAML save.
+#[sqlx::test(fixtures("base"))]
+async fn test_diff_global_settings_rejects_worker_configs_upsert(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    let current: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    let mut desired: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    desired.insert(
+        "base_url".to_string(),
+        serde_json::json!("https://windmill.test"),
+    );
+    desired.insert(
+        "worker_configs".to_string(),
+        serde_json::json!({"default": {"worker_tags": ["deno"]}}),
+    );
+
+    let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
+    assert!(diff.upserts.contains_key("base_url"));
+    assert!(
+        !diff.upserts.contains_key("worker_configs"),
+        "worker_configs must never be written as a global setting"
+    );
+
+    apply_settings_diff(&db, &diff).await.unwrap();
+    assert!(
+        get_global_setting(&db, "worker_configs").await.is_none(),
+        "worker_configs row must not exist in global_settings after apply"
+    );
+    assert_eq!(
+        get_global_setting(&db, "base_url").await,
+        Some(serde_json::json!("https://windmill.test"))
+    );
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_from_db_with_worker_configs(db: Pool<Postgres>) {
     clear_settings_and_configs(&db).await;

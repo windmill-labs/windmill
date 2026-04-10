@@ -874,6 +874,12 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     "min_keep_alive_version",
     "automate_username_creation",
     "_restart_coordination",
+    // Legacy ghost: worker configs live in the `config` table with a
+    // `worker__` prefix, not as a single blob in `global_settings`. Older
+    // Windmill versions stored them here and the row would be resurrected on
+    // every bulk InstanceSettings save via `GlobalSettings::extra`. Hiding it
+    // on read + rejecting it in `diff_global_settings` breaks that loop.
+    "worker_configs",
 ];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.
@@ -899,7 +905,10 @@ const SENSITIVE_SETTINGS: &[&str] = &[
 /// Maps a top-level key to the sub-field names that must be redacted.
 const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("smtp_settings", &["smtp_password"]),
-    ("secret_backend", &["token", "client_secret", "secret_access_key"]),
+    (
+        "secret_backend",
+        &["token", "client_secret", "secret_access_key"],
+    ),
     (
         "object_store_cache_config",
         &["secret_key", "serviceAccountKey"],
@@ -1045,6 +1054,17 @@ pub fn diff_global_settings(
     let mut previous_values = BTreeMap::new();
     let mut unchanged_count: usize = 0;
     for (key, desired_value) in desired {
+        // `worker_configs` is a legacy ghost: worker configs belong in the
+        // `config` table with a `worker__` prefix. If a client PUT carries a
+        // top-level `worker_configs` key (it flattens into
+        // `GlobalSettings::extra` on deserialize), drop it here instead of
+        // letting it resurrect a stale `global_settings` row.
+        if key == "worker_configs" {
+            tracing::warn!(
+                "Ignoring 'worker_configs' in global_settings diff: worker configs must be written to the config table (worker__ prefix), not global_settings"
+            );
+            continue;
+        }
         if PROTECTED_SETTINGS.contains(&key.as_str())
             && is_empty_or_null(desired_value)
             && current.contains_key(key)
