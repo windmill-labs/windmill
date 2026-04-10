@@ -214,7 +214,6 @@ function toHistoryRecord(result: BenchmarkRunResult) {
     passedAttempts: result.passedAttempts,
     passRate: result.passRate,
     averageDurationMs: result.averageDurationMs,
-    totalTokenUsage: result.totalTokenUsage ?? null,
     averageTokenUsagePerAttempt: result.averageTokenUsagePerAttempt ?? null,
     failedCaseIds: Array.from(
       new Set(
@@ -223,6 +222,43 @@ function toHistoryRecord(result: BenchmarkRunResult) {
           .map((caseResult) => caseResult.id)
       )
     ),
+    cases: result.cases.map((caseResult) => {
+      const attemptCount = caseResult.attempts.length;
+      const passedAttempts = caseResult.attempts.filter((attempt) => attempt.passed).length;
+      const totalDurationMs = caseResult.attempts.reduce(
+        (sum, attempt) => sum + attempt.durationMs,
+        0
+      );
+      const totalTokenUsage = caseResult.attempts.reduce<BenchmarkTokenUsage | null>(
+        (sum, attempt) => {
+          if (!attempt.tokenUsage) {
+            return sum;
+          }
+          sum ??= { prompt: 0, completion: 0, total: 0 };
+          sum.prompt += attempt.tokenUsage.prompt;
+          sum.completion += attempt.tokenUsage.completion;
+          sum.total += attempt.tokenUsage.total;
+          return sum;
+        },
+        null
+      );
+
+      return {
+        id: caseResult.id,
+        attemptCount,
+        passedAttempts,
+        passRate: attemptCount === 0 ? 0 : passedAttempts / attemptCount,
+        averageDurationMs: attemptCount === 0 ? 0 : totalDurationMs / attemptCount,
+        averageTokenUsagePerAttempt:
+          attemptCount === 0 || !totalTokenUsage
+            ? null
+            : {
+                prompt: totalTokenUsage.prompt / attemptCount,
+                completion: totalTokenUsage.completion / attemptCount,
+                total: totalTokenUsage.total / attemptCount,
+              },
+      };
+    }),
   };
 }
 

@@ -137,7 +137,8 @@ Each recorded line contains:
 
 - run metadata (`createdAt`, `gitSha`, `mode`, `runModel`, `judgeModel`)
 - suite totals (`caseCount`, `attemptCount`, `passedAttempts`, `passRate`, `averageDurationMs`)
-- token usage totals (`totalTokenUsage`, `averageTokenUsagePerAttempt`)
+- average token usage (`averageTokenUsagePerAttempt`)
+- per-case metrics under `cases[]` (`averageDurationMs`, `averageTokenUsagePerAttempt`, pass rate)
 - `failedCaseIds`
 
 For now, token usage in history is populated for frontend modes (`flow`, `script`, `app`).
