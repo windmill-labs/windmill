@@ -31,8 +31,8 @@ import {
   extractNativeTriggerInfo,
 } from "../../types.ts";
 import {
-  fromBranchSpecificPath,
-  isBranchSpecificFile,
+  fromWorkspaceSpecificPath,
+  isWorkspaceSpecificFile,
 } from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
 import { requireLogin } from "../../core/auth.ts";
@@ -553,10 +553,10 @@ function extractTriggerKindFromPath(filePath: string): string | undefined {
   let pathToAnalyze = filePath;
 
   // If this is a branch-specific file, convert it to the base path first
-  if (isBranchSpecificFile(filePath)) {
+  if (isWorkspaceSpecificFile(filePath)) {
     const currentBranch = getCurrentGitBranch();
     if (currentBranch) {
-      pathToAnalyze = fromBranchSpecificPath(filePath, currentBranch);
+      pathToAnalyze = fromWorkspaceSpecificPath(filePath, currentBranch);
     }
   }
 

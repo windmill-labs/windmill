@@ -2,93 +2,93 @@ import { expect, test } from "bun:test";
 
 // =============================================================================
 // SPECIFIC ITEMS UNIT TESTS
-// Tests for branch-specific file path functions (no Docker required)
+// Tests for workspace-specific file path functions (no Docker required)
 // =============================================================================
 
 // Import the functions we need to test
 import {
   isSpecificItem,
   isItemTypeConfigured,
-  toBranchSpecificPath,
-  fromBranchSpecificPath,
-  isBranchSpecificFile,
-  isCurrentBranchFile,
-  getBranchSpecificPath,
+  toWorkspaceSpecificPath,
+  fromWorkspaceSpecificPath,
+  isWorkspaceSpecificFile,
+  isCurrentWorkspaceFile,
+  getWorkspaceSpecificPath,
   getSpecificItemsForCurrentBranch,
 } from "../src/core/specific_items.ts";
 
 import type { SpecificItemsConfig } from "../src/core/specific_items.ts";
 
 // =============================================================================
-// toBranchSpecificPath TESTS
+// toWorkspaceSpecificPath TESTS
 // =============================================================================
 
-test("toBranchSpecificPath: converts variable path to branch-specific", () => {
-  const result = toBranchSpecificPath("f/test.variable.yaml", "main");
+test("toWorkspaceSpecificPath: converts variable path to workspace-specific", () => {
+  const result = toWorkspaceSpecificPath("f/test.variable.yaml", "main");
   expect(result).toEqual("f/test.main.variable.yaml");
 });
 
-test("toBranchSpecificPath: converts resource path to branch-specific", () => {
-  const result = toBranchSpecificPath("u/admin/db.resource.yaml", "develop");
+test("toWorkspaceSpecificPath: converts resource path to workspace-specific", () => {
+  const result = toWorkspaceSpecificPath("u/admin/db.resource.yaml", "develop");
   expect(result).toEqual("u/admin/db.develop.resource.yaml");
 });
 
-test("toBranchSpecificPath: converts trigger path to branch-specific", () => {
-  const result = toBranchSpecificPath("f/my_trigger.http_trigger.yaml", "feature-x");
+test("toWorkspaceSpecificPath: converts trigger path to workspace-specific", () => {
+  const result = toWorkspaceSpecificPath("f/my_trigger.http_trigger.yaml", "feature-x");
   expect(result).toEqual("f/my_trigger.feature-x.http_trigger.yaml");
 });
 
-test("toBranchSpecificPath: sanitizes branch names with slashes", () => {
-  const result = toBranchSpecificPath("f/test.variable.yaml", "feature/my-feature");
+test("toWorkspaceSpecificPath: sanitizes branch names with slashes", () => {
+  const result = toWorkspaceSpecificPath("f/test.variable.yaml", "feature/my-feature");
   expect(result).toEqual("f/test.feature_my-feature.variable.yaml");
 });
 
-test("toBranchSpecificPath: sanitizes branch names with dots", () => {
-  const result = toBranchSpecificPath("f/test.variable.yaml", "release.1.0");
+test("toWorkspaceSpecificPath: sanitizes branch names with dots", () => {
+  const result = toWorkspaceSpecificPath("f/test.variable.yaml", "release.1.0");
   expect(result).toEqual("f/test.release_1_0.variable.yaml");
 });
 
-test("toBranchSpecificPath: leaves non-specific files unchanged", () => {
-  const result = toBranchSpecificPath("f/script.ts", "main");
+test("toWorkspaceSpecificPath: leaves non-specific files unchanged", () => {
+  const result = toWorkspaceSpecificPath("f/script.ts", "main");
   expect(result).toEqual("f/script.ts");
 });
 
-test("toBranchSpecificPath: handles resource files with extensions", () => {
-  const result = toBranchSpecificPath("f/config.resource.file.json", "main");
+test("toWorkspaceSpecificPath: handles resource files with extensions", () => {
+  const result = toWorkspaceSpecificPath("f/config.resource.file.json", "main");
   expect(result).toEqual("f/config.main.resource.file.json");
 });
 
 // =============================================================================
-// fromBranchSpecificPath TESTS
+// fromWorkspaceSpecificPath TESTS
 // =============================================================================
 
-test("fromBranchSpecificPath: converts branch-specific variable back to base", () => {
-  const result = fromBranchSpecificPath("f/test.main.variable.yaml", "main");
+test("fromWorkspaceSpecificPath: converts workspace-specific variable back to base", () => {
+  const result = fromWorkspaceSpecificPath("f/test.main.variable.yaml", "main");
   expect(result).toEqual("f/test.variable.yaml");
 });
 
-test("fromBranchSpecificPath: converts branch-specific resource back to base", () => {
-  const result = fromBranchSpecificPath("u/admin/db.develop.resource.yaml", "develop");
+test("fromWorkspaceSpecificPath: converts workspace-specific resource back to base", () => {
+  const result = fromWorkspaceSpecificPath("u/admin/db.develop.resource.yaml", "develop");
   expect(result).toEqual("u/admin/db.resource.yaml");
 });
 
-test("fromBranchSpecificPath: converts branch-specific trigger back to base", () => {
-  const result = fromBranchSpecificPath("f/my_trigger.feature-x.http_trigger.yaml", "feature-x");
+test("fromWorkspaceSpecificPath: converts workspace-specific trigger back to base", () => {
+  const result = fromWorkspaceSpecificPath("f/my_trigger.feature-x.http_trigger.yaml", "feature-x");
   expect(result).toEqual("f/my_trigger.http_trigger.yaml");
 });
 
-test("fromBranchSpecificPath: handles sanitized branch names", () => {
-  const result = fromBranchSpecificPath("f/test.feature_my-feature.variable.yaml", "feature/my-feature");
+test("fromWorkspaceSpecificPath: handles sanitized branch names", () => {
+  const result = fromWorkspaceSpecificPath("f/test.feature_my-feature.variable.yaml", "feature/my-feature");
   expect(result).toEqual("f/test.variable.yaml");
 });
 
-test("fromBranchSpecificPath: returns unchanged if not branch-specific", () => {
-  const result = fromBranchSpecificPath("f/test.variable.yaml", "main");
+test("fromWorkspaceSpecificPath: returns unchanged if not workspace-specific", () => {
+  const result = fromWorkspaceSpecificPath("f/test.variable.yaml", "main");
   expect(result).toEqual("f/test.variable.yaml");
 });
 
-test("fromBranchSpecificPath: handles resource files with extensions", () => {
-  const result = fromBranchSpecificPath("f/config.main.resource.file.json", "main");
+test("fromWorkspaceSpecificPath: handles resource files with extensions", () => {
+  const result = fromWorkspaceSpecificPath("f/config.main.resource.file.json", "main");
   expect(result).toEqual("f/config.resource.file.json");
 });
 
@@ -143,36 +143,36 @@ test("isSpecificItem: handles exact path patterns", () => {
 });
 
 // =============================================================================
-// isBranchSpecificFile TESTS
+// isWorkspaceSpecificFile TESTS
 // =============================================================================
 
-test("isBranchSpecificFile: detects branch-specific variable files", () => {
-  expect(isBranchSpecificFile("f/test.main.variable.yaml")).toEqual(true);
-  expect(isBranchSpecificFile("f/test.develop.variable.yaml")).toEqual(true);
-  expect(isBranchSpecificFile("f/test.feature_branch.variable.yaml")).toEqual(true);
+test("isWorkspaceSpecificFile: detects workspace-specific variable files", () => {
+  expect(isWorkspaceSpecificFile("f/test.main.variable.yaml")).toEqual(true);
+  expect(isWorkspaceSpecificFile("f/test.develop.variable.yaml")).toEqual(true);
+  expect(isWorkspaceSpecificFile("f/test.feature_branch.variable.yaml")).toEqual(true);
 });
 
-test("isBranchSpecificFile: detects branch-specific resource files", () => {
-  expect(isBranchSpecificFile("u/admin/db.main.resource.yaml")).toEqual(true);
-  expect(isBranchSpecificFile("u/admin/db.staging.resource.yaml")).toEqual(true);
+test("isWorkspaceSpecificFile: detects workspace-specific resource files", () => {
+  expect(isWorkspaceSpecificFile("u/admin/db.main.resource.yaml")).toEqual(true);
+  expect(isWorkspaceSpecificFile("u/admin/db.staging.resource.yaml")).toEqual(true);
 });
 
-test("isBranchSpecificFile: detects branch-specific trigger files", () => {
-  expect(isBranchSpecificFile("f/my.main.http_trigger.yaml")).toEqual(true);
-  expect(isBranchSpecificFile("f/my.develop.kafka_trigger.yaml")).toEqual(true);
-  expect(isBranchSpecificFile("f/my.main.websocket_trigger.yaml")).toEqual(true);
+test("isWorkspaceSpecificFile: detects workspace-specific trigger files", () => {
+  expect(isWorkspaceSpecificFile("f/my.main.http_trigger.yaml")).toEqual(true);
+  expect(isWorkspaceSpecificFile("f/my.develop.kafka_trigger.yaml")).toEqual(true);
+  expect(isWorkspaceSpecificFile("f/my.main.websocket_trigger.yaml")).toEqual(true);
 });
 
-test("isBranchSpecificFile: returns false for non-branch-specific files", () => {
-  expect(isBranchSpecificFile("f/test.variable.yaml")).toEqual(false);
-  expect(isBranchSpecificFile("u/admin/db.resource.yaml")).toEqual(false);
-  expect(isBranchSpecificFile("f/my.http_trigger.yaml")).toEqual(false);
-  expect(isBranchSpecificFile("f/script.ts")).toEqual(false);
+test("isWorkspaceSpecificFile: returns false for non-workspace-specific files", () => {
+  expect(isWorkspaceSpecificFile("f/test.variable.yaml")).toEqual(false);
+  expect(isWorkspaceSpecificFile("u/admin/db.resource.yaml")).toEqual(false);
+  expect(isWorkspaceSpecificFile("f/my.http_trigger.yaml")).toEqual(false);
+  expect(isWorkspaceSpecificFile("f/script.ts")).toEqual(false);
 });
 
-test("isBranchSpecificFile: handles resource files with extensions", () => {
-  expect(isBranchSpecificFile("f/config.main.resource.file.json")).toEqual(true);
-  expect(isBranchSpecificFile("f/config.resource.file.json")).toEqual(false);
+test("isWorkspaceSpecificFile: handles resource files with extensions", () => {
+  expect(isWorkspaceSpecificFile("f/config.main.resource.file.json")).toEqual(true);
+  expect(isWorkspaceSpecificFile("f/config.resource.file.json")).toEqual(false);
 });
 
 // =============================================================================
@@ -182,32 +182,32 @@ test("isBranchSpecificFile: handles resource files with extensions", () => {
 test("round-trip: variable file path conversion", () => {
   const original = "f/my/nested/config.variable.yaml";
   const branch = "feature/test-branch";
-  const branchSpecific = toBranchSpecificPath(original, branch);
-  const restored = fromBranchSpecificPath(branchSpecific, branch);
+  const branchSpecific = toWorkspaceSpecificPath(original, branch);
+  const restored = fromWorkspaceSpecificPath(branchSpecific, branch);
   expect(restored).toEqual(original);
 });
 
 test("round-trip: resource file path conversion", () => {
   const original = "u/admin/database.resource.yaml";
   const branch = "develop";
-  const branchSpecific = toBranchSpecificPath(original, branch);
-  const restored = fromBranchSpecificPath(branchSpecific, branch);
+  const branchSpecific = toWorkspaceSpecificPath(original, branch);
+  const restored = fromWorkspaceSpecificPath(branchSpecific, branch);
   expect(restored).toEqual(original);
 });
 
 test("round-trip: trigger file path conversion", () => {
   const original = "f/webhooks/handler.http_trigger.yaml";
   const branch = "main";
-  const branchSpecific = toBranchSpecificPath(original, branch);
-  const restored = fromBranchSpecificPath(branchSpecific, branch);
+  const branchSpecific = toWorkspaceSpecificPath(original, branch);
+  const restored = fromWorkspaceSpecificPath(branchSpecific, branch);
   expect(restored).toEqual(original);
 });
 
 test("round-trip: resource file with extension", () => {
   const original = "f/configs/settings.resource.file.ini";
   const branch = "release/v1.0";
-  const branchSpecific = toBranchSpecificPath(original, branch);
-  const restored = fromBranchSpecificPath(branchSpecific, branch);
+  const branchSpecific = toWorkspaceSpecificPath(original, branch);
+  const restored = fromWorkspaceSpecificPath(branchSpecific, branch);
   expect(restored).toEqual(original);
 });
 
@@ -216,58 +216,58 @@ test("round-trip: resource file with extension", () => {
 // These tests validate that functions work correctly with explicit branch override
 // =============================================================================
 
-test("branchOverride: getBranchSpecificPath with override returns branch-specific path", () => {
+test("branchOverride: getWorkspaceSpecificPath with override returns workspace-specific path", () => {
   // This test verifies that when branchOverride is provided, the function uses it
   // instead of detecting the current git branch
   const config: SpecificItemsConfig = {
     variables: ["f/**"],
   };
 
-  // When override is provided, it should return the branch-specific path even outside git repo
-  const result = getBranchSpecificPath("f/test.variable.yaml", config, "staging");
+  // When override is provided, it should return the workspace-specific path even outside git repo
+  const result = getWorkspaceSpecificPath("f/test.variable.yaml", config, "staging");
   expect(result).toEqual("f/test.staging.variable.yaml");
 });
 
-test("branchOverride: getBranchSpecificPath without override and not in git repo returns undefined", () => {
+test("branchOverride: getWorkspaceSpecificPath without override and not in git repo returns undefined", () => {
   const config: SpecificItemsConfig = {
     variables: ["f/**"],
   };
 
   // Without override and outside git repo (or if git returns null), should return undefined
   // Note: This test's behavior depends on whether we're in a git repo
-  const result = getBranchSpecificPath("f/test.variable.yaml", config);
-  // In a git repo, this would return a branch-specific path; outside, it would be undefined
+  const result = getWorkspaceSpecificPath("f/test.variable.yaml", config);
+  // In a git repo, this would return a workspace-specific path; outside, it would be undefined
   // We test the override case above which is deterministic
 });
 
-test("branchOverride: isCurrentBranchFile with override uses provided branch", () => {
-  // Test that isCurrentBranchFile uses the override branch instead of git detection
-  const result = isCurrentBranchFile("f/test.staging.variable.yaml", "staging");
+test("branchOverride: isCurrentWorkspaceFile with override uses provided branch", () => {
+  // Test that isCurrentWorkspaceFile uses the override branch instead of git detection
+  const result = isCurrentWorkspaceFile("f/test.staging.variable.yaml", "staging");
   expect(result).toEqual(true);
 
   // Should return false for different branch
-  const resultOther = isCurrentBranchFile("f/test.staging.variable.yaml", "production");
+  const resultOther = isCurrentWorkspaceFile("f/test.staging.variable.yaml", "production");
   expect(resultOther).toEqual(false);
 
-  // Should return false for non-branch-specific file
-  const resultNonSpecific = isCurrentBranchFile("f/test.variable.yaml", "staging");
+  // Should return false for non-workspace-specific file
+  const resultNonSpecific = isCurrentWorkspaceFile("f/test.variable.yaml", "staging");
   expect(resultNonSpecific).toEqual(false);
 });
 
-test("branchOverride: isCurrentBranchFile with override handles sanitized branch names", () => {
+test("branchOverride: isCurrentWorkspaceFile with override handles sanitized branch names", () => {
   // Test with branch names that get sanitized
-  const result = isCurrentBranchFile("f/test.feature_my-branch.variable.yaml", "feature/my-branch");
+  const result = isCurrentWorkspaceFile("f/test.feature_my-branch.variable.yaml", "feature/my-branch");
   expect(result).toEqual(true);
 
   // Different sanitized branch should return false
-  const resultOther = isCurrentBranchFile("f/test.feature_my-branch.variable.yaml", "feature/other-branch");
+  const resultOther = isCurrentWorkspaceFile("f/test.feature_my-branch.variable.yaml", "feature/other-branch");
   expect(resultOther).toEqual(false);
 });
 
 test("branchOverride: getSpecificItemsForCurrentBranch with override returns correct config", () => {
   // Test that getSpecificItemsForCurrentBranch uses the override branch
   const config = {
-    gitBranches: {
+    workspaces: {
       staging: {
         specificItems: {
           variables: ["f/**"],
@@ -298,7 +298,7 @@ test("branchOverride: getSpecificItemsForCurrentBranch with override returns cor
 
 test("branchOverride: getSpecificItemsForCurrentBranch with non-existent branch returns undefined", () => {
   const config = {
-    gitBranches: {
+    workspaces: {
       staging: {
         specificItems: {
           variables: ["f/**"],
@@ -314,7 +314,7 @@ test("branchOverride: getSpecificItemsForCurrentBranch with non-existent branch 
 
 test("branchOverride: getSpecificItemsForCurrentBranch merges common and branch items", () => {
   const config = {
-    gitBranches: {
+    workspaces: {
       commonSpecificItems: {
         variables: ["common/**"],
         resources: ["shared/**"],
@@ -329,7 +329,7 @@ test("branchOverride: getSpecificItemsForCurrentBranch merges common and branch 
   };
 
   const result = getSpecificItemsForCurrentBranch(config as any, "develop");
-  // Should merge common and branch-specific
+  // Should merge common and workspace-specific
   expect(result?.variables).toEqual(["common/**", "dev/**"]);
   expect(result?.resources).toEqual(["shared/**"]);
   expect(result?.triggers).toEqual(["dev/triggers/**"]);
@@ -340,34 +340,34 @@ test("branchOverride: getSpecificItemsForCurrentBranch merges common and branch 
 // Format: f/folder/folder.branchName.meta.yaml
 // =============================================================================
 
-test("toBranchSpecificPath: converts folder meta path to branch-specific", () => {
+test("toWorkspaceSpecificPath: converts folder meta path to workspace-specific", () => {
   // f/my_folder/folder.meta.yaml -> f/my_folder/folder.main.meta.yaml
-  const result = toBranchSpecificPath("f/my_folder/folder.meta.yaml", "main");
+  const result = toWorkspaceSpecificPath("f/my_folder/folder.meta.yaml", "main");
   expect(result).toEqual("f/my_folder/folder.main.meta.yaml");
 });
 
-test("toBranchSpecificPath: converts nested folder meta path to branch-specific", () => {
-  const result = toBranchSpecificPath("f/parent/child/folder.meta.yaml", "develop");
+test("toWorkspaceSpecificPath: converts nested folder meta path to workspace-specific", () => {
+  const result = toWorkspaceSpecificPath("f/parent/child/folder.meta.yaml", "develop");
   expect(result).toEqual("f/parent/child/folder.develop.meta.yaml");
 });
 
-test("toBranchSpecificPath: sanitizes branch name in folder path", () => {
-  const result = toBranchSpecificPath("f/env/folder.meta.yaml", "feature/test");
+test("toWorkspaceSpecificPath: sanitizes branch name in folder path", () => {
+  const result = toWorkspaceSpecificPath("f/env/folder.meta.yaml", "feature/test");
   expect(result).toEqual("f/env/folder.feature_test.meta.yaml");
 });
 
-test("fromBranchSpecificPath: converts branch-specific folder back to base", () => {
-  const result = fromBranchSpecificPath("f/my_folder/folder.main.meta.yaml", "main");
+test("fromWorkspaceSpecificPath: converts workspace-specific folder back to base", () => {
+  const result = fromWorkspaceSpecificPath("f/my_folder/folder.main.meta.yaml", "main");
   expect(result).toEqual("f/my_folder/folder.meta.yaml");
 });
 
-test("fromBranchSpecificPath: handles nested branch-specific folder", () => {
-  const result = fromBranchSpecificPath("f/parent/child/folder.develop.meta.yaml", "develop");
+test("fromWorkspaceSpecificPath: handles nested workspace-specific folder", () => {
+  const result = fromWorkspaceSpecificPath("f/parent/child/folder.develop.meta.yaml", "develop");
   expect(result).toEqual("f/parent/child/folder.meta.yaml");
 });
 
-test("fromBranchSpecificPath: handles sanitized branch names for folders", () => {
-  const result = fromBranchSpecificPath("f/env/folder.feature_test.meta.yaml", "feature/test");
+test("fromWorkspaceSpecificPath: handles sanitized branch names for folders", () => {
+  const result = fromWorkspaceSpecificPath("f/env/folder.feature_test.meta.yaml", "feature/test");
   expect(result).toEqual("f/env/folder.meta.yaml");
 });
 
@@ -388,43 +388,43 @@ test("isSpecificItem: matches folder paths with exact pattern", () => {
   expect(isSpecificItem("f/other/folder.meta.yaml", config)).toEqual(false);
 });
 
-test("isBranchSpecificFile: detects branch-specific folder files", () => {
-  expect(isBranchSpecificFile("f/my_folder/folder.main.meta.yaml")).toEqual(true);
-  expect(isBranchSpecificFile("f/my_folder/folder.develop.meta.yaml")).toEqual(true);
-  expect(isBranchSpecificFile("f/nested/path/folder.staging.meta.yaml")).toEqual(true);
+test("isWorkspaceSpecificFile: detects workspace-specific folder files", () => {
+  expect(isWorkspaceSpecificFile("f/my_folder/folder.main.meta.yaml")).toEqual(true);
+  expect(isWorkspaceSpecificFile("f/my_folder/folder.develop.meta.yaml")).toEqual(true);
+  expect(isWorkspaceSpecificFile("f/nested/path/folder.staging.meta.yaml")).toEqual(true);
 });
 
-test("isBranchSpecificFile: returns false for non-branch-specific folder files", () => {
-  expect(isBranchSpecificFile("f/my_folder/folder.meta.yaml")).toEqual(false);
-  expect(isBranchSpecificFile("f/nested/path/folder.meta.yaml")).toEqual(false);
+test("isWorkspaceSpecificFile: returns false for non-workspace-specific folder files", () => {
+  expect(isWorkspaceSpecificFile("f/my_folder/folder.meta.yaml")).toEqual(false);
+  expect(isWorkspaceSpecificFile("f/nested/path/folder.meta.yaml")).toEqual(false);
 });
 
-test("isCurrentBranchFile: detects branch-specific folder for current branch", () => {
-  expect(isCurrentBranchFile("f/my_folder/folder.staging.meta.yaml", "staging")).toEqual(true);
-  expect(isCurrentBranchFile("f/my_folder/folder.staging.meta.yaml", "production")).toEqual(false);
-  expect(isCurrentBranchFile("f/my_folder/folder.meta.yaml", "staging")).toEqual(false);
+test("isCurrentWorkspaceFile: detects workspace-specific folder for current branch", () => {
+  expect(isCurrentWorkspaceFile("f/my_folder/folder.staging.meta.yaml", "staging")).toEqual(true);
+  expect(isCurrentWorkspaceFile("f/my_folder/folder.staging.meta.yaml", "production")).toEqual(false);
+  expect(isCurrentWorkspaceFile("f/my_folder/folder.meta.yaml", "staging")).toEqual(false);
 });
 
-test("isCurrentBranchFile: handles sanitized branch for folders", () => {
-  expect(isCurrentBranchFile("f/env/folder.feature_test.meta.yaml", "feature/test")).toEqual(true);
-  expect(isCurrentBranchFile("f/env/folder.feature_test.meta.yaml", "feature/other")).toEqual(false);
+test("isCurrentWorkspaceFile: handles sanitized branch for folders", () => {
+  expect(isCurrentWorkspaceFile("f/env/folder.feature_test.meta.yaml", "feature/test")).toEqual(true);
+  expect(isCurrentWorkspaceFile("f/env/folder.feature_test.meta.yaml", "feature/other")).toEqual(false);
 });
 
 test("round-trip: folder meta path conversion", () => {
   const original = "f/configs/env_folder/folder.meta.yaml";
   const branch = "main";
-  const branchSpecific = toBranchSpecificPath(original, branch);
+  const branchSpecific = toWorkspaceSpecificPath(original, branch);
   expect(branchSpecific).toEqual("f/configs/env_folder/folder.main.meta.yaml");
-  const restored = fromBranchSpecificPath(branchSpecific, branch);
+  const restored = fromWorkspaceSpecificPath(branchSpecific, branch);
   expect(restored).toEqual(original);
 });
 
 test("round-trip: folder meta with sanitized branch", () => {
   const original = "f/env/folder.meta.yaml";
   const branch = "feature/new-env";
-  const branchSpecific = toBranchSpecificPath(original, branch);
+  const branchSpecific = toWorkspaceSpecificPath(original, branch);
   expect(branchSpecific).toEqual("f/env/folder.feature_new-env.meta.yaml");
-  const restored = fromBranchSpecificPath(branchSpecific, branch);
+  const restored = fromWorkspaceSpecificPath(branchSpecific, branch);
   expect(restored).toEqual(original);
 });
 
@@ -432,23 +432,23 @@ test("round-trip: folder meta with sanitized branch", () => {
 // SETTINGS BRANCH-SPECIFIC TESTS
 // =============================================================================
 
-test("toBranchSpecificPath: converts settings.yaml to branch-specific", () => {
-  const result = toBranchSpecificPath("settings.yaml", "main");
+test("toWorkspaceSpecificPath: converts settings.yaml to workspace-specific", () => {
+  const result = toWorkspaceSpecificPath("settings.yaml", "main");
   expect(result).toEqual("settings.main.yaml");
 });
 
-test("toBranchSpecificPath: sanitizes branch name in settings path", () => {
-  const result = toBranchSpecificPath("settings.yaml", "feature/test");
+test("toWorkspaceSpecificPath: sanitizes branch name in settings path", () => {
+  const result = toWorkspaceSpecificPath("settings.yaml", "feature/test");
   expect(result).toEqual("settings.feature_test.yaml");
 });
 
-test("fromBranchSpecificPath: converts branch-specific settings back to base", () => {
-  const result = fromBranchSpecificPath("settings.main.yaml", "main");
+test("fromWorkspaceSpecificPath: converts workspace-specific settings back to base", () => {
+  const result = fromWorkspaceSpecificPath("settings.main.yaml", "main");
   expect(result).toEqual("settings.yaml");
 });
 
-test("fromBranchSpecificPath: handles sanitized branch names for settings", () => {
-  const result = fromBranchSpecificPath("settings.feature_test.yaml", "feature/test");
+test("fromWorkspaceSpecificPath: handles sanitized branch names for settings", () => {
+  const result = fromWorkspaceSpecificPath("settings.feature_test.yaml", "feature/test");
   expect(result).toEqual("settings.yaml");
 });
 
@@ -473,49 +473,49 @@ test("isSpecificItem: does not match settings.yaml when settings is undefined", 
   expect(isSpecificItem("settings.yaml", config)).toEqual(false);
 });
 
-test("isBranchSpecificFile: detects branch-specific settings files", () => {
-  expect(isBranchSpecificFile("settings.main.yaml")).toEqual(true);
-  expect(isBranchSpecificFile("settings.develop.yaml")).toEqual(true);
-  expect(isBranchSpecificFile("settings.feature_test.yaml")).toEqual(true);
+test("isWorkspaceSpecificFile: detects workspace-specific settings files", () => {
+  expect(isWorkspaceSpecificFile("settings.main.yaml")).toEqual(true);
+  expect(isWorkspaceSpecificFile("settings.develop.yaml")).toEqual(true);
+  expect(isWorkspaceSpecificFile("settings.feature_test.yaml")).toEqual(true);
 });
 
-test("isBranchSpecificFile: returns false for non-branch-specific settings", () => {
-  expect(isBranchSpecificFile("settings.yaml")).toEqual(false);
+test("isWorkspaceSpecificFile: returns false for non-workspace-specific settings", () => {
+  expect(isWorkspaceSpecificFile("settings.yaml")).toEqual(false);
 });
 
-test("isCurrentBranchFile: detects branch-specific settings for current branch", () => {
-  expect(isCurrentBranchFile("settings.staging.yaml", "staging")).toEqual(true);
-  expect(isCurrentBranchFile("settings.staging.yaml", "production")).toEqual(false);
-  expect(isCurrentBranchFile("settings.yaml", "staging")).toEqual(false);
+test("isCurrentWorkspaceFile: detects workspace-specific settings for current branch", () => {
+  expect(isCurrentWorkspaceFile("settings.staging.yaml", "staging")).toEqual(true);
+  expect(isCurrentWorkspaceFile("settings.staging.yaml", "production")).toEqual(false);
+  expect(isCurrentWorkspaceFile("settings.yaml", "staging")).toEqual(false);
 });
 
-test("isCurrentBranchFile: handles sanitized branch for settings", () => {
-  expect(isCurrentBranchFile("settings.feature_test.yaml", "feature/test")).toEqual(true);
-  expect(isCurrentBranchFile("settings.feature_test.yaml", "feature/other")).toEqual(false);
+test("isCurrentWorkspaceFile: handles sanitized branch for settings", () => {
+  expect(isCurrentWorkspaceFile("settings.feature_test.yaml", "feature/test")).toEqual(true);
+  expect(isCurrentWorkspaceFile("settings.feature_test.yaml", "feature/other")).toEqual(false);
 });
 
 test("round-trip: settings path conversion", () => {
   const original = "settings.yaml";
   const branch = "main";
-  const branchSpecific = toBranchSpecificPath(original, branch);
+  const branchSpecific = toWorkspaceSpecificPath(original, branch);
   expect(branchSpecific).toEqual("settings.main.yaml");
-  const restored = fromBranchSpecificPath(branchSpecific, branch);
+  const restored = fromWorkspaceSpecificPath(branchSpecific, branch);
   expect(restored).toEqual(original);
 });
 
 test("round-trip: settings with sanitized branch", () => {
   const original = "settings.yaml";
   const branch = "release/v1.0";
-  const branchSpecific = toBranchSpecificPath(original, branch);
+  const branchSpecific = toWorkspaceSpecificPath(original, branch);
   expect(branchSpecific).toEqual("settings.release_v1_0.yaml");
-  const restored = fromBranchSpecificPath(branchSpecific, branch);
+  const restored = fromWorkspaceSpecificPath(branchSpecific, branch);
   expect(restored).toEqual(original);
 });
 
 // =============================================================================
 // isItemTypeConfigured TESTS
 // This function checks if the TYPE is configured, not whether it matches pattern.
-// Used to determine if branch-specific files should be used for this type.
+// Used to determine if workspace-specific files should be used for this type.
 // =============================================================================
 
 test("isItemTypeConfigured: returns false when specificItems is undefined", () => {
@@ -628,11 +628,11 @@ test("isItemTypeConfigured: returns false for resource files when resources is N
 // =============================================================================
 // BRANCH-SPECIFIC FILE FILTERING TESTS
 // These tests verify the expected filtering behavior:
-// - When type IS configured: use branch-specific files, skip base files
-// - When type is NOT configured: skip branch-specific files, use base files
+// - When type IS configured: use workspace-specific files, skip base files
+// - When type is NOT configured: skip workspace-specific files, use base files
 // =============================================================================
 
-test("filtering logic: folders - when NOT configured, branch-specific should be ignored", () => {
+test("filtering logic: folders - when NOT configured, workspace-specific should be ignored", () => {
   // Config has variables but NOT folders
   const config: SpecificItemsConfig = {
     variables: ["f/**"],
@@ -644,15 +644,15 @@ test("filtering logic: folders - when NOT configured, branch-specific should be 
   // Folder type is NOT configured
   expect(isItemTypeConfigured(basePath, config)).toEqual(false);
 
-  // Therefore, branch-specific file detection should not apply to this type
+  // Therefore, workspace-specific file detection should not apply to this type
   // The sync logic should:
-  // 1. Skip branch-specific folder files (isBranchSpecificFile returns true)
+  // 1. Skip workspace-specific folder files (isWorkspaceSpecificFile returns true)
   // 2. Use the base file
-  expect(isBranchSpecificFile(branchSpecificPath)).toEqual(true);
-  expect(isBranchSpecificFile(basePath)).toEqual(false);
+  expect(isWorkspaceSpecificFile(branchSpecificPath)).toEqual(true);
+  expect(isWorkspaceSpecificFile(basePath)).toEqual(false);
 });
 
-test("filtering logic: folders - when IS configured and matches, use branch-specific", () => {
+test("filtering logic: folders - when IS configured and matches, use workspace-specific", () => {
   const config: SpecificItemsConfig = {
     folders: ["f/my_folder"],
   };
@@ -667,15 +667,15 @@ test("filtering logic: folders - when IS configured and matches, use branch-spec
   expect(isSpecificItem(basePath, config)).toEqual(true);
 
   // The sync logic should:
-  // 1. Use branch-specific folder file (map to base path)
+  // 1. Use workspace-specific folder file (map to base path)
   // 2. Skip the base file
-  expect(isBranchSpecificFile(branchSpecificPath)).toEqual(true);
-  expect(fromBranchSpecificPath(branchSpecificPath, "main")).toEqual(basePath);
+  expect(isWorkspaceSpecificFile(branchSpecificPath)).toEqual(true);
+  expect(fromWorkspaceSpecificPath(branchSpecificPath, "main")).toEqual(basePath);
 });
 
-test("filtering logic: folders - when IS configured but doesn't match, skip branch-specific", () => {
+test("filtering logic: folders - when IS configured but doesn't match, skip workspace-specific", () => {
   const config: SpecificItemsConfig = {
-    folders: ["f/env_*"], // Only env_ folders are branch-specific
+    folders: ["f/env_*"], // Only env_ folders are workspace-specific
   };
 
   const basePath = "f/other_folder/folder.meta.yaml";
@@ -688,11 +688,11 @@ test("filtering logic: folders - when IS configured but doesn't match, skip bran
   expect(isSpecificItem(basePath, config)).toEqual(false);
 
   // The sync logic should:
-  // 1. Skip the branch-specific file (type configured but doesn't match)
+  // 1. Skip the workspace-specific file (type configured but doesn't match)
   // 2. Use the base file
 });
 
-test("filtering logic: settings - when NOT configured, branch-specific should be ignored", () => {
+test("filtering logic: settings - when NOT configured, workspace-specific should be ignored", () => {
   // Config has variables but NOT settings
   const config: SpecificItemsConfig = {
     variables: ["f/**"],
@@ -704,12 +704,12 @@ test("filtering logic: settings - when NOT configured, branch-specific should be
   // Settings type is NOT configured
   expect(isItemTypeConfigured(basePath, config)).toEqual(false);
 
-  // Therefore, branch-specific file detection should not apply to this type
-  expect(isBranchSpecificFile(branchSpecificPath)).toEqual(true);
-  expect(isBranchSpecificFile(basePath)).toEqual(false);
+  // Therefore, workspace-specific file detection should not apply to this type
+  expect(isWorkspaceSpecificFile(branchSpecificPath)).toEqual(true);
+  expect(isWorkspaceSpecificFile(basePath)).toEqual(false);
 });
 
-test("filtering logic: settings - when IS configured (true), use branch-specific", () => {
+test("filtering logic: settings - when IS configured (true), use workspace-specific", () => {
   const config: SpecificItemsConfig = {
     settings: true,
   };
@@ -723,12 +723,12 @@ test("filtering logic: settings - when IS configured (true), use branch-specific
   // And settings: true means it matches
   expect(isSpecificItem(basePath, config)).toEqual(true);
 
-  // The sync logic should use branch-specific file
-  expect(isBranchSpecificFile(branchSpecificPath)).toEqual(true);
-  expect(fromBranchSpecificPath(branchSpecificPath, "main")).toEqual(basePath);
+  // The sync logic should use workspace-specific file
+  expect(isWorkspaceSpecificFile(branchSpecificPath)).toEqual(true);
+  expect(fromWorkspaceSpecificPath(branchSpecificPath, "main")).toEqual(basePath);
 });
 
-test("filtering logic: settings - when IS configured (false), skip branch-specific", () => {
+test("filtering logic: settings - when IS configured (false), skip workspace-specific", () => {
   // settings: false means type is configured but explicitly disabled
   const config: SpecificItemsConfig = {
     settings: false,
@@ -743,10 +743,10 @@ test("filtering logic: settings - when IS configured (false), skip branch-specif
   // But settings: false means it doesn't match (not a specific item)
   expect(isSpecificItem(basePath, config)).toEqual(false);
 
-  // The sync logic should skip branch-specific file and use base
+  // The sync logic should skip workspace-specific file and use base
 });
 
-test("filtering logic: variables - when NOT configured, branch-specific should be ignored", () => {
+test("filtering logic: variables - when NOT configured, workspace-specific should be ignored", () => {
   // Config has folders but NOT variables
   const config: SpecificItemsConfig = {
     folders: ["f/env_*"],
@@ -759,11 +759,11 @@ test("filtering logic: variables - when NOT configured, branch-specific should b
   expect(isItemTypeConfigured(basePath, config)).toEqual(false);
 
   // Branch-specific variable files should be ignored
-  expect(isBranchSpecificFile(branchSpecificPath)).toEqual(true);
-  expect(isBranchSpecificFile(basePath)).toEqual(false);
+  expect(isWorkspaceSpecificFile(branchSpecificPath)).toEqual(true);
+  expect(isWorkspaceSpecificFile(basePath)).toEqual(false);
 });
 
-test("filtering logic: resources - when NOT configured, branch-specific should be ignored", () => {
+test("filtering logic: resources - when NOT configured, workspace-specific should be ignored", () => {
   // Config has folders but NOT resources
   const config: SpecificItemsConfig = {
     folders: ["f/env_*"],
@@ -775,11 +775,11 @@ test("filtering logic: resources - when NOT configured, branch-specific should b
   // Resource type is NOT configured
   expect(isItemTypeConfigured(basePath, config)).toEqual(false);
 
-  expect(isBranchSpecificFile(branchSpecificPath)).toEqual(true);
-  expect(isBranchSpecificFile(basePath)).toEqual(false);
+  expect(isWorkspaceSpecificFile(branchSpecificPath)).toEqual(true);
+  expect(isWorkspaceSpecificFile(basePath)).toEqual(false);
 });
 
-test("filtering logic: triggers - when NOT configured, branch-specific should be ignored", () => {
+test("filtering logic: triggers - when NOT configured, workspace-specific should be ignored", () => {
   // Config has folders but NOT triggers
   const config: SpecificItemsConfig = {
     folders: ["f/env_*"],
@@ -791,8 +791,8 @@ test("filtering logic: triggers - when NOT configured, branch-specific should be
   // Trigger type is NOT configured
   expect(isItemTypeConfigured(basePath, config)).toEqual(false);
 
-  expect(isBranchSpecificFile(branchSpecificPath)).toEqual(true);
-  expect(isBranchSpecificFile(basePath)).toEqual(false);
+  expect(isWorkspaceSpecificFile(branchSpecificPath)).toEqual(true);
+  expect(isWorkspaceSpecificFile(basePath)).toEqual(false);
 });
 
 // =============================================================================

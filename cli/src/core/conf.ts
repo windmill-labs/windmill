@@ -18,6 +18,43 @@ export function setShowDiffs(value: boolean) {
   showDiffs = value;
 }
 
+export interface SpecificItemsConfig_Yaml {
+  variables?: string[];
+  resources?: string[];
+  triggers?: string[];
+  schedules?: string[];
+  folders?: string[];
+  settings?: boolean;
+}
+
+export interface WorkspaceEntryConfig extends SyncOptions {
+  gitBranch?: string;
+  workspaceId?: string;
+  baseUrl?: string;
+  overrides?: Partial<SyncOptions>;
+  promotionOverrides?: Partial<SyncOptions>;
+  specificItems?: SpecificItemsConfig_Yaml;
+}
+
+export type WorkspacesConfig = {
+  commonSpecificItems?: SpecificItemsConfig_Yaml;
+} & {
+  [workspaceName: string]: WorkspaceEntryConfig;
+};
+
+// Legacy type alias for backward compat
+type LegacyBranchesConfig = {
+  commonSpecificItems?: SpecificItemsConfig_Yaml;
+} & {
+  [branchName: string]: SyncOptions & {
+    overrides?: Partial<SyncOptions>;
+    promotionOverrides?: Partial<SyncOptions>;
+    baseUrl?: string;
+    workspaceId?: string;
+    specificItems?: SpecificItemsConfig_Yaml;
+  };
+};
+
 export interface SyncOptions {
   stateful?: boolean;
   raw?: boolean;
@@ -52,59 +89,12 @@ export interface SyncOptions {
   parallel?: number;
   jsonOutput?: boolean;
   nonDottedPaths?: boolean;
-  gitBranches?: {
-    commonSpecificItems?: {
-      variables?: string[];
-      resources?: string[];
-      triggers?: string[];
-      schedules?: string[];
-      folders?: string[];
-      settings?: boolean;
-    };
-  } & {
-    [branchName: string]: SyncOptions & {
-      overrides?: Partial<SyncOptions>;
-      promotionOverrides?: Partial<SyncOptions>;
-      baseUrl?: string;
-      workspaceId?: string;
-      specificItems?: {
-        variables?: string[];
-        resources?: string[];
-        triggers?: string[];
-        schedules?: string[];
-        folders?: string[];
-        settings?: boolean;
-      };
-    };
-  };
-  // Alias for gitBranches - for users who prefer environment-based terminology
-  environments?: SyncOptions["gitBranches"];
-  // Legacy field - deprecated, use gitBranches instead
-  git_branches?: {
-    commonSpecificItems?: {
-      variables?: string[];
-      resources?: string[];
-      triggers?: string[];
-      schedules?: string[];
-      folders?: string[];
-      settings?: boolean;
-    };
-  } & {
-    [branchName: string]: SyncOptions & {
-      overrides?: Partial<SyncOptions>;
-      promotionOverrides?: Partial<SyncOptions>;
-      baseUrl?: string;
-      workspaceId?: string;
-      specificItems?: {
-        variables?: string[];
-        resources?: string[];
-        triggers?: string[];
-        schedules?: string[];
-        folders?: string[];
-        settings?: boolean;
-      };
-    };
-  };
+  // Primary config key — maps workspace names to workspace configurations
+  workspaces?: WorkspacesConfig;
+  // Deprecated aliases — normalized to `workspaces` in readConfigFile
+  gitBranches?: LegacyBranchesConfig;
+  environments?: LegacyBranchesConfig;
+  git_branches?: LegacyBranchesConfig;
   promotion?: string;
   lint?: boolean;
   locksRequired?: boolean;
@@ -195,6 +185,8 @@ export function getWmillYamlPath(): string | null {
   return findWmillYaml();
 }
 
+let legacyConfigWarned = false;
+
 export async function readConfigFile(opts?: { warnIfMissing?: boolean }): Promise<SyncOptions> {
   const warnIfMissing = opts?.warnIfMissing ?? true;
   try {
@@ -212,10 +204,6 @@ export async function readConfigFile(opts?: { warnIfMissing?: boolean }): Promis
 
     const conf = (await yamlParseFile(wmillYamlPath)) as SyncOptions;
 
-    // Handle legacy format migrations (combine overrides and git_branches)
-    let needsConfigWrite = false;
-    const migrationMessages: string[] = [];
-
     // Handle obsolete overrides format
     if (conf && "overrides" in conf) {
       const overrides = conf.overrides as any;
@@ -227,81 +215,55 @@ export async function readConfigFile(opts?: { warnIfMissing?: boolean }): Promis
       if (hasSettings) {
         throw new Error(
           "❌ The 'overrides' field is no longer supported.\n" +
-            "   The configuration system now uses Git branch-based configuration only.\n" +
+            "   The configuration system now uses workspace-based configuration.\n" +
             "   Please delete your wmill.yaml and run 'wmill init' to recreate it with the new format."
         );
       } else {
-        // Remove empty overrides
         delete conf.overrides;
-        needsConfigWrite = true;
-        migrationMessages.push(
-          "ℹ️  Removing empty 'overrides: {}' from wmill.yaml (migrated to gitBranches format)"
-        );
       }
     }
 
-    // Handle environments -> gitBranches alias (permanent alias, not a deprecation)
-    if (conf && "environments" in conf) {
-      if (!conf.gitBranches) {
-        conf.gitBranches = conf.environments as any;
-      } else {
-        log.warn(
-          "⚠️  Both 'environments' and 'gitBranches' found in wmill.yaml. Using 'gitBranches' and ignoring 'environments'."
-        );
-      }
-      delete (conf as any).environments;
-    }
+    // Normalize legacy formats to `workspaces` in memory (no file rewrite).
+    // Priority: workspaces > gitBranches > environments > git_branches
+    if (conf && !conf.workspaces) {
+      let legacyKey: string | null = null;
+      let legacyData: LegacyBranchesConfig | undefined;
 
-    // Handle git_branches to gitBranches migration
-    if (conf && "git_branches" in conf) {
-      if (!conf.gitBranches) {
-        // Deep copy git_branches to gitBranches (even if empty)
-        conf.gitBranches = JSON.parse(JSON.stringify(conf.git_branches));
-        needsConfigWrite = true;
-        migrationMessages.push(
-          "⚠️  Migrating 'git_branches' to 'gitBranches' (camelCase). The snake_case format is deprecated."
-        );
-        migrationMessages.push(
-          "✅ Successfully migrated 'git_branches' to 'gitBranches' in wmill.yaml"
-        );
-      } else {
-        migrationMessages.push(
-          "⚠️  Both 'git_branches' and 'gitBranches' found in wmill.yaml. Using 'gitBranches' and ignoring 'git_branches'."
-        );
+      if (conf.gitBranches) {
+        legacyKey = "gitBranches";
+        legacyData = conf.gitBranches;
+      } else if (conf.environments) {
+        legacyKey = "environments";
+        legacyData = conf.environments;
+      } else if (conf.git_branches) {
+        legacyKey = "git_branches";
+        legacyData = conf.git_branches;
       }
-      // Always remove the old field from config object (both file and memory)
-      delete conf.git_branches;
-    }
 
-    // Perform single atomic write if any migrations are needed
-    if (needsConfigWrite) {
-      try {
-        await writeFile(wmillYamlPath, yamlStringify(conf), "utf-8");
-        // Log all migration messages after successful write
-        migrationMessages.forEach((msg) => {
-          if (msg.startsWith("⚠️")) {
-            log.warn(msg);
-          } else {
-            log.info(msg);
-          }
-        });
-      } catch (error) {
-        log.warn(
-          `Could not update wmill.yaml to apply migrations: ${
-            error instanceof Error ? error.message : error
-          }`
-        );
-      }
-    } else if (migrationMessages.length > 0) {
-      // Log messages for non-write cases (like "both found")
-      migrationMessages.forEach((msg) => {
-        if (msg.startsWith("⚠️")) {
-          log.warn(msg);
-        } else {
-          log.info(msg);
+      if (legacyKey && legacyData) {
+        conf.workspaces = convertGitBranchesToWorkspaces(legacyData);
+        if (!legacyConfigWarned) {
+          log.warn(
+            `⚠️  '${legacyKey}' in wmill.yaml is deprecated. Use 'workspaces' instead.\n` +
+            `   Run 'wmill config migrate' to update your configuration automatically.`
+          );
+          legacyConfigWarned = true;
         }
-      });
+      }
+    } else if (conf?.workspaces) {
+      // If both workspaces and any legacy key exist, warn and use workspaces
+      for (const legacyKey of ["gitBranches", "environments", "git_branches"] as const) {
+        if ((conf as any)[legacyKey]) {
+          log.warn(
+            `⚠️  Both 'workspaces' and '${legacyKey}' found in wmill.yaml. Using 'workspaces' and ignoring '${legacyKey}'.`
+          );
+        }
+      }
     }
+    // Clean legacy keys from in-memory config
+    delete conf?.gitBranches;
+    delete (conf as any)?.environments;
+    delete conf?.git_branches;
 
     if (conf?.defaultTs == undefined) {
       log.warn(
@@ -403,18 +365,18 @@ export async function mergeConfigWithConfigFile<T>(
   return Object.assign(configFile ?? {}, opts);
 }
 
-// Validate branch configuration early in the process
+// Validate workspace configuration early in the process
 export async function validateBranchConfiguration(
   opts: Pick<SyncOptions, "skipBranchValidation" | "yes">,
-  branchOverride?: string
+  workspaceNameOverride?: string
 ): Promise<void> {
-  // When branch override is provided, skip validation - user is explicitly specifying the branch
-  if (opts.skipBranchValidation || branchOverride || !isGitRepository()) {
+  // When workspace override is provided, skip validation - user is explicitly specifying the workspace
+  if (opts.skipBranchValidation || workspaceNameOverride || !isGitRepository()) {
     return;
   }
 
   const config = await readConfigFile();
-  const { gitBranches } = config;
+  const { workspaces } = config;
 
   const rawBranch = getCurrentGitBranch();
 
@@ -423,37 +385,66 @@ export async function validateBranchConfiguration(
   let currentBranch: string | null;
   if (originalBranchIfForked) {
     log.info(
-      `Workspace fork detected from branch name \`${rawBranch}\`. Validating branch configuration using original branch \`${originalBranchIfForked}\``
+      `Workspace fork detected from branch name \`${rawBranch}\`. Validating workspace configuration using original branch \`${originalBranchIfForked}\``
     );
     currentBranch = originalBranchIfForked;
   } else {
     currentBranch = rawBranch;
   }
 
-  // In a git repository, gitBranches section is recommended
-  if (!gitBranches || Object.keys(gitBranches).length === 0) {
+  // In a git repository, workspaces section is recommended
+  if (!workspaces || getWorkspaceNames(workspaces).length === 0) {
     log.warn(
-      "⚠️  WARNING: In a Git repository, the 'gitBranches' section is recommended in wmill.yaml.\n" +
-        "   Consider adding a gitBranches section with configuration for your Git branches.\n" +
-        "   Run 'wmill init' to recreate the configuration file with proper branch setup."
+      "⚠️  WARNING: In a Git repository, the 'workspaces' section is recommended in wmill.yaml.\n" +
+        "   Consider adding a workspaces section to map workspace names to Windmill instances.\n" +
+        "   Run 'wmill init' to recreate the configuration file with proper workspace setup."
     );
     return;
   }
 
-  // Current branch must be defined in gitBranches config
-  if (currentBranch && !gitBranches[currentBranch]) {
-    // In interactive mode, offer to create the branch
+  // Warn if multiple workspaces map to the same git branch
+  const branchToWsNames = new Map<string, string[]>();
+  for (const name of getWorkspaceNames(workspaces)) {
+    const entry = workspaces[name] as WorkspaceEntryConfig;
+    const branch = getEffectiveGitBranch(name, entry);
+    const existing = branchToWsNames.get(branch);
+    if (existing) {
+      existing.push(name);
+    } else {
+      branchToWsNames.set(branch, [name]);
+    }
+  }
+  for (const [branch, names] of branchToWsNames) {
+    if (names.length > 1) {
+      log.warn(
+        `⚠️  WARNING: Multiple workspaces map to git branch '${branch}': ${names.join(", ")}.\n` +
+          `   Only the first ('${names[0]}') will be used during auto-detection. Use --workspace to select explicitly.`
+      );
+    }
+  }
+
+  // Current branch must match a configured workspace's gitBranch
+  if (currentBranch && !findWorkspaceByGitBranch(workspaces, currentBranch)) {
+    const wsNames = getWorkspaceNames(workspaces);
+    const availableInfo = wsNames
+      .map((n) => {
+        const entry = workspaces[n] as WorkspaceEntryConfig;
+        const branch = getEffectiveGitBranch(n, entry);
+        return branch !== n ? `${n} (gitBranch: ${branch})` : n;
+      })
+      .join(", ");
+
+    // In interactive mode, offer to create a workspace entry
     if (!!process.stdin.isTTY) {
-      const availableBranches = Object.keys(gitBranches).join(", ");
       log.info(
-        `Current Git branch '${currentBranch}' is not defined in the gitBranches configuration.\n` +
-          `Available branches: ${availableBranches}`
+        `Current Git branch '${currentBranch}' does not match any workspace in the configuration.\n` +
+          `Available workspaces: ${availableInfo}`
       );
 
       const shouldCreate =
         opts.yes ||
         (await Confirm.prompt({
-          message: `Create empty branch configuration for '${currentBranch}'?`,
+          message: `Create empty workspace configuration for branch '${currentBranch}'?`,
           default: true,
         }));
 
@@ -475,22 +466,22 @@ export async function validateBranchConfiguration(
           );
         }
 
-        // Read current config, add branch, and write it back
+        // Read current config, add workspace entry, and write it back
         const currentConfig = await readConfigFile();
 
-        if (!currentConfig.gitBranches) {
-          currentConfig.gitBranches = {};
+        if (!currentConfig.workspaces) {
+          currentConfig.workspaces = {} as WorkspacesConfig;
         }
-        currentConfig.gitBranches[currentBranch] = { overrides: {} };
+        (currentConfig.workspaces as any)[currentBranch] = {};
 
         await writeFile("wmill.yaml", yamlStringify(currentConfig), "utf-8");
 
         log.info(
-          `✅ Created empty branch configuration for '${currentBranch}'`
+          `✅ Created empty workspace configuration for '${currentBranch}'`
         );
       } else {
         log.warn(
-          "⚠️  WARNING: Branch creation cancelled. You can manually add the branch to wmill.yaml or use 'wmill gitsync-settings pull' to pull configuration from an existing windmill workspace git-sync configuration."
+          "⚠️  WARNING: Workspace creation cancelled. You can manually add a workspace to the 'workspaces' section in wmill.yaml or use 'wmill gitsync-settings pull' to pull configuration from an existing windmill workspace git-sync configuration."
         );
         return;
       }
@@ -510,95 +501,171 @@ export async function validateBranchConfiguration(
       }
 
       log.warn(
-        `⚠️  WARNING: Current Git branch '${currentBranch}' is not defined in the gitBranches configuration.\n` +
-          `   Consider adding configuration for branch '${currentBranch}' in the gitBranches section of wmill.yaml.\n` +
-          `   Available branches: ${Object.keys(gitBranches).join(", ")}`
+        `⚠️  WARNING: Current Git branch '${currentBranch}' does not match any workspace in the configuration.\n` +
+          `   Consider adding a workspace entry for branch '${currentBranch}' in the 'workspaces' section of wmill.yaml.\n` +
+          `   Available workspaces: ${availableInfo}`
       );
       return;
     }
   }
 }
 
-// Get effective settings by merging top-level settings with branch-specific overrides
+// Get effective settings by merging top-level settings with workspace-specific overrides.
+// workspaceNameOverride selects a workspace by name directly.
+// When not provided, auto-detects from the current git branch.
 export async function getEffectiveSettings(
   config: SyncOptions,
   promotion?: string,
   skipBranchValidation?: boolean,
   suppressLogs?: boolean,
-  branchOverride?: string
+  workspaceNameOverride?: string
 ): Promise<SyncOptions> {
   // Start with top-level settings from config
-  const { gitBranches, ...topLevelSettings } = config;
+  const { workspaces, ...topLevelSettings } = config;
   const effective = { ...topLevelSettings };
 
-  // Determine the branch to use: branchOverride takes precedence, then git detection
-  let currentBranch: string | null = null;
+  // Resolve the workspace entry to use
+  let resolvedWsName: string | null = null;
+  let resolvedWsEntry: WorkspaceEntryConfig | null = null;
   let originalBranchIfForked: string | null = null;
   let rawGitBranch: string | null = null;
 
-  if (branchOverride) {
-    currentBranch = branchOverride;
-    // Note: "Using branch override" is logged in context.ts when resolving workspace
+  if (workspaceNameOverride) {
+    // Direct lookup by workspace name
+    if (workspaces && (workspaces as any)[workspaceNameOverride]) {
+      resolvedWsName = workspaceNameOverride;
+      resolvedWsEntry = (workspaces as any)[workspaceNameOverride] as WorkspaceEntryConfig;
+    }
   } else if (isGitRepository()) {
     rawGitBranch = getCurrentGitBranch();
     originalBranchIfForked = getOriginalBranchForWorkspaceForks(rawGitBranch);
 
+    const branch = originalBranchIfForked ?? rawGitBranch;
     if (originalBranchIfForked) {
       log.info(
         `Using overrides from original branch \`${originalBranchIfForked}\``
       );
-      currentBranch = originalBranchIfForked;
-    } else {
-      currentBranch = rawGitBranch;
+    }
+
+    if (branch) {
+      const match = findWorkspaceByGitBranch(workspaces, branch);
+      if (match) {
+        [resolvedWsName, resolvedWsEntry] = match;
+      }
     }
   } else {
-    log.debug("Not in a Git repository and no branch override provided, using top-level settings");
+    log.debug("Not in a Git repository and no workspace override provided, using top-level settings");
   }
 
   // If promotion is specified, use that branch's promotionOverrides or overrides
-  if (promotion && gitBranches && gitBranches[promotion]) {
-    const targetBranch = gitBranches[promotion];
+  if (promotion && workspaces) {
+    const promotionMatch = findWorkspaceByGitBranch(workspaces, promotion);
+    if (promotionMatch) {
+      const [, targetWs] = promotionMatch;
 
-    // First try promotionOverrides, then fall back to overrides
-    if (targetBranch.promotionOverrides) {
-      Object.assign(effective, targetBranch.promotionOverrides);
-      if (!suppressLogs) {
-        log.info(`Applied promotion settings from branch: ${promotion}`);
-      }
-    } else if (targetBranch.overrides) {
-      Object.assign(effective, targetBranch.overrides);
-      if (!suppressLogs) {
-        log.info(
-          `Applied settings from branch: ${promotion} (no promotionOverrides found)`
+      // First try promotionOverrides, then fall back to overrides
+      if (targetWs.promotionOverrides) {
+        Object.assign(effective, targetWs.promotionOverrides);
+        if (!suppressLogs) {
+          log.info(`Applied promotion settings from workspace for branch: ${promotion}`);
+        }
+      } else if (targetWs.overrides) {
+        Object.assign(effective, targetWs.overrides);
+        if (!suppressLogs) {
+          log.info(
+            `Applied settings from workspace for branch: ${promotion} (no promotionOverrides found)`
+          );
+        }
+      } else {
+        log.debug(
+          `No promotion or regular overrides found for '${promotion}', using top-level settings`
         );
       }
-    } else {
-      log.debug(
-        `No promotion or regular overrides found for branch '${promotion}', using top-level settings`
-      );
     }
   }
-  // Otherwise use current branch overrides (existing behavior)
-  else if (
-    currentBranch &&
-    gitBranches &&
-    gitBranches[currentBranch] &&
-    gitBranches[currentBranch].overrides
-  ) {
-    Object.assign(effective, gitBranches[currentBranch].overrides);
+  // Otherwise use resolved workspace's overrides
+  else if (resolvedWsEntry?.overrides) {
+    Object.assign(effective, resolvedWsEntry.overrides);
     if (!suppressLogs) {
       const extraLog = originalBranchIfForked
         ? ` (because it is the origin of the workspace fork branch \`${rawGitBranch}\`)`
         : "";
       log.info(
-        `Applied settings for Git branch: ${currentBranch}${extraLog}`
+        `Applied settings for workspace '${resolvedWsName}'${extraLog}`
       );
     }
-  } else if (currentBranch) {
+  } else if (resolvedWsName) {
     log.debug(
-      `No branch-specific overrides found for '${currentBranch}', using top-level settings`
+      `No overrides found for workspace '${resolvedWsName}', using top-level settings`
     );
   }
 
   return effective;
+}
+
+const RESERVED_WORKSPACE_KEYS = new Set(["commonSpecificItems"]);
+
+/**
+ * Find a workspace config entry whose effective git branch matches branchName.
+ * Returns [workspaceName, config] or undefined.
+ */
+export function findWorkspaceByGitBranch(
+  workspaces: WorkspacesConfig | undefined,
+  branchName: string
+): [string, WorkspaceEntryConfig] | undefined {
+  if (!workspaces) return undefined;
+  for (const [name, entry] of Object.entries(workspaces)) {
+    if (RESERVED_WORKSPACE_KEYS.has(name)) continue;
+    const effectiveBranch = (entry as WorkspaceEntryConfig).gitBranch ?? name;
+    if (effectiveBranch === branchName) {
+      return [name, entry as WorkspaceEntryConfig];
+    }
+  }
+  return undefined;
+}
+
+/** Get the effective workspaceId for a workspace entry (defaults to workspace name). */
+export function getEffectiveWorkspaceId(
+  workspaceName: string,
+  config: WorkspaceEntryConfig
+): string {
+  return config.workspaceId ?? workspaceName;
+}
+
+/** Get the effective git branch for a workspace entry (defaults to workspace name). */
+export function getEffectiveGitBranch(
+  workspaceName: string,
+  config: WorkspaceEntryConfig
+): string {
+  return config.gitBranch ?? workspaceName;
+}
+
+/** Get all workspace names from config, excluding reserved keys like commonSpecificItems. */
+export function getWorkspaceNames(
+  workspaces: WorkspacesConfig | undefined
+): string[] {
+  if (!workspaces) return [];
+  return Object.keys(workspaces).filter((k) => !RESERVED_WORKSPACE_KEYS.has(k));
+}
+
+/**
+ * Convert legacy gitBranches/environments format to the new workspaces format.
+ * Since old keys were branch names, workspace name = branch name.
+ * gitBranch is not set (defaults to key name). All existing fields are preserved.
+ */
+export function convertGitBranchesToWorkspaces(
+  gitBranches: LegacyBranchesConfig
+): WorkspacesConfig {
+  const workspaces: Record<string, any> = {};
+  for (const [key, value] of Object.entries(gitBranches)) {
+    if (key === "commonSpecificItems") {
+      workspaces.commonSpecificItems = value;
+      continue;
+    }
+    // Copy the entire entry as-is. Old format keys = branch names, so gitBranch
+    // doesn't need to be set (defaults to key name). All SyncOptions fields,
+    // overrides, promotionOverrides, specificItems, baseUrl, workspaceId are preserved.
+    workspaces[key] = { ...value };
+  }
+  return workspaces as WorkspacesConfig;
 }

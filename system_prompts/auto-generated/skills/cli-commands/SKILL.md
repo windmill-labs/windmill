@@ -59,6 +59,10 @@ Show all available wmill.yaml configuration options
 **Options:**
 - `--json` - Output as JSON for programmatic consumption
 
+**Subcommands:**
+
+- `config migrate` - Migrate wmill.yaml from gitBranches/environments to workspaces format
+
 ### dependencies
 
 workspace dependencies related commands
@@ -430,7 +434,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--extra-includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy
   - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo) when multiple repositories exist
   - `--promotion <branch:string>` - Use promotionOverrides from the specified branch instead of regular overrides
-  - `--branch, --env <branch:string>` - Override the current git branch/environment (works even outside a git repository)
+  - `--branch, --env <branch:string>` - [Deprecated: use --workspace] Override the current git branch/environment
 - `sync push` - Push any local changes and apply them remotely.
   - `--yes` - Push without needing confirmation
   - `--dry-run` - Show changes that would be pushed without actually pushing
@@ -461,7 +465,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--message <message:string>` - Include a message that will be added to all scripts/flows/apps updated during this push
   - `--parallel <number>` - Number of changes to process in parallel
   - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo) when multiple repositories exist
-  - `--branch, --env <branch:string>` - Override the current git branch/environment (works even outside a git repository)
+  - `--branch, --env <branch:string>` - [Deprecated: use --workspace] Override the current git branch/environment
   - `--lint` - Run lint validation before pushing
   - `--locks-required` - Fail if scripts or flow inline scripts that need locks have no locks
   - `--auto-metadata` - Automatically regenerate stale metadata (locks and schemas) before pushing
@@ -580,10 +584,11 @@ workspace related commands
 - `workspace list` - List local workspace profiles
 - `workspace list-remote` - List workspaces on the remote server that you have access to
 - `workspace list-forks` - List forked workspaces on the remote server
-- `workspace bind` - Bind the current Git branch to the active workspace. This adds the branch to gitBranches in wmill.yaml so sync operations use the correct workspace for each branch.
-  - `--branch, --env <branch:string>` - Specify branch/environment (defaults to current)
-- `workspace unbind` - Remove workspace binding from the current Git branch
-  - `--branch, --env <branch:string>` - Specify branch/environment (defaults to current)
+- `workspace bind` - Create or update a workspace entry in wmill.yaml from the active profile
+  - `--workspace <name:string>` - Workspace name (default: current branch or workspaceId)
+  - `--branch <branch:string>` - Git branch to associate (default: workspace name)
+- `workspace unbind` - Remove baseUrl and workspaceId from a workspace entry
+  - `--workspace <name:string>` - Workspace to unbind
 - `workspace fork [workspace_name:string] [workspace_id:string]` - Create a forked workspace
   - `--create-workspace-name <workspace_name:string>` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
   - `--color <color:string>` - Workspace color (hex code, e.g. #ff0000)

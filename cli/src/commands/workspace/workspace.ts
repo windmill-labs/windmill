@@ -518,80 +518,193 @@ export async function getActiveWorkspaceOrFallback(opts: GlobalOptions) {
   return activeWorkspace;
 }
 async function bind(
-  opts: GlobalOptions & { branch?: string },
-  bindWorkspace?: boolean
+  opts: GlobalOptions & { workspace?: string; branch?: string },
+  doBind: boolean
 ) {
   const { isGitRepository, getCurrentGitBranch } = await import(
     "../../utils/git.ts"
   );
-
-  if (!isGitRepository()) {
-    log.error(colors.red("Not in a Git repository"));
-    return;
-  }
-
-  const branch = opts.branch || getCurrentGitBranch();
-  if (!branch) {
-    log.error(colors.red("Could not determine current Git branch"));
-    return;
-  }
-
-  const { readConfigFile } = await import("../../core/conf.ts");
+  const { readConfigFile, findWorkspaceByGitBranch, getWorkspaceNames } = await import("../../core/conf.ts");
+  const { stringify: yamlStringify } = await import("yaml");
   const config = await readConfigFile();
 
-  const activeWorkspace = await getActiveWorkspaceOrFallback(opts);
-  if (!activeWorkspace && bindWorkspace) {
-    log.error(
-      colors.red(
-        "No active workspace. Use 'wmill workspace add' or 'wmill workspace switch' first"
-      )
-    );
-    return;
+  if (!config.workspaces) {
+    config.workspaces = {} as any;
   }
 
-  // For unbind, check if branch exists
-  if (!bindWorkspace && (!config.gitBranches || !config.gitBranches[branch])) {
-    log.error(
-      colors.red(`Branch '${branch}' not found in wmill.yaml gitBranches`)
-    );
-    return;
-  }
+  const isInteractive = !!process.stdin.isTTY;
+  const inGitRepo = isGitRepository();
+  const currentBranch = inGitRepo ? getCurrentGitBranch() : null;
 
-  // Update the branch configuration with workspace binding
-  if (!config.gitBranches) {
-    config.gitBranches = {};
-  }
-  if (!config.gitBranches[branch]) {
-    config.gitBranches[branch] = { overrides: {} };
-  }
+  if (doBind) {
+    // ── BIND ──────────────────────────────────────────────────
 
-  if (bindWorkspace && activeWorkspace) {
-    config.gitBranches[branch].baseUrl = activeWorkspace.remote;
-    config.gitBranches[branch].workspaceId = activeWorkspace.workspaceId;
+    // Step 1: Pick workspace profile (the source of baseUrl/workspaceId/token)
+    const profiles = await allWorkspaces(opts.configDir);
+    let selectedProfile: Workspace | undefined;
+
+    if (profiles.length === 0) {
+      // No profiles — run wmill workspace add flow
+      log.info(colors.yellow("No workspace profiles found. Let's create one."));
+      await add(opts as any, undefined, undefined, undefined);
+      // Re-read profiles after add
+      const updatedProfiles = await allWorkspaces(opts.configDir);
+      selectedProfile = updatedProfiles.length > 0
+        ? await getActiveWorkspace(opts)
+        : undefined;
+      if (!selectedProfile) {
+        log.error(colors.red("Profile creation failed or was cancelled."));
+        return;
+      }
+    } else if (opts.workspace && profiles.find((p) => p.name === opts.workspace)) {
+      // --workspace flag matches a profile name: use it directly
+      selectedProfile = profiles.find((p) => p.name === opts.workspace);
+    } else if (isInteractive) {
+      const { Select } = await import("@cliffy/prompt/select");
+      const activeProfile = await getActiveWorkspace(opts);
+      const selectedName = await Select.prompt({
+        message: "Select workspace profile to bind",
+        options: profiles.map((p) => ({
+          name: `${p.name} (${p.workspaceId} on ${p.remote})`,
+          value: p.name,
+        })),
+        default: activeProfile?.name,
+      });
+      selectedProfile = profiles.find((p) => p.name === selectedName);
+    } else {
+      // Non-interactive: use active profile
+      selectedProfile = await getActiveWorkspaceOrFallback(opts);
+    }
+
+    if (!selectedProfile) {
+      log.error(colors.red("No workspace profile selected. Aborting."));
+      return;
+    }
+
+    // Step 2: Pick workspace name (the key in wmill.yaml workspaces section)
+    let wsName: string;
+    if (opts.workspace) {
+      wsName = opts.workspace;
+    } else if (isInteractive) {
+      const { Input } = await import("@cliffy/prompt/input");
+      wsName = await Input.prompt({
+        message: "Workspace name (key in wmill.yaml)",
+        default: selectedProfile.workspaceId,
+      });
+    } else {
+      wsName = selectedProfile.workspaceId;
+    }
+
+    // Step 3: Pick git branch (only in git repos)
+    let gitBranch: string | undefined;
+    if (inGitRepo) {
+      if (opts.branch) {
+        if (opts.branch !== wsName) {
+          gitBranch = opts.branch;
+        }
+      } else if (isInteractive) {
+        const { Input } = await import("@cliffy/prompt/input");
+        const branchInput = await Input.prompt({
+          message: "Git branch to associate",
+          default: currentBranch ?? wsName,
+        });
+        if (branchInput !== wsName) {
+          gitBranch = branchInput;
+        }
+      } else if (currentBranch && currentBranch !== wsName) {
+        gitBranch = currentBranch;
+      }
+    }
+
+    // Step 4: Write the entry
+    const entry = (config.workspaces as any)[wsName] ?? {};
+    entry.baseUrl = selectedProfile.remote;
+    if (selectedProfile.workspaceId !== wsName) {
+      entry.workspaceId = selectedProfile.workspaceId;
+    } else {
+      delete entry.workspaceId; // clean up if it matches
+    }
+    if (gitBranch) {
+      entry.gitBranch = gitBranch;
+    } else {
+      delete entry.gitBranch; // clean up if it matches
+    }
+    (config.workspaces as any)[wsName] = entry;
 
     log.info(
       colors.green(
-        `✓ Bound branch '${branch}' to workspace '${activeWorkspace.name}'\n` +
-          `  ${activeWorkspace.workspaceId} on ${activeWorkspace.remote}`
+        `✓ Bound workspace '${wsName}'` +
+          (gitBranch ? ` (gitBranch: ${gitBranch})` : "") +
+          ` → ${selectedProfile.workspaceId} on ${selectedProfile.remote}`
       )
     );
   } else {
-    // Unbind
-    delete config.gitBranches[branch].baseUrl;
-    delete config.gitBranches[branch].workspaceId;
+    // ── UNBIND ────────────────────────────────────────────────
+    let wsName: string | undefined;
 
-    log.info(
-      colors.green(`✓ Removed workspace binding from branch '${branch}'`)
-    );
+    if (opts.workspace) {
+      wsName = opts.workspace;
+    } else if (currentBranch) {
+      const match = findWorkspaceByGitBranch(config.workspaces, currentBranch);
+      wsName = match?.[0];
+    }
+
+    if (!wsName && isInteractive) {
+      const names = getWorkspaceNames(config.workspaces);
+      if (names.length === 0) {
+        log.error(colors.red("No workspaces configured in wmill.yaml."));
+        return;
+      }
+      const { Select } = await import("@cliffy/prompt/select");
+      wsName = await Select.prompt({
+        message: "Select workspace to unbind",
+        options: names,
+      });
+    }
+
+    if (!wsName || !(config.workspaces as any)[wsName]) {
+      log.error(colors.red(
+        wsName
+          ? `Workspace '${wsName}' not found in wmill.yaml.`
+          : "Could not determine workspace. Use --workspace to specify."
+      ));
+      return;
+    }
+
+    const entry = (config.workspaces as any)[wsName];
+    delete entry.baseUrl;
+    delete entry.workspaceId;
+    log.info(colors.green(`✓ Removed binding from workspace '${wsName}'`));
   }
 
-  // Write back the updated config
-  const { stringify: yamlStringify } = await import("yaml");
   try {
     await writeFile("wmill.yaml", yamlStringify(config), "utf-8");
   } catch (error) {
     log.error(colors.red(`Failed to save configuration: ${(error as Error).message}`));
     return;
+  }
+
+  // After a successful bind, offer to generate resource type namespace
+  if (doBind && isInteractive) {
+    const { stat: statFile } = await import("node:fs/promises");
+    const rtExists = await statFile("rt.d.ts").then(() => true, () => false);
+    const { Confirm } = await import("@cliffy/prompt/confirm");
+    const generate = await Confirm.prompt({
+      message: "Generate rt.d.ts? (TypeScript types for your workspace's resource types, useful for autocompletion)",
+      default: !rtExists,
+    });
+    if (generate) {
+      try {
+        const { generateRTNamespace } = await import("../resource-type/resource-type.ts");
+        await generateRTNamespace(opts);
+      } catch (error) {
+        log.warn(
+          `Could not generate resource type namespace: ${
+            error instanceof Error ? error.message : error
+          }`
+        );
+      }
+    }
   }
 }
 
@@ -637,12 +750,13 @@ const command = new Command()
   .description("List forked workspaces on the remote server")
   .action(listForks as any)
   .command("bind")
-  .description("Bind the current Git branch to the active workspace. This adds the branch to gitBranches in wmill.yaml so sync operations use the correct workspace for each branch.")
-  .option("--branch, --env <branch:string>", "Specify branch/environment (defaults to current)")
+  .description("Create or update a workspace entry in wmill.yaml from the active profile")
+  .option("--workspace <name:string>", "Workspace name (default: current branch or workspaceId)")
+  .option("--branch <branch:string>", "Git branch to associate (default: workspace name)")
   .action((opts) => bind(opts as any, true))
   .command("unbind")
-  .description("Remove workspace binding from the current Git branch")
-  .option("--branch, --env <branch:string>", "Specify branch/environment (defaults to current)")
+  .description("Remove baseUrl and workspaceId from a workspace entry")
+  .option("--workspace <name:string>", "Workspace to unbind")
   .action((opts) => bind(opts as any, false))
   .command("fork")
   .description("Create a forked workspace")

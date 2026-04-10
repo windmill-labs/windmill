@@ -2,15 +2,15 @@ import { expect, test } from "bun:test";
 import { getEffectiveSettings, type SyncOptions } from "../src/core/conf.ts";
 
 // =============================================================================
-// CONF.TS BRANCH OVERRIDE TESTS
-// Tests for getEffectiveSettings with branchOverride parameter
+// CONF.TS WORKSPACE OVERRIDE TESTS
+// Tests for getEffectiveSettings with workspaceNameOverride parameter
 // =============================================================================
 
-test("getEffectiveSettings: applies branch overrides when branchOverride is provided", async () => {
+test("getEffectiveSettings: applies workspace overrides when workspaceNameOverride is provided", async () => {
   const config: SyncOptions = {
     defaultTs: "bun",
     includes: ["f/**"],
-    gitBranches: {
+    workspaces: {
       staging: {
         overrides: {
           includes: ["staging/**"],
@@ -26,25 +26,25 @@ test("getEffectiveSettings: applies branch overrides when branchOverride is prov
     },
   };
 
-  // Test with staging branch override
+  // Test with staging workspace override
   const stagingSettings = await getEffectiveSettings(config, undefined, true, true, "staging");
   expect(stagingSettings.includes).toEqual(["staging/**"]);
   expect(stagingSettings.skipVariables).toEqual(true);
   expect(stagingSettings.skipSecrets).toEqual(undefined);
 
-  // Test with production branch override
+  // Test with production workspace override
   const prodSettings = await getEffectiveSettings(config, undefined, true, true, "production");
   expect(prodSettings.includes).toEqual(["prod/**"]);
   expect(prodSettings.skipSecrets).toEqual(true);
   expect(prodSettings.skipVariables).toEqual(undefined);
 });
 
-test("getEffectiveSettings: uses top-level settings when branchOverride has no overrides", async () => {
+test("getEffectiveSettings: uses top-level settings when workspace has no overrides", async () => {
   const config: SyncOptions = {
     defaultTs: "bun",
     includes: ["f/**"],
     skipVariables: true,
-    gitBranches: {
+    workspaces: {
       staging: {
         // No overrides defined
       },
@@ -57,11 +57,11 @@ test("getEffectiveSettings: uses top-level settings when branchOverride has no o
   expect(settings.defaultTs).toEqual("bun");
 });
 
-test("getEffectiveSettings: uses top-level settings for unknown branch", async () => {
+test("getEffectiveSettings: uses top-level settings for unknown workspace", async () => {
   const config: SyncOptions = {
     defaultTs: "bun",
     includes: ["f/**"],
-    gitBranches: {
+    workspaces: {
       staging: {
         overrides: {
           includes: ["staging/**"],
@@ -79,7 +79,7 @@ test("getEffectiveSettings: promotionOverrides take precedence when promotion sp
   const config: SyncOptions = {
     defaultTs: "bun",
     includes: ["f/**"],
-    gitBranches: {
+    workspaces: {
       production: {
         overrides: {
           includes: ["prod/**"],
@@ -103,13 +103,13 @@ test("getEffectiveSettings: promotionOverrides take precedence when promotion sp
   expect(promoSettings.skipVariables).toEqual(true);
 });
 
-test("getEffectiveSettings: branchOverride works without gitBranches config", async () => {
+test("getEffectiveSettings: workspaceNameOverride works without workspaces config", async () => {
   const config: SyncOptions = {
     defaultTs: "bun",
     includes: ["f/**"],
   };
 
-  // Should not throw even with branchOverride but no gitBranches
+  // Should not throw even with workspaceNameOverride but no workspaces
   const settings = await getEffectiveSettings(config, undefined, true, true, "staging");
   expect(settings.includes).toEqual(["f/**"]);
   expect(settings.defaultTs).toEqual("bun");
@@ -124,7 +124,7 @@ test("getEffectiveSettings: preserves all top-level settings in merged result", 
     skipResources: false,
     skipFlows: false,
     parallel: 4,
-    gitBranches: {
+    workspaces: {
       staging: {
         overrides: {
           skipVariables: true, // Override just this one
