@@ -52,6 +52,7 @@ Run benchmarks:
 cd ai_evals
 bun run cli -- run flow
 bun run cli -- run flow flow-test4-order-processing-loop --model opus
+bun run cli -- run flow flow-test0-sum-two-numbers --models haiku,opus,4o
 bun run cli -- run flow flow-test0-sum-two-numbers --runs 3 --verbose
 bun run cli -- run flow --record
 bun run cli -- run cli bun-hello-script
@@ -68,6 +69,7 @@ Public CLI surface:
 - `--runs <n>`: repeat each case `n` times
 - `--output <path>`: custom result JSON path
 - `--model <alias>`: choose the model under test
+- `--models <a,b,c>`: run the same cases sequentially against several model aliases
 - `--verbose`: stream assistant output for frontend runs
 - `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl` for full-suite runs only
 

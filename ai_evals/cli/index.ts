@@ -4,6 +4,7 @@ import { Command, InvalidArgumentError } from "commander";
 import { loadCases, loadSelectedCases } from "../core/cases";
 import {
   EVAL_MODELS,
+  type EvalModelSpec,
   formatRunModelLabel,
   getCliEvalModel,
   getEvalModelHelpText,
@@ -39,6 +40,7 @@ async function main() {
         "  bun run cli -- cases flow",
         "  bun run cli -- run flow",
         "  bun run cli -- run flow --model 4o",
+        "  bun run cli -- run flow --models haiku,opus,4o",
         "  bun run cli -- run flow flow-test0-sum-two-numbers --verbose",
         "  bun run cli -- run flow --record",
         "  bun run cli -- run flow flow-test5-simple-modification --runs 3",
@@ -72,6 +74,7 @@ async function main() {
     .option("--runs <n>", "number of attempts per case", parsePositiveInteger, 1)
     .option("--output <path>", "write the result JSON to this path")
     .option("--model <name>", `model alias (${EVAL_MODELS.map((entry) => entry.id).join(", ")})`)
+    .option("--models <names>", "comma-separated model aliases to run sequentially")
     .option("--verbose", "stream assistant output during frontend runs")
     .option("--record", "append a compact summary line to ai_evals/history/<mode>.jsonl")
     .action(
@@ -82,6 +85,7 @@ async function main() {
           runs: number;
           output?: string;
           model?: string;
+          models?: string;
           verbose?: boolean;
           record?: boolean;
         }
@@ -92,6 +96,7 @@ async function main() {
           runs: options.runs,
           outputPath: options.output,
           model: options.model,
+          models: options.models,
           verbose: options.verbose ?? false,
           record: options.record ?? false,
         });
@@ -135,40 +140,75 @@ async function handleRun(input: {
   runs: number;
   outputPath?: string;
   model?: string;
+  models?: string;
   verbose: boolean;
   record: boolean;
 }) {
   if (input.record && input.caseIds.length > 0) {
     throw new Error("--record only supports full-suite runs; omit case ids to record history");
   }
+  if (input.model && input.models) {
+    throw new Error("Use either --model or --models, not both");
+  }
 
   const selectedCases = await loadSelectedCases(input.mode, input.caseIds);
-  const model = resolveEvalModel(input.mode, input.model);
-  const runModel = formatRunModelLabel(input.mode, model);
-  process.stderr.write(`Starting ${input.mode} benchmark...\n`);
-
-  const result =
-    input.mode === "cli"
-      ? await runCliBenchmark(selectedCases, input.runs, getCliEvalModel(model), runModel)
-      : await runFrontendBenchmarkAdapter({
-          mode: input.mode,
-          caseIds: input.caseIds,
-          runs: input.runs,
-          model: model.id,
-          verbose: input.verbose,
-        });
-
-  const resolvedOutputPath = resolveRunOutputPath(input.mode, input.outputPath);
-  const artifactsPath = await writeRunArtifacts(result, resolvedOutputPath);
-  const resultPath = await writeRunResult(result, resolvedOutputPath);
-  const historyPath = input.record ? await appendHistoryRecord(result) : null;
-  process.stdout.write(`${formatRunSummary(result)}\n`);
-  process.stdout.write(`Saved: ${resultPath}\n`);
-  if (artifactsPath) {
-    process.stdout.write(`Artifacts: ${artifactsPath}\n`);
+  const models = resolveRequestedModels(input.mode, input.model, input.models);
+  if (input.outputPath && models.length > 1) {
+    throw new Error("--output only supports a single model run");
   }
-  if (historyPath) {
-    process.stdout.write(`Recorded: ${historyPath}\n`);
+
+  const summaries: Array<{ label: string; passRate: number; averageDurationMs: number }> = [];
+
+  for (const [index, model] of models.entries()) {
+    const runModel = formatRunModelLabel(input.mode, model);
+    if (models.length > 1) {
+      process.stdout.write(
+        `${index > 0 ? "\n" : ""}=== ${input.mode} ${model.id} (${runModel}) ===\n`
+      );
+    }
+    process.stderr.write(`Starting ${input.mode} benchmark...\n`);
+
+    const result =
+      input.mode === "cli"
+        ? await runCliBenchmark(selectedCases, input.runs, getCliEvalModel(model), runModel)
+        : await runFrontendBenchmarkAdapter({
+            mode: input.mode,
+            caseIds: input.caseIds,
+            runs: input.runs,
+            model: model.id,
+            verbose: input.verbose,
+          });
+
+    const resolvedOutputPath =
+      models.length === 1
+        ? resolveRunOutputPath(input.mode, input.outputPath)
+        : resolveRunOutputPath(input.mode);
+    const artifactsPath = await writeRunArtifacts(result, resolvedOutputPath);
+    const resultPath = await writeRunResult(result, resolvedOutputPath);
+    const historyPath = input.record ? await appendHistoryRecord(result) : null;
+    process.stdout.write(`${formatRunSummary(result)}\n`);
+    process.stdout.write(`Saved: ${resultPath}\n`);
+    if (artifactsPath) {
+      process.stdout.write(`Artifacts: ${artifactsPath}\n`);
+    }
+    if (historyPath) {
+      process.stdout.write(`Recorded: ${historyPath}\n`);
+    }
+
+    summaries.push({
+      label: `${model.id} (${runModel})`,
+      passRate: result.passRate,
+      averageDurationMs: result.averageDurationMs,
+    });
+  }
+
+  if (summaries.length > 1) {
+    process.stdout.write("\nModel summary\n");
+    for (const summary of summaries) {
+      process.stdout.write(
+        `- ${summary.label}: ${formatPercent(summary.passRate)} | ${Math.round(summary.averageDurationMs)}ms\n`
+      );
+    }
   }
 }
 
@@ -212,6 +252,40 @@ function parsePositiveInteger(value: string): number {
     throw new InvalidArgumentError("must be a positive integer");
   }
   return parsed;
+}
+
+function resolveRequestedModels(
+  mode: EvalMode,
+  singleModel?: string,
+  multipleModels?: string
+): EvalModelSpec[] {
+  if (!multipleModels) {
+    return [resolveEvalModel(mode, singleModel)];
+  }
+
+  const aliases = multipleModels
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (aliases.length === 0) {
+    throw new Error("--models requires at least one model alias");
+  }
+
+  const seen = new Set<string>();
+  const models: EvalModelSpec[] = [];
+  for (const alias of aliases) {
+    const model = resolveEvalModel(mode, alias);
+    if (seen.has(model.id)) {
+      continue;
+    }
+    seen.add(model.id);
+    models.push(model);
+  }
+  return models;
+}
+
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 void main().catch((error) => {
