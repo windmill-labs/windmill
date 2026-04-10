@@ -19904,6 +19904,9 @@ components:
         token:
           type: string
           description: Static Vault token for testing/development (optional, if provided this is used instead of JWT authentication)
+        skip_ssl_verify:
+          type: boolean
+          description: Skip TLS certificate verification when connecting to Vault. Only use for self-signed certificates in development environments.
 
     AzureKeyVaultSettings:
       type: object

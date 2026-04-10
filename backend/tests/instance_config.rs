@@ -208,6 +208,91 @@ async fn test_from_db_hides_legacy_worker_configs_ghost_row(db: Pool<Postgres>) 
     assert!(config.worker_configs.contains_key("sldc-standard"));
 }
 
+/// Regression: a bulk `diff_global_settings` desired map that contains an
+/// empty-string value for a key must route that key to `deletes` rather than
+/// upserting `""`. Mirrors the single-key endpoint's behavior and prevents
+/// stale `""` rows (e.g. `npmrc`) from tripping the EE registry gate on CE.
+#[sqlx::test(fixtures("base"))]
+async fn test_diff_global_settings_empty_string_routes_to_delete(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    insert_global_setting(&db, "npmrc", serde_json::json!("registry=https://x/")).await;
+
+    let current_map = InstanceConfig::from_db(&db)
+        .await
+        .unwrap()
+        .global_settings
+        .to_settings_map();
+
+    let mut desired: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    desired.insert("npmrc".to_string(), serde_json::json!(""));
+
+    let diff = diff_global_settings(&current_map, &desired, ApplyMode::Merge);
+    assert!(
+        !diff.upserts.contains_key("npmrc"),
+        "empty-string value must not upsert"
+    );
+    assert!(
+        diff.deletes.iter().any(|k| k == "npmrc"),
+        "empty-string value must route to deletes"
+    );
+
+    apply_settings_diff(&db, &diff).await.unwrap();
+    assert!(
+        get_global_setting(&db, "npmrc").await.is_none(),
+        "npmrc row must be deleted after apply"
+    );
+
+    // Second case: key not currently present → no-op (no upsert, no delete).
+    clear_settings_and_configs(&db).await;
+    let current_map = InstanceConfig::from_db(&db)
+        .await
+        .unwrap()
+        .global_settings
+        .to_settings_map();
+    let diff = diff_global_settings(&current_map, &desired, ApplyMode::Merge);
+    assert!(!diff.upserts.contains_key("npmrc"));
+    assert!(!diff.deletes.iter().any(|k| k == "npmrc"));
+}
+
+/// Regression: whitespace-only values for protected settings (e.g.
+/// `jwt_secret`) must not leak into `deletes`. The empty-string-unset branch
+/// in `diff_global_settings` relies on the `PROTECTED_SETTINGS` guard ahead
+/// of it to catch whitespace, so `is_empty_or_null` must also trim.
+#[sqlx::test(fixtures("base"))]
+async fn test_diff_global_settings_protected_whitespace_not_deleted(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    insert_global_setting(&db, "jwt_secret", serde_json::json!("s3cret")).await;
+
+    let current_map = InstanceConfig::from_db(&db)
+        .await
+        .unwrap()
+        .global_settings
+        .to_settings_map();
+
+    for whitespace in [" ", "  ", "\t", "\n", ""] {
+        let mut desired: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+        desired.insert("jwt_secret".to_string(), serde_json::json!(whitespace));
+
+        let diff = diff_global_settings(&current_map, &desired, ApplyMode::Merge);
+        assert!(
+            !diff.deletes.iter().any(|k| k == "jwt_secret"),
+            "protected setting must not be routed to deletes for value {whitespace:?}"
+        );
+        assert!(
+            !diff.upserts.contains_key("jwt_secret"),
+            "protected setting must not be overwritten with whitespace for value {whitespace:?}"
+        );
+    }
+
+    // The underlying secret must still be present after applying each diff.
+    assert_eq!(
+        get_global_setting(&db, "jwt_secret").await,
+        Some(serde_json::json!("s3cret"))
+    );
+}
+
 /// Regression: a bulk `diff_global_settings` upsert must reject a
 /// `worker_configs` key, even if a client PUT carries one in the flattened
 /// extra map. This is the write-side guard that prevents the ghost row from

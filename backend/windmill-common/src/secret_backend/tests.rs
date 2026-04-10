@@ -28,6 +28,7 @@ mod tests {
             jwt_role: Some("windmill-secrets".to_string()),
             namespace: None,
             token: Some("test-root-token".to_string()),
+            skip_ssl_verify: None,
         }
     }
 

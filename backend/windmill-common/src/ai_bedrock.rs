@@ -410,9 +410,7 @@ fn mime_to_document_format(mime_type: &str) -> DocumentFormat {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
             DocumentFormat::Docx
         }
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => {
-            DocumentFormat::Xlsx
-        }
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => DocumentFormat::Xlsx,
         _ => DocumentFormat::Pdf,
     }
 }

@@ -1397,7 +1397,7 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
 
     // Connect to the datatable database
-    let (client, connection) = pg_db.connect().await?;
+    let (client, connection) = pg_db.connect(Some(db)).await?;
 
     // Spawn the connection handler
     tokio::spawn(async move {
@@ -1733,7 +1733,7 @@ async fn create_pg_database(
     } else {
         let source_pg =
             resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
-        let (client, connection) = source_pg.connect().await?;
+        let (client, connection) = source_pg.connect(Some(&db)).await?;
         let join_handle = tokio::spawn(async move { connection.await });
 
         let row = client
@@ -1865,7 +1865,7 @@ async fn get_datatable_full_schema(
     Json(req): Json<GetDatatableFullSchemaRequest>,
 ) -> JsonResult<windmill_common::query_builders::FullDatabaseSchema> {
     let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
-    let (client, connection) = pg.connect().await?;
+    let (client, connection) = pg.connect(Some(&db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
     let result = windmill_common::query_builders::pg_get_full_schema(&client)
@@ -4190,7 +4190,7 @@ async fn snapshot_datatable_schema(
     let pg = get_datatable_resource_from_db_unchecked(db, parent_w_id, dt_name).await?;
     let pg: PgDatabase = serde_json::from_value(pg)
         .map_err(|e| Error::internal_err(format!("Failed to parse db credentials: {}", e)))?;
-    let (client, connection) = pg.connect().await?;
+    let (client, connection) = pg.connect(Some(db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
     let schema = windmill_common::query_builders::pg_get_full_schema(&client)

@@ -1015,7 +1015,7 @@ fn license_keys_same_client(a: &serde_json::Value, b: &serde_json::Value) -> boo
 }
 
 fn is_empty_or_null(value: &serde_json::Value) -> bool {
-    value.is_null() || value.as_str().map_or(false, |s| s.is_empty())
+    value.is_null() || value.as_str().map_or(false, |s| s.trim().is_empty())
 }
 
 /// Maximum retention period in seconds for CE builds (30 days).
@@ -1051,6 +1051,7 @@ pub fn diff_global_settings(
     mode: ApplyMode,
 ) -> SettingsDiff {
     let mut upserts = BTreeMap::new();
+    let mut deletes = Vec::new();
     let mut previous_values = BTreeMap::new();
     let mut unchanged_count: usize = 0;
     for (key, desired_value) in desired {
@@ -1072,6 +1073,23 @@ pub fn diff_global_settings(
             tracing::warn!(
                 "Skipping {key} update: protected setting cannot be overwritten with empty/null value"
             );
+            continue;
+        }
+        // An empty string means "unset": route it to deletes so clearing a
+        // setting via YAML sync has the same effect as clearing it via the UI
+        // (`set_global_setting_internal` already treats `""` as a delete).
+        // Without this, stale `""` rows linger and trip the EE registry gate,
+        // producing spurious "requires Enterprise" warnings on every CE job.
+        if desired_value
+            .as_str()
+            .map_or(false, |s| s.trim().is_empty())
+        {
+            if let Some(existing) = current.get(key) {
+                previous_values.insert(key.clone(), existing.clone());
+                deletes.push(key.clone());
+            } else {
+                unchanged_count += 1;
+            }
             continue;
         }
         let mut value = if key == "retention_period_secs" {
@@ -1124,7 +1142,6 @@ pub fn diff_global_settings(
             }
         }
     }
-    let mut deletes = Vec::new();
     if matches!(mode, ApplyMode::Replace) {
         for key in current.keys() {
             if !desired.contains_key(key)
