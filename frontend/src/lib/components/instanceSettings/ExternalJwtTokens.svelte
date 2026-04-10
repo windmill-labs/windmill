@@ -58,32 +58,39 @@
 	<tbody>
 		{#each tokens as token, i (token.jwt_hash)}
 			<tr class={i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
-				<Cell first><span class="font-mono text-xs">{token.email}</span></Cell>
-				<Cell>{token.username}</Cell>
-				<Cell>
-					{#if token.is_admin}
-						<Check size={14} class="text-green-600" />
-					{:else}
-						<X size={14} class="text-tertiary" />
-					{/if}
-				</Cell>
-				<Cell>
-					{#if token.is_operator}
-						<Check size={14} class="text-green-600" />
-					{:else}
-						<X size={14} class="text-tertiary" />
-					{/if}
-				</Cell>
-				<Cell>{token.workspace_id ?? '-'}</Cell>
-				<Cell>{token.label ?? '-'}</Cell>
-				<Cell>
-					{#if token.scopes && token.scopes.length > 0}
-						{token.scopes.join(', ')}
-					{:else}
-						-
-					{/if}
-				</Cell>
-				<Cell last><span class="whitespace-nowrap">{displayDate(token.last_used_at)}</span></Cell>
+				{#if token.email === ''}
+					<Cell first colspan={7}>
+						<span class="text-tertiary italic">Legacy entry — details unavailable</span>
+					</Cell>
+					<Cell last><span class="whitespace-nowrap">{displayDate(token.last_used_at)}</span></Cell>
+				{:else}
+					<Cell first><span class="font-mono text-xs">{token.email}</span></Cell>
+					<Cell>{token.username}</Cell>
+					<Cell>
+						{#if token.is_admin}
+							<Check size={14} class="text-green-600" />
+						{:else}
+							<X size={14} class="text-tertiary" />
+						{/if}
+					</Cell>
+					<Cell>
+						{#if token.is_operator}
+							<Check size={14} class="text-green-600" />
+						{:else}
+							<X size={14} class="text-tertiary" />
+						{/if}
+					</Cell>
+					<Cell>{token.workspace_id ?? '-'}</Cell>
+					<Cell>{token.label ?? '-'}</Cell>
+					<Cell>
+						{#if token.scopes && token.scopes.length > 0}
+							{token.scopes.join(', ')}
+						{:else}
+							-
+						{/if}
+					</Cell>
+					<Cell last><span class="whitespace-nowrap">{displayDate(token.last_used_at)}</span></Cell>
+				{/if}
 			</tr>
 		{/each}
 	</tbody>
