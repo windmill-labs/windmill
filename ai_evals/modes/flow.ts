@@ -50,6 +50,7 @@ export function createFlowModeRunner(
         toolCallCount: result.toolCallCount,
         toolsUsed: result.toolsUsed,
         skillsInvoked: [],
+        tokenUsage: result.tokenUsage,
       };
     },
     validate({ evalCase, actual, initial, expected }) {

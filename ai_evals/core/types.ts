@@ -43,6 +43,12 @@ export interface BenchmarkArtifactFile {
   content: string;
 }
 
+export interface BenchmarkTokenUsage {
+  prompt: number;
+  completion: number;
+  total: number;
+}
+
 export interface ModeRunOutput<TActual> {
   success: boolean;
   actual: TActual;
@@ -51,6 +57,7 @@ export interface ModeRunOutput<TActual> {
   toolCallCount: number;
   toolsUsed: string[];
   skillsInvoked: string[];
+  tokenUsage?: BenchmarkTokenUsage | null;
 }
 
 export interface ModeRunContext {
@@ -99,6 +106,7 @@ export interface BenchmarkAttemptResult {
   judgeScore: number | null;
   judgeSummary: string | null;
   error: string | null;
+  tokenUsage?: BenchmarkTokenUsage | null;
   artifactsPath?: string | null;
   artifactFiles?: BenchmarkArtifactFile[];
 }
@@ -124,6 +132,8 @@ export interface BenchmarkRunResult {
   passedAttempts: number;
   passRate: number;
   averageDurationMs: number;
+  totalTokenUsage?: BenchmarkTokenUsage | null;
+  averageTokenUsagePerAttempt?: BenchmarkTokenUsage | null;
   artifactsPath?: string | null;
   cases: BenchmarkCaseResult[];
 }

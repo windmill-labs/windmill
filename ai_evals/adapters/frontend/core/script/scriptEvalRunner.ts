@@ -13,6 +13,7 @@ import type { Tool as ProductionTool } from '../../../../../frontend/src/lib/com
 import { createScriptFileHelpers, type ScriptEvalState } from './fileHelpers'
 import { runEval } from '../shared'
 import type { ModeRunContext } from '../../../../core/types'
+import type { TokenUsage } from '../shared/types'
 
 export interface ScriptEvalResult {
 	success: boolean
@@ -21,6 +22,7 @@ export interface ScriptEvalResult {
 	assistantMessageCount: number
 	toolCallCount: number
 	toolsUsed: string[]
+	tokenUsage: TokenUsage
 }
 
 export interface ScriptEvalOptions {
@@ -98,7 +100,8 @@ export async function runScriptEval(
 			error: rawResult.error,
 			assistantMessageCount: rawResult.iterations,
 			toolCallCount: rawResult.toolCallsCount,
-			toolsUsed: rawResult.toolsCalled
+			toolsUsed: rawResult.toolsCalled,
+			tokenUsage: rawResult.tokenUsage
 		}
 	} finally {
 		await cleanup()

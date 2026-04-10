@@ -36,6 +36,7 @@ export function createAppModeRunner(
         toolCallCount: result.toolCallCount,
         toolsUsed: result.toolsUsed,
         skillsInvoked: [],
+        tokenUsage: result.tokenUsage,
       };
     },
     validate({ actual, initial, expected }) {

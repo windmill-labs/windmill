@@ -166,7 +166,7 @@ export async function runEval<THelpers, TOutput>(
 		return {
 			success: true,
 			output: getOutput(),
-			tokenUsage: { prompt: 0, completion: 0, total: 0 },
+			tokenUsage: result.tokenUsage,
 			toolCallsCount,
 			toolsCalled,
 			toolCallDetails,

@@ -14,6 +14,7 @@ import type { Tool as ProductionTool } from '../../../../../frontend/src/lib/com
 import { createFlowFileHelpers, type FlowWorkspaceFixtures } from './fileHelpers'
 import { runEval } from '../shared'
 import type { ModeRunContext } from '../../../../core/types'
+import type { TokenUsage } from '../shared/types'
 
 export interface FlowFixture {
 	value?: {
@@ -29,6 +30,7 @@ export interface FlowEvalResult {
 	assistantMessageCount: number
 	toolCallCount: number
 	toolsUsed: string[]
+	tokenUsage: TokenUsage
 }
 
 export interface FlowEvalOptions {
@@ -92,7 +94,8 @@ export async function runFlowEval(
 			error: rawResult.error,
 			assistantMessageCount: rawResult.iterations,
 			toolCallCount: rawResult.toolCallsCount,
-			toolsUsed: rawResult.toolsCalled
+			toolsUsed: rawResult.toolsCalled,
+			tokenUsage: rawResult.tokenUsage
 		}
 	} finally {
 		await cleanup()

@@ -6,6 +6,7 @@ import type {
   BenchmarkArtifactFile,
   BenchmarkCaseResult,
   BenchmarkRunResult,
+  BenchmarkTokenUsage,
   EvalMode,
 } from "./types";
 
@@ -73,6 +74,21 @@ export function buildRunResult(input: {
     (sum, entry) => sum + entry.attempts.reduce((inner, attempt) => inner + attempt.durationMs, 0),
     0
   );
+  const tokenUsageTotal = input.caseResults.reduce<BenchmarkTokenUsage | null>(
+    (sum, entry) => {
+      for (const attempt of entry.attempts) {
+        if (!attempt.tokenUsage) {
+          continue;
+        }
+        sum ??= { prompt: 0, completion: 0, total: 0 };
+        sum.prompt += attempt.tokenUsage.prompt;
+        sum.completion += attempt.tokenUsage.completion;
+        sum.total += attempt.tokenUsage.total;
+      }
+      return sum;
+    },
+    null
+  );
 
   return {
     version: 1,
@@ -87,6 +103,15 @@ export function buildRunResult(input: {
     passedAttempts,
     passRate: attemptCount === 0 ? 0 : passedAttempts / attemptCount,
     averageDurationMs: attemptCount === 0 ? 0 : durationTotal / attemptCount,
+    totalTokenUsage: tokenUsageTotal,
+    averageTokenUsagePerAttempt:
+      attemptCount === 0 || !tokenUsageTotal
+        ? null
+        : {
+            prompt: tokenUsageTotal.prompt / attemptCount,
+            completion: tokenUsageTotal.completion / attemptCount,
+            total: tokenUsageTotal.total / attemptCount,
+          },
     cases: input.caseResults,
   };
 }

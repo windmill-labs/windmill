@@ -16,6 +16,7 @@ import { createAppFileHelpers } from './fileHelpers'
 import { runEval } from '../shared'
 import type { AIProvider } from '$lib/gen/types.gen'
 import type { ModeRunContext } from '../../../../core/types'
+import type { TokenUsage } from '../shared/types'
 
 export interface AppEvalResult {
 	success: boolean
@@ -24,6 +25,7 @@ export interface AppEvalResult {
 	assistantMessageCount: number
 	toolCallCount: number
 	toolsUsed: string[]
+	tokenUsage: TokenUsage
 }
 
 export interface AppEvalOptions {
@@ -81,7 +83,8 @@ export async function runAppEval(
 			error: rawResult.error,
 			assistantMessageCount: rawResult.iterations,
 			toolCallCount: rawResult.toolCallsCount,
-			toolsUsed: rawResult.toolsCalled
+			toolsUsed: rawResult.toolsCalled,
+			tokenUsage: rawResult.tokenUsage
 		}
 	} finally {
 		await cleanup()
