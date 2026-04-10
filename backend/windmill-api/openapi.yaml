@@ -19539,25 +19539,6 @@ components:
     # This is why it is better to inline each of schemas for better compat
     # Do not change next line. It is used by python-client for pre-processing
     # -- INLINE START --
-    CiTestResult:
-      type: object
-      properties:
-        test_script_path:
-          type: string
-        job_id:
-          type: string
-          format: uuid
-          nullable: true
-        status:
-          type: string
-          nullable: true
-        started_at:
-          type: string
-          format: date-time
-          nullable: true
-      required:
-        - test_script_path
-
     OpenFlow:
       $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
     FlowValue:
@@ -19608,6 +19589,25 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowNote"
     # -- INLINE END --
     # Do not change line above
+
+    CiTestResult:
+      type: object
+      properties:
+        test_script_path:
+          type: string
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - test_script_path
 
     HealthStatusResponse:
       type: object
