@@ -3416,24 +3416,32 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                 } else {
                     s.push_str("\nWorker last ping: unknown (no worker_ping record)");
                 }
+                let total_suffix = flow
+                    .worker_memory_total
+                    .map(|t| format!(" (total available: {})", fmt_mb(t)))
+                    .unwrap_or_default();
                 match (flow.worker_memory_usage, flow.worker_wm_memory_usage) {
                     (Some(host), Some(wm)) => s.push_str(&format!(
-                        "\nWorker memory at last ping: host={}, wm process={}",
+                        "\nWorker memory at last ping: host={}, wm process={}{}",
                         fmt_mb(host),
-                        fmt_mb(wm)
+                        fmt_mb(wm),
+                        total_suffix
                     )),
                     (Some(host), None) => s.push_str(&format!(
-                        "\nWorker memory at last ping: host={}",
-                        fmt_mb(host)
+                        "\nWorker memory at last ping: host={}{}",
+                        fmt_mb(host),
+                        total_suffix
                     )),
                     (None, Some(wm)) => s.push_str(&format!(
-                        "\nWorker memory at last ping: wm process={}",
-                        fmt_mb(wm)
+                        "\nWorker memory at last ping: wm process={}{}",
+                        fmt_mb(wm),
+                        total_suffix
                     )),
-                    (None, None) => {}
-                }
-                if let Some(total) = flow.worker_memory_total {
-                    s.push_str(&format!(" (total available: {})", fmt_mb(total)));
+                    (None, None) => {
+                        if let Some(total) = flow.worker_memory_total {
+                            s.push_str(&format!("\nWorker total memory: {}", fmt_mb(total)));
+                        }
+                    }
                 }
                 s
             } else {
@@ -3449,25 +3457,34 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
 
             let service_logs_info = match (flow.worker_instance.as_deref(), flow.worker_last_ping) {
                 (Some(host), Some(wlp)) => {
-                    let after = wlp.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-                    let before = (wlp + chrono::Duration::seconds(15))
+                    let after = (wlp - chrono::Duration::seconds(90))
                         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-                    let log_files = sqlx::query!(
+                    let before = (wlp + chrono::Duration::seconds(30))
+                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+                    let log_files_result = sqlx::query!(
                         "SELECT file_path, log_ts, ok_lines, err_lines
                          FROM log_file
                          WHERE hostname = $1
-                           AND log_ts BETWEEN $2::timestamp AND $2::timestamp + interval '15 seconds'
+                           AND log_ts BETWEEN $2::timestamp - interval '90 seconds' AND $2::timestamp + interval '30 seconds'
                          ORDER BY log_ts DESC
-                         LIMIT 5",
+                         LIMIT 10",
                         host,
                         wlp.naive_utc(),
                     )
                     .fetch_all(db)
-                    .await
-                    .unwrap_or_default();
+                    .await;
+                    let log_files = match log_files_result {
+                        Ok(rows) => rows,
+                        Err(e) => {
+                            tracing::warn!(
+                                "failed to query log_file for hanging-flow diagnostics (host={host}): {e:#}"
+                            );
+                            Vec::new()
+                        }
+                    };
                     if log_files.is_empty() {
                         format!(
-                            "\nService logs: no log_file rows found for hostname '{host}' between {after} and {before}. If service log collection is enabled, try /api/service_logs/list_files?after={after}&before={before}."
+                            "\nService logs: no log_file rows found for hostname '{host}' between {after} and {before}. If service log collection is enabled (requires S3/parquet), try /api/service_logs/list_files?after={after}&before={before}."
                         )
                     } else {
                         let listed = log_files
@@ -3485,7 +3502,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                             })
                             .collect::<Vec<_>>()
                             .join("\n");
-                        format!("\nService logs for worker instance '{host}' around last ping ({after} to {before}):\n{listed}")
+                        format!("\nService logs for worker instance '{host}' around last ping ({after} to {before}) (download URLs require S3/parquet service log collection):\n{listed}")
                     }
                 }
                 _ => String::new(),
