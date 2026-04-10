@@ -726,6 +726,36 @@ paths:
                 items:
                   $ref: "#/components/schemas/ExportedUser"
 
+  /users/ext_jwt_tokens:
+    get:
+      summary: list external JWT tokens (ee only)
+      operationId: listExtJwtTokens
+      tags:
+        - user
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+        - name: active_only
+          in: query
+          description: only tokens used in the last 30 days
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: list of external JWT tokens
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExternalJwtToken"
+
   /users/onboarding:
     post:
       summary: Submit user onboarding data
@@ -4610,31 +4640,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TruncatedToken"
-
-  /oidc/ext_jwt_tokens:
-    get:
-      summary: list external JWT tokens (ee only)
-      operationId: listExtJwtTokens
-      tags:
-        - oidc
-      parameters:
-        - name: page
-          in: query
-          schema:
-            type: integer
-        - name: per_page
-          in: query
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: list of external JWT tokens
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ExternalJwtToken"
 
   /w/{workspace}/oidc/token/{audience}:
     post:

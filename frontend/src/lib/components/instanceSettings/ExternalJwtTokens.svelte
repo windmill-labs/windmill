@@ -1,136 +1,90 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
-	import { OidcService } from '$lib/gen'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import type { ExternalJwtToken } from '$lib/gen'
-	import { sendUserToast } from '$lib/toast'
 	import { displayDate } from '$lib/utils'
-	import { Loader2, RefreshCw, ChevronLeft, ChevronRight, Check, X } from 'lucide-svelte'
-	import { onMount } from 'svelte'
+	import { Check, X } from 'lucide-svelte'
 
-	let loading = $state(false)
-	let tokens: ExternalJwtToken[] = $state([])
-	let page = $state(1)
-	const perPage = 100
-
-	async function loadTokens() {
-		loading = true
-		try {
-			tokens = await OidcService.listExtJwtTokens({
-				page: page,
-				perPage: perPage
-			})
-		} catch (e) {
-			sendUserToast(`Failed to load external JWT tokens: ${e}`, true)
-			tokens = []
-		} finally {
-			loading = false
-		}
+	interface Props {
+		tokens: ExternalJwtToken[]
+		hasMore: boolean
+		loading: boolean
+		activeOnly: boolean
+		onLoadMore: () => void
+		onActiveOnlyChange: (v: boolean) => void
 	}
 
-	onMount(() => {
-		loadTokens()
-	})
+	let { tokens, hasMore, loading, activeOnly, onLoadMore, onActiveOnlyChange }: Props = $props()
+	const loadMoreSize = 50
 </script>
 
 <SettingsPageHeader
 	title="External JWTs"
-	description="List of unique external JWT tokens that have been used for authentication. Tokens are deduplicated by their claims (email, username, permissions)."
+	description="External JWT tokens that have authenticated against this instance, deduplicated by their claims."
 />
 
-<div class="flex items-center justify-between mb-4">
-	<div class="flex items-center gap-2">
-		<Button
-			variant="default"
-			unifiedSize="sm"
-			startIcon={{ icon: RefreshCw }}
-			onclick={loadTokens}
-			disabled={loading}
-		>
-			Refresh
-		</Button>
-	</div>
-	<div class="flex items-center gap-2">
-		<Button
-			variant="default"
-			unifiedSize="sm"
-			startIcon={{ icon: ChevronLeft }}
-			iconOnly
-			disabled={page <= 1}
-			onclick={() => {
-				page -= 1
-				loadTokens()
-			}}
-		/>
-		<span class="text-xs text-secondary">Page {page}</span>
-		<Button
-			variant="default"
-			unifiedSize="sm"
-			startIcon={{ icon: ChevronRight }}
-			iconOnly
-			disabled={tokens.length < perPage}
-			onclick={() => {
-				page += 1
-				loadTokens()
-			}}
-		/>
-	</div>
+<div class="flex flex-row gap-2 items-center mb-2">
+	<Toggle
+		checked={activeOnly}
+		on:change={(e) => onActiveOnlyChange(e.detail)}
+		options={{
+			left: 'Recently active only',
+			leftTooltip: 'Show only tokens used in the last 30 days'
+		}}
+	/>
 </div>
 
-{#if loading}
-	<div class="flex items-center justify-center py-8">
-		<Loader2 class="animate-spin" size={20} />
-		<span class="ml-2 text-sm text-secondary">Loading tokens...</span>
-	</div>
-{:else if tokens.length === 0}
-	<div class="text-center py-8 text-sm text-tertiary"> No external JWT tokens found </div>
-{:else}
-	<div class="overflow-x-auto border rounded-md">
-		<table class="w-full text-sm">
-			<thead>
-				<tr class="border-b bg-surface-secondary text-left text-xs text-secondary">
-					<th class="px-3 py-2">Email</th>
-					<th class="px-3 py-2">Username</th>
-					<th class="px-3 py-2">Admin</th>
-					<th class="px-3 py-2">Operator</th>
-					<th class="px-3 py-2">Workspace</th>
-					<th class="px-3 py-2">Label</th>
-					<th class="px-3 py-2">Scopes</th>
-					<th class="px-3 py-2">Last Used</th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each tokens as token (token.jwt_hash)}
-					<tr class="border-b last:border-b-0 hover:bg-surface-hover">
-						<td class="px-3 py-2 font-mono text-xs">{token.email}</td>
-						<td class="px-3 py-2">{token.username}</td>
-						<td class="px-3 py-2">
-							{#if token.is_admin}
-								<Check size={14} class="text-green-600" />
-							{:else}
-								<X size={14} class="text-tertiary" />
-							{/if}
-						</td>
-						<td class="px-3 py-2">
-							{#if token.is_operator}
-								<Check size={14} class="text-green-600" />
-							{:else}
-								<X size={14} class="text-tertiary" />
-							{/if}
-						</td>
-						<td class="px-3 py-2 text-xs">{token.workspace_id ?? '-'}</td>
-						<td class="px-3 py-2 text-xs">{token.label ?? '-'}</td>
-						<td class="px-3 py-2 text-xs">
-							{#if token.scopes && token.scopes.length > 0}
-								{token.scopes.join(', ')}
-							{:else}
-								-
-							{/if}
-						</td>
-						<td class="px-3 py-2 text-xs whitespace-nowrap">{displayDate(token.last_used_at)}</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
-	</div>
-{/if}
+<DataTable
+	shouldLoadMore={hasMore}
+	loadMore={loadMoreSize}
+	{loading}
+	on:loadMore={() => onLoadMore()}
+>
+	<Head>
+		<tr>
+			<Cell head first>Email</Cell>
+			<Cell head>Username</Cell>
+			<Cell head>Admin</Cell>
+			<Cell head>Operator</Cell>
+			<Cell head>Workspace</Cell>
+			<Cell head>Label</Cell>
+			<Cell head>Scopes</Cell>
+			<Cell head last>Last Used</Cell>
+		</tr>
+	</Head>
+	<tbody>
+		{#each tokens as token, i (token.jwt_hash)}
+			<tr class={i % 2 === 0 ? 'bg-surface-tertiary' : 'bg-surface'}>
+				<Cell first><span class="font-mono text-xs">{token.email}</span></Cell>
+				<Cell>{token.username}</Cell>
+				<Cell>
+					{#if token.is_admin}
+						<Check size={14} class="text-green-600" />
+					{:else}
+						<X size={14} class="text-tertiary" />
+					{/if}
+				</Cell>
+				<Cell>
+					{#if token.is_operator}
+						<Check size={14} class="text-green-600" />
+					{:else}
+						<X size={14} class="text-tertiary" />
+					{/if}
+				</Cell>
+				<Cell>{token.workspace_id ?? '-'}</Cell>
+				<Cell>{token.label ?? '-'}</Cell>
+				<Cell>
+					{#if token.scopes && token.scopes.length > 0}
+						{token.scopes.join(', ')}
+					{:else}
+						-
+					{/if}
+				</Cell>
+				<Cell last><span class="whitespace-nowrap">{displayDate(token.last_used_at)}</span></Cell>
+			</tr>
+		{/each}
+	</tbody>
+</DataTable>

@@ -775,13 +775,6 @@ export const instanceSettingsNavigationGroups = [
 				aiId: 'instance-settings-scim-saml',
 				aiDescription: 'Instance SCIM/SAML settings',
 				isEE: true
-			},
-			{
-				id: 'ext_jwt',
-				label: 'External JWTs',
-				aiId: 'instance-settings-ext-jwt',
-				aiDescription: 'List of external JWT tokens used for authentication',
-				isEE: true
 			}
 		]
 	},
@@ -916,15 +909,13 @@ export const tabToCategoryMap: Record<string, string> = {
 	private_hub: 'Private Hub',
 	github_enterprise_app: 'GitHub App',
 	websocket: 'WebSocket',
-	db_health: 'DB Health',
-	ext_jwt: 'Auth/OAuth/SAML'
+	db_health: 'DB Health'
 }
 
-export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim' | 'ext_jwt'> = {
+export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
 	sso: 'sso',
 	oauth: 'oauth',
-	scim_saml: 'scim',
-	ext_jwt: 'ext_jwt'
+	scim_saml: 'scim'
 }
 
 // Navigation groups for the initial setup flow (no Users tab)

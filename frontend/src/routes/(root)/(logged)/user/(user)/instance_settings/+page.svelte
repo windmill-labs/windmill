@@ -176,7 +176,7 @@
 	// --- Full settings mode state ---
 	let fullTab = $state('general')
 	let instanceSettingsCategory = $derived(tabToCategoryMap[fullTab] ?? 'Core')
-	let authSubTab: 'sso' | 'oauth' | 'scim' | 'ext_jwt' = $derived(tabToAuthSubTab[fullTab] ?? 'sso')
+	let authSubTab: 'sso' | 'oauth' | 'scim' = $derived(tabToAuthSubTab[fullTab] ?? 'sso')
 	let yamlMode = $state(false)
 
 	function isAiStepActive(): boolean {
