@@ -28,7 +28,7 @@ use windmill_common::worker::{
     to_raw_value, Connection, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };
 use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
-use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult};
+use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult, DB};
 use windmill_object_store::convert_json_line_stream;
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
@@ -67,6 +67,7 @@ pub async fn clear_pg_cache() {
 async fn new_pg_connection(
     database: &PgDatabase,
     _use_iam_auth: bool,
+    main_db: Option<&DB>,
 ) -> error::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>)> {
     let (client, connection) = if _use_iam_auth {
         #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -80,7 +81,7 @@ async fn new_pg_connection(
             ));
         }
     } else {
-        database.connect().await?
+        database.connect(main_db).await?
     };
     let handle = tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -103,7 +104,7 @@ fn otyp_to_pg_type(otyp: &str) -> error::Result<Type> {
         "int" | "integer" | "int4" | "serial" => (Type::INT4, Type::INT4_ARRAY),
         "bigint" | "bigserial" | "int8" | "serial8" => (Type::INT8, Type::INT8_ARRAY),
         "real" | "float4" => (Type::FLOAT4, Type::FLOAT4_ARRAY),
-        "double" | "float8" => (Type::FLOAT8, Type::FLOAT8_ARRAY),
+        "double" | "double precision" | "float8" => (Type::FLOAT8, Type::FLOAT8_ARRAY),
         "numeric" | "decimal" => (Type::NUMERIC, Type::NUMERIC_ARRAY),
         "text" => (Type::TEXT, Type::TEXT_ARRAY),
         "varchar" | "character varying" => (Type::VARCHAR, Type::VARCHAR_ARRAY),
@@ -361,18 +362,18 @@ pub async fn do_postgresql(
                 }
                 drop(guard);
                 cached_client = None;
-                new_client = Some(new_pg_connection(&database, use_iam_auth).await?);
+                new_client = Some(new_pg_connection(&database, use_iam_auth, conn.as_sql()).await?);
             }
         } else {
             // Release the lock before connecting so the post-query caching
             // code can re-acquire it.
             drop(guard);
             cached_client = None;
-            new_client = Some(new_pg_connection(&database, use_iam_auth).await?);
+            new_client = Some(new_pg_connection(&database, use_iam_auth, conn.as_sql()).await?);
         }
     } else {
         cached_client = None;
-        new_client = Some(new_pg_connection(&database, use_iam_auth).await?);
+        new_client = Some(new_pg_connection(&database, use_iam_auth, conn.as_sql()).await?);
     }
 
     let (sig, typed_schema) = parse_pgsql_sig_with_typed_schema(&query)
@@ -633,7 +634,9 @@ fn convert_vec_val(
         "real" | "float4" => Ok(Box::new(map_as_single_type(vec, |v| {
             v.as_f64().map(|x| x as f32)
         })?)),
-        "double" | "float8" => Ok(Box::new(map_as_single_type(vec, |v| v.as_f64())?)),
+        "double" | "double precision" | "float8" => {
+            Ok(Box::new(map_as_single_type(vec, |v| v.as_f64())?))
+        }
         "uuid" => Ok(Box::new(map_as_single_type(vec, |v| {
             v.as_str().map(|x| Uuid::parse_str(x).ok()).flatten()
         })?)),
@@ -697,7 +700,7 @@ fn convert_val(
             "oid" => Ok(Box::new(None::<u32>)),
             "bigint" | "bigserial" | "int8" | "serial8" => Ok(Box::new(None::<i64>)),
             "real" | "float4" => Ok(Box::new(None::<f32>)),
-            "double" | "float8" => Ok(Box::new(None::<f64>)),
+            "double" | "double precision" | "float8" => Ok(Box::new(None::<f64>)),
             "uuid" => Ok(Box::new(None::<Uuid>)),
             "date" => Ok(Box::new(None::<chrono::NaiveDate>)),
             "time" | "timetz" => Ok(Box::new(None::<chrono::NaiveTime>)),
@@ -731,7 +734,10 @@ fn convert_val(
         Value::Number(n) if (arg_t == "real" || arg_t == "float4") && n.as_f64().is_some() => {
             Ok(Box::new(n.as_f64().unwrap() as f32))
         }
-        Value::Number(n) if (arg_t == "double" || arg_t == "float8") && n.as_f64().is_some() => {
+        Value::Number(n)
+            if (arg_t == "double" || arg_t == "double precision" || arg_t == "float8")
+                && n.as_f64().is_some() =>
+        {
             Ok(Box::new(n.as_f64().unwrap()))
         }
         Value::Number(n) if (arg_t == "numeric" || arg_t == "decimal") && n.is_i64() => Ok(

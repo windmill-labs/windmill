@@ -4,6 +4,7 @@
 	import { SettingService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '../text_input/TextInput.svelte'
+	import Toggle from '../Toggle.svelte'
 	import { Database, Lock, Server, ArrowLeft, ArrowRight, Cloud } from 'lucide-svelte'
 	import type { Writable } from 'svelte/store'
 	import { enterpriseLicense } from '$lib/stores'
@@ -67,7 +68,8 @@
 				mount_path: $values['secret_backend']?.mount_path ?? 'windmill',
 				jwt_role: $values['secret_backend']?.jwt_role ?? 'windmill-secrets',
 				namespace: $values['secret_backend']?.namespace ?? null,
-				token: $values['secret_backend']?.token ?? null
+				token: $values['secret_backend']?.token ?? null,
+				skip_ssl_verify: $values['secret_backend']?.skip_ssl_verify ?? false
 			}
 		} else if (type === 'AzureKeyVault') {
 			$values['secret_backend'] = {
@@ -105,7 +107,8 @@
 			mount_path: $values['secret_backend'].mount_path,
 			jwt_role: $values['secret_backend'].jwt_role,
 			namespace: $values['secret_backend'].namespace || undefined,
-			token: $values['secret_backend'].token || undefined
+			token: $values['secret_backend'].token || undefined,
+			skip_ssl_verify: $values['secret_backend'].skip_ssl_verify || undefined
 		}
 	}
 
@@ -356,6 +359,10 @@ vault write auth/jwt/role/windmill-secrets \
 					<label for="vault_namespace" class="block text-xs font-semibold text-emphasis">Namespace (optional)</label>
 					<span class="text-2xs text-secondary">Vault Enterprise namespace</span>
 					<TextInput inputProps={{ type: 'text', id: 'vault_namespace', placeholder: 'admin/my-namespace', disabled }} bind:value={$values['secret_backend'].namespace} />
+				</div>
+				<div class="flex flex-col gap-1">
+					<Toggle id="vault_skip_ssl_verify" {disabled} bind:checked={$values['secret_backend'].skip_ssl_verify} size="xs" options={{ right: 'Skip TLS certificate verification' }} />
+					<span class="text-2xs text-secondary">Disables TLS verification when connecting to Vault. Only enable for self-signed certificates in development.</span>
 				</div>
 			</div>
 			<div class="flex flex-col gap-4 pt-4 border-t">

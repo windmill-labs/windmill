@@ -1,0 +1,68 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT jwt_hash, email, username, is_admin, is_operator, workspace_id, label, scopes, last_used_at\n                     FROM unique_ext_jwt_token\n                     WHERE last_used_at > NOW() - INTERVAL '30 days'\n                     ORDER BY last_used_at DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "jwt_hash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_operator",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "workspace_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "label",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "scopes",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 8,
+        "name": "last_used_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "c547516873b02e06d229b1c7f8e6619f1e1300f9f9969911608f690b78d93099"
+}

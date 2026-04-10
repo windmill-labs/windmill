@@ -66,6 +66,7 @@
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
+	import CiTestResults from '$lib/components/CiTestResults.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
@@ -576,6 +577,10 @@
 							'mx-auto'
 						)}
 					>
+						{#if flow?.path}
+							<CiTestResults path={flow.path} kind="flow" />
+						{/if}
+
 						{#if flow?.archived}
 							<Alert type="error" title="Archived">This flow was archived</Alert>
 							<div class="h-4"></div>

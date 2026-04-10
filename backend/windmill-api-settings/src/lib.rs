@@ -102,6 +102,10 @@ pub fn global_service() -> Router {
             post(setup_custom_instance_pg_database),
         )
         .route(
+            "/drop_custom_instance_pg_database/{name}",
+            post(drop_custom_instance_pg_database),
+        )
+        .route(
             "/critical_alerts/acknowledge_all",
             post(acknowledge_all_critical_alerts),
         )
@@ -378,7 +382,7 @@ pub async fn set_global_setting_internal(
             }
             delete_global_setting(db, &key).await?;
         }
-        serde_json::Value::String(x) if x.is_empty() => {
+        serde_json::Value::String(ref x) if x.trim().is_empty() => {
             if instance_config::PROTECTED_SETTINGS.contains(&key.as_str()) {
                 return Err(error::Error::BadRequest(format!(
                     "{key} is a protected setting and cannot be set to empty"
@@ -993,49 +997,12 @@ async fn list_custom_instance_pg_databases(
     return Ok(Json(result));
 }
 
-pub async fn refresh_custom_instance_user_pwd_inner(db: &DB) -> Result<()> {
-    // 20251208123907_safety_custom_instance_db_user_pwd.up
-    let query = r#"
-    DO $$
-        DECLARE
-            pwd text;
-        BEGIN
-            SELECT gen_random_uuid()::text INTO pwd;
-
-            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user') THEN
-                EXECUTE format('ALTER USER custom_instance_user WITH PASSWORD %L', pwd);
-                RAISE NOTICE 'Updated password for existing user custom_instance_user';
-            ELSE
-                EXECUTE format('CREATE USER custom_instance_user WITH PASSWORD %L', pwd);
-                RAISE NOTICE 'Created new user custom_instance_user';
-            END IF;
-
-            IF NOT EXISTS (SELECT 1 FROM global_settings WHERE name = 'custom_instance_pg_databases') THEN
-                INSERT INTO global_settings (name, value)
-                VALUES ('custom_instance_pg_databases', jsonb_build_object(
-                'user_pwd', pwd::text,
-                'databases', jsonb_build_object()
-                ));
-                RAISE NOTICE 'Inserted new global setting for custom_instance_pg_databases';
-            ELSE
-                UPDATE global_settings
-                SET value = jsonb_set(COALESCE(value, '{}'::jsonb), '{user_pwd}', to_jsonb(pwd::text)::jsonb)
-                WHERE name = 'custom_instance_pg_databases';
-                RAISE NOTICE 'Updated user_pwd in existing global setting for custom_instance_pg_databases';
-            END IF;
-        END
-        $$;
-    "#;
-    sqlx::query(query).execute(db).await?;
-    Ok(())
-}
-
 async fn refresh_custom_instance_user_pwd(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<()> {
     require_super_admin(&db, &authed.email).await?;
-    refresh_custom_instance_user_pwd_inner(&db).await?;
+    windmill_common::utils::refresh_custom_instance_user_pwd(&db).await?;
     Ok(Json(()))
 }
 
@@ -1136,7 +1103,7 @@ async fn setup_custom_instance_pg_database_inner(
     }
 
     // We have to connect to the newly created database as admin to grant permissions
-    let (client, connection) = pg_creds.connect().await?;
+    let (client, connection) = pg_creds.connect(Some(db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
     logs.db_connect = "OK".to_string();
@@ -1177,6 +1144,18 @@ async fn setup_custom_instance_pg_database_inner(
         })?;
 
     Ok(())
+}
+
+async fn drop_custom_instance_pg_database(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(dbname): Path<String>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    windmill_common::drop_custom_instance_database(&db, &dbname).await?;
+
+    Ok(format!("Database '{}' dropped successfully", dbname))
 }
 
 // ============================================================================

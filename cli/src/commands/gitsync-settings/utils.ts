@@ -26,17 +26,17 @@ export function normalizeRepoPath(path: string): string {
   return path.replace(/^\$res:/, "");
 }
 
-// Helper to get or create branch configuration
+// Helper to get or create workspace configuration entry for a branch
 export function getOrCreateBranchConfig(config: SyncOptions, branchName: string): {
   config: SyncOptions;
   branchKey: string;
 } {
-  if (!config.gitBranches) {
-    config.gitBranches = {};
+  if (!config.workspaces) {
+    config.workspaces = {} as any;
   }
 
-  if (!config.gitBranches[branchName]) {
-    config.gitBranches[branchName] = {};
+  if (!(config.workspaces as any)[branchName]) {
+    (config.workspaces as any)[branchName] = {};
   }
 
   return {
@@ -54,12 +54,12 @@ export function applyBackendSettingsToBranch(
   const { config: updatedConfig } = getOrCreateBranchConfig(config, branchName);
 
   // Get the base settings (top-level + defaults) to compare against
-  const { gitBranches, ...topLevelSettings } = config;
+  const { workspaces, ...topLevelSettings } = config;
   const baseSettings: Partial<SyncOptions> = { ...DEFAULT_SYNC_OPTIONS, ...topLevelSettings };
 
   // Only store fields that differ from the base settings
   Object.keys(backendSettings).forEach(key => {
-    if (key !== 'gitBranches' && backendSettings[key as keyof SyncOptions] !== undefined) {
+    if (key !== 'workspaces' && key !== 'gitBranches' && backendSettings[key as keyof SyncOptions] !== undefined) {
       const backendValue = backendSettings[key as keyof SyncOptions];
       const baseValue = baseSettings[key as keyof SyncOptions];
 
@@ -67,10 +67,10 @@ export function applyBackendSettingsToBranch(
       const isDifferent = GitSyncSettingsConverter.isDifferent(backendValue, baseValue);
 
       if (isDifferent) {
-        if (!updatedConfig.gitBranches![branchName].overrides) {
-          updatedConfig.gitBranches![branchName].overrides = {};
+        if (!(updatedConfig.workspaces as any)![branchName].overrides) {
+          (updatedConfig.workspaces as any)![branchName].overrides = {};
         }
-        (updatedConfig.gitBranches![branchName].overrides as any)[key] = backendValue;
+        ((updatedConfig.workspaces as any)![branchName].overrides as any)[key] = backendValue;
       }
     }
   });

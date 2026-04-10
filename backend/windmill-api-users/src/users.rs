@@ -1667,6 +1667,78 @@ pub async fn delete_workspace_user_internal(
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
+    // ---- Clean up extra_perms referencing this user ----
+    let extra_perms_tables = [
+        "script",
+        "flow",
+        "app",
+        "resource",
+        "variable",
+        "schedule",
+        "group_",
+        "folder",
+        "raw_app",
+        "http_trigger",
+        "websocket_trigger",
+        "kafka_trigger",
+        "postgres_trigger",
+        "mqtt_trigger",
+        "nats_trigger",
+        "sqs_trigger",
+        "gcp_trigger",
+        "email_trigger",
+    ];
+    for table in &extra_perms_tables {
+        sqlx::query(&format!(
+            "UPDATE {table} SET extra_perms = extra_perms - ('u/' || $1) \
+             WHERE extra_perms ? ('u/' || $1) AND workspace_id = $2"
+        ))
+        .bind(username_to_delete)
+        .bind(w_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // ---- Clean up folder owners ----
+    sqlx::query!(
+        "UPDATE folder SET owners = array_remove(owners, 'u/' || $1) WHERE ('u/' || $1) = ANY(owners) AND workspace_id = $2",
+        username_to_delete, w_id
+    ).execute(&mut **tx).await?;
+
+    // ---- Delete personal data ----
+    sqlx::query!(
+        "DELETE FROM draft WHERE path LIKE ('u/' || $1 || '/%') AND workspace_id = $2",
+        username_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM favorite WHERE usr = $1 AND workspace_id = $2",
+        username_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM input WHERE created_by = $1 AND workspace_id = $2",
+        username_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM capture WHERE created_by = $1 AND workspace_id = $2",
+        username_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // ---- Delete user records ----
     sqlx::query_scalar!(
         "DELETE FROM usr WHERE email = $1 AND workspace_id = $2",
         email_to_delete,
@@ -1678,6 +1750,14 @@ pub async fn delete_workspace_user_internal(
     sqlx::query!(
         "DELETE FROM usr_to_group WHERE usr = $1 AND workspace_id = $2",
         username_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM token WHERE email = $1 AND workspace_id = $2",
+        email_to_delete,
         w_id
     )
     .execute(&mut **tx)

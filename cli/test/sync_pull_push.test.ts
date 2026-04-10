@@ -41,6 +41,7 @@ import {
   isFlowInlineScriptPath,
   isRawAppBackendPath,
   getModuleFolderSuffix,
+  hasWrongFormatSuffix,
 } from "../src/utils/resource_folders.ts";
 import { newPathAssigner } from "../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
@@ -1238,6 +1239,32 @@ test("setNonDottedPaths and getNonDottedPaths work correctly", () => {
   // Set back to false
   setNonDottedPaths(false);
   expect(getNonDottedPaths()).toEqual(false);
+});
+
+test("hasWrongFormatSuffix detects mismatched folder suffixes", () => {
+  // In dotted mode (default), non-dotted dirs are wrong
+  setNonDottedPaths(false);
+  expect(hasWrongFormatSuffix("my_flow__flow")).toEqual("flow");
+  expect(hasWrongFormatSuffix("my_app__app")).toEqual("app");
+  expect(hasWrongFormatSuffix("my_raw_app__raw_app")).toEqual("raw_app");
+  // Correct format should return null
+  expect(hasWrongFormatSuffix("my_flow.flow")).toBeNull();
+  expect(hasWrongFormatSuffix("my_app.app")).toBeNull();
+  expect(hasWrongFormatSuffix("my_raw_app.raw_app")).toBeNull();
+  // Non-resource dirs return null
+  expect(hasWrongFormatSuffix("some_folder")).toBeNull();
+  expect(hasWrongFormatSuffix("node_modules")).toBeNull();
+
+  // In non-dotted mode, dotted dirs are wrong
+  setNonDottedPaths(true);
+  expect(hasWrongFormatSuffix("my_flow.flow")).toEqual("flow");
+  expect(hasWrongFormatSuffix("my_app.app")).toEqual("app");
+  expect(hasWrongFormatSuffix("my_raw_app.raw_app")).toEqual("raw_app");
+  // Correct format should return null
+  expect(hasWrongFormatSuffix("my_flow__flow")).toBeNull();
+  expect(hasWrongFormatSuffix("my_app__app")).toBeNull();
+  expect(hasWrongFormatSuffix("my_raw_app__raw_app")).toBeNull();
+  setNonDottedPaths(false); // Reset
 });
 
 // =============================================================================

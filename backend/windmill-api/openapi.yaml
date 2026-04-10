@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.677.0
+  version: 1.680.0
   title: Windmill API
 
   contact:
@@ -726,6 +726,36 @@ paths:
                 items:
                   $ref: "#/components/schemas/ExportedUser"
 
+  /users/ext_jwt_tokens:
+    get:
+      summary: list external JWT tokens (ee only)
+      operationId: listExtJwtTokens
+      tags:
+        - user
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+        - name: active_only
+          in: query
+          description: only tokens used in the last 30 days
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: list of external JWT tokens
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExternalJwtToken"
+
   /users/onboarding:
     post:
       summary: Submit user onboarding data
@@ -772,6 +802,98 @@ paths:
             text/plain:
               schema:
                 type: string
+  /w/{workspace}/users/offboard_preview/{username}:
+    get:
+      summary: preview offboarding for a workspace user (require admin privilege)
+      operationId: offboardPreview
+      tags:
+        - user
+        - admin
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: offboard preview with object counts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OffboardPreview"
+  /w/{workspace}/users/offboard/{username}:
+    post:
+      summary: offboard a workspace user (reassign objects, optionally delete user)
+      operationId: offboardWorkspaceUser
+      tags:
+        - user
+        - admin
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OffboardRequest"
+      responses:
+        "200":
+          description: offboard response with conflicts or summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OffboardResponse"
+  /users/offboard_preview/{email}:
+    get:
+      summary: preview global offboarding for a user across all workspaces (require super admin)
+      operationId: globalOffboardPreview
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: per-workspace offboard previews
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GlobalOffboardPreview"
+  /users/offboard/{email}:
+    post:
+      summary: offboard a user globally (reassign objects across workspaces, optionally delete)
+      operationId: offboardGlobalUser
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GlobalOffboardRequest"
+      responses:
+        "200":
+          description: offboard result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OffboardResponse"
   /w/{workspace}/users/convert_to_group/{username}:
     post:
       summary: convert manual user to group user (require admin privilege)
@@ -1078,6 +1200,27 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CustomInstanceDb"
+
+  /settings/drop_custom_instance_pg_database/{name}:
+    post:
+      summary: Drops a custom instance database (superadmin only, irreversible)
+      operationId: dropCustomInstanceDb
+      tags:
+        - setting
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+          description: The name of the database to drop
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /settings/global/{key}:
     get:
@@ -3755,7 +3898,16 @@ paths:
               schema:
                 type: array
                 items:
-                  type: string
+                  type: object
+                  required: [name, resource_type, resource_path]
+                  properties:
+                    name:
+                      type: string
+                    resource_type:
+                      type: string
+                      enum: [postgres, instance]
+                    resource_path:
+                      type: string
 
   /w/{workspace}/workspaces/list_datatable_schemas:
     get:
@@ -3827,6 +3979,211 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/workspaces/create_pg_database:
+    post:
+      summary: create a new PostgreSQL database for a datatable
+      operationId: createPgDatabase
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Create pg database request
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, target_dbname]
+              properties:
+                source:
+                  type: string
+                  description: "Datatable source to determine connection info: 'datatable://name' or '$res:path'"
+                target_dbname:
+                  type: string
+                  description: "Name for the new database"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/drop_forked_datatable_databases:
+    post:
+      summary: drop forked datatable databases
+      operationId: dropForkedDatatableDatabases
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [datatable_names]
+              properties:
+                datatable_names:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: list of errors (empty if all succeeded)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/workspaces/import_pg_database:
+    post:
+      summary: import a PostgreSQL database from source to target via pg_dump
+      operationId: importPgDatabase
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Import pg database request
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, target, fork_behavior]
+              properties:
+                source:
+                  type: string
+                  description: "Source database: 'datatable://name' or '$res:path'"
+                target:
+                  type: string
+                  description: "Target database: 'datatable://name' or '$res:path'"
+                target_dbname_override:
+                  type: string
+                  description: "Override the target database name"
+                fork_behavior:
+                  type: string
+                  enum:
+                    - schema_only
+                    - schema_and_data
+                    - keep_original
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/export_pg_schema:
+    post:
+      summary: export the schema of a PostgreSQL database
+      operationId: exportPgSchema
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Export pg schema request
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source]
+              properties:
+                source:
+                  type: string
+                  description: "Source database: 'datatable://name' or '$res:path'"
+      responses:
+        "200":
+          description: schema dump
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/get_datatable_full_schema:
+    post:
+      summary: get the full schema of a datatable database as TableEditorValues
+      operationId: getDatatableFullSchema
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source]
+              properties:
+                source:
+                  type: string
+                  description: "Source datatable, e.g. 'datatable://main'"
+      responses:
+        "200":
+          description: "Schema as { schema_name: { table_name: TableEditorValues } }"
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  additionalProperties:
+                    type: object
+                    required: [name, columns, foreign_keys]
+                    properties:
+                      name:
+                        type: string
+                      columns:
+                        type: array
+                        items:
+                          type: object
+                          required: [name, datatype]
+                          properties:
+                            name:
+                              type: string
+                            datatype:
+                              type: string
+                            primary_key:
+                              type: boolean
+                            default_value:
+                              type: string
+                            nullable:
+                              type: boolean
+                      foreign_keys:
+                        type: array
+                        items:
+                          type: object
+                          required: [columns, on_delete, on_update]
+                          properties:
+                            target_table:
+                              type: string
+                            columns:
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  source_column:
+                                    type: string
+                                  target_column:
+                                    type: string
+                            on_delete:
+                              type: string
+                            on_update:
+                              type: string
+                            fk_constraint_name:
+                              type: string
+                      pk_constraint_name:
+                        type: string
 
   /w/{workspace}/workspaces/git_sync_enabled:
     get:
@@ -7536,6 +7893,77 @@ paths:
                     type: string
                     format: uuid
 
+  /w/{workspace}/scripts/ci_test_results/{kind}/{path}:
+    get:
+      summary: get CI test results for a script, flow, or resource
+      operationId: getCiTestResults
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [script, flow, resource]
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: CI test results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CiTestResult"
+
+  /w/{workspace}/scripts/ci_test_results_batch:
+    post:
+      summary: get CI test results for multiple items
+      operationId: getCiTestResultsBatch
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - items
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - path
+                      - kind
+                    properties:
+                      path:
+                        type: string
+                      kind:
+                        type: string
+                        enum: [script, flow, resource]
+      responses:
+        "200":
+          description: CI test results by item key
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CiTestResult"
+
   /w/{workspace}/scripts/raw_temp/store:
     post:
       summary: store raw script content temporarily for CLI lock generation
@@ -11026,6 +11454,23 @@ paths:
       responses:
         "200":
           description: job details
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs_u/get_flow_all_logs/{id}:
+    get:
+      summary: get all logs for a flow job
+      operationId: getFlowAllLogs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: concatenated logs of all flow steps
           content:
             text/plain:
               schema:
@@ -18355,7 +18800,7 @@ paths:
                                 type: object
                                 description: The columns used (for tables)
                                 additionalProperties:
-                                  $ref: "#/components/schemas/AssetUsageAccessType"                 
+                                  $ref: "#/components/schemas/AssetUsageAccessType"
                               created_at:
                                 type: string
                                 format: date-time
@@ -18458,7 +18903,6 @@ paths:
                     path:
                       type: string
                       description: The asset path
-
 
   /w/{workspace}/volumes/list:
     get:
@@ -19095,6 +19539,25 @@ components:
     # This is why it is better to inline each of schemas for better compat
     # Do not change next line. It is used by python-client for pre-processing
     # -- INLINE START --
+    CiTestResult:
+      type: object
+      properties:
+        test_script_path:
+          type: string
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - test_script_path
+
     OpenFlow:
       $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
     FlowValue:
@@ -19441,6 +19904,9 @@ components:
         token:
           type: string
           description: Static Vault token for testing/development (optional, if provided this is used instead of JWT authentication)
+        skip_ssl_verify:
+          type: boolean
+          description: Skip TLS certificate verification when connecting to Vault. Only use for self-signed certificates in development environments.
 
     AzureKeyVaultSettings:
       type: object
@@ -19914,8 +20380,9 @@ components:
           type: boolean
         timeout:
           type: integer
-        delete_after_use:
-          type: boolean
+        delete_after_secs:
+          type: integer
+          description: If set, delete the job's args, result and logs after this many seconds following job completion
         visible_to_runner_only:
           type: boolean
         auto_kind:
@@ -20006,8 +20473,9 @@ components:
           type: boolean
         timeout:
           type: integer
-        delete_after_use:
-          type: boolean
+        delete_after_secs:
+          type: integer
+          description: If set, delete the job's args, result and logs after this many seconds following job completion
         deployment_message:
           type: string
         concurrency_key:
@@ -20822,6 +21290,191 @@ components:
         disabled:
           type: boolean
 
+    OffboardAffectedPaths:
+      type: object
+      properties:
+        scripts:
+          type: array
+          items:
+            type: string
+        flows:
+          type: array
+          items:
+            type: string
+        apps:
+          type: array
+          items:
+            type: string
+        resources:
+          type: array
+          items:
+            type: string
+        variables:
+          type: array
+          items:
+            type: string
+        schedules:
+          type: array
+          items:
+            type: string
+        triggers:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+    OffboardPreview:
+      type: object
+      properties:
+        owned:
+          $ref: "#/components/schemas/OffboardAffectedPaths"
+          description: "Objects under u/{username}/ that will be reassigned"
+        executing_on_behalf:
+          $ref: "#/components/schemas/OffboardAffectedPaths"
+          description: "Objects not under the user's path but that execute on behalf of this user (permissioned_as/on_behalf_of will be updated)"
+        referencing:
+          $ref: "#/components/schemas/OffboardAffectedPaths"
+          description: "Scripts/flows/apps/resources whose content or value references this user's paths (may break after reassignment)"
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/OffboardTokenInfo"
+          description: "Tokens owned by this user (will be deleted)"
+        http_triggers:
+          type: integer
+          description: "HTTP triggers under the user's path (webhook URLs will change)"
+        email_triggers:
+          type: integer
+          description: "Email triggers under the user's path (email addresses will change)"
+      required:
+        - owned
+        - executing_on_behalf
+        - referencing
+        - tokens
+        - http_triggers
+        - email_triggers
+
+    OffboardTokenInfo:
+      type: object
+      properties:
+        label:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        expiration:
+          type: string
+      required:
+        - label
+        - scopes
+
+    OffboardRequest:
+      type: object
+      properties:
+        reassign_to:
+          type: string
+          description: "Target for reassignment: 'u/{username}' or 'f/{folder}'"
+        new_on_behalf_of_user:
+          type: string
+          description: "Required when reassign_to is a folder. The username whose identity will be used as permissioned_as for schedules and triggers."
+        delete_user:
+          type: boolean
+          default: true
+          description: "Whether to also remove the user from the workspace"
+      required:
+        - reassign_to
+
+    OffboardResponse:
+      type: object
+      properties:
+        conflicts:
+          type: array
+          items:
+            type: string
+          description: "List of path conflicts that block the offboarding. Empty on success."
+        summary:
+          $ref: "#/components/schemas/OffboardSummary"
+
+    OffboardSummary:
+      type: object
+      properties:
+        scripts_reassigned:
+          type: integer
+        flows_reassigned:
+          type: integer
+        apps_reassigned:
+          type: integer
+        resources_reassigned:
+          type: integer
+        variables_reassigned:
+          type: integer
+        schedules_reassigned:
+          type: integer
+        triggers_reassigned:
+          type: integer
+        drafts_deleted:
+          type: integer
+      required:
+        - scripts_reassigned
+        - flows_reassigned
+        - apps_reassigned
+        - resources_reassigned
+        - variables_reassigned
+        - schedules_reassigned
+        - triggers_reassigned
+        - drafts_deleted
+
+    GlobalOffboardPreview:
+      type: object
+      properties:
+        workspaces:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceOffboardPreview"
+      required:
+        - workspaces
+
+    WorkspaceOffboardPreview:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        username:
+          type: string
+        preview:
+          $ref: "#/components/schemas/OffboardPreview"
+      required:
+        - workspace_id
+        - username
+        - preview
+
+    GlobalOffboardRequest:
+      type: object
+      properties:
+        reassignments:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/WorkspaceReassignment"
+          description: "Map of workspace_id to reassignment config"
+        delete_user:
+          type: boolean
+          default: true
+          description: "Whether to also remove the user from the instance"
+
+    WorkspaceReassignment:
+      type: object
+      properties:
+        reassign_to:
+          type: string
+          description: "Target: 'u/{username}' or 'f/{folder}'"
+        new_on_behalf_of_user:
+          type: string
+          description: "Required when reassign_to is a folder. Username to use as permissioned_as."
+      required:
+        - reassign_to
+
     TruncatedToken:
       type: object
       properties:
@@ -20847,6 +21500,39 @@ components:
       required:
         - token_prefix
         - created_at
+        - last_used_at
+
+    ExternalJwtToken:
+      type: object
+      properties:
+        jwt_hash:
+          type: integer
+          format: int64
+        email:
+          type: string
+        username:
+          type: string
+        is_admin:
+          type: boolean
+        is_operator:
+          type: boolean
+        workspace_id:
+          type: string
+        label:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        last_used_at:
+          type: string
+          format: date-time
+      required:
+        - jwt_hash
+        - email
+        - username
+        - is_admin
+        - is_operator
         - last_used_at
 
     NewToken:
@@ -24203,6 +24889,18 @@ components:
           type: string
         color:
           type: string
+        forked_datatables:
+          type: array
+          items:
+            type: object
+            required: [name, new_dbname]
+            properties:
+              name:
+                type: string
+                description: "Datatable name"
+              new_dbname:
+                type: string
+                description: "New database name for the fork"
       required:
         - id
         - name
@@ -24854,7 +25552,14 @@ components:
                     type: string
                 required:
                   - resource_type
-
+              forked_from:
+                type: object
+                description: Fork origin info with schema snapshot
+                properties:
+                  schema:
+                    type: object
+                    description: Schema snapshot at fork time
+                    additionalProperties: true
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]
@@ -25436,7 +26141,15 @@ components:
         kind:
           type: string
           enum:
-            ["script", "flow", "app", "raw_app", "resource", "variable", "resource_type"]
+            [
+              "script",
+              "flow",
+              "app",
+              "raw_app",
+              "resource",
+              "variable",
+              "resource_type",
+            ]
           description: Type of the item
         path:
           type: string

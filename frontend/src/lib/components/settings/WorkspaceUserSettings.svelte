@@ -28,10 +28,15 @@
 	import Cell from '../table/Cell.svelte'
 	import Row from '../table/Row.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import UserOffboardingModal from '$lib/components/UserOffboardingModal.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { truncate } from '$lib/utils'
 	import { onDestroy, untrack } from 'svelte'
 	import { goto } from '$lib/navigation'
+	import { ArrowRightLeft } from 'lucide-svelte'
+
+	let offboardingUser: string | undefined = $state(undefined)
+	let offboardingReassignOnly = $state(false)
 
 	let users: User[] | undefined = $state(undefined)
 	let invites: WorkspaceInvite[] = $state([])
@@ -272,7 +277,6 @@
 		}
 	})
 
-	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let removeInstanceGroupConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let convertConfirmedCallback: (() => void) | undefined = $state(undefined)
 
@@ -972,14 +976,8 @@
 										destructive
 										{disabled}
 										onClick={() => {
-											deleteConfirmedCallback = async () => {
-												await UserService.deleteUser({
-													workspace: $workspaceStore ?? '',
-													username
-												})
-												sendUserToast('User removed')
-												listUsers()
-											}
+											offboardingUser = username
+											offboardingReassignOnly = false
 										}}
 										startIcon={{ icon: UserMinus }}
 									>
@@ -1008,7 +1006,20 @@
 										Convert
 									</Button>
 								{:else}
-									{@render removeUserButton(false)}
+									<div class="flex items-center gap-1">
+										<Button
+											unifiedSize="sm"
+											variant="subtle"
+											onClick={() => {
+												offboardingUser = username
+												offboardingReassignOnly = true
+											}}
+											startIcon={{ icon: ArrowRightLeft }}
+										>
+											Reassign
+										</Button>
+										{@render removeUserButton(false)}
+									</div>
 								{/if}
 							</div>
 						</Cell>
@@ -1149,24 +1160,20 @@
 		{/if}
 	</Section>
 {/if}
-<ConfirmationModal
-	open={Boolean(deleteConfirmedCallback)}
-	title="Remove user"
-	confirmationText="Remove"
-	on:canceled={() => {
-		deleteConfirmedCallback = undefined
-	}}
-	on:confirmed={() => {
-		if (deleteConfirmedCallback) {
-			deleteConfirmedCallback()
-		}
-		deleteConfirmedCallback = undefined
-	}}
->
-	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to remove ?</span>
-	</div>
-</ConfirmationModal>
+{#if offboardingUser}
+	<UserOffboardingModal
+		open={offboardingUser != null}
+		username={offboardingUser}
+		reassignOnly={offboardingReassignOnly}
+		onClose={() => {
+			offboardingUser = undefined
+		}}
+		onComplete={() => {
+			offboardingUser = undefined
+			listUsers()
+		}}
+	/>
+{/if}
 
 <div class="[&>div]:!z-[5002]">
 	<ConfirmationModal

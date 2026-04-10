@@ -387,7 +387,7 @@ export function createOpenAIProxyClient(baseURL: string): OpenAI {
 		baseURL,
 		apiKey: 'fake-key',
 		defaultHeaders: {
-			Authorization: '' // a non empty string will be unable to access Windmill backend proxy
+			Authorization: OpenAPI.TOKEN ? `Bearer ${OpenAPI.TOKEN}` : ''
 		},
 		dangerouslyAllowBrowser: true
 	})
@@ -397,7 +397,8 @@ export function createAnthropicProxyClient(baseURL: string): Anthropic {
 	return new Anthropic({
 		baseURL,
 		apiKey: 'fake-key',
-		dangerouslyAllowBrowser: true
+		dangerouslyAllowBrowser: true,
+		defaultHeaders: OpenAPI.TOKEN ? { Authorization: `Bearer ${OpenAPI.TOKEN}` } : undefined
 	})
 }
 

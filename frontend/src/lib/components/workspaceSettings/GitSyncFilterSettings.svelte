@@ -424,7 +424,7 @@ git push
 										> file:</div
 									>
 									<pre class="text-xs bg-surface p-2 rounded mt-2 overflow-x-auto"
-										>gitBranches:
+										>workspaces:
   main:
     promotionOverrides:
       # Add your promotion-specific settings here</pre

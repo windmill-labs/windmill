@@ -1,0 +1,19 @@
+// test: script/u/user/script_to_test
+//
+// To test multiple items, list them on separate lines:
+// // test:
+// // script/u/user/script_a
+// // script/u/user/script_b
+// // flow/u/user/my_flow
+import * as wmill from "windmill-client";
+
+export async function main() {
+  const result = await wmill.runScript("u/user/script_to_test", {});
+
+  // Add your assertions here
+  // if (result !== 42) {
+  //   throw new Error(`Expected 42, got ${JSON.stringify(result)}`);
+  // }
+
+  return result;
+}

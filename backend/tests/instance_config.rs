@@ -172,6 +172,164 @@ async fn test_from_db_unknown_settings_go_to_extra(db: Pool<Postgres>) {
     );
 }
 
+/// Regression: a legacy `global_settings.worker_configs` row must not leak
+/// into `GlobalSettings::extra`. Older Windmill versions stored worker configs
+/// as a single blob in `global_settings`; the row could silently drift from
+/// the real `config WHERE name LIKE 'worker__%'` rows and get resurrected on
+/// every bulk InstanceSettings save via the flatten+extra round-trip.
+#[sqlx::test(fixtures("base"))]
+async fn test_from_db_hides_legacy_worker_configs_ghost_row(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    insert_global_setting(
+        &db,
+        "worker_configs",
+        serde_json::json!({
+            "default": {"worker_tags": ["deno", "python3"]},
+            "sldc-standard": {"worker_tags": ["sldc-standard"]}
+        }),
+    )
+    .await;
+    insert_config(&db, "worker__sldc-standard", serde_json::json!({})).await;
+
+    let config = InstanceConfig::from_db(&db).await.unwrap();
+    assert!(
+        !config.global_settings.extra.contains_key("worker_configs"),
+        "legacy worker_configs row must be filtered out of GlobalSettings::extra"
+    );
+    assert!(
+        !config
+            .global_settings
+            .to_settings_map()
+            .contains_key("worker_configs"),
+        "legacy worker_configs row must not re-appear in to_settings_map()"
+    );
+    // The real config-table row is still read normally.
+    assert!(config.worker_configs.contains_key("sldc-standard"));
+}
+
+/// Regression: a bulk `diff_global_settings` desired map that contains an
+/// empty-string value for a key must route that key to `deletes` rather than
+/// upserting `""`. Mirrors the single-key endpoint's behavior and prevents
+/// stale `""` rows (e.g. `npmrc`) from tripping the EE registry gate on CE.
+#[sqlx::test(fixtures("base"))]
+async fn test_diff_global_settings_empty_string_routes_to_delete(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    insert_global_setting(&db, "npmrc", serde_json::json!("registry=https://x/")).await;
+
+    let current_map = InstanceConfig::from_db(&db)
+        .await
+        .unwrap()
+        .global_settings
+        .to_settings_map();
+
+    let mut desired: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    desired.insert("npmrc".to_string(), serde_json::json!(""));
+
+    let diff = diff_global_settings(&current_map, &desired, ApplyMode::Merge);
+    assert!(
+        !diff.upserts.contains_key("npmrc"),
+        "empty-string value must not upsert"
+    );
+    assert!(
+        diff.deletes.iter().any(|k| k == "npmrc"),
+        "empty-string value must route to deletes"
+    );
+
+    apply_settings_diff(&db, &diff).await.unwrap();
+    assert!(
+        get_global_setting(&db, "npmrc").await.is_none(),
+        "npmrc row must be deleted after apply"
+    );
+
+    // Second case: key not currently present → no-op (no upsert, no delete).
+    clear_settings_and_configs(&db).await;
+    let current_map = InstanceConfig::from_db(&db)
+        .await
+        .unwrap()
+        .global_settings
+        .to_settings_map();
+    let diff = diff_global_settings(&current_map, &desired, ApplyMode::Merge);
+    assert!(!diff.upserts.contains_key("npmrc"));
+    assert!(!diff.deletes.iter().any(|k| k == "npmrc"));
+}
+
+/// Regression: whitespace-only values for protected settings (e.g.
+/// `jwt_secret`) must not leak into `deletes`. The empty-string-unset branch
+/// in `diff_global_settings` relies on the `PROTECTED_SETTINGS` guard ahead
+/// of it to catch whitespace, so `is_empty_or_null` must also trim.
+#[sqlx::test(fixtures("base"))]
+async fn test_diff_global_settings_protected_whitespace_not_deleted(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    insert_global_setting(&db, "jwt_secret", serde_json::json!("s3cret")).await;
+
+    let current_map = InstanceConfig::from_db(&db)
+        .await
+        .unwrap()
+        .global_settings
+        .to_settings_map();
+
+    for whitespace in [" ", "  ", "\t", "\n", ""] {
+        let mut desired: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+        desired.insert("jwt_secret".to_string(), serde_json::json!(whitespace));
+
+        let diff = diff_global_settings(&current_map, &desired, ApplyMode::Merge);
+        assert!(
+            !diff.deletes.iter().any(|k| k == "jwt_secret"),
+            "protected setting must not be routed to deletes for value {whitespace:?}"
+        );
+        assert!(
+            !diff.upserts.contains_key("jwt_secret"),
+            "protected setting must not be overwritten with whitespace for value {whitespace:?}"
+        );
+    }
+
+    // The underlying secret must still be present after applying each diff.
+    assert_eq!(
+        get_global_setting(&db, "jwt_secret").await,
+        Some(serde_json::json!("s3cret"))
+    );
+}
+
+/// Regression: a bulk `diff_global_settings` upsert must reject a
+/// `worker_configs` key, even if a client PUT carries one in the flattened
+/// extra map. This is the write-side guard that prevents the ghost row from
+/// being resurrected on every InstanceSettings YAML save.
+#[sqlx::test(fixtures("base"))]
+async fn test_diff_global_settings_rejects_worker_configs_upsert(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    let current: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    let mut desired: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    desired.insert(
+        "base_url".to_string(),
+        serde_json::json!("https://windmill.test"),
+    );
+    desired.insert(
+        "worker_configs".to_string(),
+        serde_json::json!({"default": {"worker_tags": ["deno"]}}),
+    );
+
+    let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
+    assert!(diff.upserts.contains_key("base_url"));
+    assert!(
+        !diff.upserts.contains_key("worker_configs"),
+        "worker_configs must never be written as a global setting"
+    );
+
+    apply_settings_diff(&db, &diff).await.unwrap();
+    assert!(
+        get_global_setting(&db, "worker_configs").await.is_none(),
+        "worker_configs row must not exist in global_settings after apply"
+    );
+    assert_eq!(
+        get_global_setting(&db, "base_url").await,
+        Some(serde_json::json!("https://windmill.test"))
+    );
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_from_db_with_worker_configs(db: Pool<Postgres>) {
     clear_settings_and_configs(&db).await;
@@ -1150,4 +1308,126 @@ async fn test_replace_mode_protects_jwt_secret_and_rsa_keys(db: Pool<Postgres>) 
         Some(serde_json::json!({"private_key": "existing-rsa-key"}))
     );
     assert!(get_global_setting(&db, "normal_setting").await.is_none());
+}
+
+// ========================================================================
+// Alert config migration tests
+// ========================================================================
+
+#[sqlx::test(fixtures("base"))]
+async fn test_alert_config_in_global_settings_roundtrip(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    let alert_value = serde_json::json!({
+        "alerts": [
+            {
+                "name": "Test Alert",
+                "tags_to_monitor": ["default", "gpu"],
+                "jobs_num_threshold": 5,
+                "alert_cooldown_seconds": 300,
+                "alert_time_threshold_seconds": 60
+            }
+        ]
+    });
+
+    // Insert alert_config into global_settings
+    insert_global_setting(&db, "alert_job_queue_waiting", alert_value.clone()).await;
+
+    // Verify it appears in InstanceConfig global_settings (via extra)
+    let config = InstanceConfig::from_db(&db).await.unwrap();
+    assert_eq!(
+        config.global_settings.extra["alert_job_queue_waiting"], alert_value,
+        "alert_config should appear in global_settings extra"
+    );
+
+    // Verify it does NOT appear in worker_configs
+    assert!(
+        !config
+            .worker_configs
+            .contains_key("alert_job_queue_waiting"),
+        "alert_config should not appear in worker_configs"
+    );
+
+    // Modify the alert_config
+    let updated_value = serde_json::json!({
+        "alerts": [
+            {
+                "name": "Updated Alert",
+                "tags_to_monitor": ["batch"],
+                "jobs_num_threshold": 10,
+                "alert_cooldown_seconds": 600,
+                "alert_time_threshold_seconds": 120
+            }
+        ]
+    });
+
+    let current = config.global_settings.to_settings_map();
+    let mut desired = current.clone();
+    desired.insert("alert_job_queue_waiting".to_string(), updated_value.clone());
+
+    let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
+    assert!(
+        diff.upserts.contains_key("alert_job_queue_waiting"),
+        "alert_config change should be detected in diff"
+    );
+
+    apply_settings_diff(&db, &diff).await.unwrap();
+
+    // Re-read and verify the update
+    let config2 = InstanceConfig::from_db(&db).await.unwrap();
+    assert_eq!(
+        config2.global_settings.extra["alert_job_queue_waiting"],
+        updated_value
+    );
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_alert_config_not_in_worker_configs(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    // Insert alert_config in global_settings (the correct location)
+    insert_global_setting(
+        &db,
+        "alert_job_queue_waiting",
+        serde_json::json!({"alerts": []}),
+    )
+    .await;
+
+    // Also insert a real worker config
+    insert_config(
+        &db,
+        "worker__default",
+        serde_json::json!({"worker_tags": ["default"]}),
+    )
+    .await;
+
+    let config = InstanceConfig::from_db(&db).await.unwrap();
+
+    // alert_config should be in global_settings, not worker_configs
+    assert!(
+        config
+            .global_settings
+            .extra
+            .contains_key("alert_job_queue_waiting"),
+        "alert_config should be in global_settings.extra"
+    );
+    assert_eq!(config.worker_configs.len(), 1);
+    assert!(
+        config.worker_configs.contains_key("default"),
+        "only the real worker config should be in worker_configs"
+    );
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_no_alert_in_config_table_after_migration(db: Pool<Postgres>) {
+    // After the migration runs, no alert__* entries should remain in the config table
+    let rows: Vec<(String,)> = sqlx::query_as("SELECT name FROM config WHERE name LIKE 'alert__%'")
+        .fetch_all(&db)
+        .await
+        .unwrap();
+    assert!(
+        rows.is_empty(),
+        "No alert entries should remain in config table after migration, found: {:?}",
+        rows.iter().map(|(n,)| n.as_str()).collect::<Vec<_>>()
+    );
 }

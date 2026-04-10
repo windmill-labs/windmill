@@ -7,7 +7,7 @@ import {
 } from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common.js'
-import { emptySchema, sortObject } from './utils.js'
+import { emptySchema, getHubFlowIdFromPath, isHubFlowPath, sortObject } from './utils.js'
 import { tick } from 'svelte'
 
 import initTsParser, { parse_deno, parse_outputs } from 'windmill-parser-wasm-ts'
@@ -540,6 +540,20 @@ export async function loadSchema(
 
 		return { schema: script.schema as any, summary: script.summary }
 	} else if (runType === 'flow') {
+		if (isHubFlowPath(path)) {
+			const hubFlowId = getHubFlowIdFromPath(path)
+			if (hubFlowId === undefined) {
+				throw new Error(`Invalid hub flow path: ${path}`)
+			}
+			const hub = await FlowService.getHubFlowById({ id: hubFlowId })
+			const flow = hub.flow
+			const schema =
+				flow?.schema && typeof flow.schema === 'object' && Object.keys(flow.schema).length > 0
+					? (flow.schema as any)
+					: emptySchema()
+			return { schema, summary: flow?.summary }
+		}
+
 		const flow = await FlowService.getFlowByPath({
 			workspace,
 			path

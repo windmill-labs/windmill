@@ -769,7 +769,11 @@ pub async fn read_ee_registry_with_workspace_override(
                 _ => None,
             })
     };
-    let value = ws_value.or(global_value);
+    // An empty/whitespace-only value (from either source) means "unset" — a
+    // workspace override of `""` still takes precedence over the global
+    // value, but neither triggers the spurious "requires Enterprise" warning
+    // on CE jobs.
+    let value = ws_value.or(global_value).filter(|s| !s.trim().is_empty());
     read_ee_registry(value, display_name, job_id, w_id, conn).await
 }
 

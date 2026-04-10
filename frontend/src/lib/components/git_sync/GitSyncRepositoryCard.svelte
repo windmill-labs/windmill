@@ -11,14 +11,11 @@
 		Plus
 	} from 'lucide-svelte'
 	import { Button, Alert } from '$lib/components/common'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import Section from '$lib/components/Section.svelte'
 	import { getGitSyncContext } from './GitSyncContext.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 	import DetectionFlow from './DetectionFlow.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import { fade } from 'svelte/transition'
 	import { workspaceStore } from '$lib/stores'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
@@ -447,8 +444,8 @@
 
 			{#if repo.script_path}
 				<Alert type="warning" title="Pinned git sync script version">
-					This repository uses a pinned sync script: <code>{repo.script_path}</code>.
-					Switch to auto-managed to always use the latest version bundled with Windmill.
+					This repository uses a pinned sync script: <code>{repo.script_path}</code>. Switch to
+					auto-managed to always use the latest version bundled with Windmill.
 					<div class="flex mt-2">
 						<Button
 							size="xs"
@@ -520,30 +517,6 @@
 							</div>
 						{/if}
 					</div>
-
-					<!-- Advanced settings (collapsible) -->
-					<Section label="Advanced" small collapsable initiallyCollapsed={!repo.force_branch}>
-						<Toggle
-							checked={!!repo.force_branch}
-							on:change={(e) => {
-								if (e.detail) {
-									repo.force_branch = $workspaceStore ?? ''
-								} else {
-									repo.force_branch = undefined
-								}
-							}}
-							options={{
-								right: 'Environment (experimental)',
-								rightTooltip:
-									'Made for monobranch setups. Passes the value as --branch/--env to the wmill CLI, which selects the matching branch/env configuration from wmill.yaml and includes the branch/env in the item paths.'
-							}}
-						/>
-						{#if repo.force_branch != null && repo.force_branch !== undefined}
-							<div class="w-48 mt-2">
-								<TextInput size="sm" bind:value={repo.force_branch} />
-							</div>
-						{/if}
-					</Section>
 				{/if}
 			{/if}
 		{:else}

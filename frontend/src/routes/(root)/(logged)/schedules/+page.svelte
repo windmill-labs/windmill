@@ -41,6 +41,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { untrack } from 'svelte'
+	import { page } from '$app/stores'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { runScheduleNow } from '$lib/components/triggers/scheduled/utils'
@@ -161,6 +162,21 @@
 		}
 	})
 	let scheduleEditor: ScheduleEditor | undefined = $state()
+
+	let hashHandled = false
+	$effect(() => {
+		if (!hashHandled && schedules.length > 0 && scheduleEditor) {
+			let hash = $page.url.hash
+			if (hash.length > 1) {
+				let path = hash.slice(1)
+				let schedule = schedules.find((s) => s.path === path)
+				if (schedule) {
+					hashHandled = true
+					scheduleEditor?.openEdit(path, schedule.is_flow)
+				}
+			}
+		}
+	})
 
 	// Collect unique values for filter autocomplete
 	let allPaths: string[] = $state([])

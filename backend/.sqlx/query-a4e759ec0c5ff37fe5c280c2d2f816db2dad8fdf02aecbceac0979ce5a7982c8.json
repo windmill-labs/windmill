@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH inserted AS (\n            INSERT INTO flow\n                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs)\n            SELECT workspace_id, REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\\1'), summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs\n                FROM flow\n                WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3\n            RETURNING 1\n        ) SELECT COUNT(*) FROM inserted",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a4e759ec0c5ff37fe5c280c2d2f816db2dad8fdf02aecbceac0979ce5a7982c8"
+}

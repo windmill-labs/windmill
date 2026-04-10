@@ -132,6 +132,11 @@ export const codeCompletionSessionEnabled = writable<boolean>(
 export const usedTriggerKinds = writable<string[]>([])
 
 export let globalDbManagerDrawer: StateStore<DbManagerUriState | undefined> = { val: undefined }
+export let globalForkModal: StateStore<GlobalForkModalState | undefined> = createState({ val: undefined })
+
+export type GlobalForkModalState = {
+	opened: true
+}
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {

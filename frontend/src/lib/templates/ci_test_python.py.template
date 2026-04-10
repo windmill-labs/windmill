@@ -1,0 +1,18 @@
+# test: script/u/user/script_to_test
+#
+# To test multiple items, list them on separate lines:
+# # test:
+# # script/u/user/script_a
+# # script/u/user/script_b
+# # flow/u/user/my_flow
+import wmill
+
+
+def main():
+    result = wmill.run_script("u/user/script_to_test", {})
+
+    # Add your assertions here
+    # if result != 42:
+    #     raise Exception(f"Expected 42, got {result}")
+
+    return result

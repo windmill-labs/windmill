@@ -1059,6 +1059,16 @@ async fn update_flow(
         )
         .execute(&mut *tx)
         .await?;
+
+        // Update ci_test_reference when a tested flow is renamed
+        sqlx::query!(
+            "UPDATE ci_test_reference SET tested_item_path = $1 WHERE tested_item_path = $2 AND workspace_id = $3 AND tested_item_kind = 'flow'",
+            nf.path,
+            flow_path,
+            w_id
+        )
+        .execute(&mut *tx)
+        .await?;
     }
 
     // tracing::error!("Updating flow: {:?}", nf.value.get());
@@ -1276,6 +1286,29 @@ async fn update_flow(
     }
 
     new_tx.commit().await?;
+
+    // Trigger CI tests for items that reference this flow
+    {
+        let db2 = db.clone();
+        let w_id2 = w_id.clone();
+        let flow_path2 = nf.path.clone();
+        let email2 = authed.email.clone();
+        let username2 = authed.username.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2,
+                &w_id2,
+                &flow_path2,
+                "flow",
+                &email2,
+                &username2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after flow deploy");
+            }
+        });
+    }
 
     Ok(nf.path.to_string())
 }
@@ -1856,6 +1889,7 @@ mod tests {
                     timeout: None,
                     priority: None,
                     delete_after_use: None,
+                    delete_after_secs: None,
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
@@ -1890,6 +1924,7 @@ mod tests {
                     timeout: None,
                     priority: None,
                     delete_after_use: None,
+                    delete_after_secs: None,
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
@@ -1924,6 +1959,7 @@ mod tests {
                     timeout: None,
                     priority: None,
                     delete_after_use: None,
+                    delete_after_secs: None,
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
@@ -1957,6 +1993,7 @@ mod tests {
                 timeout: None,
                 priority: None,
                 delete_after_use: None,
+                delete_after_secs: None,
                 continue_on_error: None,
                 skip_if: None,
                 apply_preprocessor: None,
@@ -1972,6 +2009,8 @@ mod tests {
             early_return: None,
             chat_input_enabled: None,
             flow_env: None,
+            delete_after_use: None,
+            delete_after_secs: None,
             concurrency_settings: ConcurrencySettings::default(),
             debouncing_settings: DebouncingSettings::default(),
         };

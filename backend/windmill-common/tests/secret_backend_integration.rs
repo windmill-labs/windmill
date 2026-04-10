@@ -96,6 +96,7 @@ mod tests {
             token: Some(
                 std::env::var("VAULT_TOKEN").unwrap_or_else(|_| "test-root-token".to_string()),
             ),
+            skip_ssl_verify: None,
         }
     }
 
@@ -108,6 +109,7 @@ mod tests {
             jwt_role: Some("windmill-secrets".to_string()), // JWT mode
             namespace: None,
             token: None, // No static token - use JWT
+            skip_ssl_verify: None,
         }
     }
 

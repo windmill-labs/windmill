@@ -89,6 +89,8 @@
 			| 'claudesandbox'
 			| 'wac_python'
 			| 'wac_typescript'
+			| 'ci_test_bun'
+			| 'ci_test_python'
 		collabMode?: boolean
 		collabLive?: boolean
 		collabUsers?: { name: string }[]
@@ -791,7 +793,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		itemName="data table"
 		loadItems={async () =>
 			(await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? 'NO_W' })).map(
-				(path) => ({ path })
+				(d) => ({ path: d.name })
 			)}
 	>
 		{#snippet submission()}

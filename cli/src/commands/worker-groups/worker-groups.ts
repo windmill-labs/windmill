@@ -122,7 +122,7 @@ const command = new Command()
   .action(pullWorkerGroups as any)
   .command("push")
   .description(
-    "Push instance settings, users, configs, group and overwrite remote"
+    "Push worker groups (similar to `wmill instance push --skip-users --skip-settings --skip-groups`)"
   )
   .option(
     "--instance [instance]",

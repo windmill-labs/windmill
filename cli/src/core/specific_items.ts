@@ -1,7 +1,11 @@
 import { minimatch } from "minimatch";
 import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
 import { isFileResource, isFilesetResource } from "../utils/utils.ts";
-import { SyncOptions } from "./conf.ts";
+import {
+  SyncOptions,
+  findWorkspaceByGitBranch,
+  WorkspaceEntryConfig,
+} from "./conf.ts";
 import { TRIGGER_TYPES } from "../types.ts";
 
 export interface SpecificItemsConfig {
@@ -13,8 +17,8 @@ export interface SpecificItemsConfig {
   settings?: boolean;
 }
 
-// Define all branch-specific file types (computed lazily)
-function getBranchSpecificTypes() {
+// Define all workspace-specific file types (computed lazily)
+function getWorkspaceSpecificTypes() {
   return {
     variable: '.variable.yaml',
     resource: '.resource.yaml',
@@ -44,7 +48,7 @@ function isScheduleFile(path: string): boolean {
  * Extract the file type suffix from a path
  */
 function getFileTypeSuffix(path: string): string | null {
-  for (const [_, suffix] of Object.entries(getBranchSpecificTypes())) {
+  for (const [_, suffix] of Object.entries(getWorkspaceSpecificTypes())) {
     if (path.endsWith(suffix)) {
       return suffix;
     }
@@ -68,35 +72,39 @@ function buildYamlTypePattern(): string {
 }
 
 /**
- * Get the specific items configuration for the current git branch
- * Merges commonSpecificItems with branch-specific specificItems
+ * Get the specific items configuration for the current workspace.
+ * workspaceNameOverride selects by workspace name (O(1)).
+ * When not provided, auto-detects from the current git branch.
+ * Merges commonSpecificItems with workspace-specific specificItems.
  */
-export function getSpecificItemsForCurrentBranch(config: SyncOptions, branchOverride?: string): SpecificItemsConfig | undefined {
-  if (!config.gitBranches) {
+export function getSpecificItemsForCurrentBranch(config: SyncOptions, workspaceNameOverride?: string): SpecificItemsConfig | undefined {
+  if (!config.workspaces) {
     return undefined;
   }
 
-  // Use branch override if provided, otherwise detect from git
-  let currentBranch: string | null = null;
-  if (branchOverride) {
-    currentBranch = branchOverride;
+  let wsEntry: WorkspaceEntryConfig | undefined;
+
+  if (workspaceNameOverride) {
+    wsEntry = config.workspaces[workspaceNameOverride] as WorkspaceEntryConfig | undefined;
   } else if (isGitRepository()) {
-    currentBranch = getCurrentGitBranch();
+    const currentWorkspace = getCurrentGitBranch();
+    if (currentWorkspace) {
+      const match = findWorkspaceByGitBranch(config.workspaces, currentWorkspace);
+      if (match) {
+        wsEntry = match[1];
+      }
+    }
   }
 
-  if (!currentBranch) {
+  const commonItems = config.workspaces.commonSpecificItems;
+  const wsItems = wsEntry?.specificItems;
+
+  // If neither common nor workspace-specific items exist, return undefined
+  if (!commonItems && !wsItems) {
     return undefined;
   }
 
-  const commonItems = config.gitBranches.commonSpecificItems;
-  const branchItems = config.gitBranches[currentBranch]?.specificItems;
-
-  // If neither common nor branch-specific items exist, return undefined
-  if (!commonItems && !branchItems) {
-    return undefined;
-  }
-
-  // Merge common and branch-specific items
+  // Merge common and workspace-specific items
   const merged: SpecificItemsConfig = {};
 
   // Add common items
@@ -119,25 +127,25 @@ export function getSpecificItemsForCurrentBranch(config: SyncOptions, branchOver
     merged.settings = commonItems.settings;
   }
 
-  // Add branch-specific items (extending common items)
-  if (branchItems?.variables) {
-    merged.variables = [...(merged.variables || []), ...branchItems.variables];
+  // Add workspace-specific items (extending common items)
+  if (wsItems?.variables) {
+    merged.variables = [...(merged.variables || []), ...wsItems.variables];
   }
-  if (branchItems?.resources) {
-    merged.resources = [...(merged.resources || []), ...branchItems.resources];
+  if (wsItems?.resources) {
+    merged.resources = [...(merged.resources || []), ...wsItems.resources];
   }
-  if (branchItems?.triggers) {
-    merged.triggers = [...(merged.triggers || []), ...branchItems.triggers];
+  if (wsItems?.triggers) {
+    merged.triggers = [...(merged.triggers || []), ...wsItems.triggers];
   }
-  if (branchItems?.schedules) {
-    merged.schedules = [...(merged.schedules || []), ...branchItems.schedules];
+  if (wsItems?.schedules) {
+    merged.schedules = [...(merged.schedules || []), ...wsItems.schedules];
   }
-  if (branchItems?.folders) {
-    merged.folders = [...(merged.folders || []), ...branchItems.folders];
+  if (wsItems?.folders) {
+    merged.folders = [...(merged.folders || []), ...wsItems.folders];
   }
-  // For settings (boolean), branch-specific overrides common
-  if (branchItems?.settings !== undefined) {
-    merged.settings = branchItems.settings;
+  // For settings (boolean), workspace-specific overrides common
+  if (wsItems?.settings !== undefined) {
+    merged.settings = wsItems.settings;
   }
 
   return merged;
@@ -153,7 +161,7 @@ function matchesPatterns(path: string, patterns: string[]): boolean {
 /**
  * Check if the item type for a given path is configured in specificItems.
  * This checks if the TYPE is configured, not whether it matches the pattern.
- * Used to determine if branch-specific files should be used for this type.
+ * Used to determine if workspace-specific files should be used for this type.
  */
 export function isItemTypeConfigured(path: string, specificItems: SpecificItemsConfig | undefined): boolean {
   if (!specificItems) {
@@ -192,7 +200,7 @@ export function isItemTypeConfigured(path: string, specificItems: SpecificItemsC
 }
 
 /**
- * Check if a file path should be treated as branch-specific
+ * Check if a file path should be treated as workspace-specific
  */
 export function isSpecificItem(path: string, specificItems: SpecificItemsConfig | undefined): boolean {
   if (!specificItems) {
@@ -255,26 +263,26 @@ export function isSpecificItem(path: string, specificItems: SpecificItemsConfig 
 }
 
 /**
- * Convert a base path to a branch-specific path
+ * Convert a base path to a workspace-specific path
  */
-export function toBranchSpecificPath(basePath: string, branchName: string): string {
+export function toWorkspaceSpecificPath(basePath: string, workspaceName: string): string {
   // Sanitize branch name to be filesystem-safe
-  const sanitizedBranchName = branchName.replace(/[\/\\:*?"<>|.]/g, '_');
+  const sanitizedName = workspaceName.replace(/[\/\\:*?"<>|.]/g, '_');
 
   // Warn about potential collisions if sanitization occurred
-  if (sanitizedBranchName !== branchName) {
-    console.warn(`Warning: Branch name "${branchName}" contains filesystem-unsafe characters (/ \\ : * ? " < > | .) and was sanitized to "${sanitizedBranchName}". This may cause collisions with other similarly named branches.`);
+  if (sanitizedName !== workspaceName) {
+    console.warn(`Warning: Workspace name "${workspaceName}" contains filesystem-unsafe characters (/ \\ : * ? " < > | .) and was sanitized to "${sanitizedName}". This may cause collisions with other similarly named branches.`);
   }
 
-  // Check for folder meta file pattern: folder.meta.yaml -> folder.branchName.meta.yaml
+  // Check for folder meta file pattern: folder.meta.yaml -> folder.workspaceName.meta.yaml
   if (basePath.endsWith('/folder.meta.yaml')) {
     const pathWithoutMeta = basePath.substring(0, basePath.length - '/folder.meta.yaml'.length);
-    return `${pathWithoutMeta}/folder.${sanitizedBranchName}.meta.yaml`;
+    return `${pathWithoutMeta}/folder.${sanitizedName}.meta.yaml`;
   }
 
-  // Check for settings.yaml: settings.yaml -> settings.branchName.yaml
+  // Check for settings.yaml: settings.yaml -> settings.workspaceName.yaml
   if (basePath === 'settings.yaml') {
-    return `settings.${sanitizedBranchName}.yaml`;
+    return `settings.${sanitizedName}.yaml`;
   }
 
   // Check for resource file pattern (e.g., .resource.file.ini)
@@ -296,132 +304,133 @@ export function toBranchSpecificPath(basePath: string, branchName: string): stri
     pathWithoutExtension = basePath.substring(0, basePath.length - extension.length);
   }
 
-  return `${pathWithoutExtension}.${sanitizedBranchName}${extension}`;
+  return `${pathWithoutExtension}.${sanitizedName}${extension}`;
 }
 
 /**
- * Convert a branch-specific path back to a base path
+ * Convert a workspace-specific path back to a base path
  */
-export function fromBranchSpecificPath(branchSpecificPath: string, branchName: string): string {
-  // Sanitize branch name the same way as in toBranchSpecificPath
-  const sanitizedBranchName = branchName.replace(/[\/\\:*?"<>|.]/g, '_');
-  const escapedBranchName = sanitizedBranchName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export function fromWorkspaceSpecificPath(workspaceSpecificPath: string, workspaceName: string): string {
+  // Sanitize branch name the same way as in toWorkspaceSpecificPath
+  const sanitizedName = workspaceName.replace(/[\/\\:*?"<>|.]/g, '_');
+  const escapedName = sanitizedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  // Check for folder meta file pattern: /folder.branchName.meta.yaml -> /folder.meta.yaml
-  const folderPattern = new RegExp(`/folder\\.${escapedBranchName}\\.meta\\.yaml$`);
-  if (folderPattern.test(branchSpecificPath)) {
-    return branchSpecificPath.replace(folderPattern, '/folder.meta.yaml');
+  // Check for folder meta file pattern: /folder.workspaceName.meta.yaml -> /folder.meta.yaml
+  const folderPattern = new RegExp(`/folder\\.${escapedName}\\.meta\\.yaml$`);
+  if (folderPattern.test(workspaceSpecificPath)) {
+    return workspaceSpecificPath.replace(folderPattern, '/folder.meta.yaml');
   }
 
-  // Check for settings file pattern: settings.branchName.yaml -> settings.yaml
-  const settingsPattern = new RegExp(`^settings\\.${escapedBranchName}\\.yaml$`);
-  if (settingsPattern.test(branchSpecificPath)) {
+  // Check for settings file pattern: settings.workspaceName.yaml -> settings.yaml
+  const settingsPattern = new RegExp(`^settings\\.${escapedName}\\.yaml$`);
+  if (settingsPattern.test(workspaceSpecificPath)) {
     return 'settings.yaml';
   }
 
   // Check for resource file pattern
-  const resourceFilePattern = new RegExp(`\\.${escapedBranchName}(\\.resource\\.file\\..+)$`);
-  const resourceFileMatch = branchSpecificPath.match(resourceFilePattern);
+  const resourceFilePattern = new RegExp(`\\.${escapedName}(\\.resource\\.file\\..+)$`);
+  const resourceFileMatch = workspaceSpecificPath.match(resourceFilePattern);
 
   if (resourceFileMatch) {
     const extension = resourceFileMatch[1];
-    const pathWithoutBranchAndExtension = branchSpecificPath.substring(
+    const pathWithoutBranchAndExtension = workspaceSpecificPath.substring(
       0,
-      branchSpecificPath.length - `.${sanitizedBranchName}${extension}`.length
+      workspaceSpecificPath.length - `.${sanitizedName}${extension}`.length
     );
     return `${pathWithoutBranchAndExtension}${extension}`;
   }
 
-  const yamlPattern = new RegExp(`\\.${escapedBranchName}(\\.${buildYamlTypePattern()}\\.yaml)$`);
-  const yamlMatch = branchSpecificPath.match(yamlPattern);
+  const yamlPattern = new RegExp(`\\.${escapedName}(\\.${buildYamlTypePattern()}\\.yaml)$`);
+  const yamlMatch = workspaceSpecificPath.match(yamlPattern);
 
   if (!yamlMatch) {
-    return branchSpecificPath; // Return unchanged if not a branch-specific path
+    return workspaceSpecificPath; // Return unchanged if not a workspace-specific path
   }
 
   const extension = yamlMatch[1];
-  const pathWithoutBranchAndExtension = branchSpecificPath.substring(
+  const pathWithoutBranchAndExtension = workspaceSpecificPath.substring(
     0,
-    branchSpecificPath.length - `.${sanitizedBranchName}${extension}`.length
+    workspaceSpecificPath.length - `.${sanitizedName}${extension}`.length
   );
 
   return `${pathWithoutBranchAndExtension}${extension}`;
 }
 
 /**
- * Get the branch-specific path for the current branch if the item should be branch-specific
+ * Get the workspace-specific path if the item should be workspace-specific.
+ * workspaceNameOverride is the workspace name used as file suffix.
+ * Falls back to current git branch when no override (backward compat: old key = branch name).
  */
-export function getBranchSpecificPath(
+export function getWorkspaceSpecificPath(
   basePath: string,
   specificItems: SpecificItemsConfig | undefined,
-  branchOverride?: string
+  workspaceNameOverride?: string
 ): string | undefined {
   if (!specificItems) {
     return undefined;
   }
 
-  // Use branch override if provided, otherwise detect from git
-  let currentBranch: string | null = null;
-  if (branchOverride) {
-    currentBranch = branchOverride;
+  let currentWorkspace: string | null = null;
+  if (workspaceNameOverride) {
+    currentWorkspace = workspaceNameOverride;
   } else if (isGitRepository()) {
-    currentBranch = getCurrentGitBranch();
+    currentWorkspace = getCurrentGitBranch();
   }
 
-  if (!currentBranch) {
+  if (!currentWorkspace) {
     return undefined;
   }
 
   if (isSpecificItem(basePath, specificItems)) {
-    return toBranchSpecificPath(basePath, currentBranch);
+    return toWorkspaceSpecificPath(basePath, currentWorkspace);
   }
 
   return undefined;
 }
 
 // Cache for compiled regex patterns to avoid recompilation
-const branchPatternCache = new Map<string, RegExp>();
+const workspacePatternCache = new Map<string, RegExp>();
 
 /**
- * Check if a path is a branch-specific file for the current branch
+ * Check if a path is a workspace-specific file for the current branch.
+ * workspaceNameOverride is the effective git branch name (for file naming on disk).
  */
-export function isCurrentBranchFile(path: string, branchOverride?: string): boolean {
-  // Use branch override if provided, otherwise detect from git
-  let currentBranch: string | null = null;
-  if (branchOverride) {
-    currentBranch = branchOverride;
+export function isCurrentWorkspaceFile(path: string, workspaceNameOverride?: string): boolean {
+  let currentWorkspace: string | null = null;
+  if (workspaceNameOverride) {
+    currentWorkspace = workspaceNameOverride;
   } else if (isGitRepository()) {
-    currentBranch = getCurrentGitBranch();
+    currentWorkspace = getCurrentGitBranch();
   }
 
-  if (!currentBranch) {
+  if (!currentWorkspace) {
     return false;
   }
 
   // Sanitize branch name to match what would be used in file naming
-  const sanitizedBranchName = currentBranch.replace(/[\/\\:*?"<>|.]/g, '_');
-  const escapedBranchName = sanitizedBranchName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const sanitizedName = currentWorkspace.replace(/[\/\\:*?"<>|.]/g, '_');
+  const escapedName = sanitizedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   // Use cached pattern or create and cache new one
-  let pattern = branchPatternCache.get(currentBranch);
+  let pattern = workspacePatternCache.get(currentWorkspace);
   if (!pattern) {
     pattern = new RegExp(
-      `\\.${escapedBranchName}\\.${buildYamlTypePattern()}\\.yaml$|` +
-      `\\.${escapedBranchName}\\.resource\\.file\\..+$|` +
-      `/folder\\.${escapedBranchName}\\.meta\\.yaml$|` +
-      `^settings\\.${escapedBranchName}\\.yaml$`
+      `\\.${escapedName}\\.${buildYamlTypePattern()}\\.yaml$|` +
+      `\\.${escapedName}\\.resource\\.file\\..+$|` +
+      `/folder\\.${escapedName}\\.meta\\.yaml$|` +
+      `^settings\\.${escapedName}\\.yaml$`
     );
-    branchPatternCache.set(currentBranch, pattern);
+    workspacePatternCache.set(currentWorkspace, pattern);
   }
 
   return pattern.test(path);
 }
 
 /**
- * Check if a path is a branch-specific file for ANY branch (not necessarily current)
+ * Check if a path is a workspace-specific file for ANY branch (not necessarily current)
  * Used to identify and skip files from other branches during sync operations
  */
-export function isBranchSpecificFile(path: string): boolean {
+export function isWorkspaceSpecificFile(path: string): boolean {
   const yamlTypePattern = buildYamlTypePattern();
   return new RegExp(
     `\\.[^.]+\\.${yamlTypePattern}\\.yaml$|` +

@@ -217,7 +217,9 @@ async fn is_vault_backend_configured(db: &DB) -> Result<bool> {
 
     Ok(matches!(
         config,
-        SecretBackendConfig::HashiCorpVault(_) | SecretBackendConfig::AzureKeyVault(_) | SecretBackendConfig::AwsSecretsManager(_)
+        SecretBackendConfig::HashiCorpVault(_)
+            | SecretBackendConfig::AzureKeyVault(_)
+            | SecretBackendConfig::AwsSecretsManager(_)
     ))
 }
 

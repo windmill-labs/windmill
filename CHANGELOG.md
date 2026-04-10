@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.680.0](https://github.com/windmill-labs/windmill/compare/v1.679.0...v1.680.0) (2026-04-08)
+
+
+### Features
+
+* add CLI workspace merge command and enhance fork with datatable/color support ([#8756](https://github.com/windmill-labs/windmill/issues/8756)) ([4342c18](https://github.com/windmill-labs/windmill/commit/4342c1854134500d3b2bc46280f9885ee84e2c9e))
+* add scheduled job deletion with configurable retention period ([#8753](https://github.com/windmill-labs/windmill/issues/8753)) ([2d18a68](https://github.com/windmill-labs/windmill/commit/2d18a680991babe317ca315bbce40e6ce733afda))
+* add status indicator dots to parallel loop iteration picker ([#8761](https://github.com/windmill-labs/windmill/issues/8761)) ([470b8aa](https://github.com/windmill-labs/windmill/commit/470b8aa5f1870e26fea022c1e2a9f48471d8a205))
+
+
+### Bug Fixes
+
+* move alert config from config table to global_settings ([#8762](https://github.com/windmill-labs/windmill/issues/8762)) ([fa66870](https://github.com/windmill-labs/windmill/commit/fa668707c0ee7f261d78e145666b1073471259fd))
+* resolve esbuild host/binary version mismatch in app sync push ([#8765](https://github.com/windmill-labs/windmill/issues/8765)) ([e36d440](https://github.com/windmill-labs/windmill/commit/e36d440a251a43ea888e3ce378d0bb8ed8f42e11))
+* skip serializing ws_specific on resources when false ([#8764](https://github.com/windmill-labs/windmill/issues/8764)) ([c69f10d](https://github.com/windmill-labs/windmill/commit/c69f10d20dd064f0c329934096c2945424ff81f2))
+
+## [1.679.0](https://github.com/windmill-labs/windmill/compare/v1.678.0...v1.679.0) (2026-04-07)
+
+
+### Features
+
+* Fork datatables ([#8339](https://github.com/windmill-labs/windmill/issues/8339)) ([3d4f4c6](https://github.com/windmill-labs/windmill/commit/3d4f4c6c38155396e9b2236a6a7a7ad4e02da877))
+
+## [1.678.0](https://github.com/windmill-labs/windmill/compare/v1.677.0...v1.678.0) (2026-04-07)
+
+
+### Features
+
+* accept any content type on webhooks/http triggers with fallback ([#8743](https://github.com/windmill-labs/windmill/issues/8743)) ([208a597](https://github.com/windmill-labs/windmill/commit/208a597d599b4d203f7ab817a5d8ce2c06f79d0a))
+* add download all logs button for flow jobs ([#8748](https://github.com/windmill-labs/windmill/issues/8748)) ([d938625](https://github.com/windmill-labs/windmill/commit/d938625785ba301fbd2c5f3d001c320eab1c504c))
+
+
+### Bug Fixes
+
+* delete raw_script_temp rows before workspace deletion to avoid FK violation ([#8752](https://github.com/windmill-labs/windmill/issues/8752)) ([8b9523e](https://github.com/windmill-labs/windmill/commit/8b9523e03c82c5a095b7cb2d5f70a87b7bbc8608))
+* Fix FlowTimeline duplicate key ([#8754](https://github.com/windmill-labs/windmill/issues/8754)) ([2413dbe](https://github.com/windmill-labs/windmill/commit/2413dbefe3cc3b65c28bea437cd4471cf7e9ecba))
+* remove span.enter() in dedicated worker to prevent tracing panic ([#8749](https://github.com/windmill-labs/windmill/issues/8749)) ([db55e8e](https://github.com/windmill-labs/windmill/commit/db55e8efb0c9ae198ca5ac7013439a94dfe9f550))
+* restore ai agent tool deletion ([#8744](https://github.com/windmill-labs/windmill/issues/8744)) ([2f7ba9e](https://github.com/windmill-labs/windmill/commit/2f7ba9edac1a57dfc0eb3417574c72292855fc56))
+
 ## [1.677.0](https://github.com/windmill-labs/windmill/compare/v1.676.0...v1.677.0) (2026-04-06)
 
 
