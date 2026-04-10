@@ -9,11 +9,13 @@ import {
 	createInlineScriptSession
 } from '../../../../../frontend/src/lib/components/copilot/chat/flow/inlineScriptsUtils'
 import {
+	registerBenchmarkWorkspace,
 	registerBenchmarkWorkspaceRunnables,
 	unregisterBenchmarkWorkspaceRunnables,
+	createBenchmarkCompletedJob,
 	type BenchmarkWorkspaceFlow,
 	type BenchmarkWorkspaceScript
-} from '../../../../../frontend/src/lib/components/copilot/chat/shared'
+} from '../../mockBackend'
 
 const EMPTY_SCRIPT_LINT_RESULT: ScriptLintResult = {
 	errorCount: 0,
@@ -63,8 +65,11 @@ export async function createFlowFileHelpers(
 
 	await persistFlow()
 
-	if (workspaceRoot && workspaceFixtures) {
-		registerBenchmarkWorkspaceRunnables(workspaceRoot, workspaceFixtures)
+	if (workspaceRoot) {
+		registerBenchmarkWorkspace(workspaceRoot)
+		if (workspaceFixtures) {
+			registerBenchmarkWorkspaceRunnables(workspaceRoot, workspaceFixtures)
+		}
 	}
 
 	const helpers: FlowAIChatHelpers = {
@@ -125,7 +130,16 @@ export async function createFlowFileHelpers(
 					'utf8'
 				)
 			}
-			return `mock-job-id-${Date.now()}`
+			return createBenchmarkCompletedJob({
+				workspace: workspaceRoot ?? 'benchmark',
+				jobKind: 'flowpreview',
+				result: {
+					requestedArgs: args ?? {},
+					modules: flow.value.modules.map((module) => module.id),
+					mocked: true
+				},
+				logs: 'Mock benchmark flow test run completed successfully.'
+			})
 		},
 		getLintErrors: async () => EMPTY_SCRIPT_LINT_RESULT
 	}

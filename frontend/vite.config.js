@@ -118,10 +118,7 @@ const config = {
 				test: {
 					name: 'server',
 					environment: 'node',
-					include: [
-						'src/**/*.{test,spec}.{js,ts}',
-						'../ai_evals/adapters/frontend/**/*.test.ts'
-					],
+					include: ['src/**/*.{test,spec}.{js,ts}'],
 					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}'],
 					setupFiles: ['src/lib/test-setup.ts']
 				}

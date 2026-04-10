@@ -12,6 +12,7 @@ import type { BenchmarkRunResult } from '../../core/types'
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const FRONTEND_DIR = path.join(REPO_ROOT, 'frontend')
 const FRONTEND_BENCHMARK_TEST = '../ai_evals/adapters/frontend/vitestAdapter.test.ts'
+const FRONTEND_BENCHMARK_CONFIG = '../ai_evals/adapters/frontend/vitest.config.ts'
 
 export type FrontendMode = 'flow' | 'app' | 'script'
 
@@ -34,7 +35,7 @@ export async function runFrontendBenchmarkAdapter(input: {
 				'--project',
 				'server',
 				'--config',
-				'vite.config.js'
+				FRONTEND_BENCHMARK_CONFIG
 			],
 			{
 				cwd: FRONTEND_DIR,
