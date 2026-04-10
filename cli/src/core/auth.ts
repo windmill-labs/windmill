@@ -3,7 +3,6 @@ import * as log from "./log.ts";
 import { setClient } from "./client.ts";
 import * as wmill from "../../gen/services.gen.ts";
 import { GlobalUserInfo, User } from "../../gen/types.gen.ts";
-import { ApiError } from "../../gen/core/ApiError.ts";
 
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
 import { GlobalOptions } from "../types.ts";
@@ -13,11 +12,19 @@ import { GlobalOptions } from "../types.ts";
 // cannot call /api/users/whoami because the backend rejects any token with a
 // workspace binding when the request path has no workspace in it. Fall back to
 // the workspace-scoped whoami endpoint in that case so the CLI still works.
+// Uses a name-based ApiError check rather than `instanceof` to match the
+// pattern in cli/src/main.ts: bundling (bun build for npm, JSR dev path) can
+// produce multiple module instances of gen/core/ApiError.ts, making
+// `instanceof` silently return false and reintroducing the bug this fixes.
 async function fetchWhoami(workspaceId: string): Promise<GlobalUserInfo> {
   try {
     return await wmill.globalWhoami();
   } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
+    if (
+      error && typeof error === "object" &&
+      "name" in error && (error as { name: unknown }).name === "ApiError" &&
+      (error as { status?: number }).status === 401
+    ) {
       const user = await wmill.whoami({ workspace: workspaceId });
       return workspaceUserToGlobalUserInfo(user);
     }
@@ -25,6 +32,11 @@ async function fetchWhoami(workspaceId: string): Promise<GlobalUserInfo> {
   }
 }
 
+// Adapter for the 401 fallback path. `login_type`, `verified`, `first_time_user`
+// and `role_source` are NOT derivable from the workspace-scoped User response
+// and are filled with best-effort defaults — do not trust them downstream after
+// a fallback whoami. Today only cli/src/commands/hub/hub.ts reads this return
+// value, and only `.email`.
 function workspaceUserToGlobalUserInfo(user: User): GlobalUserInfo {
   return {
     email: user.email,
