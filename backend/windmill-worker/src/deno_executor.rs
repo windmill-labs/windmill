@@ -20,7 +20,9 @@ use windmill_common::client::AuthedClient;
 use windmill_common::worker::TypeScriptAnnotations;
 
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
-use windmill_common::{error::Result, scripts::ScriptLang, worker::write_file, BASE_URL};
+use windmill_common::{
+    error::Result, jobs::JobKind, scripts::ScriptLang, worker::write_file, BASE_URL,
+};
 use windmill_common::{
     error::{self},
     worker::Connection,
@@ -66,6 +68,7 @@ lazy_static::lazy_static! {
 async fn get_common_deno_proc_envs(
     token: &str,
     base_internal_url: &str,
+    job_kind: JobKind,
     job_id: &Uuid,
     w_id: &str,
     conn: Option<&Connection>,
@@ -141,7 +144,7 @@ async fn get_common_deno_proc_envs(
 
     // Add proxy envs (including OTEL tracing proxy if enabled for deno)
     if let Some(conn) = conn {
-        for (k, v) in get_proxy_envs_for_lang(&ScriptLang::Deno, job_id, w_id, conn)
+        for (k, v) in get_proxy_envs_for_lang(&ScriptLang::Deno, job_kind, job_id, w_id, conn)
             .await
             .unwrap_or_default()
         {
@@ -177,7 +180,8 @@ pub async fn generate_deno_lock(
     write_file(job_dir, "import_map.json", &import_map)?;
     write_file(job_dir, "empty.ts", "")?;
 
-    let deno_envs = get_common_deno_proc_envs("", base_internal_url, job_id, w_id, db).await;
+    let deno_envs =
+        get_common_deno_proc_envs("", base_internal_url, JobKind::Script, job_id, w_id, db).await;
 
     let mut child_cmd = Command::new(DENO_PATH.as_str());
     child_cmd
@@ -408,6 +412,7 @@ try {{
     let mut common_deno_proc_envs = get_common_deno_proc_envs(
         &client.token,
         base_internal_url,
+        job.kind,
         &job.id,
         &job.workspace_id,
         Some(conn),
@@ -732,6 +737,7 @@ pub async fn start_worker(
     let common_deno_proc_envs = get_common_deno_proc_envs(
         &token,
         base_internal_url,
+        JobKind::Script,
         &Uuid::nil(),
         w_id,
         Some(&db.into()),

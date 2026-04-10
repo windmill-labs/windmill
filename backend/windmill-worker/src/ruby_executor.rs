@@ -29,7 +29,9 @@ use crate::{
     get_proxy_envs_for_lang,
     handle_child::{self},
     is_sandboxing_enabled, read_ee_registry_url_list_with_workspace_override,
-    universal_pkg_installer::{par_install_language_dependencies_seq, InstallDeps, RequiredDependency},
+    universal_pkg_installer::{
+        par_install_language_dependencies_seq, InstallDeps, RequiredDependency,
+    },
     DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
     TRACING_PROXY_CA_CERT_PATH,
 };
@@ -820,8 +822,14 @@ mount {{
             .envs(reserved_variables)
             .envs(RUBY_PROXY_ENVS.clone())
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::Ruby, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Ruby,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .args(vec![
                 "--config",
@@ -862,8 +870,14 @@ mount {{
             .envs(reserved_variables)
             .envs(RUBY_PROXY_ENVS.clone())
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::Ruby, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Ruby,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .envs(envs);
 

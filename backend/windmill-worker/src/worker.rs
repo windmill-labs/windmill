@@ -916,8 +916,14 @@ pub fn get_otel_context_envs(job_id: &uuid::Uuid) -> Vec<(&'static str, String)>
 /// Get proxy environment variables for job execution for a specific language.
 /// When OTEL tracing proxy is enabled for this language, routes all traffic through the proxy.
 /// Otherwise, uses the standard HTTP_PROXY/HTTPS_PROXY from environment.
+///
+/// Deployment callback jobs (git sync) always bypass the MITM tracing proxy and use the
+/// stock corporate proxy. Routing git's HTTPS through the local MITM breaks TLS for
+/// GitHub/GitLab in chained-upstream-proxy setups, and we don't need HTTP spans for the
+/// system git sync script anyway.
 pub async fn get_proxy_envs_for_lang(
     lang: &ScriptLang,
+    job_kind: JobKind,
     job_id: &uuid::Uuid,
     w_id: &str,
     conn: &Connection,
@@ -925,14 +931,16 @@ pub async fn get_proxy_envs_for_lang(
     #[allow(unused_mut)]
     let mut envs;
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    if is_otel_tracing_proxy_enabled_for_lang(lang).await {
+    if !matches!(job_kind, JobKind::DeploymentCallback)
+        && is_otel_tracing_proxy_enabled_for_lang(lang).await
+    {
         envs = get_otel_tracing_proxy_envs(job_id, w_id, conn).await?;
     } else {
         envs = PROXY_ENVS.clone();
     }
     #[cfg(not(all(feature = "private", feature = "enterprise")))]
     {
-        let _ = (lang, w_id, conn);
+        let _ = (lang, job_kind, w_id, conn);
         envs = PROXY_ENVS.clone();
     }
     envs.extend(get_otel_context_envs(job_id));
