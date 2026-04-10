@@ -382,7 +382,7 @@ pub async fn set_global_setting_internal(
             }
             delete_global_setting(db, &key).await?;
         }
-        serde_json::Value::String(x) if x.is_empty() => {
+        serde_json::Value::String(ref x) if x.trim().is_empty() => {
             if instance_config::PROTECTED_SETTINGS.contains(&key.as_str()) {
                 return Err(error::Error::BadRequest(format!(
                     "{key} is a protected setting and cannot be set to empty"
