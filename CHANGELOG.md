@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.682.0](https://github.com/windmill-labs/windmill/compare/v1.681.0...v1.682.0) (2026-04-10)
+
+
+### Features
+
+* enrich hanging flow error with worker and service log info ([#8800](https://github.com/windmill-labs/windmill/issues/8800)) ([59c457a](https://github.com/windmill-labs/windmill/commit/59c457a13881e35c229baed3edd87e618f89b9a0))
+
+
+### Bug Fixes
+
+* bypass OTEL MITM tracing proxy for git sync jobs ([#8796](https://github.com/windmill-labs/windmill/issues/8796)) ([9c85565](https://github.com/windmill-labs/windmill/commit/9c855652212dbac0e49f87dedd447d3d7d7b500a))
+* show full path on hover in deploy drawer and widen drawer ([#8799](https://github.com/windmill-labs/windmill/issues/8799)) ([b783bf2](https://github.com/windmill-labs/windmill/commit/b783bf2d835cde0843739f7d1099193bb0af042e))
+
 ## [1.681.0](https://github.com/windmill-labs/windmill/compare/v1.680.0...v1.681.0) (2026-04-10)
 
 
