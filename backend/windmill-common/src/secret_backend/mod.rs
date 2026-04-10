@@ -129,6 +129,10 @@ pub struct VaultSettings {
     /// If provided, this is used instead of JWT authentication
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// Skip TLS certificate verification when connecting to Vault
+    /// Only use for self-signed certificates in development environments
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skip_ssl_verify: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
