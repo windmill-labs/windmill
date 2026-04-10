@@ -137,7 +137,11 @@ Each recorded line contains:
 
 - run metadata (`createdAt`, `gitSha`, `mode`, `runModel`, `judgeModel`)
 - suite totals (`caseCount`, `attemptCount`, `passedAttempts`, `passRate`, `averageDurationMs`)
+- token usage totals (`totalTokenUsage`, `averageTokenUsagePerAttempt`)
 - `failedCaseIds`
+
+For now, token usage in history is populated for frontend modes (`flow`, `script`, `app`).
+`cli` history records still use `null` until CLI token accounting is implemented.
 
 Example:
 

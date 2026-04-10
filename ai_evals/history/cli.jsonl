@@ -1,0 +1,1 @@
+{"createdAt":"2026-04-10T13:55:32.568Z","gitSha":"864559b1db0e811946736c196c8c84a7b743bbcd","mode":"cli","runs":1,"runModel":"anthropic:haiku","judgeModel":"claude-sonnet-4-6","caseCount":6,"attemptCount":6,"passedAttempts":6,"passRate":1,"averageDurationMs":23557.166666666668,"totalTokenUsage":null,"averageTokenUsagePerAttempt":null,"failedCaseIds":[]}

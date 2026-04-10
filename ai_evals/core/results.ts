@@ -214,6 +214,8 @@ function toHistoryRecord(result: BenchmarkRunResult) {
     passedAttempts: result.passedAttempts,
     passRate: result.passRate,
     averageDurationMs: result.averageDurationMs,
+    totalTokenUsage: result.totalTokenUsage ?? null,
+    averageTokenUsagePerAttempt: result.averageTokenUsagePerAttempt ?? null,
     failedCaseIds: Array.from(
       new Set(
         result.cases
