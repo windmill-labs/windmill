@@ -3574,6 +3574,7 @@ pub async fn start_worker(
     jobs_rx: Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     client: windmill_common::client::AuthedClient,
+    concurrency_semaphore: Option<std::sync::Arc<tokio::sync::Semaphore>>,
 ) -> Result<()> {
     let mut logs = "".to_string();
     let mut mem_peak: i32 = 0;
@@ -3841,6 +3842,7 @@ pub async fn start_worker(
             "nodejs",
             client,
             false,
+            concurrency_semaphore,
         )
         .await
     } else {
@@ -3869,6 +3871,7 @@ pub async fn start_worker(
             "bun",
             client,
             false,
+            concurrency_semaphore,
         )
         .await
     }
