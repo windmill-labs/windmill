@@ -202,6 +202,12 @@ function toSerializableRunResult(result: BenchmarkRunResult): BenchmarkRunResult
 }
 
 function toHistoryRecord(result: BenchmarkRunResult) {
+  const judgeScores = result.cases.flatMap((caseResult) =>
+    caseResult.attempts.flatMap((attempt) =>
+      typeof attempt.judgeScore === "number" ? [attempt.judgeScore] : []
+    )
+  );
+
   return {
     createdAt: result.createdAt,
     gitSha: result.gitSha,
@@ -214,6 +220,10 @@ function toHistoryRecord(result: BenchmarkRunResult) {
     passedAttempts: result.passedAttempts,
     passRate: result.passRate,
     averageDurationMs: result.averageDurationMs,
+    averageJudgeScore:
+      judgeScores.length === 0
+        ? null
+        : judgeScores.reduce((sum, score) => sum + score, 0) / judgeScores.length,
     averageTokenUsagePerAttempt: result.averageTokenUsagePerAttempt ?? null,
     failedCaseIds: Array.from(
       new Set(
@@ -228,6 +238,9 @@ function toHistoryRecord(result: BenchmarkRunResult) {
       const totalDurationMs = caseResult.attempts.reduce(
         (sum, attempt) => sum + attempt.durationMs,
         0
+      );
+      const judgeScores = caseResult.attempts.flatMap((attempt) =>
+        typeof attempt.judgeScore === "number" ? [attempt.judgeScore] : []
       );
       const totalTokenUsage = caseResult.attempts.reduce<BenchmarkTokenUsage | null>(
         (sum, attempt) => {
@@ -249,6 +262,10 @@ function toHistoryRecord(result: BenchmarkRunResult) {
         passedAttempts,
         passRate: attemptCount === 0 ? 0 : passedAttempts / attemptCount,
         averageDurationMs: attemptCount === 0 ? 0 : totalDurationMs / attemptCount,
+        averageJudgeScore:
+          judgeScores.length === 0
+            ? null
+            : judgeScores.reduce((sum, score) => sum + score, 0) / judgeScores.length,
         averageTokenUsagePerAttempt:
           attemptCount === 0 || !totalTokenUsage
             ? null

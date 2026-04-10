@@ -35,8 +35,8 @@ There is no variant workflow and no compare command in the current tool.
 Tracked history is intentionally minimal: `run --record` appends one compact
 summary line to `ai_evals/history/<mode>.jsonl`. This is only allowed for
 full-suite runs, not selected case ids. History lines include average token
-usage when the benchmark mode reports it, plus per-case duration/token usage
-summaries.
+usage when the benchmark mode reports it, plus average judge score and per-case
+duration/judge/token usage summaries.
 
 ## How It Works
 

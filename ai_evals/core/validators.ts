@@ -444,7 +444,7 @@ function validateFlowExpectedStructure(
       }
 
       const expectedType = getModuleType(expectedModule);
-      if (expectedType) {
+      if (expectedType && !(hasSuspendConfig(expectedModule) || hasSuspendConfig(actualModule))) {
         checks.push(
           check(
             `${moduleId} type matches expected`,
@@ -575,14 +575,14 @@ function validateFlowRequirements(
       suspendStep.resumeRequiredStringFieldAnyOf &&
       suspendStep.resumeRequiredStringFieldAnyOf.length > 0
     ) {
-      const requiredFields = getSuspendResumeRequiredStringFields(module);
+      const stringFields = getSuspendResumeStringFields(module);
       checks.push(
         check(
-          `${suspendStep.id} resume form requires one accepted comment field`,
+          `${suspendStep.id} resume form includes one accepted comment field`,
           suspendStep.resumeRequiredStringFieldAnyOf.some((field) =>
-            requiredFields.includes(field)
+            stringFields.includes(field)
           ),
-          `required one of [${suspendStep.resumeRequiredStringFieldAnyOf.join(", ")}], got [${requiredFields.join(", ")}]`
+          `expected one of [${suspendStep.resumeRequiredStringFieldAnyOf.join(", ")}], got [${stringFields.join(", ")}]`
         )
       );
     }
@@ -965,21 +965,16 @@ function getSuspendRequiredEvents(module: Record<string, unknown>): number | nul
   return typeof suspend?.required_events === "number" ? suspend.required_events : null;
 }
 
-function getSuspendResumeRequiredStringFields(module: Record<string, unknown>): string[] {
+function getSuspendResumeStringFields(module: Record<string, unknown>): string[] {
   const suspend = isObjectRecord(module.suspend) ? module.suspend : null;
   const resumeForm = isObjectRecord(suspend?.resume_form) ? suspend.resume_form : null;
   const schema = isObjectRecord(resumeForm?.schema) ? resumeForm.schema : null;
-  const required = Array.isArray(schema?.required) ? schema.required : [];
   const properties = isObjectRecord(schema?.properties) ? schema.properties : null;
   if (!properties) {
     return [];
   }
 
-  return required.flatMap((field) => {
-    if (typeof field !== "string") {
-      return [];
-    }
-    const property = properties[field];
+  return Object.entries(properties).flatMap(([field, property]) => {
     if (!isObjectRecord(property) || property.type !== "string") {
       return [];
     }

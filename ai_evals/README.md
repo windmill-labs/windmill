@@ -138,9 +138,9 @@ If `--record` is used, the CLI also appends one compact JSON line to:
 Each recorded line contains:
 
 - run metadata (`createdAt`, `gitSha`, `mode`, `runModel`, `judgeModel`)
-- suite totals (`caseCount`, `attemptCount`, `passedAttempts`, `passRate`, `averageDurationMs`)
+- suite totals (`caseCount`, `attemptCount`, `passedAttempts`, `passRate`, `averageDurationMs`, `averageJudgeScore`)
 - average token usage (`averageTokenUsagePerAttempt`)
-- per-case metrics under `cases[]` (`averageDurationMs`, `averageTokenUsagePerAttempt`, pass rate)
+- per-case metrics under `cases[]` (`averageDurationMs`, `averageJudgeScore`, `averageTokenUsagePerAttempt`, pass rate)
 - `failedCaseIds`
 
 For now, token usage in history is populated for frontend modes (`flow`, `script`, `app`).
