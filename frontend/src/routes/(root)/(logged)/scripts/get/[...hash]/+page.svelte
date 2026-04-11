@@ -95,6 +95,7 @@
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import CiTestResults from '$lib/components/CiTestResults.svelte'
 
 	let script: Script | undefined = $state()
 	let topHash: string | undefined = $state()
@@ -706,6 +707,14 @@
 						<Badge small color="indigo" baseClass="border border-indigo-200">wac</Badge>
 					</Popover>
 				{/if}
+				{#if script?.auto_kind === 'test'}
+					<Popover notClickable>
+						{#snippet text()}
+							CI test script
+						{/snippet}
+						<Badge small color="yellow" baseClass="border">CI test</Badge>
+					</Popover>
+				{/if}
 				{#if script?.codebase}
 					<Badge
 						>bundle<Tooltip
@@ -748,6 +757,10 @@
 							isWac ? 'max-h-1/2' : ''
 						)}
 					>
+						{#if script?.path}
+							<CiTestResults path={script.path} kind="script" />
+						{/if}
+
 						<div class="flex flex-col gap-0.5 mb-1">
 							{#if script.lock_error_logs || topHash || script.archived || script.deleted}
 								<div class="flex flex-col gap-2 my-2">

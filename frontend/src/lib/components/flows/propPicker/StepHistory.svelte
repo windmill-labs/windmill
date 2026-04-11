@@ -39,7 +39,7 @@
 		noHistory = undefined
 	}: Props = $props()
 
-	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext') ?? {}
+	const { pathStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext') ?? {}
 	const dispatch = createEventDispatcher()
 
 	let infiniteList: InfiniteList | undefined = $state(undefined)
@@ -90,6 +90,15 @@
 
 	$effect(() => {
 		infiniteList && !noHistory && untrack(() => initLoadInputs())
+	})
+
+	let lastSeenJobId: string | undefined = $state(undefined)
+	$effect(() => {
+		const jobId = flowStateStore?.val[moduleId]?.previewJobId
+		if (jobId && jobId !== lastSeenJobId) {
+			lastSeenJobId = jobId
+			untrack(() => infiniteList?.loadData('forceRefresh'))
+		}
 	})
 
 	function handleSelect(e: CustomEvent) {

@@ -464,6 +464,32 @@ impl PgDatabase {
 
     pub async fn connect(
         &self,
+        main_db: Option<&DB>,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        match self.connect_inner().await {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("password authentication failed for user") && err_str.contains("custom_instance_user")
+                {
+                    if let Some(db) = main_db {
+                        tracing::warn!(
+                            "custom_instance_user password auth failed, refreshing and retrying..."
+                        );
+                        crate::utils::refresh_custom_instance_user_pwd(db).await?;
+                        let new_pwd = crate::utils::get_custom_pg_instance_password(db).await?;
+                        let mut retried = self.clone();
+                        retried.password = Some(new_pwd);
+                        return retried.connect_inner().await;
+                    }
+                }
+                Err(e)
+            }
+        }
+    }
+
+    async fn connect_inner(
+        &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
         use native_tls::{Certificate, TlsConnector};
         use postgres_native_tls::MakeTlsConnector;
@@ -757,7 +783,7 @@ pub async fn create_custom_instance_database(
     // Grant permissions to custom_instance_user
     let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
     let new_pg_creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
-    let (client, connection) = new_pg_creds.connect().await?;
+    let (client, connection) = new_pg_creds.connect(Some(db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
     if let Err(e) = client

@@ -436,6 +436,8 @@
 			| 'claudesandbox'
 			| 'wac_python'
 			| 'wac_typescript'
+			| 'ci_test_bun'
+			| 'ci_test_python'
 	) {
 		scriptEditor?.disableCollaboration()
 		const templateScript = await isTemplateScript()
@@ -1351,6 +1353,38 @@
 												WAC Python
 											</Button>
 										</span>
+										<Button
+											size="xs2"
+											variant="border"
+											color="light"
+											startIcon={{
+												icon: LanguageIcon,
+												props: { lang: 'bun', width: 16, height: 16 }
+											} as ButtonType.Icon}
+											on:click={() => {
+												template = 'ci_test_bun'
+												script.language = 'bun'
+												initContent('bun', script.kind, template)
+											}}
+										>
+											CI Test TypeScript
+										</Button>
+										<Button
+											size="xs2"
+											variant="border"
+											color="light"
+											startIcon={{
+												icon: LanguageIcon,
+												props: { lang: 'python3', width: 16, height: 16 }
+											} as ButtonType.Icon}
+											on:click={() => {
+												template = 'ci_test_python'
+												script.language = 'python3'
+												initContent('python3', script.kind, template)
+											}}
+										>
+											CI Test Python
+										</Button>
 									</div>
 									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true}
 										<Section label="Script kind">
@@ -1764,11 +1798,15 @@
 											/>
 										</div>
 									</Section>
-									<Section label="On behalf of last editor">
+									<Section
+										label={canPreserve
+											? 'Run on behalf of a specified user'
+											: 'On behalf of last editor'}
+									>
 										{#snippet header()}
 											<Tooltip>
 												When this option is enabled, the script will be run with the permissions of
-												the last editor.
+												{canPreserve ? 'the specified user' : 'the last editor'}.
 											</Tooltip>
 										{/snippet}
 										<div class="flex gap-2 shrink flex-col">

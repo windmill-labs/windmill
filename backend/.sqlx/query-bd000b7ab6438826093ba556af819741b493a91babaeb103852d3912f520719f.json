@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            j.id AS \"id!\", j.workspace_id AS \"workspace_id!\", j.parent_job, j.flow_step_id IS NOT NULL AS \"is_flow_step?\",\n            COALESCE(s.flow_status, s.workflow_as_code_status) AS \"flow_status: Box<str>\", r.ping AS last_ping, j.same_worker AS \"same_worker?\",\n            q.worker AS \"worker?\",\n            wp.ping_at AS \"worker_last_ping?\",\n            wp.memory_usage AS \"worker_memory_usage?\",\n            wp.wm_memory_usage AS \"worker_wm_memory_usage?\",\n            wp.memory AS \"worker_memory_total?\",\n            wp.worker_group AS \"worker_group?\",\n            wp.wm_version AS \"worker_version?\",\n            wp.current_job_id AS \"worker_current_job_id?\",\n            wp.worker_instance AS \"worker_instance?\"\n        FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)\n            LEFT JOIN worker_ping wp ON wp.worker = q.worker\n        WHERE q.running = true AND q.suspend = 0 AND q.suspend_until IS null AND q.scheduled_for <= now()\n            AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode')\n            AND r.ping IS NOT NULL AND r.ping < NOW() - ($1 || ' seconds')::interval\n            AND q.canceled_by IS NULL\n\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "parent_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_flow_step?",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "flow_status: Box<str>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_ping",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "same_worker?",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "worker?",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "worker_last_ping?",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "worker_memory_usage?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "worker_wm_memory_usage?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "worker_memory_total?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "worker_group?",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 13,
+        "name": "worker_version?",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "worker_current_job_id?",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 15,
+        "name": "worker_instance?",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      null,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "bd000b7ab6438826093ba556af819741b493a91babaeb103852d3912f520719f"
+}

@@ -986,6 +986,38 @@ impl<T> ExpiringCacheEntry<T> {
     }
 }
 
+pub async fn refresh_custom_instance_user_pwd(db: &DB) -> Result<()> {
+    let query = r#"
+    DO $$
+        DECLARE
+            pwd text;
+        BEGIN
+            SELECT gen_random_uuid()::text INTO pwd;
+
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user') THEN
+                EXECUTE format('ALTER USER custom_instance_user WITH PASSWORD %L', pwd);
+            ELSE
+                EXECUTE format('CREATE USER custom_instance_user WITH PASSWORD %L', pwd);
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM global_settings WHERE name = 'custom_instance_pg_databases') THEN
+                INSERT INTO global_settings (name, value)
+                VALUES ('custom_instance_pg_databases', jsonb_build_object(
+                'user_pwd', pwd::text,
+                'databases', jsonb_build_object()
+                ));
+            ELSE
+                UPDATE global_settings
+                SET value = jsonb_set(COALESCE(value, '{}'::jsonb), '{user_pwd}', to_jsonb(pwd::text)::jsonb)
+                WHERE name = 'custom_instance_pg_databases';
+            END IF;
+        END
+        $$;
+    "#;
+    sqlx::query(query).execute(db).await?;
+    Ok(())
+}
+
 pub async fn get_custom_pg_instance_password(db: &DB) -> Result<String> {
     sqlx::query_scalar!(
         "SELECT value->>'user_pwd' FROM global_settings WHERE name = 'custom_instance_pg_databases';"

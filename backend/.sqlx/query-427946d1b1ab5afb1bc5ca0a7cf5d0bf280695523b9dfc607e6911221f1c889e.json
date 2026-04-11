@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE schedule SET script_path = REGEXP_REPLACE(script_path, 'u/' || $2 || '/(.*)', $1 || '/\\1')\n        WHERE script_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "427946d1b1ab5afb1bc5ca0a7cf5d0bf280695523b9dfc607e6911221f1c889e"
+}

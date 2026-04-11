@@ -574,7 +574,7 @@
 			onmouseleave={() => (hover = false)}
 		>
 			{#if !isMultiSelected && (hover || selected || testRunDropdownOpen) && outputPickerVisible}
-				<div class="bg-surface rounded-md" transition:fade={{ duration: 100 }}>
+				<div class="bg-surface rounded-md" transition:fade={{ duration: 100 }} data-run-button={id}>
 					{#if !testIsLoading}
 						<Button
 							size="xs"

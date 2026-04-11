@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT path FROM app WHERE (policy::text LIKE $1 OR extra_perms::text LIKE $1) AND NOT path LIKE $2 AND workspace_id = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "25f15dff82796a98c8ccad0cef7e5e02cb42dfe9c44c84adbe6e427ee2643467"
+}

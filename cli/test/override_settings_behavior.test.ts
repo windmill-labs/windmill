@@ -17,7 +17,7 @@ test("Override Settings: branch override inherits non-overridden settings from b
       skipResources: true,      // Base has this as true
       skipApps: false,          // Base has this as false
       defaultTs: "bun" as const,
-      gitBranches: {
+      workspaces: {
         main: {
           overrides: {
             includes: ["override/**"],
@@ -49,7 +49,7 @@ test("Override Settings: branch-specific settings take precedence", async () => 
     const config = {
       includes: ["default/**"],
       skipVariables: false,
-      gitBranches: {
+      workspaces: {
         main: {
           overrides: {
             skipVariables: true,

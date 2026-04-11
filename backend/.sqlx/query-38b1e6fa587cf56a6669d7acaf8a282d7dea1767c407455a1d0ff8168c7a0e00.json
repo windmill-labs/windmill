@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path FROM flow WHERE path LIKE $1 AND workspace_id = $2 AND NOT archived",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "38b1e6fa587cf56a6669d7acaf8a282d7dea1767c407455a1d0ff8168c7a0e00"
+}

@@ -36,6 +36,7 @@ fn test_vault_settings() -> VaultSettings {
         token: Some(
             std::env::var("VAULT_TOKEN").unwrap_or_else(|_| "test-root-token".to_string()),
         ),
+        skip_ssl_verify: None,
     }
 }
 

@@ -545,7 +545,8 @@
 					...(flowStateStore.val[moduleId] ?? {}),
 					previewResult: getJobResult.result,
 					previewJobId: previousJobId[0].id,
-					previewSuccess: getJobResult.success
+					previewSuccess: getJobResult.success,
+					previewLogs: getJobResult['logs']
 				}
 				if (stepHistoryLoader) {
 					stepHistoryLoader.stepStates[moduleId].loadingJobs = false

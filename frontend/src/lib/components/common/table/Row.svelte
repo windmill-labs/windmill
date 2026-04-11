@@ -17,7 +17,17 @@
 		errorHandlerMuted?: boolean
 		aiId?: string | undefined
 		aiDescription?: string | undefined
-		kind?: 'script' | 'flow' | 'app' | 'raw_app' | 'resource' | 'variable' | 'resource_type' | 'folder' | 'schedule' | 'trigger'
+		kind?:
+			| 'script'
+			| 'flow'
+			| 'app'
+			| 'raw_app'
+			| 'resource'
+			| 'variable'
+			| 'resource_type'
+			| 'folder'
+			| 'schedule'
+			| 'trigger'
 		triggerKind?: string | undefined
 		summary?: string | undefined
 		path: string
@@ -57,7 +67,12 @@
 		onSelect = () => {}
 	}: Props = $props()
 
-	let displayPath: string = (untrack(() => depth) === 0 ? untrack(() => path) : untrack(() => path)?.split('/')?.slice(-1)?.[0]) ?? ''
+	let displayPath: string =
+		(untrack(() => depth) === 0
+			? untrack(() => path)
+			: untrack(() => path)
+					?.split('/')
+					?.slice(-1)?.[0]) ?? ''
 </script>
 
 {#if href}
@@ -135,7 +150,7 @@
 				{!summary || summary.length == 0 ? displayPath : summary}
 			{/if}
 		</div>
-		<div class="text-hint text-3xs truncate text-left font-normal">
+		<div class="text-hint text-3xs truncate text-left font-normal" title={path}>
 			{path}
 		</div>
 	</div>

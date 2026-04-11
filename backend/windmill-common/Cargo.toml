@@ -21,6 +21,7 @@ otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep
 smtp = ["dep:mail-send"]
 scoped_cache = []
 cloud = []
+dev_override = []
 openidconnect = ["dep:openidconnect"]
 bedrock = ["dep:aws-sdk-bedrockruntime", "dep:aws-credential-types", "dep:aws-smithy-types", "dep:aws-config"]
 python = ["dep:windmill-parser-py"]

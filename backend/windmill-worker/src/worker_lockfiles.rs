@@ -303,6 +303,33 @@ pub async fn handle_dependency_job(
             )
             .await?;
 
+            // Trigger CI tests for items that reference this script
+            tracing::debug!(
+                "CI test trigger: checking for tests referencing script {}",
+                script_path
+            );
+            {
+                let db2 = db.clone();
+                let w_id2 = w_id.to_string();
+                let script_path2 = script_path.to_string();
+                let email2 = job.permissioned_as_email.clone();
+                let username2 = job.created_by.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                        &db2,
+                        &w_id2,
+                        &script_path2,
+                        "script",
+                        &email2,
+                        &username2,
+                    )
+                    .await
+                    {
+                        tracing::error!(%e, "error triggering CI tests after script lock generation");
+                    }
+                });
+            }
+
             Ok(to_raw_value_owned(
                 json!({ "status": "Successful lock file generation", "lock": content }),
             ))

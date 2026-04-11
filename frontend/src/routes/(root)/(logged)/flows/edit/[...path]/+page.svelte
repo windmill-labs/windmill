@@ -135,7 +135,7 @@
 			} else {
 				sendUserToast('Flow loaded from browser storage', false, [
 					{
-						label: 'Discard browser stored autosave and reload',
+						label: 'Discard browser autosave and reload',
 						callback: reloadAction
 					},
 					{

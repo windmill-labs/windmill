@@ -307,13 +307,15 @@
 	})
 
 	$effect(() => {
-		loadWorkspaces()
+		if (!disabled) {
+			loadWorkspaces()
+		}
 	})
 
 	async function loadWorkspaces() {
 		try {
 			workspacesLoading = true
-			const ws = await WorkspaceService.listWorkspaces()
+			const ws = await WorkspaceService.listWorkspacesAsSuperAdmin()
 			workspaces = ws.map((w) => ({ id: w.id, name: w.name }))
 		} catch (e) {
 			console.error('Failed to load workspaces', e)

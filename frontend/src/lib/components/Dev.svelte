@@ -28,6 +28,7 @@
 	import FlowModuleSchemaMap from './flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from './flows/content/FlowEditorPanel.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { findModuleInFlow } from './flows/flowDiff'
 	import { writable } from 'svelte/store'
 	import type { FlowState } from './flows/flowState'
 	import { initHistory } from '$lib/history.svelte'
@@ -698,6 +699,12 @@
 	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 
 	const selectedId = $derived(selectionManager.getSelectedId())
+
+	const selectedModule = $derived(
+		selectedId && flowStore.val?.value
+			? findModuleInFlow(flowStore.val.value, selectedId) ?? undefined
+			: undefined
+	)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -870,7 +877,7 @@
 						}}
 					/>
 				</div>
-				<Splitpanes horizontal class="h-full max-h-screen grow">
+				<Splitpanes horizontal class="max-h-screen grow min-h-0">
 					<Pane size={67}>
 						{#if flowStore.val?.value?.modules}
 							<div id="flow-editor"></div>
@@ -925,6 +932,17 @@
 						{/key}
 					</Pane>
 				</Splitpanes>
+				{#if selectedModule}
+					<div class="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-surface shrink-0">
+						<span class="text-xs text-secondary shrink-0">{selectedModule.id} summary</span>
+						<input
+							type="text"
+							class="text-xs w-full bg-transparent border border-border rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+							placeholder="Summary"
+							bind:value={selectedModule.summary}
+						/>
+					</div>
+				{/if}
 			</div>
 		</div>
 	{/if}

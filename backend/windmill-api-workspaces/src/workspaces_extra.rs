@@ -983,7 +983,7 @@ pub async fn drop_forked_datatable_databases(
                 continue;
             }
 
-            match parent_pg.connect().await {
+            match parent_pg.connect(Some(&db)).await {
                 Ok((client, connection)) => {
                     let join_handle = tokio::spawn(async move { connection.await });
                     if let Err(e) = client

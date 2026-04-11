@@ -1286,6 +1286,16 @@ async fn update_resource(
             .execute(&mut *tx)
             .await?;
 
+            // Update ci_test_reference when a tested resource is renamed
+            sqlx::query!(
+                "UPDATE ci_test_reference SET tested_item_path = $1 WHERE tested_item_path = $2 AND workspace_id = $3 AND tested_item_kind = 'resource'",
+                npath,
+                path,
+                w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+
             sqlx::query!(
                 "UPDATE ws_specific SET path = $1 WHERE workspace_id = $2 AND item_kind = 'resource' AND path = $3",
                 npath,
@@ -1343,11 +1353,28 @@ async fn update_resource(
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateResource {
-            workspace: w_id,
+            workspace: w_id.clone(),
             old_path: path.to_owned(),
             new_path: npath.clone(),
         },
     );
+
+    // Trigger CI tests for items that reference this resource
+    {
+        let db2 = db.clone();
+        let npath2 = npath.clone();
+        let email2 = authed.email.clone();
+        let username2 = authed.username.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2, &w_id, &npath2, "resource", &email2, &username2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after resource update");
+            }
+        });
+    }
 
     Ok(format!("resource {} updated (npath: {:?})", path, npath))
 }
@@ -1416,11 +1443,28 @@ async fn update_resource_value(
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateResource {
-            workspace: w_id,
+            workspace: w_id.clone(),
             old_path: path.to_owned(),
             new_path: path.to_owned(),
         },
     );
+
+    // Trigger CI tests for items that reference this resource
+    {
+        let db2 = db.clone();
+        let path2 = path.to_string();
+        let email2 = authed.email.clone();
+        let username2 = authed.username.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2, &w_id, &path2, "resource", &email2, &username2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after resource value update");
+            }
+        });
+    }
 
     Ok(format!("value of resource {} updated", path))
 }

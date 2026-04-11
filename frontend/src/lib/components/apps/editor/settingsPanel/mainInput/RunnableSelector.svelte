@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
+	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import { Building, Globe2, MousePointer, Plus } from 'lucide-svelte'
 	import InlineScriptList from './InlineScriptList.svelte'
 	import type { InlineScript, Runnable, StaticAppInput } from '$lib/components/apps/inputType'
@@ -13,7 +14,12 @@
 	import { workspaceStore } from '$lib/stores'
 	import { buildPathRunnableSelection } from './runnableSelectorUtils'
 
-	type TabType = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
+	type TabType =
+		| 'hubscripts'
+		| 'hubflows'
+		| 'workspacescripts'
+		| 'workspaceflows'
+		| 'inlinescripts'
 
 	interface Props {
 		defaultUserInput?: boolean
@@ -103,6 +109,21 @@
 		})
 	}
 
+	async function pickHubFlow(item: { flow_id: number }) {
+		const path = `hub/flows/${item.flow_id}`
+		const selection = buildPathRunnableSelection(
+			path,
+			'flow',
+			await loadSchemaFromTriggerable(path, 'flow'),
+			defaultUserInput,
+			rawApps
+		)
+		dispatch('pick', {
+			runnable: selection.runnable,
+			fields: selection.fields
+		})
+	}
+
 	function pickInlineScript(name: string) {
 		const unusedInlineScriptIndex = unusedInlineScripts?.findIndex((script) => script.name === name)
 		const unusedInlineScript = unusedInlineScripts?.[unusedInlineScriptIndex]
@@ -148,6 +169,7 @@
 					{#if !onlyFlow}
 						<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
 					{/if}
+					<Tab value="hubflows" label="Hub Flows" icon={Globe2} />
 				</Tabs>
 				<div class="my-2"></div>
 				<div class="flex flex-col gap-y-16">
@@ -165,6 +187,8 @@
 							<WorkspaceFlowList on:pick={(e) => pickFlow(e.detail)} />
 						{:else if tab == 'hubscripts'}
 							<PickHubScript bind:filter on:pick={(e) => pickHubScript(e.detail.path)} />
+						{:else if tab == 'hubflows'}
+							<PickHubFlow bind:filter on:pick={(e) => pickHubFlow(e.detail)} />
 						{/if}
 					</div>
 				</div>

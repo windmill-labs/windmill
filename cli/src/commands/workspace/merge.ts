@@ -78,7 +78,7 @@ async function mergeWorkspaces(
   const workspace = await tryResolveBranchWorkspace(opts);
   if (!workspace) {
     throw new Error(
-      "Could not resolve workspace from branch name. Make sure you are in a git repo with gitBranches configured."
+      "Could not resolve workspace from branch name. Make sure you are in a git repo with 'workspaces' configured in wmill.yaml."
     );
   }
 

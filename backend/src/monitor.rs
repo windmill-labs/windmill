@@ -3309,8 +3309,18 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
         r#"
         SELECT
             j.id AS "id!", j.workspace_id AS "workspace_id!", j.parent_job, j.flow_step_id IS NOT NULL AS "is_flow_step?",
-            COALESCE(s.flow_status, s.workflow_as_code_status) AS "flow_status: Box<str>", r.ping AS last_ping, j.same_worker AS "same_worker?"
+            COALESCE(s.flow_status, s.workflow_as_code_status) AS "flow_status: Box<str>", r.ping AS last_ping, j.same_worker AS "same_worker?",
+            q.worker AS "worker?",
+            wp.ping_at AS "worker_last_ping?",
+            wp.memory_usage AS "worker_memory_usage?",
+            wp.wm_memory_usage AS "worker_wm_memory_usage?",
+            wp.memory AS "worker_memory_total?",
+            wp.worker_group AS "worker_group?",
+            wp.wm_version AS "worker_version?",
+            wp.current_job_id AS "worker_current_job_id?",
+            wp.worker_instance AS "worker_instance?"
         FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
+            LEFT JOIN worker_ping wp ON wp.worker = q.worker
         WHERE q.running = true AND q.suspend = 0 AND q.suspend_until IS null AND q.scheduled_for <= now()
             AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode')
             AND r.ping IS NOT NULL AND r.ping < NOW() - ($1 || ' seconds')::interval
@@ -3377,8 +3387,129 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             let now = now_from_db(db).await?;
             let base_url = BASE_URL.read().await;
             let workspace_id = flow.workspace_id.clone();
+
+            let fmt_mb = |b: i64| format!("{:.1} MB", b as f64 / 1024.0 / 1024.0);
+            let worker_ping_stale = flow
+                .worker_last_ping
+                .map(|wp| (now - wp).num_seconds() > 60);
+            let worker_info = if let Some(worker_name) = flow.worker.as_deref() {
+                let mut s = format!("\nWorker handling the flow: {worker_name}");
+                match (flow.worker_group.as_deref(), flow.worker_version.as_deref()) {
+                    (Some(g), Some(v)) => s.push_str(&format!(" (group: {g}, version: {v})")),
+                    (Some(g), None) => s.push_str(&format!(" (group: {g})")),
+                    (None, Some(v)) => s.push_str(&format!(" (version: {v})")),
+                    (None, None) => {}
+                }
+                if let Some(wp) = flow.worker_last_ping {
+                    let age = (now - wp).num_seconds();
+                    let status = if worker_ping_stale.unwrap_or(false) {
+                        "APPEARS DEAD OR CRASHED — worker ping is stale"
+                    } else {
+                        "worker still pinging — likely deadlocked or blocking on the state transition"
+                    };
+                    s.push_str(&format!("\nWorker last ping: {wp} ({age}s ago) — {status}"));
+                    if let Some(cjid) = flow.worker_current_job_id {
+                        if cjid != flow.id {
+                            s.push_str(&format!("\nWorker has since moved on to job {cjid}"));
+                        }
+                    }
+                } else {
+                    s.push_str("\nWorker last ping: unknown (no worker_ping record)");
+                }
+                let total_suffix = flow
+                    .worker_memory_total
+                    .map(|t| format!(" (total available: {})", fmt_mb(t)))
+                    .unwrap_or_default();
+                match (flow.worker_memory_usage, flow.worker_wm_memory_usage) {
+                    (Some(host), Some(wm)) => s.push_str(&format!(
+                        "\nWorker memory at last ping: host={}, wm process={}{}",
+                        fmt_mb(host),
+                        fmt_mb(wm),
+                        total_suffix
+                    )),
+                    (Some(host), None) => s.push_str(&format!(
+                        "\nWorker memory at last ping: host={}{}",
+                        fmt_mb(host),
+                        total_suffix
+                    )),
+                    (None, Some(wm)) => s.push_str(&format!(
+                        "\nWorker memory at last ping: wm process={}{}",
+                        fmt_mb(wm),
+                        total_suffix
+                    )),
+                    (None, None) => {
+                        if let Some(total) = flow.worker_memory_total {
+                            s.push_str(&format!("\nWorker total memory: {}", fmt_mb(total)));
+                        }
+                    }
+                }
+                s
+            } else {
+                "\nWorker handling the flow: unknown (no worker recorded on v2_job_queue)"
+                    .to_string()
+            };
+
+            let hint = match worker_ping_stale {
+                Some(true) => "\nThe worker's own ping is stale — it likely crashed, was killed (OOM?), or lost network connectivity. Check worker logs, k8s/docker events, or host dmesg around the worker's last ping time.",
+                Some(false) => "\nThe worker is still pinging — it is likely deadlocked or stuck in a blocking call during the state transition. Capture a stack trace from the worker process (e.g. via SIGQUIT or a debugger).",
+                None => "",
+            };
+
+            let service_logs_info = match (flow.worker_instance.as_deref(), flow.worker_last_ping) {
+                (Some(host), Some(wlp)) => {
+                    let after = (wlp - chrono::Duration::seconds(90))
+                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+                    let before = (wlp + chrono::Duration::seconds(30))
+                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+                    let log_files_result = sqlx::query!(
+                        "SELECT file_path, log_ts, ok_lines, err_lines
+                         FROM log_file
+                         WHERE hostname = $1
+                           AND log_ts BETWEEN $2::timestamp - interval '90 seconds' AND $2::timestamp + interval '30 seconds'
+                         ORDER BY log_ts DESC
+                         LIMIT 10",
+                        host,
+                        wlp.naive_utc(),
+                    )
+                    .fetch_all(db)
+                    .await;
+                    let log_files = match log_files_result {
+                        Ok(rows) => rows,
+                        Err(e) => {
+                            tracing::warn!(
+                                "failed to query log_file for hanging-flow diagnostics (host={host}): {e:#}"
+                            );
+                            Vec::new()
+                        }
+                    };
+                    if log_files.is_empty() {
+                        format!(
+                            "\nService logs: no log_file rows found for hostname '{host}' between {after} and {before}. If service log collection is enabled (requires S3/parquet), try /api/service_logs/list_files?after={after}&before={before}."
+                        )
+                    } else {
+                        let listed = log_files
+                            .iter()
+                            .map(|f| {
+                                format!(
+                                    "  - {} (log_ts: {}, ok_lines: {}, err_lines: {}) — GET /api/service_logs/get_log_file/{}/{}",
+                                    f.file_path,
+                                    f.log_ts,
+                                    f.ok_lines.unwrap_or(0),
+                                    f.err_lines.unwrap_or(0),
+                                    host,
+                                    f.file_path,
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        format!("\nService logs for worker instance '{host}' around last ping ({after} to {before}) (download URLs require S3/parquet service log collection):\n{listed}")
+                    }
+                }
+                _ => String::new(),
+            };
+
             let reason = format!(
-                "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})",
+                "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now}){worker_info}{hint}{service_logs_info}",
                 if flow.is_flow_step.unwrap_or(false) && flow.parent_job.is_some() {
                     format!("Flow was cancelled because subflow {id} ({base_url}/run/{id}?workspace={workspace_id})")
                 } else {

@@ -6,7 +6,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { SyncOptions, readConfigFile, getEffectiveSettings, DEFAULT_SYNC_OPTIONS, getWmillYamlPath } from "../../core/conf.ts";
+import { SyncOptions, readConfigFile, getEffectiveSettings, DEFAULT_SYNC_OPTIONS, getWmillYamlPath, findWorkspaceByGitBranch, WorkspacesConfig } from "../../core/conf.ts";
 import { yamlOptions } from "../sync/sync.ts";
 import { deepEqual } from "../../utils/utils.ts";
 import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
@@ -167,11 +167,11 @@ export async function pullGitSyncSettings(
       if (isGitRepository()) {
         const currentBranch = getCurrentGitBranch();
         if (currentBranch) {
-          if (!updatedConfig.gitBranches) {
-            updatedConfig.gitBranches = {};
+          if (!updatedConfig.workspaces) {
+            updatedConfig.workspaces = {};
           }
-          if (!updatedConfig.gitBranches[currentBranch]) {
-            updatedConfig.gitBranches[currentBranch] = { overrides: {} };
+          if (!updatedConfig.workspaces[currentBranch]) {
+            updatedConfig.workspaces[currentBranch] = {};
           }
         }
       }
@@ -360,16 +360,16 @@ export async function pullGitSyncSettings(
       let needsBranchStructure = false;
       if (isGitRepository()) {
         const currentBranch = getCurrentGitBranch();
-        if (currentBranch && (!localConfig.gitBranches || !localConfig.gitBranches[currentBranch])) {
+        if (currentBranch && (!localConfig.workspaces || !findWorkspaceByGitBranch(localConfig.workspaces, currentBranch))) {
           needsBranchStructure = true;
 
           // Create empty branch structure
           const updatedConfig = { ...localConfig };
-          if (!updatedConfig.gitBranches) {
-            updatedConfig.gitBranches = {};
+          if (!updatedConfig.workspaces) {
+            updatedConfig.workspaces = {};
           }
-          if (!updatedConfig.gitBranches[currentBranch]) {
-            updatedConfig.gitBranches[currentBranch] = { overrides: {} };
+          if (!updatedConfig.workspaces[currentBranch]) {
+            updatedConfig.workspaces[currentBranch] = {};
           }
 
           // Write updated configuration
@@ -431,11 +431,11 @@ export async function pullGitSyncSettings(
       const currentBranch = getCurrentGitBranch();
       if (currentBranch) {
         log.info(`Detected Git repository, adding empty branch structure for: ${currentBranch}`);
-        if (!updatedConfig.gitBranches) {
-          updatedConfig.gitBranches = {};
+        if (!updatedConfig.workspaces) {
+          updatedConfig.workspaces = {};
         }
-        if (!updatedConfig.gitBranches[currentBranch]) {
-          updatedConfig.gitBranches[currentBranch] = { overrides: {} };
+        if (!updatedConfig.workspaces[currentBranch]) {
+          updatedConfig.workspaces[currentBranch] = {};
         }
       }
     }

@@ -874,6 +874,12 @@ pub const HIDDEN_SETTINGS: &[&str] = &[
     "min_keep_alive_version",
     "automate_username_creation",
     "_restart_coordination",
+    // Legacy ghost: worker configs live in the `config` table with a
+    // `worker__` prefix, not as a single blob in `global_settings`. Older
+    // Windmill versions stored them here and the row would be resurrected on
+    // every bulk InstanceSettings save via `GlobalSettings::extra`. Hiding it
+    // on read + rejecting it in `diff_global_settings` breaks that loop.
+    "worker_configs",
 ];
 
 /// Top-level settings whose entire value is sensitive and must be fully redacted in logs.
@@ -899,7 +905,10 @@ const SENSITIVE_SETTINGS: &[&str] = &[
 /// Maps a top-level key to the sub-field names that must be redacted.
 const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("smtp_settings", &["smtp_password"]),
-    ("secret_backend", &["token", "client_secret", "secret_access_key"]),
+    (
+        "secret_backend",
+        &["token", "client_secret", "secret_access_key"],
+    ),
     (
         "object_store_cache_config",
         &["secret_key", "serviceAccountKey"],
@@ -1006,7 +1015,7 @@ fn license_keys_same_client(a: &serde_json::Value, b: &serde_json::Value) -> boo
 }
 
 fn is_empty_or_null(value: &serde_json::Value) -> bool {
-    value.is_null() || value.as_str().map_or(false, |s| s.is_empty())
+    value.is_null() || value.as_str().map_or(false, |s| s.trim().is_empty())
 }
 
 /// Maximum retention period in seconds for CE builds (30 days).
@@ -1042,9 +1051,21 @@ pub fn diff_global_settings(
     mode: ApplyMode,
 ) -> SettingsDiff {
     let mut upserts = BTreeMap::new();
+    let mut deletes = Vec::new();
     let mut previous_values = BTreeMap::new();
     let mut unchanged_count: usize = 0;
     for (key, desired_value) in desired {
+        // `worker_configs` is a legacy ghost: worker configs belong in the
+        // `config` table with a `worker__` prefix. If a client PUT carries a
+        // top-level `worker_configs` key (it flattens into
+        // `GlobalSettings::extra` on deserialize), drop it here instead of
+        // letting it resurrect a stale `global_settings` row.
+        if key == "worker_configs" {
+            tracing::warn!(
+                "Ignoring 'worker_configs' in global_settings diff: worker configs must be written to the config table (worker__ prefix), not global_settings"
+            );
+            continue;
+        }
         if PROTECTED_SETTINGS.contains(&key.as_str())
             && is_empty_or_null(desired_value)
             && current.contains_key(key)
@@ -1052,6 +1073,23 @@ pub fn diff_global_settings(
             tracing::warn!(
                 "Skipping {key} update: protected setting cannot be overwritten with empty/null value"
             );
+            continue;
+        }
+        // An empty string means "unset": route it to deletes so clearing a
+        // setting via YAML sync has the same effect as clearing it via the UI
+        // (`set_global_setting_internal` already treats `""` as a delete).
+        // Without this, stale `""` rows linger and trip the EE registry gate,
+        // producing spurious "requires Enterprise" warnings on every CE job.
+        if desired_value
+            .as_str()
+            .map_or(false, |s| s.trim().is_empty())
+        {
+            if let Some(existing) = current.get(key) {
+                previous_values.insert(key.clone(), existing.clone());
+                deletes.push(key.clone());
+            } else {
+                unchanged_count += 1;
+            }
             continue;
         }
         let mut value = if key == "retention_period_secs" {
@@ -1104,7 +1142,6 @@ pub fn diff_global_settings(
             }
         }
     }
-    let mut deletes = Vec::new();
     if matches!(mode, ApplyMode::Replace) {
         for key in current.keys() {
             if !desired.contains_key(key)

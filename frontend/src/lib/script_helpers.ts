@@ -5,6 +5,8 @@ import type { SupportedLanguage } from './common'
 import CLAUDE_SANDBOX_INIT_CODE from './templates/claude_sandbox.ts.template?raw'
 import WAC_PYTHON_INIT_CODE from './templates/wac_python.py.template?raw'
 import WAC_TYPESCRIPT_INIT_CODE from './templates/wac_typescript.ts.template?raw'
+import CI_TEST_BUN_INIT_CODE from './templates/ci_test_bun.ts.template?raw'
+import CI_TEST_PYTHON_INIT_CODE from './templates/ci_test_python.py.template?raw'
 
 const PYTHON_FAILURE_MODULE_CODE = `import os
 
@@ -1409,6 +1411,12 @@ export const INITIAL_CODE = {
 	},
 	wac_typescript: {
 		script: WAC_TYPESCRIPT_INIT_CODE
+	},
+	ci_test_bun: {
+		script: CI_TEST_BUN_INIT_CODE
+	},
+	ci_test_python: {
+		script: CI_TEST_PYTHON_INIT_CODE
 	}
 	// for related places search: ADD_NEW_LANG
 }
@@ -1439,6 +1447,8 @@ export function initialCode(
 		| 'claudesandbox'
 		| 'wac_python'
 		| 'wac_typescript'
+		| 'ci_test_bun'
+		| 'ci_test_python'
 		| undefined,
 	templateScript?: boolean
 ): string {
@@ -1469,6 +1479,10 @@ export function initialCode(
 		} else {
 			return INITIAL_CODE.deno.script
 		}
+	} else if (subkind === 'ci_test_bun') {
+		return INITIAL_CODE.ci_test_bun.script
+	} else if (subkind === 'ci_test_python') {
+		return INITIAL_CODE.ci_test_python.script
 	} else if (subkind === 'wac_python') {
 		return INITIAL_CODE.wac_python.script
 	} else if (subkind === 'wac_typescript') {
@@ -1579,6 +1593,8 @@ export function getResetCode(
 		| 'claudesandbox'
 		| 'wac_python'
 		| 'wac_typescript'
+		| 'ci_test_bun'
+		| 'ci_test_python'
 		| undefined
 ) {
 	if (language === 'deno') {

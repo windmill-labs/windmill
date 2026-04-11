@@ -142,7 +142,8 @@
 					...flowStateStore.val[mod.id],
 					previewResult: testJob.result,
 					previewSuccess: testJob.success,
-					previewJobId: testJob.id
+					previewJobId: testJob.id,
+					previewLogs: testJob['logs']
 				}
 			}
 			stepHistoryLoader?.resetInitial(mod.id)
