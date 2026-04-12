@@ -24,6 +24,7 @@
 	import PermissionHistory from './PermissionHistory.svelte'
 	import { Minimatch } from 'minimatch'
 	import Tooltip from './Tooltip.svelte'
+	import CollapseLink from './CollapseLink.svelte'
 
 	interface Props {
 		name: string
@@ -530,10 +531,7 @@
 	</Label>
 
 	{#if canEditDefaults}
-		<Label
-			label="Default permissioned as"
-			tooltip="Rules applied at create-time when admins or wm_deployers members deploy items in this folder. The first rule whose path_glob matches the item path (relative to the folder root) wins, and its permissioned_as is used as the default. Only admins and wm_deployers see this setting."
-		>
+		<CollapseLink text="Default permissioned as (advanced, prod only)">
 			<div class="flex flex-col gap-2">
 				<Alert type="info" title="Advanced — for prod workspaces (least privilege)" size="xs">
 					This setting is mostly relevant on <strong>production workspaces</strong> where you want
@@ -644,7 +642,7 @@
 					</Button>
 				</div>
 			</div>
-		</Label>
+		</CollapseLink>
 	{/if}
 
 	{#if reloadHistory > 0}
