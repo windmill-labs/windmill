@@ -444,7 +444,9 @@ pub(crate) async fn change_workspace_id(
     // Duplicate folders with new workspace id (FK constraint)
     info!("Duplicating folder table rows");
     sqlx::query!(
-        "INSERT INTO folder SELECT name, $1, display_name, owners, extra_perms, summary, edited_at, created_by FROM folder WHERE workspace_id = $2",
+        "INSERT INTO folder (name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as) \
+         SELECT name, $1, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as \
+         FROM folder WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )

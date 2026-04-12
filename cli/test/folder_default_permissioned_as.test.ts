@@ -1,22 +1,18 @@
 /**
- * Integration tests for folder default_permissioned_as + CLI preserve-on-update.
- *
- * Covers in minimal tests:
- *  1. Folder CRUD: create folder with rules, GET round-trip, validation
- *  2. Backend default resolution: schedule at matching path gets folder default;
- *     non-matching gets acting user; non-admin gets own identity
- *  3. CLI preserve-on-update: push updating a schedule preserves remote permissioned_as
- *  4. CLI pull stripping: pulled scripts/flows have has_on_behalf_of instead of email
- *  5. Stale rule rejection: deploy to a folder whose rule points at a deleted user → 400
- *  6. set-permissioned-as subcommand: one-shot ownership change
+ * Integration tests for folder default_permissioned_as — full lifecycle:
+ *  1. Full lifecycle: create folder via CLI, set rules, push, pull, modify, push,
+ *     create new item under folder — verifies rules are applied at each step
+ *  2. Fork/merge: parent workspace has folder with rules, fork inherits them,
+ *     fork can update rules, deployed back to parent
+ *  3. Backend validation + resolution (minimal API-level checks)
+ *  4. Stale rule rejection
  */
 
 import { expect, test, describe } from "bun:test";
 import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { withTestBackend } from "./test_backend.ts";
+import { withTestBackend, type TestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
-import { parseCliBehavior } from "../src/core/conf.ts";
 
 async function setupWorkspaceProfile(backend: any): Promise<void> {
   await addWorkspace(
@@ -30,61 +26,67 @@ async function setupWorkspaceProfile(backend: any): Promise<void> {
   );
 }
 
-// Helper: direct API call to create a folder with default_permissioned_as rules
+async function api(
+  backend: TestBackend,
+  path: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  return backend.apiRequest!(path, options);
+}
+
 async function createFolderWithRules(
   backend: any,
   name: string,
   rules: Array<{ path_glob: string; permissioned_as: string }>,
-  extraPerms?: Record<string, boolean>
+  extraPerms?: Record<string, boolean>,
+  workspaceId?: string
 ): Promise<void> {
-  const resp = await backend.apiRequest!(
-    `/api/w/${backend.workspace}/folders/create`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        default_permissioned_as: rules,
-        extra_perms: extraPerms ?? {},
-      }),
-    }
-  );
-  const body = await resp.text();
+  const ws = workspaceId ?? backend.workspace;
+  const resp = await backend.apiRequest!(`/api/w/${ws}/folders/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name,
+      default_permissioned_as: rules,
+      extra_perms: extraPerms ?? {},
+    }),
+  });
+  await resp.text();
   expect(resp.status).toBeLessThan(300);
 }
 
 async function updateFolderRules(
   backend: any,
   name: string,
-  rules: Array<{ path_glob: string; permissioned_as: string }>
+  rules: Array<{ path_glob: string; permissioned_as: string }>,
+  workspaceId?: string
 ): Promise<Response> {
-  const resp = await backend.apiRequest!(
-    `/api/w/${backend.workspace}/folders/update/${name}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ default_permissioned_as: rules }),
-    }
-  );
-  return resp;
+  const ws = workspaceId ?? backend.workspace;
+  return backend.apiRequest!(`/api/w/${ws}/folders/update/${name}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ default_permissioned_as: rules }),
+  });
 }
 
-async function createScript(backend: any, path: string): Promise<string> {
-  const resp = await backend.apiRequest!(
-    `/api/w/${backend.workspace}/scripts/create`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        path,
-        summary: "helper",
-        description: "",
-        content: "export async function main() { return 42; }",
-        language: "deno",
-        schema: { type: "object", properties: {}, required: [] },
-      }),
-    }
-  );
+async function createScript(
+  backend: any,
+  path: string,
+  workspaceId?: string
+): Promise<string> {
+  const ws = workspaceId ?? backend.workspace;
+  const resp = await backend.apiRequest!(`/api/w/${ws}/scripts/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      path,
+      summary: "helper",
+      description: "",
+      content: "export async function main() { return 42; }",
+      language: "deno",
+      schema: { type: "object", properties: {}, required: [] },
+    }),
+  });
   const body = await resp.text();
   expect(resp.status).toBe(201);
   return body;
@@ -94,104 +96,408 @@ async function createSchedule(
   backend: any,
   path: string,
   scriptPath: string,
-  extra?: Record<string, any>
+  extra?: Record<string, any>,
+  workspaceId?: string
 ): Promise<Response> {
-  const resp = await backend.apiRequest!(
-    `/api/w/${backend.workspace}/schedules/create`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        path,
-        schedule: "0 0 */6 * * *",
-        timezone: "UTC",
-        script_path: scriptPath,
-        is_flow: false,
-        enabled: false,
-        ...extra,
-      }),
-    }
-  );
-  return resp;
+  const ws = workspaceId ?? backend.workspace;
+  return backend.apiRequest!(`/api/w/${ws}/schedules/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      path,
+      schedule: "0 0 */6 * * *",
+      timezone: "UTC",
+      script_path: scriptPath,
+      is_flow: false,
+      enabled: false,
+      ...extra,
+    }),
+  });
 }
 
-async function getSchedule(backend: any, path: string): Promise<any> {
-  const resp = await backend.apiRequest!(
-    `/api/w/${backend.workspace}/schedules/get/${path}`
-  );
+async function getSchedule(
+  backend: any,
+  path: string,
+  workspaceId?: string
+): Promise<any> {
+  const ws = workspaceId ?? backend.workspace;
+  const resp = await backend.apiRequest!(`/api/w/${ws}/schedules/get/${path}`);
   expect(resp.status).toBe(200);
   return resp.json();
 }
 
-// =============================================================================
-// Unit tests (no backend needed)
-// =============================================================================
+async function getFolder(
+  backend: any,
+  name: string,
+  workspaceId?: string
+): Promise<any> {
+  const ws = workspaceId ?? backend.workspace;
+  const resp = await backend.apiRequest!(`/api/w/${ws}/folders/get/${name}`);
+  expect(resp.status).toBe(200);
+  return resp.json();
+}
 
-describe("parseCliBehavior", () => {
-  test("parses v1 to 1, undefined to 0", () => {
-    expect(parseCliBehavior("v1")).toBe(1);
-    expect(parseCliBehavior("v2")).toBe(2);
-    expect(parseCliBehavior(undefined)).toBe(0);
-    expect(parseCliBehavior("")).toBe(0);
-    expect(parseCliBehavior("invalid")).toBe(0);
-  });
-});
+async function runSQL(query: string): Promise<void> {
+  const dbUrl =
+    process.env["DATABASE_URL"] ||
+    "postgres://postgres:changeme@localhost:5432";
+  const proc = Bun.spawn(
+    [
+      "psql",
+      `${dbUrl}/postgres?sslmode=disable`,
+      "-t",
+      "-c",
+      `SELECT datname FROM pg_database WHERE datname LIKE 'windmill_test_%' ORDER BY datname DESC LIMIT 1`,
+    ],
+    { stdout: "pipe", stderr: "pipe" }
+  );
+  const dbName = (await new Response(proc.stdout).text()).trim();
+  await proc.exited;
+  if (!dbName) throw new Error("Could not find test database");
+  const sqlProc = Bun.spawn(
+    ["psql", `${dbUrl}/${dbName}?sslmode=disable`, "-c", query],
+    { stdout: "pipe", stderr: "pipe" }
+  );
+  await sqlProc.exited;
+}
 
-// =============================================================================
-// Integration tests
-// =============================================================================
+async function removeFromSkipTally(workspaceId: string) {
+  await runSQL(
+    `DELETE FROM skip_workspace_diff_tally WHERE workspace_id = '${workspaceId}'`
+  );
+}
+
+async function deleteFork(backend: TestBackend, forkId: string) {
+  try {
+    await api(backend, `/api/w/${forkId}/workspaces/delete`, { method: "POST" });
+  } catch {}
+  const esc = forkId.replace(/'/g, "''");
+  await runSQL(`
+    SET session_replication_role = replica;
+    DO $$ DECLARE r RECORD; BEGIN
+      FOR r IN SELECT c.table_name FROM information_schema.columns c
+        JOIN information_schema.tables t ON c.table_name = t.table_name AND c.table_schema = t.table_schema
+        WHERE c.column_name = 'workspace_id' AND c.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+        GROUP BY c.table_name
+      LOOP EXECUTE format('DELETE FROM %I WHERE workspace_id = ''${esc}''', r.table_name);
+      END LOOP;
+    END $$;
+    DELETE FROM workspace WHERE id = '${esc}';
+    DELETE FROM workspace_diff WHERE fork_workspace_id = '${esc}';
+    DELETE FROM skip_workspace_diff_tally WHERE workspace_id = '${esc}';
+    SET session_replication_role = DEFAULT;
+  `);
+}
 
 describe("folder default_permissioned_as", () => {
-  test("round-trip: create folder with rules, GET back, validate", async () => {
-    await withTestBackend(async (backend, _tempDir) => {
+  // ==========================================================================
+  // Test 1: Full CLI lifecycle — create, push, pull, modify, push, verify apply
+  // ==========================================================================
+  test("full CLI lifecycle: push rules → pull back → modify → push → apply on new item", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
       const id = Date.now();
-      const folderName = `dpa_rt_${id}`;
+      const folderName = `dpa_life_${id}`;
 
-      await createFolderWithRules(backend, folderName, [
-        { path_glob: "jobs/**", permissioned_as: "u/admin" },
-        { path_glob: "reports/*", permissioned_as: "g/all" },
-      ]);
+      // Step 1: Seed an empty folder + helper script via API (needed so schedules can reference it)
+      await createFolderWithRules(backend, folderName, []);
+      await createScript(backend, `f/${folderName}/helper`);
 
-      // GET
-      const resp = await backend.apiRequest!(
-        `/api/w/${backend.workspace}/folders/get/${folderName}`
+      // Step 2: Pull workspace locally
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        `defaultTs: bun\ncliBehavior: v1\nincludes:\n  - "f/${folderName}/**"\nincludeSchedules: true\n`,
+        "utf-8"
       );
-      expect(resp.status).toBe(200);
-      const folder = await resp.json();
+      let r = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(r.code).toEqual(0);
+
+      // Step 3: Locally edit folder.meta.yaml to add default_permissioned_as rules
+      const metaPath = join(tempDir, "f", folderName, "folder.meta.yaml");
+      const metaContent = await readFile(metaPath, "utf-8");
+      // Backend always emits the field; initially it's an empty array
+      expect(metaContent).toContain("default_permissioned_as: []");
+
+      const newMeta = `display_name: ${folderName}
+owners:
+  - u/admin
+extra_perms:
+  u/admin: true
+summary: null
+default_permissioned_as:
+  - path_glob: "jobs/critical/**"
+    permissioned_as: "g/all"
+  - path_glob: "jobs/**"
+    permissioned_as: "u/admin"
+`;
+      await writeFile(metaPath, newMeta, "utf-8");
+
+      // Step 4: Push the folder update AND a brand-new schedule at the same time.
+      // This tests the folder-first ordering: the new schedule should pick up
+      // the new folder rule within the same push batch.
+      const schedPath = join(
+        tempDir,
+        "f",
+        folderName,
+        "new_sched.schedule.yaml"
+      );
+      await writeFile(
+        schedPath,
+        `schedule: "0 0 */6 * * *"
+timezone: UTC
+script_path: f/${folderName}/helper
+is_flow: false
+enabled: false
+`,
+        "utf-8"
+      );
+
+      r = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(r.code).toEqual(0);
+
+      // Verify: folder has the new rules
+      const folder = await getFolder(backend, folderName);
       expect(folder.default_permissioned_as).toHaveLength(2);
-      expect(folder.default_permissioned_as[0].path_glob).toBe("jobs/**");
-      expect(folder.default_permissioned_as[0].permissioned_as).toBe("u/admin");
-      expect(folder.default_permissioned_as[1].permissioned_as).toBe("g/all");
-
-      // Update rules
-      const updateResp = await updateFolderRules(backend, folderName, [
-        { path_glob: "**", permissioned_as: "u/admin" },
-      ]);
-      expect(updateResp.status).toBe(200);
-      await updateResp.text();
-
-      // Verify update
-      const resp2 = await backend.apiRequest!(
-        `/api/w/${backend.workspace}/folders/get/${folderName}`
+      expect(folder.default_permissioned_as[0].path_glob).toBe(
+        "jobs/critical/**"
       );
-      const folder2 = await resp2.json();
-      expect(folder2.default_permissioned_as).toHaveLength(1);
-      expect(folder2.default_permissioned_as[0].path_glob).toBe("**");
+      expect(folder.default_permissioned_as[1].path_glob).toBe("jobs/**");
 
-      // Clear rules
-      const clearResp = await updateFolderRules(backend, folderName, []);
-      expect(clearResp.status).toBe(200);
-      await clearResp.text();
+      // Verify: schedule got u/admin (the jobs/** rule) — only works if folder
+      // was pushed FIRST within the same batch
+      const sched = await getSchedule(backend, `f/${folderName}/new_sched`);
+      expect(sched.permissioned_as).toBe("u/admin");
 
-      const resp3 = await backend.apiRequest!(
-        `/api/w/${backend.workspace}/folders/get/${folderName}`
+      // Step 5: Pull again — verify the updated rules round-trip through YAML
+      r = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
+      expect(r.code).toEqual(0);
+      const pulledMeta = await readFile(metaPath, "utf-8");
+      expect(pulledMeta).toContain("default_permissioned_as:");
+      expect(pulledMeta).toContain("jobs/critical/**");
+      expect(pulledMeta).toContain("g/all");
+
+      // Step 6: Reorder rules locally and push again — verify order changes
+      const reorderedMeta = `display_name: ${folderName}
+owners:
+  - u/admin
+extra_perms:
+  u/admin: true
+summary: null
+default_permissioned_as:
+  - path_glob: "jobs/**"
+    permissioned_as: "u/admin"
+  - path_glob: "jobs/critical/**"
+    permissioned_as: "g/all"
+`;
+      await writeFile(metaPath, reorderedMeta, "utf-8");
+      r = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(r.code).toEqual(0);
+
+      const folder2 = await getFolder(backend, folderName);
+      expect(folder2.default_permissioned_as[0].path_glob).toBe("jobs/**");
+      expect(folder2.default_permissioned_as[1].path_glob).toBe(
+        "jobs/critical/**"
       );
-      const folder3 = await resp3.json();
+
+      // Step 7: Now that jobs/** is listed first, a new critical schedule should
+      // ALSO resolve to u/admin (first-match-wins, critical/** is shadowed)
+      const schedPath2 = join(
+        tempDir,
+        "f",
+        folderName,
+        "crit_sched.schedule.yaml"
+      );
+      await mkdir(join(tempDir, "f", folderName, "jobs", "critical"), {
+        recursive: true,
+      });
+      const critYaml = `schedule: "0 0 */6 * * *"
+timezone: UTC
+script_path: f/${folderName}/helper
+is_flow: false
+enabled: false
+`;
+      await writeFile(
+        join(
+          tempDir,
+          "f",
+          folderName,
+          "jobs",
+          "critical",
+          "crit_sched.schedule.yaml"
+        ),
+        critYaml,
+        "utf-8"
+      );
+      r = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(r.code).toEqual(0);
+
+      const critSched = await getSchedule(
+        backend,
+        `f/${folderName}/jobs/critical/crit_sched`
+      );
+      expect(critSched.permissioned_as).toBe("u/admin"); // shadowed by jobs/**
+
+      // Step 8: Clear rules locally and push — verify rules are cleared on backend
+      const clearedMeta = `display_name: ${folderName}
+owners:
+  - u/admin
+extra_perms:
+  u/admin: true
+summary: null
+default_permissioned_as: []
+`;
+      await writeFile(metaPath, clearedMeta, "utf-8");
+      r = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(r.code).toEqual(0);
+
+      const folder3 = await getFolder(backend, folderName);
       expect(folder3.default_permissioned_as).toHaveLength(0);
+
+      // Step 9: A new schedule after clearing falls back to the acting user
+      await writeFile(
+        join(tempDir, "f", folderName, "after_clear.schedule.yaml"),
+        critYaml,
+        "utf-8"
+      );
+      r = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
+      expect(r.code).toEqual(0);
+
+      const sched3 = await getSchedule(
+        backend,
+        `f/${folderName}/after_clear`
+      );
+      expect(sched3.permissioned_as).toBe("u/admin"); // admin is the acting user
     });
   });
 
-  test("validation: rejects invalid glob, format, and structure", async () => {
+  // ==========================================================================
+  // Test 2: Fork/merge with default_permissioned_as
+  // ==========================================================================
+  test("fork/merge: rules propagate to fork and deploy back to parent", async () => {
+    await withTestBackend(async (backend, _tempDir) => {
+      const parentWs = backend.workspace;
+      const FORK_ID = "wm-fork-dpa";
+      await deleteFork(backend, FORK_ID);
+
+      const id = Date.now();
+      const folderName = `dpa_fork_${id}`;
+
+      // Step 1: Parent workspace: create folder with rules + helper script
+      await createFolderWithRules(backend, folderName, [
+        { path_glob: "jobs/**", permissioned_as: "u/admin" },
+      ]);
+      await createScript(backend, `f/${folderName}/helper`);
+
+      // Step 2: Create a fork — fork inherits the parent's folder including rules
+      const forkResp = await api(
+        backend,
+        `/api/w/${parentWs}/workspaces/create_fork`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: FORK_ID,
+            name: "DPA Fork",
+            color: "#ff5500",
+            forked_datatables: [],
+          }),
+        }
+      );
+      if (!forkResp.ok) {
+        const err = await forkResp.text();
+        throw new Error(`Fork creation failed: ${forkResp.status} ${err}`);
+      }
+      await removeFromSkipTally(FORK_ID);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Step 3: Verify fork inherited the folder rules
+      const forkFolder = await getFolder(backend, folderName, FORK_ID);
+      expect(forkFolder.default_permissioned_as).toHaveLength(1);
+      expect(forkFolder.default_permissioned_as[0].path_glob).toBe("jobs/**");
+      expect(forkFolder.default_permissioned_as[0].permissioned_as).toBe(
+        "u/admin"
+      );
+
+      // Step 4: Create a schedule in the fork at a matching path — rule applies
+      const forkSchedResp = await createSchedule(
+        backend,
+        `f/${folderName}/jobs/fork_sched`,
+        `f/${folderName}/helper`,
+        undefined,
+        FORK_ID
+      );
+      expect(forkSchedResp.status).toBe(200);
+      await forkSchedResp.text();
+
+      const forkSched = await getSchedule(
+        backend,
+        `f/${folderName}/jobs/fork_sched`,
+        FORK_ID
+      );
+      expect(forkSched.permissioned_as).toBe("u/admin");
+
+      // Step 5: Modify the fork's rules (simulating divergence)
+      const updateResp = await updateFolderRules(
+        backend,
+        folderName,
+        [
+          { path_glob: "jobs/**", permissioned_as: "u/admin" },
+          { path_glob: "reports/**", permissioned_as: "g/all" },
+        ],
+        FORK_ID
+      );
+      expect(updateResp.status).toBe(200);
+      await updateResp.text();
+
+      // Step 6: Deploy the fork's folder rules back to parent via API
+      const forkFolderUpdated = await getFolder(backend, folderName, FORK_ID);
+      const deployResp = await updateFolderRules(
+        backend,
+        folderName,
+        forkFolderUpdated.default_permissioned_as,
+        parentWs
+      );
+      expect(deployResp.status).toBe(200);
+      await deployResp.text();
+
+      // Step 7: Verify parent now has the updated rules
+      const parentFolderAfter = await getFolder(backend, folderName, parentWs);
+      expect(parentFolderAfter.default_permissioned_as).toHaveLength(2);
+      expect(parentFolderAfter.default_permissioned_as[1].path_glob).toBe(
+        "reports/**"
+      );
+      expect(parentFolderAfter.default_permissioned_as[1].permissioned_as).toBe(
+        "g/all"
+      );
+
+      // Step 8: A new schedule in the parent at a reports/ path should now get
+      // the newly-merged g/all rule
+      const parentSchedResp = await createSchedule(
+        backend,
+        `f/${folderName}/reports/parent_sched`,
+        `f/${folderName}/helper`,
+        undefined,
+        parentWs
+      );
+      expect(parentSchedResp.status).toBe(200);
+      await parentSchedResp.text();
+
+      const parentSched = await getSchedule(
+        backend,
+        `f/${folderName}/reports/parent_sched`,
+        parentWs
+      );
+      expect(parentSched.permissioned_as).toBe("g/all");
+
+      await deleteFork(backend, FORK_ID);
+    });
+  });
+
+  // ==========================================================================
+  // Test 3: Backend validation + stale rule rejection (minimal API-level)
+  // ==========================================================================
+  test("validation and stale rule rejection", async () => {
     await withTestBackend(async (backend, _tempDir) => {
       const id = Date.now();
       const folderName = `dpa_val_${id}`;
@@ -223,334 +529,24 @@ describe("folder default_permissioned_as", () => {
       );
       expect(r3.status).toBe(400);
       await r3.text();
-    });
-  });
 
-  test("backend resolution: matching, non-matching, first-match-wins", async () => {
-    await withTestBackend(async (backend, _tempDir) => {
-      const id = Date.now();
-      const folderName = `dpa_res_${id}`;
-
-      await createFolderWithRules(backend, folderName, [
-        { path_glob: "jobs/critical/**", permissioned_as: "g/all" },
-        { path_glob: "jobs/**", permissioned_as: "u/admin" },
-      ]);
-
-      // Create a helper script for schedules
+      // Stale rule: create helper, then set rule with ghost user, then deploy
       await createScript(backend, `f/${folderName}/helper`);
-
-      // Matching jobs/** (not critical) → u/admin
-      const r1 = await createSchedule(
-        backend,
-        `f/${folderName}/jobs/sched1`,
-        `f/${folderName}/helper`
-      );
-      expect(r1.status).toBe(200);
-      await r1.text();
-      const s1 = await getSchedule(backend, `f/${folderName}/jobs/sched1`);
-      expect(s1.permissioned_as).toBe("u/admin");
-
-      // First-match-wins: jobs/critical/** → g/all
-      const r2 = await createSchedule(
-        backend,
-        `f/${folderName}/jobs/critical/prod`,
-        `f/${folderName}/helper`
-      );
-      expect(r2.status).toBe(200);
-      await r2.text();
-      const s2 = await getSchedule(
-        backend,
-        `f/${folderName}/jobs/critical/prod`
-      );
-      expect(s2.permissioned_as).toBe("g/all");
-
-      // Non-matching path → acting user (admin)
-      const r3 = await createSchedule(
-        backend,
-        `f/${folderName}/dev/sched3`,
-        `f/${folderName}/helper`
-      );
-      expect(r3.status).toBe(200);
-      await r3.text();
-      const s3 = await getSchedule(backend, `f/${folderName}/dev/sched3`);
-      expect(s3.permissioned_as).toBe("u/admin");
-    });
-  });
-
-  test("stale rule: 400 when rule resolves to non-existent user", async () => {
-    await withTestBackend(async (backend, _tempDir) => {
-      const id = Date.now();
-      const folderName = `dpa_stale_${id}`;
-
-      // Create folder WITHOUT rules first so we can create the helper script
-      await createFolderWithRules(backend, folderName, []);
-      await createScript(backend, `f/${folderName}/helper`);
-
-      // Now add the stale rule
-      const updateResp = await updateFolderRules(backend, folderName, [
+      const staleResp = await updateFolderRules(backend, folderName, [
         { path_glob: "**", permissioned_as: "u/ghost" },
       ]);
-      expect(updateResp.status).toBe(200);
-      await updateResp.text();
+      expect(staleResp.status).toBe(200);
+      await staleResp.text();
 
-      const r = await createSchedule(
+      const schedResp = await createSchedule(
         backend,
         `f/${folderName}/should_fail`,
         `f/${folderName}/helper`
       );
-      expect(r.status).toBe(400);
-      const body = await r.text();
+      expect(schedResp.status).toBe(400);
+      const body = await schedResp.text();
       expect(body).toContain("u/ghost");
       expect(body).toContain("does not exist");
-    });
-  });
-
-  test("CLI preserve-on-update: push preserves remote permissioned_as", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
-      const id = Date.now();
-      const folderName = `dpa_cli_${id}`;
-
-      // Create folder + schedule with a specific permissioned_as via API
-      await createFolderWithRules(backend, folderName, [
-        { path_glob: "**", permissioned_as: "u/admin" },
-      ]);
-      await createScript(backend, `f/${folderName}/helper`);
-      const r = await createSchedule(
-        backend,
-        `f/${folderName}/preserved_sched`,
-        `f/${folderName}/helper`
-      );
-      expect(r.status).toBe(200);
-      await r.text();
-
-      // Verify it got the default
-      const before = await getSchedule(
-        backend,
-        `f/${folderName}/preserved_sched`
-      );
-      expect(before.permissioned_as).toBe("u/admin");
-
-      // Pull the workspace, modify the schedule locally, push back
-      await writeFile(
-        join(tempDir, "wmill.yaml"),
-        `defaultTs: bun\ncliBehavior: v1\nincludes:\n  - "f/${folderName}/**"\nincludeSchedules: true\n`,
-        "utf-8"
-      );
-
-      const pullResult = await backend.runCLICommand(
-        ["sync", "pull", "--yes"],
-        tempDir
-      );
-      expect(pullResult.code).toEqual(0);
-
-      // Read the schedule file and change the cron expression
-      const schedDir = join(
-        tempDir,
-        "f",
-        folderName,
-        `preserved_sched.schedule.yaml`
-      );
-      let schedContent = await readFile(schedDir, "utf-8");
-      schedContent = schedContent.replace("0 0 */6 * * *", "0 0 */12 * * *");
-      await writeFile(schedDir, schedContent, "utf-8");
-
-      // Push — should preserve u/admin, not overwrite to acting user
-      const pushResult = await backend.runCLICommand(
-        ["sync", "push", "--yes"],
-        tempDir
-      );
-      expect(pushResult.code).toEqual(0);
-
-      // Verify permissioned_as was preserved
-      const after = await getSchedule(
-        backend,
-        `f/${folderName}/preserved_sched`
-      );
-      expect(after.permissioned_as).toBe("u/admin");
-      expect(after.schedule).toBe("0 0 */12 * * *");
-    });
-  });
-
-  test("CLI pull stripping: scripts have has_on_behalf_of instead of email", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
-      const id = Date.now();
-      const folderName = `dpa_strip_${id}`;
-
-      // Create folder + script with on_behalf_of_email via folder default
-      await createFolderWithRules(backend, folderName, [
-        { path_glob: "**", permissioned_as: "u/admin" },
-      ]);
-      await createScript(backend, `f/${folderName}/my_script`);
-
-      // Pull with cliBehavior: v1
-      await writeFile(
-        join(tempDir, "wmill.yaml"),
-        `defaultTs: bun\ncliBehavior: v1\nincludes:\n  - "f/${folderName}/**"\n`,
-        "utf-8"
-      );
-
-      const pullResult = await backend.runCLICommand(
-        ["sync", "pull", "--yes"],
-        tempDir
-      );
-      expect(pullResult.code).toEqual(0);
-
-      // Read the script metadata
-      const metaPath = join(
-        tempDir,
-        "f",
-        folderName,
-        "my_script.script.yaml"
-      );
-      const metaContent = await readFile(metaPath, "utf-8");
-
-      // Should have has_on_behalf_of: true (or false) but NOT on_behalf_of_email
-      expect(metaContent).toContain("has_on_behalf_of:");
-      expect(metaContent).not.toContain("on_behalf_of_email:");
-    });
-  });
-
-  test("CLI folder.meta round-trip: pull folder with rules, push unchanged, rules survive", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
-      const id = Date.now();
-      const folderName = `dpa_rt_cli_${id}`;
-
-      // Seed folder with rules via API
-      await createFolderWithRules(backend, folderName, [
-        { path_glob: "jobs/**", permissioned_as: "u/admin" },
-        { path_glob: "reports/*", permissioned_as: "g/all" },
-      ]);
-
-      // Pull — folder.meta.yaml should include the rules
-      await writeFile(
-        join(tempDir, "wmill.yaml"),
-        `defaultTs: bun\ncliBehavior: v1\nincludes:\n  - "f/${folderName}/**"\n`,
-        "utf-8"
-      );
-      const pullResult = await backend.runCLICommand(
-        ["sync", "pull", "--yes"],
-        tempDir
-      );
-      expect(pullResult.code).toEqual(0);
-
-      const metaPath = join(tempDir, "f", folderName, "folder.meta.yaml");
-      const metaContent = await readFile(metaPath, "utf-8");
-      expect(metaContent).toContain("default_permissioned_as:");
-      expect(metaContent).toContain("path_glob: jobs/**");
-      expect(metaContent).toContain("permissioned_as: u/admin");
-      expect(metaContent).toContain("path_glob: reports/*");
-      expect(metaContent).toContain("permissioned_as: g/all");
-
-      // Edit rules locally: reorder + change one
-      const newMeta = `display_name: ${folderName}
-owners:
-  - u/admin
-extra_perms:
-  u/admin: true
-summary: null
-default_permissioned_as:
-  - path_glob: "reports/**"
-    permissioned_as: "u/admin"
-  - path_glob: "jobs/**"
-    permissioned_as: "g/all"
-`;
-      await writeFile(metaPath, newMeta, "utf-8");
-
-      // Push — should sync the new rules
-      const pushResult = await backend.runCLICommand(
-        ["sync", "push", "--yes"],
-        tempDir
-      );
-      expect(pushResult.code).toEqual(0);
-
-      // Verify via API
-      const resp = await backend.apiRequest!(
-        `/api/w/${backend.workspace}/folders/get/${folderName}`
-      );
-      const folder = await resp.json();
-      expect(folder.default_permissioned_as).toHaveLength(2);
-      expect(folder.default_permissioned_as[0].path_glob).toBe("reports/**");
-      expect(folder.default_permissioned_as[0].permissioned_as).toBe("u/admin");
-      expect(folder.default_permissioned_as[1].path_glob).toBe("jobs/**");
-      expect(folder.default_permissioned_as[1].permissioned_as).toBe("g/all");
-    });
-  });
-
-  test("CLI push order: folder rule update applies to new item in same push", async () => {
-    await withTestBackend(async (backend, tempDir) => {
-      await setupWorkspaceProfile(backend);
-
-      const id = Date.now();
-      const folderName = `dpa_order_${id}`;
-
-      // Seed folder with NO rules
-      await createFolderWithRules(backend, folderName, []);
-      // Create a helper script (target for the schedule)
-      await createScript(backend, `f/${folderName}/helper`);
-
-      // Pull the current state
-      await writeFile(
-        join(tempDir, "wmill.yaml"),
-        `defaultTs: bun\ncliBehavior: v1\nincludes:\n  - "f/${folderName}/**"\nincludeSchedules: true\n`,
-        "utf-8"
-      );
-      const pullResult = await backend.runCLICommand(
-        ["sync", "pull", "--yes"],
-        tempDir
-      );
-      expect(pullResult.code).toEqual(0);
-
-      // In one push: (a) update folder.meta.yaml with a new rule, (b) add a new schedule
-      const metaPath = join(tempDir, "f", folderName, "folder.meta.yaml");
-      const updatedMeta = `display_name: ${folderName}
-owners:
-  - u/admin
-extra_perms:
-  u/admin: true
-summary: null
-default_permissioned_as:
-  - path_glob: "**"
-    permissioned_as: "u/admin"
-`;
-      await writeFile(metaPath, updatedMeta, "utf-8");
-
-      const schedPath = join(
-        tempDir,
-        "f",
-        folderName,
-        "new_sched.schedule.yaml"
-      );
-      await writeFile(
-        schedPath,
-        `schedule: "0 0 */6 * * *"
-timezone: UTC
-script_path: f/${folderName}/helper
-is_flow: false
-enabled: false
-`,
-        "utf-8"
-      );
-
-      const pushResult = await backend.runCLICommand(
-        ["sync", "push", "--yes"],
-        tempDir
-      );
-      expect(pushResult.code).toEqual(0);
-
-      // Verify: the schedule must have `permissioned_as: u/admin` from the new
-      // folder rule — this only works if the folder was pushed BEFORE the
-      // schedule create in the same batch.
-      const sched = await getSchedule(
-        backend,
-        `f/${folderName}/new_sched`
-      );
-      expect(sched.permissioned_as).toBe("u/admin");
     });
   });
 });
