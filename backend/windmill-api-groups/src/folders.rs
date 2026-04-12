@@ -276,16 +276,6 @@ async fn create_folder(
     let default_permissioned_as = ng
         .default_permissioned_as
         .unwrap_or_else(|| serde_json::Value::Array(vec![]));
-    if default_permissioned_as
-        .as_array()
-        .is_some_and(|a| !a.is_empty())
-        && !windmill_common::can_preserve_on_behalf_of(&authed)
-    {
-        return Err(error::Error::NotAuthorized(
-            "Only admins and wm_deployers members can configure default_permissioned_as rules"
-                .to_string(),
-        ));
-    }
     validate_default_permissioned_as(&default_permissioned_as)?;
 
     if let Err(e) =
@@ -471,12 +461,6 @@ async fn update_folder(
     }
 
     if let Some(default_permissioned_as) = ng.default_permissioned_as.as_ref() {
-        if !windmill_common::can_preserve_on_behalf_of(&authed) {
-            return Err(windmill_common::error::Error::NotAuthorized(
-                "Only admins and wm_deployers members can configure default_permissioned_as rules"
-                    .to_string(),
-            ));
-        }
         validate_default_permissioned_as(default_permissioned_as)?;
         sqlb.set(
             "default_permissioned_as",
