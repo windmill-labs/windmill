@@ -348,11 +348,13 @@ const command = new Command()
     });
     if (!remote) throw new Error(`App ${appPath} not found`);
 
+    // Only spread remote.policy — spreading the full remote object would include
+    // `value` and trigger a new app version on every call. EditApp has all-Option
+    // fields, so a minimal body only updates the policy column.
     await wmill.updateApp({
       workspace: workspace.workspaceId,
       path: appPath,
       requestBody: {
-        ...(remote as any),
         policy: {
           ...(remote.policy as any),
           on_behalf_of: `u/${username}`,
