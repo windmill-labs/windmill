@@ -125,6 +125,19 @@
 		return value.startsWith('u/') || value.startsWith('g/') || value.includes('@')
 	}
 
+	// Split a permissioned_as value like "u/alice" or "g/prod" into its kind and name.
+	function ruleKind(value: string): 'user' | 'group' {
+		return value.startsWith('g/') ? 'group' : 'user'
+	}
+	function ruleName(value: string): string {
+		if (value.startsWith('u/') || value.startsWith('g/')) return value.slice(2)
+		return value
+	}
+	function setRulePermissionedAs(idx: number, kind: 'user' | 'group', name: string) {
+		const prefix = kind === 'user' ? 'u/' : 'g/'
+		defaultPermissionedAs[idx].permissioned_as = name ? prefix + name : ''
+	}
+
 	const defaultRulesInvalid = $derived(
 		defaultPermissionedAs.some(
 			(r) => !isValidGlob(r.path_glob) || !isValidPermissionedAs(r.permissioned_as)
@@ -522,12 +535,14 @@
 			tooltip="Rules applied at create-time when admins or wm_deployers members deploy items in this folder. The first rule whose path_glob matches the item path (relative to the folder root) wins, and its permissioned_as is used as the default. Only admins and wm_deployers see this setting."
 		>
 			<div class="flex flex-col gap-2">
-				<Alert type="info" title="Advanced — affects ownership of new items" size="xs">
-					When an admin or <code>wm_deployers</code> member creates a trigger, schedule, app,
-					script, or flow under this folder, the first matching rule determines the default
-					<code>permissioned_as</code>. Globs are relative to the folder root (e.g.
-					<code>jobs/**</code> matches <code>f/{name}/jobs/run_a</code>). Existing items are never
-					rewritten.
+				<Alert type="info" title="Advanced — for prod workspaces (least privilege)" size="xs">
+					This setting is mostly relevant on <strong>production workspaces</strong> where you want
+					new items under this folder to run under a least-privilege service account rather than the
+					deploying admin's identity. When an admin or <code>wm_deployers</code> member creates a
+					trigger, schedule, app, script, or flow under this folder, the first matching rule
+					determines the default <code>permissioned_as</code>. Globs are relative to the folder root
+					(e.g. <code>jobs/**</code> matches <code>f/{name}/jobs/run_a</code>). Existing items are
+					never rewritten.
 				</Alert>
 
 				{#if defaultPermissionedAs.length > 0}
@@ -535,13 +550,15 @@
 						{#snippet headerRow()}
 							<tr>
 								<th>path_glob <Tooltip>Glob relative to <code>f/{name}/</code></Tooltip></th>
-								<th>permissioned_as</th>
+								<th>permissioned as</th>
 								<th class="w-24"></th>
 							</tr>
 						{/snippet}
 						{#snippet body()}
 							<tbody>
 								{#each defaultPermissionedAs as rule, idx (idx)}
+									{@const kind = ruleKind(rule.permissioned_as)}
+									{@const itemsForKind = kind === 'user' ? usernames : groups}
 									<tr>
 										<td>
 											<TextInput
@@ -551,11 +568,25 @@
 											/>
 										</td>
 										<td>
-											<TextInput
-												bind:value={rule.permissioned_as}
-												inputProps={{ placeholder: 'u/alice or g/prod' }}
-												error={!isValidPermissionedAs(rule.permissioned_as)}
-											/>
+											<div class="flex items-center gap-1">
+												<ToggleButtonGroup
+													selected={kind}
+													on:selected={(e) => setRulePermissionedAs(idx, e.detail, '')}
+												>
+													{#snippet children({ item })}
+														<ToggleButton value="user" label="User" {item} size="sm" />
+														<ToggleButton value="group" label="Group" {item} size="sm" />
+													{/snippet}
+												</ToggleButtonGroup>
+												<Select
+													items={safeSelectItems(itemsForKind)}
+													bind:value={
+														() => ruleName(rule.permissioned_as),
+														(v) => setRulePermissionedAs(idx, kind, v ?? '')
+													}
+													class="grow min-w-32"
+												/>
+											</div>
 										</td>
 										<td>
 											<div class="flex items-center gap-1 justify-end">
