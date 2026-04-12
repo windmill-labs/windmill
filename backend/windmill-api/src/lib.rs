@@ -712,6 +712,7 @@ pub async fn run_server(
                 .nest("/tokens", token::global_service())
                 .nest("/concurrency_groups", concurrency_groups::global_service())
                 .nest("/scripts_u", scripts::global_unauthed_service())
+                .nest("/settings_u", windmill_api_settings::unauthed_service())
                 .nest("/apps_u", {
                     #[cfg(feature = "enterprise")]
                     {

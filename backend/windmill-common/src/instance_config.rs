@@ -277,6 +277,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pip_extra_index_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ruff_config: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub npm_config_registry: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bunfig_install_scopes: Option<StringOrSecretRef>,
@@ -899,7 +901,10 @@ const SENSITIVE_SETTINGS: &[&str] = &[
 /// Maps a top-level key to the sub-field names that must be redacted.
 const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("smtp_settings", &["smtp_password"]),
-    ("secret_backend", &["token", "client_secret", "secret_access_key"]),
+    (
+        "secret_backend",
+        &["token", "client_secret", "secret_access_key"],
+    ),
     (
         "object_store_cache_config",
         &["secret_key", "serviceAccountKey"],

@@ -1232,6 +1232,26 @@ paths:
               schema:
                 type: string
 
+  /settings_u/ruff_config:
+    get:
+      summary: get instance ruff config (unauthenticated)
+      description: |
+        Returns the instance-level ruff.toml content as plain text.
+        Intentionally unauthenticated so the LSP extra container can poll it
+        across any deployment topology. Responds with an empty body when the
+        instance config is unset. Ruff configuration is lint/format policy,
+        not a credential.
+      operationId: getRuffConfig
+      tags:
+        - setting
+      responses:
+        "200":
+          description: ruff.toml content (may be empty)
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /settings/local:
     get:
       summary: get local settings

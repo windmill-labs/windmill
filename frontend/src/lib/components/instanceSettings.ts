@@ -432,6 +432,16 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Ruff config (ruff.toml)',
+			description:
+				'Shared ruff.toml applied to the Python editor linter across the whole instance. The LSP container fetches this every minute and writes it next to edited files. See <a href="https://docs.astral.sh/ruff/configuration/">ruff docs</a>',
+			key: 'ruff_config',
+			fieldType: 'codearea',
+			codeAreaLang: 'toml',
+			placeholder: 'line-length = 100\n\n[lint]\nselect = ["E", "F", "I"]\nignore = ["E501"]',
+			storage: 'setting'
+		},
+		{
 			label: 'UV index strategy',
 			description:
 				'Strategy for resolving packages from multiple indexes. See <a href="https://docs.astral.sh/uv/pip/compatibility/#packages-that-exist-on-multiple-indexes">uv docs</a>',
