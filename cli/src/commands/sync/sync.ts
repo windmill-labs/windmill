@@ -46,7 +46,7 @@ import {
 import {
   getEffectiveSettings,
   mergeConfigWithConfigFile,
-  parseCliBehavior,
+  parseSyncBehavior,
   SyncOptions,
   validateBranchConfiguration,
   findWorkspaceByGitBranch,
@@ -2239,7 +2239,7 @@ export async function pull(
     resourceTypeToFormatExtension,
     resourceTypeToIsFileset,
     true,
-    parseCliBehavior(opts.cliBehavior) >= 1,
+    parseSyncBehavior(opts.syncBehavior) >= 1,
   );
 
   const local = !opts.stateful
@@ -2808,7 +2808,7 @@ export async function push(
     resourceTypeToFormatExtension,
     resourceTypeToIsFileset,
     false,
-    parseCliBehavior(opts.cliBehavior) >= 1,
+    parseSyncBehavior(opts.syncBehavior) >= 1,
   );
 
   const local = await FSFSElement(path.join(process.cwd(), ""), codebases, false);
@@ -3071,7 +3071,7 @@ export async function push(
   if (changes.length > 0) {
     // Compute folder-default annotations for added items (shown in prettyChanges + dry-run)
     let folderDefaultAnnotations: Map<string, string> | undefined;
-    if (parseCliBehavior(opts.cliBehavior) >= 1) {
+    if (parseSyncBehavior(opts.syncBehavior) >= 1) {
       folderDefaultAnnotations = new Map();
       const folderRulesCache = new Map<string, Array<{ path_glob: string; permissioned_as: string }>>();
       for (const change of changes) {
@@ -3110,7 +3110,7 @@ export async function push(
     }
 
     let permissionedAsContext: PermissionedAsContext | undefined = undefined;
-    if (parseCliBehavior(opts.cliBehavior) >= 1) {
+    if (parseSyncBehavior(opts.syncBehavior) >= 1) {
       const user = await wmill.whoami({ workspace: workspace.workspaceId });
       const userIsAdminOrDeployer =
         user.is_admin || (user.groups ?? []).includes("wm_deployers");
@@ -3131,7 +3131,7 @@ export async function push(
     } else if (folderDefaultAnnotations && folderDefaultAnnotations.size > 0) {
       log.warn(colors.yellow(
         `This workspace has folder default_permissioned_as rules that affect ${folderDefaultAnnotations.size} item(s) being pushed, ` +
-        `but cliBehavior is not set in wmill.yaml. Add 'cliBehavior: v1' to enable ownership preservation on update and on_behalf_of stripping on pull.`
+        `but syncBehavior is not set in wmill.yaml. Add 'syncBehavior: v1' to enable ownership preservation on update and on_behalf_of stripping on pull.`
       ));
     }
 

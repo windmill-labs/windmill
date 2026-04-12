@@ -207,7 +207,7 @@ describe("folder default_permissioned_as", () => {
       // Step 2: Pull workspace locally
       await writeFile(
         join(tempDir, "wmill.yaml"),
-        `defaultTs: bun\ncliBehavior: v1\nincludes:\n  - "f/${folderName}/**"\nincludeSchedules: true\n`,
+        `defaultTs: bun\nsyncBehavior: v1\nincludes:\n  - "f/${folderName}/**"\nincludeSchedules: true\n`,
         "utf-8"
       );
       let r = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);

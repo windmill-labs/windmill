@@ -55,9 +55,9 @@ type LegacyBranchesConfig = {
   };
 };
 
-export const SUPPORTED_CLI_BEHAVIOR_VERSION = 1;
+export const SUPPORTED_SYNC_BEHAVIOR_VERSION = 1;
 
-export function parseCliBehavior(value?: string | number): number {
+export function parseSyncBehavior(value?: string | number): number {
   if (!value && value !== 0) return 0;
   const s = String(value);
   const match = s.match(/^v(\d+)$/);
@@ -107,7 +107,7 @@ export interface SyncOptions {
   promotion?: string;
   lint?: boolean;
   locksRequired?: boolean;
-  cliBehavior?: string;
+  syncBehavior?: string;
 }
 
 export interface Codebase {
@@ -284,10 +284,10 @@ export async function readConfigFile(opts?: { warnIfMissing?: boolean }): Promis
     // Initialize global nonDottedPaths setting from config
     setNonDottedPaths(conf?.nonDottedPaths ?? false);
 
-    const cliBehaviorVersion = parseCliBehavior(conf?.cliBehavior);
-    if (cliBehaviorVersion > SUPPORTED_CLI_BEHAVIOR_VERSION) {
+    const syncBehaviorVersion = parseSyncBehavior(conf?.syncBehavior);
+    if (syncBehaviorVersion > SUPPORTED_SYNC_BEHAVIOR_VERSION) {
       log.error(
-        `Your wmill.yaml specifies cliBehavior: ${conf!.cliBehavior}, but this CLI only supports up to v${SUPPORTED_CLI_BEHAVIOR_VERSION}. Run 'wmill upgrade' to update.`
+        `Your wmill.yaml specifies syncBehavior: ${conf!.syncBehavior}, but this CLI only supports up to v${SUPPORTED_SYNC_BEHAVIOR_VERSION}. Run 'wmill upgrade' to update.`
       );
       process.exit(1);
     }
@@ -351,7 +351,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
       | "includeSettings"
       | "includeKey"
       | "nonDottedPaths"
-      | "cliBehavior"
+      | "syncBehavior"
     >
   >
 > = {
@@ -375,7 +375,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
   includeKey: false,
   skipWorkspaceDependencies: false,
   nonDottedPaths: false,
-  cliBehavior: "v1",
+  syncBehavior: "v1",
 } as const;
 
 export async function mergeConfigWithConfigFile<T>(
