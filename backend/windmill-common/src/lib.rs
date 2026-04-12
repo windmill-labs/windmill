@@ -58,6 +58,7 @@ pub mod external_ip;
 pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;
+pub mod folders;
 pub mod global_settings;
 pub mod indexer;
 pub mod instance_config;
@@ -470,7 +471,8 @@ impl PgDatabase {
             Ok(result) => Ok(result),
             Err(e) => {
                 let err_str = e.to_string();
-                if err_str.contains("password authentication failed for user") && err_str.contains("custom_instance_user")
+                if err_str.contains("password authentication failed for user")
+                    && err_str.contains("custom_instance_user")
                 {
                     if let Some(db) = main_db {
                         tracing::warn!(

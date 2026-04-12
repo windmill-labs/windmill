@@ -46,11 +46,14 @@ import {
 import {
   getEffectiveSettings,
   mergeConfigWithConfigFile,
+  parseCliBehavior,
   SyncOptions,
   validateBranchConfiguration,
   findWorkspaceByGitBranch,
   WorkspaceEntryConfig,
 } from "../../core/conf.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { preCheckPermissionedAs } from "../../core/permissioned_as.ts";
 import {
   fromWorkspaceSpecificPath,
   getWorkspaceSpecificPath,
@@ -612,6 +615,7 @@ function ZipFSElement(
   resourceTypeToFormatExtension: Record<string, string>,
   resourceTypeToIsFileset: Record<string, boolean>,
   ignoreCodebaseChanges: boolean,
+  stripOnBehalfOf: boolean,
 ): DynFSElement {
   // Pre-scan: find zip base paths of scripts that have modules.
   // These scripts use the folder layout: {basePath}__mod/script.{ext}
@@ -760,6 +764,11 @@ function ZipFSElement(
                   return s.content;
                 },
               };
+            }
+
+            if (stripOnBehalfOf) {
+              (flow as any).has_on_behalf_of = !!(flow as any).on_behalf_of_email;
+              delete (flow as any).on_behalf_of_email;
             }
 
             yield {
@@ -1042,6 +1051,10 @@ function ZipFSElement(
             if (ignoreCodebaseChanges && parsed["codebase"]) {
               parsed["codebase"] = undefined;
             }
+            if (stripOnBehalfOf) {
+              parsed["has_on_behalf_of"] = !!parsed["on_behalf_of_email"];
+              delete parsed["on_behalf_of_email"];
+            }
             // Modules are stored as files in __mod/ folder, not in metadata
             delete parsed["modules"];
             return useYaml
@@ -1080,16 +1093,30 @@ function ZipFSElement(
               : JSON.stringify(parsed, null, 2);
           }
 
-          return useYaml && isJson && kind != "dependencies"
-            ? (() => {
-                try {
-                  return yamlStringify(JSON.parse(content), yamlOptions);
-                } catch (error) {
-                  log.error(`Failed to parse JSON content at path: ${p}`);
-                  throw error;
+          if (useYaml && isJson && kind != "dependencies") {
+            try {
+              const parsed = JSON.parse(content);
+              if (stripOnBehalfOf) {
+                const isSchedule = p.endsWith(".schedule.json");
+                const isTrigger = p.endsWith("_trigger.json");
+                if (isSchedule) {
+                  parsed["has_permissioned_as"] = !!parsed["permissioned_as"];
+                  delete parsed["permissioned_as"];
+                  delete parsed["email"];
+                  delete parsed["edited_by"];
+                } else if (isTrigger) {
+                  parsed["has_permissioned_as"] = !!parsed["permissioned_as"];
+                  delete parsed["permissioned_as"];
+                  delete parsed["edited_by"];
                 }
-              })()
-            : content;
+              }
+              return yamlStringify(parsed, yamlOptions);
+            } catch (error) {
+              log.error(`Failed to parse JSON content at path: ${p}`);
+              throw error;
+            }
+          }
+          return content;
         },
       },
     ];
@@ -2210,6 +2237,7 @@ export async function pull(
     resourceTypeToFormatExtension,
     resourceTypeToIsFileset,
     true,
+    parseCliBehavior(opts.cliBehavior) >= 1,
   );
 
   const local = !opts.stateful
@@ -2525,7 +2553,12 @@ export async function pull(
   }
 }
 
-function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig, branchOverride?: string) {
+function prettyChanges(
+  changes: Change[],
+  specificItems?: SpecificItemsConfig,
+  branchOverride?: string,
+  folderDefaultAnnotations?: Map<string, string>,
+) {
   for (const change of changes) {
     let displayPath = change.path;
     let wsNote = "";
@@ -2543,13 +2576,18 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig, b
       }
     }
 
+    const folderNote = folderDefaultAnnotations?.get(change.path);
+    const extraNote = folderNote
+      ? colors.cyan(` (will be permissioned as ${folderNote} via folder default)`)
+      : "";
+
     if (change.name === "added") {
       log.info(
         colors.green(
           `+ ${getTypeStrFromPath(change.path)} ` +
             displayPath +
             colors.gray(wsNote),
-        ),
+        ) + extraNote,
       );
     } else if (change.name === "deleted") {
       log.info(
@@ -2619,7 +2657,7 @@ function removeSuffix(str: string, suffix: string) {
 }
 
 export async function push(
-  opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string },
+  opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string; acceptOverridingPermissionedAsWithSelf?: boolean },
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
   // Save original CLI options before merging with config file
@@ -2768,6 +2806,7 @@ export async function push(
     resourceTypeToFormatExtension,
     resourceTypeToIsFileset,
     false,
+    parseCliBehavior(opts.cliBehavior) >= 1,
   );
 
   const local = await FSFSElement(path.join(process.cwd(), ""), codebases, false);
@@ -3028,14 +3067,73 @@ export async function push(
   }
 
   if (changes.length > 0) {
+    // Compute folder-default annotations for added items (shown in prettyChanges + dry-run)
+    let folderDefaultAnnotations: Map<string, string> | undefined;
+    if (parseCliBehavior(opts.cliBehavior) >= 1) {
+      folderDefaultAnnotations = new Map();
+      const folderRulesCache = new Map<string, Array<{ path_glob: string; permissioned_as: string }>>();
+      const { minimatch } = await import("minimatch");
+      for (const change of changes) {
+        if (change.name !== "added") continue;
+        const match = change.path.match(/^f\/([^/]+)\//);
+        if (!match) continue;
+        const folderName = match[1];
+        if (!folderRulesCache.has(folderName)) {
+          try {
+            const folder = await wmill.getFolder({ workspace: workspace.workspaceId, name: folderName });
+            folderRulesCache.set(folderName, (folder as any).default_permissioned_as ?? []);
+          } catch {
+            folderRulesCache.set(folderName, []);
+          }
+        }
+        const rules = folderRulesCache.get(folderName)!;
+        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|sqs_trigger|gcp_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
+        const relative = remotePath.slice(`f/${folderName}/`.length);
+        if (!relative) continue;
+        for (const rule of rules) {
+          if (minimatch(relative, rule.path_glob)) {
+            folderDefaultAnnotations.set(change.path, rule.permissioned_as);
+            break;
+          }
+        }
+      }
+    }
+
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems, wsNameForFiles);
+      prettyChanges(changes, specificItems, wsNameForFiles, folderDefaultAnnotations);
     }
 
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
       return;
     }
+
+    let permissionedAsContext: PermissionedAsContext | undefined = undefined;
+    if (parseCliBehavior(opts.cliBehavior) >= 1) {
+      const user = await wmill.whoami({ workspace: workspace.workspaceId });
+      const userIsAdminOrDeployer =
+        user.is_admin || (user.groups ?? []).includes("wm_deployers");
+      log.debug(`permissioned_as: user=${user.email}, is_admin=${user.is_admin}, groups=${JSON.stringify(user.groups)}, isAdminOrDeployer=${userIsAdminOrDeployer}`);
+      permissionedAsContext = {
+        userCache: new Map(),
+        userIsAdminOrDeployer,
+        userEmail: user.email,
+      };
+
+      await preCheckPermissionedAs(
+        changes,
+        user.email,
+        userIsAdminOrDeployer,
+        opts.acceptOverridingPermissionedAsWithSelf ?? false,
+        !!process.stdin.isTTY,
+      );
+    } else if (folderDefaultAnnotations && folderDefaultAnnotations.size > 0) {
+      log.warn(colors.yellow(
+        `This workspace has folder default_permissioned_as rules that affect ${folderDefaultAnnotations.size} item(s) being pushed, ` +
+        `but cliBehavior is not set in wmill.yaml. Add 'cliBehavior: v1' to enable ownership preservation on update and on_behalf_of stripping on pull.`
+      ));
+    }
+
     if (
       !opts.yes &&
       !(await Confirm.prompt({
@@ -3133,6 +3231,7 @@ export async function push(
                   rawWorkspaceDependencies,
                   codebases,
                   opts,
+                  permissionedAsContext,
                 )
               ) {
                 if (stateTarget) {
@@ -3148,6 +3247,7 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                  permissionedAsContext,
                 )
               ) {
                 if (stateTarget) {
@@ -3267,6 +3367,7 @@ export async function push(
                 alreadySynced,
                 opts.message,
                 originalWorkspaceSpecificPath,
+                permissionedAsContext,
               );
 
               if (stateTarget) {
@@ -3290,6 +3391,7 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                  permissionedAsContext,
                 )
               ) {
                 continue;
@@ -3336,6 +3438,7 @@ export async function push(
                 [],
                 opts.message,
                 localFilePath, // Pass the actual local file path
+                permissionedAsContext,
               );
 
               if (stateTarget) {
@@ -3872,6 +3975,10 @@ const command = new Command()
     "Fail if scripts or flow inline scripts that need locks have no locks",
   )
   .option("--auto-metadata", "Automatically regenerate stale metadata (locks and schemas) before pushing")
+  .option(
+    "--accept-overriding-permissioned-as-with-self",
+    "Accept that items with a different permissioned_as will be updated with your own user",
+  )
   .action(push as any);
 
 export default command;

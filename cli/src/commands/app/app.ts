@@ -18,6 +18,7 @@ import lintCommand from "./lint.ts";
 import newCommand from "./new.ts";
 import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 
 export interface AppFile {
   value: any;
@@ -105,7 +106,8 @@ export async function pushApp(
   workspace: string,
   remotePath: string,
   localPath: string,
-  message?: string
+  message?: string,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -122,6 +124,14 @@ export async function pushApp(
   } catch {
     //ignore
   }
+
+  let remoteOnBehalfOf: string | undefined;
+  let remoteOnBehalfOfEmail: string | undefined;
+  if (app?.policy) {
+    remoteOnBehalfOf = app.policy.on_behalf_of;
+    remoteOnBehalfOfEmail = app.policy.on_behalf_of_email;
+  }
+
   if (isExecutionModeAnonymous(app)) {
     app.public = true;
   }
@@ -143,6 +153,20 @@ export async function pushApp(
     localApp?.["public"] ??
       localApp?.["policy"]?.["execution_mode"] == "anonymous"
   );
+
+  const preserveFields: { preserve_on_behalf_of?: boolean } = {};
+  if (permissionedAsContext?.userIsAdminOrDeployer) {
+    if (app) {
+      if (localApp.policy && remoteOnBehalfOf) {
+        (localApp.policy as any).on_behalf_of = remoteOnBehalfOf;
+        (localApp.policy as any).on_behalf_of_email = remoteOnBehalfOfEmail;
+        preserveFields.preserve_on_behalf_of = true;
+        log.info(`Preserving ${remoteOnBehalfOfEmail ?? remoteOnBehalfOf} as permissioned_as for app ${remotePath}`);
+      }
+    }
+    // On create: backend applies folder defaults
+  }
+
   if (app) {
     if (isSuperset(localApp, app)) {
       log.info(colors.green(`App ${remotePath} is up to date`));
@@ -155,6 +179,7 @@ export async function pushApp(
       requestBody: {
         deployment_message: message,
         ...localApp,
+        ...preserveFields,
       },
     });
   } else {
@@ -166,6 +191,7 @@ export async function pushApp(
         path: remotePath,
         deployment_message: message,
         ...localApp,
+        ...preserveFields,
       },
     });
   }
@@ -302,6 +328,32 @@ const command = new Command()
     );
     const { generateLocksCommand } = await import("./app_metadata.ts");
     await generateLocksCommand(opts, appFolder);
-  });
+  })
+  .command(
+    "set-permissioned-as",
+    "Set the on_behalf_of_email for an app (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action((async (opts: any, appPath: string, email: string) => {
+    const workspace = await resolveWorkspace(opts);
+    await requireLogin(opts);
+
+    const { lookupUsernameByEmail } = await import("../../core/permissioned_as.ts");
+    const cache = new Map<string, { username: string; email: string }>();
+    const username = await lookupUsernameByEmail(workspace.workspaceId, email, cache);
+
+    await wmill.updateApp({
+      workspace: workspace.workspaceId,
+      path: appPath,
+      requestBody: {
+        policy: {
+          on_behalf_of: `u/${username}`,
+          on_behalf_of_email: email,
+        } as any,
+        preserve_on_behalf_of: true,
+      },
+    });
+    log.info(colors.green(`Updated permissioned_as for app ${appPath} to ${email}`));
+  }) as any);
 
 export default command;

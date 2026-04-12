@@ -16062,6 +16062,8 @@ paths:
                 extra_perms:
                   additionalProperties:
                     type: boolean
+                default_permissioned_as:
+                  $ref: '#/components/schemas/FolderDefaultPermissionedAs'
               required:
                 - name
       responses:
@@ -16098,6 +16100,8 @@ paths:
                 extra_perms:
                   additionalProperties:
                     type: boolean
+                default_permissioned_as:
+                  $ref: '#/components/schemas/FolderDefaultPermissionedAs'
       responses:
         "200":
           description: folder updated
@@ -24765,10 +24769,38 @@ components:
         edited_at:
           type: string
           format: date-time
+        default_permissioned_as:
+          $ref: '#/components/schemas/FolderDefaultPermissionedAs'
       required:
         - name
         - owners
         - extra_perms
+
+    FolderDefaultPermissionedAs:
+      description: >
+        Ordered list of rules applied at create-time when admins or `wm_deployers`
+        members deploy items in this folder. The first rule whose `path_glob`
+        matches the item path (relative to the folder root) wins, and its
+        `permissioned_as` is used as the default.
+      type: array
+      items:
+        type: object
+        required:
+          - path_glob
+          - permissioned_as
+        properties:
+          path_glob:
+            type: string
+            description: >
+              Glob pattern evaluated against the item path *relative* to the
+              folder root (e.g. "jobs/**" matches every item whose full path is
+              `f/<folder>/jobs/...`). Supports `*`, `**`, `?`, `[abc]`, `{a,b}`.
+          permissioned_as:
+            type: string
+            description: >
+              Target identity the matched item should be permissioned as. Must be
+              `u/<username>`, `g/<groupname>`, or an email that exists in this
+              workspace.
 
     WorkerPing:
       type: object

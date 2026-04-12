@@ -401,7 +401,7 @@ async fn create_trigger<T: TriggerCrud>(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
-    Json(new_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
+    Json(mut new_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || {
         format!(
@@ -426,6 +426,25 @@ async fn create_trigger<T: TriggerCrud>(
 
     let new_path = new_trigger.base.path.clone();
     let labels = new_trigger.base.labels.clone();
+
+    // If the caller did not preserve a value but the user can preserve, fall back
+    // to the folder's default_permissioned_as rule (create-time only).
+    let explicit_preserve = new_trigger.base.permissioned_as.is_some()
+        && new_trigger.base.preserve_permissioned_as.unwrap_or(false)
+        && windmill_common::can_preserve_on_behalf_of(&authed);
+    if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
+        if let Some(default) = windmill_common::folders::resolve_folder_default_permissioned_as(
+            &db,
+            &workspace_id,
+            &new_trigger.base.path,
+        )
+        .await?
+        {
+            new_trigger.base.permissioned_as = Some(default);
+            new_trigger.base.preserve_permissioned_as = Some(true);
+        }
+    }
+
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         new_trigger.base.permissioned_as.as_deref(),
         new_trigger.base.preserve_permissioned_as.unwrap_or(false),

@@ -11,6 +11,8 @@ import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import * as wmill from "../../../gen/services.gen.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { lookupUsernameByEmail } from "../../core/permissioned_as.ts";
 
 import {
   GlobalOptions,
@@ -103,7 +105,8 @@ export async function pushSchedule(
   workspace: string,
   path: string,
   schedule: Schedule | ScheduleFile | undefined,
-  localSchedule: ScheduleFile
+  localSchedule: ScheduleFile,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<void> {
   path = removeType(path, "schedule").replaceAll(SEP, "/");
   log.debug(`Processing local schedule ${path}`);
@@ -115,6 +118,21 @@ export async function pushSchedule(
   } catch {
     log.debug(`Schedule ${path} does not exist on remote`);
     //ignore
+  }
+
+  // Strip CLI-only boolean marker before sending to API
+  delete (localSchedule as any).has_permissioned_as;
+
+  const preserveFields: { permissioned_as?: string; preserve_permissioned_as?: boolean } = {};
+  if (permissionedAsContext?.userIsAdminOrDeployer) {
+    if (schedule) {
+      preserveFields.preserve_permissioned_as = true;
+      if ((schedule as Schedule).permissioned_as) {
+        preserveFields.permissioned_as = (schedule as Schedule).permissioned_as;
+        log.info(`Preserving ${(schedule as Schedule).permissioned_as} as permissioned_as for schedule ${path}`);
+      }
+    }
+    // On create: no client-side rule resolution needed — the backend applies folder defaults
   }
 
   if (schedule) {
@@ -132,6 +150,7 @@ export async function pushSchedule(
         path,
         requestBody: {
           ...localSchedule,
+          ...preserveFields,
         },
       });
       if (localSchedule.enabled != schedule.enabled) {
@@ -158,6 +177,7 @@ export async function pushSchedule(
         requestBody: {
           path: path,
           ...localSchedule,
+          ...preserveFields,
         },
       });
     } catch (e) {
@@ -244,6 +264,36 @@ const command = new Command()
   .action(enable as any)
   .command("disable", "Disable a schedule")
   .arguments("<path:string>")
-  .action(disable as any);
+  .action(disable as any)
+  .command(
+    "set-permissioned-as",
+    "Set the email (run-as user) for a schedule (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action((async (opts: any, schedulePath: string, email: string) => {
+    const workspace = await resolveWorkspace(opts);
+    await requireLogin(opts);
+
+    const cache = new Map<string, { username: string; email: string }>();
+    const username = await lookupUsernameByEmail(
+      workspace.workspaceId,
+      email,
+      cache,
+    );
+
+    await wmill.updateSchedule({
+      workspace: workspace.workspaceId,
+      path: schedulePath,
+      requestBody: {
+        permissioned_as: `u/${username}`,
+        preserve_permissioned_as: true,
+      } as any,
+    });
+    log.info(
+      colors.green(
+        `Updated permissioned_as for schedule ${schedulePath} to ${email} (username: ${username})`
+      )
+    );
+  }) as any);
 
 export default command;

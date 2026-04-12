@@ -2,6 +2,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		type Folder,
+		type FolderDefaultPermissionedAs,
 		FolderService,
 		UserService,
 		GranularAclService,
@@ -13,7 +14,7 @@
 	import GroupEditor from './GroupEditor.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import { Eye, Plus, Trash } from 'lucide-svelte'
+	import { ArrowDown, ArrowUp, Eye, Plus, Trash } from 'lucide-svelte'
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher, untrack } from 'svelte'
@@ -21,6 +22,8 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import PermissionHistory from './PermissionHistory.svelte'
+	import { Minimatch } from 'minimatch'
+	import Tooltip from './Tooltip.svelte'
 
 	interface Props {
 		name: string
@@ -72,6 +75,7 @@
 		try {
 			folder = await FolderService.getFolder({ workspace: $workspaceStore!, name })
 			summary = folder.summary ?? ''
+			defaultPermissionedAs = (folder.default_permissioned_as ?? []).map((r) => ({ ...r }))
 			can_write =
 				$userStore != undefined &&
 				(folder?.owners.includes('u/' + $userStore.username) ||
@@ -94,6 +98,68 @@
 			reloadHistory++
 		} catch (e) {
 			folderNotFound = true
+		}
+	}
+
+	// --- default_permissioned_as rules editor ---
+	let defaultPermissionedAs: FolderDefaultPermissionedAs = $state([])
+
+	const canEditDefaults = $derived(
+		can_write && ($userStore?.is_admin || ($userStore?.groups ?? []).includes('wm_deployers'))
+	)
+
+	function isValidGlob(glob: string): boolean {
+		if (!glob) return false
+		try {
+			new Minimatch(glob)
+			return true
+		} catch {
+			return false
+		}
+	}
+
+	function isValidPermissionedAs(value: string): boolean {
+		return value.startsWith('u/') || value.startsWith('g/') || value.includes('@')
+	}
+
+	const defaultRulesInvalid = $derived(
+		defaultPermissionedAs.some(
+			(r) => !isValidGlob(r.path_glob) || !isValidPermissionedAs(r.permissioned_as)
+		)
+	)
+
+	function addDefaultRule() {
+		defaultPermissionedAs = [...defaultPermissionedAs, { path_glob: '**', permissioned_as: '' }]
+	}
+
+	function removeDefaultRule(idx: number) {
+		defaultPermissionedAs = defaultPermissionedAs.filter((_, i) => i !== idx)
+	}
+
+	function moveDefaultRule(idx: number, delta: -1 | 1) {
+		const next = [...defaultPermissionedAs]
+		const target = idx + delta
+		if (target < 0 || target >= next.length) return
+		;[next[idx], next[target]] = [next[target], next[idx]]
+		defaultPermissionedAs = next
+	}
+
+	async function saveDefaultRules() {
+		if (defaultRulesInvalid) {
+			sendUserToast('Some rules have invalid globs or permissioned_as values', true)
+			return
+		}
+		try {
+			await FolderService.updateFolder({
+				workspace: $workspaceStore ?? '',
+				name,
+				requestBody: { default_permissioned_as: defaultPermissionedAs }
+			})
+			sendUserToast('Default permissioned_as rules updated')
+			dispatch('update')
+			loadFolder()
+		} catch (e) {
+			sendUserToast(e.body ?? String(e), true)
 		}
 	}
 
@@ -270,14 +336,13 @@
 			{/if}
 			{#if perms}
 				<TableCustom>
-
 					{#snippet headerRow()}
-										<tr >
+						<tr>
 							<th>user/group</th>
 							<th></th>
 							<th></th>
 						</tr>
-									{/snippet}
+					{/snippet}
 					{#snippet body()}
 						<tbody>
 							{#each perms ?? [] as { owner_name, role }}<tr>
@@ -447,6 +512,106 @@
 			{/if}
 		</div>
 	</Label>
+
+	{#if canEditDefaults}
+		<Label
+			label="Default permissioned as"
+			tooltip="Rules applied at create-time when admins or wm_deployers members deploy items in this folder. The first rule whose path_glob matches the item path (relative to the folder root) wins, and its permissioned_as is used as the default. Only admins and wm_deployers see this setting."
+		>
+			<div class="flex flex-col gap-2">
+				<Alert type="info" title="Advanced — affects ownership of new items" size="xs">
+					When an admin or <code>wm_deployers</code> member creates a trigger, schedule, app,
+					script, or flow under this folder, the first matching rule determines the default
+					<code>permissioned_as</code>. Globs are relative to the folder root (e.g.
+					<code>jobs/**</code> matches <code>f/{name}/jobs/run_a</code>). Existing items are never
+					rewritten.
+				</Alert>
+
+				{#if defaultPermissionedAs.length > 0}
+					<TableCustom>
+						{#snippet headerRow()}
+							<tr>
+								<th>path_glob <Tooltip>Glob relative to <code>f/{name}/</code></Tooltip></th>
+								<th>permissioned_as</th>
+								<th class="w-24"></th>
+							</tr>
+						{/snippet}
+						{#snippet body()}
+							<tbody>
+								{#each defaultPermissionedAs as rule, idx (idx)}
+									<tr>
+										<td>
+											<TextInput
+												bind:value={rule.path_glob}
+												inputProps={{ placeholder: '**' }}
+												error={!isValidGlob(rule.path_glob)}
+											/>
+										</td>
+										<td>
+											<TextInput
+												bind:value={rule.permissioned_as}
+												inputProps={{ placeholder: 'u/alice or g/prod' }}
+												error={!isValidPermissionedAs(rule.permissioned_as)}
+											/>
+										</td>
+										<td>
+											<div class="flex items-center gap-1 justify-end">
+												<Button
+													variant="subtle"
+													unifiedSize="sm"
+													startIcon={{ icon: ArrowUp }}
+													iconOnly
+													disabled={idx === 0}
+													on:click={() => moveDefaultRule(idx, -1)}
+												/>
+												<Button
+													variant="subtle"
+													unifiedSize="sm"
+													startIcon={{ icon: ArrowDown }}
+													iconOnly
+													disabled={idx === defaultPermissionedAs.length - 1}
+													on:click={() => moveDefaultRule(idx, 1)}
+												/>
+												<Button
+													variant="subtle"
+													destructive
+													unifiedSize="sm"
+													startIcon={{ icon: Trash }}
+													iconOnly
+													on:click={() => removeDefaultRule(idx)}
+												/>
+											</div>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						{/snippet}
+					</TableCustom>
+				{:else}
+					<div class="text-xs text-tertiary">No rules defined.</div>
+				{/if}
+
+				<div class="flex items-center gap-2">
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						startIcon={{ icon: Plus }}
+						on:click={addDefaultRule}
+					>
+						Add rule
+					</Button>
+					<Button
+						variant="accent"
+						unifiedSize="sm"
+						disabled={defaultRulesInvalid}
+						on:click={saveDefaultRules}
+					>
+						Save rules
+					</Button>
+				</div>
+			</div>
+		</Label>
+	{/if}
 
 	{#if reloadHistory > 0}
 		{#key reloadHistory}

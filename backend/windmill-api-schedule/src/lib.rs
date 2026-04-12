@@ -48,6 +48,33 @@ fn resolve_permissioned_as(
     windmill_common::users::username_to_permissioned_as(&authed.username)
 }
 
+/// Create-time variant: applies the folder's `default_permissioned_as` rule when no
+/// explicit preserved value is provided and the caller can preserve (admin / wm_deployers).
+async fn resolve_permissioned_as_for_create(
+    permissioned_as: Option<&String>,
+    preserve_permissioned_as: Option<bool>,
+    path: &str,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+) -> Result<String> {
+    if let Some(pa) = permissioned_as {
+        if preserve_permissioned_as.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
+            return Ok(pa.clone());
+        }
+    }
+    if can_preserve_on_behalf_of(authed) {
+        if let Some(default) =
+            windmill_common::folders::resolve_folder_default_permissioned_as(db, w_id, path).await?
+        {
+            return Ok(default);
+        }
+    }
+    Ok(windmill_common::users::username_to_permissioned_as(
+        &authed.username,
+    ))
+}
+
 fn resolve_edited_by(authed: &ApiAuthed) -> String {
     authed.username.clone()
 }
@@ -227,11 +254,15 @@ async fn create_schedule(
     }
 
     let resolved_edited_by = resolve_edited_by(&authed);
-    let resolved_permissioned_as = resolve_permissioned_as(
+    let resolved_permissioned_as = resolve_permissioned_as_for_create(
         ns.permissioned_as.as_ref(),
         ns.preserve_permissioned_as,
+        &ns.path,
         &authed,
-    );
+        &db,
+        &w_id,
+    )
+    .await?;
     // email is still written for backwards compat with old workers that don't know about permissioned_as
     let resolved_email = windmill_common::users::get_email_from_permissioned_as(
         &resolved_permissioned_as,

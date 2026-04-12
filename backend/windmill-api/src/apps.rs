@@ -1237,8 +1237,25 @@ async fn create_app_internal<'a>(
         && app.policy.on_behalf_of.is_some();
 
     if !should_preserve {
-        app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
-        app.policy.on_behalf_of_email = Some(authed.email.clone());
+        let folder_default = if windmill_common::can_preserve_on_behalf_of(&authed) {
+            windmill_common::folders::resolve_folder_default_permissioned_as(&db, w_id, &app.path)
+                .await?
+        } else {
+            None
+        };
+        if let Some(default_permissioned_as) = folder_default {
+            let default_email = windmill_common::users::get_email_from_permissioned_as(
+                &default_permissioned_as,
+                w_id,
+                &db,
+            )
+            .await?;
+            app.policy.on_behalf_of = Some(default_permissioned_as);
+            app.policy.on_behalf_of_email = Some(default_email);
+        } else {
+            app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
+            app.policy.on_behalf_of_email = Some(authed.email.clone());
+        }
     }
     let path = app.path.clone();
     if &app.path == "" {

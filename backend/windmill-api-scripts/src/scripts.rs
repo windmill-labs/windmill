@@ -694,6 +694,34 @@ async fn create_script_internal<'c>(
     let script_path = ns.path.clone();
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
+
+    // Apply folder default_permissioned_as the first time a script is deployed
+    // at this path and the caller did not explicitly preserve a value.
+    let explicit_preserve = ns.on_behalf_of_email.is_some()
+        && ns.preserve_on_behalf_of.unwrap_or(false)
+        && windmill_common::can_preserve_on_behalf_of(&authed);
+    if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
+        let path_already_exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2)",
+            &ns.path,
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(false);
+        if !path_already_exists {
+            if let Some(default_email) =
+                windmill_common::folders::resolve_folder_default_on_behalf_of_email(
+                    &db, &w_id, &ns.path,
+                )
+                .await?
+            {
+                ns.on_behalf_of_email = Some(default_email);
+                ns.preserve_on_behalf_of = Some(true);
+            }
+        }
+    }
+
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
     if sqlx::query_scalar!(
         "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",

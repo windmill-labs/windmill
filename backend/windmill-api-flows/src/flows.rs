@@ -430,7 +430,7 @@ async fn create_flow(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
-    Json(nf): Json<NewFlow>,
+    Json(mut nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
@@ -482,6 +482,23 @@ async fn create_flow(
 
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let authed = maybe_refresh_folders(&nf.path, &w_id, authed, &db).await;
+
+    // Apply folder default_permissioned_as on create when the caller did not
+    // explicitly preserve a value and the user can preserve.
+    let explicit_preserve = nf.on_behalf_of_email.is_some()
+        && nf.preserve_on_behalf_of.unwrap_or(false)
+        && windmill_common::can_preserve_on_behalf_of(&authed);
+    if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
+        if let Some(default_email) =
+            windmill_common::folders::resolve_folder_default_on_behalf_of_email(
+                &db, &w_id, &nf.path,
+            )
+            .await?
+        {
+            nf.on_behalf_of_email = Some(default_email);
+            nf.preserve_on_behalf_of = Some(true);
+        }
+    }
 
     let mut tx = user_db.clone().begin(&authed).await?;
 

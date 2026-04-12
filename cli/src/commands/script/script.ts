@@ -1,6 +1,7 @@
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import { readFile, writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { colors } from "@cliffy/ansi/colors";
@@ -229,7 +230,8 @@ export async function handleScriptMetadata(
   message: string | undefined,
   rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[],
-  opts: GlobalOptions
+  opts: GlobalOptions,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<boolean> {
   // Flat layout: my_script.script.yaml
   const isFlatMeta = path.endsWith(".script.json") ||
@@ -250,7 +252,8 @@ export async function handleScriptMetadata(
       message,
       opts,
       rawWorkspaceDependencies,
-      codebases
+      codebases,
+      permissionedAsContext
     );
   } else {
     return false;
@@ -272,7 +275,8 @@ export async function handleFile(
   message: string | undefined,
   opts: (GlobalOptions & { defaultTs?: "bun" | "deno" } & Skips) | undefined,
   rawWorkspaceDependencies: Record<string, string>,
-  codebases: SyncCodebase[]
+  codebases: SyncCodebase[],
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<boolean> {
   // Detect module entry point: e.g., my_script__mod/script.ts
   const moduleEntryPoint = isModuleEntryPoint(path);
@@ -481,9 +485,18 @@ export async function handleFile(
       labels: typed?.labels,
     };
 
-    // console.log(requestBodyCommon.codebase);
-    // log.info(JSON.stringify(requestBodyCommon, null, 2))
-    // log.info(JSON.stringify(opts, null, 2))
+    const hasOnBehalfOf = (typed as any)?.has_on_behalf_of ?? !!typed?.on_behalf_of_email;
+    delete (typed as any)?.has_on_behalf_of;
+
+    if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
+      if (remote && remote.on_behalf_of_email) {
+        requestBodyCommon.on_behalf_of_email = remote.on_behalf_of_email;
+        (requestBodyCommon as any).preserve_on_behalf_of = true;
+        log.info(`Preserving ${remote.on_behalf_of_email} as on_behalf_of for script ${remotePath}`);
+      }
+      // On create: backend applies folder defaults — no client-side resolution needed
+    }
+
     if (remote) {
       if (content === remote.content) {
         if (
@@ -518,7 +531,7 @@ export async function handleFile(
             typed.debounce_key == remote["debounce_key"] &&
             typed.debounce_delay_s == remote["debounce_delay_s"] &&
             typed.codebase == remote.codebase &&
-            typed.on_behalf_of_email == remote.on_behalf_of_email &&
+            (hasOnBehalfOf ? true : typed.on_behalf_of_email == remote.on_behalf_of_email) &&
             deepEqual(typed.envs, remote.envs) &&
             deepEqual(modules ?? null, remote.modules ?? null))
         ) {
@@ -1636,6 +1649,40 @@ async function history(
   }
 }
 
+async function setPermissionedAs(
+  opts: GlobalOptions,
+  scriptPath: string,
+  email: string,
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const remote = await wmill.getScriptByPath({
+    workspace: workspace.workspaceId,
+    path: scriptPath,
+  });
+  if (!remote) throw new Error(`Script ${scriptPath} not found`);
+
+  await wmill.createScript({
+    workspace: workspace.workspaceId,
+    requestBody: {
+      content: remote.content,
+      description: remote.description,
+      language: remote.language as any,
+      path: remote.path,
+      summary: remote.summary,
+      kind: remote.kind as any,
+      lock: Array.isArray(remote.lock) ? remote.lock.join("\n") : remote.lock ?? undefined,
+      schema: remote.schema,
+      tag: remote.tag ?? undefined,
+      parent_hash: remote.hash,
+      on_behalf_of_email: email,
+      preserve_on_behalf_of: true,
+    },
+  });
+  log.info(colors.green(`Updated permissioned_as for script ${scriptPath} to ${email}`));
+}
+
 const command = new Command()
   .description("script related commands")
   .option("--show-archived", "Show archived scripts instead of active ones")
@@ -1715,6 +1762,12 @@ const command = new Command()
     "Comma separated patterns to specify which file to NOT take into account."
   )
   .action(generateMetadata as any)
+  .command(
+    "set-permissioned-as",
+    "Set the on_behalf_of_email for a script (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action(setPermissionedAs as any)
   .command(
     "history",
     "show version history for a script"

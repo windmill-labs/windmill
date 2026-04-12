@@ -60,6 +60,7 @@ pub struct Folder {
     pub summary: Option<String>,
     pub created_by: Option<String>,
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub default_permissioned_as: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -69,6 +70,7 @@ pub struct NewFolder {
     pub display_name: Option<String>,
     pub owners: Option<Vec<String>>,
     pub extra_perms: Option<serde_json::Value>,
+    pub default_permissioned_as: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -77,6 +79,7 @@ pub struct UpdateFolder {
     pub display_name: Option<String>,
     pub owners: Option<Vec<String>>,
     pub extra_perms: Option<serde_json::Value>,
+    pub default_permissioned_as: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -96,7 +99,7 @@ async fn list_folders(
 
     let rows = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -138,6 +141,49 @@ fn validate_owner(owner: &str) -> Result<()> {
         return Err(error::Error::BadRequest(
             "Invalid owner: must contain only alphanumeric characters, underscores, hyphens, or slashes".to_string(),
         ));
+    }
+    Ok(())
+}
+
+fn validate_default_permissioned_as(value: &serde_json::Value) -> Result<()> {
+    let arr = value.as_array().ok_or_else(|| {
+        error::Error::BadRequest("default_permissioned_as must be a JSON array".to_string())
+    })?;
+    for (idx, rule) in arr.iter().enumerate() {
+        let obj = rule.as_object().ok_or_else(|| {
+            error::Error::BadRequest(format!(
+                "default_permissioned_as[{idx}] must be an object with path_glob and permissioned_as"
+            ))
+        })?;
+        let path_glob = obj
+            .get("path_glob")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                error::Error::BadRequest(format!(
+                    "default_permissioned_as[{idx}].path_glob must be a string"
+                ))
+            })?;
+        let permissioned_as = obj
+            .get("permissioned_as")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                error::Error::BadRequest(format!(
+                    "default_permissioned_as[{idx}].permissioned_as must be a string"
+                ))
+            })?;
+        globset::Glob::new(path_glob).map_err(|e| {
+            error::Error::BadRequest(format!(
+                "default_permissioned_as[{idx}].path_glob is not a valid glob: {e}"
+            ))
+        })?;
+        let valid_permissioned_as = permissioned_as.starts_with("u/")
+            || permissioned_as.starts_with("g/")
+            || permissioned_as.contains('@');
+        if !valid_permissioned_as {
+            return Err(error::Error::BadRequest(format!(
+                "default_permissioned_as[{idx}].permissioned_as must be of the form u/<username>, g/<groupname>, or an email"
+            )));
+        }
     }
     Ok(())
 }
@@ -227,17 +273,33 @@ async fn create_folder(
         ));
     }
 
+    let default_permissioned_as = ng
+        .default_permissioned_as
+        .unwrap_or_else(|| serde_json::Value::Array(vec![]));
+    if default_permissioned_as
+        .as_array()
+        .is_some_and(|a| !a.is_empty())
+        && !windmill_common::can_preserve_on_behalf_of(&authed)
+    {
+        return Err(error::Error::NotAuthorized(
+            "Only admins and wm_deployers members can configure default_permissioned_as rules"
+                .to_string(),
+        ));
+    }
+    validate_default_permissioned_as(&default_permissioned_as)?;
+
     if let Err(e) =
     sqlx::query_as!(
         Folder,
-        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as) VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8)",
         w_id,
         ng.name,
         ng.display_name.unwrap_or(ng.name.clone()),
         &owners,
         extra_perms,
         ng.summary,
-        authed.username
+        authed.username,
+        default_permissioned_as
     )
     .execute(&mut *tx)
     .await {
@@ -362,6 +424,7 @@ async fn update_folder(
     // Track whether permission-related fields are being updated
     let owners_changed = ng.owners.is_some();
     let extra_perms_changed = ng.extra_perms.is_some();
+    let default_permissioned_as_changed = ng.default_permissioned_as.is_some();
 
     if !authed.is_admin {
         let prefixed_username = format!("u/{}", authed.username);
@@ -404,6 +467,20 @@ async fn update_folder(
         sqlb.set(
             "extra_perms",
             "?".bind(&serde_json::to_string(&extra_perms).map_err(to_anyhow)?),
+        );
+    }
+
+    if let Some(default_permissioned_as) = ng.default_permissioned_as.as_ref() {
+        if !windmill_common::can_preserve_on_behalf_of(&authed) {
+            return Err(windmill_common::error::Error::NotAuthorized(
+                "Only admins and wm_deployers members can configure default_permissioned_as rules"
+                    .to_string(),
+            ));
+        }
+        validate_default_permissioned_as(default_permissioned_as)?;
+        sqlb.set(
+            "default_permissioned_as",
+            "?".bind(&serde_json::to_string(default_permissioned_as).map_err(to_anyhow)?),
         );
     }
 
@@ -467,6 +544,20 @@ async fn update_folder(
         log_folder_permission_change(&mut *tx, &w_id, &name, &authed.username, "update_acl", None)
             .await?;
     }
+    if default_permissioned_as_changed {
+        let rules_json =
+            serde_json::to_string(&nfolder.default_permissioned_as).unwrap_or_default();
+        audit_log(
+            &mut *tx,
+            &authed,
+            "folder.update_default_permissioned_as",
+            ActionKind::Update,
+            &w_id,
+            Some(&name.to_string()),
+            Some([("default_permissioned_as", rules_json.as_str())].into()),
+        )
+        .await?;
+    }
 
     tx.commit().await?;
 
@@ -497,7 +588,7 @@ pub async fn get_folderopt<'c>(
 ) -> Result<Option<Folder>> {
     let folderopt = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at FROM folder WHERE name = $1 AND workspace_id = $2",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at, default_permissioned_as FROM folder WHERE name = $1 AND workspace_id = $2",
         name,
         w_id
     )

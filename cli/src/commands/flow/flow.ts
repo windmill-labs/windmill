@@ -20,6 +20,7 @@ import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
 import { Flow } from "../../../gen/types.gen.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import {
   collectPathScriptPaths,
   replaceInlineScripts,
@@ -39,6 +40,8 @@ export interface FlowFile {
   description?: string;
   value: any;
   schema?: any;
+  on_behalf_of_email?: string;
+  has_on_behalf_of?: boolean;
 }
 
 function normalizeOptionalString(value: string | null | undefined): string | undefined {
@@ -131,7 +134,8 @@ export async function pushFlow(
   workspace: string,
   remotePath: string,
   localPath: string,
-  message?: string
+  message?: string,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -177,6 +181,19 @@ export async function pushFlow(
     ));
   }
 
+  const hasOnBehalfOf = (localFlow as any).has_on_behalf_of ?? !!localFlow.on_behalf_of_email;
+  delete (localFlow as any).has_on_behalf_of;
+
+  const preserveFields: { on_behalf_of_email?: string; preserve_on_behalf_of?: boolean } = {};
+  if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
+    if (flow && flow.on_behalf_of_email) {
+      preserveFields.on_behalf_of_email = flow.on_behalf_of_email;
+      preserveFields.preserve_on_behalf_of = true;
+      log.info(`Preserving ${flow.on_behalf_of_email} as on_behalf_of for flow ${remotePath}`);
+    }
+    // On create: backend applies folder defaults — no client-side resolution needed
+  }
+
   if (flow) {
     if (isSuperset(localFlow, flow)) {
       log.info(colors.green(`Flow ${remotePath} is up to date`));
@@ -190,6 +207,7 @@ export async function pushFlow(
         path: remotePath.replaceAll(SEP, "/"),
         deployment_message: message,
         ...localFlow,
+        ...preserveFields,
       },
     });
   } else {
@@ -201,6 +219,7 @@ export async function pushFlow(
           path: remotePath.replaceAll(SEP, "/"),
           deployment_message: message,
           ...localFlow,
+          ...preserveFields,
         },
       });
     } catch (e) {
@@ -867,6 +886,25 @@ const command = new Command()
   .command("show-version", "Show a specific version of a flow")
   .arguments("<path:string> <version:string>")
   .option("--json", "Output as JSON (for piping to jq)")
-  .action(showVersion as any);
+  .action(showVersion as any)
+  .command(
+    "set-permissioned-as",
+    "Set the on_behalf_of_email for a flow (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action((async (opts: any, flowPath: string, email: string) => {
+    const workspace = await resolveWorkspace(opts);
+    await requireLogin(opts);
+    await wmill.updateFlow({
+      workspace: workspace.workspaceId,
+      path: flowPath,
+      requestBody: {
+        path: flowPath,
+        on_behalf_of_email: email,
+        preserve_on_behalf_of: true,
+      } as any,
+    });
+    log.info(colors.green(`Updated permissioned_as for flow ${flowPath} to ${email}`));
+  }) as any);
 
 export default command;

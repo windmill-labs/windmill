@@ -48,6 +48,13 @@
 		customValue?: string | undefined
 		/** When false, labels say "current" instead of "target" and modal text refers to "this workspace" */
 		isDeployment?: boolean
+		/**
+		 * Folder default permissioned_as for this item path — resolved by the parent via
+		 * `useFolderDefaultPermissionedAs`. When set and no explicit choice has been made,
+		 * the selector preselects `'custom'` with this value and shows a "folder default"
+		 * badge so the user sees where the value came from.
+		 */
+		folderDefault?: string | undefined
 	}
 
 	let {
@@ -58,7 +65,8 @@
 		kind,
 		canPreserve,
 		customValue,
-		isDeployment = true
+		isDeployment = true,
+		folderDefault = undefined
 	}: Props = $props()
 
 	const isTrigger = $derived(kind === 'trigger')
@@ -113,12 +121,23 @@
 			: activeUsers
 	)
 
-	// Preselect "target" when available and user has permission to preserve
+	// Preselect "target" when available and user has permission to preserve.
+	// When no target is set but a folder default is, preselect that as a custom value.
+	// We track `users.length` so the effect re-runs once the async user list loads.
 	$effect(() => {
-		if (selected === undefined && targetValue && canPreserve) {
+		if (selected !== undefined || !canPreserve) return
+		if (targetValue) {
 			onSelect('target')
+		} else if (folderDefault && users.length > 0) {
+			const username = folderDefault.startsWith('u/') ? folderDefault.slice(2) : folderDefault
+			const email = users.find((u) => u.username === username)?.email ?? folderDefault
+			onSelect('custom', { email, permissionedAs: folderDefault })
 		}
 	})
+
+	const isFolderDefaultSelected = $derived(
+		selected === 'custom' && folderDefault !== undefined && customValue === folderDefault
+	)
 
 	function openModal() {
 		loadUsers()
@@ -145,6 +164,14 @@
 			<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
 			{#if selectedDisplayName}
 				<span class="text-xs truncate max-w-24">{selectedDisplayName}</span>
+			{/if}
+			{#if isFolderDefaultSelected}
+				<span
+					class="text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900"
+					title="From this folder's default_permissioned_as rule"
+				>
+					folder default
+				</span>
 			{/if}
 		</span>
 	{/snippet}
