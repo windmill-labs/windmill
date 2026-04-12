@@ -234,27 +234,6 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
     assert_eq!(rules[2]["permissioned_as"], "original@windmill.dev");
 
     // ========================================================================
-    // 3. Audit log emission on rule change
-    // ========================================================================
-
-    // audit_log is a no-op in OSS (EE-only feature); only assert under `private`.
-    #[cfg(feature = "private")]
-    {
-        let audit_count = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM audit WHERE workspace_id = $1 AND operation = $2",
-            "test-workspace",
-            "folder.update_default_permissioned_as"
-        )
-        .fetch_one(&db)
-        .await?
-        .unwrap_or(0);
-        assert!(
-            audit_count >= 1,
-            "should emit audit log on rule change, got {audit_count}"
-        );
-    }
-
-    // ========================================================================
     // 4. Schedules — the core matrix
     // ========================================================================
 

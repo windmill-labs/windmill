@@ -1093,7 +1093,7 @@ function ZipFSElement(
               : JSON.stringify(parsed, null, 2);
           }
 
-          if (useYaml && isJson && kind != "dependencies") {
+          if (isJson && kind != "dependencies") {
             try {
               const parsed = JSON.parse(content);
               if (stripOnBehalfOf) {
@@ -1110,7 +1110,9 @@ function ZipFSElement(
                   delete parsed["edited_by"];
                 }
               }
-              return yamlStringify(parsed, yamlOptions);
+              return useYaml
+                ? yamlStringify(parsed, yamlOptions)
+                : JSON.stringify(parsed, null, 2);
             } catch (error) {
               log.error(`Failed to parse JSON content at path: ${p}`);
               throw error;

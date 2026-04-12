@@ -105,7 +105,10 @@
 	let defaultPermissionedAs: FolderDefaultPermissionedAs = $state([])
 
 	const canEditDefaults = $derived(
-		can_write && ($userStore?.is_admin || ($userStore?.groups ?? []).includes('wm_deployers'))
+		can_write &&
+			($userStore?.is_admin ||
+				$userStore?.is_super_admin ||
+				($userStore?.groups ?? []).includes('wm_deployers'))
 	)
 
 	function isValidGlob(glob: string): boolean {

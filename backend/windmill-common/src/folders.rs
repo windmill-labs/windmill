@@ -115,6 +115,21 @@ async fn ensure_permissioned_as_exists(
                 rule.path_glob, rule.permissioned_as
             )));
         }
+    } else if rule.permissioned_as.contains('@') {
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2)",
+            w_id,
+            &rule.permissioned_as
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false);
+        if !exists {
+            return Err(Error::BadRequest(format!(
+                "Folder '{folder_name}' default_permissioned_as rule '{}' resolves to email '{}' which does not exist in this workspace. Fix the folder rule and try again.",
+                rule.path_glob, rule.permissioned_as
+            )));
+        }
     }
     Ok(())
 }

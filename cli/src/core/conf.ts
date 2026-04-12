@@ -57,9 +57,10 @@ type LegacyBranchesConfig = {
 
 export const SUPPORTED_CLI_BEHAVIOR_VERSION = 1;
 
-export function parseCliBehavior(value?: string): number {
-  if (!value) return 0;
-  const match = value.match(/^v(\d+)$/);
+export function parseCliBehavior(value?: string | number): number {
+  if (!value && value !== 0) return 0;
+  const s = String(value);
+  const match = s.match(/^v(\d+)$/);
   return match ? parseInt(match[1], 10) : 0;
 }
 

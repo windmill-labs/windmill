@@ -695,8 +695,10 @@ async fn create_script_internal<'c>(
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
+    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
+
     // Apply folder default_permissioned_as the first time a script is deployed
-    // at this path and the caller did not explicitly preserve a value.
+    // at this path. Check inside the transaction to avoid TOCTOU with concurrent deploys.
     let explicit_preserve = ns.on_behalf_of_email.is_some()
         && ns.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
@@ -706,7 +708,7 @@ async fn create_script_internal<'c>(
             &ns.path,
             &w_id
         )
-        .fetch_one(&db)
+        .fetch_one(&mut *tx)
         .await?
         .unwrap_or(false);
         if !path_already_exists {
@@ -721,8 +723,6 @@ async fn create_script_internal<'c>(
             }
         }
     }
-
-    let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
     if sqlx::query_scalar!(
         "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
         hash.0,
