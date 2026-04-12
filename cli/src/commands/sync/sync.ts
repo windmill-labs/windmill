@@ -3171,11 +3171,21 @@ export async function push(
     if (parallelizationFactor <= 0) {
       parallelizationFactor = 1;
     }
-    const groupedChangesArray = Array.from(groupedChanges.entries());
+    // Partition changes: folder.meta.yaml changes must be applied BEFORE any
+    // item changes under those folders, so a push that updates a folder's
+    // default_permissioned_as rules AND creates new items under it in the same
+    // changeset has the rules in place when the backend resolves defaults for
+    // the new items. Folder changes run sequentially first; everything else
+    // runs through the parallel pool afterwards.
+    const allGrouped = Array.from(groupedChanges.entries());
+    const isFolderMetaGroup = ([basePath]: [string, typeof changes]) =>
+      basePath.endsWith(`${SEP}folder`) || basePath === "folder";
+    const folderMetaGroups = allGrouped.filter(isFolderMetaGroup);
+    const groupedChangesArray = allGrouped.filter((g) => !isFolderMetaGroup(g));
     log.info(
       `found changes for ${
-        groupedChangesArray.length
-      } items with a total of ${groupedChangesArray.reduce(
+        allGrouped.length
+      } items with a total of ${allGrouped.reduce(
         (acc, [_, changes]) => acc + changes.length,
         0,
       )} files to process`,
@@ -3186,14 +3196,25 @@ export async function push(
 
     // Create a pool of workers that processes items as they become available
     const pool = new Set();
-    const queue = [...groupedChangesArray];
+    // Process folder.meta groups first (sequentially), then items in parallel.
+    // This ensures a newly-added default_permissioned_as rule is applied before
+    // any item created under that folder in the same push.
+    const queue = [...folderMetaGroups, ...groupedChangesArray];
+    let folderPhaseRemaining = folderMetaGroups.length;
+    const effectiveParallelism = () =>
+      folderPhaseRemaining > 0 ? 1 : parallelizationFactor;
     // Cache git branch at the start to avoid repeated execSync calls per change
     const cachedWsNameForPush = wsNameForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
 
     while (queue.length > 0 || pool.size > 0) {
-      // Fill the pool until we reach parallelizationFactor
-      while (pool.size < parallelizationFactor && queue.length > 0) {
-        let [_basePath, changes] = queue.shift()!;
+      // Fill the pool until we reach the effective parallelism limit.
+      // During the folder-meta phase this is 1 (sequential) so no item change
+      // starts before all folder.meta updates have been applied to the backend.
+      while (pool.size < effectiveParallelism() && queue.length > 0) {
+        const [groupBasePath, initialChanges] = queue.shift()!;
+        let changes = initialChanges;
+        const isFolderGroup =
+          groupBasePath.endsWith(`${SEP}folder`) || groupBasePath === "folder";
         const promise = (async () => {
           const alreadySynced: string[] = [];
           const deletedVarsResPaths: string[] = [];
@@ -3794,7 +3815,10 @@ export async function push(
 
         pool.add(promise);
         // Remove from pool when complete
-        promise.then(() => pool.delete(promise));
+        promise.then(() => {
+          pool.delete(promise);
+          if (isFolderGroup) folderPhaseRemaining--;
+        });
       }
 
       // Wait for at least one task to complete before continuing

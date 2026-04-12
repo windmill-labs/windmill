@@ -413,4 +413,144 @@ describe("folder default_permissioned_as", () => {
       expect(metaContent).not.toContain("on_behalf_of_email:");
     });
   });
+
+  test("CLI folder.meta round-trip: pull folder with rules, push unchanged, rules survive", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const id = Date.now();
+      const folderName = `dpa_rt_cli_${id}`;
+
+      // Seed folder with rules via API
+      await createFolderWithRules(backend, folderName, [
+        { path_glob: "jobs/**", permissioned_as: "u/admin" },
+        { path_glob: "reports/*", permissioned_as: "g/all" },
+      ]);
+
+      // Pull — folder.meta.yaml should include the rules
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        `defaultTs: bun\ncliBehavior: v1\nincludes:\n  - "f/${folderName}/**"\n`,
+        "utf-8"
+      );
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes"],
+        tempDir
+      );
+      expect(pullResult.code).toEqual(0);
+
+      const metaPath = join(tempDir, "f", folderName, "folder.meta.yaml");
+      const metaContent = await readFile(metaPath, "utf-8");
+      expect(metaContent).toContain("default_permissioned_as:");
+      expect(metaContent).toContain("path_glob: jobs/**");
+      expect(metaContent).toContain("permissioned_as: u/admin");
+      expect(metaContent).toContain("path_glob: reports/*");
+      expect(metaContent).toContain("permissioned_as: g/all");
+
+      // Edit rules locally: reorder + change one
+      const newMeta = `display_name: ${folderName}
+owners:
+  - u/admin
+extra_perms:
+  u/admin: true
+summary: null
+default_permissioned_as:
+  - path_glob: "reports/**"
+    permissioned_as: "u/admin"
+  - path_glob: "jobs/**"
+    permissioned_as: "g/all"
+`;
+      await writeFile(metaPath, newMeta, "utf-8");
+
+      // Push — should sync the new rules
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes"],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      // Verify via API
+      const resp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/folders/get/${folderName}`
+      );
+      const folder = await resp.json();
+      expect(folder.default_permissioned_as).toHaveLength(2);
+      expect(folder.default_permissioned_as[0].path_glob).toBe("reports/**");
+      expect(folder.default_permissioned_as[0].permissioned_as).toBe("u/admin");
+      expect(folder.default_permissioned_as[1].path_glob).toBe("jobs/**");
+      expect(folder.default_permissioned_as[1].permissioned_as).toBe("g/all");
+    });
+  });
+
+  test("CLI push order: folder rule update applies to new item in same push", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const id = Date.now();
+      const folderName = `dpa_order_${id}`;
+
+      // Seed folder with NO rules
+      await createFolderWithRules(backend, folderName, []);
+      // Create a helper script (target for the schedule)
+      await createScript(backend, `f/${folderName}/helper`);
+
+      // Pull the current state
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        `defaultTs: bun\ncliBehavior: v1\nincludes:\n  - "f/${folderName}/**"\nincludeSchedules: true\n`,
+        "utf-8"
+      );
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes"],
+        tempDir
+      );
+      expect(pullResult.code).toEqual(0);
+
+      // In one push: (a) update folder.meta.yaml with a new rule, (b) add a new schedule
+      const metaPath = join(tempDir, "f", folderName, "folder.meta.yaml");
+      const updatedMeta = `display_name: ${folderName}
+owners:
+  - u/admin
+extra_perms:
+  u/admin: true
+summary: null
+default_permissioned_as:
+  - path_glob: "**"
+    permissioned_as: "u/admin"
+`;
+      await writeFile(metaPath, updatedMeta, "utf-8");
+
+      const schedPath = join(
+        tempDir,
+        "f",
+        folderName,
+        "new_sched.schedule.yaml"
+      );
+      await writeFile(
+        schedPath,
+        `schedule: "0 0 */6 * * *"
+timezone: UTC
+script_path: f/${folderName}/helper
+is_flow: false
+enabled: false
+`,
+        "utf-8"
+      );
+
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes"],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      // Verify: the schedule must have `permissioned_as: u/admin` from the new
+      // folder rule — this only works if the folder was pushed BEFORE the
+      // schedule create in the same batch.
+      const sched = await getSchedule(
+        backend,
+        `f/${folderName}/new_sched`
+      );
+      expect(sched.permissioned_as).toBe("u/admin");
+    });
+  });
 });
