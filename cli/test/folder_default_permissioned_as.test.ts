@@ -495,7 +495,91 @@ default_permissioned_as: []
   });
 
   // ==========================================================================
-  // Test 3: Backend validation + stale rule rejection (minimal API-level)
+  // Test 3: No-op guarantee — feature is inert when rules are not used
+  // ==========================================================================
+  test("no-op: folder without rules behaves like before for all deploy paths", async () => {
+    await withTestBackend(async (backend, _tempDir) => {
+      const id = Date.now();
+      const folderName = `dpa_noop_${id}`;
+
+      // Create folder with NO rules
+      await createFolderWithRules(backend, folderName, []);
+      await createScript(backend, `f/${folderName}/helper`);
+
+      // Schedule create: should use acting user (admin), not fail or behave differently
+      const schedResp = await createSchedule(
+        backend,
+        `f/${folderName}/noop_sched`,
+        `f/${folderName}/helper`
+      );
+      expect(schedResp.status).toBe(200);
+      await schedResp.text();
+      const sched = await getSchedule(backend, `f/${folderName}/noop_sched`);
+      expect(sched.permissioned_as).toBe("u/admin");
+      expect(sched.email).toBe("admin@windmill.dev");
+
+      // Schedule at a nested path: still acting user
+      const schedResp2 = await createSchedule(
+        backend,
+        `f/${folderName}/jobs/deep/sched`,
+        `f/${folderName}/helper`
+      );
+      expect(schedResp2.status).toBe(200);
+      await schedResp2.text();
+      const sched2 = await getSchedule(
+        backend,
+        `f/${folderName}/jobs/deep/sched`
+      );
+      expect(sched2.permissioned_as).toBe("u/admin");
+
+      // Flow create: on_behalf_of_email stays null (nothing injected)
+      const flowResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/flows/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: `f/${folderName}/noop_flow`,
+            summary: "",
+            description: "",
+            value: { modules: [] },
+            schema: { type: "object", properties: {}, required: [] },
+          }),
+        }
+      );
+      expect(flowResp.status).toBe(201);
+      await flowResp.text();
+      const flow = await (
+        await backend.apiRequest!(
+          `/api/w/${backend.workspace}/flows/get/f/${folderName}/noop_flow`
+        )
+      ).json();
+      // no folder rule, no client-sent on_behalf_of_email → should be null/undefined
+      expect(flow.on_behalf_of_email == null).toBe(true);
+
+      // Folder response has the field but it's empty
+      const folder = await getFolder(backend, folderName);
+      expect(folder.default_permissioned_as).toEqual([]);
+
+      // Folder update without touching default_permissioned_as should leave it alone
+      const updateResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/folders/update/${folderName}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ summary: "updated summary" }),
+        }
+      );
+      expect(updateResp.status).toBe(200);
+      await updateResp.text();
+      const folder2 = await getFolder(backend, folderName);
+      expect(folder2.summary).toBe("updated summary");
+      expect(folder2.default_permissioned_as).toEqual([]);
+    });
+  });
+
+  // ==========================================================================
+  // Test 4: Backend validation + stale rule rejection (minimal API-level)
   // ==========================================================================
   test("validation and stale rule rejection", async () => {
     await withTestBackend(async (backend, _tempDir) => {
