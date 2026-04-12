@@ -36,6 +36,7 @@ app related commands
   - `--fix` - Attempt to fix common issues (not implemented yet)
 - `app new` - create a new raw app from a template
 - `app generate-agents [app_folder:string]` - regenerate AGENTS.md and DATATABLES.md from remote workspace
+- `app set-permissioned-as <path:string> <email:string>` - Set the on_behalf_of_email for an app (requires admin or wm_deployers group)
 
 ### audit
 
@@ -118,6 +119,7 @@ flow related commands
   - `--json` - Output as JSON (for piping to jq)
 - `flow show-version <path:string> <version:string>` - Show a specific version of a flow
   - `--json` - Output as JSON (for piping to jq)
+- `flow set-permissioned-as <path:string> <email:string>` - Set the on_behalf_of_email for a flow (requires admin or wm_deployers group)
 
 ### folder
 
@@ -137,6 +139,9 @@ folder related commands
 - `folder push <name:string>` - push a local folder to the remote by name. This overrides any remote versions.
 - `folder add-missing` - create default folder.meta.yaml for all subdirectories of f/ that are missing one
   - `-y, --yes` - skip confirmation prompt
+- `folder show-rules <name:string>` - Show default_permissioned_as rules for a folder. Use --test-path to see which rule matches a given item path.
+  - `--test-path <path:string>` - Test which rule matches this item path (e.g. f/prod/jobs/my_script)
+  - `--json` - Output as JSON
 
 ### generate-metadata
 
@@ -360,6 +365,7 @@ schedule related commands
 - `schedule push <file_path:string> <remote_path:string>` - push a local schedule spec. This overrides any remote versions.
 - `schedule enable <path:string>` - Enable a schedule
 - `schedule disable <path:string>` - Disable a schedule
+- `schedule set-permissioned-as <path:string> <email:string>` - Set the email (run-as user) for a schedule (requires admin or wm_deployers group)
 
 ### script
 
@@ -391,6 +397,7 @@ script related commands
 - `script bootstrap <path:file> <language:string>` - create a new script (alias for new)
   - `--summary <summary:string>` - script summary
   - `--description <description:string>` - script description
+- `script set-permissioned-as <path:string> <email:string>` - Set the on_behalf_of_email for a script (requires admin or wm_deployers group)
 - `script history <path:string>` - show version history for a script
   - `--json` - Output as JSON (for piping to jq)
 
@@ -464,6 +471,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--lint` - Run lint validation before pushing
   - `--locks-required` - Fail if scripts or flow inline scripts that need locks have no locks
   - `--auto-metadata` - Automatically regenerate stale metadata (locks and schemas) before pushing
+  - `--accept-overriding-permissioned-as-with-self` - Accept that items with a different permissioned_as will be updated with your own user
 
 ### token
 
@@ -498,6 +506,8 @@ trigger related commands
 - `trigger new <path:string>` - create a new trigger locally
   - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)
 - `trigger push <file_path:string> <remote_path:string>` - push a local trigger spec. This overrides any remote versions.
+- `trigger set-permissioned-as <path:string> <email:string>` - Set the email (run-as user) for a trigger (requires admin or wm_deployers group)
+  - `--kind <kind:string>` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)
 
 ### user
 
