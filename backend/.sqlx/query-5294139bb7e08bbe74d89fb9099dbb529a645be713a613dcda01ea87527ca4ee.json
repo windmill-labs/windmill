@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, source_workspace_id, fork_workspace_id, requested_by,\n                   requested_by_email, requested_at\n            FROM workspace_fork_review_request\n            WHERE source_workspace_id = $1\n              AND fork_workspace_id = $2\n              AND closed_at IS NULL\n            LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "source_workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "fork_workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "requested_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "requested_by_email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "requested_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5294139bb7e08bbe74d89fb9099dbb529a645be713a613dcda01ea87527ca4ee"
+}

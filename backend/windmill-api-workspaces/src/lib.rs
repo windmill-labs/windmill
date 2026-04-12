@@ -1,3 +1,4 @@
+pub mod fork_reviews;
 pub mod workspaces;
 pub mod workspaces_extra;
 pub mod workspaces_oss;

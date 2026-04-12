@@ -5294,6 +5294,166 @@ paths:
                 type: string
         "404":
           description: protection rule not found
+
+  /w/{workspace}/fork_review/deployers:
+    get:
+      summary: list users eligible to be fork review reviewers
+      description: Returns admins and members of wm_deployers in the parent workspace of the fork at `{workspace}`.
+      operationId: listForkReviewDeployers
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of eligible reviewers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ForkReviewDeployer"
+
+  /w/{workspace}/fork_review/open:
+    get:
+      summary: get the currently open fork review request for this fork
+      operationId: getOpenForkReviewRequest
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the open request or null if none exists
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ForkReviewRequest"
+                  - type: "null"
+
+  /w/{workspace}/fork_review/request:
+    post:
+      summary: create a new fork review request
+      operationId: createForkReviewRequest
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - reviewers
+              properties:
+                reviewers:
+                  type: array
+                  items:
+                    type: string
+                  description: Usernames in the parent workspace. Must be admin or wm_deployers.
+      responses:
+        "200":
+          description: request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForkReviewRequest"
+        "400":
+          description: invalid reviewers or already-open request
+
+  /w/{workspace}/fork_review/{id}/cancel:
+    post:
+      summary: cancel an open fork review request
+      operationId: cancelForkReviewRequest
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: cancelled
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/fork_review/{id}/close_merged:
+    post:
+      summary: close a review request after a successful merge
+      description: Called by the UI after the deploy loop completes. Closes the request and marks every comment obsolete. Idempotent.
+      operationId: closeForkReviewRequestMerged
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: closed
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/fork_review/{id}/comment:
+    post:
+      summary: append a comment to an open fork review request
+      operationId: createForkReviewComment
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - body
+              properties:
+                body:
+                  type: string
+                parent_id:
+                  type: integer
+                  format: int64
+                  nullable: true
+                anchor_kind:
+                  type: string
+                  nullable: true
+                anchor_path:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: comment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForkReviewComment"
+        "400":
+          description: invalid input or request closed
+
   /w/{workspace}/workspaces/log_chat:
     post:
       summary: log AI chat message
@@ -26473,6 +26633,7 @@ components:
       enum:
         - DisableDirectDeployment
         - DisableWorkspaceForking
+        - RestrictDeployToDeployers
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset
@@ -26483,6 +26644,97 @@ components:
       description: Users that can bypass this ruleset
       items:
         type: string
+    ForkReviewDeployer:
+      type: object
+      required:
+        - username
+        - email
+        - is_admin
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+        is_admin:
+          type: boolean
+    ForkReviewReviewer:
+      type: object
+      required:
+        - username
+        - email
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+    ForkReviewComment:
+      type: object
+      required:
+        - id
+        - author
+        - author_email
+        - body
+        - obsolete
+        - created_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        parent_id:
+          type: integer
+          format: int64
+          nullable: true
+        author:
+          type: string
+        author_email:
+          type: string
+        body:
+          type: string
+        anchor_kind:
+          type: string
+          nullable: true
+        anchor_path:
+          type: string
+          nullable: true
+        obsolete:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    ForkReviewRequest:
+      type: object
+      required:
+        - id
+        - source_workspace_id
+        - fork_workspace_id
+        - requested_by
+        - requested_by_email
+        - requested_at
+        - reviewers
+        - comments
+      properties:
+        id:
+          type: integer
+          format: int64
+        source_workspace_id:
+          type: string
+        fork_workspace_id:
+          type: string
+        requested_by:
+          type: string
+        requested_by_email:
+          type: string
+        requested_at:
+          type: string
+          format: date-time
+        reviewers:
+          type: array
+          items:
+            $ref: "#/components/schemas/ForkReviewReviewer"
+        comments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ForkReviewComment"
     QuotaInfo:
       type: object
       properties:

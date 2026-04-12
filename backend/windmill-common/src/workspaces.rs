@@ -67,6 +67,7 @@ bitflags::bitflags! {
     pub struct ProtectionRules: i32 {
         const DISABLE_DIRECT_DEPLOYMENT =           1 << 0;
         const DISABLE_WORKSPACE_FORKING =           1 << 1;
+        const RESTRICT_DEPLOY_TO_DEPLOYERS =        1 << 2;
     }
 }
 
@@ -76,6 +77,7 @@ sqlx_bitflags!(ProtectionRules => i32);
 pub enum ProtectionRuleKind {
     DisableDirectDeployment,
     DisableWorkspaceForking,
+    RestrictDeployToDeployers,
 }
 
 impl ProtectionRuleKind {
@@ -87,6 +89,9 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::DisableWorkspaceForking => {
                 ProtectionRules::DISABLE_WORKSPACE_FORKING
             }
+            ProtectionRuleKind::RestrictDeployToDeployers => {
+                ProtectionRules::RESTRICT_DEPLOY_TO_DEPLOYERS
+            }
         }
     }
 
@@ -96,6 +101,9 @@ impl ProtectionRuleKind {
                 "Cannot directly deploy in this workspace. Fork or Pull request required."
             }
             ProtectionRuleKind::DisableWorkspaceForking => "Forking this workspace is forbidden",
+            ProtectionRuleKind::RestrictDeployToDeployers => {
+                "Only workspace admins and members of wm_deployers can deploy to this workspace"
+            }
         }
     }
 }
@@ -365,6 +373,14 @@ pub async fn check_user_against_rule(
         return Ok(RuleCheckResult::Allowed);
     }
 
+    // wm_deployers members implicitly satisfy RestrictDeployToDeployers,
+    // regardless of per-ruleset bypass configuration.
+    if matches!(rule, ProtectionRuleKind::RestrictDeployToDeployers)
+        && user_groups.iter().any(|g| g == crate::WM_DEPLOYERS_GROUP)
+    {
+        return Ok(RuleCheckResult::Allowed);
+    }
+
     let rulesets = get_protection_rules(workspace_id, db).await?;
 
     for ruleset in rulesets.iter() {
@@ -386,6 +402,34 @@ pub async fn check_user_against_rule(
         }
     }
 
+    Ok(RuleCheckResult::Allowed)
+}
+
+/// Check all deploy-gating protection rules at once.
+///
+/// Evaluates `DisableDirectDeployment` first (so its message wins when both
+/// rules would block), then `RestrictDeployToDeployers`. Returns the first
+/// `Blocked` result, or `Allowed` if neither rule blocks.
+///
+/// Use this at every item create/update endpoint that participates in the
+/// deploy/merge flow so a single call enforces both rules consistently.
+pub async fn check_deploy_rules(
+    workspace_id: &str,
+    username: &str,
+    user_groups: &[String],
+    is_admin: bool,
+    db: &DB,
+) -> Result<RuleCheckResult> {
+    for rule in [
+        ProtectionRuleKind::DisableDirectDeployment,
+        ProtectionRuleKind::RestrictDeployToDeployers,
+    ] {
+        let res = check_user_against_rule(workspace_id, &rule, username, user_groups, is_admin, db)
+            .await?;
+        if matches!(res, RuleCheckResult::Blocked(_)) {
+            return Ok(res);
+        }
+    }
     Ok(RuleCheckResult::Allowed)
 }
 

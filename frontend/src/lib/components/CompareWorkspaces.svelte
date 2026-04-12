@@ -64,6 +64,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
+	import ForkReviewPanel from './forkReview/ForkReviewPanel.svelte'
+	import { userStore } from '$lib/stores'
 	import type { TriggerKind } from './triggers'
 	import { triggerDisplayNamesMap, triggerKindToTriggerType } from './triggers/utils'
 	import { getEmailAddress, getEmailDomain } from './triggers/email/utils'
@@ -393,6 +395,7 @@
 			if (!aIsFolder && bIsFolder) return 1
 			return 0
 		})
+		let anyFailed = false
 		for (const itemKey of sortedItems) {
 			const diff = selectableDiffs.find((d) => itemKey == getItemKey(d))
 
@@ -406,9 +409,31 @@
 			} else {
 				await deploy(diff.kind as Kind, diff.path, current, parent, itemKey)
 			}
+			if (deploymentStatus[itemKey]?.status === 'failed') {
+				anyFailed = true
+			}
 		}
 		deploying = false
 		deselectAll()
+
+		// If every selected item deployed cleanly and the direction was
+		// merge-into-parent, close any open review request for this fork.
+		if (!anyFailed && mergeIntoParent) {
+			try {
+				const open = await WorkspaceService.getOpenForkReviewRequest({
+					workspace: currentWorkspaceId
+				})
+				if (open) {
+					await WorkspaceService.closeForkReviewRequestMerged({
+						workspace: currentWorkspaceId,
+						id: (open as any).id
+					})
+					forkReviewPanel?.refresh()
+				}
+			} catch (e) {
+				console.error('Failed to close open review request after merge', e)
+			}
+		}
 	}
 
 	function toggleItem(diff: WorkspaceItemDiff) {
@@ -562,6 +587,7 @@
 	let loadingTriggers = $state(true)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
 	let triggerToDelete = $state<ForkTrigger | undefined>(undefined)
+	let forkReviewPanel: ForkReviewPanel | undefined = $state(undefined)
 
 	/** Deployable trigger kinds and their list+delete services */
 	const triggerServices = {
@@ -1149,6 +1175,14 @@
 				{/snippet}
 			</WorkspaceDeployLayout>
 		</div>
+
+		<ForkReviewPanel
+			bind:this={forkReviewPanel}
+			forkWorkspaceId={currentWorkspaceId}
+			{parentWorkspaceId}
+			currentUsername={$userStore?.username ?? ''}
+			isAdmin={$userStore?.is_admin ?? false}
+		/>
 
 		<!-- Fork Triggers Section -->
 		<div class="bg-surface-tertiary p-4 rounded-md border">

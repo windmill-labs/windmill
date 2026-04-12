@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE workspace_fork_review_comment c\n            SET obsolete = true\n            FROM workspace_fork_review_request r\n            WHERE c.request_id = r.id\n              AND r.fork_workspace_id = 'fork-ws'\n              AND r.closed_at IS NULL\n              AND c.anchor_kind = 'script'\n              AND c.anchor_path = 'f/shared/script1'\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "0b9220916980cf2585693ae7a8b8244cb3eb1eeee5ba0b8f0a42e266bb089f53"
+}

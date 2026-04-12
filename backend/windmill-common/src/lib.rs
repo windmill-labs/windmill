@@ -59,6 +59,9 @@ pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;
 pub mod folders;
+#[cfg(feature = "private")]
+pub mod fork_reviews_ee;
+pub mod fork_reviews_oss;
 pub mod global_settings;
 pub mod indexer;
 pub mod instance_config;
