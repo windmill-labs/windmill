@@ -130,6 +130,11 @@ async fn ensure_permissioned_as_exists(
                 rule.path_glob, rule.permissioned_as
             )));
         }
+    } else {
+        return Err(Error::BadRequest(format!(
+            "Folder '{folder_name}' default_permissioned_as rule '{}' has an unrecognised permissioned_as format '{}'. Expected u/<username>, g/<groupname>, or an email.",
+            rule.path_glob, rule.permissioned_as
+        )));
     }
     Ok(())
 }

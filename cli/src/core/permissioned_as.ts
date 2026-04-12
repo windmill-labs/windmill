@@ -66,6 +66,10 @@ export async function preCheckPermissionedAs(
   acceptOverride: boolean,
   isInteractive: boolean
 ): Promise<void> {
+  // Admins and wm_deployers can always preserve ownership via the CLI's
+  // preserve-on-update path, so nothing would silently change for them.
+  if (userIsAdminOrDeployer) return;
+
   const wouldChangeItems: { path: string; currentOwner: string }[] = [];
 
   for (const change of changes) {
@@ -93,12 +97,10 @@ export async function preCheckPermissionedAs(
         (isScriptMeta || isFlowMeta) &&
         contentHasOnBehalfOf(content, typeStr)
       ) {
-        if (!userIsAdminOrDeployer) {
-          const label =
-            typeStr === "script" ? "(script owner)" : "(flow owner)";
-          wouldChangeItems.push({ path: change.path, currentOwner: label });
-        }
-      } else if (typeStr === "app" && !userIsAdminOrDeployer) {
+        const label =
+          typeStr === "script" ? "(script owner)" : "(flow owner)";
+        wouldChangeItems.push({ path: change.path, currentOwner: label });
+      } else if (typeStr === "app") {
         wouldChangeItems.push({
           path: change.path,
           currentOwner: "(app policy owner)",
@@ -108,7 +110,6 @@ export async function preCheckPermissionedAs(
     }
 
     if (change.name !== "edited") continue;
-    if (userIsAdminOrDeployer) continue;
 
     const beforeContent = change.before;
     if (!beforeContent) continue;
