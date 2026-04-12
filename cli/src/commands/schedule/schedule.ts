@@ -281,10 +281,17 @@ const command = new Command()
       cache,
     );
 
+    const remote = await wmill.getSchedule({
+      workspace: workspace.workspaceId,
+      path: schedulePath,
+    });
+    if (!remote) throw new Error(`Schedule ${schedulePath} not found`);
+
     await wmill.updateSchedule({
       workspace: workspace.workspaceId,
       path: schedulePath,
       requestBody: {
+        ...(remote as any),
         permissioned_as: `u/${username}`,
         preserve_permissioned_as: true,
       } as any,

@@ -658,7 +658,11 @@ const command = new Command()
     const cache = new Map<string, { username: string; email: string }>();
     const username = await lookupUsernameByEmail(workspace.workspaceId, email, cache);
 
+    const remote = await getTrigger(opts.kind as TriggerType, workspace.workspaceId, triggerPath);
+    if (!remote) throw new Error(`${opts.kind} trigger ${triggerPath} not found`);
+
     await updateTrigger(opts.kind, workspace.workspaceId, triggerPath, {
+      ...(remote as any),
       permissioned_as: `u/${username}`,
       preserve_permissioned_as: true,
       path: triggerPath,

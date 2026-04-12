@@ -342,11 +342,19 @@ const command = new Command()
     const cache = new Map<string, { username: string; email: string }>();
     const username = await lookupUsernameByEmail(workspace.workspaceId, email, cache);
 
+    const remote = await wmill.getAppByPath({
+      workspace: workspace.workspaceId,
+      path: appPath,
+    });
+    if (!remote) throw new Error(`App ${appPath} not found`);
+
     await wmill.updateApp({
       workspace: workspace.workspaceId,
       path: appPath,
       requestBody: {
+        ...(remote as any),
         policy: {
+          ...(remote.policy as any),
           on_behalf_of: `u/${username}`,
           on_behalf_of_email: email,
         } as any,
