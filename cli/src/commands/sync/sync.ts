@@ -3074,7 +3074,6 @@ export async function push(
     if (parseCliBehavior(opts.cliBehavior) >= 1) {
       folderDefaultAnnotations = new Map();
       const folderRulesCache = new Map<string, Array<{ path_glob: string; permissioned_as: string }>>();
-      const { minimatch } = await import("minimatch");
       for (const change of changes) {
         if (change.name !== "added") continue;
         const match = change.path.match(/^f\/([^/]+)\//);

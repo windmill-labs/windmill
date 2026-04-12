@@ -178,11 +178,9 @@ export async function preCheckPermissionedAs(
     .map((item) => `  - ${item.path} (current owner: ${item.currentOwner})`)
     .join("\n");
 
-  const message = userIsAdminOrDeployer
-    ? `The following ${wouldChangeItems.length} item(s) have on_behalf_of set but no matching folder default_permissioned_as rule. ` +
-      `They will be created with your user (${userEmail}) as permissioned_as:\n${itemList}`
-    : `You are not an admin or member of 'wm_deployers'. The following ${wouldChangeItems.length} item(s) ` +
-      `will have their permissioned_as/email changed to your user (${userEmail}):\n${itemList}`;
+  const message =
+    `You are not an admin or member of 'wm_deployers'. The following ${wouldChangeItems.length} item(s) ` +
+    `will have their permissioned_as/email changed to your user (${userEmail}):\n${itemList}`;
 
   if (acceptOverride) {
     log.warn(colors.yellow(`Warning: ${message}`));

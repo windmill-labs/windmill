@@ -895,10 +895,16 @@ const command = new Command()
   .action((async (opts: any, flowPath: string, email: string) => {
     const workspace = await resolveWorkspace(opts);
     await requireLogin(opts);
+    const remote = await wmill.getFlowByPath({
+      workspace: workspace.workspaceId,
+      path: flowPath,
+    });
+    if (!remote) throw new Error(`Flow ${flowPath} not found`);
     await wmill.updateFlow({
       workspace: workspace.workspaceId,
       path: flowPath,
       requestBody: {
+        ...remote,
         path: flowPath,
         on_behalf_of_email: email,
         preserve_on_behalf_of: true,
