@@ -5348,9 +5348,9 @@ paths:
           content:
             application/json:
               schema:
-                oneOf:
+                nullable: true
+                allOf:
                   - $ref: "#/components/schemas/DeploymentRequest"
-                  - type: "null"
 
   /w/{workspace}/deployment_request:
     post:
