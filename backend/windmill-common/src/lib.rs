@@ -63,6 +63,7 @@ pub mod global_settings;
 pub mod indexer;
 pub mod instance_config;
 pub mod job_metrics;
+pub mod log_context;
 pub mod min_version;
 pub mod notify_events;
 pub mod runtime_assets;

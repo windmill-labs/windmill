@@ -1289,12 +1289,17 @@ fn add_outstanding_wait_time(
 
     if let Some(db) = conn.as_sql() {
         let db = db.clone();
-        tokio::spawn(async move {
-            match insert_wait_time(job_id, root_job_id, &db, wait_time).await {
-                Ok(()) => tracing::warn!("job {job_id} waited for an executor for a significant amount of time. Recording value wait_time={}ms", wait_time),
-                Err(e) => tracing::error!("Failed to insert outstanding wait time: {}", e),
+        let span = tracing::Span::current();
+        windmill_common::log_context::spawn_with_log_context(async move {
+            async move {
+                match insert_wait_time(job_id, root_job_id, &db, wait_time).await {
+                    Ok(()) => tracing::warn!("job {job_id} waited for an executor for a significant amount of time. Recording value wait_time={}ms", wait_time),
+                    Err(e) => tracing::error!("Failed to insert outstanding wait time: {}", e),
+                }
             }
-        }.in_current_span());
+            .instrument(span)
+            .await
+        });
     }
 }
 
@@ -1371,6 +1376,36 @@ pub fn create_span_with_name(
 
     windmill_common::otel_oss::set_span_parent(&span, &rj);
     span
+}
+
+/// Build the per-job `LogContext` that gets seeded at the top of job
+/// execution. Mirrors the field set recorded on the `"job"` tracing span in
+/// `create_span_with_name` so exported log records and traces carry the
+/// same identifiers.
+pub fn log_context_for_job(
+    arc_job: &MiniPulledJob,
+    worker_name: &str,
+    hostname: Option<&str>,
+) -> windmill_common::log_context::LogContext {
+    let existing = windmill_common::log_context::current_log_context().unwrap_or_default();
+    windmill_common::log_context::LogContext {
+        job_id: Some(arc_job.id.to_string()),
+        workspace_id: Some(arc_job.workspace_id.clone()),
+        worker: Some(worker_name.to_string()),
+        tag: Some(arc_job.tag.clone()),
+        job_kind: Some(arc_job.kind.as_str().to_string()),
+        created_by: Some(arc_job.created_by.clone()),
+        script_path: arc_job.runnable_path.clone(),
+        script_hash: arc_job.runnable_id.map(|h| h.to_string()),
+        language: arc_job.script_lang.map(|l| l.as_str().to_string()),
+        flow_step_id: arc_job.flow_step_id.clone(),
+        parent_job: arc_job.parent_job.map(|id| id.to_string()),
+        root_job: arc_job.flow_innermost_root_job.map(|id| id.to_string()),
+        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.to_string()),
+        trigger: arc_job.trigger.clone(),
+        hostname: hostname.map(|h| h.to_string()),
+        ..existing
+    }
 }
 
 pub async fn handle_all_job_kind_error(
@@ -2782,30 +2817,34 @@ pub async fn run_worker(
                     windmill_common::sensitive_log_masks::register_running_job(arc_job.id);
 
                     let span = create_span_with_name(&arc_job, &worker_name, Some(hostname), "job");
+                    let log_ctx = log_context_for_job(&arc_job, &worker_name, Some(hostname));
 
-                    let job_result = handle_queued_job(
-                        arc_job.clone(),
-                        raw_code,
-                        raw_lock,
-                        raw_flow,
-                        parent_runnable_path,
-                        &conn,
-                        &authed_client,
-                        hostname,
-                        &worker_name,
-                        &worker_dir,
-                        &job_dir,
-                        Some(same_worker_tx.clone()),
-                        base_internal_url,
-                        job_completed_tx.clone(),
-                        &mut occupancy_metrics,
-                        &mut killpill_rx2,
-                        precomputed_bundle,
-                        flow_runners,
-                        #[cfg(feature = "benchmark")]
-                        &mut bench,
+                    let job_result = windmill_common::log_context::with_log_context(
+                        log_ctx,
+                        handle_queued_job(
+                            arc_job.clone(),
+                            raw_code,
+                            raw_lock,
+                            raw_flow,
+                            parent_runnable_path,
+                            &conn,
+                            &authed_client,
+                            hostname,
+                            &worker_name,
+                            &worker_dir,
+                            &job_dir,
+                            Some(same_worker_tx.clone()),
+                            base_internal_url,
+                            job_completed_tx.clone(),
+                            &mut occupancy_metrics,
+                            &mut killpill_rx2,
+                            precomputed_bundle,
+                            flow_runners,
+                            #[cfg(feature = "benchmark")]
+                            &mut bench,
+                        )
+                        .instrument(span),
                     )
-                    .instrument(span)
                     .await;
 
                     match job_result {

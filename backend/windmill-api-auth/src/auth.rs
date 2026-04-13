@@ -225,15 +225,7 @@ impl AuthCache {
                     t_hash,
                     w_id.as_ref(),
                 )
-                .map(|x| {
-                    (
-                        x.owner,
-                        x.email,
-                        x.super_admin,
-                        x.scopes,
-                        x.label,
-                    )
-                })
+                .map(|x| (x.owner, x.email, x.super_admin, x.scopes, x.label))
                 .fetch_optional(&self.db)
                 .await
                 .ok()
@@ -242,13 +234,7 @@ impl AuthCache {
                 if let Some(user) = user_o {
                     let authed_o = {
                         match user {
-                            (
-                                Some(owner),
-                                Some(email),
-                                super_admin,
-                                _,
-                                label,
-                            ) if w_id.is_some() => {
+                            (Some(owner), Some(email), super_admin, _, label) if w_id.is_some() => {
                                 let username_override = username_override_from_label(label);
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
@@ -700,6 +686,20 @@ pub async fn resolve_opt_job_authed(
 
                 Span::current().record("username", &authed.username.as_str());
                 Span::current().record("email", &authed.email);
+
+                // Mirror into the per-request LogContext so exported OTEL
+                // LogRecords carry the same identifiers (the log bridge
+                // doesn't walk span fields — see windmill_common::log_context).
+                let username_copy = authed.username.clone();
+                let email_copy = authed.email.clone();
+                let workspace_copy = workspace_id.clone();
+                windmill_common::log_context::update_log_context(move |c| {
+                    c.username = Some(username_copy);
+                    c.email = Some(email_copy);
+                    if let Some(w) = workspace_copy {
+                        c.workspace_id = Some(w);
+                    }
+                });
 
                 if let Some(workspace_id) = workspace_id {
                     Span::current().record("workspace_id", &workspace_id);

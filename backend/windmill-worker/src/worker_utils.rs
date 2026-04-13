@@ -353,8 +353,8 @@ pub(crate) async fn queue_vacuum(conn: &Connection, worker_name: &str, hostname:
             let current_span = tracing::Span::current();
             let worker_name = worker_name.to_string();
             let hostname = hostname.to_string();
-            tokio::task::spawn(
-                (async move {
+            windmill_common::log_context::spawn_with_log_context(async move {
+                async move {
                     tracing::info!(worker = %worker_name, hostname = %hostname, "vacuuming queue");
                     if let Err(e) = sqlx::query!("VACUUM (SKIP_LOCKED) v2_job_queue, v2_job_runtime, v2_job_status, job_perms")
                         .execute(&db2)
@@ -363,9 +363,10 @@ pub(crate) async fn queue_vacuum(conn: &Connection, worker_name: &str, hostname:
                         tracing::error!(worker = %worker_name, hostname = %hostname, "failed to vacuum queue: {}", e);
                     }
                     tracing::info!(worker = %worker_name, hostname = %hostname, "vacuumed queue");
-                })
-                .instrument(current_span),
-            );
+                }
+                .instrument(current_span)
+                .await
+            });
         }
         Connection::Http(_) => {
             // do nothing in http mode

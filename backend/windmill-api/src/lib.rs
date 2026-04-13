@@ -990,6 +990,14 @@ pub async fn run_server(
         app
     };
 
+    // Seed the per-request LogContext task-local. Registered outside
+    // TraceLayer so MyOnResponse::on_response's `"response"` log fires inside
+    // the scope and gets method/uri/workspace_id/email attached by the EE
+    // LogContextBridge.
+    let app = app.layer(axum::middleware::from_fn(
+        tracing_init::log_context_middleware,
+    ));
+
     let app = app.layer(CatchPanicLayer::custom(|err| {
         tracing::error!("panic in handler, returning 500: {:?}", err);
         Response::builder()
