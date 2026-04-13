@@ -3705,9 +3705,7 @@ pub async fn reload_app_workspaced_route_setting(conn: &DB) -> error::Result<()>
         }
     };
 
-    let mut l = APP_WORKSPACED_ROUTE.write().await;
-
-    *l = ws_route;
+    APP_WORKSPACED_ROUTE.store(ws_route, Ordering::Relaxed);
     Ok(())
 }
 

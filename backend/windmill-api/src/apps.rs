@@ -767,7 +767,7 @@ async fn custom_path_exists(
     Extension(db): Extension<DB>,
     Path((w_id, custom_path)): Path<(String, String)>,
 ) -> JsonResult<bool> {
-    let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
+    let as_workspaced_route = APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
     let exists =
         sqlx::query_scalar!(
@@ -1275,7 +1275,7 @@ async fn create_app_internal<'a>(
     }
     if let Some(custom_path) = &app.custom_path {
         require_admin(authed.is_admin, &authed.username)?;
-        let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
+        let as_workspaced_route = APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
         let exists = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
@@ -1772,7 +1772,7 @@ async fn update_app_internal<'a>(
 
         if let Some(ncustom_path) = &ns.custom_path {
             require_admin(authed.is_admin, &authed.username)?;
-            let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
+            let as_workspaced_route = APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
             if ncustom_path.is_empty() {
                 sqlb.set("custom_path", "NULL");
