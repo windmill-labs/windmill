@@ -331,6 +331,31 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    info!("Updating workspace_fork_deployment_request table");
+    sqlx::query!(
+        "UPDATE workspace_fork_deployment_request SET source_workspace_id = $1 WHERE source_workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE workspace_fork_deployment_request SET fork_workspace_id = $1 WHERE fork_workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating workspace_protection_rule table");
+    sqlx::query!(
+        "UPDATE workspace_protection_rule SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating workspace_integrations table");
     sqlx::query!(
         "UPDATE workspace_integrations SET workspace_id = $1 WHERE workspace_id = $2",
