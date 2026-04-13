@@ -127,32 +127,65 @@ pub fn add_completed_step(checkpoint: &mut WacCheckpoint, step_key: &str, result
 /// all-or-nothing atomicity — while the API fast path simply commits after
 /// the helper returns.
 ///
-/// Concurrency: the first DB operation is a `SELECT ... FOR UPDATE` that
-/// row-locks the `v2_job_status` row for the duration of the transaction.
-/// Once the row exists (which it always does from the second call onward
-/// for any given `job_id`), concurrent callers serialize on the row lock —
-/// there is no read-modify-write loss. The backend relies on this to order
-/// concurrent `step()` calls so the SDKs can fire them in parallel without
-/// any client-side serialization lock.
+/// ## Concurrency model
 ///
-/// The one remaining race window is the *very first* write for a given
-/// `job_id`: `FOR UPDATE` acquires no lock when its WHERE clause matches
-/// zero rows, so two concurrent callers could both see `None` and both
-/// `INSERT ... ON CONFLICT DO UPDATE`, with the second overwriting the
-/// first. This is accepted because it cannot actually fire in practice:
-/// WAC v2 runs exactly one subprocess per parent job at a time, that
-/// subprocess is the only caller holding the ephemeral job token the
-/// endpoint requires, and `asyncio.gather` / `Promise.all` inside one
-/// subprocess allocates step keys synchronously before yielding at the
-/// `await fetch(...)` point, so concurrent calls carry distinct keys and
-/// their writes don't collide on `completed_steps[key]`.
+/// The helper does a read-modify-write: `SELECT ... FOR UPDATE` → parse
+/// `WacCheckpoint` → modify in Rust via `add_completed_step` → write the
+/// full serialized `_checkpoint` back via `INSERT ... ON CONFLICT DO UPDATE`
+/// plus a separate `UPDATE` for the `_step/<key>` timeline entry. The
+/// important property of this pattern: each call **replaces the whole
+/// `_checkpoint` object**, not individual `completed_steps[key]` entries.
+/// That means distinct step keys do NOT protect concurrent callers from
+/// overwriting each other — two writers that start from the same loaded
+/// checkpoint will each produce a new serialized object that lacks the
+/// other's step.
+///
+/// **Steady state (row exists)** — `SELECT ... FOR UPDATE` holds the row
+/// lock until commit. The second concurrent caller blocks on the lock,
+/// then re-reads the post-commit checkpoint (which already contains the
+/// first caller's step), applies its own delta, and writes. No loss.
+///
+/// **First write (row does not yet exist)** — `SELECT ... FOR UPDATE` on a
+/// WHERE clause that matches zero rows acquires no lock. Two concurrent
+/// callers would both see `None`, both build a fresh `WacCheckpoint` from
+/// scratch, and then race on the final `INSERT ... ON CONFLICT DO UPDATE`:
+/// the second writer's `DO UPDATE SET workflow_as_code_status = jsonb_set(
+/// ..., '{_checkpoint}', $2)` replaces the `_checkpoint` the first writer
+/// just inserted, so the first writer's step is lost.
+///
+/// That race window is closed **on the client side** by the SDKs:
+/// `WorkflowCtx._inline_lock` (Python `asyncio.Lock`) and
+/// `WorkflowCtx._inlineChain` (TypeScript promise chain) serialize the
+/// fast-path POSTs per workflow invocation. The lock wraps only the HTTP
+/// call — `fn()` itself still runs in parallel across `asyncio.gather` /
+/// `Promise.all` — so the only thing actually ordered is the sequence of
+/// API requests, which is exactly what the helper needs to rely on.
+///
+/// **Future contributors: do not remove the SDK-side lock without also
+/// fixing the server-side first-write guarantee (e.g. via a single-statement
+/// merge-UPDATE that's cheap enough — see note below — or a pre-created
+/// `v2_job_status` row).** The comment used to claim the SDKs could fire in
+/// parallel without client-side serialization; that was wrong, because the
+/// helper writes the whole `_checkpoint`.
+///
+/// Cross-process concurrency with the worker-side legacy fallback arm is
+/// safe by construction: both paths receive the same `_StepSuspend` payload
+/// (same `key`, same `result`, same `started_at`, same `duration_ms`), so
+/// even if the fast path's commit and the worker arm's commit land out of
+/// order for the same step, the worst case is a redundant idempotent write,
+/// not a divergence.
+///
+/// ## Why not a single-statement merge-UPDATE?
 ///
 /// A pure-SQL single-statement variant (pushing load-modify-save entirely
-/// into `jsonb_set` + `jsonb_build_object`) was prototyped and measured at
-/// ~80 ms per call in debug mode — the nested `COALESCE` + subquery pattern
-/// causes Postgres to evaluate the growing JSONB column multiple times per
-/// step. The two-statement Rust-side load-modify-save below is ~10× faster
-/// in practice, so we keep it and accept the documented first-write race.
+/// into `jsonb_set` + `jsonb_build_object` so correctness on the first
+/// write comes from Postgres row locking rather than a client-side lock)
+/// was prototyped and measured at ~80 ms per call in debug mode — the
+/// nested `COALESCE(v2_job_status.workflow_as_code_status->'_checkpoint'
+/// ->...)` accesses cause Postgres to evaluate the growing JSONB subtree
+/// multiple times per call, and the `||` merges re-serialize the whole
+/// object. The two-statement Rust-side load-modify-save below is ~10×
+/// faster in practice, so we keep it and rely on the SDK-level lock.
 pub async fn persist_inline_checkpoint_delta(
     tx: &mut Transaction<'_, Postgres>,
     job_id: &Uuid,

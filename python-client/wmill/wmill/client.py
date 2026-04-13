@@ -2421,11 +2421,18 @@ class WorkflowCtx:
         # allocates a new connection pool each time — on localhost this adds
         # ~15ms per step, dominating the end-to-end cost. Lazily built so no
         # client is created for workflows that never hit the fast path.
-        # Concurrent step() calls share the same client safely (httpx.AsyncClient
-        # is designed for concurrent use) and the backend serializes the actual
-        # writes on the row lock in persist_inline_checkpoint_delta, so no
-        # client-side lock is needed.
         self._inline_http_client: "httpx.AsyncClient | None" = None
+        # Serializes fast-path POSTs across concurrent step() calls within
+        # one workflow invocation. Wraps only the HTTP call, not fn() — so
+        # `asyncio.gather(step("a", fn_a), step("b", fn_b))` still runs the
+        # two fn() bodies in parallel, only the API requests are ordered.
+        # This closes the first-write race window against `SELECT FOR UPDATE`
+        # on a not-yet-created `v2_job_status` row: concurrent POSTs would
+        # both see None and both overwrite each other's checkpoint because
+        # the helper writes the whole serialized `_checkpoint` object, not
+        # a single `completed_steps[key]`. Lazily built so the ctx can be
+        # constructed outside an event loop (tests do this).
+        self._inline_lock: "_asyncio.Lock | None" = None
 
     def _alloc_key(self, name: str = "step") -> str:
         """Name-based key: ``double`` for first call, ``double_2``, ``double_3`` for subsequent."""
@@ -2568,24 +2575,30 @@ class WorkflowCtx:
         _token = os.environ.get("WM_TOKEN")
         if _fast_path_enabled and _job_id and _workspace and _base and _token:
             try:
-                if self._inline_http_client is None:
-                    self._inline_http_client = httpx.AsyncClient(
-                        timeout=httpx.Timeout(10.0),
-                        headers={
-                            "Authorization": f"Bearer {_token}",
-                            "Content-Type": "application/json",
+                if self._inline_lock is None:
+                    self._inline_lock = _asyncio.Lock()
+                # Lock wraps only the POST, not fn() above — concurrent
+                # step() calls run fn() in parallel, then serialize on
+                # the API request.
+                async with self._inline_lock:
+                    if self._inline_http_client is None:
+                        self._inline_http_client = httpx.AsyncClient(
+                            timeout=httpx.Timeout(10.0),
+                            headers={
+                                "Authorization": f"Bearer {_token}",
+                                "Content-Type": "application/json",
+                            },
+                        )
+                    _resp = await self._inline_http_client.post(
+                        f"{_base}/api/w/{_workspace}/jobs/wac/inline_checkpoint/{_job_id}",
+                        json={
+                            "key": key,
+                            "result": result,
+                            "started_at": started_at,
+                            "duration_ms": duration_ms,
                         },
                     )
-                _resp = await self._inline_http_client.post(
-                    f"{_base}/api/w/{_workspace}/jobs/wac/inline_checkpoint/{_job_id}",
-                    json={
-                        "key": key,
-                        "result": result,
-                        "started_at": started_at,
-                        "duration_ms": duration_ms,
-                    },
-                )
-                _resp.raise_for_status()
+                    _resp.raise_for_status()
                 return result
             except Exception as _e:
                 logger.info(
@@ -2929,13 +2942,19 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
         # asyncio ResourceWarning('unclosed transport') on shutdown and don't
         # leak connection pools when this coroutine is driven from a
         # long-lived loop (tests, REPL, embedded callers).
-        if ctx._inline_http_client is not None:
-            try:
-                await ctx._inline_http_client.aclose()
-            except Exception:
-                pass
-            ctx._inline_http_client = None
-        _workflow_ctx.reset(token)
+        #
+        # Wrapped in its own try/finally so that asyncio.CancelledError
+        # (which is a BaseException since Python 3.8) during aclose() does
+        # not skip the _workflow_ctx.reset(token) below.
+        try:
+            if ctx._inline_http_client is not None:
+                try:
+                    await ctx._inline_http_client.aclose()
+                except Exception:
+                    pass
+                ctx._inline_http_client = None
+        finally:
+            _workflow_ctx.reset(token)
 
 
 def _run_workflow(func, checkpoint: dict, input_args: dict):
