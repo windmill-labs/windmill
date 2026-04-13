@@ -1,16 +1,19 @@
-import OpenAI from 'openai'
-import Anthropic from '@anthropic-ai/sdk'
 import type {
 	ChatCompletionMessageParam,
 	ChatCompletionSystemMessageParam
 } from 'openai/resources/chat/completions.mjs'
-import type { AIProvider, AIProviderModel } from '$lib/gen/types.gen'
+import type { AIProviderModel } from '$lib/gen/types.gen'
 import type { TokenUsage, ToolCallDetail, EvalRunnerOptions, RawEvalResult } from './types'
 import { runChatLoop, type ChatClients } from '../../../../../frontend/src/lib/components/copilot/chat/chatLoop'
 import type {
 	Tool as ProductionTool,
 	ToolCallbacks
 } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
+import {
+	createEvalClients,
+	type FrontendEvalProvider,
+	resolveEvalModelProvider
+} from './providerConfig'
 
 /**
  * Parameters for running a base evaluation.
@@ -40,35 +43,6 @@ export interface RunEvalParams<THelpers, TOutput> {
 }
 
 /**
- * Creates SDK clients for the given provider.
- */
-function createEvalClients(provider: AIProvider, apiKey: string): ChatClients {
-	if (provider === 'anthropic') {
-		return {
-			openai: new OpenAI({ apiKey: 'unused' }),
-			anthropic: new Anthropic({ apiKey })
-		} as ChatClients
-	}
-	return {
-		openai: new OpenAI({ apiKey }),
-		anthropic: new Anthropic({ apiKey: 'unused' })
-	} as ChatClients
-}
-
-/**
- * Resolves model string to AIProviderModel.
- */
-function resolveModelProvider(
-	model: string,
-	provider?: AIProvider
-): AIProviderModel {
-	if (provider) return { provider, model }
-	if (model.startsWith('claude')) return { provider: 'anthropic', model }
-	if (model.startsWith('gpt') || model.startsWith('o')) return { provider: 'openai', model }
-	return { provider: 'openai', model }
-}
-
-/**
  * Runs a generic evaluation using the shared chat loop (same code path as production).
  * Uses streaming via real provider SDKs instead of OpenRouter non-streaming.
  */
@@ -94,8 +68,11 @@ export async function runEval<THelpers, TOutput>(
 	const workspace = options?.workspace ?? 'test-workspace'
 	const provider = options?.provider
 
-	const modelProvider = resolveModelProvider(model, provider)
-	const clients = createEvalClients(modelProvider.provider, apiKey)
+	const modelProvider = resolveEvalModelProvider(
+		model,
+		provider as FrontendEvalProvider | undefined
+	) as AIProviderModel
+	const clients = createEvalClients(modelProvider.provider, apiKey) as ChatClients
 
 	const messages: ChatCompletionMessageParam[] = [userMessage]
 	let toolCallsCount = 0

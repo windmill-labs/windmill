@@ -910,7 +910,8 @@ export async function getCompletion(
 	// Use Completions API for other providers
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
 	const completionConfig =
-		(provider === 'openai' || provider === 'azure_openai') && config.stream
+		(provider === 'openai' || provider === 'azure_openai' || provider === 'googleai') &&
+		config.stream
 			? {
 					...config,
 					stream_options: {
