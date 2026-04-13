@@ -17,12 +17,12 @@ use std::{
     panic::Location,
     path::{Component, Path, PathBuf},
     str::FromStr,
-    sync::{atomic::AtomicBool, Arc},
+    sync::atomic::AtomicBool,
     time::Duration,
 };
 #[cfg(windows)]
 use sysinfo::System;
-use tokio::{sync::RwLock, time::timeout};
+use tokio::time::timeout;
 use uuid::Uuid;
 use windmill_macros::annotations;
 

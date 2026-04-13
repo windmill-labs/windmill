@@ -28,10 +28,8 @@ use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
 use std::borrow::Cow;
 use std::fmt::Display;
-use std::sync::Arc;
 use std::{fs::DirBuilder as SyncDirBuilder, str::FromStr};
 use tokio::fs::DirBuilder as AsyncDirBuilder;
-use tokio::sync::RwLock;
 use url::Url;
 
 pub const MAX_PER_PAGE: usize = 10000;

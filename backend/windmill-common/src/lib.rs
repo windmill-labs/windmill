@@ -315,7 +315,6 @@ pub async fn shutdown_signal(
     Ok(())
 }
 
-use tokio::sync::RwLock;
 use utils::rd_string;
 
 #[cfg(feature = "prometheus")]

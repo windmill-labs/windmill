@@ -1,7 +1,5 @@
 use crate::error::{self, Error};
 use semver::Version;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 // ============ Feature Definitions ============
 

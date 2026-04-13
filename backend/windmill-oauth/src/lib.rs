@@ -16,7 +16,6 @@
 
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::Arc;
 
 use anyhow::anyhow;
 use base64::Engine;
@@ -24,7 +23,6 @@ use hmac::Mac;
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
-use tokio::sync::RwLock;
 use tower_cookies::{Cookie, Cookies};
 use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::more_serde::maybe_number_opt;
