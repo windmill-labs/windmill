@@ -2028,10 +2028,7 @@
 													/>
 												{/if}
 											{:else if selectedNode?.startsWith(AI_WEBSEARCH_PREFIX)}
-												<Alert
-													type="info"
-													title="Web search output is available on the AI agent node"
-												/>
+												<Alert type="info" title="Web search was used in this step" />
 											{:else if selectedNode}
 												{@const node = localModuleStates[selectedNode]}
 												{#if selectedNode == 'end'}
