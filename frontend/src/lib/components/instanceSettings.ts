@@ -203,7 +203,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'HTTP route workspace prefix',
 			description:
-				'When enabled HTTP routes will be accessible at /api/r/{workspace_id}/{route} instead of /api/r/{route} allowing you to define same route path in different workspaces without conflict. Note: non-admin users can always create HTTP triggers but are forced to use workspaced routes regardless of this setting.',
+				'When enabled HTTP routes will be accessible at /api/r/{workspace_id}/{route} instead of /api/r/{route} allowing you to define same route path in different workspaces without conflict',
 			key: 'http_route_workspaced_route',
 			fieldType: 'boolean',
 			storage: 'setting',
