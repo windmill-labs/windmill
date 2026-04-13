@@ -16994,6 +16994,7 @@ name = "windmill-oauth"
 version = "1.682.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "async-oauth2",
  "axum 0.8.4",
  "base64 0.22.1",

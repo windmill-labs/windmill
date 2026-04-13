@@ -303,7 +303,7 @@ mod dedicated_worker_tests {
         initialize_tracing().await;
         // Reset dedicated_workers in WORKER_CONFIG to avoid pollution from previous tests.
         {
-            let mut wc = windmill_common::worker::WORKER_CONFIG.write().await;
+            let mut wc = (**windmill_common::worker::WORKER_CONFIG.load()).clone();
             wc.dedicated_worker = None;
             wc.dedicated_workers = None;
             wc.worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
@@ -313,6 +313,7 @@ mod dedicated_worker_tests {
             }];
             windmill_common::worker::store_suspended_pull_query(&wc).await;
             windmill_common::worker::store_pull_query(&wc).await;
+            windmill_common::worker::WORKER_CONFIG.store(std::sync::Arc::new(wc));
         }
         let server = ApiServer::start(db.clone()).await?;
         let port = server.addr.port();
@@ -717,7 +718,7 @@ mod dedicated_worker_tests {
         initialize_tracing().await;
         // Reset dedicated_workers in WORKER_CONFIG to avoid pollution from previous tests.
         {
-            let mut wc = windmill_common::worker::WORKER_CONFIG.write().await;
+            let mut wc = (**windmill_common::worker::WORKER_CONFIG.load()).clone();
             wc.dedicated_worker = None;
             wc.dedicated_workers = None;
             wc.worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
@@ -727,6 +728,7 @@ mod dedicated_worker_tests {
             }];
             windmill_common::worker::store_suspended_pull_query(&wc).await;
             windmill_common::worker::store_pull_query(&wc).await;
+            windmill_common::worker::WORKER_CONFIG.store(std::sync::Arc::new(wc));
         }
         let server = ApiServer::start(db.clone()).await?;
         let port = server.addr.port();

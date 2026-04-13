@@ -339,7 +339,7 @@ pub async fn check_tag_available_for_workspace_internal(
         is_tag_in_scope_tags = Some(scope_tags.contains(&tag));
     }
 
-    let custom_tags_per_w = CUSTOM_TAGS_PER_WORKSPACE.read().await;
+    let custom_tags_per_w = CUSTOM_TAGS_PER_WORKSPACE.load();
     if custom_tags_per_w.global.contains(&tag.to_string()) {
         is_tag_in_workspace_custom_tags = true;
     } else if let Some(specific_tag) = custom_tags_per_w.specific.get(tag) {

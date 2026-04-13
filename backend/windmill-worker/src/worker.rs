@@ -1937,7 +1937,7 @@ pub async fn run_worker(
     let mut jobs_executed = 0;
 
     let is_dedicated_worker: bool = {
-        let config = WORKER_CONFIG.read().await;
+        let config = WORKER_CONFIG.load();
         config.dedicated_worker.is_some()
             || config
                 .dedicated_workers
@@ -2048,7 +2048,7 @@ pub async fn run_worker(
             worker = %worker_name, hostname = %hostname,
             "listening for jobs, WORKER_GROUP: {}, config: {:?}",
             *WORKER_GROUP,
-            WORKER_CONFIG.read().await
+            WORKER_CONFIG.load()
         );
     }
 
@@ -3074,7 +3074,7 @@ async fn queue_init_bash_maybe<'c>(
     same_worker_tx: SameWorkerSender,
     worker_name: &str,
 ) -> anyhow::Result<bool> {
-    let uuid_content = if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
+    let uuid_content = if let Some(content) = WORKER_CONFIG.load().init_bash.clone() {
         let uuid = match conn {
             Connection::Sql(db) => push_init_job(db, content.clone(), worker_name).await?,
             Connection::Http(client) => queue_init_job(client, &content).await?,
@@ -3102,7 +3102,7 @@ fn spawn_periodic_script_task(
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     tokio::spawn(async move {
-        let config = WORKER_CONFIG.read().await;
+        let config = WORKER_CONFIG.load();
 
         match (
             &config.periodic_script_bash,

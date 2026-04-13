@@ -27,7 +27,7 @@ pub(crate) async fn update_worker_ping_full(
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_tx: &KillpillSender,
 ) {
-    let wc = WORKER_CONFIG.read().await;
+    let wc = WORKER_CONFIG.load();
     let tags = wc.worker_tags.clone();
     let native_mode = wc.native_mode;
     drop(wc);
@@ -171,7 +171,7 @@ pub async fn insert_ping(
     db: &Connection,
 ) -> anyhow::Result<()> {
     let (tags, dw, dws, native_mode) = {
-        let wc = WORKER_CONFIG.read().await.clone();
+        let wc = (**WORKER_CONFIG.load()).clone();
         (
             wc.worker_tags,
             wc.dedicated_worker

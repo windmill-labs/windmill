@@ -30,7 +30,7 @@ pub async fn _refresh_token<'c>(
         w_id,
         id,
         db,
-        &*windmill_oauth::OAUTH_CLIENTS.read().await,
+        &*windmill_oauth::OAUTH_CLIENTS.load(),
         &windmill_oauth::OAUTH_HTTP_CLIENT,
         include_str!("../../oauth_connect.json"),
     )

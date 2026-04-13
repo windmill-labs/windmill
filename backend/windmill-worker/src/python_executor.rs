@@ -201,7 +201,7 @@ pub async fn uv_pip_compile(
     logs.push_str(&format!("\ncontent of requirements:\n{}\n", requirements));
 
     let requirements = if let Some(pip_local_dependencies) =
-        WORKER_CONFIG.read().await.pip_local_dependencies.as_ref()
+        WORKER_CONFIG.load().pip_local_dependencies.as_ref()
     {
         let deps = pip_local_dependencies.clone();
         let compiled_deps = deps.iter().map(|dep| {
