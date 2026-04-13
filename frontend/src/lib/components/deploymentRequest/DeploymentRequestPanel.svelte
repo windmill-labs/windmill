@@ -11,16 +11,18 @@
 		type DeploymentRequestEligibleDeployer
 	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Rocket, Send, Plus, X, UserPlus, ArchiveX } from 'lucide-svelte'
+	import { Send, Plus, X, ArchiveX } from 'lucide-svelte'
 
 	interface Props {
 		forkWorkspaceId: string
 		parentWorkspaceId: string
 		currentUsername: string
 		isAdmin: boolean
+		onStateChange?: (hasOpenRequest: boolean) => void
 	}
 
-	let { forkWorkspaceId, parentWorkspaceId, currentUsername, isAdmin }: Props = $props()
+	let { forkWorkspaceId, parentWorkspaceId, currentUsername, isAdmin, onStateChange }: Props =
+		$props()
 
 	let request = $state<DeploymentRequest | null>(null)
 	let loading = $state(true)
@@ -44,6 +46,7 @@
 			request = null
 		} finally {
 			loading = false
+			onStateChange?.(request != null)
 		}
 	}
 
@@ -87,6 +90,7 @@
 			sendUserToast(`Deployment request sent to ${selectedAssignees.length} assignee(s)`)
 			showRequestDialog = false
 			selectedAssignees = []
+			onStateChange?.(true)
 		} catch (e: any) {
 			sendUserToast(`Failed to create deployment request: ${e.body || e.message}`, true)
 		} finally {
@@ -104,6 +108,7 @@
 			})
 			sendUserToast('Deployment request cancelled')
 			request = null
+			onStateChange?.(false)
 		} catch (e: any) {
 			sendUserToast(`Failed to cancel: ${e.body || e.message}`, true)
 		}
@@ -145,45 +150,33 @@
 		return new Date(iso).toLocaleString()
 	}
 
+	// Has content to render inline in the deploy panel: dialog open,
+	// request open, or still loading.
+	let hasContent = $derived(loading || showRequestDialog || request != null)
+
 	export function refresh() {
 		load()
 	}
+
+	export function openRequestDialog() {
+		showRequestDialog = true
+	}
+
+	export function isDialogOpen(): boolean {
+		return showRequestDialog
+	}
+
+	export function hasOpenRequest(): boolean {
+		return request != null
+	}
 </script>
 
-<div class="bg-surface-tertiary p-4 rounded-md border">
-	<div class="flex items-center gap-2 mb-2">
-		<Rocket size={16} />
-		<h3 class="text-sm font-semibold">Deployment request</h3>
-		{#if request}
-			<Badge color="green" size="xs">Open</Badge>
-		{:else if !loading}
-			<Badge color="gray" size="xs">No open request</Badge>
-		{/if}
-		{#if !loading && !request && !showRequestDialog}
-			<div class="ml-auto">
-				<Button
-					variant="accent"
-					size="xs"
-					startIcon={{ icon: UserPlus }}
-					onclick={() => {
-						showRequestDialog = true
-					}}
-				>
-					Request deployment
-				</Button>
-			</div>
-		{/if}
-	</div>
-
-	{#if loading}
-		<div class="text-secondary text-sm p-2">Loading…</div>
-	{:else if !request}
-		{#if !showRequestDialog}
-			<div class="text-secondary text-xs">
-				Ask admins or members of <code>wm_deployers</code> in <b>{parentWorkspaceId}</b> to deploy this
-				fork to the parent workspace. They can leave comments, and any of them can merge.
-			</div>
-		{:else}
+{#if hasContent}
+	<div class="flex flex-col gap-2 mt-3 pt-3 border-t">
+		{#if loading}
+			<div class="text-secondary text-xs">Loading deployment request…</div>
+		{:else if !request}
+			<!-- showRequestDialog == true -->
 			<div class="flex flex-col gap-2 border rounded-md p-3 bg-surface">
 				<div class="text-xs text-secondary">
 					Pick one or more assignees. They must be admins or members of <code>wm_deployers</code>
@@ -241,12 +234,11 @@
 					</Button>
 				</div>
 			</div>
-		{/if}
-	{:else}
-		<div class="flex flex-col gap-3">
+		{:else}
 			<div class="flex items-center justify-between flex-wrap gap-2 text-xs">
 				<div class="flex items-center gap-2 flex-wrap">
-					<span class="text-secondary">Requested by</span>
+					<Badge color="green" size="xs">Deployment request open</Badge>
+					<span class="text-secondary">by</span>
 					<b>{request.requested_by}</b>
 					<span class="text-secondary">at {formatTimestamp(request.requested_at)}</span>
 				</div>
@@ -359,6 +351,6 @@
 					</div>
 				</div>
 			</div>
-		</div>
-	{/if}
-</div>
+		{/if}
+	</div>
+{/if}

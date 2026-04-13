@@ -15,7 +15,8 @@
 		GitFork,
 		Loader2,
 		Trash2,
-		Upload
+		Upload,
+		UserPlus
 	} from 'lucide-svelte'
 	import type { CiTestResult } from '$lib/gen'
 	import { Alert, Badge } from './common'
@@ -588,6 +589,7 @@
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
 	let triggerToDelete = $state<ForkTrigger | undefined>(undefined)
 	let deploymentRequestPanel: DeploymentRequestPanel | undefined = $state(undefined)
+	let hasOpenDeploymentRequest = $state(false)
 
 	/** Deployable trigger kinds and their list+delete services */
 	const triggerServices = {
@@ -819,14 +821,6 @@
 		selectedItems.includes(getItemKey(e))
 	).length}
 	<div class="flex flex-col gap-4">
-		<DeploymentRequestPanel
-			bind:this={deploymentRequestPanel}
-			forkWorkspaceId={currentWorkspaceId}
-			{parentWorkspaceId}
-			currentUsername={$userStore?.username ?? ''}
-			isAdmin={$userStore?.is_admin ?? false}
-		/>
-
 		<div class="bg-surface-tertiary p-4 rounded-md border">
 			<WorkspaceDeployLayout
 				items={deployableItems}
@@ -1138,8 +1132,9 @@
 
 						<div class="flex flex-col items-end gap-2">
 							{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
-								{#if !(mergeIntoParent && !canDeployToParent)}
+								<div class="flex items-center gap-2">
 									<Button
+										variant="accent"
 										disabled={selectedItems.length === 0 ||
 											deploying ||
 											(hasBehindChanges && !allowBehindChangesOverride) ||
@@ -1154,16 +1149,25 @@
 											({selectedConflicts} conflicts)
 										{/if}
 									</Button>
-									{#if hasUnselectedOnBehalfOf}
-										<span class="text-xs text-yellow-600">
-											You must set the "on behalf of" user for all items before deploying
-											<Tooltip class="text-yellow-600">
-												The "run on behalf of" field defines which user's permissions will be
-												applied during execution. Make sure this is set to an appropriate user
-												before deploying.
-											</Tooltip>
-										</span>
+									{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
+										<Button
+											variant="default"
+											startIcon={{ icon: UserPlus }}
+											on:click={() => deploymentRequestPanel?.openRequestDialog()}
+										>
+											Request deployment
+										</Button>
 									{/if}
+								</div>
+								{#if !(mergeIntoParent && !canDeployToParent) && hasUnselectedOnBehalfOf}
+									<span class="text-xs text-yellow-600">
+										You must set the "on behalf of" user for all items before deploying
+										<Tooltip class="text-yellow-600">
+											The "run on behalf of" field defines which user's permissions will be applied
+											during execution. Make sure this is set to an appropriate user before
+											deploying.
+										</Tooltip>
+									</span>
 								{/if}
 							{/if}
 
@@ -1182,6 +1186,17 @@
 					</div>
 				{/snippet}
 			</WorkspaceDeployLayout>
+
+			<DeploymentRequestPanel
+				bind:this={deploymentRequestPanel}
+				forkWorkspaceId={currentWorkspaceId}
+				{parentWorkspaceId}
+				currentUsername={$userStore?.username ?? ''}
+				isAdmin={$userStore?.is_admin ?? false}
+				onStateChange={(open) => {
+					hasOpenDeploymentRequest = open
+				}}
+			/>
 		</div>
 
 		<!-- Fork Triggers Section -->
