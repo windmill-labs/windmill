@@ -35,3 +35,15 @@ USING (SPLIT_PART(http_trigger.path, '/', 1) = 'u' AND SPLIT_PART(http_trigger.p
 
 CREATE POLICY see_member ON http_trigger FOR ALL TO windmill_user
 USING (SPLIT_PART(http_trigger.path, '/', 1) = 'g' AND SPLIT_PART(http_trigger.path, '/', 2) = any(regexp_split_to_array(current_setting('session.groups'), ',')::text[]));
+
+-- Update prevent_route_path_change to allow non-admins to change route_path on workspaced routes.
+-- Previously all route_path changes were blocked for windmill_user; now only instance-wide routes are protected.
+CREATE OR REPLACE FUNCTION prevent_route_path_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF CURRENT_USER = 'windmill_user' AND NEW.route_path <> OLD.route_path AND NOT COALESCE(NEW.workspaced_route, false) THEN
+        RAISE EXCEPTION 'Modification of route_path is only allowed by admins for non-workspaced routes';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
