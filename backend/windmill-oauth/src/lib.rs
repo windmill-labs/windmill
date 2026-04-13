@@ -54,11 +54,11 @@ lazy_static::lazy_static! {
         .build()
         .expect("Failed to create OAuth HTTP client");
 
-    pub static ref OAUTH_CLIENTS: Arc<RwLock<AllClients>> = Arc::new(RwLock::new(AllClients {
+    pub static ref OAUTH_CLIENTS: arc_swap::ArcSwap<AllClients> = arc_swap::ArcSwap::from_pointee(AllClients {
         logins: HashMap::new(),
         connects: HashMap::new(),
         slack: None
-    }));
+    });
 }
 
 /// OAuth client with associated scopes and configuration

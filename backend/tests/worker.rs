@@ -4034,19 +4034,16 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
     let server = ApiServer::start(db.clone()).await?;
 
     // Set up a restricted tag that is only available to "other-workspace" (not "test-workspace")
-    {
-        let mut custom_tags = CUSTOM_TAGS_PER_WORKSPACE.write().await;
-        *custom_tags = CustomTags {
-            global: vec![],
-            specific: std::collections::HashMap::from([(
-                "restricted-tag".to_string(),
-                SpecificTagData {
-                    tag_type: SpecificTagType::NoneExcept,
-                    workspaces: vec!["other-workspace".to_string()],
-                },
-            )]),
-        };
-    }
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags {
+        global: vec![],
+        specific: std::collections::HashMap::from([(
+            "restricted-tag".to_string(),
+            SpecificTagData {
+                tag_type: SpecificTagType::NoneExcept,
+                workspaces: vec!["other-workspace".to_string()],
+            },
+        )]),
+    }));
 
     // Create a flow with a substep that uses the restricted tag
     let flow: FlowValue = serde_json::from_value(serde_json::json!({
@@ -4088,10 +4085,7 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
     );
 
     // Clean up: reset custom tags
-    {
-        let mut custom_tags = CUSTOM_TAGS_PER_WORKSPACE.write().await;
-        *custom_tags = CustomTags::default();
-    }
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
 
     Ok(())
 }

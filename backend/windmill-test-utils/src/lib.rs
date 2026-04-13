@@ -417,7 +417,7 @@ pub fn spawn_test_worker(
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
         {
-            let mut wc = WORKER_CONFIG.write().await;
+            let mut wc = (**WORKER_CONFIG.load()).clone();
             wc.worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
             wc.priority_tags_sorted = vec![windmill_common::worker::PriorityTags {
                 priority: 0,
@@ -425,6 +425,7 @@ pub fn spawn_test_worker(
             }];
             windmill_common::worker::store_suspended_pull_query(&wc).await;
             windmill_common::worker::store_pull_query(&wc).await;
+            WORKER_CONFIG.store(std::sync::Arc::new(wc));
         }
         windmill_worker::run_worker(
             &conn,
@@ -505,10 +506,9 @@ pub fn spawn_test_worker_dedicated(
             let config = windmill_common::worker::load_worker_config(db_ref, killpill_tx2)
                 .await
                 .expect("load worker config");
-            let mut wc = WORKER_CONFIG.write().await;
             windmill_common::worker::store_suspended_pull_query(&config).await;
             windmill_common::worker::store_pull_query(&config).await;
-            *wc = config;
+            WORKER_CONFIG.store(std::sync::Arc::new(config));
         }
         windmill_worker::run_worker(
             &conn,
@@ -537,9 +537,10 @@ pub async fn in_test_worker_dedicated<Fut: std::future::Future>(
     set_jwt_secret().await;
     // Reset WORKER_CONFIG to avoid stale state from previous tests' monitor reloads.
     {
-        let mut wc = WORKER_CONFIG.write().await;
+        let mut wc = (**WORKER_CONFIG.load()).clone();
         wc.dedicated_worker = None;
         wc.dedicated_workers = None;
+        WORKER_CONFIG.store(std::sync::Arc::new(wc));
     }
     let (quit, worker) = spawn_test_worker_dedicated(&conn.into(), port, dedicated_workers);
     let worker = tokio::time::timeout(std::time::Duration::from_secs(90), worker);

@@ -263,7 +263,6 @@ pub async fn initial_load(
             }
             Connection::Http(_) => {
                 // TODO: reload worker config from http
-                let mut config = WORKER_CONFIG.write().await;
                 let worker_tags = DECODED_AGENT_TOKEN
                     .as_ref()
                     .map(|x| x.tags.clone())
@@ -271,7 +270,7 @@ pub async fn initial_load(
                 // we only check from env as native_mode is not stored in the token
                 // NATIVE_MODE_RESOLVED is already set in main.rs during startup
                 let native_mode = windmill_common::worker::is_native_mode_from_env();
-                *config = WorkerConfig {
+                WORKER_CONFIG.store(std::sync::Arc::new(WorkerConfig {
                     worker_tags,
                     env_vars: load_env_vars(
                         load_whitelist_env_vars_from_env(),
@@ -287,7 +286,7 @@ pub async fn initial_load(
                     additional_python_paths: None,
                     pip_local_dependencies: None,
                     native_mode,
-                };
+                }));
             }
         }
     }
@@ -491,12 +490,10 @@ pub async fn load_tag_per_workspace_workspaces(db: &DB) -> error::Result<()> {
                 .filter_map(|x| x.as_str())
                 .map(|x| x.to_string())
                 .collect::<Vec<String>>();
-            let mut w = DEFAULT_TAGS_WORKSPACES.write().await;
-            *w = Some(workspaces);
+            DEFAULT_TAGS_WORKSPACES.store(std::sync::Arc::new(Some(workspaces)));
         }
         Ok(None) => {
-            let mut w = DEFAULT_TAGS_WORKSPACES.write().await;
-            *w = None;
+            DEFAULT_TAGS_WORKSPACES.store(std::sync::Arc::new(None));
         }
         _ => (),
     };
@@ -2660,9 +2657,8 @@ pub async fn reload_smtp_config(db: &Pool<Postgres>) {
     if let Err(e) = smtp_config {
         tracing::error!("Error reloading smtp config: {:?}", e)
     } else {
-        let mut wc = SMTP_CONFIG.write().await;
         tracing::info!("Reloading smtp config...");
-        *wc = smtp_config.unwrap()
+        SMTP_CONFIG.store(std::sync::Arc::new(smtp_config.unwrap()));
     }
 }
 
@@ -2671,9 +2667,8 @@ pub async fn reload_indexer_config(db: &Pool<Postgres>) {
     if let Err(e) = indexer_config {
         tracing::error!("Error reloading indexer config: {:?}", e)
     } else {
-        let mut wc = INDEXER_CONFIG.write().await;
-        tracing::info!("Reloading smtp config...");
-        *wc = indexer_config.unwrap()
+        tracing::info!("Reloading indexer config...");
+        INDEXER_CONFIG.store(std::sync::Arc::new(indexer_config.unwrap()));
     }
 }
 
@@ -2682,29 +2677,29 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
     if let Err(e) = config {
         tracing::error!("Error reloading worker config: {:?}", e)
     } else {
-        let wc = WORKER_CONFIG.read().await;
+        let wc = WORKER_CONFIG.load();
         let config = config.unwrap();
         let has_dedicated = config.dedicated_worker.is_some()
             || config
                 .dedicated_workers
                 .as_ref()
                 .is_some_and(|dws| !dws.is_empty());
-        if *wc != config || has_dedicated {
+        if **wc != config || has_dedicated {
             if kill_if_change {
                 if has_dedicated
-                    || (*wc).dedicated_worker != config.dedicated_worker
-                    || (*wc).dedicated_workers != config.dedicated_workers
+                    || wc.dedicated_worker != config.dedicated_worker
+                    || wc.dedicated_workers != config.dedicated_workers
                 {
                     tracing::info!("Dedicated worker config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                 }
 
-                if (*wc).init_bash != config.init_bash {
+                if wc.init_bash != config.init_bash {
                     tracing::info!("Init bash config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                 }
 
-                if (*wc).cache_clear != config.cache_clear {
+                if wc.cache_clear != config.cache_clear {
                     tracing::info!("Cache clear changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                     tracing::info!("Waiting 5 seconds to allow others workers to start potential jobs that depend on a potential shared cache volume");
@@ -2714,29 +2709,27 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                     }
                 }
 
-                if (*wc).periodic_script_bash != config.periodic_script_bash {
+                if wc.periodic_script_bash != config.periodic_script_bash {
                     tracing::info!("Periodic script bash config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                 }
 
-                if (*wc).periodic_script_interval_seconds != config.periodic_script_interval_seconds
-                {
+                if wc.periodic_script_interval_seconds != config.periodic_script_interval_seconds {
                     tracing::info!("Periodic script interval config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                 }
 
-                if (*wc).native_mode != config.native_mode {
+                if wc.native_mode != config.native_mode {
                     tracing::info!("Native mode config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                 }
             }
             drop(wc);
 
-            let mut wc = WORKER_CONFIG.write().await;
             tracing::info!("Reloading worker config...");
             store_suspended_pull_query(&config).await;
             store_pull_query(&config).await;
-            *wc = config
+            WORKER_CONFIG.store(std::sync::Arc::new(config));
         }
     }
 }
@@ -2796,10 +2789,10 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
     #[cfg(feature = "oauth2")]
     {
         if let Some(db) = conn.as_sql() {
-            let mut l = windmill_api::OAUTH_CLIENTS.write().await;
-            *l = windmill_api::oauth2_oss::build_oauth_clients(&base_url, oauths, db).await
-            .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
-            .unwrap();
+            let clients = windmill_api::oauth2_oss::build_oauth_clients(&base_url, oauths, db).await
+                .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
+                .unwrap();
+            windmill_api::OAUTH_CLIENTS.store(std::sync::Arc::new(clients));
         }
     }
 

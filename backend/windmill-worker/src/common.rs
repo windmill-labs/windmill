@@ -521,7 +521,7 @@ pub async fn build_envs_map(context: Vec<ContextualVariable>) -> HashMap<String,
     let mut r: HashMap<String, String> =
         context.into_iter().map(|rv| (rv.name, rv.value)).collect();
 
-    let envs = WORKER_CONFIG.read().await.clone().env_vars;
+    let envs = (**WORKER_CONFIG.load()).clone().env_vars;
     for env in envs {
         r.insert(env.0.clone(), env.1.clone());
     }

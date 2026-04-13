@@ -103,7 +103,7 @@ async fn list_logins() -> error::JsonResult<Logins> {
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 async fn list_connects() -> error::JsonResult<Vec<String>> {
     Ok(Json(
-        (&OAUTH_CLIENTS.read().await.connects)
+        (&OAUTH_CLIENTS.load().connects)
             .keys()
             .map(|x| x.to_owned())
             .collect_vec(),
