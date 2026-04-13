@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::error::{self, Error};
@@ -116,18 +117,23 @@ pub fn add_completed_step(checkpoint: &mut WacCheckpoint, step_key: &str, result
     }
 }
 
-/// Persist a single inline-step checkpoint delta: validate the source hash,
-/// add the step to `completed_steps`, save the checkpoint, and write the
-/// `_step/<key>` timeline entry — all in one transaction.
+/// Persist a single inline-step checkpoint delta into the given transaction:
+/// validate the source hash, add the step to `completed_steps`, save the
+/// checkpoint, and write the `_step/<key>` timeline entry.
 ///
-/// Shared between the worker-side `WacOutput::InlineCheckpoint` fallback arm
-/// in `bun_executor::handle_wac_v2_output` and the
-/// `/jobs/wac/inline_checkpoint/{job_id}` API endpoint used by the SDK fast path.
-/// Neither call site writes to `v2_job_queue` from here — the worker arm does
-/// that separately after, and the API fast path intentionally leaves the
-/// running job alone.
+/// The caller owns the transaction and commits it. This lets the worker-side
+/// `WacOutput::InlineCheckpoint` fallback arm add its own `UPDATE v2_job_queue
+/// SET running = false` in the same transaction — restoring the original
+/// all-or-nothing atomicity — while the API fast path simply commits after
+/// the helper returns.
+///
+/// Concurrency: the first DB operation is a `SELECT ... FOR UPDATE` that
+/// row-locks the `v2_job_status` row for the duration of the transaction. If
+/// two callers race on the same `job_id`, the second one waits until the
+/// first commits, then reads the freshly-persisted checkpoint — no
+/// read-modify-write loss.
 pub async fn persist_inline_checkpoint_delta(
-    db: &DB,
+    tx: &mut Transaction<'_, Postgres>,
     job_id: &Uuid,
     source_hash_hint: Option<&str>,
     key: &str,
@@ -135,11 +141,32 @@ pub async fn persist_inline_checkpoint_delta(
     started_at: Option<&str>,
     duration_ms: Option<u64>,
 ) -> error::Result<()> {
-    let mut checkpoint = load_checkpoint(db, job_id).await?;
+    // Row-lock the existing checkpoint row (if any) for the duration of the
+    // transaction. NULL if the row doesn't exist yet — that's fine, the
+    // INSERT below handles both paths.
+    let row: Option<Option<Value>> = sqlx::query_scalar(
+        "SELECT workflow_as_code_status->'_checkpoint'
+         FROM v2_job_status WHERE id = $1 FOR UPDATE",
+    )
+    .bind(job_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let mut checkpoint: WacCheckpoint = match row.flatten() {
+        Some(status) => serde_json::from_value(status).unwrap_or_else(|e| {
+            tracing::warn!(
+                job_id = %job_id,
+                error = %e,
+                "Failed to deserialize WAC checkpoint, resetting to empty"
+            );
+            WacCheckpoint::default()
+        }),
+        None => WacCheckpoint::default(),
+    };
 
     // Source hash validation: detect if code changed between replays.
-    if let Some(hint) = source_hash_hint {
-        if !hint.is_empty() {
+    match source_hash_hint {
+        Some(hint) if !hint.is_empty() => {
             if checkpoint.source_hash.is_empty() {
                 checkpoint.source_hash = hint.to_string();
             } else if checkpoint.source_hash != hint {
@@ -151,6 +178,15 @@ pub async fn persist_inline_checkpoint_delta(
                 ));
             }
         }
+        _ => {
+            // Preview / inline jobs have no `runnable_id`, so the caller passes
+            // None (or Some("")). We can't validate drift for these — log once
+            // so operators can tell which jobs are running unguarded.
+            tracing::debug!(
+                job_id = %job_id,
+                "WAC v2 inline checkpoint without runnable hash — source-hash drift protection is off for this job"
+            );
+        }
     }
 
     tracing::info!(
@@ -160,8 +196,6 @@ pub async fn persist_inline_checkpoint_delta(
     );
 
     add_completed_step(&mut checkpoint, key, result);
-
-    let mut tx = db.begin().await?;
 
     let status_json = serde_json::to_value(&checkpoint)
         .map_err(|e| Error::InternalErr(format!("Failed to serialize checkpoint: {e}")))?;
@@ -177,7 +211,7 @@ pub async fn persist_inline_checkpoint_delta(
     )
     .bind(job_id)
     .bind(&status_json)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Failed to save WAC checkpoint: {e}")))?;
 
@@ -204,11 +238,9 @@ pub async fn persist_inline_checkpoint_delta(
     .bind(job_id)
     .bind(&step_timeline_key)
     .bind(&timeline_val)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Failed to write step timeline: {e}")))?;
-
-    tx.commit().await?;
 
     Ok(())
 }

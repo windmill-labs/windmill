@@ -2420,6 +2420,12 @@ class WorkflowCtx:
         # not race on the checkpoint's read-modify-write. Built lazily so the
         # ctx can be constructed outside an event loop (tests do this).
         self._inline_lock: "_asyncio.Lock | None" = None
+        # Reuse a single httpx.AsyncClient across all fast-path step() calls
+        # in this workflow invocation. Instantiating a fresh client per call
+        # allocates a new connection pool each time — on localhost this adds
+        # ~15ms per step, dominating the end-to-end cost. Lazily built so no
+        # client is created for workflows that never hit the fast path.
+        self._inline_http_client: "httpx.AsyncClient | None" = None
 
     def _alloc_key(self, name: str = "step") -> str:
         """Name-based key: ``double`` for first call, ``double_2``, ``double_3`` for subsequent."""
@@ -2565,21 +2571,24 @@ class WorkflowCtx:
                 if self._inline_lock is None:
                     self._inline_lock = _asyncio.Lock()
                 async with self._inline_lock:
-                    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as _c:
-                        _resp = await _c.post(
-                            f"{_base}/api/w/{_workspace}/jobs/wac/inline_checkpoint/{_job_id}",
+                    if self._inline_http_client is None:
+                        self._inline_http_client = httpx.AsyncClient(
+                            timeout=httpx.Timeout(10.0),
                             headers={
                                 "Authorization": f"Bearer {_token}",
                                 "Content-Type": "application/json",
                             },
-                            json={
-                                "key": key,
-                                "result": result,
-                                "started_at": started_at,
-                                "duration_ms": duration_ms,
-                            },
                         )
-                        _resp.raise_for_status()
+                    _resp = await self._inline_http_client.post(
+                        f"{_base}/api/w/{_workspace}/jobs/wac/inline_checkpoint/{_job_id}",
+                        json={
+                            "key": key,
+                            "result": result,
+                            "started_at": started_at,
+                            "duration_ms": duration_ms,
+                        },
+                    )
+                    _resp.raise_for_status()
                 return result
             except Exception as _e:
                 logger.info(

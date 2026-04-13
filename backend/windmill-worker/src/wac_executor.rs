@@ -10,8 +10,8 @@ use windmill_common::DB;
 // API server can use them without pulling in the full worker crate. Re-export
 // here for historical call sites inside windmill-worker.
 pub use windmill_common::wac::{
-    add_completed_step, load_checkpoint, persist_inline_checkpoint_delta, save_checkpoint,
-    WacCheckpoint, WacPendingSteps,
+    load_checkpoint, persist_inline_checkpoint_delta, save_checkpoint, WacCheckpoint,
+    WacPendingSteps,
 };
 
 /// Output from a single WAC invocation (parsed from result.json).

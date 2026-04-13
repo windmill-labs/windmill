@@ -3142,11 +3142,21 @@ pub async fn handle_wac_v2_output(
                 }
             };
 
-            let source_hash = job.runnable_id.map(|h| h.0.to_string()).unwrap_or_default();
+            // All-or-nothing: the checkpoint save, the `_step/<key>` timeline
+            // write, and the `running = false` queue reset must commit
+            // together. If we split them, a crash or failure in the middle
+            // would leave the job queued with `running = true` but a
+            // checkpoint that already contains the current step — any retry
+            // would then skip the step entirely. Passing the caller's `tx`
+            // into `persist_inline_checkpoint_delta` preserves the original
+            // atomicity from before the shared-helper refactor.
+            let source_hash = job.runnable_id.map(|h| h.0.to_string());
+            let mut tx = db.begin().await?;
+
             crate::wac_executor::persist_inline_checkpoint_delta(
-                db,
+                &mut tx,
                 &job.id,
-                Some(source_hash.as_str()),
+                source_hash.as_deref(),
                 &key,
                 value,
                 started_at.as_deref(),
@@ -3161,13 +3171,15 @@ pub async fn handle_wac_v2_output(
                 "UPDATE v2_job_queue SET running = false, started_at = null WHERE id = $1",
                 job.id,
             )
-            .execute(db)
+            .execute(&mut *tx)
             .await
             .map_err(|e| {
                 error::Error::internal_err(format!(
                     "Failed to reset running state for inline checkpoint: {e}"
                 ))
             })?;
+
+            tx.commit().await?;
 
             Err(error::Error::WacSuspended(format!(
                 "WAC v2 job {} inline checkpoint for step {}",
