@@ -426,7 +426,7 @@
 				if (open) {
 					await WorkspaceService.closeForkReviewRequestMerged({
 						workspace: currentWorkspaceId,
-						id: (open as any).id
+						id: open.id
 					})
 					forkReviewPanel?.refresh()
 				}

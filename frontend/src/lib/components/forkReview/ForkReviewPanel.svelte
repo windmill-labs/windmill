@@ -38,8 +38,7 @@
 	async function load() {
 		loading = true
 		try {
-			const res = await WorkspaceService.getOpenForkReviewRequest({ workspace: forkWorkspaceId })
-			request = (res ?? null) as ForkReviewRequest | null
+			request = await WorkspaceService.getOpenForkReviewRequest({ workspace: forkWorkspaceId })
 		} catch (e: any) {
 			console.error('Failed to load open review request', e)
 			request = null
@@ -116,7 +115,7 @@
 			})
 			request = {
 				...request,
-				comments: [...request.comments, created as ForkReviewComment]
+				comments: [...request.comments, created]
 			}
 			if (parentId == null) {
 				newComment = ''
@@ -188,10 +187,9 @@
 					items={safeSelectItems(
 						deployers
 							.filter((d) => !selectedReviewers.includes(d.username))
-							.map((d) => `${d.username} <${d.email}>`)
-							.map((label) => ({
-								label,
-								value: label.split(' ')[0]
+							.map((d) => ({
+								label: `${d.username} <${d.email}>`,
+								value: d.username
 							}))
 					)}
 					placeholder="Add reviewer…"

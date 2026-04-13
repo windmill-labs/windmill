@@ -5362,7 +5362,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ForkReviewRequest"
         "400":
-          description: invalid reviewers or already-open request
+          description: invalid reviewers
+        "409":
+          description: a review request is already open for this fork
 
   /w/{workspace}/fork_review/{id}/cancel:
     post:

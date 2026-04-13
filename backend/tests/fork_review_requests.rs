@@ -70,7 +70,7 @@ async fn test_fork_review_lifecycle(db: Pool<Postgres>) -> anyhow::Result<()> {
         Some(2)
     );
 
-    // ---- 3. second create fails because one-open constraint ----
+    // ---- 3. second create fails with 409 because one-open constraint ----
     let resp = authed(
         client().post(format!("{fork_base}/fork_review/request")),
         "FREV_OWNER_TOKEN",
@@ -78,9 +78,10 @@ async fn test_fork_review_lifecycle(db: Pool<Postgres>) -> anyhow::Result<()> {
     .json(&json!({ "reviewers": ["frev-admin"] }))
     .send()
     .await?;
-    assert!(
-        !resp.status().is_success(),
-        "second create should fail: {}",
+    assert_eq!(
+        resp.status(),
+        409,
+        "second create should return 409 Conflict: {}",
         resp.status()
     );
 
@@ -154,9 +155,25 @@ async fn test_fork_review_lifecycle(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await?;
     assert_eq!(resp.status(), 200);
     let reply: Value = resp.json().await?;
+    let reply_id = reply.get("id").and_then(|v| v.as_i64()).unwrap();
     assert_eq!(
         reply.get("parent_id").and_then(|v| v.as_i64()),
         Some(top_id)
+    );
+
+    // ---- 8b. reply-to-reply is rejected (2-level max) ----
+    let resp = authed(
+        client().post(format!("{fork_base}/fork_review/{request_id}/comment")),
+        "FREV_OWNER_TOKEN",
+    )
+    .json(&json!({ "body": "nested!", "parent_id": reply_id }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "reply-to-reply should be rejected: {}",
+        resp.status()
     );
 
     // ---- 9. anchored comment becomes obsolete when item changes in fork ----

@@ -12,10 +12,12 @@
 
 use axum::{
     extract::{Extension, Path},
+    http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use windmill_api_auth::ApiAuthed;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
@@ -96,13 +98,16 @@ struct CreateCommentBody {
 /// List users eligible to be reviewers on a fork: admins plus members of the
 /// wm_deployers group in the *parent* workspace. The `{w_id}` path parameter
 /// is the fork workspace; we resolve its parent and query there.
+///
+/// Note: any member of the fork workspace can call this and see parent
+/// admin/deployer usernames + emails. Intentional for the review UX — you
+/// need to pick reviewers somehow — but documented here as a design choice
+/// for the shared-fork privacy model.
 async fn list_deployers(
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<Deployer>> {
-    let _ = authed;
-
     let parent = parent_of_fork(&db, &w_id).await?;
 
     let rows = sqlx::query!(
@@ -138,12 +143,10 @@ async fn list_deployers(
 /// Fetch the open review request (if any) for the fork's parent.
 /// `{w_id}` is the fork workspace.
 async fn get_open_request(
-    authed: ApiAuthed,
+    _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Option<ForkReviewRequest>> {
-    let _ = authed;
-
     let parent = parent_of_fork(&db, &w_id).await?;
 
     let req = sqlx::query!(
@@ -210,7 +213,7 @@ async fn get_open_request(
         requested_by_email: req.requested_by_email,
         requested_at: req.requested_at,
         reviewers,
-        comments: comments,
+        comments,
     })))
 }
 
@@ -223,7 +226,18 @@ async fn create_review_request(
     Path(w_id): Path<String>,
     Json(body): Json<CreateReviewRequestBody>,
 ) -> Result<Json<ForkReviewRequest>> {
-    if body.reviewers.is_empty() {
+    // Dedupe reviewers so `["alice","alice"]` isn't falsely rejected: the
+    // `= ANY($...)` lookup returns each match once regardless of input
+    // duplicates, so a direct `.len()` comparison would over-count.
+    let unique_reviewers: Vec<String> = body
+        .reviewers
+        .iter()
+        .collect::<BTreeSet<&String>>()
+        .into_iter()
+        .cloned()
+        .collect();
+
+    if unique_reviewers.is_empty() {
         return Err(Error::BadRequest(
             "At least one reviewer is required".to_string(),
         ));
@@ -250,13 +264,13 @@ async fn create_review_request(
               )
         "#,
         &parent,
-        &body.reviewers,
+        &unique_reviewers,
         WM_DEPLOYERS_GROUP,
     )
     .fetch_all(&db)
     .await?;
 
-    if reviewer_rows.len() != body.reviewers.len() {
+    if reviewer_rows.len() != unique_reviewers.len() {
         return Err(Error::BadRequest(
             "All reviewers must be admins or members of wm_deployers in the parent workspace"
                 .to_string(),
@@ -280,7 +294,8 @@ async fn create_review_request(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| match &e {
-        sqlx::Error::Database(db_err) if db_err.is_unique_violation() => Error::BadRequest(
+        sqlx::Error::Database(db_err) if db_err.is_unique_violation() => Error::Generic(
+            StatusCode::CONFLICT,
             "A review request is already open for this fork; cancel it first".to_string(),
         ),
         _ => Error::from(e),
@@ -379,12 +394,18 @@ async fn cancel_review_request(
     }
 
     let mut tx = db.begin().await?;
-    sqlx::query!(
-        "UPDATE workspace_fork_review_request SET closed_at = now(), closed_reason = 'cancelled' WHERE id = $1",
+    let rows_affected = sqlx::query!(
+        "UPDATE workspace_fork_review_request SET closed_at = now(), closed_reason = 'cancelled' WHERE id = $1 AND closed_at IS NULL",
         id,
     )
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
+
+    if rows_affected == 0 {
+        // Lost the race to another cancel / close_merged call.
+        return Ok("already-closed".to_string());
+    }
 
     audit_log(
         &mut *tx,
@@ -421,19 +442,14 @@ async fn cancel_review_request(
 
 /// Called by the UI after a successful merge loop. Closes the open request
 /// for this fork and marks every comment obsolete. Only admins and members
-/// of wm_deployers may close — same set that can actually merge.
+/// of wm_deployers *in the parent workspace* may close — same set that can
+/// actually merge. `authed.groups` here reflects the fork workspace's
+/// groups, so we query the parent explicitly.
 async fn close_merged(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<String> {
-    if !authed.is_admin && !authed.groups.iter().any(|g| g == WM_DEPLOYERS_GROUP) {
-        return Err(Error::NotAuthorized(
-            "Only admins or members of wm_deployers can close a review request as merged"
-                .to_string(),
-        ));
-    }
-
     let row = sqlx::query!(
         "SELECT source_workspace_id, closed_at FROM workspace_fork_review_request WHERE id = $1 AND fork_workspace_id = $2",
         id,
@@ -443,17 +459,53 @@ async fn close_merged(
     .await?
     .ok_or_else(|| Error::NotFound(format!("review request {id} not found")))?;
 
-    if row.closed_at.is_some() {
-        return Ok("already-closed".to_string());
+    // Check deployer membership against the parent workspace, not the fork.
+    let is_parent_deployer = sqlx::query_scalar!(
+        r#"
+            SELECT EXISTS(
+                SELECT 1
+                FROM usr u
+                WHERE u.workspace_id = $1
+                  AND u.email = $2
+                  AND u.disabled = false
+                  AND (
+                      u.is_admin = true
+                      OR EXISTS (
+                          SELECT 1 FROM usr_to_group g
+                          WHERE g.workspace_id = $1
+                            AND g.group_ = $3
+                            AND g.usr = u.username
+                      )
+                  )
+            ) as "exists!"
+        "#,
+        row.source_workspace_id,
+        &authed.email,
+        WM_DEPLOYERS_GROUP,
+    )
+    .fetch_one(&db)
+    .await?;
+
+    if !authed.is_admin && !is_parent_deployer {
+        return Err(Error::NotAuthorized(
+            "Only admins or members of wm_deployers in the parent workspace can close a review request as merged"
+                .to_string(),
+        ));
     }
 
     let mut tx = db.begin().await?;
-    sqlx::query!(
-        "UPDATE workspace_fork_review_request SET closed_at = now(), closed_reason = 'merged' WHERE id = $1",
+    let rows_affected = sqlx::query!(
+        "UPDATE workspace_fork_review_request SET closed_at = now(), closed_reason = 'merged' WHERE id = $1 AND closed_at IS NULL",
         id,
     )
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
+
+    if rows_affected == 0 {
+        return Ok("already-closed".to_string());
+    }
+
     sqlx::query!(
         "UPDATE workspace_fork_review_comment SET obsolete = true WHERE request_id = $1 AND obsolete = false",
         id,
@@ -538,21 +590,22 @@ async fn create_comment(
     }
 
     if let Some(parent_id) = body.parent_id {
-        let parent_exists: bool = sqlx::query_scalar!(
-            r#"
-                SELECT EXISTS(
-                    SELECT 1 FROM workspace_fork_review_comment
-                    WHERE id = $1 AND request_id = $2
-                ) as "exists!"
-            "#,
+        // Parent must exist on this request AND be itself top-level.
+        // Flattening to two levels (top-level + replies) matches the UI,
+        // which only exposes a "Reply" button on top-level comments.
+        let parent_row = sqlx::query!(
+            "SELECT parent_id FROM workspace_fork_review_comment WHERE id = $1 AND request_id = $2",
             parent_id,
             id,
         )
-        .fetch_one(&db)
-        .await?;
-        if !parent_exists {
+        .fetch_optional(&db)
+        .await?
+        .ok_or_else(|| {
+            Error::BadRequest("parent_id does not belong to this request".to_string())
+        })?;
+        if parent_row.parent_id.is_some() {
             return Err(Error::BadRequest(
-                "parent_id does not belong to this request".to_string(),
+                "Replies can only target top-level comments".to_string(),
             ));
         }
     }
