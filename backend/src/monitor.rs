@@ -1916,20 +1916,22 @@ pub async fn load_value_from_global_settings_with_conn(
     }
 }
 
-pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
+/// Load an optional setting value without writing it anywhere.
+///
+/// Extracted from [`reload_option_setting`] so callers that store the value
+/// in something other than `Arc<RwLock<Option<T>>>` (e.g. `ArcSwap<Option<T>>`,
+/// an `AtomicBool`, etc.) can reuse the load pipeline.
+pub async fn load_option_setting_value<T: FromStr + DeserializeOwned>(
     conn: &Connection,
     setting_name: &str,
     std_env_var: &str,
-    lock: Arc<RwLock<Option<T>>>,
-) -> error::Result<()> {
+) -> error::Result<Option<T>> {
     let force_value = std::env::var(format!("FORCE_{}", std_env_var))
         .ok()
         .and_then(|x| x.parse::<T>().ok());
 
     if let Some(force_value) = force_value {
-        let mut l = lock.write().await;
-        *l = Some(force_value);
-        return Ok(());
+        return Ok(Some(force_value));
     }
 
     let q = load_value_from_global_settings_with_conn(conn, setting_name, true).await?;
@@ -1947,14 +1949,24 @@ pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
         }
     };
 
+    if value.is_none() {
+        tracing::info!("Loaded {setting_name} setting to None");
+    }
+
+    Ok(value)
+}
+
+pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
+    conn: &Connection,
+    setting_name: &str,
+    std_env_var: &str,
+    lock: Arc<RwLock<Option<T>>>,
+) -> error::Result<()> {
+    let value = load_option_setting_value::<T>(conn, setting_name, std_env_var).await?;
     {
-        if value.is_none() {
-            tracing::info!("Loaded {setting_name} setting to None");
-        }
         let mut l = lock.write().await;
         *l = value;
     }
-
     Ok(())
 }
 
@@ -1969,12 +1981,16 @@ pub async fn reload_url_list_setting_with_tracing(
     }
 }
 
-pub async fn reload_url_list_setting(
+/// Load an optional URL list setting without writing it anywhere.
+///
+/// Extracted from [`reload_url_list_setting`] so callers that store the
+/// value in something other than `Arc<RwLock<Option<Vec<Url>>>>` (e.g.
+/// `ArcSwap<Option<Vec<Url>>>`) can reuse the parsing pipeline.
+pub async fn load_url_list_setting_value(
     conn: &Connection,
     setting_name: &str,
     std_env_var: &str,
-    lock: Arc<RwLock<Option<Vec<url::Url>>>>,
-) -> error::Result<()> {
+) -> error::Result<Option<Vec<url::Url>>> {
     // Check for force environment variable
     if let Ok(force_value) = std::env::var(format!("FORCE_{}", std_env_var)) {
         let mut urls = Vec::new();
@@ -1989,9 +2005,7 @@ pub async fn reload_url_list_setting(
                 }
             }
         }
-        let mut l = lock.write().await;
-        *l = if urls.is_empty() { None } else { Some(urls) };
-        return Ok(());
+        return Ok(if urls.is_empty() { None } else { Some(urls) });
     }
 
     let q = load_value_from_global_settings_with_conn(conn, setting_name, true).await?;
@@ -2041,25 +2055,39 @@ pub async fn reload_url_list_setting(
         }
     }
 
+    if value.is_none() {
+        tracing::info!("Loaded {} setting to None", setting_name);
+    }
+
+    Ok(value)
+}
+
+pub async fn reload_url_list_setting(
+    conn: &Connection,
+    setting_name: &str,
+    std_env_var: &str,
+    lock: Arc<RwLock<Option<Vec<url::Url>>>>,
+) -> error::Result<()> {
+    let value = load_url_list_setting_value(conn, setting_name, std_env_var).await?;
     {
-        if value.is_none() {
-            tracing::info!("Loaded {} setting to None", setting_name);
-        }
         let mut l = lock.write().await;
         *l = value;
     }
-
     Ok(())
 }
 
-pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
+/// Load a required setting value without writing it anywhere.
+///
+/// Extracted from [`reload_setting`] so callers that store the value in
+/// something other than `Arc<RwLock<T>>` (e.g. `AtomicI64`, `AtomicBool`,
+/// `ArcSwap<T>`) can reuse the load pipeline.
+pub async fn load_setting_value<T: FromStr + DeserializeOwned + Display>(
     conn: &Connection,
     setting_name: &str,
     std_env_var: &str,
     default: T,
-    lock: Arc<RwLock<T>>,
     transformer: fn(T) -> T,
-) -> error::Result<()> {
+) -> error::Result<T> {
     let q = load_value_from_global_settings_with_conn(conn, setting_name, true).await?;
 
     let mut value = std::env::var(std_env_var)
@@ -2076,11 +2104,22 @@ pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
         }
     };
 
+    Ok(value)
+}
+
+pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
+    conn: &Connection,
+    setting_name: &str,
+    std_env_var: &str,
+    default: T,
+    lock: Arc<RwLock<T>>,
+    transformer: fn(T) -> T,
+) -> error::Result<()> {
+    let value = load_setting_value(conn, setting_name, std_env_var, default, transformer).await?;
     {
         let mut l = lock.write().await;
         *l = value;
     }
-
     Ok(())
 }
 
