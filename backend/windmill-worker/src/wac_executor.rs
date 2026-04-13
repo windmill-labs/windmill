@@ -286,12 +286,13 @@ pub fn inject_wac_task_names(content: &str) -> String {
 }
 
 /// Detect WAC v2 patterns in Python code.
-/// Checks for `@workflow` decorator and `@task` decorator with wmill import,
-/// skipping comment lines.
+/// Checks for a wmill import plus a `@workflow` decorator, skipping comment
+/// lines. `@task` is optional: a workflow that only uses inline `step()` calls
+/// (no child-job `@task`) is still WAC v2 and must go through the WAC runner
+/// so its coroutine gets awaited.
 pub fn is_wac_v2_py(code: &str) -> bool {
     let mut has_wmill_import = false;
     let mut has_workflow_decorator = false;
-    let mut has_task_decorator = false;
     for line in code.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('#') {
@@ -303,9 +304,6 @@ pub fn is_wac_v2_py(code: &str) -> bool {
         if trimmed == "@workflow" || trimmed.starts_with("@workflow(") {
             has_workflow_decorator = true;
         }
-        if trimmed == "@task" || trimmed.starts_with("@task(") {
-            has_task_decorator = true;
-        }
     }
-    has_wmill_import && has_workflow_decorator && has_task_decorator
+    has_wmill_import && has_workflow_decorator
 }
