@@ -22,7 +22,8 @@
 		LintResult,
 		DataTableSchema,
 		InspectorElementInfo,
-		SelectedContext
+		AppSelection,
+		AppTransientContext
 	} from '../copilot/chat/app/core'
 	import type { AppCodeSelectionElement } from '../copilot/chat/context'
 	import { rawAppLintStore } from './lintStore'
@@ -401,7 +402,7 @@
 					backend: aiChatManager.appAiChatHelpers?.getBackendRunnables() ?? {}
 				}
 			},
-			getSelectedContext: () => getSelectedAppContext(),
+			getTransientContext: () => getAppTransientContext(),
 			snapshot: () => {
 				// Force create snapshot for AI - it needs a restore point
 				return (
@@ -565,38 +566,14 @@
 
 	let modules = $state({}) as Modules
 
-	function getSelectedAppContext(): SelectedContext {
-		const baseContext = {
+	function getAppTransientContext(): AppTransientContext {
+		return {
 			inspectorElement: inspectorElement,
 			clearInspector: clearInspectorSelection,
 			codeSelection: codeSelection,
 			clearCodeSelection: () => {
 				codeSelection = undefined
 			}
-		}
-
-		if (selectedRunnable) {
-			const runnable = convertToBackendRunnable(selectedRunnable, runnables[selectedRunnable])
-			return {
-				type: 'backend' as const,
-				backendKey: selectedRunnable,
-				backendRunnable: runnable,
-				...baseContext
-			}
-		}
-
-		if (selectedDocument) {
-			return {
-				type: 'frontend' as const,
-				frontendPath: selectedDocument,
-				frontendContent: files?.[selectedDocument],
-				...baseContext
-			}
-		}
-
-		return {
-			type: 'none' as const,
-			...baseContext
 		}
 	}
 
@@ -722,7 +699,7 @@
 	})
 
 	$effect(() => {
-		const appSelection = selectedRunnable
+		const appSelection: AppSelection = selectedRunnable
 			? { type: 'backend' as const, backendKey: selectedRunnable }
 			: selectedDocument
 				? { type: 'frontend' as const, frontendPath: selectedDocument }

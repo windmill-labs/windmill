@@ -12,7 +12,7 @@ import {
 	prepareAppSystemMessage,
 	prepareAppUserMessage,
 	type AppAIChatHelpers,
-	type SelectedContext
+	type AppSelection
 } from './app/core'
 import ContextManager from './ContextManager.svelte'
 import HistoryManager from './HistoryManager.svelte'
@@ -446,10 +446,7 @@ class AIChatManager {
 					if (!pendingPrompt) return undefined
 					this.pendingPrompt = ''
 					if (this.mode === AIMode.SCRIPT) {
-						return prepareScriptUserMessage(
-							pendingPrompt,
-							this.contextManager.getSelectedContext()
-						)
+						return prepareScriptUserMessage(pendingPrompt, this.contextManager.getSelectedContext())
 					} else if (this.mode === AIMode.FLOW) {
 						return prepareFlowUserMessage(
 							pendingPrompt,
@@ -628,9 +625,7 @@ class AIChatManager {
 					role: 'user',
 					content: this.instructions,
 					contextElements:
-						this.mode === AIMode.SCRIPT ||
-						this.mode === AIMode.FLOW ||
-						this.mode === AIMode.APP
+						this.mode === AIMode.SCRIPT || this.mode === AIMode.FLOW || this.mode === AIMode.APP
 							? oldSelectedContext
 							: undefined,
 					snapshot,
@@ -671,7 +666,7 @@ class AIChatManager {
 				case AIMode.APP:
 					userMessage = prepareAppUserMessage(
 						oldInstructions,
-						this.appAiChatHelpers?.getSelectedContext(),
+						this.appAiChatHelpers?.getTransientContext(),
 						oldSelectedContext
 					)
 					break
@@ -918,18 +913,13 @@ class AIChatManager {
 		}
 	}
 
-	syncAppSelection = (
-		selectedContext: Pick<SelectedContext, 'type' | 'frontendPath' | 'backendKey'> | undefined
-	) => {
+	syncAppSelection = (selectedContext: AppSelection | undefined) => {
 		const availableContext = this.getAppAvailableContext()
 		this.contextManager.updateAvailableContextForApp(
 			availableContext,
 			untrack(() => this.contextManager.getSelectedContext())
 		)
-		this.contextManager.setSelectedAppContext(
-			selectedContext,
-			availableContext
-		)
+		this.contextManager.setSelectedAppContext(selectedContext, availableContext)
 	}
 
 	listenForDbSchemasChanges = (dbSchemas: DBSchemas) => {

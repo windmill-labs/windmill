@@ -24,7 +24,7 @@
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import AIChatInput from './AIChatInput.svelte'
 	import { getModifierKey } from '$lib/utils'
-	import type { SelectedContext } from './app/core'
+	import type { AppTransientContext } from './app/core'
 
 	let {
 		messages,
@@ -101,11 +101,11 @@
 	)
 
 	// Get app context for display when in APP mode
-	const appContext = $derived.by((): SelectedContext | undefined => {
+	const appContext = $derived.by((): AppTransientContext | undefined => {
 		if (aiChatManager.mode !== AIMode.APP || !aiChatManager.appAiChatHelpers) {
 			return undefined
 		}
-		return aiChatManager.appAiChatHelpers.getSelectedContext()
+		return aiChatManager.appAiChatHelpers.getTransientContext()
 	})
 </script>
 

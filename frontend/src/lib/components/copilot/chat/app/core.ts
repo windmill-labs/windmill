@@ -82,18 +82,22 @@ export interface InspectorElementInfo {
 	styles: Record<string, string>
 }
 
-/** Context about the currently selected file or runnable in the app editor */
-export interface SelectedContext {
-	/** Type of selection: 'frontend' for frontend files, 'backend' for backend runnables, or 'none' if nothing is selected */
-	type: 'frontend' | 'backend' | 'none'
-	/** The path of the selected frontend file (when type is 'frontend') */
-	frontendPath?: string
-	/** The content of the selected frontend file */
-	frontendContent?: string
-	/** The key of the selected backend runnable (when type is 'backend') */
-	backendKey?: string
-	/** The configuration of the selected backend runnable */
-	backendRunnable?: BackendRunnable
+/** Current file or runnable selected in the app editor */
+export type AppSelection =
+	| {
+			type: 'frontend'
+			frontendPath: string
+	  }
+	| {
+			type: 'backend'
+			backendKey: string
+	  }
+	| {
+			type: 'none'
+	  }
+
+/** Transient app context that does not live in the shared ContextManager selection list */
+export interface AppTransientContext {
 	/** Inspector-selected element info (when user has used the inspector tool) */
 	inspectorElement?: InspectorElementInfo
 	/** Function to clear the inspector selection */
@@ -132,7 +136,7 @@ export interface AppAIChatHelpers {
 	deleteBackendRunnable: (key: string) => void
 	// Combined view
 	getFiles: () => AppFiles
-	getSelectedContext: () => SelectedContext
+	getTransientContext: () => AppTransientContext
 	snapshot: () => number
 	revertToSnapshot: (id: number) => void
 	// Linting
@@ -482,12 +486,22 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 		def: getGetSelectedContextToolDef(),
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Getting selected context...' })
-			const context = helpers.getSelectedContext()
+			const currentSelection = getCurrentAppSelection(
+				aiChatManager.contextManager.getSelectedContext()
+			)
+			const transientContext = helpers.getTransientContext()
+			const context = {
+				...currentSelection,
+				...(transientContext.inspectorElement
+					? { inspectorElement: transientContext.inspectorElement }
+					: {}),
+				...(transientContext.codeSelection ? { codeSelection: transientContext.codeSelection } : {})
+			}
 			const statusMsg =
-				context.type === 'frontend'
-					? `Frontend file selected: ${context.frontendPath}`
-					: context.type === 'backend'
-						? `Backend runnable selected: ${context.backendKey}`
+				currentSelection.type === 'frontend'
+					? `Frontend file selected: ${currentSelection.frontendPath}`
+					: currentSelection.type === 'backend'
+						? `Backend runnable selected: ${currentSelection.backendKey}`
 						: 'No selection'
 			toolCallbacks.setToolStatus(toolId, { content: statusMsg })
 			return JSON.stringify(context, null, 2)
@@ -1033,53 +1047,72 @@ function formatAppContextElement(
 	)
 }
 
-function getAppContextElements(
-	additionalContext: ContextElement[]
-): {
-	activeContextElements: ActiveAppContextElement[]
-	additionalContextElements: AppContextElement[]
-} {
-	const activeContextElements = additionalContext.filter(
+function getCurrentAppSelection(selectedContext: ContextElement[]): AppSelection {
+	const activeContextElement = selectedContext.find(
 		(context) =>
 			context.activeSelection &&
 			(context.type === 'app_frontend_file' || context.type === 'app_backend_runnable')
-	) as ActiveAppContextElement[]
-	const additionalContextElements = additionalContext.filter(
+	) as ActiveAppContextElement | undefined
+
+	if (!activeContextElement) {
+		return { type: 'none' }
+	}
+
+	return activeContextElement.type === 'app_frontend_file'
+		? {
+				type: 'frontend',
+				frontendPath: activeContextElement.path
+			}
+		: {
+				type: 'backend',
+				backendKey: activeContextElement.key
+			}
+}
+
+function getSelectedAppContextElement(
+	selectedContext: ContextElement[]
+): ActiveAppContextElement | undefined {
+	return selectedContext.find(
+		(context) =>
+			context.activeSelection &&
+			(context.type === 'app_frontend_file' || context.type === 'app_backend_runnable')
+	) as ActiveAppContextElement | undefined
+}
+
+function getAdditionalAppContextElements(selectedContext: ContextElement[]): AppContextElement[] {
+	return selectedContext.filter(
 		(context) =>
 			!context.activeSelection &&
 			(context.type === 'app_frontend_file' ||
 				context.type === 'app_backend_runnable' ||
 				context.type === 'app_datatable')
 	) as AppContextElement[]
-
-	return { activeContextElements, additionalContextElements }
 }
 
 export function prepareAppUserMessage(
 	instructions: string,
-	selectedContext?: SelectedContext,
-	additionalContext?: ContextElement[]
+	transientContext?: AppTransientContext,
+	selectedContext: ContextElement[] = []
 ): ChatCompletionUserMessageParam {
 	let content = ''
-	const { activeContextElements, additionalContextElements } = getAppContextElements(
-		additionalContext ?? []
-	)
+	const activeContextElement = getSelectedAppContextElement(selectedContext)
+	const additionalContextElements = getAdditionalAppContextElements(selectedContext)
 
-	// Check if we have any context to add
 	const hasSelectedContext =
-		activeContextElements.length > 0 || !!selectedContext?.inspectorElement || !!selectedContext?.codeSelection
+		!!activeContextElement ||
+		!!transientContext?.inspectorElement ||
+		!!transientContext?.codeSelection
 	const hasAdditionalContext = additionalContextElements.length > 0
 
 	if (hasSelectedContext || hasAdditionalContext) {
 		content += `## SELECTED CONTEXT:\n`
 
-		for (const activeContextElement of activeContextElements) {
+		if (activeContextElement) {
 			content += formatAppContextElement(activeContextElement, { activeSelection: true })
 		}
 
-		// Add inspector element context if available
-		if (selectedContext?.inspectorElement) {
-			const el = selectedContext.inspectorElement
+		if (transientContext?.inspectorElement) {
+			const el = transientContext.inspectorElement
 			content += `\nThe user has selected an element in the app preview using the inspector tool:\n`
 			content += `- **Element**: ${el.tagName}${el.id ? `#${el.id}` : ''}${el.className ? `.${el.className.split(' ').join('.')}` : ''}\n`
 			content += `- **Selector path**: ${el.path}\n`
@@ -1089,14 +1122,12 @@ export function prepareAppUserMessage(
 					el.textContent.length > 100 ? el.textContent.slice(0, 100) + '...' : el.textContent
 				content += `- **Text content**: "${truncatedText}"\n`
 			}
-			// Include HTML (truncated) for more context
 			const truncatedHtml = el.html.length > 500 ? el.html.slice(0, 500) + '...' : el.html
 			content += `- **HTML**:\n\`\`\`html\n${truncatedHtml}\n\`\`\`\n`
 		}
 
-		// Add code selection context if available
-		if (selectedContext?.codeSelection) {
-			const selection = selectedContext.codeSelection
+		if (transientContext?.codeSelection) {
+			const selection = transientContext.codeSelection
 			content += `\n### CODE SELECTION:\n`
 			content += `The user has selected code in the ${selection.sourceType} editor:\n`
 			content += `- **File/Source**: ${selection.source}\n`
@@ -1104,7 +1135,6 @@ export function prepareAppUserMessage(
 			content += `\`\`\`\n${truncateContextContent(selection.content)}\n\`\`\`\n`
 		}
 
-		// Add additional context from @ mentions
 		if (additionalContextElements.length > 0) {
 			content += `\n### ADDITIONAL CONTEXT (mentioned by user):\n`
 

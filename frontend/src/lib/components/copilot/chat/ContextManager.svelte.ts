@@ -8,7 +8,7 @@ import type { FlowModule } from '$lib/gen'
 import type { DisplayMessage } from './shared'
 import { langToExt } from '$lib/editorLangUtils'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
-import type { SelectedContext } from './app/core'
+import type { AppSelection } from './app/core'
 
 export interface ScriptOptions {
 	lang: ScriptLang | 'bunnative'
@@ -458,7 +458,7 @@ export default class ContextManager {
 	}
 
 	setSelectedAppContext(
-		selectedContext: Pick<SelectedContext, 'type' | 'frontendPath' | 'backendKey'> | undefined,
+		selectedContext: AppSelection | undefined,
 		availableContext: ContextElement[] | undefined
 	) {
 		this.selectedContext = this.selectedContext.filter(
@@ -477,15 +477,14 @@ export default class ContextManager {
 			selectedContext?.type === 'frontend' && selectedContext.frontendPath
 				? availableContext.find(
 						(context) =>
-							context.type === 'app_frontend_file' &&
-							context.title === selectedContext.frontendPath
-				  )
+							context.type === 'app_frontend_file' && context.title === selectedContext.frontendPath
+					)
 				: selectedContext?.type === 'backend' && selectedContext.backendKey
 					? availableContext.find(
 							(context) =>
 								context.type === 'app_backend_runnable' &&
 								context.title === selectedContext.backendKey
-					  )
+						)
 					: undefined
 
 		if (selectedAppContext) {
