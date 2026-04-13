@@ -1133,6 +1133,15 @@
 						<div class="flex flex-col items-end gap-2">
 							{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
 								<div class="flex items-center gap-2">
+									{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
+										<Button
+											variant="default"
+											startIcon={{ icon: UserPlus }}
+											on:click={() => deploymentRequestPanel?.openRequestDialog()}
+										>
+											Request deployment
+										</Button>
+									{/if}
 									<Button
 										variant="accent"
 										disabled={selectedItems.length === 0 ||
@@ -1149,15 +1158,6 @@
 											({selectedConflicts} conflicts)
 										{/if}
 									</Button>
-									{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
-										<Button
-											variant="default"
-											startIcon={{ icon: UserPlus }}
-											on:click={() => deploymentRequestPanel?.openRequestDialog()}
-										>
-											Request deployment
-										</Button>
-									{/if}
 								</div>
 								{#if !(mergeIntoParent && !canDeployToParent) && hasUnselectedOnBehalfOf}
 									<span class="text-xs text-yellow-600">
