@@ -866,6 +866,20 @@
 		// sub?.()
 	})
 
+	function getAgentActionContent(agentResult: any, actionIndex: number): unknown | undefined {
+		if (!agentResult?.messages || !Array.isArray(agentResult.messages)) return undefined
+		let agentActionIdx = 0
+		for (const m of agentResult.messages) {
+			if (m.agent_action) {
+				if (agentActionIdx === actionIndex) {
+					return m.content
+				}
+				agentActionIdx++
+			}
+		}
+		return undefined
+	}
+
 	function isSuccess(arg: any): boolean | undefined {
 		if (arg == undefined) {
 			return undefined
@@ -1966,12 +1980,31 @@
 									{:else if rightColumnSelect == 'node_status'}
 										<div class="p-4 grow flex flex-col gap-6">
 											{#if selectedNode?.startsWith(AI_TOOL_MESSAGE_PREFIX)}
-												<div class="pt-2 pb-4">
-													<Alert
-														type="info"
-														title="Message output is available on the AI agent node"
-													/>
-												</div>
+												{@const [, agentModuleId, toolCallIndex] = selectedNode.split('-')}
+												{@const agentNode = localModuleStates?.[agentModuleId]}
+												{@const actionIndex = parseInt(toolCallIndex)}
+												{@const messageContent = getAgentActionContent(
+													agentNode?.result,
+													actionIndex
+												)}
+												{#if messageContent !== undefined}
+													<div>
+														<h3 class="text-sm font-semibold mb-2 text-secondary">Message</h3>
+														<div class="border rounded">
+															<DisplayResult
+																result={messageContent}
+																workspaceId={job?.workspace_id}
+															/>
+														</div>
+													</div>
+												{:else}
+													<div class="pt-2 pb-4">
+														<Alert
+															type="info"
+															title="Message output is available on the AI agent node"
+														/>
+													</div>
+												{/if}
 											{:else if selectedNode?.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
 												{@const [, agentModuleId, toolCallIndex] = selectedNode.split('-')}
 												{@const agentNode = localModuleStates?.[agentModuleId]}
@@ -1997,10 +2030,31 @@
 													/>
 												{/if}
 											{:else if selectedNode?.startsWith(AI_WEBSEARCH_PREFIX)}
-												<Alert
-													type="info"
-													title="Web search output is available on the AI agent node"
-												/>
+												{@const [, agentModuleId, toolCallIndex] = selectedNode.split('-')}
+												{@const agentNode = localModuleStates?.[agentModuleId]}
+												{@const actionIndex = parseInt(toolCallIndex)}
+												{@const searchContent = getAgentActionContent(
+													agentNode?.result,
+													actionIndex
+												)}
+												{#if searchContent !== undefined}
+													<div>
+														<h3 class="text-sm font-semibold mb-2 text-secondary">
+															Web Search Result
+														</h3>
+														<div class="border rounded">
+															<DisplayResult
+																result={searchContent}
+																workspaceId={job?.workspace_id}
+															/>
+														</div>
+													</div>
+												{:else}
+													<Alert
+														type="info"
+														title="Web search output is available on the AI agent node"
+													/>
+												{/if}
 											{:else if selectedNode}
 												{@const node = localModuleStates[selectedNode]}
 												{#if selectedNode == 'end'}
