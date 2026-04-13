@@ -69,11 +69,10 @@ pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
 pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
 pub const ALERT_CONFIG_SETTING: &str = "alert_job_queue_waiting";
 
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::atomic::AtomicBool;
 
 lazy_static::lazy_static! {
-    pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
 }
 
 pub const ENV_SETTINGS: &[&str] = &[

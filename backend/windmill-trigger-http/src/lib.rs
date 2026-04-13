@@ -274,7 +274,7 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
             .await?;
 
             let mut router = matchit::Router::new();
-            let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
+            let http_route_workspaced = HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
             for trigger in triggers {
                 let full_path =

@@ -130,7 +130,7 @@ pub async fn push_scheduled_job<'c>(
     authed: Option<&Authed>,
     now_cutoff: Option<DateTime<Utc>>,
 ) -> Result<Transaction<'c, Postgres>> {
-    if !*LICENSE_KEY_VALID.read().await {
+    if !LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed) {
         return Err(error::Error::BadRequest(
             "License key is not valid. Go to your superadmin settings to update your license key."
                 .to_string(),

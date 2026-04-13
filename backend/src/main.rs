@@ -964,7 +964,7 @@ Windmill Community Edition {GIT_VERSION}
                 std::process::exit(1);
             }
         }
-        let valid_key = *LICENSE_KEY_VALID.read().await;
+        let valid_key = LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed);
         if !valid_key && !server_mode {
             tracing::error!("Invalid license key, workers require a valid license key");
         }

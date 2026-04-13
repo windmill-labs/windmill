@@ -65,7 +65,7 @@ pub async fn check_tag_available_for_workspace(
 pub async fn check_license_key_valid() -> error::Result<()> {
     use windmill_common::ee_oss::LICENSE_KEY_VALID;
 
-    let valid = *LICENSE_KEY_VALID.read().await;
+    let valid = LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed);
     if !valid {
         return Err(error::Error::BadRequest(
             "License key is not valid. Go to your superadmin settings to update your license key."

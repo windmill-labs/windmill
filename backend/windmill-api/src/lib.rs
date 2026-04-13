@@ -1139,7 +1139,7 @@ async fn list_workspace_labels(
 async fn ee_license() -> String {
     use windmill_common::ee_oss::{LICENSE_KEY_ID, LICENSE_KEY_VALID};
 
-    if *LICENSE_KEY_VALID.read().await {
+    if LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed) {
         LICENSE_KEY_ID.read().await.clone()
     } else {
         "".to_string()

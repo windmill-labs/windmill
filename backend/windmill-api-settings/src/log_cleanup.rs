@@ -293,7 +293,7 @@ async fn cleanup_job_logs(
     db: &DB,
     store: &Arc<dyn ObjectStore>,
 ) -> error::Result<()> {
-    let retention_secs = *JOB_RETENTION_SECS.read().await;
+    let retention_secs = JOB_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed);
     if retention_secs <= 0 {
         return Ok(());
     }
@@ -465,7 +465,7 @@ async fn cleanup_s3_orphans(
     db: &DB,
     store: &Arc<dyn ObjectStore>,
 ) -> error::Result<()> {
-    let job_retention_secs = *JOB_RETENTION_SECS.read().await;
+    let job_retention_secs = JOB_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed);
     let now = Utc::now();
     // Service logs always have a retention (hardcoded SERVICE_LOG_RETENTION_SECS),
     // so we scan for service-log orphans regardless of JOB_RETENTION_SECS. Job-log

@@ -2071,7 +2071,7 @@ pub async fn create_session_token<'c>(
     .await?;
 
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
-    cookie.set_secure(IS_SECURE.read().await.clone());
+    cookie.set_secure(IS_SECURE.load(std::sync::atomic::Ordering::Relaxed));
     cookie.set_same_site(Some(tower_cookies::cookie::SameSite::Lax));
     cookie.set_http_only(true);
     cookie.set_path(COOKIE_PATH);
@@ -2202,7 +2202,7 @@ async fn exit_impersonation(
     Json(req): Json<ExitImpersonationRequest>,
 ) -> Result<String> {
     let mut cookie = tower_cookies::Cookie::new(COOKIE_NAME, req.token);
-    cookie.set_secure(IS_SECURE.read().await.clone());
+    cookie.set_secure(IS_SECURE.load(std::sync::atomic::Ordering::Relaxed));
     cookie.set_same_site(Some(tower_cookies::cookie::SameSite::Lax));
     cookie.set_http_only(true);
     cookie.set_path(COOKIE_PATH);

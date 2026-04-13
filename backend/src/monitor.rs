@@ -1137,7 +1137,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
         ),
     }
 
-    let job_retention_secs = *JOB_RETENTION_SECS.read().await;
+    let job_retention_secs = JOB_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed);
     if job_retention_secs > 0 {
         let batch_size = *JOB_CLEANUP_BATCH_SIZE;
         let max_batches = *JOB_CLEANUP_MAX_BATCHES;
@@ -1442,7 +1442,8 @@ async fn delete_log_files_from_disk_and_store(
     // API, up to 1000 objects per request).
     #[cfg(feature = "parquet")]
     {
-        let should_del_from_store = *MONITOR_LOGS_ON_OBJECT_STORE.read().await;
+        let should_del_from_store =
+            MONITOR_LOGS_ON_OBJECT_STORE.load(std::sync::atomic::Ordering::Relaxed);
         if should_del_from_store {
             if let Some(os) = windmill_object_store::get_object_store().await {
                 let s3_paths: Vec<_> = paths_to_delete
@@ -1742,47 +1743,47 @@ pub async fn reload_hub_api_secret_setting(conn: &Connection) {
 }
 
 pub async fn reload_retention_period_setting(conn: &Connection) {
-    if let Err(e) = reload_setting(
+    match load_setting_value::<i64>(
         conn,
         RETENTION_PERIOD_SECS_SETTING,
         "JOB_RETENTION_SECS",
         60 * 60 * 24 * 30,
-        JOB_RETENTION_SECS.clone(),
         |x| x,
     )
     .await
     {
-        tracing::error!("Error reloading retention period: {:?}", e)
+        Ok(v) => JOB_RETENTION_SECS.store(v, Ordering::Relaxed),
+        Err(e) => tracing::error!("Error reloading retention period: {:?}", e),
     }
 }
 
 pub async fn reload_audit_log_retention_days_setting(conn: &Connection) {
-    if let Err(e) = reload_setting(
+    match load_setting_value::<i64>(
         conn,
         AUDIT_LOG_RETENTION_DAYS_SETTING,
         "AUDIT_LOG_RETENTION_DAYS",
         0, // 0 means use default: 365 for EE, 14 for CE
-        AUDIT_LOG_RETENTION_DAYS.clone(),
         |x| x,
     )
     .await
     {
-        tracing::error!("Error reloading audit log retention days: {:?}", e)
+        Ok(v) => AUDIT_LOG_RETENTION_DAYS.store(v, Ordering::Relaxed),
+        Err(e) => tracing::error!("Error reloading audit log retention days: {:?}", e),
     }
 }
 
 pub async fn reload_delete_logs_periodically_setting(conn: &Connection) {
-    if let Err(e) = reload_setting(
+    match load_setting_value::<bool>(
         conn,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
         "MONITOR_LOGS_ON_OBJECT_STORE",
         false,
-        MONITOR_LOGS_ON_OBJECT_STORE.clone(),
         |x| x,
     )
     .await
     {
-        tracing::error!("Error reloading retention period: {:?}", e)
+        Ok(v) => MONITOR_LOGS_ON_OBJECT_STORE.store(v, Ordering::Relaxed),
+        Err(e) => tracing::error!("Error reloading retention period: {:?}", e),
     }
 }
 
@@ -2805,10 +2806,7 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
         }
     }
 
-    {
-        let mut l = IS_SECURE.write().await;
-        *l = is_secure;
-    }
+    IS_SECURE.store(is_secure, Ordering::Relaxed);
 
     Ok(())
 }
@@ -3740,18 +3738,13 @@ pub async fn reload_http_route_workspaced_route_setting(conn: &DB) -> error::Res
         }
     };
 
-    let mut l = HTTP_ROUTE_WORKSPACED_ROUTE.write().await;
-
-    if *l != ws_route {
-        *l = ws_route;
-        drop(l);
+    let previous = HTTP_ROUTE_WORKSPACED_ROUTE.swap(ws_route, Ordering::Relaxed);
+    if previous != ws_route {
         // Bump the HTTP trigger version so the route cache is rebuilt with
         // the updated workspaced_route behavior on the next request.
         sqlx::query!("SELECT nextval('http_trigger_version_seq')")
             .fetch_one(conn)
             .await?;
-    } else {
-        *l = ws_route;
     }
     Ok(())
 }
@@ -3938,7 +3931,7 @@ RETURNING job_id
 }
 
 async fn audit_log_retention_days() -> i64 {
-    let v = *AUDIT_LOG_RETENTION_DAYS.read().await;
+    let v = AUDIT_LOG_RETENTION_DAYS.load(std::sync::atomic::Ordering::Relaxed);
     if v > 0 {
         v
     } else if cfg!(feature = "enterprise") {

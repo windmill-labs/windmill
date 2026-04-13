@@ -2141,7 +2141,7 @@ pub async fn run_worker(
         }
         #[cfg(feature = "enterprise")]
         {
-            let valid_key = *LICENSE_KEY_VALID.read().await;
+            let valid_key = LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed);
 
             if !valid_key {
                 tracing::error!(
@@ -3014,7 +3014,7 @@ pub async fn run_worker(
 
     #[cfg(feature = "enterprise")]
     {
-        let valid_key = *LICENSE_KEY_VALID.read().await;
+        let valid_key = LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed);
 
         if !valid_key {
             tracing::info!(worker = %worker_name, hostname = %hostname, "Invalid license key, exiting immediately");
