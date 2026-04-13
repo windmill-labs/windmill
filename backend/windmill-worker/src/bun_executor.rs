@@ -2305,8 +2305,7 @@ pub async fn handle_wac_v2_output(
     modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> error::Result<Box<RawValue>> {
     use crate::wac_executor::{
-        add_completed_step, load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch,
-        WacOutput,
+        load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch, WacOutput,
     };
     use serde_json::Value;
     use windmill_common::get_latest_flow_version_info_for_path;
@@ -3143,104 +3142,44 @@ pub async fn handle_wac_v2_output(
                 }
             };
 
-            let mut checkpoint = load_checkpoint(db, &job.id).await?;
+            // All-or-nothing: the checkpoint save, the `_step/<key>` timeline
+            // write, and the `running = false` queue reset must commit
+            // together. If we split them, a crash or failure in the middle
+            // would leave the job queued with `running = true` but a
+            // checkpoint that already contains the current step — any retry
+            // would then skip the step entirely. Passing the caller's `tx`
+            // into `persist_inline_checkpoint_delta` preserves the original
+            // atomicity from before the shared-helper refactor.
+            let source_hash = job.runnable_id.map(|h| h.0.to_string());
+            let mut tx = db.begin().await?;
 
-            // Source hash validation (same as Dispatch path)
-            let current_hash = job.runnable_id.map(|h| h.0.to_string()).unwrap_or_default();
-            if !current_hash.is_empty() {
-                if checkpoint.source_hash.is_empty() {
-                    checkpoint.source_hash = current_hash.clone();
-                } else if checkpoint.source_hash != current_hash {
-                    return Err(error::Error::ExecutionErr(
-                        "Workflow source code changed between replays. \
-                         Cannot safely resume from checkpoint — step keys may have shifted. \
-                         Please restart this workflow."
-                            .to_string(),
-                    ));
-                }
-            }
+            crate::wac_executor::persist_inline_checkpoint_delta(
+                &mut tx,
+                &job.id,
+                source_hash.as_deref(),
+                &key,
+                value,
+                started_at.as_deref(),
+                duration_ms,
+            )
+            .await?;
 
-            tracing::info!(
-                job_id = %job.id,
-                step_key = %key,
-                "WAC v2 inline checkpoint — persisting step result"
-            );
+            // Reset running=false so the job is immediately eligible for pickup.
+            // Unlike dispatch (which sets suspend>0), inline checkpoints don't suspend —
+            // the job should be re-run right away to continue past the cached step.
+            sqlx::query!(
+                "UPDATE v2_job_queue SET running = false, started_at = null WHERE id = $1",
+                job.id,
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!(
+                    "Failed to reset running state for inline checkpoint: {e}"
+                ))
+            })?;
 
-            add_completed_step(&mut checkpoint, &key, value);
-
-            // Save checkpoint + write step timeline entry + reset running in a single transaction
-            {
-                let mut tx = db.begin().await?;
-                let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
-                    error::Error::internal_err(format!("Failed to serialize checkpoint: {e}"))
-                })?;
-                sqlx::query(
-                    "INSERT INTO v2_job_status (id, workflow_as_code_status)
-                     VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
-                     ON CONFLICT (id) DO UPDATE SET
-                        workflow_as_code_status = jsonb_set(
-                            COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
-                            '{_checkpoint}',
-                            $2::jsonb
-                        )",
-                )
-                .bind(&job.id)
-                .bind(&status_json)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    error::Error::internal_err(format!("Failed to save WAC checkpoint: {e}"))
-                })?;
-
-                // Write timeline entry for the inline step (keyed as _step/<key>).
-                // Fall back to now() when the client doesn't provide started_at
-                // (older windmill-client versions omit it).
-                {
-                    let now_str = chrono::Utc::now().to_rfc3339();
-                    let sa = started_at.as_deref().unwrap_or(&now_str);
-                    let mut timeline_val = serde_json::json!({
-                        "scheduled_for": sa,
-                        "started_at": sa,
-                        "name": key,
-                    });
-                    if let Some(dur) = duration_ms {
-                        timeline_val["duration_ms"] = serde_json::json!(dur);
-                    }
-                    let step_timeline_key = format!("_step/{}", key);
-                    sqlx::query(
-                        "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
-                            COALESCE(workflow_as_code_status, '{}'::jsonb),
-                            ARRAY[$2],
-                            $3
-                        ) WHERE id = $1",
-                    )
-                    .bind(&job.id)
-                    .bind(&step_timeline_key)
-                    .bind(&timeline_val)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|e| {
-                        error::Error::internal_err(format!("Failed to write step timeline: {e}"))
-                    })?;
-                }
-
-                // Reset running=false so the job is immediately eligible for pickup.
-                // Unlike dispatch (which sets suspend>0), inline checkpoints don't suspend —
-                // the job should be re-run right away to continue past the cached step.
-                sqlx::query!(
-                    "UPDATE v2_job_queue SET running = false, started_at = null WHERE id = $1",
-                    job.id,
-                )
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    error::Error::internal_err(format!(
-                        "Failed to reset running state for inline checkpoint: {e}"
-                    ))
-                })?;
-
-                tx.commit().await?;
-            }
+            tx.commit().await?;
 
             Err(error::Error::WacSuspended(format!(
                 "WAC v2 job {} inline checkpoint for step {}",

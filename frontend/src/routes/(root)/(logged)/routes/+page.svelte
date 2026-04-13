@@ -294,38 +294,36 @@
 			tooltip="Every script and flow already has a canonical HTTP API endpoint/webhook attached to it, this is to create additional parametrizable ones."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing"
 		>
-			{#if $userStore?.is_admin || $userStore?.is_super_admin}
-				<div class="flex flex-row gap-2">
-					<Button
-						unifiedSize="md"
-						variant="default"
-						startIcon={{ icon: Plus }}
-						on:click={() => {
-							routesGenerator?.openDrawer()
-						}}
-					>
-						From OpenAPI spec
-					</Button>
-					<Button
-						unifiedSize="md"
-						variant="default"
-						startIcon={{ icon: Plus }}
-						on:click={() => {
-							openAPISpecGenerator?.openDrawer()
-						}}
-					>
-						To OpenAPI spec
-					</Button>
-					<Button
-						unifiedSize="md"
-						variant="accent"
-						startIcon={{ icon: Plus }}
-						on:click={() => routeEditor?.openNew(false)}
-					>
-						New&nbsp;route
-					</Button>
-				</div>
-			{/if}
+			<div class="flex flex-row gap-2">
+				<Button
+					unifiedSize="md"
+					variant="default"
+					startIcon={{ icon: Plus }}
+					on:click={() => {
+						routesGenerator?.openDrawer()
+					}}
+				>
+					From OpenAPI spec
+				</Button>
+				<Button
+					unifiedSize="md"
+					variant="default"
+					startIcon={{ icon: Plus }}
+					on:click={() => {
+						openAPISpecGenerator?.openDrawer()
+					}}
+				>
+					To OpenAPI spec
+				</Button>
+				<Button
+					unifiedSize="md"
+					variant="accent"
+					startIcon={{ icon: Plus }}
+					on:click={() => routeEditor?.openNew(false)}
+				>
+					New&nbsp;route
+				</Button>
+			</div>
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">
 			<div class="w-full pb-4 pt-6">
@@ -515,8 +513,7 @@
 												displayName: 'Delete',
 												type: 'delete',
 												icon: Trash,
-												disabled:
-													!canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
+												disabled: !canWrite,
 												action: async () => {
 													try {
 														await HttpTriggerService.deleteHttpTrigger({

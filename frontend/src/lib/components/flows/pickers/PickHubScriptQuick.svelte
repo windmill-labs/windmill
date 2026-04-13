@@ -38,7 +38,7 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { Skeleton } from '$lib/components/common'
-	import { classNames, createCache, sendUserToast } from '$lib/utils'
+	import { classNames, createCache } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Circle, ExternalLink } from 'lucide-svelte'
@@ -151,7 +151,7 @@
 			try {
 				await ScriptService.pickHubScriptByPath({ path: item.path })
 			} catch (error) {
-				sendUserToast('Failed to call ScriptService.pickHubScriptByPath: ' + error, 'error')
+				console.error('Failed to track hub script pick:', error)
 				// Don't block the flow if tracking fails
 			}
 		}

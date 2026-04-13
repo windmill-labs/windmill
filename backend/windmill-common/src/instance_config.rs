@@ -277,6 +277,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pip_extra_index_url: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ruff_config: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub npm_config_registry: Option<StringOrSecretRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bunfig_install_scopes: Option<StringOrSecretRef>,

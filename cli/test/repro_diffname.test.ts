@@ -78,8 +78,11 @@ test("Raw app: generate-metadata must not create duplicate files when runnable k
     const backendDir = path.join(tempDir, "f/test/diffname_app.raw_app", "backend");
     let files = await readdir(backendDir);
 
-    // After pull: files named by KEY (a, b)
-    expect(files.sort()).toEqual(["a.lock", "a.ts", "a.yaml", "b.lock", "b.ts", "b.yaml"]);
+    // After pull: files named by KEY (a, b).
+    // Lock files are generated asynchronously by the backend worker and may not
+    // have landed yet — exclude them from this precondition to avoid a Windows race.
+    const nonLockFiles = files.filter((f) => !f.endsWith(".lock")).sort();
+    expect(nonLockFiles).toEqual(["a.ts", "a.yaml", "b.ts", "b.yaml"]);
 
     // Run generate-metadata — this previously created duplicate files named by NAME
     const metaResult = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);

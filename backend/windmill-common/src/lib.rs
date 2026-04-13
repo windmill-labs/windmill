@@ -48,6 +48,9 @@ mod db_entra_ee;
 mod db_iam_ee;
 pub mod db_params;
 #[cfg(feature = "private")]
+pub mod deployment_requests_ee;
+pub mod deployment_requests_oss;
+#[cfg(feature = "private")]
 pub mod ee;
 pub mod ee_oss;
 #[cfg(feature = "private")]
@@ -109,6 +112,7 @@ pub mod usernames;
 pub mod users;
 pub mod utils;
 pub mod variables;
+pub mod wac;
 pub mod webhook;
 pub mod worker;
 pub mod worker_group_job_stats;

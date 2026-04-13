@@ -63,7 +63,6 @@ use windmill_worker::get_worker_internal_server_inline_utils;
 
 use windmill_common::variables::get_workspace_key;
 
-#[cfg(feature = "run_inline")]
 use crate::db::OptJobAuthed;
 use crate::triggers::trigger_helpers::{FlowId, ScriptId};
 use crate::{
@@ -160,6 +159,10 @@ pub fn workspaced_service() -> Router {
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
+        )
+        .route(
+            "/wac/inline_checkpoint/{job_id}",
+            post(wac_inline_checkpoint).layer(cors.clone()),
         )
         .route(
             "/restart/f/{job_id}",
@@ -4443,6 +4446,88 @@ pub async fn run_workflow_as_code(
     }
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+#[derive(Deserialize)]
+pub struct WacInlineCheckpointPayload {
+    pub key: String,
+    pub result: serde_json::Value,
+    #[serde(default)]
+    pub started_at: Option<String>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+}
+
+/// Fast-path endpoint called by the WAC v2 SDKs to persist a single `step()`
+/// checkpoint delta without unwinding the parent workflow subprocess.
+///
+/// Mirrors the worker-side `WacOutput::InlineCheckpoint` arm in
+/// `bun_executor::handle_wac_v2_output` exactly — same `completed_steps`
+/// entry, same `_step/<key>` timeline entry, same source-hash validation —
+/// but does **not** touch `v2_job_queue`, because the parent subprocess is
+/// still live and about to return the next chunk of script output.
+///
+/// Auth: requires the job's ephemeral token (the one the worker sets into
+/// `WM_TOKEN` when spawning the subprocess), not just any workspace-scoped
+/// `ApiAuthed`. Because WAC v2 replays steps from `completed_steps`, a forged
+/// entry directly changes the workflow's observed return values — this is
+/// execution state, not user-facing metadata. `OptJobAuthed.job_id` is set
+/// only when the caller presents a JWT whose `job_id` claim matches the URL
+/// path, so rejecting mismatches closes the workspace-wide privilege gap.
+///
+/// Any error here causes the SDK to fall back to raising `_StepSuspend`,
+/// which then goes through the untouched worker-side path. Old SDKs that
+/// never call this endpoint continue to work unchanged.
+pub async fn wac_inline_checkpoint(
+    OptJobAuthed { authed: _, job_id: token_job_id }: OptJobAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Json(payload): Json<WacInlineCheckpointPayload>,
+) -> error::Result<StatusCode> {
+    // Enforce ephemeral-job-token binding: the presented token must be the
+    // one issued to *this* specific job. Regular workspace API tokens don't
+    // have `job_id` populated in their JWT claims, so `token_job_id` is None
+    // for them — reject unconditionally.
+    if token_job_id != Some(job_id) {
+        return Err(error::Error::PermissionDenied(
+            "wac_inline_checkpoint requires the job's ephemeral token".to_string(),
+        ));
+    }
+
+    // Look up the job's script hash for source-hash validation. We deliberately
+    // use a minimal query here rather than `fetch_queued(...)` — the latter
+    // pulls in many extra columns we don't need. Restrict to the job kinds
+    // that actually run user WAC v2 code (`script` and `preview`) so a
+    // forged/buggy caller can't write a bogus checkpoint onto a flow,
+    // dependency, or other job kind that shares the workspace.
+    let row: Option<(Option<i64>,)> = sqlx::query_as(
+        "SELECT runnable_id FROM v2_job
+         WHERE id = $1 AND workspace_id = $2
+           AND kind IN ('script'::job_kind, 'preview'::job_kind)",
+    )
+    .bind(&job_id)
+    .bind(&w_id)
+    .fetch_optional(&db)
+    .await?;
+    let (runnable_id,) = row.ok_or_else(|| {
+        error::Error::NotFound(format!("WAC v2 job {job_id} not found in workspace {w_id}"))
+    })?;
+    let source_hash = runnable_id.map(|h| h.to_string());
+
+    let mut tx = db.begin().await?;
+    windmill_common::wac::persist_inline_checkpoint_delta(
+        &mut tx,
+        &job_id,
+        source_hash.as_deref(),
+        &payload.key,
+        payload.result,
+        payload.started_at.as_deref(),
+        payload.duration_ms,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(StatusCode::OK)
 }
 
 lazy_static::lazy_static! {

@@ -34,7 +34,7 @@ import {
 } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
-import { inlineScriptStore, extractAndReplaceInlineScripts } from './inlineScriptsUtils'
+import type { InlineScriptSession } from './inlineScriptsUtils'
 import { flowModulesSchema } from './openFlowZod'
 import { collectAllModuleIdsFromArray } from './utils'
 import { getFlowPrompt } from '$system_prompts'
@@ -247,6 +247,7 @@ export interface FlowAIChatHelpers {
 	// flow context
 	getFlowAndSelectedId: () => { flow: ExtendedOpenFlow; selectedId: string }
 	getModules: (id?: string) => FlowModule[]
+	inlineScriptSession: InlineScriptSession
 
 	// snapshot management (AI sets this when making changes)
 	/** Set the before flow snapshot */
@@ -581,7 +582,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: inspectInlineScriptToolDef,
-		fn: async ({ args, toolCallbacks, toolId }) => {
+		fn: async ({ args, helpers, toolCallbacks, toolId }) => {
 			const parsedArgs = inspectInlineScriptSchema.parse(args)
 			const moduleId = parsedArgs.moduleId
 
@@ -589,7 +590,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				content: `Retrieving inline script content for module '${moduleId}'...`
 			})
 
-			const content = inlineScriptStore.get(moduleId)
+			const content = helpers.inlineScriptSession.get(moduleId)
 
 			if (content === undefined) {
 				toolCallbacks.setToolStatus(toolId, {
@@ -622,9 +623,6 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const { moduleId, code } = parsedArgs
 
 			toolCallbacks.setToolStatus(toolId, { content: `Setting code for module '${moduleId}'...` })
-
-			// Update store to keep it coherent (for subsequent set_flow_json calls with references)
-			inlineScriptStore.set(moduleId, code)
 
 			// Update the flow directly via helper
 			await helpers.setCode(moduleId, code)
@@ -1057,7 +1055,8 @@ You have access to the following contexts:
 export function prepareFlowUserMessage(
 	instructions: string,
 	flowAndSelectedId?: { flow: ExtendedOpenFlow; selectedId: string },
-	selectedContext: ContextElement[] = []
+	selectedContext: ContextElement[] = [],
+	inlineScriptSession?: InlineScriptSession
 ): ChatCompletionUserMessageParam {
 	const flow = flowAndSelectedId?.flow
 	const selectedId = flowAndSelectedId?.selectedId
@@ -1075,10 +1074,13 @@ ${instructions}`
 	}
 
 	const codePieces = selectedContext.filter((c) => c.type === 'flow_module_code_piece')
+	const scriptSession = inlineScriptSession
 
 	// Clear the inline script store and extract inline scripts for token optimization
-	inlineScriptStore.clear()
-	const optimizedModules = extractAndReplaceInlineScripts(flow.value.modules)
+	scriptSession?.clear()
+	const optimizedModules = scriptSession
+		? scriptSession.extractAndReplaceInlineScripts(flow.value.modules)
+		: flow.value.modules
 
 	// Apply code pieces to the optimized modules (returns YAML string)
 	const flowModulesYaml = applyCodePiecesToFlowModules(codePieces, optimizedModules)
@@ -1086,7 +1088,7 @@ ${instructions}`
 	// Handle preprocessor and failure modules
 	let optimizedPreprocessor = flow.value.preprocessor_module
 	if (optimizedPreprocessor?.value?.type === 'rawscript' && optimizedPreprocessor.value.content) {
-		inlineScriptStore.set(optimizedPreprocessor.id, optimizedPreprocessor.value.content)
+		scriptSession?.set(optimizedPreprocessor.id, optimizedPreprocessor.value.content)
 		optimizedPreprocessor = {
 			...optimizedPreprocessor,
 			value: {
@@ -1098,7 +1100,7 @@ ${instructions}`
 
 	let optimizedFailure = flow.value.failure_module
 	if (optimizedFailure?.value?.type === 'rawscript' && optimizedFailure.value.content) {
-		inlineScriptStore.set(optimizedFailure.id, optimizedFailure.value.content)
+		scriptSession?.set(optimizedFailure.id, optimizedFailure.value.content)
 		optimizedFailure = {
 			...optimizedFailure,
 			value: {

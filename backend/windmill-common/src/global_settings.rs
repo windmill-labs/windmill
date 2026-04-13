@@ -28,6 +28,7 @@ pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";
 pub const UV_INDEX_STRATEGY_SETTING: &str = "uv_index_strategy";
 pub const INSTANCE_PYTHON_VERSION_SETTING: &str = "instance_python_version";
+pub const RUFF_CONFIG_SETTING: &str = "ruff_config";
 pub const SCIM_TOKEN_SETTING: &str = "scim_token";
 pub const SAML_METADATA_SETTING: &str = "saml_metadata";
 pub const SMTP_SETTING: &str = "smtp_settings";

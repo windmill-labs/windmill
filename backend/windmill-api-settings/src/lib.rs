@@ -52,12 +52,48 @@ use windmill_common::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
         EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, WS_BASE_URL_SETTING,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, RUFF_CONFIG_SETTING, WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
 };
 use windmill_common::{error::to_anyhow, PgDatabase};
+
+/// Unauthenticated settings routes.
+///
+/// Used by the extra container (LSP service) to fetch non-sensitive instance
+/// configuration like the shared ruff.toml content without needing to carry
+/// a credential.
+pub fn unauthed_service() -> Router {
+    Router::new().route("/ruff_config", get(get_ruff_config_unauthed))
+}
+
+/// Public endpoint that returns the instance-level ruff config as plain text
+/// TOML. Returns an empty body when unset.
+///
+/// This is intentionally unauthenticated: ruff config is lint/format policy,
+/// not a credential, and the extra container needs to pull it from any
+/// deployment topology (docker-compose, k8s, local dev) without the extra
+/// burden of shared secrets.
+async fn get_ruff_config_unauthed(Extension(db): Extension<DB>) -> error::Result<Response> {
+    let value = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        RUFF_CONFIG_SETTING
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let body = value
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_default();
+
+    Ok(Response::builder()
+        .status(200)
+        .header("content-type", "text/plain; charset=utf-8")
+        .header("cache-control", "no-store")
+        .body(Body::from(body))
+        .unwrap())
+}
 
 pub fn global_service() -> Router {
     #[warn(unused_mut)]

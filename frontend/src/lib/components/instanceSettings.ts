@@ -731,6 +731,18 @@ export const settings: Record<string, Setting[]> = {
 					!value.endsWith('/') &&
 					!value.endsWith(' '))
 		}
+	],
+	LSP: [
+		{
+			label: 'Ruff config (ruff.toml)',
+			description:
+				'Shared ruff.toml applied to the Python editor linter across the whole instance. The LSP container fetches this every minute and writes it next to edited files. See <a href="https://docs.astral.sh/ruff/configuration/">ruff docs</a>',
+			key: 'ruff_config',
+			fieldType: 'codearea',
+			codeAreaLang: 'toml',
+			placeholder: 'line-length = 100\n\n[lint]\nselect = ["E", "F", "I"]\nignore = ["E501"]',
+			storage: 'setting'
+		}
 	]
 }
 
@@ -892,6 +904,12 @@ export const instanceSettingsNavigationGroups = [
 				label: 'WebSocket',
 				aiId: 'instance-settings-websocket',
 				aiDescription: 'WebSocket connectivity test and URL override'
+			},
+			{
+				id: 'lsp',
+				label: 'LSP',
+				aiId: 'instance-settings-lsp',
+				aiDescription: 'Language server protocol settings (ruff config, editor linting)'
 			}
 		]
 	}
@@ -916,7 +934,8 @@ export const tabToCategoryMap: Record<string, string> = {
 	private_hub: 'Private Hub',
 	github_enterprise_app: 'GitHub App',
 	websocket: 'WebSocket',
-	db_health: 'DB Health'
+	db_health: 'DB Health',
+	lsp: 'LSP'
 }
 
 export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
@@ -950,7 +969,8 @@ export const categoryToTabMap: Record<string, string> = {
 	'Private Hub': 'private_hub',
 	'GitHub App': 'github_enterprise_app',
 	WebSocket: 'websocket',
-	'DB Health': 'db_health'
+	'DB Health': 'db_health',
+	LSP: 'lsp'
 }
 
 export interface SearchableSettingItem {

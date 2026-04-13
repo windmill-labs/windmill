@@ -1014,3 +1014,153 @@ async def main(item: str, qty: int, email: str):
     .await;
     Ok(())
 }
+
+/// End-to-end comparison between the legacy `step()` suspend-and-replay path
+/// and the new SDK inline-persist fast path, toggled per-job via the
+/// `WM_WAC_INLINE_FAST_PATH` env var which the Python script sets on its own
+/// `os.environ` at the top so parallel tests can't race on a global env var.
+///
+/// Runs the same 5-step WAC v2 Python workflow twice, asserts both modes
+/// produce the same final result and the same `completed_steps` map, and
+/// prints a wall-clock benchmark line so CI and manual runs can track the
+/// speedup. The fast path is expected to be faster because it avoids N-1
+/// subprocess spawns and N-1 queue round-trips for a workflow with N
+/// `step()` calls, but the exact ratio depends on the CI runner so we don't
+/// assert a hard threshold — behavioral equivalence is the important check.
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base"))]
+async fn test_python_wac_v2_step_inline_fast_path(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    fn workflow_content(fast_path_enabled: bool) -> String {
+        let flag = if fast_path_enabled { "1" } else { "0" };
+        // NB: the `os.environ[...] = ...` line must execute BEFORE the first
+        // `step()` call inside the workflow subprocess — setting it at module
+        // scope (before `from wmill import ...` finishes importing is still
+        // fine because the SDK reads it lazily at call time, not at import).
+        format!(
+            r#"import os
+os.environ["WM_WAC_INLINE_FAST_PATH"] = "{flag}"
+from wmill import workflow, step
+
+@workflow
+async def main(n: int):
+    a = await step("a", lambda: n)
+    b = await step("b", lambda: a + 1)
+    c = await step("c", lambda: b + 1)
+    d = await step("d", lambda: c + 1)
+    e = await step("e", lambda: d + 1)
+    return {{"a": a, "b": b, "c": c, "d": d, "e": e}}
+"#
+        )
+    }
+
+    let db_ref = &db;
+
+    async fn run_once(
+        db: &Pool<Postgres>,
+        port: u16,
+        content: String,
+    ) -> (serde_json::Value, serde_json::Value, std::time::Duration) {
+        let mut job_id_out: Option<sqlx::types::Uuid> = None;
+        let mut result_out: Option<serde_json::Value> = None;
+        let t0 = std::time::Instant::now();
+        in_test_worker(
+            db,
+            async {
+                let job = Box::pin(
+                    RunJob::from(JobPayload::Code(RawCode {
+                        language: ScriptLang::Python3,
+                        content,
+                        ..RawCode::default()
+                    }))
+                    .arg("n", json!(1))
+                    .run_until_complete(db, false, port),
+                )
+                .await;
+                result_out = Some(job.json_result().unwrap_or_else(|| {
+                    panic!("job {} returned no result — raw job = {:?}", job.id, job)
+                }));
+                job_id_out = Some(job.id);
+            },
+            port,
+        )
+        .await;
+        let elapsed = t0.elapsed();
+
+        let job_id = job_id_out.expect("job id");
+        // Fetch the full workflow_as_code_status for diagnostics, then extract
+        // _checkpoint.completed_steps. A None here means the step() path never
+        // wrote the checkpoint, which is exactly the signal we want to surface
+        // clearly (instead of panicking with an opaque Option::unwrap() error).
+        let full_status: Option<serde_json::Value> = sqlx::query_scalar!(
+            r#"SELECT workflow_as_code_status as "v: serde_json::Value"
+               FROM v2_job_completed WHERE id = $1"#,
+            job_id
+        )
+        .fetch_one(db)
+        .await
+        .expect("v2_job_completed row fetch");
+
+        let ckpt = full_status
+            .as_ref()
+            .and_then(|s| s.get("_checkpoint"))
+            .and_then(|c| c.get("completed_steps"))
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "job {job_id} completed_steps missing — full workflow_as_code_status = {:?}, job_result = {:?}",
+                    full_status, result_out
+                )
+            });
+
+        (result_out.unwrap(), ckpt, elapsed)
+    }
+
+    // --- Legacy path: worker-side suspend & replay ---
+    let (legacy_result, legacy_ckpt, legacy_elapsed) =
+        run_once(db_ref, port, workflow_content(false)).await;
+
+    // --- Fast path: SDK persists the delta via the new API endpoint ---
+    let (fast_result, fast_ckpt, fast_elapsed) =
+        run_once(db_ref, port, workflow_content(true)).await;
+
+    // Behavioral equivalence: same final result and same completed_steps.
+    assert_eq!(
+        legacy_result, fast_result,
+        "legacy and fast path produced different workflow results"
+    );
+    assert_eq!(
+        legacy_result,
+        json!({"a": 1, "b": 2, "c": 3, "d": 4, "e": 5}),
+        "unexpected workflow result"
+    );
+    assert_eq!(
+        legacy_ckpt, fast_ckpt,
+        "legacy and fast path stored different completed_steps in the checkpoint"
+    );
+
+    // Benchmark output. We log and print but do NOT assert a hard threshold:
+    // CI runners have variable noise floors and a "fast < legacy" check would
+    // flake. Behavioral equivalence above is the important invariant.
+    let legacy_ms = legacy_elapsed.as_millis();
+    let fast_ms = fast_elapsed.as_millis();
+    let speedup = if fast_ms > 0 {
+        legacy_ms as f64 / fast_ms as f64
+    } else {
+        f64::INFINITY
+    };
+    tracing::info!(
+        "WAC v2 step() benchmark: legacy={}ms fast={}ms speedup={:.2}x",
+        legacy_ms,
+        fast_ms,
+        speedup
+    );
+    println!(
+        "WAC v2 step() benchmark: legacy={}ms fast={}ms speedup={:.2}x",
+        legacy_ms, fast_ms, speedup
+    );
+    Ok(())
+}

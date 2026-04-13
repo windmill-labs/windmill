@@ -1,0 +1,246 @@
+- id: flow-test0-sum-two-numbers
+  prompt: |-
+    Create a flow that takes two numbers, `a` and `b`, and returns their sum.
+    Keep it simple and use a single step named `sum_numbers`.
+  expected: ai_evals/fixtures/frontend/flow/expected/test0_sum_two_numbers.json
+  judgeChecklist:
+    - "the flow takes `a` and `b` as inputs"
+    - "the main step is named `sum_numbers`"
+    - the flow returns the sum of the two numbers
+
+- id: flow-test1-reuse-existing-script
+  prompt: |-
+    I need a flow that adds two numbers.
+    If there is already a script in the workspace that does that, reuse it instead of rewriting the logic.
+    The flow should take `a` and `b` as inputs and use a single step named `sum_numbers`.
+  initial: ai_evals/fixtures/frontend/flow/initial/test1_reuse_existing_script_initial.json
+  expected: ai_evals/fixtures/frontend/flow/expected/test1_reuse_existing_script.json
+  judgeChecklist:
+    - "the flow takes `a` and `b` as inputs"
+    - "the main step is named `sum_numbers`"
+    - the flow reuses the existing workspace script instead of rewriting the addition logic
+
+- id: flow-test2-call-existing-subflow
+  prompt: |-
+    Create a parent flow that adds two numbers by reusing an existing flow in the workspace if one already exists.
+    The parent flow should take `a` and `b` as inputs and delegate the calculation instead of inlining it.
+    Use a single step named `call_add_numbers`.
+  initial: ai_evals/fixtures/frontend/flow/initial/test2_call_existing_subflow_initial.json
+  expected: ai_evals/fixtures/frontend/flow/expected/test2_call_existing_subflow.json
+  judgeChecklist:
+    - "the parent flow takes `a` and `b` as inputs"
+    - "the main step is named `call_add_numbers`"
+    - the parent flow delegates to an existing workspace subflow instead of inlining the addition logic
+
+- id: flow-test3-branchone-routing
+  prompt: |-
+    Create a flow that routes incoming support requests based on the customer's tier.
+    The input should contain a string field named `tier`.
+    Free, pro, and enterprise requests should go to different queues, and unknown tiers should fall back to a default queue.
+    Name the main routing step `route_by_tier`.
+  expected: ai_evals/fixtures/frontend/flow/expected/test3_branchone_routing.json
+  judgeChecklist:
+    - "the input schema includes a string field named `tier`"
+    - "the main routing step is named `route_by_tier`"
+    - free requests go to a free queue
+    - pro requests go to a pro queue
+    - enterprise requests go to an enterprise queue
+    - unknown tiers fall back to a default queue
+
+- id: flow-test4-order-processing-loop
+  prompt: |-
+    Build an order-processing flow.
+
+    The input should include an order with:
+    - an `items` array containing `name`, `price`, and `quantity`
+    - `customer_email`
+    - `shipping_address`
+
+    The flow should:
+    - validate that every item has a positive price and quantity
+    - calculate the order total with 8% tax
+    - check inventory for each item using placeholder availability data
+    - create a shipment if everything is in stock, otherwise create a backorder
+    - send a confirmation using placeholder email logic
+    - return a final order summary with the status
+  validate:
+    schemaAnyOf:
+      - requiredPaths:
+          - order
+          - order.items
+          - order.customer_email
+          - order.shipping_address
+      - requiredPaths:
+          - items
+          - customer_email
+          - shipping_address
+    resolveResultsRefs: true
+  judgeChecklist:
+    - the flow validates that every item has a positive price and quantity
+    - the flow calculates the order total with 8% tax
+    - the flow checks inventory for each item using placeholder availability data
+    - the flow creates a shipment if everything is in stock, otherwise a backorder
+    - the flow sends a confirmation using placeholder email logic
+    - the flow returns a final order summary with the resulting status
+
+- id: flow-test5-parallel-data-pipeline
+  prompt: |-
+    Create a data-processing flow for three external data sources.
+
+    It should:
+    - load a small placeholder configuration listing the three sources
+    - fetch placeholder records from each source
+    - clean and validate each source's records
+    - combine everything into one dataset
+    - compute an overall quality score
+    - store the result differently depending on the score:
+      - 90 or above goes to the primary database
+      - 70 to 89 goes to a secondary database with a warning
+      - below 70 goes to quarantine and triggers an alert
+    - return a processing report with total records, quality score, and destination
+  judgeChecklist:
+    - the flow loads a placeholder configuration listing three external sources
+    - the flow fetches placeholder records from each source
+    - the flow cleans and validates each source's records
+    - the flow combines everything into one dataset
+    - the flow computes an overall quality score
+    - scores of 90 or above go to the primary database
+    - scores from 70 to 89 go to a secondary database with a warning
+    - scores below 70 go to quarantine and trigger an alert
+    - the final report includes total records, quality score, and destination
+
+- id: flow-test6-ai-agent-tools
+  prompt: |-
+    Create a customer support flow.
+
+    The input should include `customer_id` and `query_text`.
+    The flow should load the customer's profile and order history, then use an AI assistant to help with the request.
+    The assistant should be able to:
+    - look up orders
+    - check refund eligibility
+    - search FAQs
+    - open a support ticket when needed
+
+    After that, log the interaction and return the assistant's response along with any actions it took.
+  judgeChecklist:
+    - "the input schema includes `customer_id` and `query_text`"
+    - the flow loads the customer's profile and order history
+    - the flow uses an AI assistant step
+    - the assistant can look up orders
+    - the assistant can check refund eligibility
+    - the assistant can search FAQs
+    - the assistant can open a support ticket
+    - the flow logs the interaction
+    - the final output returns the assistant response along with any actions taken or resulting support action details
+
+- id: flow-test7-simple-modification
+  prompt: |-
+    Update this flow so it validates processed data before saving it.
+
+    After `process_data`, add a `validate_data` step that checks the data array is not empty.
+    If the array is empty, it should return an error object with the message `No data to save`.
+    If validation passes, let the save continue normally.
+    Update `save_results` so it handles the validation result correctly.
+  initial: ai_evals/fixtures/frontend/flow/initial/test5_initial.json
+  expected: ai_evals/fixtures/frontend/flow/expected/test5_modify_simple.json
+  judgeChecklist:
+    - the updated flow keeps the original fetch and process steps intact
+    - "a `validate_data` step is added after `process_data`"
+    - "`validate_data` checks that the processed data array is not empty"
+    - "empty data returns an error object with the message `No data to save`"
+    - "`save_results` handles the validation result correctly"
+
+- id: flow-test8-branching-in-loop
+  prompt: |-
+    Update the order-processing logic inside `loop_orders` so different order types are handled differently.
+
+    For `express`, mark the order as priority and use a shipping cost of $15.99.
+    For `standard`, use a shipping cost of $5.99.
+    For `pickup`, mark it as no shipping required with a cost of $0.
+    Keep the existing processing as a fallback for unknown order types.
+    Each path should return the orderId, shipping cost, and shipping type.
+  initial: ai_evals/fixtures/frontend/flow/initial/test6_initial.json
+  judgeChecklist:
+    - "the existing `loop_orders` flow still handles per-order processing"
+    - exact branching topology is not required as long as `loop_orders` handles the order types correctly
+    - express orders are marked as priority and use a shipping cost of 15.99
+    - standard orders use a shipping cost of 5.99
+    - pickup orders use a shipping cost of 0 and are treated as no shipping required
+    - unknown order types still follow a fallback path
+    - "each processed order returns `orderId`, `shippingCost`, and `shippingType`"
+
+- id: flow-test9-parallel-refactor
+  prompt: |-
+    Refactor this flow so the enrichment work no longer runs one step at a time.
+
+    `enrich_price`, `enrich_inventory`, and `enrich_reviews` should run independently.
+    Each one should return a fallback value if it fails.
+    Update `combine_data` so it merges the enrichment results and sets a `hasFallbacks` flag when any fallback was used.
+    Keep `get_item` as the first step and `return_result` as the last step.
+  initial: ai_evals/fixtures/frontend/flow/initial/test7_initial.json
+  expected: ai_evals/fixtures/frontend/flow/expected/test7_modify_complex.json
+  judgeChecklist:
+    - "the updated flow keeps `get_item` as the first step"
+    - "the updated flow keeps `return_result` as the last step"
+    - "`enrich_price`, `enrich_inventory`, and `enrich_reviews` run independently rather than sequentially"
+    - each enrichment path returns a fallback value if it fails
+    - "`combine_data` merges the enrichment results"
+    - "`combine_data` sets `hasFallbacks` when any fallback was used"
+
+- id: flow-test10-while-loop-counter
+  prompt: |-
+    Create a flow that keeps incrementing a counter until it reaches a target value.
+    The input should include a number field named `target`.
+    Name the looping step `count_until_target`.
+    Once the target is reached, return the final counter value.
+  expected: ai_evals/fixtures/frontend/flow/expected/test10_while_loop_counter.json
+  judgeChecklist:
+    - "the input schema includes a number field named `target`"
+    - "the looping step is named `count_until_target`"
+    - the flow keeps incrementing a counter until the target is reached
+    - the final output returns the final counter value
+
+- id: flow-test11-preprocessor-and-failure-handler
+  prompt: |-
+    Create an event-processing flow for a string payload.
+
+    Before the main processing runs, trim the payload and reject empty strings.
+    The main step should be named `process_event` and return a simple success object.
+    If anything fails, return a compact error object with the error message and the failing step id.
+  expected: ai_evals/fixtures/frontend/flow/expected/test11_preprocessor_failure.json
+  validate:
+    requireSpecialModules:
+      - preprocessor_module
+      - failure_module
+  judgeChecklist:
+    - the flow trims the payload before the main processing runs
+    - the flow rejects empty payload strings
+    - "the main step is named `process_event`"
+    - "`process_event` returns a simple success object"
+    - failures return a compact error object with the error message and failing step id
+
+- id: flow-test12-approval-step
+  prompt: |-
+    Create a purchase approval flow.
+
+    The input should include `requester_email` and `amount`.
+    Add an approval step named `request_approval` that pauses the flow and asks the approver for a comment.
+    One approval should be enough to continue.
+    After approval, add a final step named `finalize_purchase` that returns an approved status object.
+  expected: ai_evals/fixtures/frontend/flow/expected/test12_approval_step.json
+  validate:
+    schemaRequiredPaths:
+      - requester_email
+      - amount
+    requireSuspendSteps:
+      - id: request_approval
+        requiredEvents: 1
+        resumeRequiredStringFieldAnyOf:
+          - comment
+          - approver_comment
+  judgeChecklist:
+    - "the flow includes an approval step named `request_approval`"
+    - "`request_approval` pauses the flow and asks the approver for a comment"
+    - one approval is enough to continue
+    - "the flow includes a final step named `finalize_purchase`"
+    - "`finalize_purchase` returns an approved status object after approval"

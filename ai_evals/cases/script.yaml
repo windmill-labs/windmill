@@ -1,0 +1,11 @@
+- id: script-test1-greet-user
+  prompt: |-
+    Update the current Bun script so it takes the existing `name` input and returns a plain greeting string like `Hello, Alice!`.
+    Do not wrap the result in an object or array.
+    Keep it simple and do not add external dependencies.
+  initial: ai_evals/fixtures/frontend/script/initial/test1_empty_bun.json
+  expected: ai_evals/fixtures/frontend/script/expected/test1_greet_user.json
+  judgeChecklist:
+    - uses the existing `name` input
+    - returns a plain greeting string
+    - does not wrap the result in an object or array

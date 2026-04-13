@@ -13,7 +13,6 @@ use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    utils::require_admin,
     worker::CLOUD_HOSTED,
     DB,
 };
@@ -139,6 +138,23 @@ fn check_no_duplicates(
     Ok(())
 }
 
+/// Checks that non-admin users are only creating/editing workspaced HTTP triggers.
+/// Returns the effective workspaced value (combining per-trigger flag and global setting).
+/// Admins can create both workspaced and instance-wide routes.
+async fn require_admin_for_instance_wide_route(
+    is_admin: bool,
+    workspaced_route: Option<bool>,
+) -> Result<bool> {
+    let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
+    let effective_workspaced = workspaced_route.unwrap_or(false) || http_route_workspaced;
+    if !is_admin && !effective_workspaced {
+        return Err(Error::NotAuthorized(
+            "Non-admin users can only create workspaced HTTP triggers. Enable the workspace prefix for this route.".to_string(),
+        ));
+    }
+    Ok(effective_workspaced)
+}
+
 pub async fn insert_new_trigger_into_db(
     authed: &ApiAuthed,
     _db: &DB,
@@ -147,11 +163,9 @@ pub async fn insert_new_trigger_into_db(
     trigger: &TriggerData<HttpConfigRequest>,
     route_path_key: &str,
 ) -> Result<()> {
-    require_admin(authed.is_admin, &authed.username)?;
-
-    let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
     let effective_workspaced =
-        trigger.config.workspaced_route.unwrap_or(false) || http_route_workspaced;
+        require_admin_for_instance_wide_route(authed.is_admin, trigger.config.workspaced_route)
+            .await?;
 
     let request_type = trigger.config.request_type;
     let resolved_edited_by = trigger.base.resolve_edited_by(authed);
@@ -225,7 +239,7 @@ pub async fn create_many_http_triggers(
     Path(w_id): Path<String>,
     Json(new_http_triggers): Json<Vec<TriggerData<HttpConfigRequest>>>,
 ) -> Result<(StatusCode, String)> {
-    require_admin(authed.is_admin, &authed.username)?;
+    // Admin check for instance-wide routes is done per-trigger in insert_new_trigger_into_db
 
     let handler = HttpTrigger;
 
@@ -451,7 +465,11 @@ impl TriggerCrud for HttpTrigger {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
 
-        if authed.is_admin {
+        let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
+        let effective_workspaced =
+            trigger.config.workspaced_route.unwrap_or(false) || http_route_workspaced;
+
+        if authed.is_admin || effective_workspaced {
             if trigger.config.route_path.is_empty() {
                 return Err(Error::BadRequest("route_path is required".to_string()));
             };
@@ -463,10 +481,6 @@ impl TriggerCrud for HttpTrigger {
 
             let route_path_key =
                 check_if_route_exist(db, &trigger.config, workspace_id, Some(path)).await?;
-
-            let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
-            let effective_workspaced =
-                trigger.config.workspaced_route.unwrap_or(false) || http_route_workspaced;
 
             let request_type = trigger.config.request_type;
 

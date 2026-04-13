@@ -1,10 +1,17 @@
 import type { FlowModule } from '$lib/gen'
 
-/**
- * Storage for inline scripts extracted from flow modules.
- * Maps module IDs to their rawscript content for token-efficient transmission to AI.
- */
-class InlineScriptStore {
+export interface InlineScriptSession {
+	clear(): void
+	set(moduleId: string, content: string): void
+	get(moduleId: string): string | undefined
+	has(moduleId: string): boolean
+	getAll(): Record<string, string>
+	extractAndReplaceInlineScripts(modules: FlowModule[]): FlowModule[]
+	restoreInlineScriptReferences(modules: FlowModule[]): FlowModule[]
+	findUnresolvedInlineScriptRefs(modules: FlowModule[]): string[]
+}
+
+class DefaultInlineScriptSession implements InlineScriptSession {
 	private scripts: Map<string, string> = new Map()
 
 	clear() {
@@ -26,15 +33,28 @@ class InlineScriptStore {
 	getAll(): Record<string, string> {
 		return Object.fromEntries(this.scripts.entries())
 	}
+
+	extractAndReplaceInlineScripts(modules: FlowModule[]): FlowModule[] {
+		return extractAndReplaceInlineScripts(modules, this)
+	}
+
+	restoreInlineScriptReferences(modules: FlowModule[]): FlowModule[] {
+		return restoreInlineScriptReferences(modules, this)
+	}
+
+	findUnresolvedInlineScriptRefs(modules: FlowModule[]): string[] {
+		return findUnresolvedInlineScriptRefs(modules)
+	}
 }
 
-export const inlineScriptStore = new InlineScriptStore()
+export function createInlineScriptSession(): InlineScriptSession {
+	return new DefaultInlineScriptSession()
+}
 
-/**
- * Recursively extracts all rawscript content from flow modules and stores them.
- * Replaces the content with references like "inline_script.{module_id}".
- */
-export function extractAndReplaceInlineScripts(modules: FlowModule[]): FlowModule[] {
+function extractAndReplaceInlineScripts(
+	modules: FlowModule[],
+	session: Pick<InlineScriptSession, 'set'>
+): FlowModule[] {
 	if (!modules || !Array.isArray(modules)) {
 		return []
 	}
@@ -43,52 +63,45 @@ export function extractAndReplaceInlineScripts(modules: FlowModule[]): FlowModul
 		const newModule = { ...module }
 
 		if (newModule.value.type === 'rawscript' && newModule.value.content) {
-			// Store the original content
-			inlineScriptStore.set(module.id, newModule.value.content)
-
-			// Replace with reference
+			session.set(module.id, newModule.value.content)
 			newModule.value = {
 				...newModule.value,
 				content: `inline_script.${module.id}`
 			}
 		} else if (newModule.value.type === 'forloopflow' || newModule.value.type === 'whileloopflow') {
-			// Recursively process nested modules in loops
 			if (newModule.value.modules) {
 				newModule.value = {
 					...newModule.value,
-					modules: extractAndReplaceInlineScripts(newModule.value.modules)
+					modules: extractAndReplaceInlineScripts(newModule.value.modules, session)
 				}
 			}
 		} else if (newModule.value.type === 'branchone') {
-			// Process branches and default modules
 			if (newModule.value.branches) {
 				newModule.value = {
 					...newModule.value,
 					branches: newModule.value.branches.map((branch) => ({
 						...branch,
-						modules: branch.modules ? extractAndReplaceInlineScripts(branch.modules) : []
+						modules: branch.modules ? extractAndReplaceInlineScripts(branch.modules, session) : []
 					}))
 				}
 			}
 			if (newModule.value.default) {
 				newModule.value = {
 					...newModule.value,
-					default: extractAndReplaceInlineScripts(newModule.value.default)
+					default: extractAndReplaceInlineScripts(newModule.value.default, session)
 				}
 			}
 		} else if (newModule.value.type === 'branchall') {
-			// Process all branches
 			if (newModule.value.branches) {
 				newModule.value = {
 					...newModule.value,
 					branches: newModule.value.branches.map((branch) => ({
 						...branch,
-						modules: branch.modules ? extractAndReplaceInlineScripts(branch.modules) : []
+						modules: branch.modules ? extractAndReplaceInlineScripts(branch.modules, session) : []
 					}))
 				}
 			}
 		} else if (newModule.value.type === 'aiagent') {
-			// Process AI agent tools
 			if (newModule.value.tools) {
 				newModule.value = {
 					...newModule.value,
@@ -102,7 +115,7 @@ export function extractAndReplaceInlineScripts(modules: FlowModule[]): FlowModul
 							'content' in tool.value &&
 							tool.value.content
 						) {
-							inlineScriptStore.set(tool.id, tool.value.content as string)
+							session.set(tool.id, tool.value.content as string)
 							return {
 								...tool,
 								value: {
@@ -121,70 +134,58 @@ export function extractAndReplaceInlineScripts(modules: FlowModule[]): FlowModul
 	})
 }
 
-/**
- * Recursively restores inline script references back to their full content.
- * If content matches pattern "inline_script.{id}", looks up and restores the original.
- * If content doesn't match (new/modified script), keeps it as-is.
- */
-export function restoreInlineScriptReferences(modules: FlowModule[]): FlowModule[] {
+function restoreInlineScriptReferences(
+	modules: FlowModule[],
+	session: Pick<InlineScriptSession, 'get'>
+): FlowModule[] {
 	return modules.map((module) => {
 		const newModule = { ...module }
 
 		if (newModule.value.type === 'rawscript' && newModule.value.content) {
-			const content = newModule.value.content
-			// Check if it's a reference
-			const match = content.match(/^inline_script\.(.+)$/)
+			const match = newModule.value.content.match(/^inline_script\.(.+)$/)
 			if (match) {
-				const moduleId = match[1]
-				const storedContent = inlineScriptStore.get(moduleId)
+				const storedContent = session.get(match[1])
 				if (storedContent !== undefined) {
-					// Restore original content
 					newModule.value = {
 						...newModule.value,
 						content: storedContent
 					}
 				}
-				// If not found in store, keep the reference as-is (shouldn't happen normally)
 			}
-			// If not a reference, it's new/modified content - keep as-is
 		} else if (newModule.value.type === 'forloopflow' || newModule.value.type === 'whileloopflow') {
-			// Recursively process nested modules in loops
 			if (newModule.value.modules) {
 				newModule.value = {
 					...newModule.value,
-					modules: restoreInlineScriptReferences(newModule.value.modules)
+					modules: restoreInlineScriptReferences(newModule.value.modules, session)
 				}
 			}
 		} else if (newModule.value.type === 'branchone') {
-			// Process branches and default modules
 			if (newModule.value.branches) {
 				newModule.value = {
 					...newModule.value,
 					branches: newModule.value.branches.map((branch) => ({
 						...branch,
-						modules: branch.modules ? restoreInlineScriptReferences(branch.modules) : []
+						modules: branch.modules ? restoreInlineScriptReferences(branch.modules, session) : []
 					}))
 				}
 			}
 			if (newModule.value.default) {
 				newModule.value = {
 					...newModule.value,
-					default: restoreInlineScriptReferences(newModule.value.default)
+					default: restoreInlineScriptReferences(newModule.value.default, session)
 				}
 			}
 		} else if (newModule.value.type === 'branchall') {
-			// Process all branches
 			if (newModule.value.branches) {
 				newModule.value = {
 					...newModule.value,
 					branches: newModule.value.branches.map((branch) => ({
 						...branch,
-						modules: branch.modules ? restoreInlineScriptReferences(branch.modules) : []
+						modules: branch.modules ? restoreInlineScriptReferences(branch.modules, session) : []
 					}))
 				}
 			}
 		} else if (newModule.value.type === 'aiagent') {
-			// Process AI agent tools
 			if (newModule.value.tools) {
 				newModule.value = {
 					...newModule.value,
@@ -198,11 +199,9 @@ export function restoreInlineScriptReferences(modules: FlowModule[]): FlowModule
 							'content' in tool.value &&
 							tool.value.content
 						) {
-							const content = tool.value.content as string
-							const match = content.match(/^inline_script\.(.+)$/)
+							const match = (tool.value.content as string).match(/^inline_script\.(.+)$/)
 							if (match) {
-								const toolId = match[1]
-								const storedContent = inlineScriptStore.get(toolId)
+								const storedContent = session.get(match[1])
 								if (storedContent !== undefined) {
 									return {
 										...tool,
@@ -224,11 +223,7 @@ export function restoreInlineScriptReferences(modules: FlowModule[]): FlowModule
 	})
 }
 
-/**
- * Recursively finds any unresolved inline script references in flow modules.
- * Returns array of module IDs that still have `inline_script.{id}` patterns.
- */
-export function findUnresolvedInlineScriptRefs(modules: FlowModule[]): string[] {
+function findUnresolvedInlineScriptRefs(modules: FlowModule[]): string[] {
 	const unresolvedRefs: string[] = []
 
 	function checkModule(module: FlowModule) {
@@ -257,7 +252,6 @@ export function findUnresolvedInlineScriptRefs(modules: FlowModule[]): string[] 
 				})
 			}
 		} else if (module.value.type === 'aiagent') {
-			// Check AI agent tools
 			if (module.value.tools) {
 				for (const tool of module.value.tools) {
 					if (

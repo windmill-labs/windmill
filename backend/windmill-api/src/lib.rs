@@ -620,6 +620,10 @@ pub async fn run_server(
                         .nest("/volumes", volumes_oss::workspaced_service())
                         .nest("/workers", windmill_api_workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
+                        .nest(
+                            "/deployment_request",
+                            windmill_api_workspaces::deployment_requests::workspaced_service(),
+                        )
                         .nest("/oidc", oidc_oss::workspaced_service())
                         .nest("/openapi", {
                             #[cfg(feature = "http_trigger")]
@@ -712,6 +716,7 @@ pub async fn run_server(
                 .nest("/tokens", token::global_service())
                 .nest("/concurrency_groups", concurrency_groups::global_service())
                 .nest("/scripts_u", scripts::global_unauthed_service())
+                .nest("/settings_u", windmill_api_settings::unauthed_service())
                 .nest("/apps_u", {
                     #[cfg(feature = "enterprise")]
                     {
