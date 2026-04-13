@@ -7,6 +7,8 @@ DROP POLICY IF EXISTS see_extra_perms_groups_delete ON http_trigger;
 DROP POLICY IF EXISTS see_own ON http_trigger;
 DROP POLICY IF EXISTS see_member ON http_trigger;
 
+REVOKE INSERT, DELETE ON http_trigger FROM windmill_user;
+
 -- Restore original prevent_route_path_change that blocks all non-admin route_path changes
 CREATE OR REPLACE FUNCTION prevent_route_path_change()
 RETURNS TRIGGER AS $$

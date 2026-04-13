@@ -2,6 +2,10 @@
 -- These are needed now that non-admin users can create HTTP triggers (with forced workspaced routes).
 -- All other trigger tables already have these policies.
 
+-- Ensure windmill_user has INSERT and DELETE privileges (original migration only granted SELECT, UPDATE).
+-- Note: 20250205131523_grant_all_in_current_schema also grants ALL, but we add explicit grants for safety.
+GRANT INSERT, DELETE ON http_trigger TO windmill_user;
+
 -- Folder-based policies
 CREATE POLICY see_folder_extra_perms_user_insert ON http_trigger FOR INSERT TO windmill_user
 WITH CHECK (SPLIT_PART(http_trigger.path, '/', 1) = 'f' AND SPLIT_PART(http_trigger.path, '/', 2) = any(regexp_split_to_array(current_setting('session.folders_write'), ',')::text[]));
