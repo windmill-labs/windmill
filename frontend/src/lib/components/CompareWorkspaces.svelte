@@ -10,12 +10,12 @@
 		CircleCheck,
 		CircleX,
 		DiffIcon,
+		ExternalLink,
 		FileJson,
 		FlaskConical,
 		GitFork,
 		Loader2,
 		Trash2,
-		Upload,
 		UserPlus
 	} from 'lucide-svelte'
 	import type { CiTestResult } from '$lib/gen'
@@ -42,9 +42,7 @@
 	} from '$lib/gen'
 	import Button from './common/button/Button.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
-	import Row from './common/table/Row.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
-	import DeployWorkspaceDrawer from './DeployWorkspaceDrawer.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
@@ -316,13 +314,14 @@
 		path: string,
 		workspaceToDeployTo: string,
 		workspaceFrom: string,
-		statusPath: string
+		statusKey: string,
+		trigger?: ForkTrigger
 	) {
-		deploymentStatus[statusPath] = { status: 'loading' }
+		deploymentStatus[statusKey] = { status: 'loading' }
 
 		// Check if the item was deleted in the source workspace.
 		// If so, archive/delete it in the target workspace instead of copying.
-		const diff = comparison?.diffs.find((d) => getItemKey(d) === statusPath)
+		const diff = comparison?.diffs.find((d) => getItemKey(d) === statusKey)
 		const itemDeletedInSource = diff
 			? mergeIntoParent
 				? diff.exists_in_fork === false
@@ -332,21 +331,30 @@
 		let result: DeployResult
 		if (itemDeletedInSource) {
 			result = await deleteItemInWorkspace(kind, path, workspaceToDeployTo)
+		} else if (trigger) {
+			result = await deployItem({
+				kind: 'trigger',
+				path,
+				workspaceFrom,
+				workspaceTo: workspaceToDeployTo,
+				additionalInformation: { triggers: { kind: trigger.triggerKind } },
+				onBehalfOf: getOnBehalfOfForDeploy(statusKey, 'trigger')
+			})
 		} else {
 			result = await deployItem({
 				kind,
 				path,
 				workspaceFrom,
 				workspaceTo: workspaceToDeployTo,
-				onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind)
+				onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind)
 			})
 		}
 
 		if (result.success) {
-			deploymentStatus[statusPath] = { status: 'deployed' }
+			deploymentStatus[statusKey] = { status: 'deployed' }
 		} else {
-			deploymentStatus[statusPath] = { status: 'failed', error: result.error }
-			sendUserToast(`Failed to deploy ${statusPath}: ${result.error}`)
+			deploymentStatus[statusKey] = { status: 'failed', error: result.error }
+			sendUserToast(`Failed to deploy ${statusKey}: ${result.error}`)
 		}
 	}
 
@@ -398,18 +406,16 @@
 		})
 		let anyFailed = false
 		for (const itemKey of sortedItems) {
-			const diff = selectableDiffs.find((d) => itemKey == getItemKey(d))
+			const deployable = deployableItems.find((d) => d.key === itemKey)
 
-			if (!diff) {
+			if (!deployable) {
 				sendUserToast(`Undeployable item: ${itemKey}`, true)
 				continue
 			}
 
-			if (mergeIntoParent) {
-				await deploy(diff.kind as Kind, diff.path, parent, current, itemKey)
-			} else {
-				await deploy(diff.kind as Kind, diff.path, current, parent, itemKey)
-			}
+			const to = mergeIntoParent ? parent : current
+			const from = mergeIntoParent ? current : parent
+			await deploy(deployable.kind, deployable.path, to, from, itemKey, deployable.trigger)
 			if (deploymentStatus[itemKey]?.status === 'failed') {
 				anyFailed = true
 			}
@@ -437,8 +443,7 @@
 		}
 	}
 
-	function toggleItem(diff: WorkspaceItemDiff) {
-		const key = getItemKey(diff)
+	function toggleKey(key: string) {
 		if (selectedItems.includes(key)) {
 			selectedItems = selectedItems.filter((i) => i !== key)
 		} else {
@@ -504,9 +509,15 @@
 		allowBehindChangesOverride = false
 	})
 
-	// Transform diffs to deployable item format for the shared layout
-	let deployableItems = $derived(
-		(comparison?.diffs ?? [])
+	function getTriggerKey(trigger: ForkTrigger): string {
+		return `trigger:${trigger.triggerKind}:${trigger.path}`
+	}
+
+	// Transform diffs + fork triggers to deployable item format for the
+	// shared layout. Triggers render as inline rows alongside diff items;
+	// they carry no ahead/behind info and are selectable à la carte.
+	let deployableItems = $derived.by(() => {
+		const diffItems = (comparison?.diffs ?? [])
 			.filter((diff) => {
 				const key = getItemKey(diff)
 				const isSelectable = selectableDiffs.includes(diff)
@@ -518,9 +529,23 @@
 				key: getItemKey(diff),
 				path: diff.path,
 				kind: diff.kind as Kind,
-				diff
+				diff,
+				trigger: undefined as ForkTrigger | undefined
 			}))
-	)
+		const triggerItems = forkTriggers
+			.filter((t) => {
+				const key = getTriggerKey(t)
+				return deploymentStatus[key]?.status !== 'deployed'
+			})
+			.map((trigger) => ({
+				key: getTriggerKey(trigger),
+				path: trigger.path,
+				kind: 'trigger' as Kind,
+				diff: undefined as WorkspaceItemDiff | undefined,
+				trigger
+			}))
+		return [...diffItems, ...triggerItems]
+	})
 
 	// --- Fork Triggers ---
 
@@ -585,8 +610,6 @@
 	})
 
 	let forkTriggers = $state<ForkTrigger[]>([])
-	let loadingTriggers = $state(true)
-	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
 	let triggerToDelete = $state<ForkTrigger | undefined>(undefined)
 	let deploymentRequestPanel: DeploymentRequestPanel | undefined = $state(undefined)
 	let hasOpenDeploymentRequest = $state(false)
@@ -730,7 +753,6 @@
 	let emailDomain = $state<string | undefined>(undefined)
 
 	async function fetchAllTriggers() {
-		loadingTriggers = true
 		try {
 			emailDomain = await getEmailDomain()
 			const entries = Object.values(triggerServices)
@@ -744,8 +766,6 @@
 		} catch (e) {
 			console.error('Failed to fetch fork triggers:', e)
 			forkTriggers = []
-		} finally {
-			loadingTriggers = false
 		}
 	}
 
@@ -826,12 +846,10 @@
 				items={deployableItems}
 				{selectedItems}
 				{deploymentStatus}
-				selectablePredicate={(item) => selectableDiffs.some((d) => getItemKey(d) === item.key)}
+				selectablePredicate={(item) =>
+					item.trigger != null || selectableDiffs.some((d) => getItemKey(d) === item.key)}
 				{allSelected}
-				onToggleItem={(item) => {
-					const diff = comparison?.diffs.find((d) => getItemKey(d) === item.key)
-					if (diff) toggleItem(diff)
-				}}
+				onToggleItem={(item) => toggleKey(item.key)}
 				onSelectAll={selectAll}
 				onDeselectAll={deselectAll}
 				emptyMessage="No comparison data available"
@@ -1003,126 +1021,167 @@
 				{/snippet}
 
 				{#snippet itemSummary(item)}
-					{@const diff = item.diff as WorkspaceItemDiff}
-					{@const key = item.key}
-					{@const isSelectable = selectableDiffs.includes(diff)}
-					{@const oldSummary = mergeIntoParent
-						? summaryCache[key]?.parent
-						: summaryCache[key]?.current}
-					{@const newSummary = mergeIntoParent
-						? summaryCache[key]?.current
-						: summaryCache[key]?.parent}
-					{@const existsInBothWorkspaces = !(
-						(diff.exists_in_fork && !diff.exists_in_source) ||
-						(!diff.exists_in_fork && diff.exists_in_source)
-					)}
-					{#if oldSummary != newSummary && isSelectable && existsInBothWorkspaces}
-						<span class="line-through text-secondary">{oldSummary || diff.path}</span>
-						{newSummary || diff.path}
-					{:else if !existsInBothWorkspaces}
-						{newSummary || oldSummary || diff.path}
+					{#if item.trigger}
+						{@const t = item.trigger as ForkTrigger}
+						<span class="text-emphasis">{getTriggerDisplayName(t.triggerKind)}</span>
+						<span class="text-secondary mx-1">&rarr;</span>
+						<span class="text-secondary">{t.scriptPath}</span>
 					{:else}
-						{newSummary || diff.path}
+						{@const diff = item.diff as WorkspaceItemDiff}
+						{@const key = item.key}
+						{@const isSelectable = selectableDiffs.includes(diff)}
+						{@const oldSummary = mergeIntoParent
+							? summaryCache[key]?.parent
+							: summaryCache[key]?.current}
+						{@const newSummary = mergeIntoParent
+							? summaryCache[key]?.current
+							: summaryCache[key]?.parent}
+						{@const existsInBothWorkspaces = !(
+							(diff.exists_in_fork && !diff.exists_in_source) ||
+							(!diff.exists_in_fork && diff.exists_in_source)
+						)}
+						{#if oldSummary != newSummary && isSelectable && existsInBothWorkspaces}
+							<span class="line-through text-secondary">{oldSummary || diff.path}</span>
+							{newSummary || diff.path}
+						{:else if !existsInBothWorkspaces}
+							{newSummary || oldSummary || diff.path}
+						{:else}
+							{newSummary || diff.path}
+						{/if}
 					{/if}
 				{/snippet}
 
 				{#snippet itemActions(item)}
-					{@const diff = item.diff as WorkspaceItemDiff}
-					{@const key = item.key}
-					{@const targetOnBehalfOf = getTargetOnBehalfOf(key)}
-					{@const isConflict = diff.ahead > 0 && diff.behind > 0}
-					{@const existsInBothWorkspaces = !(
-						(diff.exists_in_fork && !diff.exists_in_source) ||
-						(!diff.exists_in_fork && diff.exists_in_source)
-					)}
-					<!-- On-behalf-of selector -->
-					{#if itemNeedsOnBehalfOfSelection(key, diff.kind)}
-						<OnBehalfOfSelector
-							targetWorkspace={deployTargetWorkspace}
-							targetValue={targetOnBehalfOf}
-							selected={onBehalfOfChoice[key]}
-							onSelect={(choice, details) => {
-								onBehalfOfChoice[key] = choice
-								if (details) customOnBehalfOf[key] = details
-							}}
-							kind={diff.kind}
-							canPreserve={canPreserveOnBehalfOf}
-							customValue={customOnBehalfOf[key]?.permissionedAs}
-						/>
-					{/if}
-					{#if diff.kind === 'raw_app'}
-						<Badge small icon={{ icon: FileJson }}>Raw</Badge>
-					{/if}
-					<!-- Status badges -->
-					{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
-						<Badge
-							title="This item was newly created in the parent workspace '{parentWorkspaceId}'"
-							color="indigo"
-							size="xs">New</Badge
-						>
-					{/if}
-					{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
-						<Badge title="This item was deleted in '{currentWorkspaceId}'" color="red" size="xs"
-							>Deleted</Badge
-						>
-					{/if}
-					{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
-						<Badge
-							title="This item was deleted in the parent workspace '{parentWorkspaceId}'"
-							color="red"
-							size="xs">Deleted</Badge
-						>
-					{/if}
-					{#if diff.exists_in_fork && !diff.exists_in_source && diff.ahead > 0 && diff.behind == 0}
-						<Badge
-							title="This item was newly created in '{currentWorkspaceId}'"
-							color="indigo"
-							size="xs">New</Badge
-						>
-					{/if}
-					{@const ciStatus = getCiTestStatus(diff)}
-					{#if ciStatus === 'pass'}
-						<Badge color="green" size="xs"><CircleCheck size={10} class="mr-0.5" />CI pass</Badge>
-					{:else if ciStatus === 'fail'}
-						<Badge color="red" size="xs"><CircleX size={10} class="mr-0.5" />CI fail</Badge>
-					{:else if ciStatus === 'running'}
-						<Badge color="yellow" size="xs"
-							><Loader2 size={10} class="mr-0.5 animate-spin" />CI</Badge
-						>
-					{/if}
-					{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
-						<div class="flex items-center gap-2">
-							{#if isConflict || existsInBothWorkspaces}
-								{#if diff.ahead > 0}
-									<Badge color="green" size="xs">
-										<ArrowUpRight class="w-3 h-3 inline" />
-										{diff.ahead} ahead
-									</Badge>
-								{/if}
-								{#if diff.behind > 0}
-									<Badge color="blue" size="xs">
-										<ArrowDownRight class="w-3 h-3 inline" />
-										{diff.behind} behind
-									</Badge>
-								{/if}
-								{#if isConflict}
-									<Badge color="orange" size="xs">
-										<AlertTriangle class="w-3 h-3 inline" />
-										Conflict
-									</Badge>
-								{/if}
+					{#if item.trigger}
+						{@const t = item.trigger as ForkTrigger}
+						{@const key = item.key}
+						<Badge color="indigo" size="xs">Fork-only</Badge>
+						{#if t.isFlow}
+							<Badge color="blue" size="xs">flow</Badge>
+						{/if}
+						{#if t.extraLabel}
+							<span class="text-tertiary text-xs">({t.extraLabel})</span>
+						{/if}
+						{#if t.enabled != null}
+							<Badge color={t.enabled ? 'green' : 'gray'} size="xs">
+								{t.enabled ? 'Enabled' : 'Disabled'}
+							</Badge>
+						{/if}
+						{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
+							{@const href = getTriggerHref(t.triggerKind)}
+							{#if href}
+								<a
+									class="inline-flex items-center gap-1 text-xs text-tertiary hover:text-secondary"
+									{href}
+									target="_blank"
+									rel="noreferrer"
+								>
+									<ExternalLink size={12} />
+									See details
+								</a>
 							{/if}
-						</div>
-						<div class:invisible={!existsInBothWorkspaces}>
-							<Button
-								size="xs"
-								variant="subtle"
-								onclick={() => showDiff(diff.kind as Kind, diff.path)}
-							>
-								<DiffIcon class="w-3 h-3" />
-								Show diff
+							<Button size="xs" variant="subtle" color="red" onclick={() => deleteTrigger(t)}>
+								<Trash2 size={12} />
 							</Button>
-						</div>
+						{/if}
+					{:else}
+						{@const diff = item.diff as WorkspaceItemDiff}
+						{@const key = item.key}
+						{@const targetOnBehalfOf = getTargetOnBehalfOf(key)}
+						{@const isConflict = diff.ahead > 0 && diff.behind > 0}
+						{@const existsInBothWorkspaces = !(
+							(diff.exists_in_fork && !diff.exists_in_source) ||
+							(!diff.exists_in_fork && diff.exists_in_source)
+						)}
+						<!-- On-behalf-of selector -->
+						{#if itemNeedsOnBehalfOfSelection(key, diff.kind)}
+							<OnBehalfOfSelector
+								targetWorkspace={deployTargetWorkspace}
+								targetValue={targetOnBehalfOf}
+								selected={onBehalfOfChoice[key]}
+								onSelect={(choice, details) => {
+									onBehalfOfChoice[key] = choice
+									if (details) customOnBehalfOf[key] = details
+								}}
+								kind={diff.kind}
+								canPreserve={canPreserveOnBehalfOf}
+								customValue={customOnBehalfOf[key]?.permissionedAs}
+							/>
+						{/if}
+						{#if diff.kind === 'raw_app'}
+							<Badge small icon={{ icon: FileJson }}>Raw</Badge>
+						{/if}
+						<!-- Status badges -->
+						{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead == 0 && diff.behind > 0}
+							<Badge
+								title="This item was newly created in the parent workspace '{parentWorkspaceId}'"
+								color="indigo"
+								size="xs">New</Badge
+							>
+						{/if}
+						{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
+							<Badge title="This item was deleted in '{currentWorkspaceId}'" color="red" size="xs"
+								>Deleted</Badge
+							>
+						{/if}
+						{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
+							<Badge
+								title="This item was deleted in the parent workspace '{parentWorkspaceId}'"
+								color="red"
+								size="xs">Deleted</Badge
+							>
+						{/if}
+						{#if diff.exists_in_fork && !diff.exists_in_source && diff.ahead > 0 && diff.behind == 0}
+							<Badge
+								title="This item was newly created in '{currentWorkspaceId}'"
+								color="indigo"
+								size="xs">New</Badge
+							>
+						{/if}
+						{@const ciStatus = getCiTestStatus(diff)}
+						{#if ciStatus === 'pass'}
+							<Badge color="green" size="xs"><CircleCheck size={10} class="mr-0.5" />CI pass</Badge>
+						{:else if ciStatus === 'fail'}
+							<Badge color="red" size="xs"><CircleX size={10} class="mr-0.5" />CI fail</Badge>
+						{:else if ciStatus === 'running'}
+							<Badge color="yellow" size="xs"
+								><Loader2 size={10} class="mr-0.5 animate-spin" />CI</Badge
+							>
+						{/if}
+						{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
+							<div class="flex items-center gap-2">
+								{#if isConflict || existsInBothWorkspaces}
+									{#if diff.ahead > 0}
+										<Badge color="green" size="xs">
+											<ArrowUpRight class="w-3 h-3 inline" />
+											{diff.ahead} ahead
+										</Badge>
+									{/if}
+									{#if diff.behind > 0}
+										<Badge color="blue" size="xs">
+											<ArrowDownRight class="w-3 h-3 inline" />
+											{diff.behind} behind
+										</Badge>
+									{/if}
+									{#if isConflict}
+										<Badge color="orange" size="xs">
+											<AlertTriangle class="w-3 h-3 inline" />
+											Conflict
+										</Badge>
+									{/if}
+								{/if}
+							</div>
+							<div class:invisible={!existsInBothWorkspaces}>
+								<Button
+									size="xs"
+									variant="subtle"
+									onclick={() => showDiff(diff.kind as Kind, diff.path)}
+								>
+									<DiffIcon class="w-3 h-3" />
+									Show diff
+								</Button>
+							</div>
+						{/if}
 					{/if}
 				{/snippet}
 
@@ -1199,95 +1258,11 @@
 			/>
 		</div>
 
-		<!-- Fork Triggers Section -->
-		<div class="bg-surface-tertiary p-4 rounded-md border">
-			<div class="flex items-center gap-2 mb-2">
-				<h3 class="text-sm font-semibold">Triggers created in this fork</h3>
-				{#if !loadingTriggers}
-					<Badge color="indigo" size="xs"
-						>{forkTriggers.length} trigger{forkTriggers.length !== 1 ? 's' : ''}</Badge
-					>
-				{/if}
-			</div>
-
-			<Alert title="Deploy and/or delete these triggers" type="info" class="mb-2">
-				When forking a workspace, triggers are not forked to avoid unnecessary executions or
-				collisions. If you created this triggers with the intention of deploying them to the parent
-				workspace, you can do so here. Otherwise it is recommended to delete them or disable them.
-			</Alert>
-
-			{#if loadingTriggers}
-				<div class="flex items-center gap-2 text-secondary text-sm p-4">
-					<Loader2 class="animate-spin w-4 h-4" />
-					Loading triggers...
-				</div>
-			{:else if forkTriggers.length === 0}
-				<div class="text-secondary text-sm p-4 border rounded-md bg-surface-tertiary">
-					No triggers in this fork workspace.
-				</div>
-			{:else}
-				<div class="border rounded-md bg-surface-tertiary">
-					{#each forkTriggers as trigger (trigger.triggerKind + ':' + trigger.path)}
-						<Row
-							kind="trigger"
-							triggerKind={trigger.triggerKind}
-							path={trigger.path}
-							href={getTriggerHref(trigger.triggerKind)}
-							marked={undefined}
-							isSelectable={false}
-							canFavorite={false}
-							workspaceId={currentWorkspaceId}
-						>
-							{#snippet customSummary()}
-								<span>{getTriggerDisplayName(trigger.triggerKind)}</span>
-								<span class="text-secondary mx-1">&rarr;</span>
-								<span class="text-secondary">{trigger.scriptPath}</span>
-								{#if trigger.isFlow}
-									<Badge color="blue" size="xs">flow</Badge>
-								{/if}
-								{#if trigger.extraLabel}
-									<span class="text-tertiary text-xs">({trigger.extraLabel})</span>
-								{/if}
-							{/snippet}
-							{#snippet actions()}
-								{#if trigger.enabled != null}
-									<Badge color={trigger.enabled ? 'green' : 'gray'} size="xs">
-										{trigger.enabled ? 'Enabled' : 'Disabled'}
-									</Badge>
-								{/if}
-								<Button
-									size="xs"
-									variant="subtle"
-									onclick={() => {
-										deploymentDrawer?.openDrawer(trigger.path, 'trigger', {
-											triggers: { kind: trigger.triggerKind }
-										})
-									}}
-								>
-									<Upload size={12} />
-									Deploy
-								</Button>
-								<Button
-									size="xs"
-									variant="subtle"
-									color="red"
-									onclick={() => deleteTrigger(trigger)}
-								>
-									<Trash2 size={12} />
-								</Button>
-							{/snippet}
-						</Row>
-					{/each}
-				</div>
-			{/if}
-		</div>
-
 		<div class="bg-surface-tertiary p-4 rounded-md border">
 			<DatatableSchemaDiff {currentWorkspaceId} {parentWorkspaceId} />
 		</div>
 	</div>
 
-	<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 	<DiffDrawer bind:this={diffDrawer} {isFlow} />
 	<ConfirmationModal
 		title="Delete trigger"
