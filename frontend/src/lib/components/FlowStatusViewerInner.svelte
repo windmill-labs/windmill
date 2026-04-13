@@ -51,6 +51,7 @@
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
 	import McpToolCallDetails from './McpToolCallDetails.svelte'
+	import GfmMarkdown from './GfmMarkdown.svelte'
 	import JobOtelTraces from './JobOtelTraces.svelte'
 	import JobDetailHeader from './runs/JobDetailHeader.svelte'
 	import LogViewer from './LogViewer.svelte'
@@ -1987,14 +1988,11 @@
 													agentNode?.result,
 													actionIndex
 												)}
-												{#if messageContent !== undefined}
+												{#if messageContent !== undefined && typeof messageContent === 'string'}
 													<div>
 														<h3 class="text-sm font-semibold mb-2 text-secondary">Message</h3>
-														<div class="border rounded">
-															<DisplayResult
-																result={messageContent}
-																workspaceId={job?.workspace_id}
-															/>
+														<div class="border rounded p-2 overflow-auto max-h-[500px]">
+															<GfmMarkdown md={messageContent} />
 														</div>
 													</div>
 												{:else}
