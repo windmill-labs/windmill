@@ -35,10 +35,11 @@ async fn main() {
 
     with_log_context(ctx, async {
         // Simulate auth middleware running:
-        update_log_context(|c| {
-            c.email = Some("alice@acme.co".into());
-            c.username = Some("alice".into());
-            c.workspace_id = Some("acme".into());
+        update_log_context(|c| LogContext {
+            email: Some("alice@acme.co".into()),
+            username: Some("alice".into()),
+            workspace_id: Some("acme".into()),
+            ..c.clone()
         });
 
         // This mimics MyOnResponse::on_response for a 500 error:

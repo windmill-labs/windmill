@@ -16749,6 +16749,7 @@ dependencies = [
  "aes-gcm",
  "aho-corasick",
  "anyhow",
+ "arc-swap",
  "async-recursion",
  "async-stream",
  "async-trait",

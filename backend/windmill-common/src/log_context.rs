@@ -16,13 +16,16 @@
 //! by workspace_id, email, script_path, etc., without joining against
 //! traces.
 //!
-//! This deliberately lives alongside (not instead of) tracing spans — the
-//! same fields are still recorded on `info_span!("request", …)` and
-//! `info_span!("job", …)` for OTEL trace export. LogContext is the log-side
-//! parallel that `opentelemetry-appender-tracing` would otherwise be unable
-//! to see.
+//! The context is stored as `ArcSwap<LogContext>` inside the task-local,
+//! which means reads are effectively free (atomic load of an Arc) and
+//! writes are immutable swaps. There is no lock — so no reentrant-deadlock
+//! risk, no mutex poisoning, and no stale-read race. The tradeoff is that
+//! `update_log_context` takes an `FnOnce(&LogContext) -> LogContext`
+//! closure that must return a new context value instead of mutating the
+//! existing one in place.
 
-use std::sync::{Arc, Mutex};
+use arc_swap::ArcSwap;
+use std::sync::Arc;
 
 /// Fields promoted from request/job context onto exported log records.
 #[derive(Clone, Debug, Default)]
@@ -57,7 +60,7 @@ pub struct LogContext {
 }
 
 tokio::task_local! {
-    pub static LOG_CONTEXT: Arc<Mutex<LogContext>>;
+    pub static LOG_CONTEXT: ArcSwap<LogContext>;
 }
 
 /// Run a future inside a freshly-seeded LogContext scope.
@@ -68,29 +71,45 @@ pub async fn with_log_context<F>(ctx: LogContext, fut: F) -> F::Output
 where
     F: std::future::Future,
 {
-    LOG_CONTEXT.scope(Arc::new(Mutex::new(ctx)), fut).await
+    LOG_CONTEXT.scope(ArcSwap::from_pointee(ctx), fut).await
 }
 
 /// Snapshot the current LogContext. Returns `None` outside any scope.
-pub fn current_log_context() -> Option<LogContext> {
-    LOG_CONTEXT
-        .try_with(|c| c.lock().ok().map(|g| g.clone()))
-        .ok()
-        .flatten()
+///
+/// The returned `Arc<LogContext>` is a zero-cost view of the context *at
+/// the moment of the call*. Subsequent `update_log_context` calls on the
+/// same task will atomically swap in a new Arc — this snapshot is
+/// unaffected.
+pub fn current_log_context() -> Option<Arc<LogContext>> {
+    LOG_CONTEXT.try_with(|c| c.load_full()).ok()
 }
 
-/// Mutate the current LogContext in place. No-op outside a scope.
+/// Replace the current LogContext with a new value derived from the
+/// previous one. No-op outside a scope.
 ///
-/// Used by auth middleware to push email/username/workspace_id as soon as
-/// they're resolved.
+/// The closure receives the current context by reference and must return
+/// a new owned context. Callers typically use functional record update
+/// syntax:
+///
+/// ```ignore
+/// update_log_context(|c| LogContext {
+///     email: Some("alice@acme.co".into()),
+///     ..(**c).clone()
+/// });
+/// ```
+///
+/// There is no lock held while the closure runs, so reentrant calls
+/// (`update_log_context` inside the closure) are safe — they'll operate on
+/// the intermediate state and may lose the intermediate write if the
+/// enclosing call races, but they cannot deadlock.
 pub fn update_log_context<F>(f: F)
 where
-    F: FnOnce(&mut LogContext),
+    F: FnOnce(&LogContext) -> LogContext,
 {
     let _ = LOG_CONTEXT.try_with(|c| {
-        if let Ok(mut g) = c.lock() {
-            f(&mut g);
-        }
+        let current = c.load_full();
+        let next = Arc::new(f(&current));
+        c.store(next);
     });
 }
 
@@ -98,9 +117,9 @@ where
 /// the new task. Use in place of `tokio::spawn` when you want the spawned
 /// task's logs to inherit the calling task's context.
 ///
-/// The snapshot is captured at spawn time — mutations in either task after
-/// that point are independent. This is usually what you want for
-/// fire-and-forget background work.
+/// The snapshot is a shared `Arc` captured at spawn time — mutations in
+/// either task after that point are independent because each task's
+/// `ArcSwap` is its own task-local slot.
 pub fn spawn_with_log_context<F>(fut: F) -> tokio::task::JoinHandle<F::Output>
 where
     F: std::future::Future + Send + 'static,
@@ -109,7 +128,7 @@ where
     let snapshot = current_log_context();
     tokio::spawn(async move {
         match snapshot {
-            Some(ctx) => with_log_context(ctx, fut).await,
+            Some(arc) => LOG_CONTEXT.scope(ArcSwap::new(arc), fut).await,
             None => fut.await,
         }
     })
@@ -131,10 +150,15 @@ mod tests {
             assert_eq!(snap.workspace_id.as_deref(), Some("acme"));
             assert_eq!(snap.email.as_deref(), Some("alice@acme.co"));
 
-            update_log_context(|c| c.script_path = Some("f/ingest/run".into()));
+            update_log_context(|c| LogContext {
+                script_path: Some("f/ingest/run".into()),
+                ..c.clone()
+            });
 
             let snap = current_log_context().expect("in scope");
             assert_eq!(snap.script_path.as_deref(), Some("f/ingest/run"));
+            // Old fields are preserved by functional update:
+            assert_eq!(snap.workspace_id.as_deref(), Some("acme"));
         })
         .await;
     }
@@ -142,8 +166,8 @@ mod tests {
     #[tokio::test]
     async fn outside_scope_returns_none() {
         assert!(current_log_context().is_none());
-        // update_log_context is a no-op outside a scope, must not panic
-        update_log_context(|c| c.workspace_id = Some("ignored".into()));
+        // update_log_context is a no-op outside a scope, doesn't panic
+        update_log_context(|c| LogContext { workspace_id: Some("ignored".into()), ..c.clone() });
         assert!(current_log_context().is_none());
     }
 
@@ -152,8 +176,10 @@ mod tests {
         let ctx = LogContext { workspace_id: Some("acme".into()), ..Default::default() };
         with_log_context(ctx, async {
             let handle = spawn_with_log_context(async {
-                let snap = current_log_context().expect("inherited in spawned task");
-                snap.workspace_id
+                current_log_context()
+                    .expect("inherited in spawned task")
+                    .workspace_id
+                    .clone()
             });
             let ws = handle.await.unwrap();
             assert_eq!(ws.as_deref(), Some("acme"));
@@ -180,11 +206,38 @@ mod tests {
         with_log_context(ctx, async {
             let handle = spawn_with_log_context(async {
                 tokio::task::yield_now().await;
-                current_log_context().unwrap().workspace_id
+                current_log_context().unwrap().workspace_id.clone()
             });
-            update_log_context(|c| c.workspace_id = Some("mutated".into()));
+            update_log_context(|c| LogContext {
+                workspace_id: Some("mutated".into()),
+                ..c.clone()
+            });
             let child_ws = handle.await.unwrap();
             assert_eq!(child_ws.as_deref(), Some("parent"));
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn update_preserves_other_fields() {
+        let ctx = LogContext {
+            method: Some("POST".into()),
+            uri: Some("/api/w/acme/jobs".into()),
+            workspace_id: Some("acme".into()),
+            ..Default::default()
+        };
+        with_log_context(ctx, async {
+            update_log_context(|c| LogContext {
+                email: Some("alice@acme.co".into()),
+                username: Some("alice".into()),
+                ..c.clone()
+            });
+            let snap = current_log_context().unwrap();
+            assert_eq!(snap.method.as_deref(), Some("POST"));
+            assert_eq!(snap.uri.as_deref(), Some("/api/w/acme/jobs"));
+            assert_eq!(snap.workspace_id.as_deref(), Some("acme"));
+            assert_eq!(snap.email.as_deref(), Some("alice@acme.co"));
+            assert_eq!(snap.username.as_deref(), Some("alice"));
         })
         .await;
     }

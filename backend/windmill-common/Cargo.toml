@@ -115,6 +115,7 @@ aes-gcm = { workspace = true, optional = true }
 semver.workspace = true
 croner.workspace = true
 quick_cache.workspace = true
+arc-swap.workspace = true
 pin-project-lite.workspace = true
 futures.workspace = true
 tempfile.workspace = true

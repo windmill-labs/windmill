@@ -694,10 +694,11 @@ pub async fn resolve_opt_job_authed(
                 let email_copy = authed.email.clone();
                 let workspace_copy = workspace_id.clone();
                 windmill_common::log_context::update_log_context(move |c| {
-                    c.username = Some(username_copy);
-                    c.email = Some(email_copy);
-                    if let Some(w) = workspace_copy {
-                        c.workspace_id = Some(w);
+                    windmill_common::log_context::LogContext {
+                        username: Some(username_copy),
+                        email: Some(email_copy),
+                        workspace_id: workspace_copy.or_else(|| c.workspace_id.clone()),
+                        ..c.clone()
                     }
                 });
 

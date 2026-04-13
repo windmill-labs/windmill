@@ -1387,7 +1387,9 @@ pub fn log_context_for_job(
     worker_name: &str,
     hostname: Option<&str>,
 ) -> windmill_common::log_context::LogContext {
-    let existing = windmill_common::log_context::current_log_context().unwrap_or_default();
+    let existing = windmill_common::log_context::current_log_context()
+        .map(|arc| (*arc).clone())
+        .unwrap_or_default();
     windmill_common::log_context::LogContext {
         job_id: Some(arc_job.id.to_string()),
         workspace_id: Some(arc_job.workspace_id.clone()),
