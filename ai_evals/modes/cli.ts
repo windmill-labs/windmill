@@ -91,6 +91,7 @@ export function createCliModeRunner(
           toolCallCount: run.toolsUsed.length,
           toolsUsed: run.toolsUsed.map((entry) => entry.tool),
           skillsInvoked: run.skillsInvoked,
+          tokenUsage: run.tokenUsage ?? null,
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -105,6 +106,7 @@ export function createCliModeRunner(
           toolCallCount: 0,
           toolsUsed: [],
           skillsInvoked: [],
+          tokenUsage: null,
         };
       } finally {
         await rm(workspaceDir, { recursive: true, force: true });

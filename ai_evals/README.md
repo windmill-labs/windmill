@@ -143,9 +143,6 @@ Each recorded line contains:
 - per-case metrics under `cases[]` (`averageDurationMs`, `averageJudgeScore`, `averageTokenUsagePerAttempt`, pass rate)
 - `failedCaseIds`
 
-For now, token usage in history is populated for frontend modes (`flow`, `script`, `app`).
-`cli` history records still use `null` until CLI token accounting is implemented.
-
 Example:
 
 - summary: `ai_evals/results/2026-04-09T09-40-33.051Z__flow.json`
