@@ -2028,31 +2028,10 @@
 													/>
 												{/if}
 											{:else if selectedNode?.startsWith(AI_WEBSEARCH_PREFIX)}
-												{@const [, agentModuleId, toolCallIndex] = selectedNode.split('-')}
-												{@const agentNode = localModuleStates?.[agentModuleId]}
-												{@const actionIndex = parseInt(toolCallIndex)}
-												{@const searchContent = getAgentActionContent(
-													agentNode?.result,
-													actionIndex
-												)}
-												{#if searchContent !== undefined}
-													<div>
-														<h3 class="text-sm font-semibold mb-2 text-secondary">
-															Web Search Result
-														</h3>
-														<div class="border rounded">
-															<DisplayResult
-																result={searchContent}
-																workspaceId={job?.workspace_id}
-															/>
-														</div>
-													</div>
-												{:else}
-													<Alert
-														type="info"
-														title="Web search output is available on the AI agent node"
-													/>
-												{/if}
+												<Alert
+													type="info"
+													title="Web search output is available on the AI agent node"
+												/>
 											{:else if selectedNode}
 												{@const node = localModuleStates[selectedNode]}
 												{#if selectedNode == 'end'}
