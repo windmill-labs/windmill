@@ -2928,6 +2928,16 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
             }
         return {"type": "dispatch", **info}
     finally:
+        # Close the lazily-built fast-path httpx client so we don't emit
+        # asyncio ResourceWarning('unclosed transport') on shutdown and don't
+        # leak connection pools when this coroutine is driven from a
+        # long-lived loop (tests, REPL, embedded callers).
+        if ctx._inline_http_client is not None:
+            try:
+                await ctx._inline_http_client.aclose()
+            except Exception:
+                pass
+            ctx._inline_http_client = None
         _workflow_ctx.reset(token)
 
 
