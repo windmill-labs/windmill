@@ -151,7 +151,7 @@
 			try {
 				await ScriptService.pickHubScriptByPath({ path: item.path })
 			} catch (error) {
-				sendUserToast('Failed to call ScriptService.pickHubScriptByPath: ' + error, 'error')
+				console.error('Failed to track hub script pick:', error)
 				// Don't block the flow if tracking fails
 			}
 		}
