@@ -2416,6 +2416,10 @@ class WorkflowCtx:
         self._counters: dict[str, int] = {}
         self._pending: list = []
         self._executing_key: str | None = checkpoint.get("_executing_key")
+        # Serializes fast-path step() calls so concurrent asyncio.gather does
+        # not race on the checkpoint's read-modify-write. Built lazily so the
+        # ctx can be constructed outside an event loop (tests do this).
+        self._inline_lock: "_asyncio.Lock | None" = None
 
     def _alloc_key(self, name: str = "step") -> str:
         """Name-based key: ``double`` for first call, ``double_2``, ``double_3`` for subsequent."""
@@ -2542,6 +2546,48 @@ class WorkflowCtx:
         if _asyncio.iscoroutine(result):
             result = await result
         duration_ms = int((_time_mod.monotonic() - t0) * 1000)
+
+        # Fast path: POST the delta to the new per-job API endpoint and return
+        # the result directly, letting the workflow subprocess continue into
+        # the next step() without unwinding. On any failure — network, auth,
+        # timeout, source-hash mismatch, old backend without the endpoint —
+        # fall through to raising _StepSuspend so the worker takes the legacy
+        # suspend-and-replay path. Gated by WM_WAC_INLINE_FAST_PATH (default
+        # on) so the old behavior stays reachable for A/B testing and rollback.
+        _fast_path_flag = os.environ.get("WM_WAC_INLINE_FAST_PATH", "1").strip().lower()
+        _fast_path_enabled = _fast_path_flag not in ("0", "false", "off", "no")
+        _job_id = os.environ.get("WM_JOB_ID")
+        _workspace = os.environ.get("WM_WORKSPACE")
+        _base = os.environ.get("BASE_INTERNAL_URL")
+        _token = os.environ.get("WM_TOKEN")
+        if _fast_path_enabled and _job_id and _workspace and _base and _token:
+            try:
+                if self._inline_lock is None:
+                    self._inline_lock = _asyncio.Lock()
+                async with self._inline_lock:
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as _c:
+                        _resp = await _c.post(
+                            f"{_base}/api/w/{_workspace}/jobs/wac/inline_checkpoint/{_job_id}",
+                            headers={
+                                "Authorization": f"Bearer {_token}",
+                                "Content-Type": "application/json",
+                            },
+                            json={
+                                "key": key,
+                                "result": result,
+                                "started_at": started_at,
+                                "duration_ms": duration_ms,
+                            },
+                        )
+                        _resp.raise_for_status()
+                return result
+            except Exception as _e:
+                logger.info(
+                    "WAC v2 inline fast path failed for key %s, falling back to suspend: %s",
+                    key,
+                    _e,
+                )
+                # fall through to the legacy suspend path
 
         raise _StepSuspend({
             "mode": "inline_checkpoint",

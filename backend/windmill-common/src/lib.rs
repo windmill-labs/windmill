@@ -108,6 +108,7 @@ pub mod usernames;
 pub mod users;
 pub mod utils;
 pub mod variables;
+pub mod wac;
 pub mod webhook;
 pub mod worker;
 pub mod worker_group_job_stats;

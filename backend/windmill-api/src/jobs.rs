@@ -162,6 +162,10 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
+            "/wac/inline_checkpoint/{job_id}",
+            post(wac_inline_checkpoint).layer(cors.clone()),
+        )
+        .route(
             "/restart/f/{job_id}",
             post(restart_flow).head(|| async { "" }).layer(cors.clone()),
         )
@@ -4443,6 +4447,64 @@ pub async fn run_workflow_as_code(
     }
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+#[derive(Deserialize)]
+pub struct WacInlineCheckpointPayload {
+    pub key: String,
+    pub result: serde_json::Value,
+    #[serde(default)]
+    pub started_at: Option<String>,
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+}
+
+/// Fast-path endpoint called by the WAC v2 SDKs to persist a single `step()`
+/// checkpoint delta without unwinding the parent workflow subprocess.
+///
+/// Mirrors the worker-side `WacOutput::InlineCheckpoint` arm in
+/// `bun_executor::handle_wac_v2_output` exactly — same `completed_steps`
+/// entry, same `_step/<key>` timeline entry, same source-hash validation —
+/// but does **not** touch `v2_job_queue`, because the parent subprocess is
+/// still live and about to return the next chunk of script output.
+///
+/// Any error here causes the SDK to fall back to raising `_StepSuspend`,
+/// which then goes through the untouched worker-side path. Old SDKs that
+/// never call this endpoint continue to work unchanged.
+pub async fn wac_inline_checkpoint(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Json(payload): Json<WacInlineCheckpointPayload>,
+) -> error::Result<StatusCode> {
+    // Look up the job's script hash for source-hash validation. We deliberately
+    // use a minimal query here rather than `fetch_queued(...)` — the latter
+    // pulls in many extra columns we don't need. A row is found iff the job
+    // exists in this workspace; the SDK wouldn't have a valid WM_TOKEN for
+    // it otherwise, but we still double-check the workspace scoping.
+    let row: Option<(Option<i64>,)> =
+        sqlx::query_as("SELECT runnable_id FROM v2_job WHERE id = $1 AND workspace_id = $2")
+            .bind(&job_id)
+            .bind(&w_id)
+            .fetch_optional(&db)
+            .await?;
+    let (runnable_id,) = row.ok_or_else(|| {
+        error::Error::NotFound(format!("WAC v2 job {job_id} not found in workspace {w_id}"))
+    })?;
+    let source_hash = runnable_id.map(|h| h.to_string()).unwrap_or_default();
+
+    windmill_common::wac::persist_inline_checkpoint_delta(
+        &db,
+        &job_id,
+        Some(source_hash.as_str()),
+        &payload.key,
+        payload.result,
+        payload.started_at.as_deref(),
+        payload.duration_ms,
+    )
+    .await?;
+
+    Ok(StatusCode::OK)
 }
 
 lazy_static::lazy_static! {

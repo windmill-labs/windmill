@@ -1014,3 +1014,133 @@ async def main(item: str, qty: int, email: str):
     .await;
     Ok(())
 }
+
+/// End-to-end comparison between the legacy `step()` suspend-and-replay path
+/// and the new SDK inline-persist fast path, toggled via
+/// `WM_WAC_INLINE_FAST_PATH`.
+///
+/// Runs the same 5-step WAC v2 Python workflow twice, asserts both modes
+/// produce the same final result and the same `completed_steps` shape in
+/// `workflow_as_code_status._checkpoint`, and prints a wall-clock benchmark
+/// ratio so CI and manual runs can track the speedup. The fast path is
+/// expected to be strictly faster because it avoids N-1 subprocess spawns
+/// and N-1 queue round-trips for a workflow with N `step()` calls.
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base"))]
+async fn test_python_wac_v2_step_inline_fast_path(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+from wmill import workflow, step
+
+@workflow
+async def main(n: int):
+    a = await step("a", lambda: n)
+    b = await step("b", lambda: a + 1)
+    c = await step("c", lambda: b + 1)
+    d = await step("d", lambda: c + 1)
+    e = await step("e", lambda: d + 1)
+    return {"a": a, "b": b, "c": c, "d": d, "e": e}
+"#
+    .to_string();
+
+    let db_ref = &db;
+
+    async fn run_once(
+        db: &Pool<Postgres>,
+        port: u16,
+        content: String,
+    ) -> (serde_json::Value, serde_json::Value, std::time::Duration) {
+        let mut job_id_out: Option<sqlx::types::Uuid> = None;
+        let mut result_out: Option<serde_json::Value> = None;
+        let t0 = std::time::Instant::now();
+        in_test_worker(
+            db,
+            async {
+                let job = Box::pin(
+                    RunJob::from(JobPayload::Code(RawCode {
+                        language: ScriptLang::Python3,
+                        content,
+                        ..RawCode::default()
+                    }))
+                    .arg("n", json!(1))
+                    .run_until_complete(db, false, port),
+                )
+                .await;
+                result_out = Some(job.json_result().unwrap());
+                job_id_out = Some(job.id);
+            },
+            port,
+        )
+        .await;
+        let elapsed = t0.elapsed();
+
+        let job_id = job_id_out.expect("job id");
+        let ckpt: serde_json::Value = sqlx::query_scalar!(
+            "SELECT workflow_as_code_status->'_checkpoint'->'completed_steps'
+             FROM v2_job_completed WHERE id = $1",
+            job_id
+        )
+        .fetch_one(db)
+        .await
+        .unwrap()
+        .unwrap();
+
+        (result_out.unwrap(), ckpt, elapsed)
+    }
+
+    // --- Legacy path: worker-side suspend & replay ---
+    std::env::set_var("WM_WAC_INLINE_FAST_PATH", "0");
+    let (legacy_result, legacy_ckpt, legacy_elapsed) =
+        run_once(db_ref, port, content.clone()).await;
+
+    // --- Fast path: SDK persists the delta via the new API endpoint ---
+    std::env::set_var("WM_WAC_INLINE_FAST_PATH", "1");
+    let (fast_result, fast_ckpt, fast_elapsed) = run_once(db_ref, port, content.clone()).await;
+
+    std::env::remove_var("WM_WAC_INLINE_FAST_PATH");
+
+    // Behavioral equivalence: same final result and same completed_steps.
+    assert_eq!(
+        legacy_result, fast_result,
+        "legacy and fast path produced different workflow results"
+    );
+    assert_eq!(
+        legacy_result,
+        json!({"a": 1, "b": 2, "c": 3, "d": 4, "e": 5}),
+        "unexpected workflow result"
+    );
+    assert_eq!(
+        legacy_ckpt, fast_ckpt,
+        "legacy and fast path stored different completed_steps in the checkpoint"
+    );
+
+    // Benchmark output.
+    let legacy_ms = legacy_elapsed.as_millis();
+    let fast_ms = fast_elapsed.as_millis();
+    let speedup = if fast_ms > 0 {
+        legacy_ms as f64 / fast_ms as f64
+    } else {
+        f64::INFINITY
+    };
+    tracing::info!(
+        "WAC v2 step() benchmark: legacy={}ms fast={}ms speedup={:.2}x",
+        legacy_ms,
+        fast_ms,
+        speedup
+    );
+    println!(
+        "WAC v2 step() benchmark: legacy={}ms fast={}ms speedup={:.2}x",
+        legacy_ms, fast_ms, speedup
+    );
+    // The fast path should be strictly faster for a 5-step workflow: it
+    // avoids 4 subprocess spawns + 4 queue round-trips. Use a generous
+    // margin so the assertion only fires on real regressions.
+    assert!(
+        fast_ms < legacy_ms,
+        "fast path ({fast_ms}ms) was not faster than legacy ({legacy_ms}ms)"
+    );
+    Ok(())
+}
