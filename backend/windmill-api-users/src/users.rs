@@ -651,7 +651,7 @@ async fn is_valid_logout_redirect(rd: &str) -> bool {
     if host == "windmill.dev" || host.ends_with(".windmill.dev") {
         return true;
     }
-    let hub_url = HUB_BASE_URL.read().await.clone();
+    let hub_url = (**HUB_BASE_URL.load()).clone();
     if let Ok(hub_parsed) = url::Url::parse(&hub_url) {
         if let Some(hub_host) = hub_parsed.host_str() {
             if host == hub_host {
@@ -2655,7 +2655,7 @@ async fn request_password_reset(
         .await?;
 
         // Get the base URL for the reset link
-        let base_url = BASE_URL.read().await.clone();
+        let base_url = (**BASE_URL.load()).clone();
         let base_url = if base_url.is_empty() {
             std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string())
         } else {

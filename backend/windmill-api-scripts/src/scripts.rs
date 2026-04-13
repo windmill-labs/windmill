@@ -464,7 +464,7 @@ async fn get_top_hub_scripts(
 
     let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
-        &format!("{}/scripts/top", *HUB_BASE_URL.read().await),
+        &format!("{}/scripts/top", **HUB_BASE_URL.load()),
         Some(query_params),
         &db,
     )
@@ -1444,7 +1444,7 @@ pub async fn pick_hub_script_by_path(
     // Extract version_id from path (format: {hub}/{version_id}/{summary})
     let version_id = path_str.split('/').nth(1).unwrap_or("");
 
-    let hub_base_url = HUB_BASE_URL.read().await.clone();
+    let hub_base_url = (**HUB_BASE_URL.load()).clone();
 
     // Determine which hub to use based on version_id
     // If version_id < PRIVATE_HUB_MIN_VERSION, use default hub

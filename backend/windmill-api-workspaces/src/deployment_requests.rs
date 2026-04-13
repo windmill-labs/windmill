@@ -339,7 +339,7 @@ async fn create_deployment_request(
     tx.commit().await?;
 
     // Send a deployment-request email to each assignee.
-    let base_url = BASE_URL.read().await.clone();
+    let base_url = (**BASE_URL.load()).clone();
     let subject = format!(
         "[Windmill] @{} requested a deployment on fork {w_id}",
         authed.username
@@ -542,7 +542,7 @@ async fn close_deployment_request_merged(
     recipients.insert(row.requested_by_email);
     recipients.remove(&authed.email);
     let subject = format!("[Windmill] Deployment request on fork {w_id} merged");
-    let base_url = BASE_URL.read().await.clone();
+    let base_url = (**BASE_URL.load()).clone();
     let body_text = format!(
         "@{} merged the deployment request from @{} on fork {w_id}.\n\n{base_url}/?workspace={w_id}",
         authed.username, row.requested_by
@@ -692,7 +692,7 @@ async fn create_deployment_request_comment(
         "[Windmill] New comment on deployment request for fork {w_id} by @{}",
         authed.username
     );
-    let base_url = BASE_URL.read().await.clone();
+    let base_url = (**BASE_URL.load()).clone();
     let body_text = format!(
         "@{} commented on the deployment request for fork {w_id}:\n\n{}\n\n{base_url}/?workspace={w_id}",
         authed.username, body.body

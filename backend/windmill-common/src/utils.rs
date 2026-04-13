@@ -427,7 +427,7 @@ pub fn calculate_hash(s: &str) -> String {
 pub async fn get_license_id_or_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     db: E,
 ) -> Result<String> {
-    let license_id = LICENSE_KEY_ID.read().await.clone();
+    let license_id = (**LICENSE_KEY_ID.load()).clone();
 
     if license_id.is_empty() {
         get_instance_uid(db).await
@@ -452,7 +452,7 @@ async fn get_instance_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(db: E)
 pub async fn get_telemetry_ids<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     db: E,
 ) -> Result<(String, String)> {
-    let license_id = LICENSE_KEY_ID.read().await.clone();
+    let license_id = (**LICENSE_KEY_ID.load()).clone();
     let instance_uid = get_instance_uid(db).await?;
     if license_id.is_empty() {
         Ok((instance_uid.clone(), instance_uid))

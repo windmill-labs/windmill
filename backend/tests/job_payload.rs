@@ -276,19 +276,19 @@ mod job_payload {
 
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_dependencies_payload_min_1_427(db: Pool<Postgres>) -> anyhow::Result<()> {
-        *MIN_VERSION.write().await = MIN_VERSION_IS_AT_LEAST_1_427.version().clone();
+        MIN_VERSION.store(std::sync::Arc::new(MIN_VERSION_IS_AT_LEAST_1_427.version().clone()));
         test_dependencies_payload(db).await?;
         Ok(())
     }
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_dependencies_payload_min_1_432(db: Pool<Postgres>) -> anyhow::Result<()> {
-        *MIN_VERSION.write().await = MIN_VERSION_IS_AT_LEAST_1_432.version().clone();
+        MIN_VERSION.store(std::sync::Arc::new(MIN_VERSION_IS_AT_LEAST_1_432.version().clone()));
         test_dependencies_payload(db).await?;
         Ok(())
     }
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_dependencies_payload_min_1_440(db: Pool<Postgres>) -> anyhow::Result<()> {
-        *MIN_VERSION.write().await = MIN_VERSION_IS_AT_LEAST_1_440.version().clone();
+        MIN_VERSION.store(std::sync::Arc::new(MIN_VERSION_IS_AT_LEAST_1_440.version().clone()));
         test_dependencies_payload(db).await?;
         Ok(())
     }

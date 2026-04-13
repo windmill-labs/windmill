@@ -40,7 +40,7 @@ impl FullNextcloudPayload {
         webhook_token: &str,
         data: &NativeTriggerData<NextcloudServiceConfig>,
     ) -> FullNextcloudPayload {
-        let base_url = &*BASE_URL.read().await;
+        let base_url = &**BASE_URL.load();
         let uri = generate_webhook_service_url(
             base_url,
             w_id,

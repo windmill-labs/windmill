@@ -150,7 +150,7 @@ pub async fn get_hub_script_by_path(
         .strip_prefix("hub/")
         .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
 
-    let hub_base_url = HUB_BASE_URL.read().await.clone();
+    let hub_base_url = (**HUB_BASE_URL.load()).clone();
 
     //
     let result = http_get_from_hub(
@@ -242,7 +242,7 @@ async fn get_full_hub_script_by_path_inner(
     http_client: &reqwest::Client,
     db: Option<&DB>,
 ) -> crate::error::Result<HubScript> {
-    let hub_base_url = HUB_BASE_URL.read().await.clone();
+    let hub_base_url = (**HUB_BASE_URL.load()).clone();
 
     let response = (|| async {
         let response = http_get_from_hub(

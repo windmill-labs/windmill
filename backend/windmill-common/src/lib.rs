@@ -211,9 +211,9 @@ lazy_static::lazy_static! {
     pub static ref CRITICAL_ALERT_MUTE_UI_ENABLED: AtomicBool = AtomicBool::new(false);
     pub static ref CRITICAL_ALERTS_ON_TOKEN_EXPIRY: AtomicBool = AtomicBool::new(false);
 
-    pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
+    pub static ref BASE_URL: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    pub static ref HUB_BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new(DEFAULT_HUB_BASE_URL.to_string()));
+    pub static ref HUB_BASE_URL: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee(DEFAULT_HUB_BASE_URL.to_string());
 
 
     pub static ref CRITICAL_ERROR_CHANNELS: arc_swap::ArcSwap<Vec<CriticalErrorChannel>> = arc_swap::ArcSwap::from_pointee(vec![]);

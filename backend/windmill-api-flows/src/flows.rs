@@ -224,7 +224,7 @@ async fn list_hub_flows(Extension(db): Extension<DB>) -> impl IntoResponse {
         &HTTP_CLIENT,
         &format!(
             "{}/searchFlowData?approved=true",
-            *HUB_BASE_URL.read().await
+            **HUB_BASE_URL.load()
         ),
         None,
         &db,
@@ -257,7 +257,7 @@ pub async fn get_hub_flow_by_id(
 ) -> JsonResult<Box<serde_json::value::RawValue>> {
     let value = http_get_from_hub(
         &HTTP_CLIENT,
-        &format!("{}/flows/{}/json", *HUB_BASE_URL.read().await, id),
+        &format!("{}/flows/{}/json", **HUB_BASE_URL.load(), id),
         false,
         None,
         Some(&db),

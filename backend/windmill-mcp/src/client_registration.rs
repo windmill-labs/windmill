@@ -118,7 +118,7 @@ pub async fn get_or_refresh_mcp_client(
     db: &DB,
     mcp_server_url: &str,
 ) -> Result<McpClientCredentials, error::Error> {
-    let base_url = windmill_common::BASE_URL.read().await.clone();
+    let base_url = (**windmill_common::BASE_URL.load()).clone();
     let redirect_uri = format!("{}/api/mcp/oauth/callback", base_url);
 
     let cached_client: Option<McpOAuthClient> =

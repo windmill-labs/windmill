@@ -12,16 +12,12 @@ use crate::error;
 use serde::Deserialize;
 #[cfg(not(feature = "private"))]
 use std::sync::atomic::AtomicBool;
-#[cfg(not(feature = "private"))]
-use std::sync::Arc;
-#[cfg(not(feature = "private"))]
-use tokio::sync::RwLock;
 
 #[cfg(not(feature = "private"))]
 lazy_static::lazy_static! {
   pub static ref LICENSE_KEY_VALID: AtomicBool = AtomicBool::new(true);
-  pub static ref LICENSE_KEY_ID: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
-  pub static ref LICENSE_KEY: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
+  pub static ref LICENSE_KEY_ID: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
+  pub static ref LICENSE_KEY: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
 }
 
 #[cfg(not(feature = "private"))]

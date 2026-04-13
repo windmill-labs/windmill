@@ -72,7 +72,7 @@ pub async fn get_full_hub_flow_by_path(
 ) -> crate::error::Result<HubFlow> {
     let path = path.to_path();
     let flow_id = extract_hub_flow_id_from_path(&path)?;
-    let hub_base_url = HUB_BASE_URL.read().await.clone();
+    let hub_base_url = (**HUB_BASE_URL.load()).clone();
     let hub_url = format!("{hub_base_url}/flows/{flow_id}/json");
 
     let response = match http_get_from_hub(http_client, &hub_url, false, None, db)

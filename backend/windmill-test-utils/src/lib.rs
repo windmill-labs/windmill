@@ -707,7 +707,8 @@ pub async fn test_for_versions<F: Future<Output = ()>>(
     test: impl Fn() -> F,
 ) {
     for constraint in constraints {
-        *windmill_common::min_version::MIN_VERSION.write().await = constraint.version().clone();
+        windmill_common::min_version::MIN_VERSION
+            .store(std::sync::Arc::new(constraint.version().clone()));
         test().await;
     }
 }

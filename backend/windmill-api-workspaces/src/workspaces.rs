@@ -4665,7 +4665,7 @@ async fn invite_user(
             "You have been granted access to Windmill's workspace {w_id}
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
-            BASE_URL.read().await.clone()
+            (**BASE_URL.load()).clone()
         ),
         &nu.email,
     );
@@ -4811,7 +4811,7 @@ async fn add_user(
 
 If you do not have an account on {}, login with SSO or ask an admin to create an account for you.",
             authed.email,
-            BASE_URL.read().await.clone()
+            (**BASE_URL.load()).clone()
         ),
         &nu.email,
     );

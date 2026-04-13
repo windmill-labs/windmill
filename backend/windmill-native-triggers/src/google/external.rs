@@ -203,7 +203,7 @@ impl Google {
         data: &NativeTriggerData<GoogleServiceConfig>,
         db: &DB,
     ) -> Result<CreateWatchResponse> {
-        let base_url = &*BASE_URL.read().await;
+        let base_url = &**BASE_URL.load();
         let webhook_url = generate_webhook_service_url(
             base_url,
             w_id,
@@ -335,7 +335,7 @@ impl Google {
                 )));
             }
         };
-        let base_url = &*BASE_URL.read().await;
+        let base_url = &**BASE_URL.load();
         // Reuse the same channel ID so external_id stays permanent
         let channel_id = trigger.external_id.clone();
         let webhook_url = generate_webhook_service_url(

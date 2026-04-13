@@ -2765,10 +2765,7 @@ pub async fn load_base_url(conn: &Connection) -> error::Result<String> {
     } else {
         std_base_url
     };
-    {
-        let mut l = BASE_URL.write().await;
-        *l = base_url.clone();
-    }
+    BASE_URL.store(std::sync::Arc::new(base_url.clone()));
     Ok(base_url)
 }
 
@@ -2935,7 +2932,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
 
         otel_incr_zombie_restart_count(restarted.len() as u64);
 
-        let base_url = BASE_URL.read().await.clone();
+        let base_url = (**BASE_URL.load()).clone();
         for r in restarted {
             let last_ping = if let Some(x) = r.ping {
                 format!("last ping at {x}")
@@ -3422,7 +3419,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             let id = flow.id.clone();
             let last_ping = flow.last_ping.clone();
             let now = now_from_db(db).await?;
-            let base_url = BASE_URL.read().await;
+            let base_url = BASE_URL.load();
             let workspace_id = flow.workspace_id.clone();
 
             let fmt_mb = |b: i64| format!("{:.1} MB", b as f64 / 1024.0 / 1024.0);
@@ -3651,11 +3648,11 @@ pub async fn reload_hub_base_url_setting(
         DEFAULT_HUB_BASE_URL.to_string()
     };
 
-    let mut l = HUB_BASE_URL.write().await;
+    let previous = HUB_BASE_URL.load();
     if server_mode {
         #[cfg(feature = "embedding")]
         if let Some(db) = conn.as_sql() {
-            if *l != base_url {
+            if **previous != base_url {
                 let disable_embedding = std::env::var("DISABLE_EMBEDDING")
                     .ok()
                     .map(|x| x.parse::<bool>().unwrap_or(false))
@@ -3669,7 +3666,8 @@ pub async fn reload_hub_base_url_setting(
             }
         }
     }
-    *l = base_url;
+    drop(previous);
+    HUB_BASE_URL.store(std::sync::Arc::new(base_url));
 
     Ok(())
 }

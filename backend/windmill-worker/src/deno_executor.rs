@@ -73,7 +73,7 @@ async fn get_common_deno_proc_envs(
     w_id: &str,
     conn: Option<&Connection>,
 ) -> HashMap<String, String> {
-    let hostname = BASE_URL.read().await.clone();
+    let hostname = (**BASE_URL.load()).clone();
     let hostname_base = hostname.split("://").last().unwrap_or("localhost");
     let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
     let deno_auth_tokens_base = DENO_AUTH_TOKENS.as_str();

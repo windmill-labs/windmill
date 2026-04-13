@@ -1188,7 +1188,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 {
                     if !success {
                         tracing::error!("Could not apply schedule error handler: {}", err);
-                        let base_url = windmill_common::BASE_URL.read().await;
+                        let base_url = windmill_common::BASE_URL.load();
                         let w_id: &String = &completed_job.workspace_id;
                         if !matches!(err, Error::QuotaExceeded(_)) {
                             report_error_to_workspace_handler_or_critical_side_channel(

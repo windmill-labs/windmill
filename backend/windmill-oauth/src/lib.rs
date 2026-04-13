@@ -407,7 +407,7 @@ pub async fn build_slack_client(
     let token_url = Url::parse("https://slack.com/api/oauth.access")
         .map_err(|e| anyhow!("Invalid Slack token URL: {e}"))?;
 
-    let base_url = BASE_URL.read().await.clone();
+    let base_url = (**BASE_URL.load()).clone();
     let redirect_url = format!("{}/oauth/callback_slack", base_url);
 
     let mut client = OClient::new(client_id.to_string(), auth_url, token_url);
@@ -488,7 +488,7 @@ pub async fn build_client_credentials_oauth_client(
         tenant: oauth_client_config.tenant.clone(),
     };
 
-    let base_url = BASE_URL.read().await.clone();
+    let base_url = (**BASE_URL.load()).clone();
     let (_, client) = build_basic_client(
         client_name.to_string(),
         connect_config,

@@ -322,7 +322,7 @@ pub async fn get_reserved_variables(
     },
     ContextualVariable {
         name: "WM_BASE_URL".to_string(),
-        value: BASE_URL.read().await.clone(),
+        value: (**BASE_URL.load()).clone(),
         description: "base url of this instance".to_string(),
         is_custom: false,
     },

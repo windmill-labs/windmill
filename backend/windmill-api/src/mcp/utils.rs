@@ -203,7 +203,7 @@ pub async fn get_scripts_from_hub(
         ("with_schema", "true".to_string()),
         ("apps", scope_integrations.unwrap_or("").to_string()),
     ]);
-    let url = format!("{}/scripts/top", *HUB_BASE_URL.read().await);
+    let url = format!("{}/scripts/top", **HUB_BASE_URL.load());
     let (_status_code, _headers, response) =
         query_elems_from_hub(&HTTP_CLIENT, &url, query_params, &db)
             .await

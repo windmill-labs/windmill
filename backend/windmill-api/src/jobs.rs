@@ -1278,7 +1278,7 @@ async fn send_workspace_trigger_failure_email_notification(
         (None, None)
     };
 
-    let base_url = BASE_URL.read().await;
+    let base_url = BASE_URL.load();
     let job_url = format!("{}/run/{}?workspace={}", base_url, &job_id, w_id);
     let trigger_kind_str = trigger_kind.unwrap_or("Unknown").to_string().to_uppercase();
 
@@ -3560,7 +3560,7 @@ pub async fn get_resume_urls_internal(
         .unwrap_or(target_job_id);
     let approval_token = generate_approval_token(&w_id, approval_target_id, &db).await?;
 
-    let base_url_str = BASE_URL.read().await.clone();
+    let base_url_str = (**BASE_URL.load()).clone();
     let base_url = base_url_str.as_str();
     let res = ResumeUrls {
         approvalPage: format!(

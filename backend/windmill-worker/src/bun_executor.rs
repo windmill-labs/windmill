@@ -2941,7 +2941,7 @@ pub async fn handle_wac_v2_output(
                 mac.update(resume_id.to_be_bytes().as_ref());
                 let signature = hex::encode(mac.finalize().into_bytes());
 
-                let base_url = windmill_common::BASE_URL.read().await.clone();
+                let base_url = (**windmill_common::BASE_URL.load()).clone();
                 let w_id = &job.workspace_id;
                 let job_id = &job.id;
 

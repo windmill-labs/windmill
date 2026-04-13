@@ -266,7 +266,7 @@ fn build_protected_resource_metadata(
 pub async fn workspaced_oauth_metadata(
     Path(workspace_id): Path<String>,
 ) -> Json<AuthorizationMetadata> {
-    let base_url = BASE_URL.read().await;
+    let base_url = BASE_URL.load();
     let oauth_prefix = format!("/api/w/{}/mcp/oauth/server", workspace_id);
     Json(build_oauth_metadata(&oauth_prefix, &base_url))
 }
@@ -275,7 +275,7 @@ pub async fn workspaced_oauth_metadata(
 pub async fn protected_resource_metadata_by_path(
     Path(workspace_id): Path<String>,
 ) -> Json<ProtectedResourceMetadata> {
-    let base_url = BASE_URL.read().await;
+    let base_url = BASE_URL.load();
     let resource_path = format!("/api/mcp/w/{}/mcp", workspace_id);
     let oauth_prefix = format!("/api/w/{}/mcp/oauth/server", workspace_id);
     Json(build_protected_resource_metadata(
@@ -700,7 +700,7 @@ async fn oauth_authorize_inner(
         None => ("gateway", "true"),
     };
 
-    let base_url = BASE_URL.read().await;
+    let base_url = BASE_URL.load();
     let frontend_url = format!(
         "{}/oauth/mcp_authorize?{}",
         base_url,
@@ -897,7 +897,7 @@ impl IntoResponse for OAuthErrorRedirect {
 // Thin wrappers that delegate to the shared inner functions above.
 
 pub async fn gateway_oauth_metadata() -> Json<AuthorizationMetadata> {
-    let base_url = BASE_URL.read().await;
+    let base_url = BASE_URL.load();
     Json(build_oauth_metadata(
         "/api/mcp/gateway/oauth/server",
         &base_url,
@@ -905,7 +905,7 @@ pub async fn gateway_oauth_metadata() -> Json<AuthorizationMetadata> {
 }
 
 pub async fn gateway_protected_resource_metadata() -> Json<ProtectedResourceMetadata> {
-    let base_url = BASE_URL.read().await;
+    let base_url = BASE_URL.load();
     Json(build_protected_resource_metadata(
         "/api/mcp/gateway",
         "/api/mcp/gateway/oauth/server",

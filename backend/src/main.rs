@@ -974,7 +974,7 @@ Windmill Community Edition {GIT_VERSION}
                 let renewed_now = maybe_renew_license_key_on_start(
                     &HTTP_CLIENT,
                     &db,
-                    !valid_key && !LICENSE_KEY_ID.read().await.is_empty(),
+                    !valid_key && !LICENSE_KEY_ID.load().is_empty(),
                 )
                 .await;
                 if renewed_now {

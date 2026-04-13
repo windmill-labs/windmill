@@ -1410,7 +1410,7 @@ async fn create_app_internal<'a>(
 async fn list_hub_apps(Extension(db): Extension<DB>) -> impl IntoResponse {
     let (status_code, headers, body) = query_elems_from_hub(
         &HTTP_CLIENT,
-        &format!("{}/searchUiData?approved=true", *HUB_BASE_URL.read().await),
+        &format!("{}/searchUiData?approved=true", **HUB_BASE_URL.load()),
         None,
         &db,
     )
@@ -1424,7 +1424,7 @@ pub async fn get_hub_app_by_id(
 ) -> JsonResult<Box<serde_json::value::RawValue>> {
     let value = http_get_from_hub(
         &HTTP_CLIENT,
-        &format!("{}/apps/{}/json", *HUB_BASE_URL.read().await, id),
+        &format!("{}/apps/{}/json", **HUB_BASE_URL.load(), id),
         false,
         None,
         Some(&db),
@@ -1442,7 +1442,7 @@ pub async fn get_hub_raw_app_by_id(
 ) -> JsonResult<Box<serde_json::value::RawValue>> {
     let value = http_get_from_hub(
         &HTTP_CLIENT,
-        &format!("{}/raw_apps/{}/json", *HUB_BASE_URL.read().await, id),
+        &format!("{}/raw_apps/{}/json", **HUB_BASE_URL.load(), id),
         false,
         None,
         Some(&db),
