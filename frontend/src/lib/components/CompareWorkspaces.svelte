@@ -10,7 +10,7 @@
 		CircleCheck,
 		CircleX,
 		DiffIcon,
-		ExternalLink,
+		Eye,
 		FileJson,
 		FlaskConical,
 		GitFork,
@@ -44,6 +44,16 @@
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
+	import ScheduleEditor from './triggers/schedules/ScheduleEditor.svelte'
+	import RouteEditor from './triggers/http/RouteEditor.svelte'
+	import WebsocketTriggerEditor from './triggers/websocket/WebsocketTriggerEditor.svelte'
+	import KafkaTriggerEditor from './triggers/kafka/KafkaTriggerEditor.svelte'
+	import PostgresTriggerEditor from './triggers/postgres/PostgresTriggerEditor.svelte'
+	import NatsTriggerEditor from './triggers/nats/NatsTriggerEditor.svelte'
+	import MqttTriggerEditor from './triggers/mqtt/MqttTriggerEditor.svelte'
+	import SqsTriggerEditor from './triggers/sqs/SqsTriggerEditor.svelte'
+	import GcpTriggerEditor from './triggers/gcp/GcpTriggerEditor.svelte'
+	import EmailTriggerEditor from './triggers/email/EmailTriggerEditor.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
 	import type { Kind } from '$lib/utils_deployable'
@@ -281,7 +291,12 @@
 		}
 	}
 
-	let allSelected = $derived(selectedItems.length == selectableDiffs.length)
+	// All *diff* items selected. Trigger items are opt-in and don't count
+	// toward "all selected" — see item merge below in deployableItems.
+	let allSelected = $derived(
+		selectableDiffs.length > 0 &&
+			selectableDiffs.every((d) => selectedItems.includes(getItemKey(d)))
+	)
 
 	async function selectAll() {
 		selectedItems = selectableDiffs
@@ -614,6 +629,55 @@
 	let deploymentRequestPanel: DeploymentRequestPanel | undefined = $state(undefined)
 	let hasOpenDeploymentRequest = $state(false)
 
+	// Trigger detail drawer refs — one per trigger kind. Each is lazy-mounted
+	// on first openEdit() call, so having them all sit here is cheap.
+	let scheduleEditor: ScheduleEditor | undefined = $state()
+	let routeEditor: RouteEditor | undefined = $state()
+	let websocketEditor: WebsocketTriggerEditor | undefined = $state()
+	let kafkaEditor: KafkaTriggerEditor | undefined = $state()
+	let postgresEditor: PostgresTriggerEditor | undefined = $state()
+	let natsEditor: NatsTriggerEditor | undefined = $state()
+	let mqttEditor: MqttTriggerEditor | undefined = $state()
+	let sqsEditor: SqsTriggerEditor | undefined = $state()
+	let gcpEditor: GcpTriggerEditor | undefined = $state()
+	let emailEditor: EmailTriggerEditor | undefined = $state()
+
+	function openTriggerDetails(trigger: ForkTrigger) {
+		const isFlow = trigger.isFlow
+		switch (trigger.triggerKind) {
+			case 'schedules':
+				scheduleEditor?.openEdit(trigger.path, isFlow)
+				break
+			case 'routes':
+				routeEditor?.openEdit(trigger.path, isFlow)
+				break
+			case 'websockets':
+				websocketEditor?.openEdit(trigger.path, isFlow)
+				break
+			case 'kafka':
+				kafkaEditor?.openEdit(trigger.path, isFlow)
+				break
+			case 'postgres':
+				postgresEditor?.openEdit(trigger.path, isFlow)
+				break
+			case 'nats':
+				natsEditor?.openEdit(trigger.path, isFlow)
+				break
+			case 'mqtt':
+				mqttEditor?.openEdit(trigger.path, isFlow)
+				break
+			case 'sqs':
+				sqsEditor?.openEdit(trigger.path, isFlow)
+				break
+			case 'gcp':
+				gcpEditor?.openEdit(trigger.path, isFlow)
+				break
+			case 'emails':
+				emailEditor?.openEdit(trigger.path, isFlow)
+				break
+		}
+	}
+
 	/** Deployable trigger kinds and their list+delete services */
 	const triggerServices = {
 		schedules: {
@@ -797,24 +861,6 @@
 	function getTriggerDisplayName(triggerKind: TriggerKind): string {
 		const triggerType = triggerKindToTriggerType(triggerKind)
 		return triggerType ? triggerDisplayNamesMap[triggerType] : triggerKind
-	}
-
-	const triggerKindToPagePath: Record<string, string> = {
-		schedules: '/schedules',
-		routes: '/routes',
-		websockets: '/websocket_triggers',
-		kafka: '/kafka_triggers',
-		postgres: '/postgres_triggers',
-		nats: '/nats_triggers',
-		mqtt: '/mqtt_triggers',
-		sqs: '/sqs_triggers',
-		gcp: '/gcp_triggers',
-		emails: '/email_triggers'
-	}
-
-	function getTriggerHref(triggerKind: TriggerKind): string | undefined {
-		const pagePath = triggerKindToPagePath[triggerKind]
-		return pagePath ? `${base}${pagePath}` : undefined
 	}
 
 	// Fetch triggers when workspace is available
@@ -1068,18 +1114,14 @@
 							</Badge>
 						{/if}
 						{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
-							{@const href = getTriggerHref(t.triggerKind)}
-							{#if href}
-								<a
-									class="inline-flex items-center gap-1 text-xs text-tertiary hover:text-secondary"
-									{href}
-									target="_blank"
-									rel="noreferrer"
-								>
-									<ExternalLink size={12} />
-									See details
-								</a>
-							{/if}
+							<Button
+								size="xs"
+								variant="subtle"
+								startIcon={{ icon: Eye }}
+								onclick={() => openTriggerDetails(t)}
+							>
+								Details
+							</Button>
 							<Button size="xs" variant="subtle" color="red" onclick={() => deleteTrigger(t)}>
 								<Trash2 size={12} />
 							</Button>
@@ -1264,6 +1306,18 @@
 	</div>
 
 	<DiffDrawer bind:this={diffDrawer} {isFlow} />
+
+	<ScheduleEditor bind:this={scheduleEditor} />
+	<RouteEditor bind:this={routeEditor} />
+	<WebsocketTriggerEditor bind:this={websocketEditor} />
+	<KafkaTriggerEditor bind:this={kafkaEditor} />
+	<PostgresTriggerEditor bind:this={postgresEditor} />
+	<NatsTriggerEditor bind:this={natsEditor} />
+	<MqttTriggerEditor bind:this={mqttEditor} />
+	<SqsTriggerEditor bind:this={sqsEditor} />
+	<GcpTriggerEditor bind:this={gcpEditor} />
+	<EmailTriggerEditor bind:this={emailEditor} />
+
 	<ConfirmationModal
 		title="Delete trigger"
 		confirmationText="Delete"
