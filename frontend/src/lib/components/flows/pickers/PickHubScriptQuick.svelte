@@ -38,7 +38,7 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { Skeleton } from '$lib/components/common'
-	import { classNames, createCache, sendUserToast } from '$lib/utils'
+	import { classNames, createCache } from '$lib/utils'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Circle, ExternalLink } from 'lucide-svelte'
