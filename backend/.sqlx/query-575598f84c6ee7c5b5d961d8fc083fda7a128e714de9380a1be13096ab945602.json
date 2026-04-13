@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT email FROM workspace_fork_review_reviewer WHERE request_id = $1",
+  "query": "SELECT email FROM workspace_fork_deployment_request_assignee WHERE request_id = $1",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "d8f2d63e443c7c6f9d79a3dbcdce432502cd28f7fc94760585ada0d0e02ebbda"
+  "hash": "575598f84c6ee7c5b5d961d8fc083fda7a128e714de9380a1be13096ab945602"
 }

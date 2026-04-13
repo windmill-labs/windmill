@@ -48,6 +48,9 @@ mod db_entra_ee;
 mod db_iam_ee;
 pub mod db_params;
 #[cfg(feature = "private")]
+pub mod deployment_requests_ee;
+pub mod deployment_requests_oss;
+#[cfg(feature = "private")]
 pub mod ee;
 pub mod ee_oss;
 #[cfg(feature = "private")]
@@ -59,9 +62,6 @@ pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;
 pub mod folders;
-#[cfg(feature = "private")]
-pub mod fork_reviews_ee;
-pub mod fork_reviews_oss;
 pub mod global_settings;
 pub mod indexer;
 pub mod instance_config;

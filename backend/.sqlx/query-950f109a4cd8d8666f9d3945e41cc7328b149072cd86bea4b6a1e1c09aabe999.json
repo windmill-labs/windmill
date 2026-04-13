@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, source_workspace_id, closed_at, requested_by_email FROM workspace_fork_review_request WHERE id = $1 AND fork_workspace_id = $2",
+  "query": "SELECT id, source_workspace_id, closed_at, requested_by_email FROM workspace_fork_deployment_request WHERE id = $1 AND fork_workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -37,5 +37,5 @@
       false
     ]
   },
-  "hash": "1835564870516bb80f682f6f435aecc08f563d86d8899f40788fd249a16d3dc0"
+  "hash": "950f109a4cd8d8666f9d3945e41cc7328b149072cd86bea4b6a1e1c09aabe999"
 }

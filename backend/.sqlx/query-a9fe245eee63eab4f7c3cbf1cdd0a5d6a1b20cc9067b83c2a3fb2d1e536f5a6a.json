@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO workspace_fork_review_request\n                (source_workspace_id, fork_workspace_id, requested_by, requested_by_email)\n            VALUES ($1, $2, $3, $4)\n            RETURNING id, requested_at\n        ",
+  "query": "\n            INSERT INTO workspace_fork_deployment_request\n                (source_workspace_id, fork_workspace_id, requested_by, requested_by_email)\n            VALUES ($1, $2, $3, $4)\n            RETURNING id, requested_at\n        ",
   "describe": {
     "columns": [
       {
@@ -27,5 +27,5 @@
       false
     ]
   },
-  "hash": "e108b0bbe2ec9a96371f5f8e1df4099dde4d28e4da4a419e23d5a58095d25211"
+  "hash": "a9fe245eee63eab4f7c3cbf1cdd0a5d6a1b20cc9067b83c2a3fb2d1e536f5a6a"
 }

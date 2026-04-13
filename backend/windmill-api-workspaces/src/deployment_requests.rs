@@ -1,11 +1,11 @@
-//! Fork review requests + comments.
+//! Fork deployment requests + comments.
 //!
-//! A review request is a one-per-open conversation between a fork author
-//! and one or more reviewers (admins or wm_deployers in the parent
-//! workspace). Reviewers leave general or per-item comments; anyone with
-//! fork access can reply. Anchored comments become obsolete when the
-//! underlying item changes in the fork, and the whole request auto-closes
-//! on successful merge.
+//! A deployment request is a one-per-open ask from a fork author to one or
+//! more assignees (admins or wm_deployers in the parent workspace) to merge
+//! the fork into its parent. Assignees can leave general or anchored
+//! comments; anyone with fork access can reply. Anchored comments become
+//! obsolete when the underlying item changes in the fork, and the whole
+//! request auto-closes on successful merge.
 //!
 //! Email dispatch happens via `send_email_if_possible`, which is a no-op on
 //! OSS builds.
@@ -29,43 +29,43 @@ use windmill_common::{
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/deployers", get(list_deployers))
-        .route("/open", get(get_open_request))
-        .route("/request", post(create_review_request))
-        .route("/{id}/cancel", post(cancel_review_request))
-        .route("/{id}/close_merged", post(close_merged))
-        .route("/{id}/comment", post(create_comment))
+        .route("/eligible_deployers", get(list_eligible_deployers))
+        .route("/open", get(get_open_deployment_request))
+        .route("/", post(create_deployment_request))
+        .route("/{id}/cancel", post(cancel_deployment_request))
+        .route("/{id}/close_merged", post(close_deployment_request_merged))
+        .route("/{id}/comment", post(create_deployment_request_comment))
 }
 
 // ---- DTOs ---------------------------------------------------------------
 
 #[derive(Serialize)]
-struct Deployer {
+struct EligibleDeployer {
     username: String,
     email: String,
     is_admin: bool,
 }
 
 #[derive(Serialize)]
-struct ForkReviewRequest {
+struct DeploymentRequest {
     id: i64,
     source_workspace_id: String,
     fork_workspace_id: String,
     requested_by: String,
     requested_by_email: String,
     requested_at: chrono::DateTime<chrono::Utc>,
-    reviewers: Vec<Reviewer>,
-    comments: Vec<Comment>,
+    assignees: Vec<DeploymentRequestAssignee>,
+    comments: Vec<DeploymentRequestComment>,
 }
 
 #[derive(Serialize)]
-struct Reviewer {
+struct DeploymentRequestAssignee {
     username: String,
     email: String,
 }
 
 #[derive(Serialize)]
-struct Comment {
+struct DeploymentRequestComment {
     id: i64,
     parent_id: Option<i64>,
     author: String,
@@ -78,12 +78,12 @@ struct Comment {
 }
 
 #[derive(Deserialize)]
-struct CreateReviewRequestBody {
-    reviewers: Vec<String>,
+struct CreateDeploymentRequestBody {
+    assignees: Vec<String>,
 }
 
 #[derive(Deserialize)]
-struct CreateCommentBody {
+struct CreateDeploymentRequestCommentBody {
     body: String,
     #[serde(default)]
     anchor_kind: Option<String>,
@@ -95,19 +95,20 @@ struct CreateCommentBody {
 
 // ---- Endpoints ----------------------------------------------------------
 
-/// List users eligible to be reviewers on a fork: admins plus members of the
-/// wm_deployers group in the *parent* workspace. The `{w_id}` path parameter
-/// is the fork workspace; we resolve its parent and query there.
+/// List users eligible to be assignees on a deployment request: admins plus
+/// members of the wm_deployers group in the *parent* workspace. The `{w_id}`
+/// path parameter is the fork workspace; we resolve its parent and query
+/// there.
 ///
 /// Note: any member of the fork workspace can call this and see parent
-/// admin/deployer usernames + emails. Intentional for the review UX — you
-/// need to pick reviewers somehow — but documented here as a design choice
-/// for the shared-fork privacy model.
-async fn list_deployers(
+/// admin/deployer usernames + emails. Intentional for the request UX — the
+/// fork author has to pick an assignee somehow — but documented here as a
+/// design choice for the shared-fork privacy model.
+async fn list_eligible_deployers(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<Vec<Deployer>> {
+) -> JsonResult<Vec<EligibleDeployer>> {
     let parent = parent_of_fork(&db, &w_id).await?;
 
     let rows = sqlx::query!(
@@ -135,25 +136,29 @@ async fn list_deployers(
 
     Ok(Json(
         rows.into_iter()
-            .map(|r| Deployer { username: r.username, email: r.email, is_admin: r.is_admin })
+            .map(|r| EligibleDeployer {
+                username: r.username,
+                email: r.email,
+                is_admin: r.is_admin,
+            })
             .collect(),
     ))
 }
 
-/// Fetch the open review request (if any) for the fork's parent.
+/// Fetch the open deployment request (if any) for the fork's parent.
 /// `{w_id}` is the fork workspace.
-async fn get_open_request(
+async fn get_open_deployment_request(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<Option<ForkReviewRequest>> {
+) -> JsonResult<Option<DeploymentRequest>> {
     let parent = parent_of_fork(&db, &w_id).await?;
 
     let req = sqlx::query!(
         r#"
             SELECT id, source_workspace_id, fork_workspace_id, requested_by,
                    requested_by_email, requested_at
-            FROM workspace_fork_review_request
+            FROM workspace_fork_deployment_request
             WHERE source_workspace_id = $1
               AND fork_workspace_id = $2
               AND closed_at IS NULL
@@ -169,21 +174,21 @@ async fn get_open_request(
         return Ok(Json(None));
     };
 
-    let reviewers = sqlx::query!(
-        "SELECT username, email FROM workspace_fork_review_reviewer WHERE request_id = $1 ORDER BY username",
+    let assignees = sqlx::query!(
+        "SELECT username, email FROM workspace_fork_deployment_request_assignee WHERE request_id = $1 ORDER BY username",
         req.id,
     )
     .fetch_all(&db)
     .await?
     .into_iter()
-    .map(|r| Reviewer { username: r.username, email: r.email })
+    .map(|r| DeploymentRequestAssignee { username: r.username, email: r.email })
     .collect();
 
     let comments = sqlx::query!(
         r#"
             SELECT id, parent_id, author, author_email, body,
                    anchor_kind, anchor_path, obsolete, created_at
-            FROM workspace_fork_review_comment
+            FROM workspace_fork_deployment_request_comment
             WHERE request_id = $1
             ORDER BY created_at ASC, id ASC
         "#,
@@ -192,7 +197,7 @@ async fn get_open_request(
     .fetch_all(&db)
     .await?
     .into_iter()
-    .map(|r| Comment {
+    .map(|r| DeploymentRequestComment {
         id: r.id,
         parent_id: r.parent_id,
         author: r.author,
@@ -205,48 +210,49 @@ async fn get_open_request(
     })
     .collect();
 
-    Ok(Json(Some(ForkReviewRequest {
+    Ok(Json(Some(DeploymentRequest {
         id: req.id,
         source_workspace_id: req.source_workspace_id,
         fork_workspace_id: req.fork_workspace_id,
         requested_by: req.requested_by,
         requested_by_email: req.requested_by_email,
         requested_at: req.requested_at,
-        reviewers,
+        assignees,
         comments,
     })))
 }
 
-/// Open a new review request targeting a list of reviewers in the parent
-/// workspace. At most one open request exists per (parent, fork) pair; the
-/// DB partial unique index enforces this and we surface a 409 on conflict.
-async fn create_review_request(
+/// Open a new deployment request targeting a list of assignees in the
+/// parent workspace. At most one open request exists per (parent, fork)
+/// pair; the DB partial unique index enforces this and we surface a 409 on
+/// conflict.
+async fn create_deployment_request(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(body): Json<CreateReviewRequestBody>,
-) -> Result<Json<ForkReviewRequest>> {
-    // Dedupe reviewers so `["alice","alice"]` isn't falsely rejected: the
+    Json(body): Json<CreateDeploymentRequestBody>,
+) -> Result<Json<DeploymentRequest>> {
+    // Dedupe assignees so `["alice","alice"]` isn't falsely rejected: the
     // `= ANY($...)` lookup returns each match once regardless of input
     // duplicates, so a direct `.len()` comparison would over-count.
-    let unique_reviewers: Vec<String> = body
-        .reviewers
+    let unique_assignees: Vec<String> = body
+        .assignees
         .iter()
         .collect::<BTreeSet<&String>>()
         .into_iter()
         .cloned()
         .collect();
 
-    if unique_reviewers.is_empty() {
+    if unique_assignees.is_empty() {
         return Err(Error::BadRequest(
-            "At least one reviewer is required".to_string(),
+            "At least one assignee is required".to_string(),
         ));
     }
 
     let parent = parent_of_fork(&db, &w_id).await?;
 
-    // Validate every requested reviewer is admin or wm_deployers in parent.
-    let reviewer_rows = sqlx::query!(
+    // Validate every requested assignee is admin or wm_deployers in parent.
+    let assignee_rows = sqlx::query!(
         r#"
             SELECT u.username, u.email
             FROM usr u
@@ -264,15 +270,15 @@ async fn create_review_request(
               )
         "#,
         &parent,
-        &unique_reviewers,
+        &unique_assignees,
         WM_DEPLOYERS_GROUP,
     )
     .fetch_all(&db)
     .await?;
 
-    if reviewer_rows.len() != unique_reviewers.len() {
+    if assignee_rows.len() != unique_assignees.len() {
         return Err(Error::BadRequest(
-            "All reviewers must be admins or members of wm_deployers in the parent workspace"
+            "All assignees must be admins or members of wm_deployers in the parent workspace"
                 .to_string(),
         ));
     }
@@ -281,7 +287,7 @@ async fn create_review_request(
 
     let request_id_row = sqlx::query!(
         r#"
-            INSERT INTO workspace_fork_review_request
+            INSERT INTO workspace_fork_deployment_request
                 (source_workspace_id, fork_workspace_id, requested_by, requested_by_email)
             VALUES ($1, $2, $3, $4)
             RETURNING id, requested_at
@@ -296,25 +302,25 @@ async fn create_review_request(
     .map_err(|e| match &e {
         sqlx::Error::Database(db_err) if db_err.is_unique_violation() => Error::Generic(
             StatusCode::CONFLICT,
-            "A review request is already open for this fork; cancel it first".to_string(),
+            "A deployment request is already open for this fork; cancel it first".to_string(),
         ),
         _ => Error::from(e),
     })?;
 
     let request_id = request_id_row.id;
 
-    let reviewer_usernames: Vec<String> =
-        reviewer_rows.iter().map(|r| r.username.clone()).collect();
-    let reviewer_emails: Vec<String> = reviewer_rows.iter().map(|r| r.email.clone()).collect();
+    let assignee_usernames: Vec<String> =
+        assignee_rows.iter().map(|r| r.username.clone()).collect();
+    let assignee_emails: Vec<String> = assignee_rows.iter().map(|r| r.email.clone()).collect();
     sqlx::query!(
         r#"
-            INSERT INTO workspace_fork_review_reviewer (request_id, username, email)
+            INSERT INTO workspace_fork_deployment_request_assignee (request_id, username, email)
             SELECT $1, u, e
             FROM UNNEST($2::text[], $3::text[]) AS t(u, e)
         "#,
         request_id,
-        &reviewer_usernames,
-        &reviewer_emails,
+        &assignee_usernames,
+        &assignee_emails,
     )
     .execute(&mut *tx)
     .await?;
@@ -322,7 +328,7 @@ async fn create_review_request(
     audit_log(
         &mut *tx,
         &authed,
-        "fork_review_request.create",
+        "fork_deployment_request.create",
         ActionKind::Create,
         &w_id,
         Some(&request_id.to_string()),
@@ -332,58 +338,58 @@ async fn create_review_request(
 
     tx.commit().await?;
 
-    // Send a review-request email to each reviewer.
+    // Send a deployment-request email to each assignee.
     let base_url = BASE_URL.read().await.clone();
     let subject = format!(
-        "[Windmill] @{} requested your review on fork {w_id}",
+        "[Windmill] @{} requested a deployment on fork {w_id}",
         authed.username
     );
     let body_text = format!(
-        "@{} requested your review on the fork {w_id} → {parent}.\n\nOpen the compare view: {base_url}/?workspace={w_id}",
+        "@{} asked you to deploy the fork {w_id} → {parent}.\n\nOpen the compare view: {base_url}/?workspace={w_id}",
         authed.username
     );
-    for r in &reviewer_rows {
+    for r in &assignee_rows {
         if r.email != authed.email {
             send_email_if_possible(&subject, &body_text, &r.email);
         }
     }
 
-    let reviewers: Vec<Reviewer> = reviewer_rows
+    let assignees: Vec<DeploymentRequestAssignee> = assignee_rows
         .into_iter()
-        .map(|r| Reviewer { username: r.username, email: r.email })
+        .map(|r| DeploymentRequestAssignee { username: r.username, email: r.email })
         .collect();
 
-    Ok(Json(ForkReviewRequest {
+    Ok(Json(DeploymentRequest {
         id: request_id,
         source_workspace_id: parent,
         fork_workspace_id: w_id,
         requested_by: authed.username.clone(),
         requested_by_email: authed.email.clone(),
         requested_at: request_id_row.requested_at,
-        reviewers,
+        assignees,
         comments: vec![],
     }))
 }
 
-/// Cancel an open request. Only the original requester or an admin may
-/// cancel — anyone else gets 403.
-async fn cancel_review_request(
+/// Cancel an open deployment request. Only the original requester or an
+/// admin may cancel — anyone else gets 403.
+async fn cancel_deployment_request(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<String> {
     let row = sqlx::query!(
-        "SELECT requested_by, closed_at FROM workspace_fork_review_request WHERE id = $1 AND fork_workspace_id = $2",
+        "SELECT requested_by, closed_at FROM workspace_fork_deployment_request WHERE id = $1 AND fork_workspace_id = $2",
         id,
         &w_id,
     )
     .fetch_optional(&db)
     .await?
-    .ok_or_else(|| Error::NotFound(format!("review request {id} not found")))?;
+    .ok_or_else(|| Error::NotFound(format!("deployment request {id} not found")))?;
 
     if row.closed_at.is_some() {
         return Err(Error::BadRequest(
-            "Review request is already closed".to_string(),
+            "Deployment request is already closed".to_string(),
         ));
     }
 
@@ -395,7 +401,7 @@ async fn cancel_review_request(
 
     let mut tx = db.begin().await?;
     let rows_affected = sqlx::query!(
-        "UPDATE workspace_fork_review_request SET closed_at = now(), closed_reason = 'cancelled' WHERE id = $1 AND closed_at IS NULL",
+        "UPDATE workspace_fork_deployment_request SET closed_at = now(), closed_reason = 'cancelled' WHERE id = $1 AND closed_at IS NULL",
         id,
     )
     .execute(&mut *tx)
@@ -410,7 +416,7 @@ async fn cancel_review_request(
     audit_log(
         &mut *tx,
         &authed,
-        "fork_review_request.cancel",
+        "fork_deployment_request.cancel",
         ActionKind::Update,
         &w_id,
         Some(&id.to_string()),
@@ -419,19 +425,19 @@ async fn cancel_review_request(
     .await?;
     tx.commit().await?;
 
-    // Notify reviewers that the request was cancelled.
-    let reviewers = sqlx::query!(
-        "SELECT email FROM workspace_fork_review_reviewer WHERE request_id = $1",
+    // Notify assignees that the request was cancelled.
+    let assignees = sqlx::query!(
+        "SELECT email FROM workspace_fork_deployment_request_assignee WHERE request_id = $1",
         id,
     )
     .fetch_all(&db)
     .await?;
-    let subject = format!("[Windmill] Review request on fork {w_id} cancelled");
+    let subject = format!("[Windmill] Deployment request on fork {w_id} cancelled");
     let body_text = format!(
-        "@{} cancelled the open review request on fork {w_id}.",
+        "@{} cancelled the open deployment request on fork {w_id}.",
         authed.username
     );
-    for r in reviewers {
+    for r in assignees {
         if r.email != authed.email {
             send_email_if_possible(&subject, &body_text, &r.email);
         }
@@ -440,24 +446,24 @@ async fn cancel_review_request(
     Ok("ok".to_string())
 }
 
-/// Called by the UI after a successful merge loop. Closes the open request
-/// for this fork and marks every comment obsolete. Only admins and members
-/// of wm_deployers *in the parent workspace* may close — same set that can
-/// actually merge. `authed.groups` here reflects the fork workspace's
-/// groups, so we query the parent explicitly.
-async fn close_merged(
+/// Called by the UI after a successful merge loop. Closes the open
+/// deployment request for this fork and marks every comment obsolete. Only
+/// admins and members of wm_deployers *in the parent workspace* may close —
+/// same set that can actually merge. `authed.groups` here reflects the fork
+/// workspace's groups, so we query the parent explicitly.
+async fn close_deployment_request_merged(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<String> {
     let row = sqlx::query!(
-        "SELECT source_workspace_id, closed_at FROM workspace_fork_review_request WHERE id = $1 AND fork_workspace_id = $2",
+        "SELECT source_workspace_id, closed_at FROM workspace_fork_deployment_request WHERE id = $1 AND fork_workspace_id = $2",
         id,
         &w_id,
     )
     .fetch_optional(&db)
     .await?
-    .ok_or_else(|| Error::NotFound(format!("review request {id} not found")))?;
+    .ok_or_else(|| Error::NotFound(format!("deployment request {id} not found")))?;
 
     // Check deployer membership against the parent workspace, not the fork.
     let is_parent_deployer = sqlx::query_scalar!(
@@ -488,14 +494,14 @@ async fn close_merged(
 
     if !authed.is_admin && !is_parent_deployer {
         return Err(Error::NotAuthorized(
-            "Only admins or members of wm_deployers in the parent workspace can close a review request as merged"
+            "Only admins or members of wm_deployers in the parent workspace can close a deployment request as merged"
                 .to_string(),
         ));
     }
 
     let mut tx = db.begin().await?;
     let rows_affected = sqlx::query!(
-        "UPDATE workspace_fork_review_request SET closed_at = now(), closed_reason = 'merged' WHERE id = $1 AND closed_at IS NULL",
+        "UPDATE workspace_fork_deployment_request SET closed_at = now(), closed_reason = 'merged' WHERE id = $1 AND closed_at IS NULL",
         id,
     )
     .execute(&mut *tx)
@@ -507,7 +513,7 @@ async fn close_merged(
     }
 
     sqlx::query!(
-        "UPDATE workspace_fork_review_comment SET obsolete = true WHERE request_id = $1 AND obsolete = false",
+        "UPDATE workspace_fork_deployment_request_comment SET obsolete = true WHERE request_id = $1 AND obsolete = false",
         id,
     )
     .execute(&mut *tx)
@@ -515,7 +521,7 @@ async fn close_merged(
     audit_log(
         &mut *tx,
         &authed,
-        "fork_review_request.close_merged",
+        "fork_deployment_request.close_merged",
         ActionKind::Update,
         &w_id,
         Some(&id.to_string()),
@@ -527,16 +533,17 @@ async fn close_merged(
     Ok("ok".to_string())
 }
 
-/// Append a comment to an open review request. Can be a top-level comment or
-/// a reply (set `parent_id`), and can be general or anchored to a diff row.
-/// Anyone with access to the fork workspace can comment; ACL is enforced by
-/// the bearer-token → workspace membership check higher up.
-async fn create_comment(
+/// Append a comment to an open deployment request. Can be a top-level
+/// comment or a reply (set `parent_id`, must target a top-level comment),
+/// and can be general or anchored to a diff row. Anyone with access to the
+/// fork workspace can comment; ACL is enforced by the bearer-token →
+/// workspace membership check higher up.
+async fn create_deployment_request_comment(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, i64)>,
-    Json(body): Json<CreateCommentBody>,
-) -> JsonResult<Comment> {
+    Json(body): Json<CreateDeploymentRequestCommentBody>,
+) -> JsonResult<DeploymentRequestComment> {
     if body.body.trim().is_empty() {
         return Err(Error::BadRequest("Comment body is empty".to_string()));
     }
@@ -547,17 +554,17 @@ async fn create_comment(
     }
 
     let req = sqlx::query!(
-        "SELECT id, source_workspace_id, closed_at, requested_by_email FROM workspace_fork_review_request WHERE id = $1 AND fork_workspace_id = $2",
+        "SELECT id, source_workspace_id, closed_at, requested_by_email FROM workspace_fork_deployment_request WHERE id = $1 AND fork_workspace_id = $2",
         id,
         &w_id,
     )
     .fetch_optional(&db)
     .await?
-    .ok_or_else(|| Error::NotFound(format!("review request {id} not found")))?;
+    .ok_or_else(|| Error::NotFound(format!("deployment request {id} not found")))?;
 
     if req.closed_at.is_some() {
         return Err(Error::BadRequest(
-            "Cannot comment on a closed review request".to_string(),
+            "Cannot comment on a closed deployment request".to_string(),
         ));
     }
 
@@ -594,7 +601,7 @@ async fn create_comment(
         // Flattening to two levels (top-level + replies) matches the UI,
         // which only exposes a "Reply" button on top-level comments.
         let parent_row = sqlx::query!(
-            "SELECT parent_id FROM workspace_fork_review_comment WHERE id = $1 AND request_id = $2",
+            "SELECT parent_id FROM workspace_fork_deployment_request_comment WHERE id = $1 AND request_id = $2",
             parent_id,
             id,
         )
@@ -613,7 +620,7 @@ async fn create_comment(
     let mut tx = db.begin().await?;
     let row = sqlx::query!(
         r#"
-            INSERT INTO workspace_fork_review_comment
+            INSERT INTO workspace_fork_deployment_request_comment
                 (request_id, parent_id, author, author_email, body, anchor_kind, anchor_path)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id, created_at
@@ -632,7 +639,7 @@ async fn create_comment(
     audit_log(
         &mut *tx,
         &authed,
-        "fork_review_request.comment",
+        "fork_deployment_request.comment",
         ActionKind::Create,
         &w_id,
         Some(&row.id.to_string()),
@@ -641,32 +648,32 @@ async fn create_comment(
     .await?;
     tx.commit().await?;
 
-    // Build the recipient set: requester + every reviewer, minus the author.
-    let reviewer_emails: Vec<String> = sqlx::query_scalar!(
-        "SELECT email FROM workspace_fork_review_reviewer WHERE request_id = $1",
+    // Recipient set: requester + every assignee, minus the author.
+    let assignee_emails: Vec<String> = sqlx::query_scalar!(
+        "SELECT email FROM workspace_fork_deployment_request_assignee WHERE request_id = $1",
         id,
     )
     .fetch_all(&db)
     .await?;
 
-    let mut recipients: std::collections::BTreeSet<String> = reviewer_emails.into_iter().collect();
+    let mut recipients: BTreeSet<String> = assignee_emails.into_iter().collect();
     recipients.insert(req.requested_by_email.clone());
     recipients.remove(&authed.email);
 
     let subject = format!(
-        "[Windmill] New review comment on fork {w_id} by @{}",
+        "[Windmill] New comment on deployment request for fork {w_id} by @{}",
         authed.username
     );
     let base_url = BASE_URL.read().await.clone();
     let body_text = format!(
-        "@{} commented on the review request for fork {w_id}:\n\n{}\n\n{base_url}/?workspace={w_id}",
+        "@{} commented on the deployment request for fork {w_id}:\n\n{}\n\n{base_url}/?workspace={w_id}",
         authed.username, body.body
     );
     for email in recipients {
         send_email_if_possible(&subject, &body_text, &email);
     }
 
-    Ok(Json(Comment {
+    Ok(Json(DeploymentRequestComment {
         id: row.id,
         parent_id: body.parent_id,
         author: authed.username.clone(),

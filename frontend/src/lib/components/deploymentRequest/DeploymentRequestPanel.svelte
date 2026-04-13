@@ -6,12 +6,12 @@
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 	import {
 		WorkspaceService,
-		type ForkReviewComment,
-		type ForkReviewDeployer,
-		type ForkReviewRequest
+		type DeploymentRequest,
+		type DeploymentRequestComment,
+		type DeploymentRequestEligibleDeployer
 	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { MessageSquare, Send, Plus, X, UserPlus, ArchiveX } from 'lucide-svelte'
+	import { Rocket, Send, Plus, X, UserPlus, ArchiveX } from 'lucide-svelte'
 
 	interface Props {
 		forkWorkspaceId: string
@@ -22,12 +22,12 @@
 
 	let { forkWorkspaceId, parentWorkspaceId, currentUsername, isAdmin }: Props = $props()
 
-	let request = $state<ForkReviewRequest | null>(null)
+	let request = $state<DeploymentRequest | null>(null)
 	let loading = $state(true)
-	let deployers = $state<ForkReviewDeployer[]>([])
+	let eligibleDeployers = $state<DeploymentRequestEligibleDeployer[]>([])
 	let showRequestDialog = $state(false)
-	let selectedReviewers = $state<string[]>([])
-	let reviewerToAdd = $state<string | undefined>(undefined)
+	let selectedAssignees = $state<string[]>([])
+	let assigneeToAdd = $state<string | undefined>(undefined)
 	let newComment = $state('')
 	let posting = $state(false)
 	let replyParentId = $state<number | undefined>(undefined)
@@ -38,55 +38,57 @@
 	async function load() {
 		loading = true
 		try {
-			request = await WorkspaceService.getOpenForkReviewRequest({ workspace: forkWorkspaceId })
+			request = await WorkspaceService.getOpenDeploymentRequest({ workspace: forkWorkspaceId })
 		} catch (e: any) {
-			console.error('Failed to load open review request', e)
+			console.error('Failed to load open deployment request', e)
 			request = null
 		} finally {
 			loading = false
 		}
 	}
 
-	async function loadDeployers() {
+	async function loadEligibleDeployers() {
 		try {
-			deployers = await WorkspaceService.listForkReviewDeployers({ workspace: forkWorkspaceId })
+			eligibleDeployers = await WorkspaceService.listDeploymentRequestEligibleDeployers({
+				workspace: forkWorkspaceId
+			})
 		} catch (e: any) {
-			console.error('Failed to load deployers', e)
-			deployers = []
+			console.error('Failed to load eligible deployers', e)
+			eligibleDeployers = []
 		}
 	}
 
 	onMount(() => {
 		load()
-		loadDeployers()
+		loadEligibleDeployers()
 	})
 
 	$effect(() => {
-		if (reviewerToAdd && !selectedReviewers.includes(reviewerToAdd)) {
-			const v = reviewerToAdd
+		if (assigneeToAdd && !selectedAssignees.includes(assigneeToAdd)) {
+			const v = assigneeToAdd
 			untrack(() => {
-				selectedReviewers = [...selectedReviewers, v]
-				reviewerToAdd = undefined
+				selectedAssignees = [...selectedAssignees, v]
+				assigneeToAdd = undefined
 			})
 		}
 	})
 
 	async function createRequest() {
-		if (selectedReviewers.length === 0) {
-			sendUserToast('Pick at least one reviewer', true)
+		if (selectedAssignees.length === 0) {
+			sendUserToast('Pick at least one assignee', true)
 			return
 		}
 		posting = true
 		try {
-			request = await WorkspaceService.createForkReviewRequest({
+			request = await WorkspaceService.createDeploymentRequest({
 				workspace: forkWorkspaceId,
-				requestBody: { reviewers: selectedReviewers }
+				requestBody: { assignees: selectedAssignees }
 			})
-			sendUserToast(`Review request sent to ${selectedReviewers.length} reviewer(s)`)
+			sendUserToast(`Deployment request sent to ${selectedAssignees.length} assignee(s)`)
 			showRequestDialog = false
-			selectedReviewers = []
+			selectedAssignees = []
 		} catch (e: any) {
-			sendUserToast(`Failed to create review request: ${e.body || e.message}`, true)
+			sendUserToast(`Failed to create deployment request: ${e.body || e.message}`, true)
 		} finally {
 			posting = false
 		}
@@ -94,10 +96,13 @@
 
 	async function cancelRequest() {
 		if (!request) return
-		if (!confirm('Cancel the open review request? Reviewers will be notified.')) return
+		if (!confirm('Cancel the open deployment request? Assignees will be notified.')) return
 		try {
-			await WorkspaceService.cancelForkReviewRequest({ workspace: forkWorkspaceId, id: request.id })
-			sendUserToast('Review request cancelled')
+			await WorkspaceService.cancelDeploymentRequest({
+				workspace: forkWorkspaceId,
+				id: request.id
+			})
+			sendUserToast('Deployment request cancelled')
 			request = null
 		} catch (e: any) {
 			sendUserToast(`Failed to cancel: ${e.body || e.message}`, true)
@@ -108,7 +113,7 @@
 		if (!request || !body.trim()) return
 		posting = true
 		try {
-			const created = await WorkspaceService.createForkReviewComment({
+			const created = await WorkspaceService.createDeploymentRequestComment({
 				workspace: forkWorkspaceId,
 				id: request.id,
 				requestBody: { body, parent_id: parentId }
@@ -130,9 +135,8 @@
 		}
 	}
 
-	// Group top-level comments and their replies for rendering.
 	let topLevel = $derived(request?.comments.filter((c) => c.parent_id == null) ?? [])
-	function repliesOf(parent: ForkReviewComment): ForkReviewComment[] {
+	function repliesOf(parent: DeploymentRequestComment): DeploymentRequestComment[] {
 		if (!request) return []
 		return request.comments.filter((c) => c.parent_id === parent.id)
 	}
@@ -148,62 +152,65 @@
 
 <div class="bg-surface-tertiary p-4 rounded-md border">
 	<div class="flex items-center gap-2 mb-2">
-		<MessageSquare size={16} />
-		<h3 class="text-sm font-semibold">Review</h3>
+		<Rocket size={16} />
+		<h3 class="text-sm font-semibold">Deployment request</h3>
 		{#if request}
 			<Badge color="green" size="xs">Open</Badge>
 		{:else if !loading}
 			<Badge color="gray" size="xs">No open request</Badge>
+		{/if}
+		{#if !loading && !request && !showRequestDialog}
+			<div class="ml-auto">
+				<Button
+					variant="accent"
+					size="xs"
+					startIcon={{ icon: UserPlus }}
+					onclick={() => {
+						showRequestDialog = true
+					}}
+				>
+					Request deployment
+				</Button>
+			</div>
 		{/if}
 	</div>
 
 	{#if loading}
 		<div class="text-secondary text-sm p-2">Loading…</div>
 	{:else if !request}
-		<div class="text-secondary text-xs mb-2">
-			Ask admins or members of <code>wm_deployers</code> in <b>{parentWorkspaceId}</b> to review this
-			fork. They can leave comments, and one of them can merge when ready.
-		</div>
-
 		{#if !showRequestDialog}
-			<Button
-				variant="accent"
-				size="xs"
-				startIcon={{ icon: UserPlus }}
-				onclick={() => {
-					showRequestDialog = true
-				}}
-			>
-				Request review
-			</Button>
+			<div class="text-secondary text-xs">
+				Ask admins or members of <code>wm_deployers</code> in <b>{parentWorkspaceId}</b> to deploy this
+				fork to the parent workspace. They can leave comments, and any of them can merge.
+			</div>
 		{:else}
 			<div class="flex flex-col gap-2 border rounded-md p-3 bg-surface">
 				<div class="text-xs text-secondary">
-					Pick one or more reviewers. They must be admins or members of <code>wm_deployers</code>
+					Pick one or more assignees. They must be admins or members of <code>wm_deployers</code>
 					in <b>{parentWorkspaceId}</b>.
 				</div>
 				<Select
-					bind:value={reviewerToAdd}
+					bind:value={assigneeToAdd}
 					items={safeSelectItems(
-						deployers
-							.filter((d) => !selectedReviewers.includes(d.username))
+						eligibleDeployers
+							.filter((d) => !selectedAssignees.includes(d.username))
 							.map((d) => ({
 								label: `${d.username} <${d.email}>`,
 								value: d.username
 							}))
 					)}
-					placeholder="Add reviewer…"
+					placeholder="Add assignee…"
 				/>
-				{#if selectedReviewers.length > 0}
+				{#if selectedAssignees.length > 0}
 					<div class="flex flex-wrap gap-1">
-						{#each selectedReviewers as r (r)}
+						{#each selectedAssignees as a (a)}
 							<Badge color="blue">
-								{r}
+								{a}
 								<button
 									type="button"
 									class="ml-1 hover:text-red-600"
 									onclick={() => {
-										selectedReviewers = selectedReviewers.filter((s) => s !== r)
+										selectedAssignees = selectedAssignees.filter((s) => s !== a)
 									}}
 								>
 									<X size={12} />
@@ -217,7 +224,7 @@
 						variant="accent"
 						size="xs"
 						startIcon={{ icon: Send }}
-						disabled={posting || selectedReviewers.length === 0}
+						disabled={posting || selectedAssignees.length === 0}
 						onclick={createRequest}
 					>
 						Send request
@@ -227,7 +234,7 @@
 						size="xs"
 						onclick={() => {
 							showRequestDialog = false
-							selectedReviewers = []
+							selectedAssignees = []
 						}}
 					>
 						Cancel
@@ -255,9 +262,9 @@
 				{/if}
 			</div>
 			<div class="flex items-center gap-1 flex-wrap text-xs">
-				<span class="text-secondary">Reviewers:</span>
-				{#each request.reviewers as r (r.username)}
-					<Badge color="indigo" size="xs">{r.username}</Badge>
+				<span class="text-secondary">Assignees:</span>
+				{#each request.assignees as a (a.username)}
+					<Badge color="indigo" size="xs">{a.username}</Badge>
 				{/each}
 			</div>
 

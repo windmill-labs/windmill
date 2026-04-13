@@ -621,8 +621,8 @@ pub async fn run_server(
                         .nest("/workers", windmill_api_workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest(
-                            "/fork_review",
-                            windmill_api_workspaces::fork_reviews::workspaced_service(),
+                            "/deployment_request",
+                            windmill_api_workspaces::deployment_requests::workspaced_service(),
                         )
                         .nest("/oidc", oidc_oss::workspaced_service())
                         .nest("/openapi", {

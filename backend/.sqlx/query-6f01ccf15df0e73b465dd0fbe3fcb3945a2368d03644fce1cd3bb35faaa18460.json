@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, parent_id, author, author_email, body,\n                   anchor_kind, anchor_path, obsolete, created_at\n            FROM workspace_fork_review_comment\n            WHERE request_id = $1\n            ORDER BY created_at ASC, id ASC\n        ",
+  "query": "\n            SELECT id, parent_id, author, author_email, body,\n                   anchor_kind, anchor_path, obsolete, created_at\n            FROM workspace_fork_deployment_request_comment\n            WHERE request_id = $1\n            ORDER BY created_at ASC, id ASC\n        ",
   "describe": {
     "columns": [
       {
@@ -66,5 +66,5 @@
       false
     ]
   },
-  "hash": "35bd45e454498753e2ef6617c5676317e65c46988b03d8b228172e955ef7522b"
+  "hash": "6f01ccf15df0e73b465dd0fbe3fcb3945a2368d03644fce1cd3bb35faaa18460"
 }

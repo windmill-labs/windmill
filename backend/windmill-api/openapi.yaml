@@ -5295,29 +5295,29 @@ paths:
         "404":
           description: protection rule not found
 
-  /w/{workspace}/fork_review/deployers:
+  /w/{workspace}/deployment_request/eligible_deployers:
     get:
-      summary: list users eligible to be fork review reviewers
+      summary: list users eligible to be deployment request assignees
       description: Returns admins and members of wm_deployers in the parent workspace of the fork at `{workspace}`.
-      operationId: listForkReviewDeployers
+      operationId: listDeploymentRequestEligibleDeployers
       tags:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
-          description: list of eligible reviewers
+          description: list of eligible deployers
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/ForkReviewDeployer"
+                  $ref: "#/components/schemas/DeploymentRequestEligibleDeployer"
 
-  /w/{workspace}/fork_review/open:
+  /w/{workspace}/deployment_request/open:
     get:
-      summary: get the currently open fork review request for this fork
-      operationId: getOpenForkReviewRequest
+      summary: get the currently open deployment request for this fork
+      operationId: getOpenDeploymentRequest
       tags:
         - workspace
       parameters:
@@ -5329,13 +5329,13 @@ paths:
             application/json:
               schema:
                 oneOf:
-                  - $ref: "#/components/schemas/ForkReviewRequest"
+                  - $ref: "#/components/schemas/DeploymentRequest"
                   - type: "null"
 
-  /w/{workspace}/fork_review/request:
+  /w/{workspace}/deployment_request:
     post:
-      summary: create a new fork review request
-      operationId: createForkReviewRequest
+      summary: create a new deployment request
+      operationId: createDeploymentRequest
       tags:
         - workspace
       parameters:
@@ -5347,9 +5347,9 @@ paths:
             schema:
               type: object
               required:
-                - reviewers
+                - assignees
               properties:
-                reviewers:
+                assignees:
                   type: array
                   items:
                     type: string
@@ -5360,16 +5360,16 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ForkReviewRequest"
+                $ref: "#/components/schemas/DeploymentRequest"
         "400":
-          description: invalid reviewers
+          description: invalid assignees
         "409":
-          description: a review request is already open for this fork
+          description: a deployment request is already open for this fork
 
-  /w/{workspace}/fork_review/{id}/cancel:
+  /w/{workspace}/deployment_request/{id}/cancel:
     post:
-      summary: cancel an open fork review request
-      operationId: cancelForkReviewRequest
+      summary: cancel an open deployment request
+      operationId: cancelDeploymentRequest
       tags:
         - workspace
       parameters:
@@ -5388,11 +5388,11 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/fork_review/{id}/close_merged:
+  /w/{workspace}/deployment_request/{id}/close_merged:
     post:
-      summary: close a review request after a successful merge
+      summary: close a deployment request after a successful merge
       description: Called by the UI after the deploy loop completes. Closes the request and marks every comment obsolete. Idempotent.
-      operationId: closeForkReviewRequestMerged
+      operationId: closeDeploymentRequestMerged
       tags:
         - workspace
       parameters:
@@ -5411,10 +5411,10 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/fork_review/{id}/comment:
+  /w/{workspace}/deployment_request/{id}/comment:
     post:
-      summary: append a comment to an open fork review request
-      operationId: createForkReviewComment
+      summary: append a comment to an open deployment request
+      operationId: createDeploymentRequestComment
       tags:
         - workspace
       parameters:
@@ -5452,7 +5452,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ForkReviewComment"
+                $ref: "#/components/schemas/DeploymentRequestComment"
         "400":
           description: invalid input or request closed
 
@@ -26646,7 +26646,7 @@ components:
       description: Users that can bypass this ruleset
       items:
         type: string
-    ForkReviewDeployer:
+    DeploymentRequestEligibleDeployer:
       type: object
       required:
         - username
@@ -26659,7 +26659,7 @@ components:
           type: string
         is_admin:
           type: boolean
-    ForkReviewReviewer:
+    DeploymentRequestAssignee:
       type: object
       required:
         - username
@@ -26669,7 +26669,7 @@ components:
           type: string
         email:
           type: string
-    ForkReviewComment:
+    DeploymentRequestComment:
       type: object
       required:
         - id
@@ -26703,7 +26703,7 @@ components:
         created_at:
           type: string
           format: date-time
-    ForkReviewRequest:
+    DeploymentRequest:
       type: object
       required:
         - id
@@ -26712,7 +26712,7 @@ components:
         - requested_by
         - requested_by_email
         - requested_at
-        - reviewers
+        - assignees
         - comments
       properties:
         id:
@@ -26729,14 +26729,14 @@ components:
         requested_at:
           type: string
           format: date-time
-        reviewers:
+        assignees:
           type: array
           items:
-            $ref: "#/components/schemas/ForkReviewReviewer"
+            $ref: "#/components/schemas/DeploymentRequestAssignee"
         comments:
           type: array
           items:
-            $ref: "#/components/schemas/ForkReviewComment"
+            $ref: "#/components/schemas/DeploymentRequestComment"
     QuotaInfo:
       type: object
       properties:

@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT source_workspace_id, closed_at FROM workspace_fork_review_request WHERE id = $1 AND fork_workspace_id = $2",
+  "query": "SELECT requested_by, closed_at FROM workspace_fork_deployment_request WHERE id = $1 AND fork_workspace_id = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "source_workspace_id",
+        "name": "requested_by",
         "type_info": "Varchar"
       },
       {
@@ -25,5 +25,5 @@
       true
     ]
   },
-  "hash": "b4273ee6a9ebbf2a5a1fb60c3d2260f4d66b5005aaeee6a62e8c923f75f1285c"
+  "hash": "bccd4d5e772f4967f282d6c014bb4a9888d3db2d5edfa44f87585a4d80cec461"
 }

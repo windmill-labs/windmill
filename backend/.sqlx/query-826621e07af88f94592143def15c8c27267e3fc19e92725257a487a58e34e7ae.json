@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT COUNT(*) as \"c!\" FROM workspace_fork_review_comment WHERE request_id = $1 AND obsolete = false",
+  "query": "SELECT COUNT(*) as \"c!\" FROM workspace_fork_deployment_request_comment WHERE request_id = $1 AND obsolete = false",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       null
     ]
   },
-  "hash": "11008e528ced203468e3092f9f32db3c4d2fad134ffa99d2228da766139fdeb7"
+  "hash": "826621e07af88f94592143def15c8c27267e3fc19e92725257a487a58e34e7ae"
 }

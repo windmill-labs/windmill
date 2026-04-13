@@ -64,7 +64,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
-	import ForkReviewPanel from './forkReview/ForkReviewPanel.svelte'
+	import DeploymentRequestPanel from './deploymentRequest/DeploymentRequestPanel.svelte'
 	import { userStore } from '$lib/stores'
 	import type { TriggerKind } from './triggers'
 	import { triggerDisplayNamesMap, triggerKindToTriggerType } from './triggers/utils'
@@ -417,21 +417,21 @@
 		deselectAll()
 
 		// If every selected item deployed cleanly and the direction was
-		// merge-into-parent, close any open review request for this fork.
+		// merge-into-parent, close any open deployment request for this fork.
 		if (!anyFailed && mergeIntoParent) {
 			try {
-				const open = await WorkspaceService.getOpenForkReviewRequest({
+				const open = await WorkspaceService.getOpenDeploymentRequest({
 					workspace: currentWorkspaceId
 				})
 				if (open) {
-					await WorkspaceService.closeForkReviewRequestMerged({
+					await WorkspaceService.closeDeploymentRequestMerged({
 						workspace: currentWorkspaceId,
 						id: open.id
 					})
-					forkReviewPanel?.refresh()
+					deploymentRequestPanel?.refresh()
 				}
 			} catch (e) {
-				console.error('Failed to close open review request after merge', e)
+				console.error('Failed to close open deployment request after merge', e)
 			}
 		}
 	}
@@ -587,7 +587,7 @@
 	let loadingTriggers = $state(true)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
 	let triggerToDelete = $state<ForkTrigger | undefined>(undefined)
-	let forkReviewPanel: ForkReviewPanel | undefined = $state(undefined)
+	let deploymentRequestPanel: DeploymentRequestPanel | undefined = $state(undefined)
 
 	/** Deployable trigger kinds and their list+delete services */
 	const triggerServices = {
@@ -819,6 +819,14 @@
 		selectedItems.includes(getItemKey(e))
 	).length}
 	<div class="flex flex-col gap-4">
+		<DeploymentRequestPanel
+			bind:this={deploymentRequestPanel}
+			forkWorkspaceId={currentWorkspaceId}
+			{parentWorkspaceId}
+			currentUsername={$userStore?.username ?? ''}
+			isAdmin={$userStore?.is_admin ?? false}
+		/>
+
 		<div class="bg-surface-tertiary p-4 rounded-md border">
 			<WorkspaceDeployLayout
 				items={deployableItems}
@@ -1175,14 +1183,6 @@
 				{/snippet}
 			</WorkspaceDeployLayout>
 		</div>
-
-		<ForkReviewPanel
-			bind:this={forkReviewPanel}
-			forkWorkspaceId={currentWorkspaceId}
-			{parentWorkspaceId}
-			currentUsername={$userStore?.username ?? ''}
-			isAdmin={$userStore?.is_admin ?? false}
-		/>
 
 		<!-- Fork Triggers Section -->
 		<div class="bg-surface-tertiary p-4 rounded-md border">

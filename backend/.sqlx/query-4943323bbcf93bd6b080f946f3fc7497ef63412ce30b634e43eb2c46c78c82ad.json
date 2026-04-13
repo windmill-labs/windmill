@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_fork_deployment_request SET closed_at = now(), closed_reason = 'cancelled' WHERE id = $1 AND closed_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4943323bbcf93bd6b080f946f3fc7497ef63412ce30b634e43eb2c46c78c82ad"
+}

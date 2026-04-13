@@ -1,5 +1,6 @@
-//! OSS stubs for the fork review requests feature. The EE build overrides
-//! these via `fork_reviews_ee.rs` when the `private` feature is active.
+//! OSS stubs for the fork deployment requests feature. The EE build
+//! overrides these via `deployment_requests_ee.rs` when the `private`
+//! feature is active.
 //!
 //! These helpers are called from fork item-change hooks in EE code (see
 //! `windmill-git-sync/src/git_sync_ee.rs::tally_deployed_object_changes`).
@@ -8,20 +9,22 @@
 //!
 //! On OSS the call is a no-op, so anchored-comment obsolescence after an
 //! item change only actually fires when compiled with `--features private`.
-//! The fork_review_requests integration test simulates the EE effect via a
-//! raw SQL UPDATE to keep the lifecycle test meaningful on CE builds.
+//! The `fork_deployment_requests` integration test simulates the EE effect
+//! via a raw SQL UPDATE to keep the lifecycle test meaningful on CE builds.
 
 #[cfg(feature = "private")]
 #[allow(unused)]
-pub use crate::fork_reviews_ee::*;
+pub use crate::deployment_requests_ee::*;
 
 #[cfg(not(feature = "private"))]
 use crate::{db::DB, error::Result};
 
-/// Mark every anchored comment on the currently open review request for the
-/// given fork workspace that pins to `(anchor_kind, anchor_path)` as obsolete.
+/// Mark every anchored comment on the currently open deployment request
+/// for the given fork workspace that pins to `(anchor_kind, anchor_path)`
+/// as obsolete.
 ///
-/// OSS stub: no-op. The EE build writes to `workspace_fork_review_comment`.
+/// OSS stub: no-op. The EE build writes to
+/// `workspace_fork_deployment_request_comment`.
 #[cfg(not(feature = "private"))]
 pub async fn mark_anchor_obsolete(
     _db: &DB,
@@ -32,7 +35,7 @@ pub async fn mark_anchor_obsolete(
     Ok(())
 }
 
-/// Close the currently open review request for `(source_workspace_id,
+/// Close the currently open deployment request for `(source_workspace_id,
 /// fork_workspace_id)` with `closed_reason = 'merged'` and mark all its
 /// comments obsolete. Called from the frontend deploy success handler.
 ///
