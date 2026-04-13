@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.683.1](https://github.com/windmill-labs/windmill/compare/v1.683.0...v1.683.1) (2026-04-13)
+
+
+### Bug Fixes
+
+* use OpenAPI 3.0 nullable pattern for getOpenDeploymentRequest ([#8816](https://github.com/windmill-labs/windmill/issues/8816)) ([f7f26b3](https://github.com/windmill-labs/windmill/commit/f7f26b32244536b6efb7c1b5aafd4a7644dcb42f))
+
 ## [1.683.0](https://github.com/windmill-labs/windmill/compare/v1.682.0...v1.683.0) (2026-04-13)
 
 
