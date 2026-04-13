@@ -1494,9 +1494,6 @@ export class WorkflowCtx {
   private _suspended = false;
   /** When set, the task matching this key executes its inner function directly */
   _executingKey: string | null;
-  /** Serializes fast-path step() calls so concurrent Promise.all does not race
-   *  on the checkpoint's read-modify-write. Initialized to a resolved promise. */
-  private _inlineChain: Promise<void> = Promise.resolve();
 
   constructor(checkpoint: Record<string, any> = {}) {
     this.completed = checkpoint?.completed_steps ?? {};
@@ -1658,10 +1655,15 @@ export class WorkflowCtx {
 
     // Fast path: POST the delta to the new per-job API endpoint and return the
     // result directly so the workflow subprocess continues into the next step()
-    // without unwinding. On any failure — network, auth, timeout, source-hash
-    // mismatch, old backend without the endpoint — fall through to throwing
-    // StepSuspend so the worker takes the legacy suspend-and-replay path. Gated
-    // by WM_WAC_INLINE_FAST_PATH (default on) so the old behavior stays
+    // without unwinding. Concurrent step() calls (e.g. inside Promise.all) fire
+    // their fetches in parallel — the backend serializes the actual writes on
+    // the v2_job_status row lock in persist_inline_checkpoint_delta, so there
+    // is no client-side serialization lock.
+    //
+    // On any failure — network, auth, timeout, source-hash mismatch, old
+    // backend without the endpoint — fall through to throwing StepSuspend so
+    // the worker takes the legacy suspend-and-replay path. Gated by
+    // WM_WAC_INLINE_FAST_PATH (default on) so the old behavior stays
     // reachable for A/B testing and rollback.
     const fastPathFlagRaw = (getEnv("WM_WAC_INLINE_FAST_PATH") ?? "1").trim().toLowerCase();
     const fastPathEnabled =
@@ -1672,44 +1674,37 @@ export class WorkflowCtx {
     const jobId = getEnv("WM_JOB_ID");
     const workspace = getEnv("WM_WORKSPACE");
     if (fastPathEnabled && jobId && workspace && OpenAPI.BASE && OpenAPI.TOKEN) {
-      const chainTail = this._inlineChain.then(async () => {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 10_000);
-        try {
-          const resp = await fetch(
-            `${OpenAPI.BASE}/w/${workspace}/jobs/wac/inline_checkpoint/${jobId}`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${OpenAPI.TOKEN}`,
-              },
-              body: JSON.stringify({
-                key,
-                result,
-                started_at: startedAt,
-                duration_ms: durationMs,
-              }),
-              signal: ctrl.signal,
-            },
-          );
-          if (!resp.ok) {
-            throw new Error(`inline_checkpoint API ${resp.status}`);
-          }
-        } finally {
-          clearTimeout(t);
-        }
-      });
-      // Swallow chain errors so a past failure does not poison future awaits.
-      this._inlineChain = chainTail.catch(() => {});
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 10_000);
       try {
-        await chainTail;
+        const resp = await fetch(
+          `${OpenAPI.BASE}/w/${workspace}/jobs/wac/inline_checkpoint/${jobId}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${OpenAPI.TOKEN}`,
+            },
+            body: JSON.stringify({
+              key,
+              result,
+              started_at: startedAt,
+              duration_ms: durationMs,
+            }),
+            signal: ctrl.signal,
+          },
+        );
+        if (!resp.ok) {
+          throw new Error(`inline_checkpoint API ${resp.status}`);
+        }
         return result as T;
       } catch (e) {
         console.log(
           `WAC v2 inline fast path failed for key ${key}, falling back to suspend: ${e}`,
         );
         // fall through to the legacy suspend path below
+      } finally {
+        clearTimeout(t);
       }
     }
 

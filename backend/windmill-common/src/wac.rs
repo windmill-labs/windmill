@@ -127,14 +127,25 @@ pub fn add_completed_step(checkpoint: &mut WacCheckpoint, step_key: &str, result
 /// all-or-nothing atomicity — while the API fast path simply commits after
 /// the helper returns.
 ///
-/// Concurrency: the first DB operation is an `INSERT ... ON CONFLICT DO
-/// UPDATE ... RETURNING` that atomically either creates the `v2_job_status`
-/// row (for a WAC v2 job's first checkpoint write) or row-locks the existing
-/// one, and returns the current `_checkpoint` in the same statement. Unlike
-/// a bare `SELECT ... FOR UPDATE` — which acquires no lock when the target
-/// row doesn't exist yet — the `ON CONFLICT DO UPDATE` path always takes the
-/// row-level lock and holds it until commit, so two callers racing on the
-/// same `job_id` serialize naturally even on the very first write.
+/// Concurrency: the first DB operation is a `SELECT ... FOR UPDATE` that
+/// row-locks the `v2_job_status` row for the duration of the transaction.
+/// Once the row exists (which it always does from the second call onward
+/// for any given `job_id`), concurrent callers serialize on the row lock —
+/// there is no read-modify-write loss. The backend relies on this to order
+/// concurrent `step()` calls so the SDKs can fire them in parallel without
+/// any client-side serialization lock.
+///
+/// The one remaining race window is the *very first* write for a given
+/// `job_id`: `FOR UPDATE` acquires no lock when its WHERE clause matches
+/// zero rows, so two concurrent callers could both see `None` and both
+/// `INSERT ... ON CONFLICT DO UPDATE`, with the second overwriting the
+/// first. This is accepted because it cannot actually fire in practice:
+/// WAC v2 runs exactly one subprocess per parent job at a time, that
+/// subprocess is the only caller holding the ephemeral job token the
+/// endpoint requires, and `asyncio.gather` / `Promise.all` inside one
+/// subprocess allocates step keys synchronously before yielding at the
+/// `await fetch(...)` point, so concurrent calls carry distinct keys and
+/// their writes don't collide on `completed_steps[key]`.
 pub async fn persist_inline_checkpoint_delta(
     tx: &mut Transaction<'_, Postgres>,
     job_id: &Uuid,
@@ -144,26 +155,18 @@ pub async fn persist_inline_checkpoint_delta(
     started_at: Option<&str>,
     duration_ms: Option<u64>,
 ) -> error::Result<()> {
-    // Atomically ensure-row-exists + row-lock + read current checkpoint.
-    //
-    // The `DO UPDATE SET workflow_as_code_status = workflow_as_code_status`
-    // branch is a no-op SET whose sole purpose is to make Postgres take the
-    // row-level lock (which `DO NOTHING` would release immediately). The
-    // lock persists until the caller commits the transaction, so any
-    // concurrent caller blocks here and reads the freshly-persisted
-    // checkpoint once the first one commits.
-    let row: Option<Value> = sqlx::query_scalar(
-        "INSERT INTO v2_job_status (id, workflow_as_code_status)
-         VALUES ($1, '{}'::jsonb)
-         ON CONFLICT (id) DO UPDATE
-            SET workflow_as_code_status = v2_job_status.workflow_as_code_status
-         RETURNING workflow_as_code_status->'_checkpoint'",
+    // Row-lock the existing checkpoint row (if any) for the duration of the
+    // transaction. NULL if the row doesn't exist yet — see the doc comment
+    // above for why the first-write race is accepted.
+    let row: Option<Option<Value>> = sqlx::query_scalar(
+        "SELECT workflow_as_code_status->'_checkpoint'
+         FROM v2_job_status WHERE id = $1 FOR UPDATE",
     )
     .bind(job_id)
-    .fetch_one(&mut **tx)
+    .fetch_optional(&mut **tx)
     .await?;
 
-    let mut checkpoint: WacCheckpoint = match row {
+    let mut checkpoint: WacCheckpoint = match row.flatten() {
         Some(status) => serde_json::from_value(status).unwrap_or_else(|e| {
             tracing::warn!(
                 job_id = %job_id,
