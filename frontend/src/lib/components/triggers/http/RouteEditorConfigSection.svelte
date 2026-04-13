@@ -123,7 +123,11 @@
 	loadGlobalHttpWorkspacedRouteSetting()
 
 	$effect.pre(() => {
-		if ((globalHttpWorkspacedRoute || !userIsAdmin) && !workspaced_route) {
+		// Force workspaced route for non-admins on new triggers only.
+		// Existing non-workspaced triggers created by admins can still be edited by non-admins
+		// (with restricted fields), so we don't override their workspaced_route value.
+		const isNewTrigger = !initialTriggerPath
+		if ((globalHttpWorkspacedRoute || (!userIsAdmin && isNewTrigger)) && !workspaced_route) {
 			workspaced_route = true
 			dirtyRoutePath = true
 		}
@@ -137,9 +141,10 @@
 				<TestingBadge />
 			{/if}
 		{/snippet}
-		{#if !userCanEditConfig && isDraftOnly}
-			<Alert type="info" title="Admin only" collapsible size="xs">
-				Non-workspaced route endpoints can only be edited by workspace admins
+		{#if !userCanEditConfig}
+			<Alert type="info" title="Route config restricted" collapsible size="xs">
+				Route path, HTTP method, and workspace prefix can only be changed by workspace admins on
+				non-workspaced routes
 			</Alert>
 			<div class="my-2"></div>
 		{/if}

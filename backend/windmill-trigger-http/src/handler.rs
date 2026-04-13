@@ -465,9 +465,9 @@ impl TriggerCrud for HttpTrigger {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
 
+        let http_route_workspaced = *HTTP_ROUTE_WORKSPACED_ROUTE.read().await;
         let effective_workspaced =
-            require_admin_for_instance_wide_route(authed.is_admin, trigger.config.workspaced_route)
-                .await?;
+            trigger.config.workspaced_route.unwrap_or(false) || http_route_workspaced;
 
         if authed.is_admin || effective_workspaced {
             if trigger.config.route_path.is_empty() {
