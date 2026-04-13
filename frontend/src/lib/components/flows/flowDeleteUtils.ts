@@ -1,5 +1,8 @@
-import type { FlowGroup, GroupDisplayState } from '$lib/components/graph/groupEditor.svelte'
-import type { GroupedModulesProxy } from '$lib/components/graph/groupedModulesProxy.svelte'
+import type { GroupDisplayState } from '$lib/components/graph/groupEditor.svelte'
+import type {
+	GroupedModulesProxy,
+	PreparedStructureDelete
+} from '$lib/components/graph/groupedModulesProxy.svelte'
 import { findInStructure, type FlowStructureNode } from '$lib/components/graph/flowStructure'
 import type { FlowModule, OpenFlow } from '$lib/gen'
 import {
@@ -36,7 +39,6 @@ export type StructureDeleteTarget = DeleteTargetBase & {
 
 export type AgentToolDeleteTarget = DeleteTargetBase & {
 	kind: 'agent_tool'
-	expectedOwnerAgentId: string
 }
 
 export type DeleteTarget =
@@ -50,8 +52,7 @@ export type DeletePlan = {
 	plannedStateIds: string[]
 	dependents: Record<string, string[]>
 	selection: DeleteSelection
-	structureIds: string[]
-	affectedGroups: FlowGroup[]
+	structureDelete?: PreparedStructureDelete
 	removeDuplicates: boolean
 }
 
@@ -102,7 +103,6 @@ export function resolveDeleteTargets(
 			targets.push({
 				kind: 'agent_tool',
 				id,
-				expectedOwnerAgentId: owner.agentId,
 				stateIds: collectAgentToolIds(owner.tool)
 			})
 			continue
@@ -152,8 +152,7 @@ export function createDeletePlan(args: {
 		plannedStateIds,
 		dependents: collectDeleteDependents(plannedStateIds, args.flow),
 		selection: getDeleteSelection(args.ids, plannedStateIds, args.flow.value.modules),
-		structureIds,
-		affectedGroups: structureDelete?.affectedGroups ?? [],
+		structureDelete,
 		removeDuplicates: Boolean(structureDelete?.duplicateGroups.length)
 	}
 }
@@ -166,24 +165,19 @@ export function removeDeletePlanTools(
 	const removedIds = new Set<string>()
 	const toolTargets = targets
 		.filter((target): target is AgentToolDeleteTarget => target.kind === 'agent_tool')
-		.map((target) => {
-			const owner = findAgentToolOwner(modules, target.id)
-			return owner ? { owner, target } : undefined
-		})
-		.filter((entry): entry is { owner: AgentToolOwner; target: AgentToolDeleteTarget } =>
-			Boolean(entry)
-		)
+		.map((target) => findAgentToolOwner(modules, target.id))
+		.filter((owner): owner is AgentToolOwner => Boolean(owner))
 		.sort((left, right) => {
-			if (left.owner.depth !== right.owner.depth) {
-				return right.owner.depth - left.owner.depth
+			if (left.depth !== right.depth) {
+				return right.depth - left.depth
 			}
-			if (left.owner.tools === right.owner.tools) {
-				return right.owner.toolIndex - left.owner.toolIndex
+			if (left.tools === right.tools) {
+				return right.toolIndex - left.toolIndex
 			}
 			return 0
 		})
 
-	for (const { owner } of toolTargets) {
+	for (const owner of toolTargets) {
 		const removed = removeAgentToolOwner(owner)
 		if (!removed) {
 			continue
@@ -261,9 +255,6 @@ function getDeleteSelection(
 		if (!deletedSet.has(orderedIds[i])) {
 			return { kind: 'select', id: orderedIds[i] }
 		}
-	}
-	if (index === -1) {
-		return { kind: 'select', id: 'settings-metadata' }
 	}
 
 	return { kind: 'select', id: 'settings-metadata' }

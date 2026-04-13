@@ -121,8 +121,7 @@ describe('createDeletePlan', () => {
 
 		expect(prepareDelete).toHaveBeenCalledWith(['agent_step'], expect.any(Object))
 		expect(plan?.plannedStateIds).toEqual(['agent_step', 'lookup_user'])
-		expect(plan?.structureIds).toEqual(['agent_step'])
-		expect(plan?.affectedGroups).toEqual([])
+		expect(plan?.structureDelete?.affectedGroups).toEqual([])
 		expect(plan?.dependents).toEqual({
 			dependent_step: ['results.lookup_user?.value']
 		})

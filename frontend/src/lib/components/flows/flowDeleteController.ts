@@ -2,20 +2,17 @@ import type { GroupDisplayState } from '$lib/components/graph/groupEditor.svelte
 import type { GroupedModulesProxy } from '$lib/components/graph/groupedModulesProxy.svelte'
 import type { SelectionManager } from '$lib/components/graph/selectionUtils.svelte'
 import type { FlowStructureNode } from '$lib/components/graph/flowStructure'
-import type { FlowModule, OpenFlow } from '$lib/gen'
+import type { OpenFlow } from '$lib/gen'
 import { push, type History } from '$lib/history.svelte'
 import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
-import { collectFlowNodeIds } from './agentToolTree'
 import {
 	createDeletePlan,
 	removeDeletePlanTools,
-	type DeletePlan,
-	type DeleteTarget
+	type DeletePlan
 } from './flowDeleteUtils'
 import type { FlowState } from './flowState'
 import { deleteFlowStateById } from './flowStateUtils.svelte'
-import { dfsByModule } from './previousResults'
 
 export type PreparedDeleteRequest = {
 	plan: DeletePlan
@@ -27,8 +24,6 @@ export type DeletePlanExecutionContext = {
 	flowStore: StateStore<OpenFlow>
 	flowStateStore: StateStore<FlowState>
 	selectionManager: Pick<SelectionManager, 'clearSelection' | 'selectId'>
-	proxy: GroupedModulesProxy
-	displayState: GroupDisplayState
 	onDelete?: (id: string) => void
 }
 
@@ -60,12 +55,7 @@ export function executeDeletePlan(
 	args: DeletePlanExecutionContext
 ): DeletePlanExecutionResult {
 	push(args.history, args.flowStore.val)
-	const hasPreprocessor = Boolean(args.flowStore.val.value.preprocessor_module)
-	const removedStructureStateIds = resolveLiveStructureStateIds(
-		plan.targets,
-		args.flowStore.val.value.modules,
-		hasPreprocessor
-	)
+	const removedStructureStateIds = resolvePlannedStructureStateIds(plan.targets)
 
 	if (plan.selection.kind === 'clear') {
 		args.selectionManager.clearSelection()
@@ -77,12 +67,7 @@ export function executeDeletePlan(
 		args.flowStore.val.value.preprocessor_module = undefined
 	}
 
-	if (plan.structureIds.length > 0) {
-		const structureDelete = args.proxy.prepareDelete(plan.structureIds, {
-			displayState: args.displayState
-		})
-		structureDelete.commit({ removeDuplicates: plan.removeDuplicates })
-	}
+	plan.structureDelete?.commit({ removeDuplicates: plan.removeDuplicates })
 
 	const removedToolStateIds = removeDeletePlanTools(plan.targets, args.flowStore.val.value.modules)
 	const removedStateIds = uniqueIds([...removedStructureStateIds, ...removedToolStateIds])
@@ -94,7 +79,7 @@ export function executeDeletePlan(
 	refreshStateStore(args.flowStore)
 
 	if (plan.inputIds.length === 1) {
-		args.onDelete?.(plan.targets[0]?.id ?? plan.inputIds[0])
+		args.onDelete?.(plan.targets[0].id)
 	}
 
 	return {
@@ -103,28 +88,14 @@ export function executeDeletePlan(
 	}
 }
 
-function resolveLiveStructureStateIds(
-	targets: DeleteTarget[],
-	modules: FlowModule[],
-	hasPreprocessor: boolean
-): string[] {
+function resolvePlannedStructureStateIds(targets: DeletePlan['targets']): string[] {
 	const removedIds: string[] = []
 
 	for (const target of targets) {
-		if (target.kind === 'preprocessor') {
-			if (hasPreprocessor) {
-				removedIds.push(target.id)
-			}
+		if (target.kind !== 'preprocessor' && target.kind !== 'structure_node') {
 			continue
 		}
-		if (target.kind !== 'structure_node') {
-			continue
-		}
-
-		const module = dfsByModule(target.id, modules)[0]
-		if (module) {
-			removedIds.push(...collectFlowNodeIds(module))
-		}
+		removedIds.push(...target.stateIds)
 	}
 
 	return uniqueIds(removedIds)

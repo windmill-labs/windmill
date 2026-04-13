@@ -96,8 +96,8 @@ describe('flowDeleteController', () => {
 		})
 
 		expect(request?.needsDependencyConfirmation).toBe(true)
-		expect(request?.plan.affectedGroups).toHaveLength(1)
-		expect(request?.plan.affectedGroups[0]).toMatchObject({
+		expect(request?.plan.structureDelete?.affectedGroups).toHaveLength(1)
+		expect(request?.plan.structureDelete?.affectedGroups[0]).toMatchObject({
 			summary: 'Agent group',
 			start_id: 'agent_step',
 			end_id: 'agent_step'
@@ -122,8 +122,6 @@ describe('flowDeleteController', () => {
 			flowStore,
 			flowStateStore,
 			selectionManager,
-			proxy,
-			displayState,
 			onDelete
 		})
 

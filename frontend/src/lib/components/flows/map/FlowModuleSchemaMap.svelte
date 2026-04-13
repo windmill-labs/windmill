@@ -342,8 +342,6 @@
 			flowStore,
 			flowStateStore,
 			selectionManager,
-			proxy,
-			displayState: groupDisplayState,
 			onDelete
 		})
 	}
@@ -368,9 +366,9 @@
 			}
 		}
 
-		if (request.plan.affectedGroups.length > 0) {
+		if ((request.plan.structureDelete?.affectedGroups.length ?? 0) > 0) {
 			pendingGroupAction = {
-				groups: request.plan.affectedGroups,
+				groups: request.plan.structureDelete!.affectedGroups,
 				label: 'delete',
 				confirm: proceed
 			}
