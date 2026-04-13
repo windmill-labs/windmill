@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.683.0](https://github.com/windmill-labs/windmill/compare/v1.682.0...v1.683.0) (2026-04-13)
+
+
+### Features
+
+* add black-box ai eval benchmarks ([#8618](https://github.com/windmill-labs/windmill/issues/8618)) ([cdcc564](https://github.com/windmill-labs/windmill/commit/cdcc56461b77554964622f490ae901f170886595))
+* add deploy restriction rule and fork review requests ([#8804](https://github.com/windmill-labs/windmill/issues/8804)) ([64c58c8](https://github.com/windmill-labs/windmill/commit/64c58c824fcefe00f15405b7e3877eb566a3ffa2))
+* allow non-admins to create and edit HTTP triggers ([#8810](https://github.com/windmill-labs/windmill/issues/8810)) ([9fb7816](https://github.com/windmill-labs/windmill/commit/9fb78164b4baa14c10d10f91ae969d48590c29f3))
+* display agent message in flow graph ([#8806](https://github.com/windmill-labs/windmill/issues/8806)) ([95411b2](https://github.com/windmill-labs/windmill/commit/95411b256332fa41816a93b19906f1534da9b300))
+* folder default_permissioned_as rules for ownership defaults on deploy ([#8801](https://github.com/windmill-labs/windmill/issues/8801)) ([60211c1](https://github.com/windmill-labs/windmill/commit/60211c1d1910b5f7ac6fed112f790201d2047a4c))
+* instance-level ruff config auto-pulled by LSP container ([#8803](https://github.com/windmill-labs/windmill/issues/8803)) ([3f5841f](https://github.com/windmill-labs/windmill/commit/3f5841f84d878cd3f43c435fa237d3f0c2265fb9))
+
+
+### Bug Fixes
+
+* **cli:** make cli help resilient to npm registry fetch failures ([#8809](https://github.com/windmill-labs/windmill/issues/8809)) ([b6f1cc7](https://github.com/windmill-labs/windmill/commit/b6f1cc70cd87c61df7112d3838fbb5fe9bcdc145))
+* enrich OTEL log records with per-request LogContext ([#8812](https://github.com/windmill-labs/windmill/issues/8812)) ([42d3e8c](https://github.com/windmill-labs/windmill/commit/42d3e8c7893cd959c7faffd19cd210c869c604f8))
+* silence user-facing toast for non-critical hub script tracking error ([#8808](https://github.com/windmill-labs/windmill/issues/8808)) ([378ba78](https://github.com/windmill-labs/windmill/commit/378ba7828456c871b5778f1144c4bb559bd5a733))
+
+
+### Performance Improvements
+
+* add inline-persist fast path for WAC v2 step() ([#8807](https://github.com/windmill-labs/windmill/issues/8807)) ([b3ef4bc](https://github.com/windmill-labs/windmill/commit/b3ef4bc26c5696624efee89b5e4e33e77e10cf15))
+
 ## [1.682.0](https://github.com/windmill-labs/windmill/compare/v1.681.0...v1.682.0) (2026-04-10)
 
 
