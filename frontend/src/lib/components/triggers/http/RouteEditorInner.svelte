@@ -136,7 +136,6 @@
 	let hasChanged = $derived(!deepEqual(getRouteConfig(), originalConfig ?? {}))
 	let scopes = $derived(['http_triggers:read:' + path])
 
-	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const routeConfig = $derived.by(getRouteConfig)
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
@@ -954,7 +953,7 @@
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
 			{trigger}
-			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
+			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
 			{allowDraft}
 			{edit}
