@@ -27,7 +27,6 @@ export type ExtendedOpenFlow = {
 }
 
 export type PreparedStructureDelete = {
-	removedIds: string[]
 	affectedGroups: FlowGroup[]
 	duplicateGroups: FlowGroup[]
 	commit: (commitOpts?: { removeDuplicates?: boolean }) => void
@@ -126,7 +125,6 @@ export class GroupedModulesProxy {
 			displayState?: import('./groupEditor.svelte').GroupDisplayState
 		}
 	): PreparedStructureDelete {
-		const removedIds: string[] = []
 		const { emptiedGroups, duplicateGroups, commit } = this.prepareMutation((tree) => {
 			for (const id of ids) {
 				const found = findInStructure(tree, id)
@@ -135,12 +133,10 @@ export class GroupedModulesProxy {
 				}
 
 				found.parentChildren.splice(found.index, 1)
-				removedIds.push(id)
 			}
 		}, opts)
 
 		return {
-			removedIds,
 			affectedGroups: [...emptiedGroups, ...duplicateGroups],
 			duplicateGroups,
 			commit

@@ -103,7 +103,6 @@ describe('createDeletePlan', () => {
 		]
 		const commit = vi.fn()
 		const prepareDelete = vi.fn(() => ({
-			removedIds: ['agent_step'],
 			affectedGroups: [],
 			duplicateGroups: [],
 			commit
@@ -121,7 +120,9 @@ describe('createDeletePlan', () => {
 		})
 
 		expect(prepareDelete).toHaveBeenCalledWith(['agent_step'], expect.any(Object))
-		expect(plan?.stateIds).toEqual(['agent_step', 'lookup_user'])
+		expect(plan?.plannedStateIds).toEqual(['agent_step', 'lookup_user'])
+		expect(plan?.structureIds).toEqual(['agent_step'])
+		expect(plan?.affectedGroups).toEqual([])
 		expect(plan?.dependents).toEqual({
 			dependent_step: ['results.lookup_user?.value']
 		})
@@ -142,7 +143,24 @@ describe('removeDeletePlanTools', () => {
 			false
 		)
 
-		expect(removeDeletePlanTools(targets)).toEqual(['support_agent', 'create_ticket'])
+		expect(removeDeletePlanTools(targets, [rootAgent])).toEqual(['support_agent', 'create_ticket'])
 		expect((rootAgent.value as any).tools).toEqual([])
+	})
+
+	it('re-resolves live owners before removing planned tool targets', () => {
+		const rootAgent = makeAiAgent('root_agent', [
+			makeFlowModuleTool(makeRawModule('lookup_user')),
+			makeFlowModuleTool(makeAiAgent('support_agent', [makeFlowModuleTool(makeRawModule('create_ticket'))]))
+		])
+		const tree: FlowStructureNode[] = []
+		const { targets } = resolveDeleteTargets(tree, [rootAgent], ['support_agent'], false)
+
+		;(rootAgent.value as any).tools.unshift(makeFlowModuleTool(makeRawModule('new_lookup')))
+
+		expect(removeDeletePlanTools(targets, [rootAgent])).toEqual(['support_agent', 'create_ticket'])
+		expect(((rootAgent.value as any).tools as any[]).map((tool) => tool.id)).toEqual([
+			'new_lookup',
+			'lookup_user'
+		])
 	})
 })

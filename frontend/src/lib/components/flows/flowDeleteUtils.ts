@@ -1,8 +1,5 @@
-import type { GroupDisplayState } from '$lib/components/graph/groupEditor.svelte'
-import type {
-	GroupedModulesProxy,
-	PreparedStructureDelete
-} from '$lib/components/graph/groupedModulesProxy.svelte'
+import type { FlowGroup, GroupDisplayState } from '$lib/components/graph/groupEditor.svelte'
+import type { GroupedModulesProxy } from '$lib/components/graph/groupedModulesProxy.svelte'
 import { findInStructure, type FlowStructureNode } from '$lib/components/graph/flowStructure'
 import type { FlowModule, OpenFlow } from '$lib/gen'
 import {
@@ -39,7 +36,7 @@ export type StructureDeleteTarget = DeleteTargetBase & {
 
 export type AgentToolDeleteTarget = DeleteTargetBase & {
 	kind: 'agent_tool'
-	owner: AgentToolOwner
+	expectedOwnerAgentId: string
 }
 
 export type DeleteTarget =
@@ -50,10 +47,11 @@ export type DeleteTarget =
 export type DeletePlan = {
 	inputIds: string[]
 	targets: DeleteTarget[]
-	stateIds: string[]
+	plannedStateIds: string[]
 	dependents: Record<string, string[]>
 	selection: DeleteSelection
-	structureDelete?: PreparedStructureDelete
+	structureIds: string[]
+	affectedGroups: FlowGroup[]
 	removeDuplicates: boolean
 }
 
@@ -104,7 +102,7 @@ export function resolveDeleteTargets(
 			targets.push({
 				kind: 'agent_tool',
 				id,
-				owner,
+				expectedOwnerAgentId: owner.agentId,
 				stateIds: collectAgentToolIds(owner.tool)
 			})
 			continue
@@ -146,26 +144,35 @@ export function createDeletePlan(args: {
 			? args.proxy.prepareDelete(structureIds, { displayState: args.displayState })
 			: undefined
 
-	const stateIds = uniqueIds(targets.flatMap((target) => target.stateIds))
+	const plannedStateIds = uniqueIds(targets.flatMap((target) => target.stateIds))
 
 	return {
 		inputIds: args.ids,
 		targets,
-		stateIds,
-		dependents: collectDeleteDependents(stateIds, args.flow),
-		selection: getDeleteSelection(args.ids, stateIds, args.flow.value.modules),
-		structureDelete,
-		removeDuplicates: Boolean(structureDelete && structureDelete.duplicateGroups.length > 0)
+		plannedStateIds,
+		dependents: collectDeleteDependents(plannedStateIds, args.flow),
+		selection: getDeleteSelection(args.ids, plannedStateIds, args.flow.value.modules),
+		structureIds,
+		affectedGroups: structureDelete?.affectedGroups ?? [],
+		removeDuplicates: Boolean(structureDelete?.duplicateGroups.length)
 	}
 }
 
 export function removeDeletePlanTools(
 	targets: DeleteTarget[],
+	modules: FlowModule[],
 	onRemove?: (tool: AgentTool) => void
 ): string[] {
 	const removedIds = new Set<string>()
 	const toolTargets = targets
 		.filter((target): target is AgentToolDeleteTarget => target.kind === 'agent_tool')
+		.map((target) => {
+			const owner = findAgentToolOwner(modules, target.id)
+			return owner ? { owner, target } : undefined
+		})
+		.filter((entry): entry is { owner: AgentToolOwner; target: AgentToolDeleteTarget } =>
+			Boolean(entry)
+		)
 		.sort((left, right) => {
 			if (left.owner.depth !== right.owner.depth) {
 				return right.owner.depth - left.owner.depth
@@ -176,8 +183,8 @@ export function removeDeletePlanTools(
 			return 0
 		})
 
-	for (const target of toolTargets) {
-		const removed = removeAgentToolOwner(target.owner)
+	for (const { owner } of toolTargets) {
+		const removed = removeAgentToolOwner(owner)
 		if (!removed) {
 			continue
 		}

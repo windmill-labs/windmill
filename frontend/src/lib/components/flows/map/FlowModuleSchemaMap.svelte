@@ -53,11 +53,8 @@
 		agentToolToFlowModule
 	} from '../agentToolUtils'
 	import { loadFlowModuleState } from '../flowStateUtils.svelte'
-	import {
-		createDeletePlan,
-		removeDeletePlanTools,
-		type DeletePlan
-	} from '../flowDeleteUtils'
+	import type { DeletePlan } from '../flowDeleteUtils'
+	import { executeDeletePlan, prepareDeleteRequest } from '../flowDeleteController'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
 	import {
 		GroupedModulesProxy,
@@ -340,55 +337,40 @@
 	}
 
 	function applyDeletePlan(plan: DeletePlan) {
-		push(history, flowStore.val)
-
-		if (plan.selection.kind === 'clear') {
-			selectionManager.clearSelection()
-		} else {
-			selectionManager.selectId(plan.selection.id)
-		}
-
-		if (plan.targets.some((target) => target.kind === 'preprocessor')) {
-			flowStore.val.value.preprocessor_module = undefined
-		}
-
-		plan.structureDelete?.commit({ removeDuplicates: plan.removeDuplicates })
-		removeDeletePlanTools(plan.targets)
-
-		for (const id of plan.stateIds) {
-			deleteFlowStateById(id, flowStateStore)
-		}
-
-		refreshStateStore(flowStore)
-
-		if (plan.inputIds.length === 1) {
-			onDelete?.(plan.targets[0]?.id ?? plan.inputIds[0])
-		}
+		executeDeletePlan(plan, {
+			history,
+			flowStore,
+			flowStateStore,
+			selectionManager,
+			proxy,
+			displayState: groupDisplayState,
+			onDelete
+		})
 	}
 
 	function requestDelete(ids: string[]) {
-		const plan = createDeletePlan({
+		const request = prepareDeleteRequest({
 			ids,
 			flow: flowStore.val,
 			tree: proxy.items,
 			proxy,
 			displayState: groupDisplayState
 		})
-		if (!plan) {
+		if (!request) {
 			return
 		}
 
 		const proceed = () => {
-			if (Object.keys(plan.dependents).length > 0) {
-				pendingDeleteConfirmation = { plan }
+			if (request.needsDependencyConfirmation) {
+				pendingDeleteConfirmation = { plan: request.plan }
 			} else {
-				applyDeletePlan(plan)
+				applyDeletePlan(request.plan)
 			}
 		}
 
-		if ((plan.structureDelete?.affectedGroups.length ?? 0) > 0) {
+		if (request.plan.affectedGroups.length > 0) {
 			pendingGroupAction = {
-				groups: plan.structureDelete!.affectedGroups,
+				groups: request.plan.affectedGroups,
 				label: 'delete',
 				confirm: proceed
 			}
