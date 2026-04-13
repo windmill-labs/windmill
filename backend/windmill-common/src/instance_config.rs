@@ -436,6 +436,8 @@ pub struct IndexerSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_indexed_job_log_size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_index_time_window_secs: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub should_clear_job_index: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub should_clear_log_index: Option<bool>,

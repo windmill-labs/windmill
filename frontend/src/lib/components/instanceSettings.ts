@@ -80,6 +80,7 @@ export interface Setting {
 export type SettingStorage = 'setting'
 
 const positiveNumber = z.number().positive('Must be a positive number')
+const nonNegativeNumber = z.number().nonnegative('Must be zero or a positive number')
 
 const indexerSettingsSchema = z
 	.object({
@@ -89,7 +90,7 @@ const indexerSettingsSchema = z
 		max_indexed_job_log_size: positiveNumber.optional(),
 		commit_log_max_batch_size: positiveNumber.optional(),
 		refresh_log_index_period: positiveNumber.optional(),
-		max_index_time_window_secs: positiveNumber.optional()
+		max_index_time_window_secs: nonNegativeNumber.optional()
 	})
 	.passthrough()
 
