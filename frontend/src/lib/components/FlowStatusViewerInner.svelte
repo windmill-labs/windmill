@@ -51,6 +51,7 @@
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
 	import McpToolCallDetails from './McpToolCallDetails.svelte'
+	import GfmMarkdown from './GfmMarkdown.svelte'
 	import JobOtelTraces from './JobOtelTraces.svelte'
 	import JobDetailHeader from './runs/JobDetailHeader.svelte'
 	import LogViewer from './LogViewer.svelte'
@@ -865,6 +866,20 @@
 		timeout && clearTimeout(timeout)
 		// sub?.()
 	})
+
+	function getAgentActionContent(agentResult: any, actionIndex: number): unknown | undefined {
+		if (!agentResult?.messages || !Array.isArray(agentResult.messages)) return undefined
+		let agentActionIdx = 0
+		for (const m of agentResult.messages) {
+			if (m.agent_action) {
+				if (agentActionIdx === actionIndex) {
+					return m.content
+				}
+				agentActionIdx++
+			}
+		}
+		return undefined
+	}
 
 	function isSuccess(arg: any): boolean | undefined {
 		if (arg == undefined) {
@@ -1966,12 +1981,28 @@
 									{:else if rightColumnSelect == 'node_status'}
 										<div class="p-4 grow flex flex-col gap-6">
 											{#if selectedNode?.startsWith(AI_TOOL_MESSAGE_PREFIX)}
-												<div class="pt-2 pb-4">
-													<Alert
-														type="info"
-														title="Message output is available on the AI agent node"
-													/>
-												</div>
+												{@const [, agentModuleId, toolCallIndex] = selectedNode.split('-')}
+												{@const agentNode = localModuleStates?.[agentModuleId]}
+												{@const actionIndex = parseInt(toolCallIndex)}
+												{@const messageContent = getAgentActionContent(
+													agentNode?.result,
+													actionIndex
+												)}
+												{#if messageContent !== undefined && typeof messageContent === 'string'}
+													<div>
+														<div class="text-xs text-emphasis font-semibold mb-1">Message</div>
+														<div class="border rounded p-2 overflow-auto max-h-[500px]">
+															<GfmMarkdown md={messageContent} />
+														</div>
+													</div>
+												{:else}
+													<div class="pt-2 pb-4">
+														<Alert
+															type="info"
+															title="Message output is available on the AI agent node"
+														/>
+													</div>
+												{/if}
 											{:else if selectedNode?.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
 												{@const [, agentModuleId, toolCallIndex] = selectedNode.split('-')}
 												{@const agentNode = localModuleStates?.[agentModuleId]}
@@ -1997,10 +2028,7 @@
 													/>
 												{/if}
 											{:else if selectedNode?.startsWith(AI_WEBSEARCH_PREFIX)}
-												<Alert
-													type="info"
-													title="Web search output is available on the AI agent node"
-												/>
+												<Alert type="info" title="Web search was used in this step" />
 											{:else if selectedNode}
 												{@const node = localModuleStates[selectedNode]}
 												{#if selectedNode == 'end'}

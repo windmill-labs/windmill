@@ -1,0 +1,93 @@
+- id: app-test1-counter-create
+  prompt: |-
+    Create a simple counter app with increment and decrement buttons.
+  judgeChecklist:
+    - shows the current count in the UI
+    - includes an increment button
+    - includes a decrement button
+    - clicking the buttons updates the count correctly
+
+- id: app-test2-counter-reset
+  prompt: |-
+    Add a reset button that sets the counter back to 0
+  initial: ai_evals/fixtures/frontend/app/initial/test1_counter_app
+  judgeChecklist:
+    - adds a reset control to the existing counter app
+    - clicking reset sets the count back to 0
+    - keeps the existing increment and decrement behavior working
+
+- id: app-test3-shopping-cart-quantity
+  prompt: |-
+    Add a quantity selector (+ and - buttons) to each cart item so users can adjust quantities without removing and re-adding items
+  initial: ai_evals/fixtures/frontend/app/initial/shopping_cart
+  judgeChecklist:
+    - each cart item has visible plus and minus quantity controls
+    - users can increase quantity without re-adding the product
+    - users can decrease quantity from the cart UI
+    - cart totals stay in sync with quantity changes
+
+- id: app-test4-shopping-cart-discount
+  prompt: |-
+    Add a discount code input field in the cart.
+    When the code "SAVE10" is entered, apply a 10% discount to the total
+  initial: ai_evals/fixtures/frontend/app/initial/shopping_cart
+  judgeChecklist:
+    - adds a discount code input to the cart
+    - recognizes the code SAVE10
+    - applies a 10 percent discount to the displayed total
+    - keeps the rest of the cart behavior intact
+
+- id: app-test5-file-manager-search
+  prompt: |-
+    Add a search bar in the toolbar that filters files and folders by name as the user types
+  initial: ai_evals/fixtures/frontend/app/initial/file_manager
+  judgeChecklist:
+    - adds a search input in the toolbar
+    - filters files and folders by name as the user types
+    - updates the visible file list from the search query
+    - keeps the rest of the file manager usable
+
+- id: app-test6-file-manager-inline-rename
+  prompt: |-
+    Let users rename files and folders directly from the file list without leaving the page.
+  initial: ai_evals/fixtures/frontend/app/initial/file_manager
+  judgeChecklist:
+    - adds a visible rename action or inline edit mode in the file list
+    - lets users edit an item's name directly from the list
+    - saves the renamed item through the app's existing rename behavior
+    - refreshes the displayed name after a successful rename
+
+- id: app-test7-file-manager-select-all
+  prompt: |-
+    Add a "Select All" checkbox in the file list header and individual checkboxes for each file.
+    Add a "Delete Selected" button that appears when items are selected
+  initial: ai_evals/fixtures/frontend/app/initial/file_manager
+  judgeChecklist:
+    - adds a select-all control in the file list header
+    - adds per-item selection controls
+    - shows a delete-selected action only when there is a selection
+    - deleting selected items updates the visible list
+
+- id: app-test8-inventory-tracker-create
+  prompt: |-
+    Create an inventory tracker app for a small store.
+    Users should be able to add items with a name, sku, quantity, and price, search items by name or sku, and delete items.
+    The inventory should persist between sessions.
+  judgeChecklist:
+    - includes a form to add inventory items with name, sku, quantity, and price
+    - shows a list or table of saved inventory items
+    - supports searching or filtering by name or sku
+    - lets users delete existing inventory items
+    - persists the inventory data appropriately for a raw Windmill app
+
+- id: app-test9-recipe-book-create
+  prompt: |-
+    Create a recipe book app where users can add recipes with a name, ingredients list, and instructions.
+    Include a search bar to filter recipes by name and the ability to delete recipes.
+    Recipes should persist between sessions.
+  judgeChecklist:
+    - includes a form to add recipes with name, ingredients, and instructions
+    - shows saved recipes in the app
+    - supports searching recipes by name
+    - lets users delete recipes
+    - persists recipes appropriately for a raw Windmill app

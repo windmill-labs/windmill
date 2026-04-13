@@ -25,6 +25,11 @@ import { convertOpenAIToAnthropicMessages } from './chat/anthropic'
 import type { Stream } from 'openai/core/streaming.mjs'
 import { generateRandomString } from '$lib/utils'
 import { copilotInfo, getCurrentModel } from '$lib/aiStore'
+import {
+	emptyChatTokenUsage,
+	openAICompletionsUsageToChatTokenUsage,
+	type ChatTokenUsage
+} from './chat/tokenUsage'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -905,7 +910,18 @@ export async function getCompletion(
 
 	// Use Completions API for other providers
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
-	const completion = client.chat.completions.create(config, {
+	const completionConfig =
+		(provider === 'openai' || provider === 'azure_openai' || provider === 'googleai') &&
+		config.stream
+			? {
+					...config,
+					stream_options: {
+						...(config.stream_options ?? {}),
+						include_usage: true
+					}
+				}
+			: config
+	const completion = client.chat.completions.create(completionConfig, {
 		signal: abortController.signal,
 		headers: {
 			'X-Provider': provider
@@ -936,12 +952,16 @@ export async function parseOpenAICompletion(
 	helpers: any,
 	_abortController?: AbortController, // unused, for signature compatibility with parseAnthropicCompletion
 	options?: { workspace?: string }
-): Promise<boolean> {
+): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 	let malformedFunctionCallError = false
+	let tokenUsage = emptyChatTokenUsage()
 
 	let answer = ''
 	for await (const chunk of completion) {
+		if ('usage' in chunk && chunk.usage) {
+			tokenUsage = openAICompletionsUsageToChatTokenUsage(chunk.usage)
+		}
 		if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
 			continue
 		}
@@ -1118,9 +1138,9 @@ export async function parseOpenAICompletion(
 		messages.push(toolResponse)
 		addedMessages.push(toolResponse)
 	} else {
-		return false
+		return { shouldContinue: false, tokenUsage }
 	}
-	return true
+	return { shouldContinue: true, tokenUsage }
 }
 
 export function getResponseFromEvent(part: OpenAI.Chat.Completions.ChatCompletionChunk): string {

@@ -920,8 +920,6 @@ export function formatScriptLintResult(lintResult: ScriptLintResult): string {
 	return response
 }
 
-// ============= Workspace Runnables Search =============
-
 export class WorkspaceRunnablesSearch {
 	private uf: uFuzzy
 	private scriptsWorkspace: string | undefined = undefined

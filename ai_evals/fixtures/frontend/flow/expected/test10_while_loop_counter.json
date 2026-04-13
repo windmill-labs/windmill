@@ -1,0 +1,30 @@
+{
+  "value": {
+    "modules": [
+      {
+        "id": "count_until_target",
+        "value": {
+          "type": "whileloopflow"
+        }
+      },
+      {
+        "id": "return_final_count",
+        "value": {
+          "type": "rawscript"
+        }
+      }
+    ]
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "target": {
+        "type": "number"
+      }
+    },
+    "required": [
+      "target"
+    ]
+  }
+}

@@ -83,6 +83,32 @@ export const VERSION = "1.682.0";
 // Re-exported from constants.ts to maintain backwards compatibility
 export { WM_FORK_PREFIX } from "./core/constants.ts";
 
+// Re-implementation of cliffy's internal `checkVersion` so the help path
+// can wrap it in try/catch. `_check_version` is not in cliffy's package
+// exports map, so it can't be imported directly.
+async function checkVersionSafe(cmd: any): Promise<void> {
+  const mainCommand = cmd.getMainCommand();
+  const upgradeCommand = mainCommand.getCommand("upgrade");
+  if (
+    !upgradeCommand ||
+    typeof (upgradeCommand as any).getLatestVersion !== "function" ||
+    typeof (upgradeCommand as any).hasRequiredPermissions !== "function"
+  ) {
+    return;
+  }
+  if (!(await (upgradeCommand as any).hasRequiredPermissions())) {
+    return;
+  }
+  const latestVersion = await (upgradeCommand as any).getLatestVersion();
+  const currentVersion = mainCommand.getVersion();
+  if (!currentVersion || currentVersion === latestVersion) {
+    return;
+  }
+  mainCommand.version(
+    `${currentVersion}  (New version available: ${latestVersion}. Run '${mainCommand.getName()} upgrade' to upgrade to the latest version!)`
+  );
+}
+
 const command = new Command()
   .name("wmill")
   .action(() =>
@@ -117,6 +143,30 @@ const command = new Command()
   )
   .version(VERSION)
   .versionOption(false)
+  // Override the default help option action so that a failure to contact
+  // the npm registry (e.g. offline / firewalled environment) does not
+  // prevent help from being displayed. Cliffy's default action awaits
+  // `checkVersion` before `showHelp`, which aborts the whole command if
+  // the fetch to registry.npmjs.org fails.
+  .helpOption("-h, --help", "Show this help.", {
+    action: async function () {
+      const self = this as any;
+      const long = self
+        .getRawArgs()
+        .includes(`--${self.getHelpOption()?.name}`);
+      try {
+        await checkVersionSafe(self);
+      } catch (e) {
+        log.warn(
+          `Skipping latest-version check: ${
+            e instanceof Error ? e.message : String(e)
+          }`
+        );
+      }
+      self.showHelp({ long });
+      self.exit();
+    },
+  })
   .command("init", init)
   .command("app", app)
   .command("flow", flow)

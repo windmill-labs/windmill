@@ -1,0 +1,66 @@
+- id: bun-hello-script
+  prompt: |-
+    Create a Windmill Bun script at `f/evals/hello.ts`.
+    It should take a `name` input and return a greeting object like `{ greeting: "Hello, Alice!" }`.
+  expected: ai_evals/fixtures/cli/expected/bun-hello-script
+  judgeChecklist:
+    - creates the requested Bun script at f/evals/hello.ts
+    - takes a name input
+    - returns an object containing the greeting
+
+- id: bun-hello-flow
+  prompt: |-
+    Create a Windmill flow at `f/evals/hello__flow`.
+    It should take a `name` input and return a greeting object like `{ greeting: "Hello, Alice!" }`.
+    Put the step code in `hello.ts`.
+  expected: ai_evals/fixtures/cli/expected/bun-hello-flow
+  judgeChecklist:
+    - creates the requested flow folder with flow.yaml and hello.ts
+    - wires the name input into the flow step
+    - returns the greeting object
+
+- id: python-add-numbers-script
+  prompt: |-
+    Add a Windmill Python script at `f/evals/add_numbers.py`.
+    It should take `a` and `b` as inputs and return `{ "total": a + b }`.
+  expected: ai_evals/fixtures/cli/expected/python-add-numbers-script
+  judgeChecklist:
+    - creates the requested Python script at f/evals/add_numbers.py
+    - takes `a` and `b` as inputs
+    - returns an object with total equal to a plus b
+
+- id: bun-hello-script-uppercase
+  prompt: |-
+    Update `f/evals/hello.ts` so it accepts an optional `uppercase` boolean.
+    Keep returning `{ greeting: ... }`, but when `uppercase` is true the greeting should be uppercased before returning it.
+  initial: ai_evals/fixtures/cli/initial/bun-hello-script-uppercase
+  expected: ai_evals/fixtures/cli/expected/bun-hello-script-uppercase
+  judgeChecklist:
+    - updates the existing hello.ts file rather than creating a new script
+    - accepts an optional uppercase boolean input
+    - keeps returning an object with greeting
+    - uppercases the greeting when uppercase is true
+
+- id: bun-hello-flow-punctuation
+  prompt: |-
+    Update the existing flow in `f/evals/hello__flow` so it also accepts an optional `punctuation` input.
+    The greeting should use that punctuation and default to `!` when it is missing.
+  initial: ai_evals/fixtures/cli/initial/bun-hello-flow-punctuation
+  expected: ai_evals/fixtures/cli/expected/bun-hello-flow-punctuation
+  judgeChecklist:
+    - updates the existing hello flow instead of creating a new one
+    - adds an optional punctuation input to the flow
+    - updates the step code so the returned greeting uses punctuation
+    - defaults punctuation to an exclamation mark when omitted
+
+- id: flow-reuse-existing-script
+  prompt: |-
+    There is already a reusable greeting script at `f/lib/format_greeting.ts`.
+    Create a flow at `f/evals/reuse_greeting__flow` that takes a `name` input and reuses that existing script instead of duplicating the logic inline.
+  initial: ai_evals/fixtures/cli/initial/flow-reuse-existing-script
+  expected: ai_evals/fixtures/cli/expected/flow-reuse-existing-script
+  judgeChecklist:
+    - creates the requested flow at f/evals/reuse_greeting__flow
+    - reuses the existing script from f/lib by path
+    - does not duplicate the greeting logic in a new inline script
+    - wires the name input into the reused script

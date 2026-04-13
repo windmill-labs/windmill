@@ -1,0 +1,19 @@
+{
+  "name": "windmill-ai-evals",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cli": "bun cli/index.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.25",
+    "@anthropic-ai/sdk": "^0.39.0",
+    "commander": "^14.0.3",
+    "openai": "^6.9.1",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  }
+}

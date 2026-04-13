@@ -14,6 +14,15 @@ import {
 import { processToolCall, type Tool, type ToolCallbacks } from './shared'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProviderModel } from '$lib/gen'
+import {
+	openAIResponsesUsageToChatTokenUsage,
+	type ChatTokenUsage
+} from './tokenUsage'
+
+interface ParsedCompletionResult {
+	shouldContinue: boolean
+	tokenUsage: ChatTokenUsage
+}
 
 // Conversion utilities for Responses API
 function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[]): {
@@ -219,7 +228,7 @@ export async function parseOpenAIResponsesCompletion(
 	tools: Tool<any>[],
 	helpers: any,
 	options?: { workspace?: string }
-): Promise<boolean> {
+): Promise<ParsedCompletionResult> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error: OpenAIError | ResponseErrorEvent | null = null
 	let textContent = ''
@@ -337,6 +346,9 @@ export async function parseOpenAIResponsesCompletion(
 		throw error
 	}
 
+	const finalResponse = await runner.finalResponse()
+	const tokenUsage = openAIResponsesUsageToChatTokenUsage(finalResponse.usage)
+
 	// Process tool calls if any
 	if (toolCallsToProcess.length > 0) {
 		const assistantWithTools = {
@@ -358,10 +370,10 @@ export async function parseOpenAIResponsesCompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
-		return true // Continue the conversation loop
+		return { shouldContinue: true, tokenUsage }
 	}
 
-	return false // End the conversation
+	return { shouldContinue: false, tokenUsage }
 }
 
 export async function getNonStreamingOpenAIResponsesCompletion(

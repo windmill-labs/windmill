@@ -1,0 +1,36 @@
+{
+  "value": {
+    "preprocessor_module": {
+      "id": "preprocessor",
+      "value": {
+        "type": "rawscript"
+      }
+    },
+    "failure_module": {
+      "id": "failure",
+      "value": {
+        "type": "rawscript"
+      }
+    },
+    "modules": [
+      {
+        "id": "process_event",
+        "value": {
+          "type": "rawscript"
+        }
+      }
+    ]
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "payload": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "payload"
+    ]
+  }
+}
