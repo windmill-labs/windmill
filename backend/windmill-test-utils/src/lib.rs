@@ -646,8 +646,7 @@ fn find_module_in_vec(modules: Vec<FlowStatusModule>, id: &str) -> Option<FlowSt
 
 pub async fn set_jwt_secret() {
     let secret = "mytestsecret".to_string();
-    let mut l = JWT_SECRET.write().await;
-    *l = secret;
+    JWT_SECRET.store(std::sync::Arc::new(secret));
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize)]

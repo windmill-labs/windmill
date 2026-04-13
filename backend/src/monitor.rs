@@ -1492,11 +1492,13 @@ pub async fn reload_instance_events_webhook_setting(db: &DB) {
     let value = load_value_from_global_settings(db, INSTANCE_EVENTS_WEBHOOK_SETTING).await;
     match value {
         Ok(Some(serde_json::Value::String(s))) if !s.is_empty() => {
-            *INSTANCE_EVENTS_WEBHOOK.write().await = Some(s);
+            INSTANCE_EVENTS_WEBHOOK.store(std::sync::Arc::new(Some(s)));
         }
         Ok(None) | Ok(Some(serde_json::Value::Null)) | Ok(Some(serde_json::Value::String(_))) => {
             // Fall back to env var if DB has no value
-            *INSTANCE_EVENTS_WEBHOOK.write().await = std::env::var("INSTANCE_EVENTS_WEBHOOK").ok();
+            INSTANCE_EVENTS_WEBHOOK.store(std::sync::Arc::new(
+                std::env::var("INSTANCE_EVENTS_WEBHOOK").ok(),
+            ));
         }
         Err(e) => {
             tracing::error!("Error loading instance_events_webhook setting: {e:#}");
@@ -1733,13 +1735,11 @@ pub async fn reload_workspace_registries_setting(conn: &Connection) {
 }
 
 pub async fn reload_hub_api_secret_setting(conn: &Connection) {
-    reload_option_setting_with_tracing(
-        conn,
-        HUB_API_SECRET_SETTING,
-        "HUB_API_SECRET",
-        HUB_API_SECRET.clone(),
-    )
-    .await;
+    match load_option_setting_value::<String>(conn, HUB_API_SECRET_SETTING, "HUB_API_SECRET").await
+    {
+        Ok(v) => HUB_API_SECRET.store(std::sync::Arc::new(v)),
+        Err(e) => tracing::error!("Error reloading setting HUB_API_SECRET: {:?}", e),
+    }
 }
 
 pub async fn reload_retention_period_setting(conn: &Connection) {
@@ -3692,8 +3692,7 @@ pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<
         vec![]
     };
 
-    let mut l = CRITICAL_ERROR_CHANNELS.write().await;
-    *l = critical_error_channels;
+    CRITICAL_ERROR_CHANNELS.store(std::sync::Arc::new(critical_error_channels));
 
     Ok(())
 }
@@ -3776,8 +3775,7 @@ pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<(
         None
     };
 
-    let mut l = CRITICAL_ALERTS_ON_DB_OVERSIZE.write().await;
-    *l = db_oversize;
+    CRITICAL_ALERTS_ON_DB_OVERSIZE.store(std::sync::Arc::new(db_oversize));
 
     Ok(())
 }
@@ -3808,8 +3806,7 @@ pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
         generate_and_save_jwt_secret(db).await?
     };
 
-    let mut l = JWT_SECRET.write().await;
-    *l = jwt_secret;
+    JWT_SECRET.store(std::sync::Arc::new(jwt_secret));
 
     Ok(())
 }

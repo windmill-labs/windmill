@@ -26,8 +26,8 @@ lazy_static::lazy_static! {
 
 lazy_static::lazy_static! {
 
-    pub static ref INSTANCE_EVENTS_WEBHOOK: Arc<RwLock<Option<String>>> =
-        Arc::new(RwLock::new(std::env::var("INSTANCE_EVENTS_WEBHOOK").ok()));
+    pub static ref INSTANCE_EVENTS_WEBHOOK: arc_swap::ArcSwap<Option<String>> =
+        arc_swap::ArcSwap::from_pointee(std::env::var("INSTANCE_EVENTS_WEBHOOK").ok());
 
     pub static ref WEBHOOK_CACHE: Cache<String, Option<String>> = Cache::new(100);
 
@@ -211,7 +211,7 @@ impl WebhookShared {
                             }
                         },
                         Some(WebhookPayload::InstanceEvent(event)) => {
-                            let url = INSTANCE_EVENTS_WEBHOOK.read().await.clone();
+                            let url = (**INSTANCE_EVENTS_WEBHOOK.load()).clone();
                             if let Some(url) = url {
                                 #[cfg(feature = "prometheus")]
                                 let timer = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
@@ -243,10 +243,7 @@ impl WebhookShared {
     }
 
     pub fn send_instance_event(&self, event: InstanceEvent) {
-        if INSTANCE_EVENTS_WEBHOOK
-            .try_read()
-            .is_ok_and(|v| v.is_none())
-        {
+        if INSTANCE_EVENTS_WEBHOOK.load().is_none() {
             return;
         }
         let _ = self.channel.send(WebhookPayload::InstanceEvent(event));

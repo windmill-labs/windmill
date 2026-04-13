@@ -164,7 +164,7 @@ lazy_static::lazy_static! {
         }
     };
 
-    pub static ref HUB_API_SECRET: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref HUB_API_SECRET: arc_swap::ArcSwap<Option<String>> = arc_swap::ArcSwap::from_pointee(None);
 }
 
 #[derive(Clone)]
@@ -392,7 +392,7 @@ pub async fn http_get_from_hub(
         request = request.header("X-uid", uid);
     }
 
-    if let Some(hub_api_secret) = HUB_API_SECRET.read().await.clone() {
+    if let Some(hub_api_secret) = (**HUB_API_SECRET.load()).clone() {
         request = request.header("X-api-secret", hub_api_secret);
     }
 

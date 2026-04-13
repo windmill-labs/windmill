@@ -216,8 +216,8 @@ lazy_static::lazy_static! {
     pub static ref HUB_BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new(DEFAULT_HUB_BASE_URL.to_string()));
 
 
-    pub static ref CRITICAL_ERROR_CHANNELS: Arc<RwLock<Vec<CriticalErrorChannel>>> = Arc::new(RwLock::new(vec![]));
-    pub static ref CRITICAL_ALERTS_ON_DB_OVERSIZE: Arc<RwLock<Option<f32>>> = Arc::new(RwLock::new(None));
+    pub static ref CRITICAL_ERROR_CHANNELS: arc_swap::ArcSwap<Vec<CriticalErrorChannel>> = arc_swap::ArcSwap::from_pointee(vec![]);
+    pub static ref CRITICAL_ALERTS_ON_DB_OVERSIZE: arc_swap::ArcSwap<Option<f32>> = arc_swap::ArcSwap::from_pointee(None);
 
     pub static ref JOB_RETENTION_SECS: AtomicI64 = AtomicI64::new(0);
     pub static ref AUDIT_LOG_RETENTION_DAYS: AtomicI64 = AtomicI64::new(0);
