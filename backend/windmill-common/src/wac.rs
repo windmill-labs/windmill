@@ -123,7 +123,7 @@ pub fn add_completed_step(checkpoint: &mut WacCheckpoint, step_key: &str, result
 ///
 /// The caller owns the transaction and commits it. This lets the worker-side
 /// `WacOutput::InlineCheckpoint` fallback arm add its own `UPDATE v2_job_queue
-/// SET running = false` in the same transaction — restoring the original
+/// SET running = false` in the same transaction — preserving the original
 /// all-or-nothing atomicity — while the API fast path simply commits after
 /// the helper returns.
 ///
@@ -146,6 +146,13 @@ pub fn add_completed_step(checkpoint: &mut WacCheckpoint, step_key: &str, result
 /// subprocess allocates step keys synchronously before yielding at the
 /// `await fetch(...)` point, so concurrent calls carry distinct keys and
 /// their writes don't collide on `completed_steps[key]`.
+///
+/// A pure-SQL single-statement variant (pushing load-modify-save entirely
+/// into `jsonb_set` + `jsonb_build_object`) was prototyped and measured at
+/// ~80 ms per call in debug mode — the nested `COALESCE` + subquery pattern
+/// causes Postgres to evaluate the growing JSONB column multiple times per
+/// step. The two-statement Rust-side load-modify-save below is ~10× faster
+/// in practice, so we keep it and accept the documented first-write race.
 pub async fn persist_inline_checkpoint_delta(
     tx: &mut Transaction<'_, Postgres>,
     job_id: &Uuid,

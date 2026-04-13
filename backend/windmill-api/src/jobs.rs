@@ -4496,21 +4496,21 @@ pub async fn wac_inline_checkpoint(
 
     // Look up the job's script hash for source-hash validation. We deliberately
     // use a minimal query here rather than `fetch_queued(...)` — the latter
-    // pulls in many extra columns we don't need. Restrict to `kind = 'script'`
-    // so a forged/buggy caller can't write a bogus checkpoint onto a flow job
-    // or dependency job that happens to share the workspace.
+    // pulls in many extra columns we don't need. Restrict to the job kinds
+    // that actually run user WAC v2 code (`script` and `preview`) so a
+    // forged/buggy caller can't write a bogus checkpoint onto a flow,
+    // dependency, or other job kind that shares the workspace.
     let row: Option<(Option<i64>,)> = sqlx::query_as(
         "SELECT runnable_id FROM v2_job
-         WHERE id = $1 AND workspace_id = $2 AND kind = 'script'::job_kind",
+         WHERE id = $1 AND workspace_id = $2
+           AND kind IN ('script'::job_kind, 'preview'::job_kind)",
     )
     .bind(&job_id)
     .bind(&w_id)
     .fetch_optional(&db)
     .await?;
     let (runnable_id,) = row.ok_or_else(|| {
-        error::Error::NotFound(format!(
-            "WAC v2 script job {job_id} not found in workspace {w_id}"
-        ))
+        error::Error::NotFound(format!("WAC v2 job {job_id} not found in workspace {w_id}"))
     })?;
     let source_hash = runnable_id.map(|h| h.to_string());
 
