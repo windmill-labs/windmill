@@ -1990,7 +1990,7 @@
 												)}
 												{#if messageContent !== undefined && typeof messageContent === 'string'}
 													<div>
-														<h3 class="text-sm font-semibold mb-2 text-secondary">Message</h3>
+														<div class="text-xs text-emphasis font-semibold mb-1">Message</div>
 														<div class="border rounded p-2 overflow-auto max-h-[500px]">
 															<GfmMarkdown md={messageContent} />
 														</div>
