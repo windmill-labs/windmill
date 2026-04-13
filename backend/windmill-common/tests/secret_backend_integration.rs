@@ -72,8 +72,7 @@ mod tests {
     async fn setup_base_url() {
         let base_url =
             std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
-        let mut url = windmill_common::BASE_URL.write().await;
-        *url = base_url;
+        windmill_common::BASE_URL.store(std::sync::Arc::new(base_url));
     }
 
     macro_rules! skip_if_no_vault {
