@@ -457,7 +457,7 @@ async fn close_deployment_request_merged(
     Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<String> {
     let row = sqlx::query!(
-        "SELECT source_workspace_id, closed_at FROM workspace_fork_deployment_request WHERE id = $1 AND fork_workspace_id = $2",
+        "SELECT source_workspace_id, requested_by, requested_by_email, closed_at FROM workspace_fork_deployment_request WHERE id = $1 AND fork_workspace_id = $2",
         id,
         &w_id,
     )
@@ -530,6 +530,27 @@ async fn close_deployment_request_merged(
     .await?;
     tx.commit().await?;
 
+    // Notify the requester + every assignee that the request was merged.
+    // Skip the merger themselves to avoid self-ping.
+    let assignee_emails: Vec<String> = sqlx::query_scalar!(
+        "SELECT email FROM workspace_fork_deployment_request_assignee WHERE request_id = $1",
+        id,
+    )
+    .fetch_all(&db)
+    .await?;
+    let mut recipients: BTreeSet<String> = assignee_emails.into_iter().collect();
+    recipients.insert(row.requested_by_email);
+    recipients.remove(&authed.email);
+    let subject = format!("[Windmill] Deployment request on fork {w_id} merged");
+    let base_url = BASE_URL.read().await.clone();
+    let body_text = format!(
+        "@{} merged the deployment request from @{} on fork {w_id}.\n\n{base_url}/?workspace={w_id}",
+        authed.username, row.requested_by
+    );
+    for email in recipients {
+        send_email_if_possible(&subject, &body_text, &email);
+    }
+
     Ok("ok".to_string())
 }
 
@@ -596,12 +617,12 @@ async fn create_deployment_request_comment(
         }
     }
 
-    if let Some(parent_id) = body.parent_id {
-        // Parent must exist on this request AND be itself top-level.
-        // Flattening to two levels (top-level + replies) matches the UI,
-        // which only exposes a "Reply" button on top-level comments.
+    // If this is a reply, look up the parent comment — must exist on the
+    // same request, must itself be top-level. The parent's author_email is
+    // captured here so we can include them in the notification recipients.
+    let parent_author_email: Option<String> = if let Some(parent_id) = body.parent_id {
         let parent_row = sqlx::query!(
-            "SELECT parent_id FROM workspace_fork_deployment_request_comment WHERE id = $1 AND request_id = $2",
+            "SELECT parent_id, author_email FROM workspace_fork_deployment_request_comment WHERE id = $1 AND request_id = $2",
             parent_id,
             id,
         )
@@ -615,7 +636,10 @@ async fn create_deployment_request_comment(
                 "Replies can only target top-level comments".to_string(),
             ));
         }
-    }
+        Some(parent_row.author_email)
+    } else {
+        None
+    };
 
     let mut tx = db.begin().await?;
     let row = sqlx::query!(
@@ -648,7 +672,8 @@ async fn create_deployment_request_comment(
     .await?;
     tx.commit().await?;
 
-    // Recipient set: requester + every assignee, minus the author.
+    // Recipient set: requester + every assignee + (for replies) the
+    // parent-comment author, minus the comment author.
     let assignee_emails: Vec<String> = sqlx::query_scalar!(
         "SELECT email FROM workspace_fork_deployment_request_assignee WHERE request_id = $1",
         id,
@@ -658,6 +683,9 @@ async fn create_deployment_request_comment(
 
     let mut recipients: BTreeSet<String> = assignee_emails.into_iter().collect();
     recipients.insert(req.requested_by_email.clone());
+    if let Some(e) = parent_author_email {
+        recipients.insert(e);
+    }
     recipients.remove(&authed.email);
 
     let subject = format!(
