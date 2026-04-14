@@ -3,6 +3,11 @@
     Create a flow that takes two numbers, `a` and `b`, and returns their sum.
     Keep it simple and use a single step named `sum_numbers`.
   expected: ai_evals/fixtures/frontend/flow/expected/test0_sum_two_numbers.json
+  runtime:
+    backendPreview:
+      args:
+        a: 4
+        b: 5
   judgeChecklist:
     - "the flow takes `a` and `b` as inputs"
     - "the main step is named `sum_numbers`"
@@ -15,6 +20,11 @@
     The flow should take `a` and `b` as inputs and use a single step named `sum_numbers`.
   initial: ai_evals/fixtures/frontend/flow/initial/test1_reuse_existing_script_initial.json
   expected: ai_evals/fixtures/frontend/flow/expected/test1_reuse_existing_script.json
+  runtime:
+    backendPreview:
+      args:
+        a: 2
+        b: 3
   judgeChecklist:
     - "the flow takes `a` and `b` as inputs"
     - "the main step is named `sum_numbers`"
@@ -27,6 +37,11 @@
     Use a single step named `call_add_numbers`.
   initial: ai_evals/fixtures/frontend/flow/initial/test2_call_existing_subflow_initial.json
   expected: ai_evals/fixtures/frontend/flow/expected/test2_call_existing_subflow.json
+  runtime:
+    backendPreview:
+      args:
+        a: 7
+        b: 8
   judgeChecklist:
     - "the parent flow takes `a` and `b` as inputs"
     - "the main step is named `call_add_numbers`"
