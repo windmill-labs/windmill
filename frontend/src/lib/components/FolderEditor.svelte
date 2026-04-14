@@ -123,7 +123,7 @@
 	}
 
 	function isValidPermissionedAs(value: string): boolean {
-		return value.startsWith('u/') || value.startsWith('g/') || value.includes('@')
+		return /^[ug]\/.+/.test(value) || value.includes('@')
 	}
 
 	// Split a permissioned_as value like "u/alice" or "g/prod" into its kind and name.
