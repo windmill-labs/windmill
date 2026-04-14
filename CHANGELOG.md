@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.683.2](https://github.com/windmill-labs/windmill/compare/v1.683.1...v1.683.2) (2026-04-14)
+
+
+### Bug Fixes
+
+* detect WAC v2 Python workflows that only use step() (no [@task](https://github.com/task)) ([#8819](https://github.com/windmill-labs/windmill/issues/8819)) ([89c8e4b](https://github.com/windmill-labs/windmill/commit/89c8e4bb9680c179bf44a66a22dcf047334944ae))
+* persist indexer max_index_time_window_secs setting ([#8821](https://github.com/windmill-labs/windmill/issues/8821)) ([4dc54ca](https://github.com/windmill-labs/windmill/commit/4dc54ca3aa14beab175da59eb8b9072918301b43))
+
 ## [1.683.1](https://github.com/windmill-labs/windmill/compare/v1.683.0...v1.683.1) (2026-04-13)
 
 
