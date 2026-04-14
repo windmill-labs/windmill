@@ -312,9 +312,11 @@ const getInstructionsForCodeGenerationToolDef = createToolDef(
 )
 
 const specialModuleToolArgSchema = z
-	.union([z.string(), z.object({}).passthrough()])
+	.string()
 	.nullable()
-	.describe('Flow module object or JSON string for the special module. Use null to remove it.')
+	.describe(
+		'JSON string containing the special module object. Use null to remove the special module.'
+	)
 
 // Using string for modules and schema because Gemini-2.5-flash performs better with strings (MALFORMED_FUNCTION_CALL errors happens more often with objects)
 const setFlowJsonToolSchema = z.object({
@@ -1026,7 +1028,7 @@ set_flow_json({
 })
 
 set_preprocessor_module({
-  module: {
+  module: JSON.stringify({
     id: "preprocessor",
     value: {
       type: "rawscript",
@@ -1036,11 +1038,11 @@ set_preprocessor_module({
         payload: { type: "javascript", expr: "flow_input.payload" }
       }
     }
-  }
+  })
 })
 
 set_failure_module({
-  module: {
+  module: JSON.stringify({
     id: "failure",
     value: {
       type: "rawscript",
@@ -1051,7 +1053,7 @@ set_failure_module({
         step_id: { type: "javascript", expr: "previous_result.error.step_id" }
       }
     }
-  }
+  })
 })
 \`\`\`
 
