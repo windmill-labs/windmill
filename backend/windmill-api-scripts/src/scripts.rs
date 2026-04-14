@@ -1153,7 +1153,7 @@ async fn create_script_internal<'c>(
 
         if p_path != &ns.path {
             windmill_trigger::runnable_rename::update_triggers_on_runnable_rename(
-                &mut tx, &db, &authed, &ns.path, p_path, &w_id, false,
+                &mut tx, &ns.path, p_path, &w_id, false,
             )
             .await?;
         }

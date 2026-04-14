@@ -8,22 +8,9 @@ lazy_static! {
         Cache::new(1000);
 }
 
-/// Identifiers for a native trigger that needs async external service re-registration
-/// after a runnable (script/flow) rename.
-#[derive(Clone)]
-pub struct NativeTriggerToReregister {
-    pub external_id: String,
-    pub service_name: String,
-}
-
 /// Update `script_path` across all trigger tables when a runnable (script or flow) is renamed.
 /// For long-running triggers (with `server_id`), also resets `server_id = NULL` to force
 /// the heartbeat-based restart mechanism to pick up the new config.
-/// Native triggers also get their DB `script_path` updated here.
-///
-/// Note: native triggers additionally need async webhook re-registration with external
-/// services — use `windmill_trigger::runnable_rename::update_triggers_on_runnable_rename`
-/// which wraps this function and handles that.
 pub async fn update_triggers_script_path(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     new_path: &str,
@@ -31,12 +18,11 @@ pub async fn update_triggers_script_path(
     w_id: &str,
     is_flow: bool,
 ) -> Result<(), sqlx::Error> {
-    // Triggers without server_id (request/response or webhook-based), including native_trigger
+    // Triggers without server_id (request/response or webhook-based)
     sqlx::query!(
         "WITH \
-         t1 AS (UPDATE http_trigger SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4), \
-         t2 AS (UPDATE email_trigger SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4) \
-         UPDATE native_trigger SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4",
+         t1 AS (UPDATE http_trigger SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4) \
+         UPDATE email_trigger SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4",
         new_path,
         old_path,
         w_id,

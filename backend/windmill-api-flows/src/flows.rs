@@ -1147,7 +1147,7 @@ async fn update_flow(
 
     if is_new_path {
         windmill_trigger::runnable_rename::update_triggers_on_runnable_rename(
-            &mut tx, &db, &authed, &nf.path, &flow_path, &w_id, true,
+            &mut tx, &nf.path, &flow_path, &w_id, true,
         )
         .await?;
     }
