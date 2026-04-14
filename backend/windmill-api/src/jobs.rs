@@ -1408,6 +1408,7 @@ async fn send_email_with_instance_smtp(
     Json(send_email): Json<SendEmail>,
 ) -> error::Result<Json<String>> {
     use windmill_common::jobs::EMAIL_ERROR_HANDLER_USER_EMAIL;
+    use windmill_queue::SCHEDULE_ERROR_HANDLER_USER_EMAIL;
 
     if *CLOUD_HOSTED {
         tracing::warn!(
@@ -1416,41 +1417,45 @@ async fn send_email_with_instance_smtp(
         return Err(anyhow::anyhow!("Feature not supported in cloud hosted windmill").into());
     }
 
-    if send_email.email_recipients.is_none() {
-        use windmill_common::utils::report_critical_error;
+    let is_handler_job = authed.email == EMAIL_ERROR_HANDLER_USER_EMAIL
+        || authed.email == SCHEDULE_ERROR_HANDLER_USER_EMAIL;
 
-        tracing::error!("No recipient to send the error");
-        report_critical_error(
-            "No recipient to send the error".to_string(),
-            db.clone(),
-            Some(&w_id),
-            None,
-        )
-        .await;
-        return Err(anyhow::anyhow!("No recipient to send the error").into());
+    if !is_handler_job && !is_super_admin_email(&db, &authed.email).await? {
+        return Err(Error::NotAuthorized(
+            "Only super admin or whitelisted token can access email workspace error handler feature"
+                .to_string(),
+        ));
     }
 
-    if authed.email == EMAIL_ERROR_HANDLER_USER_EMAIL
-        || is_super_admin_email(&db, &authed.email).await?
-    {
-        let resp = send_workspace_trigger_failure_email_notification(
-            &db,
-            &w_id,
-            &send_email.job_id,
-            send_email.trigger_path.as_deref(),
-            send_email.runnable_path.as_deref(),
-            &send_email.email_recipients.unwrap(),
-            &send_email.error,
-        )
-        .await?;
+    // Missing/empty `email_recipients` is a schedule-level misconfiguration (e.g. the
+    // user picked the email handler in the UI but never entered an address). Log a warning
+    // and return a client error — do NOT escalate to `report_critical_error`, which would
+    // fan this out to the instance critical-error channels on every failed run.
+    let Some(recipients) = send_email.email_recipients.as_ref() else {
+        tracing::warn!(
+            workspace_id = %w_id,
+            trigger_path = ?send_email.trigger_path,
+            runnable_path = ?send_email.runnable_path,
+            "Email error handler invoked without any `email_recipients` in on_failure_extra_args; \
+             skipping send. Configure recipients on the schedule / workspace error handler."
+        );
+        return Err(Error::BadRequest(
+            "Email error handler invoked without any `email_recipients` configured".to_string(),
+        ));
+    };
 
-        return Ok(Json(resp));
-    }
+    let resp = send_workspace_trigger_failure_email_notification(
+        &db,
+        &w_id,
+        &send_email.job_id,
+        send_email.trigger_path.as_deref(),
+        send_email.runnable_path.as_deref(),
+        recipients,
+        &send_email.error,
+    )
+    .await?;
 
-    return Err(Error::NotAuthorized(
-        "Only super admin or whitelisted token can access email workspace error handler feature"
-            .to_string(),
-    ));
+    Ok(Json(resp))
 }
 
 #[cfg(not(all(feature = "enterprise", feature = "smtp")))]
