@@ -220,7 +220,7 @@ struct InsertPayload {
 struct UpdatePayload {
     table: String,
     column: SimpleColumn,
-    columns: Vec<SimpleColumn>,
+    columns: Vec<ColumnDef>,
     ducklake: Option<String>,
 }
 
@@ -355,11 +355,22 @@ fn expand_count(json_str: &str, db_type: DbType) -> Result<String, String> {
     Ok(maybe_wrap_ducklake(query, payload.ducklake.as_deref()))
 }
 
+/// Filter columns to primary keys only; fall back to all columns if none are marked.
+fn pk_columns_or_all(columns: &[ColumnDef]) -> Vec<ColumnDef> {
+    let pks: Vec<ColumnDef> = columns.iter().filter(|c| c.isprimarykey).cloned().collect();
+    if pks.is_empty() {
+        columns.to_vec()
+    } else {
+        pks
+    }
+}
+
 fn expand_delete(json_str: &str, db_type: DbType) -> Result<String, String> {
     let payload: DeletePayload =
         serde_json::from_str(json_str).map_err(|e| format!("Invalid DELETE payload: {}", e))?;
 
-    let query = make_delete_query(&payload.table, &payload.columns, db_type);
+    let where_columns = pk_columns_or_all(&payload.columns);
+    let query = make_delete_query(&payload.table, &where_columns, db_type);
     Ok(maybe_wrap_ducklake(query, payload.ducklake.as_deref()))
 }
 
@@ -375,7 +386,9 @@ fn expand_update(json_str: &str, db_type: DbType) -> Result<String, String> {
     let payload: UpdatePayload =
         serde_json::from_str(json_str).map_err(|e| format!("Invalid UPDATE payload: {}", e))?;
 
-    let query = make_update_query(&payload.table, &payload.column, &payload.columns, db_type);
+    let where_columns = pk_columns_or_all(&payload.columns);
+    let where_simple = cols_to_simple(&where_columns);
+    let query = make_update_query(&payload.table, &payload.column, &where_simple, db_type);
     Ok(maybe_wrap_ducklake(query, payload.ducklake.as_deref()))
 }
 
@@ -4486,6 +4499,58 @@ mod tests {
         let marker = r#"-- WM_INTERNAL_DB_SNOWFLAKE_PRIMARY_KEYS {}"#;
         let sql = expand_code(marker, &ScriptLang::Snowflake);
         assert_eq!(sql, "SHOW PRIMARY KEYS IN ACCOUNT");
+    }
+
+    // -----------------------------------------------------------------------
+    // Primary key filtering for DELETE / UPDATE
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_delete_uses_pk_columns_only() {
+        let marker = r#"-- WM_INTERNAL_DB_DELETE {"table":"users","columns":[{"field":"id","datatype":"int4","isprimarykey":true},{"field":"name","datatype":"text","isprimarykey":false},{"field":"email","datatype":"text","isprimarykey":false}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        // Should only use 'id' in WHERE, not 'name' or 'email'
+        assert!(sql.contains("\"id\" = $1"));
+        assert!(!sql.contains("\"name\""));
+        assert!(!sql.contains("\"email\""));
+    }
+
+    #[test]
+    fn test_delete_falls_back_to_all_when_no_pk() {
+        let marker = r#"-- WM_INTERNAL_DB_DELETE {"table":"users","columns":[{"field":"id","datatype":"int4"},{"field":"name","datatype":"text"}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        // No PK columns -> should use all columns
+        assert!(sql.contains("\"id\" = $1"));
+        assert!(sql.contains("\"name\" = $2"));
+    }
+
+    #[test]
+    fn test_update_uses_pk_columns_only() {
+        let marker = r#"-- WM_INTERNAL_DB_UPDATE {"table":"users","column":{"field":"name","datatype":"text"},"columns":[{"field":"id","datatype":"int4","isprimarykey":true},{"field":"name","datatype":"text","isprimarykey":false},{"field":"email","datatype":"text","isprimarykey":false}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        // SET clause should target 'name'
+        assert!(sql.contains("SET \"name\" = $1"));
+        // WHERE should only use 'id', not 'name' or 'email'
+        assert!(sql.contains("\"id\" = $2"));
+        assert!(!sql.contains("\"email\""));
+    }
+
+    #[test]
+    fn test_update_falls_back_to_all_when_no_pk() {
+        let marker = r#"-- WM_INTERNAL_DB_UPDATE {"table":"users","column":{"field":"name","datatype":"text"},"columns":[{"field":"id","datatype":"int4"},{"field":"name","datatype":"text"}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert!(sql.contains("SET \"name\" = $1"));
+        assert!(sql.contains("\"id\" = $2"));
+        assert!(sql.contains("\"name\" = $3"));
+    }
+
+    #[test]
+    fn test_delete_composite_pk() {
+        let marker = r#"-- WM_INTERNAL_DB_DELETE {"table":"order_items","columns":[{"field":"order_id","datatype":"int4","isprimarykey":true},{"field":"item_id","datatype":"int4","isprimarykey":true},{"field":"quantity","datatype":"int4","isprimarykey":false}]}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert!(sql.contains("\"order_id\" = $1"));
+        assert!(sql.contains("\"item_id\" = $2"));
+        assert!(!sql.contains("\"quantity\""));
     }
 }
 
