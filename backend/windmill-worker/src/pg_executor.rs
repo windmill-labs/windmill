@@ -605,16 +605,25 @@ fn parse_naive_datetime(s: &str) -> Result<chrono::NaiveDateTime, chrono::ParseE
 
 /// Parse a timestamptz string in formats produced by chrono's Display or JS frontends.
 fn parse_datetime_utc(s: &str) -> Result<chrono::DateTime<Utc>, chrono::ParseError> {
-    s.parse::<chrono::DateTime<Utc>>().or_else(|_| {
-        // Handle chrono's Display format: "2024-01-15 10:30:00 UTC"
-        let trimmed = s.trim_end_matches(" UTC");
-        chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S%.f")
-            .or_else(|_| chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S"))
-            .or_else(|_| chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S%.fZ"))
-            .or_else(|_| chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S%.f"))
-            .or_else(|_| chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%SZ"))
-            .map(|ndt| ndt.and_utc())
-    })
+    s.parse::<chrono::DateTime<Utc>>()
+        .or_else(|_| {
+            // Handle numeric timezone offsets: "2024-01-15 10:30:00+00", "+00:00", "+0000"
+            chrono::DateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f%#z")
+                .or_else(|_| chrono::DateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%#z"))
+                .map(|dt| dt.with_timezone(&Utc))
+        })
+        .or_else(|_| {
+            // Handle chrono's Display format: "2024-01-15 10:30:00 UTC"
+            let trimmed = s.trim_end_matches(" UTC");
+            chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S%.f")
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S"))
+                .or_else(|_| {
+                    chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S%.fZ")
+                })
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S%.f"))
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%SZ"))
+                .map(|ndt| ndt.and_utc())
+        })
 }
 
 fn map_as_single_type<T>(
@@ -798,6 +807,33 @@ fn convert_val(
         Value::Number(n) if n.is_i64() => Ok(Box::new(n.as_i64().unwrap())),
         Value::Number(n) => Ok(Box::new(n.as_f64().unwrap())),
         Value::String(s) if arg_t == "uuid" => Ok(Box::new(Uuid::parse_str(s)?)),
+        Value::String(s)
+            if arg_t == "smallint"
+                || arg_t == "smallserial"
+                || arg_t == "int2"
+                || arg_t == "serial2" =>
+        {
+            s.parse::<i16>()
+                .map(|n| Box::new(n) as Box<dyn ToSql + Sync + Send>)
+                .map_err(|e| anyhow::anyhow!("Cannot parse '{s}' as smallint: {e}").into())
+        }
+        Value::String(s)
+            if arg_t == "int" || arg_t == "integer" || arg_t == "int4" || arg_t == "serial" =>
+        {
+            s.parse::<i32>()
+                .map(|n| Box::new(n) as Box<dyn ToSql + Sync + Send>)
+                .map_err(|e| anyhow::anyhow!("Cannot parse '{s}' as integer: {e}").into())
+        }
+        Value::String(s)
+            if arg_t == "bigint"
+                || arg_t == "bigserial"
+                || arg_t == "int8"
+                || arg_t == "serial8" =>
+        {
+            s.parse::<i64>()
+                .map(|n| Box::new(n) as Box<dyn ToSql + Sync + Send>)
+                .map_err(|e| anyhow::anyhow!("Cannot parse '{s}' as bigint: {e}").into())
+        }
         Value::String(s) if arg_t == "date" => {
             let date = parse_naive_date(s)
                 .map_err(|e| Error::ExecutionErr(format!("Cannot parse '{s}' as date: {e}")))?;
@@ -1183,6 +1219,18 @@ mod tests {
         // RFC 3339 with fractional seconds
         let dt = parse_datetime_utc("2024-01-15T10:30:00.123Z").unwrap();
         assert_eq!(dt.to_string(), "2024-01-15 10:30:00.123 UTC");
+
+        // Numeric timezone offset (PostgreSQL text representation)
+        let dt = parse_datetime_utc("2026-04-14 18:09:00+00").unwrap();
+        assert_eq!(dt.to_string(), "2026-04-14 18:09:00 UTC");
+
+        // Numeric timezone offset with fractional seconds
+        let dt = parse_datetime_utc("2024-01-15 10:30:00.123+02").unwrap();
+        assert_eq!(dt.to_string(), "2024-01-15 08:30:00.123 UTC");
+
+        // Full offset format +00:00
+        let dt = parse_datetime_utc("2024-01-15 10:30:00+00:00").unwrap();
+        assert_eq!(dt.to_string(), "2024-01-15 10:30:00 UTC");
 
         // ISO without timezone (treated as UTC)
         let dt = parse_datetime_utc("2024-01-15T10:30:00.000").unwrap();
