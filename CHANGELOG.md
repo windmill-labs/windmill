@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.684.1](https://github.com/windmill-labs/windmill/compare/v1.684.0...v1.684.1) (2026-04-14)
+
+
+### Bug Fixes
+
+* stop escalating missing email recipients to critical alert ([#8833](https://github.com/windmill-labs/windmill/issues/8833)) ([6158ff2](https://github.com/windmill-labs/windmill/commit/6158ff2ebe29d6a9a7ff4d524e152bb2f7c24dfc))
+
 ## [1.684.0](https://github.com/windmill-labs/windmill/compare/v1.683.2...v1.684.0) (2026-04-14)
 
 
