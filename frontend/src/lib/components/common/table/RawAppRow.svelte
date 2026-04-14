@@ -7,7 +7,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import Row from './Row.svelte'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { Globe, Share } from 'lucide-svelte'
+	import { Globe, Shield } from 'lucide-svelte'
 	import { isDeployable } from '$lib/utils_deployable'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 
@@ -46,7 +46,7 @@
 	{#snippet actions()}
 		<Dropdown
 			items={async () => {
-				let { path, canWrite } = app
+				let { path } = app
 
 				return [
 					...(isDeployable('app', path, await getDeployUiSettings())
@@ -61,8 +61,8 @@
 							]
 						: []),
 					{
-						displayName: canWrite ? 'Share' : 'See Permissions',
-						icon: Share,
+						displayName: 'Permissions',
+						icon: Shield,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'raw_app')
 						}

@@ -26,7 +26,7 @@
 		FolderOpen,
 		ChevronUpSquare,
 		Calendar,
-		Share,
+		Shield,
 		Archive,
 		Copy,
 		Eye,
@@ -273,8 +273,8 @@
 						hide: $userStore?.operator
 					},
 					{
-						displayName: owner ? 'Share' : 'See Permissions',
-						icon: Share,
+						displayName: 'Permissions',
+						icon: Shield,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
 						},
