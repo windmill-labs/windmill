@@ -19,7 +19,6 @@ windmill-queue.workspace = true
 windmill-audit.workspace = true
 windmill-git-sync.workspace = true
 windmill-dep-map.workspace = true
-windmill-trigger.workspace = true
 
 axum.workspace = true
 hyper.workspace = true

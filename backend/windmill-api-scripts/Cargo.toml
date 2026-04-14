@@ -22,7 +22,6 @@ windmill-audit.workspace = true
 windmill-git-sync.workspace = true
 windmill-dep-map.workspace = true
 windmill-parser-ts.workspace = true
-windmill-trigger.workspace = true
 
 axum.workspace = true
 futures.workspace = true

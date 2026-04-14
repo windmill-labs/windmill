@@ -1146,10 +1146,15 @@ async fn update_flow(
     }
 
     if is_new_path {
-        windmill_trigger::runnable_rename::update_triggers_on_runnable_rename(
+        windmill_common::triggers::update_triggers_script_path(
             &mut tx, &nf.path, &flow_path, &w_id, true,
         )
-        .await?;
+        .await
+        .map_err(|e| {
+            error::Error::internal_err(format!(
+                "Error updating triggers due to runnable path change: {e:#}"
+            ))
+        })?;
     }
 
     sqlx::query!(

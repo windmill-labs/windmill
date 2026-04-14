@@ -1152,10 +1152,15 @@ async fn create_script_internal<'c>(
         .await?;
 
         if p_path != &ns.path {
-            windmill_trigger::runnable_rename::update_triggers_on_runnable_rename(
+            windmill_common::triggers::update_triggers_script_path(
                 &mut tx, &ns.path, p_path, &w_id, false,
             )
-            .await?;
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!(
+                    "Error updating triggers due to runnable path change: {e:#}"
+                ))
+            })?;
         }
 
         for schedule in schedulables {
