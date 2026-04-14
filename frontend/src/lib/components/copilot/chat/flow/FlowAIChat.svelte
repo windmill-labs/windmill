@@ -205,10 +205,17 @@
 
 		setFlowJson: async (
 			modules: FlowModule[] | undefined,
-			schema: Record<string, any> | undefined
+			schema: Record<string, any> | undefined,
+			preprocessorModule: FlowModule | null | undefined,
+			failureModule: FlowModule | null | undefined
 		) => {
 			try {
-				if (modules || schema) {
+				if (
+					modules !== undefined ||
+					schema !== undefined ||
+					preprocessorModule !== undefined ||
+					failureModule !== undefined
+				) {
 					// Take snapshot of current flowStore and set as beforeFlow
 					if (!diffManager?.hasPendingChanges) {
 						const snapshot = $state.snapshot(flowStore).val
@@ -217,7 +224,7 @@
 					}
 				}
 
-				if (modules) {
+				if (modules !== undefined) {
 					// Restore inline script references back to full content
 					const restoredModules = inlineScriptSession.restoreInlineScriptReferences(modules)
 					const unresolvedRefs = inlineScriptSession.findUnresolvedInlineScriptRefs(restoredModules)
@@ -230,9 +237,31 @@
 					flowStore.val.value.modules = restoredModules
 				}
 
+				const restoreSpecialModule = (module: FlowModule) => {
+					const [restoredModule] = inlineScriptSession.restoreInlineScriptReferences([module])
+					const unresolvedRefs =
+						inlineScriptSession.findUnresolvedInlineScriptRefs([restoredModule])
+					if (unresolvedRefs.length > 0) {
+						throw new Error(
+							`Unresolved inline script references: ${unresolvedRefs.join(', ')}`
+						)
+					}
+					return restoredModule
+				}
+
 				// Update schema if provided
 				if (schema !== undefined) {
 					flowStore.val.schema = schema
+				}
+
+				if (preprocessorModule !== undefined) {
+					flowStore.val.value.preprocessor_module =
+						preprocessorModule === null ? undefined : restoreSpecialModule(preprocessorModule)
+				}
+
+				if (failureModule !== undefined) {
+					flowStore.val.value.failure_module =
+						failureModule === null ? undefined : restoreSpecialModule(failureModule)
 				}
 
 				// Refresh the state store to update UI

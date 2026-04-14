@@ -20,6 +20,53 @@ The OpenFlow schema (openflow.openapi.yaml) is the source of truth for flow stru
 - `preprocessor` - Reserved for preprocessor module
 - `Input` - Reserved for flow input reference
 
+## Hard Structural Rules
+
+These are strict Windmill schema rules. Follow them exactly.
+
+- `value.modules` is only for normal sequential steps
+- `value.preprocessor_module` and `value.failure_module` are special top-level fields inside `value`, not entries in `value.modules`
+- If a flow needs a preprocessor, create `value.preprocessor_module` with `id: preprocessor`
+- If a flow needs a failure handler, create `value.failure_module` with `id: failure`
+- Do NOT create regular modules inside `value.modules` named `preprocessor` or `failure`
+- `preprocessor_module` and `failure_module` only support `script` or `rawscript`
+- `preprocessor_module` runs before normal modules and cannot reference `results.*`
+- `failure_module` can use the `error` object with `error.message`, `error.step_id`, `error.name`, and `error.stack`
+
+Correct shape:
+
+```yaml
+value:
+  preprocessor_module:
+    id: preprocessor
+    value:
+      type: rawscript
+      ...
+  failure_module:
+    id: failure
+    value:
+      type: rawscript
+      ...
+  modules:
+    - id: process_event
+      value:
+        type: rawscript
+        ...
+```
+
+Incorrect shape:
+
+```yaml
+value:
+  modules:
+    - id: preprocessor
+      ...
+    - id: process_event
+      ...
+    - id: failure
+      ...
+```
+
 ## Module ID Rules
 
 - Must be unique across the entire flow
@@ -31,14 +78,95 @@ The OpenFlow schema (openflow.openapi.yaml) is the source of truth for flow stru
 - Missing `input_transforms` - Rawscript parameters won't receive values without them
 - Referencing future steps - `results.step_id` only works for steps that execute before the current one
 - Duplicate module IDs - Each module ID must be unique in the flow
+- Putting `preprocessor` or `failure` inside `value.modules` instead of `value.preprocessor_module` / `value.failure_module`
+- Putting `suspend` inside `value` instead of on the flow module object itself
+- Referencing step ids from inside `branchone` or `branchall` after the branch has finished
 
 ## Data Flow Between Steps
 
 - `flow_input.property` - Access flow input parameters
-- `results.step_id` - Access output from a previous step
-- `results.step_id.property` - Access specific property from previous step output
+- `results.step_id` - Access output from a previous step only when that step result is in scope
+- `results.step_id.property` - Access specific property from a previous step output only when that step result is in scope
 - `flow_input.iter.value` - Current item when inside a for-loop
 - `flow_input.iter.index` - Current index when inside a for-loop
+
+## Approval / Suspend Structure
+
+- `suspend` belongs on the flow module object itself, as a sibling of `id` and `value`
+- Never put `suspend` inside `value`
+
+Correct shape:
+
+```yaml
+- id: request_approval
+  suspend:
+    required_events: 1
+    resume_form:
+      schema:
+        type: object
+        properties:
+          comment:
+            type: string
+        required: [comment]
+  value:
+    type: identity
+```
+
+Incorrect shape:
+
+```yaml
+- id: request_approval
+  value:
+    type: rawscript
+    suspend:
+      required_events: 1
+```
+
+## Branch Result Scope Rules
+
+- Inside a branch, you may reference earlier outer steps and earlier steps in the same branch
+- Outside a `branchone`, do NOT reference ids of steps that only exist inside its branches or default branch. Use `results.<branchone_module_id>` instead
+- Outside a `branchall`, do NOT reference ids of steps inside its branches. Use `results.<branchall_module_id>` instead
+- If downstream steps need a stable shape after a branch, make each branch return the same fields
+- When needed, add a normalization step immediately after the branch and consume `results.<branch_module_id>` there
+
+Correct after `branchone`:
+
+```yaml
+- id: route_order
+  value:
+    type: branchone
+    ...
+- id: send_confirmation
+  value:
+    input_transforms:
+      routed:
+        type: javascript
+        expr: results.route_order
+```
+
+Incorrect after `branchone`:
+
+```yaml
+expr: results.create_shipment
+expr: results.create_backorder
+```
+
+Correct after `branchall`:
+
+```yaml
+- id: enrich_parallel
+  value:
+    type: branchall
+    parallel: true
+    ...
+- id: combine_data
+  value:
+    input_transforms:
+      enrichments:
+        type: javascript
+        expr: results.enrich_parallel
+```
 
 ## Input Transforms
 
@@ -63,6 +191,15 @@ Executes when any step fails. Has access to error details:
 - `error.step_id` - ID of failed step
 - `error.name` - Error name
 - `error.stack` - Stack trace
+
+## Final Structural Self-Check
+
+Before finalizing a flow, verify:
+
+- any preprocessor is in `value.preprocessor_module`
+- any failure handler is in `value.failure_module`
+- any approval step has module-level `suspend`
+- no downstream step references inner branch step ids from outside the branch
 
 ## S3 Object Operations
 
