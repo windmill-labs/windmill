@@ -67,7 +67,8 @@
 	let defaultPermsLabel: string = $state('')
 
 	async function loadDefaultPerms() {
-		const parts = path.split('/')
+		const currentPath = path
+		const parts = currentPath.split('/')
 		if (parts[0] === 'f' && parts.length >= 2) {
 			const folderName = parts[1]
 			defaultPermsLabel = `Folder f/${folderName} permissions`
@@ -76,17 +77,19 @@
 					workspace: $workspaceStore!,
 					name: folderName
 				})
+				if (path !== currentPath) return
 				const perms: { label: string; write: boolean }[] = []
 				for (const owner of folder.owners) {
 					perms.push({ label: owner, write: true })
 				}
-				for (const [owner, write] of Object.entries(folder.extra_perms)) {
+				for (const [owner, write] of Object.entries(folder.extra_perms ?? {})) {
 					if (!folder.owners.includes(owner)) {
 						perms.push({ label: owner, write })
 					}
 				}
 				defaultPerms = perms
 			} catch {
+				if (path !== currentPath) return
 				defaultPerms = []
 			}
 		} else if (parts[0] === 'u' && parts.length >= 2) {
@@ -121,13 +124,16 @@
 			linkedVarPaths = []
 			return
 		}
+		const currentPath = path
 		try {
 			const resource = await ResourceService.getResource({
 				workspace: $workspaceStore!,
-				path
+				path: currentPath
 			})
+			if (path !== currentPath) return
 			linkedVarPaths = collectVarRefs(resource.value)
 		} catch {
+			if (path !== currentPath) return
 			linkedVarPaths = []
 		}
 	}
