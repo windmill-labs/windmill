@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.684.0](https://github.com/windmill-labs/windmill/compare/v1.683.2...v1.684.0) (2026-04-14)
+
+
+### Features
+
+* cascade trigger script_path on runnable rename + fix trigger permissioned_as ([#8823](https://github.com/windmill-labs/windmill/issues/8823)) ([64ba3a6](https://github.com/windmill-labs/windmill/commit/64ba3a632eee041d09093e89961f63f2a090fcad))
+* **frontend:** improve permissions drawer UX and auto-share resource variables ([#8824](https://github.com/windmill-labs/windmill/issues/8824)) ([91064ce](https://github.com/windmill-labs/windmill/commit/91064ce85712b85e32e3f8cff2a0794cd5597ed6))
+
+
+### Bug Fixes
+
+* allow dedicated flow substeps to inherit parent tag ([#8832](https://github.com/windmill-labs/windmill/issues/8832)) ([aebf758](https://github.com/windmill-labs/windmill/commit/aebf758412383dd65e0bf6c72de8f2668561cd88))
+* compute wall-clock duration for flow job groups in CLI ([#8826](https://github.com/windmill-labs/windmill/issues/8826)) ([e1dbce0](https://github.com/windmill-labs/windmill/commit/e1dbce02c22bcaa3d7d447ee54db69373bc1cf7b))
+* DB Manager delete/update for timestamp and serial types ([#8830](https://github.com/windmill-labs/windmill/issues/8830)) ([06fe809](https://github.com/windmill-labs/windmill/commit/06fe809ecc3c6b37af7582175f9dd90c2c2a8f98))
+* hide serial types in column type dropdown for existing columns ([#8828](https://github.com/windmill-labs/windmill/issues/8828)) ([7fe639d](https://github.com/windmill-labs/windmill/commit/7fe639d91e93a6b3069e0d87b57c232d67c8ad65))
+
 ## [1.683.2](https://github.com/windmill-labs/windmill/compare/v1.683.1...v1.683.2) (2026-04-14)
 
 
