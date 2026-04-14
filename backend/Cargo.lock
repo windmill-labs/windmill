@@ -16414,7 +16414,6 @@ dependencies = [
  "windmill-dep-map",
  "windmill-git-sync",
  "windmill-queue",
- "windmill-trigger",
 ]
 
 [[package]]
@@ -16596,7 +16595,6 @@ dependencies = [
  "windmill-parser-py",
  "windmill-parser-ts",
  "windmill-queue",
- "windmill-trigger",
 ]
 
 [[package]]
