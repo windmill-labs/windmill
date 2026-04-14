@@ -4,13 +4,15 @@ import type { FlowModule, InputTransform } from '../../../../../frontend/src/lib
 import type { ExtendedOpenFlow } from '../../../../../frontend/src/lib/components/flows/types'
 import type { FlowAIChatHelpers } from '../../../../../frontend/src/lib/components/copilot/chat/flow/core'
 import type { ScriptLintResult } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
-import {
-	findModuleById,
-	SPECIAL_MODULE_IDS
-} from '../../../../../frontend/src/lib/components/copilot/chat/shared'
+import { getSubModules } from '../../../../../frontend/src/lib/components/flows/flowExplorer'
 import {
 	createInlineScriptSession
 } from '../../../../../frontend/src/lib/components/copilot/chat/flow/inlineScriptsUtils'
+import {
+	applyFlowJsonUpdate,
+	getFlowModuleById,
+	updateRawScriptModuleContent
+} from '../../../../../frontend/src/lib/components/copilot/chat/flow/helperUtils'
 import {
 	registerBenchmarkWorkspace,
 	registerBenchmarkWorkspaceRunnables,
@@ -85,28 +87,14 @@ export async function createFlowFileHelpers(
 		getFlowAndSelectedId: () => ({ flow, selectedId: '' }),
 		getModules: (id?: string) => {
 			if (!id) return flow.value.modules
-			if (id === SPECIAL_MODULE_IDS.PREPROCESSOR && flow.value.preprocessor_module) {
-				return [flow.value.preprocessor_module]
-			}
-			if (id === SPECIAL_MODULE_IDS.FAILURE && flow.value.failure_module) {
-				return [flow.value.failure_module]
-			}
-			const module = findModuleById(flow.value.modules, id)
-			return module ? [module] : []
+			const module = getFlowModuleById(flow, id)
+			return module ? getSubModules(module).flat() : []
 		},
 		inlineScriptSession,
 		setSnapshot: () => {},
 		revertToSnapshot: () => {},
 		setCode: async (id: string, code: string) => {
-			const module =
-				id === SPECIAL_MODULE_IDS.PREPROCESSOR
-					? flow.value.preprocessor_module
-					: id === SPECIAL_MODULE_IDS.FAILURE
-						? flow.value.failure_module
-						: findModuleById(flow.value.modules, id)
-			if (module && module.value.type === 'rawscript') {
-				module.value.content = code
-			}
+			updateRawScriptModuleContent(flow, id, code)
 			inlineScriptSession.set(id, code)
 			await persistFlow()
 		},
@@ -116,41 +104,12 @@ export async function createFlowFileHelpers(
 			preprocessorModule: FlowModule | null | undefined,
 			failureModule: FlowModule | null | undefined
 		) => {
-			if (modules !== undefined) {
-				flow.value.modules = inlineScriptSession.restoreInlineScriptReferences(modules)
-				const unresolvedRefs = inlineScriptSession.findUnresolvedInlineScriptRefs(flow.value.modules)
-				if (unresolvedRefs.length > 0) {
-					throw new Error(
-						`Unresolved inline script references: ${unresolvedRefs.join(', ')}`
-					)
-				}
-			}
-			if (schema !== undefined) {
-				flow.schema = schema
-			}
-
-			const restoreSpecialModule = (module: FlowModule) => {
-				const [restoredModule] = inlineScriptSession.restoreInlineScriptReferences([module])
-				const unresolvedRefs =
-					inlineScriptSession.findUnresolvedInlineScriptRefs([restoredModule])
-				if (unresolvedRefs.length > 0) {
-					throw new Error(
-						`Unresolved inline script references: ${unresolvedRefs.join(', ')}`
-					)
-				}
-				return restoredModule
-			}
-
-			if (preprocessorModule !== undefined) {
-				flow.value.preprocessor_module =
-					preprocessorModule === null ? undefined : restoreSpecialModule(preprocessorModule)
-			}
-
-			if (failureModule !== undefined) {
-				flow.value.failure_module =
-					failureModule === null ? undefined : restoreSpecialModule(failureModule)
-			}
-
+			applyFlowJsonUpdate(flow, inlineScriptSession, {
+				modules,
+				schema,
+				preprocessorModule,
+				failureModule
+			})
 			await persistFlow()
 		},
 		getFlowInputsSchema: async () => flow.schema ?? {},
