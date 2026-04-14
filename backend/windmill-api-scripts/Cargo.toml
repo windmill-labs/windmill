@@ -13,7 +13,6 @@ default = []
 enterprise = ["windmill-common/enterprise"]
 private = ["windmill-common/private", "windmill-dep-map/private"]
 python = ["dep:windmill-parser-py"]
-
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
 windmill-object-store.workspace = true
@@ -23,6 +22,7 @@ windmill-audit.workspace = true
 windmill-git-sync.workspace = true
 windmill-dep-map.workspace = true
 windmill-parser-ts.workspace = true
+windmill-trigger.workspace = true
 
 axum.workspace = true
 futures.workspace = true

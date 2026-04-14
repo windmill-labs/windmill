@@ -33,6 +33,19 @@
 	let onBehalfOfChoice = $state<OnBehalfOfChoice>(undefined)
 	let customPermissionedAs = $state<string | undefined>(undefined)
 
+	// Reset internal state when the source permissionedAs changes (e.g. switching
+	// between edit/create or loading a different trigger). On creation with no folder
+	// default, default to "me". Otherwise reset to undefined so OnBehalfOfSelector's
+	// auto-select $effect picks the appropriate choice (target or folder default).
+	$effect(() => {
+		customPermissionedAs = undefined
+		if (permissionedAs === undefined && !folderDefault.value) {
+			onBehalfOfChoice = 'me'
+		} else {
+			onBehalfOfChoice = undefined
+		}
+	})
+
 	const effectivePermissionedAs = $derived.by(() => {
 		if (onBehalfOfChoice === 'target') return permissionedAs
 		if (onBehalfOfChoice === 'custom' && customPermissionedAs) return customPermissionedAs
@@ -45,10 +58,16 @@
 			permissionedAs !== effectivePermissionedAs
 	)
 
-	const shouldRender = $derived(
-		!!$workspaceStore &&
-			(permissionedAs !== undefined || (canPreserve && folderDefault.value !== undefined))
-	)
+	const shouldRender = $derived(!!$workspaceStore && (permissionedAs !== undefined || canPreserve))
+
+	// For non-admin users editing a trigger owned by someone else: signal that
+	// permissioned_as will change to the current user (backend ignores preserve for non-admins).
+	// Only fires when there's an actual change (DB value differs from current user).
+	$effect(() => {
+		if (!canPreserve && permissionedAs !== undefined && permissionedAs !== myPermissionedAs) {
+			onPermissionedAsChange(undefined, false)
+		}
+	})
 
 	function handleSelect(choice: OnBehalfOfChoice, details?: OnBehalfOfDetails) {
 		onBehalfOfChoice = choice

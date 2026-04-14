@@ -13,6 +13,7 @@ default = []
 enterprise = ["windmill-common/enterprise", "windmill-api-jobs/enterprise"]
 cloud = ["windmill-common/cloud"]
 python = ["dep:windmill-parser-py"]
+native_trigger = ["dep:windmill-native-triggers", "windmill-native-triggers/native_trigger"]
 
 [dependencies]
 windmill-api-auth.workspace = true
@@ -41,4 +42,5 @@ rand.workspace = true
 itertools.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
+windmill-native-triggers = { workspace = true, optional = true }
 windmill-parser-py = { workspace = true, optional = true }

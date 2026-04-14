@@ -136,7 +136,7 @@
 	}
 	function setRulePermissionedAs(idx: number, kind: 'user' | 'group', name: string) {
 		const prefix = kind === 'user' ? 'u/' : 'g/'
-		defaultPermissionedAs[idx].permissioned_as = name ? prefix + name : ''
+		defaultPermissionedAs[idx].permissioned_as = prefix + name
 	}
 
 	const defaultRulesInvalid = $derived(

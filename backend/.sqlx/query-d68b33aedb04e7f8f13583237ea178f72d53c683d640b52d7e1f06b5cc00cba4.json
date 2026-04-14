@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT external_id, service_name::TEXT as \"service_name!\" FROM native_trigger WHERE script_path = $1 AND workspace_id = $2 AND is_flow = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "external_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "service_name!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "d68b33aedb04e7f8f13583237ea178f72d53c683d640b52d7e1f06b5cc00cba4"
+}

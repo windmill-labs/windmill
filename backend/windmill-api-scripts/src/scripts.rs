@@ -1151,6 +1151,13 @@ async fn create_script_internal<'c>(
         .execute(&mut *tx)
         .await?;
 
+        if p_path != &ns.path {
+            windmill_trigger::script_path_rename::update_triggers_on_script_rename(
+                &mut tx, &db, &authed, &ns.path, p_path, &w_id, false,
+            )
+            .await?;
+        }
+
         for schedule in schedulables {
             clear_schedule(&mut tx, &schedule.path, &w_id).await?;
 

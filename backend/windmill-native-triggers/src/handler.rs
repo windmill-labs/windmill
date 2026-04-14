@@ -222,10 +222,6 @@ async fn update_native_trigger_handler<T: External>(
     )
     .await?;
 
-    let integration_service = service_name.integration_service();
-    let oauth_data: T::OAuthData =
-        decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
-
     let mut tx = user_db.clone().begin(&authed).await?;
 
     let existing = get_native_trigger(&mut *tx, &workspace_id, service_name, &external_id)
@@ -280,43 +276,16 @@ async fn update_native_trigger_handler<T: External>(
         }
     };
 
-    let service_config = handler
-        .update(
-            &workspace_id,
-            &oauth_data,
-            &external_id,
-            &webhook_token,
-            &data,
-            &db,
-            &mut tx,
-        )
-        .await?;
-
-    let config = NativeTriggerConfig {
-        script_path: data.script_path.clone(),
-        is_flow: data.is_flow,
-        webhook_token,
-    };
-
-    store_native_trigger(
-        &mut *tx,
-        &workspace_id,
+    update_native_trigger_core(
+        &*handler,
         service_name,
-        &external_id,
-        &config,
-        service_config,
-        data.summary.as_deref(),
-    )
-    .await?;
-
-    audit_log(
-        &mut *tx,
+        &db,
         &authed,
-        &format!("native_triggers.{}.update", service_name),
-        ActionKind::Update,
         &workspace_id,
-        Some(&external_id),
-        None,
+        &external_id,
+        &data,
+        &webhook_token,
+        &mut tx,
     )
     .await?;
 
@@ -333,6 +302,67 @@ async fn update_native_trigger_handler<T: External>(
     }
 
     Ok(format!("Native trigger updated"))
+}
+
+/// Core logic for updating a native trigger: calls the external service, stores the
+/// updated config, and writes an audit log. Shared by the HTTP handler and the
+/// rename re-registration path.
+async fn update_native_trigger_core<T: External>(
+    handler: &T,
+    service_name: ServiceName,
+    db: &DB,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+    external_id: &str,
+    data: &NativeTriggerData<T::ServiceConfig>,
+    webhook_token: &str,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<()> {
+    let integration_service = service_name.integration_service();
+    let oauth_data: T::OAuthData =
+        decrypt_oauth_data(db, workspace_id, integration_service).await?;
+
+    let service_config = handler
+        .update(
+            workspace_id,
+            &oauth_data,
+            external_id,
+            webhook_token,
+            data,
+            db,
+            &mut *tx,
+        )
+        .await?;
+
+    let config = NativeTriggerConfig {
+        script_path: data.script_path.clone(),
+        is_flow: data.is_flow,
+        webhook_token: webhook_token.to_string(),
+    };
+
+    store_native_trigger(
+        &mut **tx,
+        workspace_id,
+        service_name,
+        external_id,
+        &config,
+        service_config,
+        data.summary.as_deref(),
+    )
+    .await?;
+
+    audit_log(
+        &mut **tx,
+        authed,
+        &format!("native_triggers.{}.update", service_name),
+        ActionKind::Update,
+        workspace_id,
+        Some(external_id),
+        None,
+    )
+    .await?;
+
+    Ok(())
 }
 
 async fn get_native_trigger_handler<T: External>(
@@ -527,6 +557,155 @@ pub fn service_routes<T: External + 'static>(handler: T) -> Router {
         .merge(additional_routes)
         .layer(Extension(handler_arc))
         .layer(Extension(service_name))
+}
+
+/// Asynchronously re-register native triggers with external services after a script/flow rename.
+/// The DB script_path is already updated by `update_triggers_script_path` — this handles
+/// webhook token rotation and external service URL re-registration.
+/// Failures are logged and set as errors on individual triggers (best-effort).
+#[cfg(feature = "native_trigger")]
+pub async fn reregister_native_triggers_after_rename(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    triggers: Vec<windmill_common::triggers::NativeTriggerToReregister>,
+) {
+    use crate::google::Google;
+    use crate::nextcloud::NextCloud;
+
+    for nt in &triggers {
+        let service_name = match ServiceName::try_from(nt.service_name.clone()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!(
+                    external_id = %nt.external_id,
+                    "Unknown service name for native trigger: {e:#}"
+                );
+                continue;
+            }
+        };
+
+        let trigger = match crate::get_native_trigger(db, w_id, service_name, &nt.external_id).await
+        {
+            Ok(Some(t)) => t,
+            Ok(None) => continue,
+            Err(e) => {
+                tracing::error!(
+                    %service_name, external_id = %nt.external_id,
+                    "Failed to fetch native trigger for re-registration: {e:#}"
+                );
+                continue;
+            }
+        };
+
+        let result = match service_name {
+            ServiceName::Google => {
+                update_single_native_trigger(&Google, service_name, db, authed, w_id, &trigger)
+                    .await
+            }
+            ServiceName::Nextcloud => {
+                update_single_native_trigger(&NextCloud, service_name, db, authed, w_id, &trigger)
+                    .await
+            }
+        };
+
+        if let Err(e) = result {
+            tracing::error!(
+                %service_name, external_id = %trigger.external_id,
+                "Failed to re-register native trigger after rename: {e:#}"
+            );
+            let _ = update_native_trigger_error(
+                db,
+                w_id,
+                service_name,
+                &trigger.external_id,
+                Some(&format!(
+                    "Failed to re-register webhook after script path rename: {e:#}"
+                )),
+            )
+            .await;
+        }
+    }
+}
+
+/// Re-register a single native trigger with its external service after a rename.
+/// The trigger's script_path in DB is already updated — this creates a new webhook token
+/// and calls `update_native_trigger_core` to re-register with the external service.
+#[cfg(feature = "native_trigger")]
+async fn update_single_native_trigger<T: External>(
+    handler: &T,
+    service_name: ServiceName,
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    trigger: &NativeTrigger,
+) -> Result<()>
+where
+    T::ServiceConfig: serde::de::DeserializeOwned,
+{
+    // Create new webhook token scoped to the (already updated) script_path
+    let mut tx = db
+        .begin()
+        .await
+        .map_err(|e| Error::internal_err(e.to_string()))?;
+    let token = new_webhook_token(
+        &mut *tx,
+        db,
+        authed,
+        &trigger.script_path,
+        trigger.is_flow,
+        w_id,
+        service_name,
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| Error::internal_err(e.to_string()))?;
+
+    // Deserialize existing service config to the service-specific type
+    let service_config: T::ServiceConfig = trigger
+        .service_config
+        .as_ref()
+        .map(|v| serde_json::from_value(v.clone()))
+        .transpose()
+        .map_err(|e| Error::internal_err(format!("Failed to deserialize service config: {e}")))?
+        .ok_or_else(|| {
+            Error::internal_err("Missing service config on native trigger".to_string())
+        })?;
+
+    let data = NativeTriggerData {
+        script_path: trigger.script_path.clone(),
+        is_flow: trigger.is_flow,
+        service_config,
+        summary: trigger.summary.clone(),
+    };
+
+    let mut tx = db
+        .begin()
+        .await
+        .map_err(|e| Error::internal_err(e.to_string()))?;
+    update_native_trigger_core(
+        handler,
+        service_name,
+        db,
+        authed,
+        w_id,
+        &trigger.external_id,
+        &data,
+        &token,
+        &mut tx,
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| Error::internal_err(e.to_string()))?;
+
+    // Clean up old webhook token (best-effort)
+    if let Err(e) = delete_token_by_hash(db, &trigger.webhook_token_hash).await {
+        tracing::warn!("Failed to delete old webhook token after native trigger rename: {e}");
+    }
+
+    Ok(())
 }
 
 /// Generates routes for all registered native trigger services.
