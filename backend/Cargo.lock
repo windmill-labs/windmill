@@ -17499,7 +17499,6 @@ dependencies = [
  "windmill-audit",
  "windmill-common",
  "windmill-git-sync",
- "windmill-native-triggers",
  "windmill-parser",
  "windmill-parser-py",
  "windmill-parser-ts",
