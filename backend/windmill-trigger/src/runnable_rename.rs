@@ -4,13 +4,13 @@ use windmill_common::{
     DB,
 };
 
-/// Update `script_path` across all trigger tables when a script or flow is renamed.
+/// Update `script_path` across all trigger tables when a runnable (script or flow) is renamed.
 ///
 /// - For long-running triggers (with `server_id`), resets `server_id = NULL` to force
 ///   the heartbeat-based restart mechanism to pick up the new config.
 /// - For native triggers, updates the DB script_path and spawns async re-registration
 ///   with external services (token rotation + webhook URL update).
-pub async fn update_triggers_on_script_rename(
+pub async fn update_triggers_on_runnable_rename(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     db: &DB,
     authed: &windmill_api_auth::ApiAuthed,
@@ -23,7 +23,7 @@ pub async fn update_triggers_on_script_rename(
         .await
         .map_err(|e| {
             error::Error::internal_err(format!(
-                "Error updating triggers due to script path change: {e:#}"
+                "Error updating triggers due to runnable path change: {e:#}"
             ))
         })?;
 

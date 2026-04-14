@@ -559,7 +559,7 @@ pub fn service_routes<T: External + 'static>(handler: T) -> Router {
         .layer(Extension(service_name))
 }
 
-/// Asynchronously re-register native triggers with external services after a script/flow rename.
+/// Asynchronously re-register native triggers with external services after a runnable rename.
 /// The DB script_path is already updated by `update_triggers_script_path` — this handles
 /// webhook token rotation and external service URL re-registration.
 /// Failures are logged and set as errors on individual triggers (best-effort).
@@ -620,7 +620,7 @@ pub async fn reregister_native_triggers_after_rename(
                 service_name,
                 &trigger.external_id,
                 Some(&format!(
-                    "Failed to re-register webhook after script path rename: {e:#}"
+                    "Failed to re-register webhook after runnable path rename: {e:#}"
                 )),
             )
             .await;
@@ -628,7 +628,7 @@ pub async fn reregister_native_triggers_after_rename(
     }
 }
 
-/// Re-register a single native trigger with its external service after a rename.
+/// Re-register a single native trigger with its external service after a runnable rename.
 /// The trigger's script_path in DB is already updated — this creates a new webhook token
 /// and calls `update_native_trigger_core` to re-register with the external service.
 #[cfg(feature = "native_trigger")]

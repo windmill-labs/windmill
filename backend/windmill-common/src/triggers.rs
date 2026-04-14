@@ -9,20 +9,20 @@ lazy_static! {
 }
 
 /// Identifiers for a native trigger that needs async external service re-registration
-/// after a script/flow rename.
+/// after a runnable (script/flow) rename.
 #[derive(Clone)]
 pub struct NativeTriggerToReregister {
     pub external_id: String,
     pub service_name: String,
 }
 
-/// Update `script_path` across all trigger tables when a script or flow is renamed.
+/// Update `script_path` across all trigger tables when a runnable (script or flow) is renamed.
 /// For long-running triggers (with `server_id`), also resets `server_id = NULL` to force
 /// the heartbeat-based restart mechanism to pick up the new config.
 /// Native triggers also get their DB `script_path` updated here.
 ///
 /// Note: native triggers additionally need async webhook re-registration with external
-/// services — use `windmill_trigger::script_path_rename::update_triggers_on_script_rename`
+/// services — use `windmill_trigger::runnable_rename::update_triggers_on_runnable_rename`
 /// which wraps this function and handles that.
 pub async fn update_triggers_script_path(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,

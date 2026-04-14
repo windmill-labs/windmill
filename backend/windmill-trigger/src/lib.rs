@@ -11,7 +11,7 @@ pub mod filter;
 pub mod global_handler;
 pub mod handler;
 pub mod listener;
-pub mod script_path_rename;
+pub mod runnable_rename;
 pub mod trigger_helpers;
 pub mod types;
 
