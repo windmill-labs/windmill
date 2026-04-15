@@ -2196,6 +2196,9 @@ export async function pull(
   // Compute the workspace name for file naming
   const wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : undefined;
 
+  // For ws_specific items, fall back to workspace name when wsNameForFiles is not set
+  const wsNameForWsSpecific = wsNameForFiles ?? workspace.name ?? workspace.workspaceId;
+
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
 
@@ -2295,7 +2298,7 @@ export async function pull(
                 change.path,
                 specificItems,
                 wsNameForFiles,
-              ) ?? (wsNameForFiles ? toWorkspaceSpecificPath(change.path, wsNameForFiles) : undefined),
+              ) ?? (toWorkspaceSpecificPath(change.path, wsNameForWsSpecific)),
             }
           : {}),
       })),
@@ -2307,7 +2310,7 @@ export async function pull(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems, wsNameForFiles, undefined, wsSpecificPaths);
+      prettyChanges(changes, specificItems, wsNameForFiles, undefined, wsSpecificPaths, wsNameForWsSpecific);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2337,7 +2340,7 @@ export async function pull(
           change.path,
           specificItems,
           wsNameForFiles,
-        ) ?? (wsNameForFiles ? toWorkspaceSpecificPath(change.path, wsNameForFiles) : undefined);
+        ) ?? (toWorkspaceSpecificPath(change.path, wsNameForWsSpecific));
         if (workspaceSpecificPath) {
           targetPath = workspaceSpecificPath;
         }
@@ -2547,7 +2550,7 @@ export async function pull(
                   change.path,
                   specificItems,
                   wsNameForFiles,
-                ) ?? (wsNameForFiles ? toWorkspaceSpecificPath(change.path, wsNameForFiles) : undefined),
+                ) ?? (toWorkspaceSpecificPath(change.path, wsNameForWsSpecific)),
               }
             : {}),
         })),
@@ -2578,6 +2581,7 @@ function prettyChanges(
   branchOverride?: string,
   folderDefaultAnnotations?: Map<string, string>,
   wsSpecificPaths?: WsSpecificItem[],
+  wsNameFallback?: string,
 ) {
   for (const change of changes) {
     let displayPath = change.path;
@@ -2588,11 +2592,12 @@ function prettyChanges(
       (specificItems && isSpecificItem(change.path, specificItems)) ||
       isWsSpecificItem(change.path, wsSpecificPaths)
     ) {
+      const effectiveWsName = branchOverride ?? wsNameFallback;
       const workspaceSpecificPath = getWorkspaceSpecificPath(
         change.path,
         specificItems,
         branchOverride,
-      ) ?? (branchOverride ? toWorkspaceSpecificPath(change.path, branchOverride) : undefined);
+      ) ?? (effectiveWsName ? toWorkspaceSpecificPath(change.path, effectiveWsName) : undefined);
       if (workspaceSpecificPath) {
         displayPath = workspaceSpecificPath;
         wsNote = " (workspace-specific)";
@@ -2741,6 +2746,9 @@ export async function push(
 
   // Compute the workspace name for file naming
   const wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : undefined;
+
+  // For ws_specific items, fall back to workspace name when wsNameForFiles is not set
+  const wsNameForWsSpecific = wsNameForFiles ?? workspace.name ?? workspace.workspaceId;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -3089,7 +3097,7 @@ export async function push(
                 change.path,
                 specificItems,
                 wsNameForFiles,
-              ) ?? (wsNameForFiles ? toWorkspaceSpecificPath(change.path, wsNameForFiles) : undefined),
+              ) ?? (toWorkspaceSpecificPath(change.path, wsNameForWsSpecific)),
             }
           : {}),
       })),
@@ -3132,7 +3140,7 @@ export async function push(
     }
 
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems, wsNameForFiles, folderDefaultAnnotations, wsSpecificPaths);
+      prettyChanges(changes, specificItems, wsNameForFiles, folderDefaultAnnotations, wsSpecificPaths, wsNameForWsSpecific);
     }
 
     if (opts.dryRun) {
@@ -3408,7 +3416,7 @@ export async function push(
                   change.path,
                   specificItems,
                   wsNameForFiles,
-                ) ?? (wsNameForFiles ? toWorkspaceSpecificPath(change.path, wsNameForFiles) : undefined);
+                ) ?? (toWorkspaceSpecificPath(change.path, wsNameForWsSpecific));
               }
 
               await pushObj(
@@ -3476,7 +3484,7 @@ export async function push(
                   change.path,
                   specificItems,
                   wsNameForFiles,
-                ) ?? (wsNameForFiles ? toWorkspaceSpecificPath(change.path, wsNameForFiles) : undefined);
+                ) ?? (toWorkspaceSpecificPath(change.path, wsNameForWsSpecific));
                 if (workspaceSpecificPath) {
                   localFilePath = workspaceSpecificPath;
                 }
@@ -3874,7 +3882,7 @@ export async function push(
                   change.path,
                   specificItems,
                   wsNameForFiles,
-                ) ?? (wsNameForFiles ? toWorkspaceSpecificPath(change.path, wsNameForFiles) : undefined),
+                ) ?? (toWorkspaceSpecificPath(change.path, wsNameForWsSpecific)),
               }
             : {}),
         })),
