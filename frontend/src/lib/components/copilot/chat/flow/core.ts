@@ -969,9 +969,9 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 ## Tool Selection Guide
 
 **Flow Modification:**
-- **Add or replace the preprocessor** → \`set_preprocessor_module\`
-- **Add or replace the failure handler** → \`set_failure_module\`
-- **Create or modify the entire flow** → \`set_flow_json\` (provide complete modules array plus optional schema, \`preprocessor_module\`, and \`failure_module\`)
+- **Update only the preprocessor** → \`set_preprocessor_module\`
+- **Update only the failure handler** → \`set_failure_module\`
+- **Create or replace the full flow** → \`set_flow_json\`
 
 **Code & Scripts:**
 - **View existing inline script code** → \`inspect_inline_script\`
@@ -1085,65 +1085,6 @@ set_flow_json({
   ]
 })
 \`\`\`
-
-**Example - Flow with while loop and final output:**
-\`\`\`javascript
-set_flow_json({
-  modules: [
-    {
-      id: "loop_until_done",
-      summary: "Advance state until done",
-      stop_after_if: {
-        expr: "result.done === true",
-        skip_if_stopped: false
-      },
-      value: {
-        type: "whileloopflow",
-        skip_failures: false,
-        modules: [
-          {
-            id: "advance_state",
-            summary: "Advance one loop iteration",
-            value: {
-              type: "rawscript",
-              language: "bun",
-              content: "export async function main(state) { return { ...state, done: state.count >= 3, count: state.count + 1 }; }",
-              input_transforms: {
-                state: {
-                  type: "javascript",
-                  expr: "flow_input.iter && flow_input.iter.value !== undefined ? flow_input.iter.value : flow_input.initial_state"
-                }
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      id: "return_final_state",
-      summary: "Return the last loop result",
-      value: {
-        type: "rawscript",
-        language: "bun",
-        content: "export async function main(final_state) { return final_state; }",
-        input_transforms: {
-          final_state: {
-            type: "javascript",
-            expr: "results.loop_until_done[results.loop_until_done.length - 1]"
-          }
-        }
-      }
-    }
-  ]
-})
-\`\`\`
-
-**Loop rules:**
-- For \`whileloopflow\`, put \`stop_after_if\` on the loop module object, not inside \`value\`
-- Use \`flow_input.iter.value\` for the current loop-carried value when iterating state forward
-- Use \`flow_input.iter.index\` only when the loop is actually about indices
-- If the user wants the final scalar/object, add a step after the loop that extracts the last loop result
-- Do not wire the final step to the whole loop result array unless the user explicitly asked for the full iteration history
 
 **Example - Flow with branches (branchone):**
 \`\`\`javascript

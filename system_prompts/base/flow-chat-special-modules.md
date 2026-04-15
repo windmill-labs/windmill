@@ -1,37 +1,11 @@
 ## Special Modules
 
-If the flow needs preprocessing before the main modules or a dedicated failure handler, prefer the dedicated tools:
+- Use `set_preprocessor_module` to add, replace, or remove the top-level `value.preprocessor_module`
+- Use `set_failure_module` to add, replace, or remove the top-level `value.failure_module`
+- Use `set_flow_json` only when you are replacing the whole flow, including normal modules and optional special modules
 
-- Use `set_preprocessor_module` for the special top-level preprocessor module with id `preprocessor`
-- Use `set_failure_module` for the special top-level failure module with id `failure`
-- Do NOT put `preprocessor` or `failure` inside the regular `modules` array
-
-**Example - Add preprocessor and failure handler:**
+**Example - Update only the special modules:**
 ```javascript
-set_flow_json({
-  modules: [
-    {
-      id: "process_event",
-      summary: "Process the event payload",
-      value: {
-        type: "rawscript",
-        language: "bun",
-        content: "export async function main(payload: string) { return { success: true, payload }; }",
-        input_transforms: {
-          payload: { type: "javascript", expr: "flow_input.payload" }
-        }
-      }
-    }
-  ],
-  schema: {
-    type: "object",
-    properties: {
-      payload: { type: "string" }
-    },
-    required: ["payload"]
-  }
-})
-
 set_preprocessor_module({
   module: JSON.stringify({
     id: "preprocessor",

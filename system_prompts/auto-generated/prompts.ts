@@ -109,9 +109,6 @@ value:
 - Missing \`input_transforms\` - Rawscript parameters won't receive values without them
 - Referencing future steps - \`results.step_id\` only works for steps that execute before the current one
 - Duplicate module IDs - Each module ID must be unique in the flow
-- Putting \`preprocessor\` or \`failure\` inside \`value.modules\` instead of \`value.preprocessor_module\` / \`value.failure_module\`
-- Putting \`suspend\` inside \`value\` instead of on the flow module object itself
-- Referencing step ids from inside \`branchone\` or \`branchall\` after the branch has finished
 
 ## Data Flow Between Steps
 
@@ -274,15 +271,6 @@ JavaScript transform (dynamic expression):
 - For flow inputs: Use type \`"object"\` with format \`"resource-{type}"\` (e.g., \`"resource-postgresql"\`)
 - For step inputs: Use static value \`"$res:path/to/resource"\`
 
-## Failure Handler
-
-Executes when any step fails. Has access to error details:
-
-- \`error.message\` - Error message
-- \`error.step_id\` - ID of failed step
-- \`error.name\` - Error name
-- \`error.stack\` - Stack trace
-
 ## Final Structural Self-Check
 
 Before finalizing a flow, verify:
@@ -348,38 +336,12 @@ Reference a specific resource using \`$res:\` prefix:
 
 export const FLOW_CHAT_SPECIAL_MODULES = `## Special Modules
 
-If the flow needs preprocessing before the main modules or a dedicated failure handler, prefer the dedicated tools:
+- Use \`set_preprocessor_module\` to add, replace, or remove the top-level \`value.preprocessor_module\`
+- Use \`set_failure_module\` to add, replace, or remove the top-level \`value.failure_module\`
+- Use \`set_flow_json\` only when you are replacing the whole flow, including normal modules and optional special modules
 
-- Use \`set_preprocessor_module\` for the special top-level preprocessor module with id \`preprocessor\`
-- Use \`set_failure_module\` for the special top-level failure module with id \`failure\`
-- Do NOT put \`preprocessor\` or \`failure\` inside the regular \`modules\` array
-
-**Example - Add preprocessor and failure handler:**
+**Example - Update only the special modules:**
 \`\`\`javascript
-set_flow_json({
-  modules: [
-    {
-      id: "process_event",
-      summary: "Process the event payload",
-      value: {
-        type: "rawscript",
-        language: "bun",
-        content: "export async function main(payload: string) { return { success: true, payload }; }",
-        input_transforms: {
-          payload: { type: "javascript", expr: "flow_input.payload" }
-        }
-      }
-    }
-  ],
-  schema: {
-    type: "object",
-    properties: {
-      payload: { type: "string" }
-    },
-    required: ["payload"]
-  }
-})
-
 set_preprocessor_module({
   module: JSON.stringify({
     id: "preprocessor",

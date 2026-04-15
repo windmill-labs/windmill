@@ -4432,9 +4432,6 @@ value:
 - Missing \`input_transforms\` - Rawscript parameters won't receive values without them
 - Referencing future steps - \`results.step_id\` only works for steps that execute before the current one
 - Duplicate module IDs - Each module ID must be unique in the flow
-- Putting \`preprocessor\` or \`failure\` inside \`value.modules\` instead of \`value.preprocessor_module\` / \`value.failure_module\`
-- Putting \`suspend\` inside \`value\` instead of on the flow module object itself
-- Referencing step ids from inside \`branchone\` or \`branchall\` after the branch has finished
 
 ## Data Flow Between Steps
 
@@ -4596,15 +4593,6 @@ JavaScript transform (dynamic expression):
 
 - For flow inputs: Use type \`"object"\` with format \`"resource-{type}"\` (e.g., \`"resource-postgresql"\`)
 - For step inputs: Use static value \`"$res:path/to/resource"\`
-
-## Failure Handler
-
-Executes when any step fails. Has access to error details:
-
-- \`error.message\` - Error message
-- \`error.step_id\` - ID of failed step
-- \`error.name\` - Error name
-- \`error.stack\` - Stack trace
 
 ## Final Structural Self-Check
 
