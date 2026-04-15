@@ -10,6 +10,10 @@ export interface FlowValidationSpec {
   exactTopLevelStepIds?: string[];
   topLevelStepIds?: string[];
   topLevelStepOrder?: string[];
+  topLevelStepTypeCountsAtLeast?: Array<{
+    type: string;
+    count: number;
+  }>;
   topLevelStepTypes?: Array<{
     id: string;
     type: string;

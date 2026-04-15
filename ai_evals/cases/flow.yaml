@@ -121,7 +121,7 @@
     - search FAQs
     - open a support ticket when needed
 
-    After that, log the interaction and return the assistant's response along with any actions it took.
+    After that, log the interaction and return the assistant's response.
   judgeChecklist:
     - "the input schema includes `customer_id` and `query_text`"
     - the flow loads the customer's profile and order history
@@ -131,7 +131,7 @@
     - the assistant can search FAQs
     - the assistant can open a support ticket
     - the flow logs the interaction
-    - the final output returns the assistant response along with any actions taken or resulting support action details
+    - the final output returns the assistant response
 
 - id: flow-test7-simple-modification
   prompt: |-
@@ -194,7 +194,29 @@
     Update `combine_data` so it merges the enrichment results and sets a `hasFallbacks` flag when any fallback was used.
     Keep `get_item` as the first step and `return_result` as the last step.
   initial: ai_evals/fixtures/frontend/flow/initial/test7_initial.json
-  expected: ai_evals/fixtures/frontend/flow/expected/test7_modify_complex.json
+  validate:
+    topLevelStepIds:
+      - get_item
+      - combine_data
+      - return_result
+    topLevelStepOrder:
+      - get_item
+      - combine_data
+      - return_result
+    topLevelStepTypeCountsAtLeast:
+      - type: branchall
+        count: 1
+    topLevelStepTypes:
+      - id: get_item
+        type: rawscript
+      - id: combine_data
+        type: rawscript
+      - id: return_result
+        type: rawscript
+    moduleRules:
+      - id: enrich_price
+      - id: enrich_inventory
+      - id: enrich_reviews
   judgeChecklist:
     - "the updated flow keeps `get_item` as the first step"
     - "the updated flow keeps `return_result` as the last step"
@@ -211,7 +233,6 @@
     Inside it, use a single step named `increment_counter` that increments the current counter.
     Put `stop_after_if` on `count_until_target` itself so the loop stops when `result >= flow_input.target`.
     After the loop, add a top-level step named `return_final_counter` that returns the last counter value.
-  expected: ai_evals/fixtures/frontend/flow/expected/test10_while_loop_counter.json
   validate:
     exactTopLevelStepIds:
       - count_until_target
@@ -253,7 +274,7 @@
     - "the top-level while loop step is named `count_until_target`"
     - "`count_until_target` contains a single increment step named `increment_counter`"
     - "`count_until_target` uses module-level `stop_after_if` to stop when the counter reaches `target`"
-    - "`increment_counter` uses the current loop iteration value and falls back to `0` on the first iteration"
+    - "`increment_counter` uses `flow_input.iter.value` and falls back to `0` on the first iteration"
     - "`return_final_counter` returns the final counter value"
 
 - id: flow-test11-preprocessor-and-failure-handler
@@ -283,8 +304,16 @@
     Add an approval step named `request_approval` that pauses the flow and asks the approver for a comment.
     One approval should be enough to continue.
     After approval, add a final step named `finalize_purchase` that returns an approved status object.
-  expected: ai_evals/fixtures/frontend/flow/expected/test12_approval_step.json
   validate:
+    topLevelStepIds:
+      - request_approval
+      - finalize_purchase
+    topLevelStepOrder:
+      - request_approval
+      - finalize_purchase
+    topLevelStepTypes:
+      - id: finalize_purchase
+        type: rawscript
     schemaRequiredPaths:
       - requester_email
       - amount

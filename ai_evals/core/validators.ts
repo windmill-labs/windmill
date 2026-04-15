@@ -525,6 +525,19 @@ function validateFlowRequirements(
     );
   }
 
+  for (const typeRequirement of validate.topLevelStepTypeCountsAtLeast ?? []) {
+    const actualCount = actualTopLevelModules.filter(
+      (module) => getModuleType(module) === typeRequirement.type
+    ).length;
+    checks.push(
+      check(
+        `flow includes at least ${typeRequirement.count} top-level ${typeRequirement.type} step${typeRequirement.count === 1 ? "" : "s"}`,
+        actualCount >= typeRequirement.count,
+        `expected at least ${typeRequirement.count}, got ${actualCount}`
+      )
+    );
+  }
+
   for (const requiredStep of validate.topLevelStepTypes ?? []) {
     const module = actualTopLevelModules.find((candidate) => candidate.id === requiredStep.id);
     checks.push(check(`${requiredStep.id} step exists`, Boolean(module)));
