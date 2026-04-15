@@ -3638,8 +3638,11 @@ pub fn resolve_debounce_key<'b>(
                 .join(":"),
         ));
 
-    tracing::debug!("Original debounce key (len={}): {}", original_debounce_key.len(), original_debounce_key);
-
+    tracing::debug!(
+        "Original debounce key (len={}): {}",
+        original_debounce_key.len(),
+        original_debounce_key
+    );
 
     // If debounce_key is not too long (< 255 chars), keep it as is, otherwise hash it.
     // On cloud, we prepend "{workspace_id}:" so we must reserve space for that prefix
@@ -5383,17 +5386,23 @@ async fn push_inner<'c, 'd>(
                 ..Default::default()
             }
         }
-        JobPayload::DeploymentCallback { path, debouncing_settings } => JobPayloadUntagged {
-            runnable_path: Some(path.clone()),
-            job_kind: JobKind::DeploymentCallback,
-            concurrency_settings: ConcurrencySettings {
-                concurrency_key: Some(format!("{workspace_id}:git_sync")),
-                concurrent_limit: Some(1),
-                concurrency_time_window_s: Some(0),
-            },
-            debouncing_settings,
-            ..Default::default()
-        },
+        JobPayload::DeploymentCallback { path, debouncing_settings, concurrency_key_append } => {
+            let concurrency_key = match concurrency_key_append {
+                Some(suffix) => format!("{workspace_id}:git_sync:{suffix}"),
+                None => format!("{workspace_id}:git_sync"),
+            };
+            JobPayloadUntagged {
+                runnable_path: Some(path.clone()),
+                job_kind: JobKind::DeploymentCallback,
+                concurrency_settings: ConcurrencySettings {
+                    concurrency_key: Some(concurrency_key),
+                    concurrent_limit: Some(1),
+                    concurrency_time_window_s: Some(0),
+                },
+                debouncing_settings,
+                ..Default::default()
+            }
+        }
         JobPayload::Identity => {
             JobPayloadUntagged { job_kind: JobKind::Identity, ..Default::default() }
         }
