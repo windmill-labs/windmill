@@ -8,6 +8,11 @@ interface CompletedJobResultMaybe {
 	started?: boolean
 }
 
+interface ScriptDeploymentStatus {
+	lock?: unknown
+	lock_error_logs?: string | null
+}
+
 export interface CompletedPreviewJob {
 	id: string
 	success: boolean
@@ -17,6 +22,7 @@ export interface CompletedPreviewJob {
 }
 
 const tokenCache = new Map<string, Promise<string>>()
+const sharedWorkspaceQueue = new Map<string, Promise<void>>()
 
 export class BackendPreviewClient {
 	constructor(private readonly settings: BackendValidationSettings) {}
@@ -29,15 +35,24 @@ export class BackendPreviewClient {
 		const workspaceId =
 			this.settings.workspaceOverride ??
 			buildWorkspaceId(this.settings.workspacePrefix, caseId, attempt)
-		await this.ensureWorkspace(workspaceId)
 
-		try {
-			return await body(workspaceId)
-		} finally {
-			if (!this.settings.keepWorkspaces && !this.settings.workspaceOverride) {
-				await this.deleteWorkspace(workspaceId).catch(() => undefined)
+		const run = async () => {
+			await this.ensureWorkspace(workspaceId)
+
+			try {
+				return await body(workspaceId)
+			} finally {
+				if (!this.settings.keepWorkspaces && !this.settings.workspaceOverride) {
+					await this.deleteWorkspace(workspaceId).catch(() => undefined)
+				}
 			}
 		}
+
+		if (this.settings.workspaceOverride) {
+			return await withSharedWorkspaceLock(workspaceId, run)
+		}
+
+		return await run()
 	}
 
 	async createScript(input: {
@@ -51,21 +66,48 @@ export class BackendPreviewClient {
 	}): Promise<void> {
 		await this.ensureFolderForPath(input.workspaceId, input.path)
 
+		const payload = {
+			path: input.path,
+			summary: input.summary,
+			description: input.description ?? '',
+			content: input.content,
+			schema: input.schema ?? { type: 'object', properties: {}, required: [] },
+			is_template: false,
+			language: input.language,
+			kind: 'script'
+		}
+
 		const response = await this.request(`/w/${encodeURIComponent(input.workspaceId)}/scripts/create`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				path: input.path,
-				summary: input.summary,
-				description: input.description ?? '',
-				content: input.content,
-				schema: input.schema ?? { type: 'object', properties: {}, required: [] },
-				is_template: false,
-				language: input.language,
-				kind: 'script'
-			})
+			body: JSON.stringify(payload)
 		})
-		await expectOkOrAlreadyExists(response, `create script ${input.path}`)
+
+		if (response.ok) {
+			await this.waitForScriptDeployment(input.workspaceId, input.path, (await response.text()).trim())
+			return
+		}
+
+		const message = await response.text()
+		if (!isConflictMessage(message)) {
+			throw new Error(`create script ${input.path} failed: ${response.status} ${response.statusText} - ${message}`)
+		}
+
+		const currentScript = await this.getScriptByPath(input.workspaceId, input.path)
+		const currentHash = readStringField(currentScript, 'hash', `script ${input.path}`)
+		const updateResponse = await this.request(
+			`/w/${encodeURIComponent(input.workspaceId)}/scripts/create`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					...payload,
+					parent_hash: currentHash
+				})
+			}
+		)
+		await expectOk(updateResponse, `update script ${input.path}`)
+		await this.waitForScriptDeployment(input.workspaceId, input.path, (await updateResponse.text()).trim())
 	}
 
 	async createFlow(input: {
@@ -78,18 +120,38 @@ export class BackendPreviewClient {
 	}): Promise<void> {
 		await this.ensureFolderForPath(input.workspaceId, input.path)
 
+		const payload = {
+			path: input.path,
+			summary: input.summary,
+			description: input.description ?? '',
+			schema: input.schema ?? { type: 'object', properties: {}, required: [] },
+			value: input.value
+		}
+
 		const response = await this.request(`/w/${encodeURIComponent(input.workspaceId)}/flows/create`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				path: input.path,
-				summary: input.summary,
-				description: input.description ?? '',
-				schema: input.schema ?? { type: 'object', properties: {}, required: [] },
-				value: input.value
-			})
+			body: JSON.stringify(payload)
 		})
-		await expectOkOrAlreadyExists(response, `create flow ${input.path}`)
+
+		if (response.ok) {
+			return
+		}
+
+		const message = await response.text()
+		if (!isConflictMessage(message)) {
+			throw new Error(`create flow ${input.path} failed: ${response.status} ${response.statusText} - ${message}`)
+		}
+
+		const updateResponse = await this.request(
+			`/w/${encodeURIComponent(input.workspaceId)}/flows/update/${input.path}`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(payload)
+			}
+		)
+		await expectOk(updateResponse, `update flow ${input.path}`)
 	}
 
 	async runScriptPreview(input: {
@@ -244,6 +306,37 @@ export class BackendPreviewClient {
 		throw new Error(`Timed out waiting for preview job ${jobId} to complete`)
 	}
 
+	private async getScriptByPath(workspaceId: string, path: string): Promise<Record<string, unknown>> {
+		const response = await this.request(`/w/${encodeURIComponent(workspaceId)}/scripts/get/p/${path}`)
+		await expectOk(response, `get script ${path}`)
+		return (await response.json()) as Record<string, unknown>
+	}
+
+	private async waitForScriptDeployment(
+		workspaceId: string,
+		path: string,
+		hash: string
+	): Promise<void> {
+		const deadline = Date.now() + this.settings.maxWaitMs
+
+		while (Date.now() < deadline) {
+			const response = await this.request(
+				`/w/${encodeURIComponent(workspaceId)}/scripts/deployment_status/h/${encodeURIComponent(hash)}`
+			)
+			await expectOk(response, `check deployment status for script ${path}`)
+			const deployment = (await response.json()) as ScriptDeploymentStatus
+			if (deployment.lock != null) {
+				return
+			}
+			if (deployment.lock_error_logs) {
+				throw new Error(`Script deployment failed for ${path}: ${deployment.lock_error_logs}`)
+			}
+			await new Promise((resolve) => setTimeout(resolve, this.settings.pollIntervalMs))
+		}
+
+		throw new Error(`Timed out waiting for script ${path} (${hash}) to deploy`)
+	}
+
 	private async request(path: string, init?: RequestInit): Promise<Response> {
 		const token = await this.getToken()
 		return await fetch(`${this.settings.baseUrl}/api${path}`, {
@@ -276,6 +369,27 @@ export class BackendPreviewClient {
 		})
 		await expectOk(response, 'login for backend validation')
 		return (await response.text()).trim()
+	}
+}
+
+async function withSharedWorkspaceLock<T>(workspaceId: string, body: () => Promise<T>): Promise<T> {
+	const previous = sharedWorkspaceQueue.get(workspaceId) ?? Promise.resolve()
+	let releaseCurrent: (() => void) | undefined
+	const current = new Promise<void>((resolve) => {
+		releaseCurrent = resolve
+	})
+	const tail = previous.catch(() => undefined).then(() => current)
+	sharedWorkspaceQueue.set(workspaceId, tail)
+
+	await previous.catch(() => undefined)
+
+	try {
+		return await body()
+	} finally {
+		releaseCurrent?.()
+		if (sharedWorkspaceQueue.get(workspaceId) === tail) {
+			sharedWorkspaceQueue.delete(workspaceId)
+		}
 	}
 }
 
@@ -319,13 +433,19 @@ async function expectOk(response: Response, context: string): Promise<void> {
 	throw new Error(`${context} failed: ${response.status} ${response.statusText} - ${await response.text()}`)
 }
 
-async function expectOkOrAlreadyExists(response: Response, context: string): Promise<void> {
-	if (response.ok) {
-		return
+function readStringField(
+	value: Record<string, unknown>,
+	field: string,
+	context: string
+): string {
+	const candidate = value[field]
+	if (typeof candidate === 'string' && candidate.length > 0) {
+		return candidate
 	}
-	const message = await response.text()
-	if (message.toLowerCase().includes('already exists')) {
-		return
-	}
-	throw new Error(`${context} failed: ${response.status} ${response.statusText} - ${message}`)
+	throw new Error(`${context} is missing string field ${field}`)
+}
+
+function isConflictMessage(message: string): boolean {
+	const normalized = message.toLowerCase()
+	return normalized.includes('already exists') || normalized.includes('path conflict')
 }
