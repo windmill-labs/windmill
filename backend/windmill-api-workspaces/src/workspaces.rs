@@ -1693,6 +1693,11 @@ async fn create_pg_database(
     Path(w_id): Path<String>,
     Json(req): Json<CreatePgDatabaseRequest>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create databases for security reasons".to_string(),
+        ));
+    }
     windmill_common::validate_dbname(&req.target_dbname)?;
 
     // Non-superadmin: restrict dbname to wm_fork_ prefix
@@ -1793,6 +1798,11 @@ async fn import_pg_database(
     Path(w_id): Path<String>,
     Json(req): Json<ImportPgDatabaseRequest>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot import databases for security reasons".to_string(),
+        ));
+    }
     if req.fork_behavior == DataTableForkBehavior::KeepOriginal {
         return Ok("No action needed for KeepOriginal behavior".to_string());
     }

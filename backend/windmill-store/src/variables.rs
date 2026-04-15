@@ -390,6 +390,11 @@ async fn create_variable(
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create variables for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("variables:write:{}", variable.path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -403,7 +408,30 @@ async fn create_variable(
         return Err(Error::PermissionDenied(msg));
     }
 
+    let authed = maybe_refresh_folders(&variable.path, &w_id, authed, &db).await;
+
+    check_path_conflict(&db, &w_id, &variable.path).await?;
+    let value = if variable.is_secret && !already_encrypted.unwrap_or(false) {
+        // Use secret backend for encryption (supports both DB and Vault)
+        store_secret_value(&db, &w_id, &variable.path, &variable.value).await?
+    } else {
+        variable.value
+    };
+
+    let mut tx = user_db.begin(&authed).await?;
+
     if *CLOUD_HOSTED {
+        // Serialize concurrent creates for this workspace so the quota check + insert
+        // behave atomically. Without the lock, bursts of requests can all observe a
+        // pre-limit count and collectively exceed the quota. The lock is on the user
+        // transaction (auto-released on commit) while the count goes through the
+        // admin pool so RLS doesn't hide workspace-wide rows from the quota check.
+        sqlx::query!(
+            "SELECT pg_advisory_xact_lock(hashtext('variable_quota:' || $1)::bigint)",
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
         let nb_variables = sqlx::query_scalar!(
             "SELECT COUNT(*) FROM variable WHERE workspace_id = $1",
             &w_id
@@ -417,17 +445,6 @@ async fn create_variable(
                 ));
         }
     }
-    let authed = maybe_refresh_folders(&variable.path, &w_id, authed, &db).await;
-
-    check_path_conflict(&db, &w_id, &variable.path).await?;
-    let value = if variable.is_secret && !already_encrypted.unwrap_or(false) {
-        // Use secret backend for encryption (supports both DB and Vault)
-        store_secret_value(&db, &w_id, &variable.path, &variable.value).await?
-    } else {
-        variable.value
-    };
-
-    let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
         "INSERT INTO variable
@@ -500,6 +517,11 @@ async fn delete_variable(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete variables for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
 
     check_scopes(&authed, || format!("variables:write:{}", path))?;
@@ -646,6 +668,11 @@ async fn delete_variables_bulk(
     Path(w_id): Path<String>,
     Json(request): Json<BulkDeleteRequest>,
 ) -> JsonResult<Vec<String>> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete variables for security reasons".to_string(),
+        ));
+    }
     for path in &request.paths {
         check_scopes(&authed, || format!("variables:write:{}", path))?;
     }
@@ -795,6 +822,12 @@ async fn update_variable(
     Json(ns): Json<EditVariable>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
+
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update variables for security reasons".to_string(),
+        ));
+    }
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,

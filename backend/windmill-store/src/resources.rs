@@ -769,6 +769,11 @@ async fn create_resource(
     Query(q): Query<CreateResourceQuery>,
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create resources for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("resources:write:{}", resource.path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -781,7 +786,22 @@ async fn create_resource(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    let authed = maybe_refresh_folders(&resource.path, &w_id, authed, &db).await;
+
+    let mut tx = user_db.begin(&authed).await?;
+
     if *CLOUD_HOSTED {
+        // Serialize concurrent creates for this workspace so the quota check + insert
+        // behave atomically. Without the lock, bursts of requests can all observe a
+        // pre-limit count and collectively exceed the quota. The lock is on the user
+        // transaction (auto-released on commit) while the count goes through the
+        // admin pool so RLS doesn't hide workspace-wide rows from the quota check.
+        sqlx::query!(
+            "SELECT pg_advisory_xact_lock(hashtext('resource_quota:' || $1)::bigint)",
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
         let nb_resources = sqlx::query_scalar!(
             "SELECT COUNT(*) FROM resource WHERE workspace_id = $1",
             &w_id
@@ -795,9 +815,6 @@ async fn create_resource(
                 ));
         }
     }
-    let authed = maybe_refresh_folders(&resource.path, &w_id, authed, &db).await;
-
-    let mut tx = user_db.begin(&authed).await?;
 
     let update_if_exists = q.update_if_exists.unwrap_or(false);
     if !update_if_exists {
@@ -889,6 +906,11 @@ async fn delete_resource(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete resources for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
 
     check_scopes(&authed, || format!("resources:write:{}", path))?;
@@ -1088,6 +1110,11 @@ async fn delete_resources_bulk(
     Path(w_id): Path<String>,
     Json(request): Json<BulkDeleteRequest>,
 ) -> JsonResult<Vec<String>> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete resources for security reasons".to_string(),
+        ));
+    }
     for path in &request.paths {
         check_scopes(&authed, || format!("resources:write:{}", path))?;
     }
@@ -1196,6 +1223,11 @@ async fn update_resource(
 ) -> Result<String> {
     use sql_builder::prelude::*;
 
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update resources for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -1388,6 +1420,11 @@ async fn update_resource_value(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(nv): Json<UpdateResource>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update resources for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -1578,6 +1615,11 @@ async fn create_resource_type(
     Path(w_id): Path<String>,
     Json(resource_type): Json<CreateResourceType>,
 ) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create resource types for security reasons".to_string(),
+        ));
+    }
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -1750,6 +1792,11 @@ async fn update_resource_type(
     Json(ns): Json<EditResourceType>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update resource types for security reasons".to_string(),
+        ));
+    }
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
