@@ -37,7 +37,7 @@ import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { InlineScriptSession } from './inlineScriptsUtils'
 import { flowModuleSchema, flowModulesSchema } from './openFlowZod'
 import { collectAllModuleIdsFromArray } from './utils'
-import { getFlowPrompt } from '$system_prompts'
+import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
 
 /**
  * Navigate to a schema at a given path, handling arrays, objects, unions, and wrappers.
@@ -993,69 +993,7 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 - **Search resource types** → \`resource_type\`
 - **Get database schema** → \`get_db_schema\`
 
-## Special Modules
-
-If the flow needs preprocessing before the main modules or a dedicated failure handler, prefer the dedicated tools:
-
-- Use \`set_preprocessor_module\` for the special top-level preprocessor module with id \`preprocessor\`
-- Use \`set_failure_module\` for the special top-level failure module with id \`failure\`
-- Do NOT put \`preprocessor\` or \`failure\` inside the regular \`modules\` array
-
-**Example - Add preprocessor and failure handler:**
-\`\`\`javascript
-set_flow_json({
-  modules: [
-    {
-      id: "process_event",
-      summary: "Process the event payload",
-      value: {
-        type: "rawscript",
-        language: "bun",
-        content: "export async function main(payload: string) { return { success: true, payload }; }",
-        input_transforms: {
-          payload: { type: "javascript", expr: "flow_input.payload" }
-        }
-      }
-    }
-  ],
-  schema: {
-    type: "object",
-    properties: {
-      payload: { type: "string" }
-    },
-    required: ["payload"]
-  }
-})
-
-set_preprocessor_module({
-  module: JSON.stringify({
-    id: "preprocessor",
-    value: {
-      type: "rawscript",
-      language: "bun",
-      content: "export async function preprocessor(payload: string) { const trimmed = payload.trim(); if (!trimmed) { throw new Error('payload must not be empty'); } return { payload: trimmed }; }",
-      input_transforms: {
-        payload: { type: "javascript", expr: "flow_input.payload" }
-      }
-    }
-  })
-})
-
-set_failure_module({
-  module: JSON.stringify({
-    id: "failure",
-    value: {
-      type: "rawscript",
-      language: "bun",
-      content: "export async function main(message: string, step_id: string) { return { message, step_id }; }",
-      input_transforms: {
-        message: { type: "javascript", expr: "error.message" },
-        step_id: { type: "javascript", expr: "error.step_id" }
-      }
-    }
-  })
-})
-\`\`\`
+${FLOW_CHAT_SPECIAL_MODULES}
 
 ## Flow Modification with set_flow_json
 
