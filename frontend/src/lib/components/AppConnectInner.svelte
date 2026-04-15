@@ -7,6 +7,7 @@
 	import {
 		OauthService,
 		ResourceService,
+		WorkspaceService,
 		VariableService,
 		type TokenResponse,
 		type ResourceType
@@ -111,6 +112,8 @@
 	let path: string = $state('')
 	let description = $state('')
 	let labels: string[] | undefined = $state(undefined)
+	let wsSpecific = $state(false)
+	let deployTo: string | undefined = $state(undefined)
 
 	/**
 	 * Client credentials OAuth flow support
@@ -147,6 +150,7 @@
 		value = ''
 		description = ''
 		labels = undefined
+		wsSpecific = false
 		resourceType = rt ?? ''
 		valueToken = undefined
 
@@ -288,6 +292,17 @@
 	onDestroy(() => {
 		window.removeEventListener('message', popupListener)
 		window.removeEventListener('storage', handleStorageEvent)
+	})
+
+	$effect(() => {
+		if (!effectiveWorkspace) {
+			deployTo = undefined
+			return
+		}
+
+		WorkspaceService.getDeployTo({ workspace: effectiveWorkspace }).then((x) => {
+			deployTo = x.deploy_to
+		})
 	})
 
 	function processPopupData(data) {
@@ -518,7 +533,8 @@
 								? `OAuth token for ${resourceType}`
 								: description,
 							is_oauth: true,
-							account: account
+							account: account,
+							ws_specific: wsSpecific
 						}
 					})
 					resourceValue['token'] = `$var:${path}`
@@ -536,7 +552,8 @@
 							value: v,
 							is_secret: true,
 							description: emptyString(description) ? `Token for ${resourceType}` : description,
-							is_oauth: false
+							is_oauth: false,
+							ws_specific: wsSpecific
 						}
 					})
 					resourceValue[secretField] = `$var:${path}`
@@ -557,7 +574,8 @@
 								description: emptyString(description)
 									? `${secretField} for ${resourceType}`
 									: description,
-								is_oauth: false
+								is_oauth: false,
+								ws_specific: wsSpecific
 							}
 						})
 						resourceValue[secretField] = `$var:${varPath}`
@@ -572,7 +590,8 @@
 					path,
 					value: resourceValue,
 					description,
-					labels
+					labels,
+					ws_specific: wsSpecific
 				}
 			})
 			dispatch('refresh', path)
@@ -739,6 +758,18 @@
 				kind="resource"
 			/>
 			<LabelsInput bind:labels class="-mt-5" />
+			{#if deployTo}
+				<label class="flex flex-col gap-1">
+					<span class="text-xs font-semibold text-emphasis">Workspace specific</span>
+					<Toggle
+						bind:checked={wsSpecific}
+						options={{
+							rightTooltip:
+								'When enabled, this resource and its linked secret variables will not be synced to other workspaces and will be treated as specific to this workspace'
+						}}
+					/>
+				</label>
+			{/if}
 
 			{#if apiTokenApps[resourceType]}
 				<h2 class="mt-4 mb-2">Instructions</h2>
@@ -946,6 +977,18 @@
 			kind="resource"
 		/>
 		<LabelsInput bind:labels class="-mt-5" />
+		{#if deployTo}
+			<label class="flex flex-col gap-1">
+				<span class="text-xs font-semibold text-emphasis">Workspace specific</span>
+				<Toggle
+					bind:checked={wsSpecific}
+					options={{
+						rightTooltip:
+							'When enabled, this resource and its linked secret variables will not be synced to other workspaces and will be treated as specific to this workspace'
+					}}
+				/>
+			</label>
+		{/if}
 		{#if apiTokenApps[resourceType] || !manual}
 			<ul class="mt-6">
 				<li class="text-xs text-primary font-normal">

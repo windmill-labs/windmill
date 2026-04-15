@@ -74,8 +74,15 @@
 
 	const dispatch = createEventDispatcher()
 
-	WorkspaceService.getDeployTo({ workspace: $workspaceStore! }).then((x) => {
-		deployTo = x.deploy_to
+	$effect(() => {
+		if (!effectiveWorkspace) {
+			deployTo = undefined
+			return
+		}
+
+		WorkspaceService.getDeployTo({ workspace: effectiveWorkspace }).then((x) => {
+			deployTo = x.deploy_to
+		})
 	})
 
 	let rawCode: string | undefined = $state(undefined)

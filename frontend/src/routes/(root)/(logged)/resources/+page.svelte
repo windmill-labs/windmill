@@ -69,7 +69,7 @@
 	} from '../../../../lib/components/ExploreAssetButton.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 
-	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
+	type ResourceW = ListableResource & { canWrite: boolean; marked?: string; ws_specific?: boolean }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
 
 	let cacheResources: ResourceW[] | undefined = $state()
@@ -959,7 +959,7 @@
 						</Head>
 						<tbody class="divide-y bg-surface">
 							{#if filteredItems}
-								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels }}
+								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, ws_specific }}
 									<Row>
 										<Cell first>
 											<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -1135,7 +1135,8 @@
 															resourceEditor?.initEdit?.(path)
 														}
 													},
-													...(isDeployable('resource', path, deployUiSettings)
+													...((!ws_specific &&
+														isDeployable('resource', path, deployUiSettings))
 														? [
 																{
 																	displayName: 'Deploy to prod/staging',

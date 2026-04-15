@@ -43,7 +43,7 @@
 	import { onMount, untrack } from 'svelte'
 	import { page } from '$app/stores'
 
-	type ListableVariableW = ListableVariable & { canWrite: boolean }
+	type ListableVariableW = ListableVariable & { canWrite: boolean; ws_specific?: boolean }
 
 	let variables = $state(undefined) as ListableVariableW[] | undefined
 	let showCreateButtons = $state(false)
@@ -346,7 +346,7 @@
 							</tr>
 						</Head>
 						<tbody class="divide-y">
-							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels }}
+							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, ws_specific }}
 								<Row>
 									<Cell class="!px-0 text-center w-12" first>
 										<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -512,11 +512,12 @@
 														},
 														disabled: !owner || !showCreateButtons
 													},
-													...(isDeployable(
-														is_secret ? 'secret' : 'variable',
-														path,
-														deployUiSettings
-													)
+													...((!ws_specific &&
+														isDeployable(
+															is_secret ? 'secret' : 'variable',
+															path,
+															deployUiSettings
+														))
 														? [
 																{
 																	displayName: 'Deploy to prod/staging',
