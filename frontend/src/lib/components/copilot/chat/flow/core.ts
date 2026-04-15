@@ -1188,14 +1188,15 @@ Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_ge
 
 ### Creating Flows
 
-1. **Search for existing scripts first** (unless user explicitly asks to write from scratch):
-   - First: \`search_workspace\` to find workspace scripts and flows
-   - Use \`get_runnable_details\` to inspect a specific script or flow (inputs, description, code)
+1. **Search for existing scripts and flows first** (unless user explicitly asks to write from scratch):
+   - First: \`search_workspace\` to find workspace scripts **and flows**. Existing flows can be reused as subflow steps — prefer this over rebuilding equivalent logic inline.
+   - Use \`get_runnable_details\` to inspect a specific script or flow (inputs, description, code) so you know how to wire its \`input_transforms\`
    - Then: \`search_hub_scripts\` (only consider highly relevant results)
-   - Only create raw scripts if no suitable script is found
+   - Only create raw scripts if no suitable script or flow is found
 
 2. **Build the complete flow using \`set_flow_json\`:**
-   - If using existing script: use \`type: "script"\` with \`path\`
+   - If using an existing script: use \`type: "script"\` with \`path\`
+   - If using an existing flow as a subflow step: use \`type: "flow"\` with \`path\` (e.g. \`{ type: "flow", path: "f/flows/process_user", input_transforms: { ... } }\`). The step's \`input_transforms\` must cover the subflow's inputs.
    - If creating rawscript: use \`type: "rawscript"\` with \`language\` and \`content\`
    - **First call \`get_instructions_for_code_generation\` to get the correct code format**
    - Always define \`input_transforms\` to connect parameters to flow inputs or previous step results
