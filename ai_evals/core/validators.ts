@@ -631,6 +631,9 @@ function validateFlowRequirements(
       const expectedParts = [
         requiredTransform.type ? `type=${JSON.stringify(requiredTransform.type)}` : null,
         requiredTransform.expr ? `expr=${JSON.stringify(requiredTransform.expr)}` : null,
+        requiredTransform.exprAnyOf && requiredTransform.exprAnyOf.length > 0
+          ? `exprAnyOf=${JSON.stringify(requiredTransform.exprAnyOf)}`
+          : null,
         requiredTransform.value !== undefined
           ? `value=${JSON.stringify(requiredTransform.value)}`
           : null,
@@ -1131,7 +1134,12 @@ function getInputTransformRecords(module: Record<string, unknown>): Array<Record
 
 function matchesRequiredInputTransform(
   actual: Record<string, unknown>,
-  required: { type?: string; expr?: string; value?: string | number | boolean | null }
+  required: {
+    type?: string;
+    expr?: string;
+    exprAnyOf?: string[];
+    value?: string | number | boolean | null;
+  }
 ): boolean {
   if (required.type !== undefined && !valuesEqualForValidation(actual.type, required.type)) {
     return false;
@@ -1139,6 +1147,15 @@ function matchesRequiredInputTransform(
 
   if (required.expr !== undefined && !valuesEqualForValidation(actual.expr, required.expr)) {
     return false;
+  }
+
+  if (required.exprAnyOf !== undefined) {
+    if (
+      typeof actual.expr !== "string" ||
+      !required.exprAnyOf.some((candidate) => valuesEqualForValidation(actual.expr, candidate))
+    ) {
+      return false;
+    }
   }
 
   if (required.value !== undefined && !valuesEqualForValidation(actual.value, required.value)) {

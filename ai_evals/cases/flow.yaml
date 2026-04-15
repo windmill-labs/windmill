@@ -257,11 +257,15 @@
       - id: increment_counter
         requiredInputTransforms:
           - type: javascript
-            expr: "flow_input.iter && flow_input.iter.value !== undefined ? flow_input.iter.value : 0"
+            exprAnyOf:
+              - "flow_input.iter && flow_input.iter.value !== undefined ? flow_input.iter.value : 0"
+              - "flow_input.iter?.value ?? 0"
       - id: return_final_counter
         requiredInputTransforms:
           - type: javascript
-            expr: "results.count_until_target[results.count_until_target.length - 1]"
+            exprAnyOf:
+              - "results.count_until_target[results.count_until_target.length - 1]"
+              - "results.count_until_target.at(-1)"
     moduleFieldRules:
       - id: count_until_target
         path: stop_after_if.expr
@@ -274,7 +278,7 @@
     - "the top-level while loop step is named `count_until_target`"
     - "`count_until_target` contains a single increment step named `increment_counter`"
     - "`count_until_target` uses module-level `stop_after_if` to stop when the counter reaches `target`"
-    - "`increment_counter` uses `flow_input.iter.value` and falls back to `0` on the first iteration"
+    - "`increment_counter` uses `flow_input.iter.value` or an equivalent loop-state expression and falls back to `0` on the first iteration"
     - "`return_final_counter` returns the final counter value"
 
 - id: flow-test11-preprocessor-and-failure-handler

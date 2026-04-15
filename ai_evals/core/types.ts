@@ -31,6 +31,7 @@ export interface FlowValidationSpec {
     requiredInputTransforms?: Array<{
       type?: string;
       expr?: string;
+      exprAnyOf?: string[];
       value?: string | number | boolean | null;
     }>;
   }>;

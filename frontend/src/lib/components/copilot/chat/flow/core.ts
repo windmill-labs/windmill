@@ -1049,8 +1049,8 @@ set_failure_module({
       language: "bun",
       content: "export async function main(message: string, step_id: string) { return { message, step_id }; }",
       input_transforms: {
-        message: { type: "javascript", expr: "previous_result.error.message" },
-        step_id: { type: "javascript", expr: "previous_result.error.step_id" }
+        message: { type: "javascript", expr: "error.message" },
+        step_id: { type: "javascript", expr: "error.step_id" }
       }
     }
   })
