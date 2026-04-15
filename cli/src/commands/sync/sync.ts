@@ -2196,8 +2196,8 @@ export async function pull(
   // Compute the workspace name for file naming
   const wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : undefined;
 
-  // For ws_specific items, fall back to workspace name when wsNameForFiles is not set
-  const wsNameForWsSpecific = wsNameForFiles ?? workspace.name ?? workspace.workspaceId;
+  // For ws_specific items, use the workspace ID for file naming
+  const wsNameForWsSpecific = wsNameForFiles ?? workspace.workspaceId;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2748,7 +2748,8 @@ export async function push(
   const wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : undefined;
 
   // For ws_specific items, fall back to workspace name when wsNameForFiles is not set
-  const wsNameForWsSpecific = wsNameForFiles ?? workspace.name ?? workspace.workspaceId;
+  // For ws_specific items, use the workspace ID for file naming
+  const wsNameForWsSpecific = wsNameForFiles ?? workspace.workspaceId;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
