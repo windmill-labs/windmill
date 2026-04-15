@@ -7,6 +7,34 @@ export interface FlowValidationSpec {
   schemaAnyOf?: Array<{
     requiredPaths: string[];
   }>;
+  exactTopLevelStepIds?: string[];
+  topLevelStepIds?: string[];
+  topLevelStepOrder?: string[];
+  topLevelStepTypes?: Array<{
+    id: string;
+    type: string;
+  }>;
+  moduleRules?: Array<{
+    id: string;
+    hasStopAfterIf?: boolean;
+    hasStopAfterAllItersIf?: boolean;
+    immediateChildStepIds?: string[];
+    exactImmediateChildStepIds?: string[];
+    immediateChildStepTypes?: Array<{
+      id: string;
+      type: string;
+    }>;
+    requiredInputTransforms?: Array<{
+      type?: string;
+      expr?: string;
+      value?: string | number | boolean | null;
+    }>;
+  }>;
+  moduleFieldRules?: Array<{
+    id: string;
+    path: string;
+    equals: string | number | boolean | null;
+  }>;
   resolveResultsRefs?: boolean;
   requireSpecialModules?: Array<"preprocessor_module" | "failure_module">;
   requireSuspendSteps?: Array<{

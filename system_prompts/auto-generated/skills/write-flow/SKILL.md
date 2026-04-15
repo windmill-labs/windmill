@@ -92,8 +92,68 @@ value:
 - `flow_input.property` - Access flow input parameters
 - `results.step_id` - Access output from a previous step only when that step result is in scope
 - `results.step_id.property` - Access specific property from a previous step output only when that step result is in scope
-- `flow_input.iter.value` - Current item when inside a for-loop
-- `flow_input.iter.index` - Current index when inside a for-loop
+- `flow_input.iter.value` - Current iteration value when inside a loop (`forloopflow` or `whileloopflow`)
+- `flow_input.iter.index` - Current loop index when inside a loop (`forloopflow` or `whileloopflow`)
+
+## Loop Structure Rules
+
+- For `whileloopflow`, use module-level `stop_after_if` on the loop module itself when the loop should stop after an iteration result
+- Do NOT put `stop_after_if` inside `value` of a `whileloopflow`
+- `stop_after_all_iters_if` is for checks after the whole loop finishes, not the normal per-iteration break condition
+- When a `whileloopflow` carries state forward between iterations, use `flow_input.iter.value` as the current loop value and provide an explicit first-iteration fallback when needed
+- Use `flow_input.iter.index` only when the loop logic is truly based on the iteration index, not as a replacement for the current loop value
+- If the user asks for a final scalar/object after a loop, add a normal step after the loop that extracts the final value from the loop result instead of returning the whole loop result array
+
+Correct `whileloopflow` shape:
+
+```yaml
+- id: loop_until_done
+  stop_after_if:
+    expr: result.done === true
+    skip_if_stopped: false
+  value:
+    type: whileloopflow
+    skip_failures: false
+    modules:
+      - id: advance_state
+        value:
+          type: rawscript
+          input_transforms:
+            state:
+              type: javascript
+              expr: flow_input.iter && flow_input.iter.value !== undefined ? flow_input.iter.value : flow_input.initial_state
+- id: return_final_state
+  value:
+    type: rawscript
+    input_transforms:
+      final_state:
+        type: javascript
+        expr: results.loop_until_done[results.loop_until_done.length - 1]
+```
+
+Incorrect `whileloopflow` patterns:
+
+```yaml
+- id: loop_until_done
+  value:
+    type: whileloopflow
+    stop_after_if:
+      expr: result.done === true
+```
+
+```yaml
+input_transforms:
+  state:
+    type: javascript
+    expr: flow_input.iter.index
+```
+
+```yaml
+input_transforms:
+  final_state:
+    type: javascript
+    expr: results.loop_until_done
+```
 
 ## Approval / Suspend Structure
 

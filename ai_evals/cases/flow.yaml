@@ -138,17 +138,33 @@
     Update this flow so it validates processed data before saving it.
 
     After `process_data`, add a `validate_data` step that checks the data array is not empty.
-    If the array is empty, it should return an error object with the message `No data to save`.
+    If the array is empty, the flow should surface the message `No data to save` and prevent saving.
     If validation passes, let the save continue normally.
-    Update `save_results` so it handles the validation result correctly.
+    Update `save_results` so it uses the validation outcome instead of bypassing it.
   initial: ai_evals/fixtures/frontend/flow/initial/test5_initial.json
-  expected: ai_evals/fixtures/frontend/flow/expected/test5_modify_simple.json
+  validate:
+    topLevelStepIds:
+      - fetch_data
+      - process_data
+      - validate_data
+    topLevelStepOrder:
+      - fetch_data
+      - process_data
+      - validate_data
+    topLevelStepTypes:
+      - id: fetch_data
+        type: rawscript
+      - id: process_data
+        type: rawscript
+      - id: validate_data
+        type: rawscript
   judgeChecklist:
     - the updated flow keeps the original fetch and process steps intact
     - "a `validate_data` step is added after `process_data`"
     - "`validate_data` checks that the processed data array is not empty"
-    - "empty data returns an error object with the message `No data to save`"
-    - "`save_results` handles the validation result correctly"
+    - "when processed data is empty, the flow surfaces the message `No data to save` and does not save results"
+    - "`save_results` uses the validation outcome instead of reading `results.process_data` directly"
+    - "exact field names or wrapper object shape for the validation result are not important"
 
 - id: flow-test8-branching-in-loop
   prompt: |-
@@ -191,14 +207,54 @@
   prompt: |-
     Create a flow that keeps incrementing a counter until it reaches a target value.
     The input should include a number field named `target`.
-    Name the looping step `count_until_target`.
-    Once the target is reached, return the final counter value.
+    Use a top-level while loop step named `count_until_target`.
+    Inside it, use a single step named `increment_counter` that increments the current counter.
+    Put `stop_after_if` on `count_until_target` itself so the loop stops when `result >= flow_input.target`.
+    After the loop, add a top-level step named `return_final_counter` that returns the last counter value.
   expected: ai_evals/fixtures/frontend/flow/expected/test10_while_loop_counter.json
+  validate:
+    exactTopLevelStepIds:
+      - count_until_target
+      - return_final_counter
+    topLevelStepOrder:
+      - count_until_target
+      - return_final_counter
+    topLevelStepTypes:
+      - id: count_until_target
+        type: whileloopflow
+      - id: return_final_counter
+        type: rawscript
+    moduleRules:
+      - id: count_until_target
+        hasStopAfterIf: true
+        hasStopAfterAllItersIf: false
+        exactImmediateChildStepIds:
+          - increment_counter
+        immediateChildStepTypes:
+          - id: increment_counter
+            type: rawscript
+      - id: increment_counter
+        requiredInputTransforms:
+          - type: javascript
+            expr: "flow_input.iter && flow_input.iter.value !== undefined ? flow_input.iter.value : 0"
+      - id: return_final_counter
+        requiredInputTransforms:
+          - type: javascript
+            expr: "results.count_until_target[results.count_until_target.length - 1]"
+    moduleFieldRules:
+      - id: count_until_target
+        path: stop_after_if.expr
+        equals: result >= flow_input.target
+      - id: count_until_target
+        path: stop_after_if.skip_if_stopped
+        equals: false
   judgeChecklist:
     - "the input schema includes a number field named `target`"
-    - "the looping step is named `count_until_target`"
-    - the flow keeps incrementing a counter until the target is reached
-    - the final output returns the final counter value
+    - "the top-level while loop step is named `count_until_target`"
+    - "`count_until_target` contains a single increment step named `increment_counter`"
+    - "`count_until_target` uses module-level `stop_after_if` to stop when the counter reaches `target`"
+    - "`increment_counter` uses the current loop iteration value and falls back to `0` on the first iteration"
+    - "`return_final_counter` returns the final counter value"
 
 - id: flow-test11-preprocessor-and-failure-handler
   prompt: |-
