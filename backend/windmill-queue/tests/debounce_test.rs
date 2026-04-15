@@ -3128,7 +3128,7 @@ mod debounce {
     ) -> anyhow::Result<()> {
         let settings = DebouncingSettings {
             debounce_delay_s: Some(5),
-            debounce_key: None, // default key (includes args minus accumulated ones)
+            debounce_key: None, // default key is runnable path only — arg values are ignored
             debounce_args_to_accumulate: Some(vec!["items".to_string()]),
             ..Default::default()
         };
@@ -3180,10 +3180,12 @@ mod debounce {
         Ok(())
     }
 
-    /// Test: debounce_args_to_accumulate does NOT cause debouncing when non-accumulated
-    /// args differ — only the accumulated arg is excluded from the key.
+    /// Test: non-accumulated args do NOT affect the default debounce key — jobs on the
+    /// same runnable still debounce together even when other args differ. The surviving
+    /// job keeps its own (latest) non-accumulated args; the accumulated arg is merged
+    /// across the batch at pull time.
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-    async fn test_post_preprocessing_args_to_accumulate_different_non_accumulated(
+    async fn test_post_preprocessing_args_to_accumulate_non_accumulated_ignored(
         db: Pool<Postgres>,
     ) -> anyhow::Result<()> {
         let settings = DebouncingSettings {
@@ -3198,7 +3200,7 @@ mod debounce {
         let args1 = serde_json::json!({"items": ["a"], "other": "foo"});
         insert_flow_job_with_args(&db, job1, "test-workspace", "f/test/flow", &args1).await;
 
-        // Job 2: other = "bar" (different non-accumulated arg)
+        // Job 2: other = "bar" (different non-accumulated arg — should still collapse)
         let job2 = Uuid::new_v4();
         let args2 = serde_json::json!({"items": ["b"], "other": "bar"});
         insert_flow_job_with_args(&db, job2, "test-workspace", "f/test/flow", &args2).await;
@@ -3227,14 +3229,14 @@ mod debounce {
         )
         .await?;
 
-        // Both should still be queued — different "other" arg means different keys
+        // job1 should be debounced (completed) — the default key ignores non-accumulated args
         assert!(
-            is_queued(&db, &job1).await,
-            "job1 should still be queued (different key due to 'other' arg)"
+            is_completed(&db, &job1).await,
+            "job1 should be debounced by job2 even though 'other' differs"
         );
         assert!(
             is_queued(&db, &job2).await,
-            "job2 should still be queued (different key due to 'other' arg)"
+            "job2 should still be queued (survivor with its own 'other' value)"
         );
 
         Ok(())

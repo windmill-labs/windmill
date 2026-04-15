@@ -3613,33 +3613,23 @@ pub fn resolve_debounce_key<'b>(
     workspace_id: &str,
     job_kind: JobKind,
     args: &PushArgs<'b>,
-    args_to_ignore_if_default: Option<&String>,
 ) -> String {
+    // Default key is just the runnable's fully-qualified path — debouncing batches
+    // all calls to the same runnable regardless of args. The surviving job keeps its
+    // own (latest) args, and debounce_args_to_accumulate is merged across the batch
+    // at pull time. Users who want per-arg debouncing must set an explicit
+    // `debounce_key` template (e.g. "pp_$args[region]").
     let original_debounce_key = unresolved_debounce_key
         .map(|x| crate::interpolate_args(x, &args, workspace_id))
-        .unwrap_or(format!(
-            "{}#args:{}",
-            crate::fullpath_with_workspace(workspace_id, runnable_path.as_ref(), &job_kind),
-            args.args
-                .iter()
-                .filter_map(|(k, v)| {
-                    if args_to_ignore_if_default
-                        .map(|name| name == k)
-                        .unwrap_or_default()
-                    {
-                        None
-                    } else {
-                        Some(v.to_string())
-                    }
-                })
-                // TODO: disable sorted?
-                .sorted()
-                .collect_vec()
-                .join(":"),
-        ));
+        .unwrap_or_else(|| {
+            crate::fullpath_with_workspace(workspace_id, runnable_path.as_ref(), &job_kind)
+        });
 
-    tracing::debug!("Original debounce key (len={}): {}", original_debounce_key.len(), original_debounce_key);
-
+    tracing::debug!(
+        "Original debounce key (len={}): {}",
+        original_debounce_key.len(),
+        original_debounce_key
+    );
 
     // If debounce_key is not too long (< 255 chars), keep it as is, otherwise hash it.
     // On cloud, we prepend "{workspace_id}:" so we must reserve space for that prefix
