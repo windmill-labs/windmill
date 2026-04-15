@@ -2,7 +2,7 @@
 	import { run } from 'svelte/legacy'
 
 	import type { Schema } from '$lib/common'
-	import { ResourceService, type Resource, type ResourceType } from '$lib/gen'
+	import { ResourceService, WorkspaceService, type Resource, type ResourceType } from '$lib/gen'
 	import { canWrite, emptyString, isOwner, urlize } from '$lib/utils'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { Alert, Skeleton } from './common'
@@ -69,8 +69,14 @@
 	let editDescription = $state(false)
 	let viewJsonSchema = $state(false)
 	let newResource = $derived(!path)
+	let wsSpecific = $state(false)
+	let deployTo: string | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
+
+	WorkspaceService.getDeployTo({ workspace: $workspaceStore! }).then((x) => {
+		deployTo = x.deploy_to
+	})
 
 	let rawCode: string | undefined = $state(undefined)
 
@@ -80,6 +86,7 @@
 		labels = resourceToEdit!.labels ?? undefined
 		resource_type = resourceToEdit!.resource_type
 		args = resourceToEdit?.value ?? ({} as any)
+		wsSpecific = resourceToEdit?.ws_specific ?? false
 		loadResourceType()
 		can_write =
 			resourceToEdit.workspace_id == effectiveWorkspace &&
@@ -102,7 +109,7 @@
 			await ResourceService.updateResource({
 				workspace: effectiveWorkspace,
 				path: resourceToEdit.path,
-				requestBody: { path, value: args, description, labels }
+				requestBody: { path, value: args, description, labels, ws_specific: wsSpecific }
 			})
 			if (resourceToEdit.resource_type === 'json_schema') {
 				clearJsonSchemaResourceCache(resourceToEdit.path, effectiveWorkspace)
@@ -117,7 +124,14 @@
 	export async function createResource(): Promise<void> {
 		await ResourceService.createResource({
 			workspace: effectiveWorkspace,
-			requestBody: { path, value: args, description, resource_type: resource_type!, labels }
+			requestBody: {
+				path,
+				value: args,
+				description,
+				resource_type: resource_type!,
+				labels,
+				ws_specific: wsSpecific
+			}
 		})
 		sendUserToast(`Updated resource at ${path}`)
 		dispatch('refresh', path)
@@ -228,6 +242,19 @@
 			</div>
 		{/if}
 		<LabelsInput bind:labels class="-mt-4" />
+
+		{#if deployTo}
+			<label class="flex flex-col gap-1">
+				<span class="text-xs font-semibold text-emphasis">Workspace specific</span>
+				<Toggle
+					bind:checked={wsSpecific}
+					options={{
+						rightTooltip:
+							'When enabled, this resource will not be synced to other workspaces and will be treated as specific to this workspace'
+					}}
+				/>
+			</label>
+		{/if}
 
 		{#if !emptyString(resourceTypeInfo?.description)}
 			<div class="flex flex-col gap-1">

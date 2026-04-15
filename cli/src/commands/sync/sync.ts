@@ -62,7 +62,10 @@ import {
   isCurrentWorkspaceFile,
   isItemTypeConfigured,
   isSpecificItem,
+  isWsSpecificItem,
+  toWorkspaceSpecificPath,
   SpecificItemsConfig,
+  WsSpecificItem,
 } from "../../core/specific_items.ts";
 import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
@@ -1361,6 +1364,7 @@ export async function elementsToMap(
   specificItems?: SpecificItemsConfig,
   branchOverride?: string,
   isRemote?: boolean,
+  wsSpecificPaths?: WsSpecificItem[],
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
@@ -1525,14 +1529,14 @@ export async function elementsToMap(
       const currentBranch = cachedWsName;
       const basePath = fromWorkspaceSpecificPath(path, currentBranch);
 
-      // Only use workspace-specific files if the item type IS configured as branch-specific
-      // AND matches the pattern. Otherwise, skip and use base file instead.
-      if (!isItemTypeConfigured(basePath, specificItems)) {
-        // Type not configured as branch-specific - skip, use base file instead
-        continue;
-      }
-      if (!isSpecificItem(basePath, specificItems)) {
-        // Type configured but doesn't match pattern - skip
+      // Accept workspace-specific files if:
+      // 1. The old specificItems config says so (type configured AND pattern matches), OR
+      // 2. The item is ws_specific on the remote
+      const matchesSpecificItems = isItemTypeConfigured(basePath, specificItems) && isSpecificItem(basePath, specificItems);
+      const matchesWsSpecific = isWsSpecificItem(basePath, wsSpecificPaths);
+
+      if (!matchesSpecificItems && !matchesWsSpecific) {
+        // Neither specificItems nor ws_specific match - skip
         continue;
       }
 
@@ -1547,7 +1551,7 @@ export async function elementsToMap(
       }
       // Skip base file if it's configured as branch-specific (expect branch version)
       // Only for LOCAL files - remote workspace only has base paths
-      if (!isRemote && isSpecificItem(path, specificItems)) {
+      if (!isRemote && (isSpecificItem(path, specificItems) || isWsSpecificItem(path, wsSpecificPaths))) {
         continue;
       }
       map[path] = content;
@@ -1602,13 +1606,14 @@ async function compareDynFSElement(
   specificItems?: SpecificItemsConfig,
   branchOverride?: string,
   isEls1Remote?: boolean,
+  wsSpecificPaths?: WsSpecificItem[],
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote),
-        elementsToMap(els2, ignore, json, skips, specificItems, branchOverride, !isEls1Remote),
+        elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote, wsSpecificPaths),
+        elementsToMap(els2, ignore, json, skips, specificItems, branchOverride, !isEls1Remote, wsSpecificPaths),
       ])
-    : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote), {}];
+    : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote, wsSpecificPaths), {}];
 
   const changes: Change[] = [];
 
@@ -2215,6 +2220,14 @@ export async function pull(
     // ignore
   }
 
+  // Fetch ws_specific items from the remote workspace
+  let wsSpecificPaths: WsSpecificItem[] = [];
+  try {
+    wsSpecificPaths = await wmill.listWsSpecific({ workspace: workspace.workspaceId }) as WsSpecificItem[];
+  } catch {
+    // ignore - older backends may not support this endpoint
+  }
+
   const zipFile = await downloadZip(
     workspace,
     opts.plainSecrets,
@@ -2258,6 +2271,7 @@ export async function pull(
     specificItems,
     wsNameForFiles,
     true, // els1 (remote) is the remote source
+    wsSpecificPaths,
   );
 
   log.info(
@@ -2274,14 +2288,14 @@ export async function pull(
         ...(change.name === "edited" && change.codebase
           ? { codebase_changed: true }
           : {}),
-        ...(specificItems && isSpecificItem(change.path, specificItems)
+        ...((specificItems && isSpecificItem(change.path, specificItems)) || isWsSpecificItem(change.path, wsSpecificPaths)
           ? {
               workspace_specific: true,
               workspace_specific_path: getWorkspaceSpecificPath(
                 change.path,
                 specificItems,
                 wsNameForFiles,
-              ),
+              ) ?? (wsNameForFiles ? toWorkspaceSpecificPath(change.path, wsNameForFiles) : undefined),
             }
           : {}),
       })),
@@ -2293,7 +2307,7 @@ export async function pull(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems, wsNameForFiles);
+      prettyChanges(changes, specificItems, wsNameForFiles, undefined, wsSpecificPaths);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2315,12 +2329,15 @@ export async function pull(
     for await (const change of changes) {
       // Determine if this file should be written to a workspace-specific path
       let targetPath = change.path;
-      if (specificItems && isSpecificItem(change.path, specificItems)) {
+      if (
+        (specificItems && isSpecificItem(change.path, specificItems)) ||
+        isWsSpecificItem(change.path, wsSpecificPaths)
+      ) {
         const workspaceSpecificPath = getWorkspaceSpecificPath(
           change.path,
           specificItems,
           wsNameForFiles,
-        );
+        ) ?? (wsNameForFiles ? toWorkspaceSpecificPath(change.path, wsNameForFiles) : undefined);
         if (workspaceSpecificPath) {
           targetPath = workspaceSpecificPath;
         }
@@ -2523,14 +2540,14 @@ export async function pull(
           ...(change.name === "edited" && change.codebase
             ? { codebase_changed: true }
             : {}),
-          ...(specificItems && isSpecificItem(change.path, specificItems)
+          ...((specificItems && isSpecificItem(change.path, specificItems)) || isWsSpecificItem(change.path, wsSpecificPaths)
             ? {
                 workspace_specific: true,
                 workspace_specific_path: getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
                   wsNameForFiles,
-                ),
+                ) ?? (wsNameForFiles ? toWorkspaceSpecificPath(change.path, wsNameForFiles) : undefined),
               }
             : {}),
         })),
@@ -2560,18 +2577,22 @@ function prettyChanges(
   specificItems?: SpecificItemsConfig,
   branchOverride?: string,
   folderDefaultAnnotations?: Map<string, string>,
+  wsSpecificPaths?: WsSpecificItem[],
 ) {
   for (const change of changes) {
     let displayPath = change.path;
     let wsNote = "";
 
     // Check if this will be written as a workspace-specific file
-    if (specificItems && isSpecificItem(change.path, specificItems)) {
+    if (
+      (specificItems && isSpecificItem(change.path, specificItems)) ||
+      isWsSpecificItem(change.path, wsSpecificPaths)
+    ) {
       const workspaceSpecificPath = getWorkspaceSpecificPath(
         change.path,
         specificItems,
         branchOverride,
-      );
+      ) ?? (branchOverride ? toWorkspaceSpecificPath(change.path, branchOverride) : undefined);
       if (workspaceSpecificPath) {
         displayPath = workspaceSpecificPath;
         wsNote = " (workspace-specific)";
@@ -2773,6 +2794,15 @@ export async function push(
       "Computing the files to update on the remote to match local (taking wmill.yaml includes/excludes into account)",
     ),
   );
+
+  // Fetch ws_specific items from the remote workspace
+  let wsSpecificPaths: WsSpecificItem[] = [];
+  try {
+    wsSpecificPaths = await wmill.listWsSpecific({ workspace: workspace.workspaceId }) as WsSpecificItem[];
+  } catch {
+    // ignore - older backends may not support this endpoint
+  }
+
   let resourceTypeToFormatExtension: Record<string, string> = {};
   let resourceTypeToIsFileset: Record<string, boolean> = {};
   try {
@@ -2824,6 +2854,7 @@ export async function push(
     specificItems,
     wsNameForFiles,
     false, // els1 (local) is not the remote source
+    wsSpecificPaths,
   );
 
   const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
@@ -3051,14 +3082,14 @@ export async function push(
         ...(change.name === "edited" && change.codebase
           ? { codebase_changed: true }
           : {}),
-        ...(specificItems && isSpecificItem(change.path, specificItems)
+        ...((specificItems && isSpecificItem(change.path, specificItems)) || isWsSpecificItem(change.path, wsSpecificPaths)
           ? {
               workspace_specific: true,
               workspace_specific_path: getWorkspaceSpecificPath(
                 change.path,
                 specificItems,
                 wsNameForFiles,
-              ),
+              ) ?? (wsNameForFiles ? toWorkspaceSpecificPath(change.path, wsNameForFiles) : undefined),
             }
           : {}),
       })),
@@ -3101,7 +3132,7 @@ export async function push(
     }
 
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems, wsNameForFiles, folderDefaultAnnotations);
+      prettyChanges(changes, specificItems, wsNameForFiles, folderDefaultAnnotations, wsSpecificPaths);
     }
 
     if (opts.dryRun) {
@@ -3372,12 +3403,12 @@ export async function push(
 
               // Check if this is a branch-specific item and get the original workspace-specific path
               let originalWorkspaceSpecificPath: string | undefined;
-              if (specificItems && isSpecificItem(change.path, specificItems)) {
+              if ((specificItems && isSpecificItem(change.path, specificItems)) || isWsSpecificItem(change.path, wsSpecificPaths)) {
                 originalWorkspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
                   wsNameForFiles,
-                );
+                ) ?? (wsNameForFiles ? toWorkspaceSpecificPath(change.path, wsNameForFiles) : undefined);
               }
 
               await pushObj(
@@ -3440,12 +3471,12 @@ export async function push(
               // Determine the actual local file path for this change
               // For branch-specific items, we read from workspace-specific files but push to base server paths
               let localFilePath = change.path;
-              if (specificItems && isSpecificItem(change.path, specificItems)) {
+              if ((specificItems && isSpecificItem(change.path, specificItems)) || isWsSpecificItem(change.path, wsSpecificPaths)) {
                 const workspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
                   wsNameForFiles,
-                );
+                ) ?? (wsNameForFiles ? toWorkspaceSpecificPath(change.path, wsNameForFiles) : undefined);
                 if (workspaceSpecificPath) {
                   localFilePath = workspaceSpecificPath;
                 }
@@ -3836,14 +3867,14 @@ export async function push(
           ...(change.name === "edited" && change.codebase
             ? { codebase_changed: true }
             : {}),
-          ...(specificItems && isSpecificItem(change.path, specificItems)
+          ...((specificItems && isSpecificItem(change.path, specificItems)) || isWsSpecificItem(change.path, wsSpecificPaths)
             ? {
                 workspace_specific: true,
                 workspace_specific_path: getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
                   wsNameForFiles,
-                ),
+                ) ?? (wsNameForFiles ? toWorkspaceSpecificPath(change.path, wsNameForFiles) : undefined),
               }
             : {}),
         })),

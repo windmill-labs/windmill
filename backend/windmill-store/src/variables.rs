@@ -132,6 +132,7 @@ async fn list_variables(
             "account.refresh_token != '' as is_refreshed",
             "variable.expires_at",
             "variable.labels",
+            "ws_specific.path IS NOT NULL as ws_specific",
         ])
         .left()
         .join("account")
@@ -139,6 +140,9 @@ async fn list_variables(
         .left()
         .join("resource")
         .on("resource.path = variable.path AND resource.workspace_id = ?".bind(&w_id))
+        .left()
+        .join("ws_specific")
+        .on("ws_specific.path = variable.path AND ws_specific.workspace_id = variable.workspace_id AND ws_specific.item_kind = 'variable'")
         .and_where("variable.workspace_id = ?".bind(&w_id))
         .and_where("variable.path NOT LIKE 'u/' || ? || '/secret_arg/%'".bind(&authed.username))
         .order_by("path", false)
@@ -208,12 +212,17 @@ async fn get_variable(
     let mut tx = user_db.begin(&authed).await?;
 
     let variable_o = sqlx::query_as::<_, ListableVariable>(
-        "SELECT variable.*, (now() > account.expires_at) as is_expired, account.refresh_error,
+        "SELECT variable.workspace_id, variable.path, variable.value, variable.is_secret,
+        variable.description, variable.extra_perms, variable.account, variable.is_oauth,
+        variable.expires_at, variable.labels,
+        (now() > account.expires_at) as is_expired, account.refresh_error,
         resource.path IS NOT NULL as is_linked,
-        account.refresh_token != '' as is_refreshed
-        from variable
+        account.refresh_token != '' as is_refreshed,
+        ws_specific.path IS NOT NULL as ws_specific
+        FROM variable
         LEFT JOIN account ON variable.account = account.id
         LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = $2
+        LEFT JOIN ws_specific ON ws_specific.path = variable.path AND ws_specific.workspace_id = $2 AND ws_specific.item_kind = 'variable'
         WHERE variable.path = $1 AND variable.workspace_id = $2
         LIMIT 1",
     )
@@ -446,6 +455,16 @@ async fn create_variable(
     .execute(&mut *tx)
     .await?;
 
+    if variable.ws_specific.unwrap_or(false) {
+        sqlx::query!(
+            "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, 'variable', $2) ON CONFLICT DO NOTHING",
+            w_id,
+            variable.path,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -574,6 +593,14 @@ async fn delete_variable(
         )
         .await?;
     }
+
+    sqlx::query!(
+        "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'variable' AND path = $2",
+        w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -723,6 +750,14 @@ async fn delete_variables_bulk(
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query!(
+        "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+        w_id,
+        &deleted_paths
+    )
+    .execute(&mut *tx)
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -778,6 +813,7 @@ struct EditVariable {
     description: Option<String>,
     account: Option<i32>,
     labels: Option<Vec<String>>,
+    ws_specific: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -955,6 +991,15 @@ async fn update_variable(
             )
             .execute(&mut *tx)
             .await?;
+
+            sqlx::query!(
+                "UPDATE ws_specific SET path = $1 WHERE workspace_id = $2 AND item_kind = 'variable' AND path = $3",
+                npath,
+                w_id,
+                path
+            )
+            .execute(&mut *tx)
+            .await?;
         }
     }
 
@@ -973,6 +1018,26 @@ async fn update_variable(
         )
         .execute(&mut *tx)
         .await?;
+    }
+
+    if let Some(ws_specific) = ns.ws_specific {
+        if ws_specific {
+            sqlx::query!(
+                "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, 'variable', $2) ON CONFLICT DO NOTHING",
+                w_id,
+                &npath,
+            )
+            .execute(&mut *tx)
+            .await?;
+        } else {
+            sqlx::query!(
+                "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'variable' AND path = $2",
+                w_id,
+                &npath,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
     }
 
     audit_log(

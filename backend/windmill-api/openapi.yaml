@@ -5577,6 +5577,65 @@ paths:
                 required:
                   - pruned
 
+  /w/{workspace}/workspaces/list_ws_specific:
+    get:
+      summary: list all workspace-specific items
+      operationId: listWsSpecific
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of workspace-specific items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    item_kind:
+                      type: string
+                    path:
+                      type: string
+                  required:
+                    - item_kind
+                    - path
+
+  /w/{workspace}/workspaces/set_ws_specific:
+    post:
+      summary: set or unset an item as workspace-specific
+      operationId: setWsSpecific
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                item_kind:
+                  type: string
+                path:
+                  type: string
+                ws_specific:
+                  type: boolean
+              required:
+                - item_kind
+                - path
+                - ws_specific
+      responses:
+        "200":
+          description: ws_specific updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
       summary: Set public app rate limit for this workspace
@@ -21787,6 +21846,8 @@ components:
           type: array
           items:
             type: string
+        ws_specific:
+          type: boolean
       required:
         - workspace_id
         - path
@@ -21839,6 +21900,8 @@ components:
           type: array
           items:
             type: string
+        ws_specific:
+          type: boolean
       required:
         - path
         - value
@@ -21864,6 +21927,8 @@ components:
           type: array
           items:
             type: string
+        ws_specific:
+          type: boolean
 
     AuditLog:
       type: object
@@ -22260,6 +22325,8 @@ components:
           type: array
           items:
             type: string
+        ws_specific:
+          type: boolean
       required:
         - path
         - value
@@ -22282,6 +22349,8 @@ components:
           type: array
           items:
             type: string
+        ws_specific:
+          type: boolean
 
     Resource:
       type: object
@@ -22310,6 +22379,8 @@ components:
           type: array
           items:
             type: string
+        ws_specific:
+          type: boolean
       required:
         - path
         - resource_type
@@ -22352,6 +22423,8 @@ components:
           type: array
           items:
             type: string
+        ws_specific:
+          type: boolean
       required:
         - path
         - resource_type

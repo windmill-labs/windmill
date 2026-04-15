@@ -147,6 +147,8 @@ pub struct ListableResource {
     pub account: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_specific: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -156,6 +158,8 @@ pub struct CreateResource {
     pub description: Option<String>,
     pub resource_type: String,
     pub labels: Option<Vec<String>>,
+    #[serde(default)]
+    pub ws_specific: Option<bool>,
 }
 #[derive(Deserialize)]
 struct EditResource {
@@ -163,6 +167,7 @@ struct EditResource {
     description: Option<String>,
     value: Option<Box<RawValue>>,
     labels: Option<Vec<String>>,
+    ws_specific: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -260,10 +265,14 @@ async fn list_resources(
             "resource.created_by",
             "resource.edited_at",
             "resource.labels",
+            "ws_specific.path IS NOT NULL as ws_specific",
         ])
         .left()
         .join("variable")
         .on("variable.path = resource.path AND variable.workspace_id = resource.workspace_id")
+        .left()
+        .join("ws_specific")
+        .on("ws_specific.path = resource.path AND ws_specific.workspace_id = resource.workspace_id AND ws_specific.item_kind = 'resource'")
         .left()
         .join("account")
         .on("variable.account = account.id AND account.workspace_id = variable.workspace_id")
@@ -350,14 +359,19 @@ async fn get_resource(
 
     let resource_o = sqlx::query_as!(
         ListableResource,
-        "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
+        "SELECT resource.workspace_id, resource.path, resource.value, resource.description,
+        resource.resource_type, resource.extra_perms, resource.created_by, resource.edited_at,
+        resource.labels,
+        (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
         account.refresh_error,
         variable.path IS NOT NULL as is_linked,
         variable.is_oauth as \"is_oauth?\",
-        variable.account
+        variable.account,
+        ws_specific.path IS NOT NULL as ws_specific
         FROM resource
         LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2
         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2
+        LEFT JOIN ws_specific ON ws_specific.path = resource.path AND ws_specific.workspace_id = $2 AND ws_specific.item_kind = 'resource'
         WHERE resource.path = $1 AND resource.workspace_id = $2",
         path.to_owned(),
         &w_id
@@ -847,6 +861,17 @@ async fn create_resource(
     )
     .execute(&mut *tx)
     .await?;
+
+    if resource.ws_specific.unwrap_or(false) {
+        sqlx::query!(
+            "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, 'resource', $2) ON CONFLICT DO NOTHING",
+            w_id,
+            resource.path,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1317,6 +1342,26 @@ async fn update_resource(
         )
         .execute(&mut *tx)
         .await?;
+    }
+
+    if let Some(ws_specific) = ns.ws_specific {
+        if ws_specific {
+            sqlx::query!(
+                "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, 'resource', $2) ON CONFLICT DO NOTHING",
+                w_id,
+                &npath,
+            )
+            .execute(&mut *tx)
+            .await?;
+        } else {
+            sqlx::query!(
+                "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
+                w_id,
+                &npath,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
     }
 
     audit_log(

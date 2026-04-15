@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { VariableService } from '$lib/gen'
+	import { VariableService, WorkspaceService } from '$lib/gen'
 	import Path from './Path.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -38,6 +38,12 @@
 	let initialPath: string = $state('')
 	let pathError = $state('')
 	let can_write = $state(true)
+	let wsSpecific = $state(false)
+	let deployTo: string | undefined = $state(undefined)
+
+	WorkspaceService.getDeployTo({ workspace: $workspaceStore! }).then((x) => {
+		deployTo = x.deploy_to
+	})
 
 	export function initNew(): void {
 		variable = {
@@ -50,6 +56,7 @@
 		path = ''
 		labels = undefined
 		can_write = true
+		wsSpecific = false
 		drawer?.openDrawer()
 	}
 
@@ -70,6 +77,7 @@
 			description: getV.description ?? ''
 		}
 		labels = getV.labels ?? undefined
+		wsSpecific = getV.ws_specific ?? false
 		initialPath = edit_path
 		path = edit_path
 		drawer?.openDrawer()
@@ -99,7 +107,8 @@
 				value: variable.value,
 				is_secret: variable.is_secret,
 				description: variable.description,
-				labels
+				labels,
+				ws_specific: wsSpecific
 			}
 		})
 		sendUserToast(`Created variable ${path}`)
@@ -123,7 +132,8 @@
 					value: variable.value == '' ? undefined : variable.value,
 					is_secret: getV.is_secret != variable.is_secret ? variable.is_secret : undefined,
 					description: getV.description != variable.description ? variable.description : undefined,
-					labels
+					labels,
+					ws_specific: wsSpecific
 				}
 			})
 			sendUserToast(`Updated variable ${initialPath}`)
@@ -176,6 +186,19 @@
 					</Alert>
 				{/if}
 			</label>
+
+			{#if deployTo}
+				<label class="flex flex-col gap-1">
+					<span class="text-xs font-semibold text-emphasis">Workspace specific</span>
+					<Toggle
+						bind:checked={wsSpecific}
+						options={{
+							rightTooltip:
+								'When enabled, this variable will not be synced to other workspaces and will be treated as specific to this workspace'
+						}}
+					/>
+				</label>
+			{/if}
 
 			<div class="flex flex-col gap-1">
 				<label for="variable-value" class="flex flex-row justify-left items-center">
