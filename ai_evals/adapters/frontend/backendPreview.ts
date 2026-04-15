@@ -23,6 +23,7 @@ export interface CompletedPreviewJob {
 
 const tokenCache = new Map<string, Promise<string>>()
 const sharedWorkspaceQueue = new Map<string, Promise<void>>()
+const managedSharedWorkspacePrefixes = ['f/evals/']
 
 export class BackendPreviewClient {
 	constructor(private readonly settings: BackendValidationSettings) {}
@@ -38,6 +39,9 @@ export class BackendPreviewClient {
 
 		const run = async () => {
 			await this.ensureWorkspace(workspaceId)
+			if (this.settings.workspaceOverride) {
+				await this.clearManagedSharedWorkspaceAssets(workspaceId)
+			}
 
 			try {
 				return await body(workspaceId)
@@ -312,6 +316,44 @@ export class BackendPreviewClient {
 		return (await response.json()) as Record<string, unknown>
 	}
 
+	private async clearManagedSharedWorkspaceAssets(workspaceId: string): Promise<void> {
+		const flowPaths = await this.listFlowPaths(workspaceId)
+		for (const path of flowPaths.filter(isManagedSharedWorkspacePath)) {
+			await this.deleteFlowByPath(workspaceId, path)
+		}
+
+		const scriptPaths = await this.listScriptPaths(workspaceId)
+		for (const path of scriptPaths.filter(isManagedSharedWorkspacePath)) {
+			await this.deleteScriptByPath(workspaceId, path)
+		}
+	}
+
+	private async listFlowPaths(workspaceId: string): Promise<string[]> {
+		const response = await this.request(`/w/${encodeURIComponent(workspaceId)}/flows/list_paths`)
+		await expectOk(response, `list flows in workspace ${workspaceId}`)
+		return await response.json()
+	}
+
+	private async listScriptPaths(workspaceId: string): Promise<string[]> {
+		const response = await this.request(`/w/${encodeURIComponent(workspaceId)}/scripts/list_paths`)
+		await expectOk(response, `list scripts in workspace ${workspaceId}`)
+		return await response.json()
+	}
+
+	private async deleteFlowByPath(workspaceId: string, path: string): Promise<void> {
+		const response = await this.request(`/w/${encodeURIComponent(workspaceId)}/flows/delete/${path}`, {
+			method: 'DELETE'
+		})
+		await expectOk(response, `delete flow ${path}`)
+	}
+
+	private async deleteScriptByPath(workspaceId: string, path: string): Promise<void> {
+		const response = await this.request(`/w/${encodeURIComponent(workspaceId)}/scripts/delete/p/${path}`, {
+			method: 'POST'
+		})
+		await expectOk(response, `delete script ${path}`)
+	}
+
 	private async waitForScriptDeployment(
 		workspaceId: string,
 		path: string,
@@ -352,7 +394,12 @@ export class BackendPreviewClient {
 		const cacheKey = `${this.settings.baseUrl}|${this.settings.email}`
 		let tokenPromise = tokenCache.get(cacheKey)
 		if (!tokenPromise) {
-			tokenPromise = this.login()
+			tokenPromise = this.login().catch((error) => {
+				if (tokenCache.get(cacheKey) === tokenPromise) {
+					tokenCache.delete(cacheKey)
+				}
+				throw error
+			})
 			tokenCache.set(cacheKey, tokenPromise)
 		}
 		return await tokenPromise
@@ -448,4 +495,8 @@ function readStringField(
 function isConflictMessage(message: string): boolean {
 	const normalized = message.toLowerCase()
 	return normalized.includes('already exists') || normalized.includes('path conflict')
+}
+
+function isManagedSharedWorkspacePath(path: string): boolean {
+	return managedSharedWorkspacePrefixes.some((prefix) => path.startsWith(prefix))
 }

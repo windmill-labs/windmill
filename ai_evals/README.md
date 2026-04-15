@@ -133,7 +133,7 @@ If `--backend-validation preview` is enabled:
 - `script` evals run a real backend script preview in an isolated temp workspace
 - `flow` evals run a real backend flow preview only for cases that define `runtime.backendPreview`
 - `flow` cases with `initial.workspace` fixtures seed those scripts and flows into the preview workspace before preview
-- when `WMILL_AI_EVAL_BACKEND_WORKSPACE` is set, `ai_evals` treats that workspace as a dedicated test workspace and refreshes seeded fixture scripts and flows in place before each preview run
+- when `WMILL_AI_EVAL_BACKEND_WORKSPACE` is set, `ai_evals` treats that workspace as a dedicated test workspace, clears managed eval assets under `f/evals/*` before each preview run, and then reseeds the current case fixtures
 
 Supported backend validation env vars:
 

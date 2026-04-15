@@ -96,6 +96,12 @@ describe('BackendPreviewClient', () => {
 			if (url.endsWith('/api/workspaces/exists')) {
 				return textResponse(200, 'true')
 			}
+			if (url.endsWith('/api/w/shared-preview/flows/list_paths')) {
+				return jsonResponse(200, [])
+			}
+			if (url.endsWith('/api/w/shared-preview/scripts/list_paths')) {
+				return jsonResponse(200, [])
+			}
 			throw new Error(`Unexpected fetch: ${url}`)
 		}
 
@@ -134,6 +140,65 @@ describe('BackendPreviewClient', () => {
 		await Promise.all([first, second])
 
 		expect(order).toEqual(['first:start', 'first:end', 'second:start', 'second:end'])
+	})
+
+	it('clears managed shared-workspace assets before preview runs', async () => {
+		const requests: Array<{ url: string; init?: RequestInit }> = []
+		globalThis.fetch = mockFetch(
+			requests,
+			textResponse(200, 'token'),
+			textResponse(200, 'true'),
+			jsonResponse(200, ['f/evals/old_subflow', 'u/admin/keep_flow']),
+			textResponse(200, ''),
+			jsonResponse(200, ['f/evals/old_script', 'f/shared/keep_script']),
+			textResponse(200, '')
+		)
+
+		const client = new BackendPreviewClient(
+			buildSettings({
+				baseUrl: 'http://backend.test/shared-cleanup',
+				workspaceOverride: 'shared-preview'
+			})
+		)
+
+		await client.withWorkspace('flow-test1', 1, async () => undefined)
+
+		expect(requests.map((entry) => entry.url)).toEqual([
+			'http://backend.test/shared-cleanup/api/auth/login',
+			'http://backend.test/shared-cleanup/api/workspaces/exists',
+			'http://backend.test/shared-cleanup/api/w/shared-preview/flows/list_paths',
+			'http://backend.test/shared-cleanup/api/w/shared-preview/flows/delete/f/evals/old_subflow',
+			'http://backend.test/shared-cleanup/api/w/shared-preview/scripts/list_paths',
+			'http://backend.test/shared-cleanup/api/w/shared-preview/scripts/delete/p/f/evals/old_script'
+		])
+	})
+
+	it('retries login after a cached login failure', async () => {
+		const requests: Array<{ url: string; init?: RequestInit }> = []
+		globalThis.fetch = mockFetch(
+			requests,
+			textResponse(503, 'backend starting'),
+			textResponse(200, 'token'),
+			textResponse(200, 'true'),
+			jsonResponse(200, []),
+			jsonResponse(200, [])
+		)
+
+		const client = new BackendPreviewClient(
+			buildSettings({
+				baseUrl: 'http://backend.test/login-retry',
+				workspaceOverride: 'shared-preview'
+			})
+		)
+
+		await expect(client.withWorkspace('flow-test1', 1, async () => undefined)).rejects.toThrow(
+			'login for backend validation failed'
+		)
+		await expect(client.withWorkspace('flow-test1', 1, async () => 'ok')).resolves.toBe('ok')
+
+		expect(
+			requests.filter((entry) => entry.url === 'http://backend.test/login-retry/api/auth/login')
+		).toHaveLength(2)
 	})
 })
 
