@@ -1,4 +1,4 @@
-import type { FlowModule, OpenFlow } from '$lib/gen'
+import type { FlowModule, OpenFlow, RawScript } from '$lib/gen'
 import { dfs } from '$lib/components/flows/previousResults'
 import { SPECIAL_MODULE_IDS } from '../shared'
 import type { InlineScriptSession } from './inlineScriptsUtils'
@@ -34,14 +34,15 @@ export function updateRawScriptModuleContent(
 	flow: FlowLike,
 	id: string,
 	code: string
-): FlowModule | undefined {
+): (FlowModule & { value: RawScript }) | undefined {
 	const module = getFlowModuleById(flow, id)
 	if (!module || module.value.type !== 'rawscript') {
 		return undefined
 	}
 
-	module.value.content = code
-	return module
+	const rawScriptModule = module as FlowModule & { value: RawScript }
+	rawScriptModule.value.content = code
+	return rawScriptModule
 }
 
 export function applyFlowJsonUpdate(
