@@ -1365,12 +1365,14 @@ export async function elementsToMap(
   branchOverride?: string,
   isRemote?: boolean,
   wsSpecificPaths?: WsSpecificItem[],
+  wsNameFallback?: string,
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
   const wrongFormatPaths: string[] = [];
   // Cache git branch at the start to avoid repeated execSync calls per file
-  const cachedWsName = branchOverride ?? getCurrentGitBranch() ?? undefined;
+  // For ws_specific items, fall back to workspace ID when no branch/config is available
+  const cachedWsName = branchOverride ?? getCurrentGitBranch() ?? wsNameFallback ?? undefined;
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     // console.log("FOO", entry.path, entry.ignored, entry.isDirectory)
     if (entry.isDirectory) {
@@ -1487,8 +1489,8 @@ export async function elementsToMap(
       // If getTypeStrFromPath can't determine the type, continue processing the file
     }
 
-    // Handle workspace-specific files - skip files for other branches
-    if (specificItems && isWorkspaceSpecificFile(path)) {
+    // Handle workspace-specific files - skip files for other branches/workspaces
+    if ((specificItems || wsSpecificPaths?.length) && isWorkspaceSpecificFile(path)) {
       if (!isCurrentWorkspaceFile(path, cachedWsName)) {
         // Skip workspace-specific files for other branches
         continue;
@@ -1607,13 +1609,14 @@ async function compareDynFSElement(
   branchOverride?: string,
   isEls1Remote?: boolean,
   wsSpecificPaths?: WsSpecificItem[],
+  wsNameFallback?: string,
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote, wsSpecificPaths),
-        elementsToMap(els2, ignore, json, skips, specificItems, branchOverride, !isEls1Remote, wsSpecificPaths),
+        elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote, wsSpecificPaths, wsNameFallback),
+        elementsToMap(els2, ignore, json, skips, specificItems, branchOverride, !isEls1Remote, wsSpecificPaths, wsNameFallback),
       ])
-    : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote, wsSpecificPaths), {}];
+    : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote, wsSpecificPaths, wsNameFallback), {}];
 
   const changes: Change[] = [];
 
@@ -2275,6 +2278,7 @@ export async function pull(
     wsNameForFiles,
     true, // els1 (remote) is the remote source
     wsSpecificPaths,
+    wsNameForWsSpecific,
   );
 
   log.info(
@@ -2864,6 +2868,7 @@ export async function push(
     wsNameForFiles,
     false, // els1 (local) is not the remote source
     wsSpecificPaths,
+    wsNameForWsSpecific,
   );
 
   const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
