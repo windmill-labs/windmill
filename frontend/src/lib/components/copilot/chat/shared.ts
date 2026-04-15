@@ -95,6 +95,28 @@ function prettifySetModuleCode(content: string): string {
 	return codeContent
 }
 
+function prettifyPatchFlowJson(content: string): string {
+	let newString = ''
+
+	if (typeof content === 'string' && content.trim().startsWith('{')) {
+		try {
+			const parsed = JSON.parse(content)
+			newString = parsed.new_string ?? ''
+		} catch {
+			const newStringMatch = content.match(/"new_string"\s*:\s*"([\s\S]*?)"(?:\s*,|$)/)
+			newString = newStringMatch?.[1] ?? ''
+		}
+	}
+
+	newString = newString
+		.replace(/\\n/g, '\n')
+		.replace(/\\t/g, '\t')
+		.replace(/\\"/g, '"')
+		.replace(/\\\\/g, '\\')
+
+	return newString
+}
+
 // Prettify function for module value JSON - extracts the 'value' property and formats it
 function prettifyModuleValue(content: string): string {
 	try {
@@ -150,6 +172,7 @@ function prettifyModuleValue(content: string): string {
 export const TOOL_PRETTIFY_MAP: Record<string, (content: string) => string> = {
 	edit_code: prettifyCodeArguments,
 	set_module_code: prettifySetModuleCode,
+	patch_flow_json: prettifyPatchFlowJson,
 	add_module: prettifyModuleValue,
 	modify_module: prettifyModuleValue
 }
@@ -228,7 +251,7 @@ const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext
 export function applyCodePiecesToFlowModules(
 	codePieces: FlowModuleCodePieceElement[],
 	flowModules: FlowModule[]
-): string {
+): FlowModule[] {
 	const moduleCodePieces = new Map<string, FlowModuleCodePieceElement[]>()
 	for (const codePiece of codePieces) {
 		const moduleId = codePiece.id
@@ -252,7 +275,7 @@ export function applyCodePiecesToFlowModules(
 		}
 	}
 
-	return JSON.stringify(modifiedModules, null, 2)
+	return modifiedModules
 }
 
 export function buildContextString(selectedContext: ContextElement[]): string {

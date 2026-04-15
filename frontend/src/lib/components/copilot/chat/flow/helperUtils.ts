@@ -9,7 +9,7 @@ type FlowLike = Pick<OpenFlow, 'value'> & {
 
 export interface FlowJsonUpdate {
 	modules?: FlowModule[]
-	schema?: Record<string, any>
+	schema?: Record<string, any> | null
 	preprocessorModule?: FlowModule | null
 	failureModule?: FlowModule | null
 }
@@ -66,7 +66,7 @@ export function applyFlowJsonUpdate(
 	}
 
 	if (schema !== undefined) {
-		flow.schema = schema
+		flow.schema = schema ?? undefined
 	}
 
 	if (preprocessorModule !== undefined) {
