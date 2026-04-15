@@ -849,11 +849,13 @@ async fn update_variable(
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
 
     let mut sqlb = SqlBuilder::update_table("variable");
+    let mut has_sql_updates = false;
     sqlb.and_where_eq("path", "?".bind(&path));
     sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
 
     if let Some(npath) = &ns.path {
         sqlb.set_str("path", npath);
+        has_sql_updates = true;
     }
     let ns_value_is_none = ns.value.is_none();
     // Determine the target path for storing secrets (use new path if provided)
@@ -880,14 +882,17 @@ async fn update_variable(
             nvalue
         };
         sqlb.set_str("value", &value);
+        has_sql_updates = true;
     }
 
     if let Some(desc) = ns.description {
         sqlb.set_str("description", &desc);
+        has_sql_updates = true;
     }
 
     if let Some(account_id) = ns.account {
         sqlb.set_str("account", account_id);
+        has_sql_updates = true;
     }
 
     if let Some(nbool) = ns.is_secret {
@@ -905,8 +910,8 @@ async fn update_variable(
             ));
         }
         sqlb.set_str("is_secret", nbool);
+        has_sql_updates = true;
     }
-    sqlb.returning("path");
 
     // Get old account_id if we're updating the account field
     let old_account_id = if ns.account.is_some() {
@@ -951,6 +956,7 @@ async fn update_variable(
                         {
                             // Update the variable's value to point to the new Vault path
                             sqlb.set_str("value", &new_value);
+                            has_sql_updates = true;
                         }
                     }
                 }
@@ -1003,11 +1009,22 @@ async fn update_variable(
         }
     }
 
-    let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
-
-    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
-
-    let npath = not_found_if_none(npath_o, "Variable", path)?;
+    let npath = if has_sql_updates {
+        sqlb.returning("path");
+        let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
+        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
+        not_found_if_none(npath_o, "Variable", path)?
+    } else {
+        let npath = ns.path.clone().unwrap_or_else(|| path.to_string());
+        let exists = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2)",
+        )
+        .bind(&npath)
+        .bind(&w_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        not_found_if_none(if exists { Some(npath) } else { None }, "Variable", path)?
+    };
 
     if let Some(nlabels) = &ns.labels {
         sqlx::query!(
