@@ -58,7 +58,7 @@
 		Loader2,
 		Pen,
 		ChevronUpSquare,
-		Share,
+		Shield,
 		Trash,
 		Play,
 		ClipboardCopy,
@@ -503,8 +503,8 @@
 		})
 
 		menuItems.push({
-			label: 'Share',
-			Icon: Share,
+			label: 'Permissions',
+			Icon: Shield,
 			onclick: () => {
 				shareModal?.openDrawer(script?.path ?? '', 'script')
 			}

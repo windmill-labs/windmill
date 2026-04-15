@@ -26,7 +26,7 @@
 		Pen,
 		Play,
 		Plus,
-		Share,
+		Shield,
 		Trash
 	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
@@ -517,8 +517,8 @@
 												}
 											},
 											{
-												displayName: canWrite ? 'Share' : 'See Permissions',
-												icon: Share,
+												displayName: 'Permissions',
+												icon: Shield,
 												action: () => {
 													shareModal?.openDrawer(path, 'schedule')
 												}

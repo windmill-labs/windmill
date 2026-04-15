@@ -21,7 +21,7 @@
 		ChevronUpSquare,
 		History,
 		Pen,
-		Share,
+		Shield,
 		Trash,
 		Copy
 	} from 'lucide-svelte'
@@ -235,8 +235,8 @@
 						hide: $userStore?.operator
 					},
 					{
-						displayName: canWrite ? 'Share' : 'See Permissions',
-						icon: Share,
+						displayName: 'Permissions',
+						icon: Shield,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'app')
 						},

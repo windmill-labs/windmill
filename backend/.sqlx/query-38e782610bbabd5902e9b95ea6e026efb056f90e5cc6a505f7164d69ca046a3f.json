@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH t1 AS (UPDATE websocket_trigger SET script_path = $1, server_id = NULL WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4), t2 AS (UPDATE kafka_trigger SET script_path = $1, server_id = NULL WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4), t3 AS (UPDATE postgres_trigger SET script_path = $1, server_id = NULL WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4), t4 AS (UPDATE mqtt_trigger SET script_path = $1, server_id = NULL WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4), t5 AS (UPDATE nats_trigger SET script_path = $1, server_id = NULL WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4), t6 AS (UPDATE sqs_trigger SET script_path = $1, server_id = NULL WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4) UPDATE gcp_trigger SET script_path = $1, server_id = NULL WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "38e782610bbabd5902e9b95ea6e026efb056f90e5cc6a505f7164d69ca046a3f"
+}

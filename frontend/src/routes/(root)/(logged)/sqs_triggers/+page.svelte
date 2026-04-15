@@ -26,7 +26,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp, Pause } from 'lucide-svelte'
+	import { Code, Eye, Pen, Plus, Shield, Trash, Circle, FileUp, Pause } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -476,8 +476,8 @@
 											href: `${base}/audit_logs?resource=${path}`
 										},
 										{
-											displayName: canWrite ? 'Share' : 'See Permissions',
-											icon: Share,
+											displayName: 'Permissions',
+											icon: Shield,
 											action: () => {
 												shareModal?.openDrawer(path, 'sqs_trigger')
 											}
