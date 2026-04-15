@@ -178,7 +178,6 @@ pub fn workspaced_service() -> Router {
         .route("/cloud_quotas", get(get_cloud_quotas))
         .route("/prune_versions", post(prune_versions))
         .route("/list_ws_specific", get(list_ws_specific))
-        .route("/set_ws_specific", post(set_ws_specific))
 }
 pub fn global_service() -> Router {
     Router::new()
@@ -6614,45 +6613,4 @@ async fn list_ws_specific(
     .await?;
     tx.commit().await?;
     Ok(Json(items))
-}
-
-#[derive(Deserialize)]
-struct SetWsSpecific {
-    item_kind: String,
-    path: String,
-    ws_specific: bool,
-}
-
-async fn set_ws_specific(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Json(req): Json<SetWsSpecific>,
-) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-    let mut tx = user_db.begin(&authed).await?;
-    if req.ws_specific {
-        sqlx::query!(
-            "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-            w_id,
-            req.item_kind,
-            req.path,
-        )
-        .execute(&mut *tx)
-        .await?;
-    } else {
-        sqlx::query!(
-            "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = $2 AND path = $3",
-            w_id,
-            req.item_kind,
-            req.path,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    tx.commit().await?;
-    Ok(format!(
-        "ws_specific set to {} for {} {}",
-        req.ws_specific, req.item_kind, req.path
-    ))
 }
