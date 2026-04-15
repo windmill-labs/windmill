@@ -14,7 +14,7 @@
 	import {
 		applyFlowJsonUpdate,
 		getFlowModuleById,
-		updateRawScriptModuleContent
+		getRawScriptModuleById
 	} from './helperUtils'
 
 	let {
@@ -84,54 +84,48 @@
 
 		// ai chat tools
 		setCode: async (id: string, code: string) => {
-			const module = getFlowModuleById(flowStore.val, id)
+			const module = getRawScriptModuleById(flowStore.val, id)
 			if (!module) {
-				throw new Error('Module not found')
+				throw new Error('Module not found or is not a rawscript')
 			}
-			if (module.value.type === 'rawscript') {
-				// 1. Take snapshot only if none exists (preserves baseline for cumulative changes)
-				if (!diffManager?.beforeFlow) {
-					const snapshot = $state.snapshot(flowStore).val
-					diffManager?.setBeforeFlow(snapshot)
-					diffManager?.setEditMode(true)
-				}
 
-				// 2. Apply the code change
-				const updatedModule = updateRawScriptModuleContent(flowStore.val, id, code)
-				if (!updatedModule) {
-					throw new Error('Module is not a rawscript or script')
-				}
-				inlineScriptSession.set(id, code)
-				const { input_transforms, schema } = await loadSchemaFromModule(updatedModule)
-				updatedModule.value.input_transforms = input_transforms
-				refreshStateStore(flowStore)
+			// 1. Take snapshot only if none exists (preserves baseline for cumulative changes)
+			if (!diffManager?.beforeFlow) {
+				const snapshot = $state.snapshot(flowStore).val
+				diffManager?.setBeforeFlow(snapshot)
+				diffManager?.setEditMode(true)
+			}
 
-				// Update exprsToSet if this module is currently selected
-				if (id === selectedId && exprsToSet) {
-					exprsToSet.set(input_transforms)
-				}
+			// 2. Apply the code change
+			module.value.content = code
+			inlineScriptSession.set(id, code)
+			const { input_transforms, schema } = await loadSchemaFromModule(module)
+			module.value.input_transforms = input_transforms
+			refreshStateStore(flowStore)
 
-				if (flowStateStore.val[id]) {
-					flowStateStore.val[id].schema = schema
-				} else {
-					flowStateStore.val[id] = {
-						schema
-					}
-				}
+			// Update exprsToSet if this module is currently selected
+			if (id === selectedId && exprsToSet) {
+				exprsToSet.set(input_transforms)
+			}
 
-				// 3. Manually add to moduleActions, preserving existing action types
-				// Note: currentFlow is auto-synced by FlowGraphV2's effect after refreshStateStore
-				const currentAction = diffManager?.moduleActions[id]
-				if (!currentAction) {
-					diffManager?.setModuleActions({
-						...diffManager?.moduleActions,
-						[id]: { action: 'modified', pending: true }
-					})
-				}
-				// If already tracked (e.g., 'added' from setFlowJson), keep that status
+			if (flowStateStore.val[id]) {
+				flowStateStore.val[id].schema = schema
 			} else {
-				throw new Error('Module is not a rawscript or script')
+				flowStateStore.val[id] = {
+					schema
+				}
 			}
+
+			// 3. Manually add to moduleActions, preserving existing action types
+			// Note: currentFlow is auto-synced by FlowGraphV2's effect after refreshStateStore
+			const currentAction = diffManager?.moduleActions[id]
+			if (!currentAction) {
+				diffManager?.setModuleActions({
+					...diffManager?.moduleActions,
+					[id]: { action: 'modified', pending: true }
+				})
+			}
+			// If already tracked (e.g., 'added' from setFlowJson), keep that status
 			if ($currentEditor && $currentEditor.type === 'script' && $currentEditor.stepId === id) {
 				$currentEditor.editor.setCode(code)
 			}

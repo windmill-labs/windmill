@@ -814,6 +814,7 @@ function preservesRelativeOrder(actualIds: string[], expectedIds: string[]): boo
   return false;
 }
 
+// Exact equality, including order. Use a different helper for order-insensitive checks.
 function stringArraysEqual(left: string[], right: string[]): boolean {
   if (left.length !== right.length) {
     return false;

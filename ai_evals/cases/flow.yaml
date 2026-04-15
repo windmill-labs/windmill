@@ -229,9 +229,9 @@
   prompt: |-
     Create a flow that keeps incrementing a counter until it reaches a target value.
     The input should include a number field named `target`.
-    Use a top-level while loop step named `count_until_target`.
+    Use a top-level loop step named `count_until_target`.
     Inside it, use a single step named `increment_counter` that increments the current counter.
-    Put `stop_after_if` on `count_until_target` itself so the loop stops when `result >= flow_input.target`.
+    The loop should stop once the counter reaches `target`.
     After the loop, add a top-level step named `return_final_counter` that returns the last counter value.
   validate:
     exactTopLevelStepIds:
@@ -254,25 +254,10 @@
         immediateChildStepTypes:
           - id: increment_counter
             type: rawscript
-      - id: increment_counter
-        requiredInputTransforms:
-          - type: javascript
-            exprAnyOf:
-              - "flow_input.iter && flow_input.iter.value !== undefined ? flow_input.iter.value : 0"
-              - "flow_input.iter?.value ?? 0"
-      - id: return_final_counter
-        requiredInputTransforms:
-          - type: javascript
-            exprAnyOf:
-              - "results.count_until_target[results.count_until_target.length - 1]"
-              - "results.count_until_target.at(-1)"
     moduleFieldRules:
       - id: count_until_target
         path: stop_after_if.expr
         equals: result >= flow_input.target
-      - id: count_until_target
-        path: stop_after_if.skip_if_stopped
-        equals: false
   judgeChecklist:
     - "the input schema includes a number field named `target`"
     - "the top-level while loop step is named `count_until_target`"

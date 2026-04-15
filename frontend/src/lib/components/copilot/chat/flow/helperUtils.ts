@@ -30,17 +30,28 @@ export function getFlowModuleById(flow: FlowLike | undefined, id: string): FlowM
 	return dfs(id, flow as OpenFlow, false)[0]
 }
 
-export function updateRawScriptModuleContent(
-	flow: FlowLike,
-	id: string,
-	code: string
+export function getRawScriptModuleById(
+	flow: FlowLike | undefined,
+	id: string
 ): (FlowModule & { value: RawScript }) | undefined {
 	const module = getFlowModuleById(flow, id)
 	if (!module || module.value.type !== 'rawscript') {
 		return undefined
 	}
 
-	const rawScriptModule = module as FlowModule & { value: RawScript }
+	return module as FlowModule & { value: RawScript }
+}
+
+export function updateRawScriptModuleContent(
+	flow: FlowLike,
+	id: string,
+	code: string
+): (FlowModule & { value: RawScript }) | undefined {
+	const rawScriptModule = getRawScriptModuleById(flow, id)
+	if (!rawScriptModule) {
+		return undefined
+	}
+
 	rawScriptModule.value.content = code
 	return rawScriptModule
 }
