@@ -2077,15 +2077,15 @@ pub async fn run_worker(
 
     let is_agent_batch =
         windmill_common::utils::MODE_AND_ADDONS.mode == windmill_common::utils::Mode::AgentBatch;
-    let batch_pull_size = if is_agent_batch {
+    let batch_pull_size = {
         let s = *windmill_common::worker::BATCH_PULL_SIZE;
         if s > 0 {
             s
-        } else {
+        } else if is_agent_batch {
             100
+        } else {
+            0
         }
-    } else {
-        0
     };
     let mut batch_pull_buffer: std::collections::VecDeque<windmill_queue::PulledJob> =
         std::collections::VecDeque::new();

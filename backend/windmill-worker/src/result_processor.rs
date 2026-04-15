@@ -321,8 +321,9 @@ pub fn start_background_processor(
                     result: SendResultPayload::JobCompleted(jc),
                     time,
                 }) => {
-                    let batch_mode = windmill_common::utils::MODE_AND_ADDONS.mode
-                        == windmill_common::utils::Mode::AgentBatch;
+                    let batch_mode = *windmill_common::worker::BATCH_PULL_SIZE > 0
+                        || windmill_common::utils::MODE_AND_ADDONS.mode
+                            == windmill_common::utils::Mode::AgentBatch;
 
                     if batch_mode && is_batchable(&jc) {
                         // Accumulate for batch commit
