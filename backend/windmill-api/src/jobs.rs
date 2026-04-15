@@ -818,6 +818,7 @@ async fn get_flow_job_debug_info(
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Response> {
     let job = GetQuery::new()
+        .with_auth(&opt_authed)
         .fetch_queued((&db).into(), &id, &w_id)
         .await?;
     if let Some(job) = job {
