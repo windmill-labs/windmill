@@ -17,48 +17,6 @@ export interface SpecificItemsConfig {
   settings?: boolean;
 }
 
-export interface WsSpecificItem {
-  item_kind: string;
-  path: string;
-}
-
-/**
- * Check if a file path (base path, e.g. "u/admin/db.resource.yaml") is workspace-specific
- * based on the ws_specific list fetched from the API.
- */
-export function isWsSpecificItem(filePath: string, wsSpecificPaths: WsSpecificItem[] | undefined): boolean {
-  if (!wsSpecificPaths || wsSpecificPaths.length === 0) {
-    return false;
-  }
-
-  // Extract the item kind and windmill path from the file path
-  if (filePath.endsWith('.variable.yaml') || filePath.endsWith('.variable.json')) {
-    const wmPath = filePath.replace(/\.variable\.(yaml|json)$/, '');
-    return wsSpecificPaths.some(item => item.item_kind === 'variable' && item.path === wmPath);
-  }
-
-  if (filePath.endsWith('.resource.yaml') || filePath.endsWith('.resource.json')) {
-    const wmPath = filePath.replace(/\.resource\.(yaml|json)$/, '');
-    return wsSpecificPaths.some(item => item.item_kind === 'resource' && item.path === wmPath);
-  }
-
-  // For file resources (e.g., "config.resource.file.json")
-  const fileResourceMatch = filePath.match(/^(.+?)\.resource\.file\./);
-  if (fileResourceMatch) {
-    const wmPath = fileResourceMatch[1];
-    return wsSpecificPaths.some(item => item.item_kind === 'resource' && item.path === wmPath);
-  }
-
-  // For fileset resources
-  const filesetMatch = filePath.match(/^(.+?)\.fileset[/\\]/);
-  if (filesetMatch) {
-    const wmPath = filesetMatch[1];
-    return wsSpecificPaths.some(item => item.item_kind === 'resource' && item.path === wmPath);
-  }
-
-  return false;
-}
-
 // Define all workspace-specific file types (computed lazily)
 function getWorkspaceSpecificTypes() {
   return {
