@@ -1,4 +1,5 @@
 import type { FlowModule, OpenFlow, RawScript } from '$lib/gen'
+import { forEachFlowModule } from '$lib/components/flows/dfs'
 import { dfs } from '$lib/components/flows/previousResults'
 import { SPECIAL_MODULE_IDS } from '../shared'
 import type { InlineScriptSession } from './inlineScriptsUtils'
@@ -140,47 +141,9 @@ function replaceNewInlineScriptRefsWithEmptyCode(
 		return ''
 	}
 
-	function visitModule(module: FlowModule) {
+	forEachFlowModule(modules, (module) => {
 		if (module.value.type === 'rawscript' && module.value.content) {
 			module.value.content = replaceInlineScriptRefWithEmptyCode(module.id, module.value.content)
-			return
 		}
-
-		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
-			module.value.modules?.forEach(visitModule)
-			return
-		}
-
-		if (module.value.type === 'branchone') {
-			module.value.branches?.forEach((branch) => branch.modules?.forEach(visitModule))
-			module.value.default?.forEach(visitModule)
-			return
-		}
-
-		if (module.value.type === 'branchall') {
-			module.value.branches?.forEach((branch) => branch.modules?.forEach(visitModule))
-			return
-		}
-
-		if (module.value.type === 'aiagent') {
-			for (const tool of module.value.tools ?? []) {
-				if (
-					tool.value &&
-					'tool_type' in tool.value &&
-					tool.value.tool_type === 'flowmodule' &&
-					'type' in tool.value &&
-					tool.value.type === 'rawscript' &&
-					'content' in tool.value &&
-					tool.value.content
-				) {
-					tool.value.content = replaceInlineScriptRefWithEmptyCode(
-						tool.id,
-						tool.value.content as string
-					)
-				}
-			}
-		}
-	}
-
-	modules.forEach(visitModule)
+	})
 }
