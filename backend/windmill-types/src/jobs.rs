@@ -476,6 +476,10 @@ pub enum JobPayload {
     DeploymentCallback {
         path: String,
         debouncing_settings: DebouncingSettings,
+        // Per-invocation suffix appended to the `{workspace_id}:git_sync` concurrency key.
+        // Used in promotion mode so sync jobs targeting different branches run in parallel
+        // instead of serializing through a single workspace-wide key.
+        concurrency_key_append: Option<String>,
     },
     Identity,
     Noop,

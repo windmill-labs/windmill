@@ -1083,14 +1083,29 @@ pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
                 Err(e) => tracing::error!("Error in blocking task: {:?}", &e),
             };
         }
-        task::spawn_blocking(move || {
+        let close_result = task::spawn_blocking(move || {
             writer.lock().unwrap().take().unwrap().close()?;
             drop(writer);
             Ok::<_, anyhow::Error>(())
         })
-        .await??;
+        .await;
+        match close_result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                tracing::error!("Error closing S3 stream writer: {:?}", e);
+                let _ = tx.send(Err(e)).await;
+            }
+            Err(e) => {
+                tracing::error!("S3 stream writer close task panicked: {:?}", e);
+                let _ = tx
+                    .send(Err(anyhow::anyhow!("writer close task panicked: {e}")))
+                    .await;
+            }
+        }
         drop(ctx);
-        tokio::fs::remove_file(&path).await?;
+        if let Err(e) = tokio::fs::remove_file(&path).await {
+            tracing::error!("Error removing temp file {}: {:?}", path.display(), e);
+        }
         Ok::<_, anyhow::Error>(())
     });
 

@@ -155,6 +155,44 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
           run,
         }),
       ];
+      const artifactFiles = input.modeRunner.buildArtifacts?.(run.actual) ?? [];
+
+      if (run.success && input.modeRunner.backendValidate) {
+        try {
+          const backendValidation = await input.modeRunner.backendValidate({
+            evalCase: input.evalCase,
+            prompt: input.evalCase.prompt,
+            initial,
+            expected,
+            actual: run.actual,
+            run,
+            context: {
+              caseId: input.evalCase.id,
+              caseNumber: input.caseIndex + 1,
+              totalCases: input.totalCases,
+              attempt,
+              runs: input.runs,
+              verbose: input.verbose,
+              onAssistantMessageStart: undefined,
+              onAssistantChunk: undefined,
+              onAssistantMessageEnd: undefined,
+            },
+          });
+
+          if (backendValidation) {
+            checks.push(...backendValidation.checks);
+            artifactFiles.push(...(backendValidation.artifactFiles ?? []));
+          }
+        } catch (error) {
+          checks.push(
+            buildCheck(
+              "backend validation succeeded",
+              false,
+              error instanceof Error ? error.message : String(error)
+            )
+          );
+        }
+      }
 
       let judgeScore: number | null = null;
       let judgeSummary: string | null = null;
@@ -182,7 +220,6 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
         );
       }
 
-      const artifactFiles = input.modeRunner.buildArtifacts?.(run.actual) ?? [];
       const attemptResult: BenchmarkAttemptResult = {
         attempt,
         passed: checks.every((check) => check.passed),

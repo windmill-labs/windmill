@@ -549,15 +549,11 @@ pub fn gemini_response_to_openai(parsed: &GeminiParsedEvent, model: &str) -> ser
         .iter()
         .enumerate()
         .map(|(i, tc)| {
-            serde_json::json!({
-                "index": i,
-                "id": format!("call_{}", uuid::Uuid::new_v4().simple()),
-                "type": "function",
-                "function": {
-                    "name": tc.name,
-                    "arguments": serde_json::to_string(&tc.args).unwrap_or_default()
-                }
-            })
+            openai_tool_call_json(
+                tc,
+                format!("call_{}", uuid::Uuid::new_v4().simple()),
+                Some(i),
+            )
         })
         .collect();
 
@@ -623,7 +619,6 @@ pub fn gemini_event_to_openai_sse_chunks(
     }
 
     for tc in &parsed.tool_calls {
-        let args_str = serde_json::to_string(&tc.args).unwrap_or_default();
         let call_id = format!("call_{}", uuid::Uuid::new_v4().simple());
         let chunk = serde_json::json!({
             "id": id,
@@ -632,15 +627,7 @@ pub fn gemini_event_to_openai_sse_chunks(
             "choices": [{
                 "index": 0,
                 "delta": {
-                    "tool_calls": [{
-                        "index": *tool_call_index,
-                        "id": call_id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": args_str,
-                        }
-                    }]
+                    "tool_calls": [openai_tool_call_json(tc, call_id, Some(*tool_call_index))]
                 },
                 "finish_reason": null,
             }]
@@ -727,5 +714,104 @@ fn extract_candidates_into(candidates: &[GeminiSSECandidate], parsed: &mut Gemin
                 }
             }
         }
+    }
+}
+
+fn openai_tool_call_json(
+    tool_call: &GeminiToolCallEvent,
+    call_id: String,
+    index: Option<usize>,
+) -> serde_json::Value {
+    let mut value = serde_json::json!({
+        "id": call_id,
+        "type": "function",
+        "function": {
+            "name": tool_call.name,
+            "arguments": serde_json::to_string(&tool_call.args).unwrap_or_default(),
+        }
+    });
+
+    if let Some(index) = index {
+        value["index"] = serde_json::json!(index);
+    }
+
+    if let Some(extra_content) = tool_call.to_extra_content() {
+        if let Ok(extra_content) = serde_json::to_value(extra_content) {
+            value["extra_content"] = extra_content;
+        }
+    }
+
+    value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        gemini_event_to_openai_sse_chunks, gemini_response_to_openai, GeminiParsedEvent,
+        GeminiToolCallEvent,
+    };
+
+    #[test]
+    fn gemini_response_to_openai_preserves_thought_signature() {
+        let parsed = GeminiParsedEvent {
+            tool_calls: vec![GeminiToolCallEvent {
+                name: "get_instructions_for_code_generation".to_string(),
+                args: serde_json::json!({ "language": "rust" }),
+                thought_signature: Some("test-thought-signature".to_string()),
+            }],
+            ..Default::default()
+        };
+
+        let response = gemini_response_to_openai(&parsed, "gemini-3.1-pro");
+        let tool_call = &response["choices"][0]["message"]["tool_calls"][0];
+
+        assert_eq!(
+            tool_call["extra_content"]["google"]["thought_signature"],
+            "test-thought-signature"
+        );
+        assert_eq!(
+            tool_call["function"]["name"],
+            "get_instructions_for_code_generation"
+        );
+        assert_eq!(
+            tool_call["function"]["arguments"],
+            "{\"language\":\"rust\"}"
+        );
+    }
+
+    #[test]
+    fn gemini_streaming_chunks_preserve_thought_signature() {
+        let parsed = GeminiParsedEvent {
+            tool_calls: vec![GeminiToolCallEvent {
+                name: "get_instructions_for_code_generation".to_string(),
+                args: serde_json::json!({ "language": "rust" }),
+                thought_signature: Some("stream-thought-signature".to_string()),
+            }],
+            ..Default::default()
+        };
+
+        let mut tool_call_index = 0;
+        let chunks = gemini_event_to_openai_sse_chunks(
+            &parsed,
+            "chatcmpl-test",
+            "gemini-3.1-pro",
+            &mut tool_call_index,
+        );
+
+        assert_eq!(chunks.len(), 1);
+
+        let payload = chunks[0]
+            .strip_prefix("data: ")
+            .and_then(|chunk| chunk.strip_suffix("\n\n"))
+            .expect("chunk should be wrapped as SSE data");
+        let parsed_chunk: serde_json::Value =
+            serde_json::from_str(payload).expect("chunk should be valid JSON");
+        let tool_call = &parsed_chunk["choices"][0]["delta"]["tool_calls"][0];
+
+        assert_eq!(
+            tool_call["extra_content"]["google"]["thought_signature"],
+            "stream-thought-signature"
+        );
+        assert_eq!(tool_call["index"], 0);
     }
 }

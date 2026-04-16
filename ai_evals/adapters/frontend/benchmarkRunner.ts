@@ -1,4 +1,5 @@
 import { loadSelectedCases } from "../../core/cases";
+import { resolveBackendValidationSettings } from "../../core/backendValidation";
 import {
   formatRunModelLabel,
   getFrontendEvalModel,
@@ -22,9 +23,13 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
   const emitProgress = process.env.WMILL_FRONTEND_AI_EVAL_PROGRESS === "1";
   const verbose = process.env.WMILL_FRONTEND_AI_EVAL_VERBOSE === "1";
   const model = resolveEvalModel(mode, process.env.WMILL_FRONTEND_AI_EVAL_MODEL);
+  const backendValidation = resolveBackendValidationSettings({
+    evalMode: mode,
+    requestedMode: process.env.WMILL_FRONTEND_AI_EVAL_BACKEND_VALIDATION,
+  });
 
   const selectedCases = await loadSelectedCases(mode, caseIds);
-  const modeRunner = getModeRunner(mode, getFrontendEvalModel(model));
+  const modeRunner = getModeRunner(mode, getFrontendEvalModel(model), backendValidation);
   const runModel = formatRunModelLabel(mode, model);
   const caseResults = await runSuite({
     modeRunner,
@@ -48,15 +53,16 @@ export async function runFrontendBenchmarkFromEnv(): Promise<BenchmarkRunResult>
 
 function getModeRunner(
   mode: FrontendBenchmarkMode,
-  model: ReturnType<typeof getFrontendEvalModel>
+  model: ReturnType<typeof getFrontendEvalModel>,
+  backendValidation: ReturnType<typeof resolveBackendValidationSettings>
 ): ModeRunner<any, any, any> {
   switch (mode) {
     case "flow":
-      return createFlowModeRunner(model);
+      return createFlowModeRunner(model, backendValidation);
     case "app":
       return createAppModeRunner(model);
     case "script":
-      return createScriptModeRunner(model);
+      return createScriptModeRunner(model, backendValidation);
   }
 }
 

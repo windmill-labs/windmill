@@ -69,6 +69,19 @@ lazy_static::lazy_static! {
 
         builder.build().unwrap()
     };
+    /// HTTP client for streaming uploads (no total request timeout, only connect timeout).
+    /// Used for S3 file uploads where the body is streamed and total time depends on data size.
+    pub static ref HTTP_CLIENT_STREAMING: Client = {
+        let mut builder = reqwest::ClientBuilder::new()
+            .user_agent("windmill/beta")
+            .connect_timeout(std::time::Duration::from_secs(10));
+
+        if *FORCE_IPV4 {
+            builder = builder.local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+        }
+
+        builder.build().unwrap()
+    };
     pub static ref HTTP_CLIENT_PERMISSIVE: Client = configure_client(reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .connect_timeout(std::time::Duration::from_secs(10))

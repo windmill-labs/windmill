@@ -490,6 +490,181 @@ function validateFlowRequirements(
   validate: FlowValidationSpec
 ): BenchmarkCheck[] {
   const checks: BenchmarkCheck[] = [];
+  const actualTopLevelModules = getFlowModules(flow);
+  const actualIds = actualTopLevelModules
+    .map((module) => (typeof module.id === "string" ? module.id : null))
+    .filter((id): id is string => Boolean(id));
+
+  if (validate.exactTopLevelStepIds && validate.exactTopLevelStepIds.length > 0) {
+    checks.push(
+      check(
+        "flow top-level step ids match exactly",
+        stringArraysEqual(actualIds, validate.exactTopLevelStepIds),
+        `expected ids: ${validate.exactTopLevelStepIds.join(", ")}; actual ids: ${actualIds.join(", ")}`
+      )
+    );
+  }
+
+  if (validate.topLevelStepIds && validate.topLevelStepIds.length > 0) {
+    checks.push(
+      check(
+        "flow includes required top-level step ids",
+        validate.topLevelStepIds.every((id) => actualIds.includes(id)),
+        `required ids: ${validate.topLevelStepIds.join(", ")}; actual ids: ${actualIds.join(", ")}`
+      )
+    );
+  }
+
+  if (validate.topLevelStepOrder && validate.topLevelStepOrder.length > 0) {
+    checks.push(
+      check(
+        "flow preserves required top-level step order",
+        preservesRelativeOrder(actualIds, validate.topLevelStepOrder),
+        `required order: ${validate.topLevelStepOrder.join(" -> ")}; actual ids: ${actualIds.join(" -> ")}`
+      )
+    );
+  }
+
+  for (const typeRequirement of validate.topLevelStepTypeCountsAtLeast ?? []) {
+    const actualCount = actualTopLevelModules.filter(
+      (module) => getModuleType(module) === typeRequirement.type
+    ).length;
+    checks.push(
+      check(
+        `flow includes at least ${typeRequirement.count} top-level ${typeRequirement.type} step${typeRequirement.count === 1 ? "" : "s"}`,
+        actualCount >= typeRequirement.count,
+        `expected at least ${typeRequirement.count}, got ${actualCount}`
+      )
+    );
+  }
+
+  for (const requiredStep of validate.topLevelStepTypes ?? []) {
+    const module = actualTopLevelModules.find((candidate) => candidate.id === requiredStep.id);
+    checks.push(check(`${requiredStep.id} step exists`, Boolean(module)));
+    if (!module) {
+      continue;
+    }
+
+    checks.push(
+      check(
+        `${requiredStep.id} type matches required`,
+        getModuleType(module) === requiredStep.type,
+        `expected ${requiredStep.type}, got ${getModuleType(module) ?? "(missing)"}`
+      )
+    );
+  }
+
+  for (const moduleRule of validate.moduleRules ?? []) {
+    const module = findFlowModuleById(flow, moduleRule.id);
+    checks.push(check(`${moduleRule.id} module exists for rule validation`, Boolean(module)));
+    if (!module) {
+      continue;
+    }
+
+    if (moduleRule.hasStopAfterIf !== undefined) {
+      checks.push(
+        check(
+          `${moduleRule.id} stop_after_if presence matches required shape`,
+          hasStopAfterIf(module) === moduleRule.hasStopAfterIf,
+          `expected stop_after_if=${moduleRule.hasStopAfterIf}, got ${hasStopAfterIf(module)}`
+        )
+      );
+    }
+
+    if (moduleRule.hasStopAfterAllItersIf !== undefined) {
+      checks.push(
+        check(
+          `${moduleRule.id} stop_after_all_iters_if presence matches required shape`,
+          hasStopAfterAllItersIf(module) === moduleRule.hasStopAfterAllItersIf,
+          `expected stop_after_all_iters_if=${moduleRule.hasStopAfterAllItersIf}, got ${hasStopAfterAllItersIf(module)}`
+        )
+      );
+    }
+
+    const immediateChildren = getImmediateNestedModules(module);
+    const childIds = immediateChildren
+      .map((child) => (typeof child.id === "string" ? child.id : null))
+      .filter((id): id is string => Boolean(id));
+
+    if (moduleRule.immediateChildStepIds && moduleRule.immediateChildStepIds.length > 0) {
+      checks.push(
+        check(
+          `${moduleRule.id} includes required immediate child steps`,
+          moduleRule.immediateChildStepIds.every((id) => childIds.includes(id)),
+          `required child ids: ${moduleRule.immediateChildStepIds.join(", ")}; actual child ids: ${childIds.join(", ")}`
+        )
+      );
+    }
+
+    if (moduleRule.exactImmediateChildStepIds && moduleRule.exactImmediateChildStepIds.length > 0) {
+      checks.push(
+        check(
+          `${moduleRule.id} immediate child steps match exactly`,
+          stringArraysEqual(childIds, moduleRule.exactImmediateChildStepIds),
+          `expected child ids: ${moduleRule.exactImmediateChildStepIds.join(", ")}; actual child ids: ${childIds.join(", ")}`
+        )
+      );
+    }
+
+    for (const requiredChild of moduleRule.immediateChildStepTypes ?? []) {
+      const child = immediateChildren.find((candidate) => candidate.id === requiredChild.id);
+      checks.push(check(`${moduleRule.id}.${requiredChild.id} child step exists`, Boolean(child)));
+      if (!child) {
+        continue;
+      }
+
+      checks.push(
+        check(
+          `${moduleRule.id}.${requiredChild.id} child type matches required`,
+          getModuleType(child) === requiredChild.type,
+          `expected ${requiredChild.type}, got ${getModuleType(child) ?? "(missing)"}`
+        )
+      );
+    }
+
+    const inputTransforms = getInputTransformRecords(module);
+    for (const requiredTransform of moduleRule.requiredInputTransforms ?? []) {
+      const matchedTransform = inputTransforms.find((transform) =>
+        matchesRequiredInputTransform(transform, requiredTransform)
+      );
+
+      const expectedParts = [
+        requiredTransform.type ? `type=${JSON.stringify(requiredTransform.type)}` : null,
+        requiredTransform.expr ? `expr=${JSON.stringify(requiredTransform.expr)}` : null,
+        requiredTransform.exprAnyOf && requiredTransform.exprAnyOf.length > 0
+          ? `exprAnyOf=${JSON.stringify(requiredTransform.exprAnyOf)}`
+          : null,
+        requiredTransform.value !== undefined
+          ? `value=${JSON.stringify(requiredTransform.value)}`
+          : null,
+      ].filter(Boolean);
+
+      checks.push(
+        check(
+          `${moduleRule.id} includes required input transform (${expectedParts.join(", ")})`,
+          Boolean(matchedTransform),
+          `available transforms: ${summarizeInputTransforms(inputTransforms)}`
+        )
+      );
+    }
+  }
+
+  for (const fieldRule of validate.moduleFieldRules ?? []) {
+    const module = findFlowModuleById(flow, fieldRule.id);
+    checks.push(check(`${fieldRule.id} module exists for field validation`, Boolean(module)));
+    if (!module) {
+      continue;
+    }
+
+    const actualValue = getValueAtPath(module, fieldRule.path);
+    checks.push(
+      check(
+        `${fieldRule.id}.${fieldRule.path} matches required value`,
+        valuesEqualForValidation(actualValue, fieldRule.equals),
+        `expected ${JSON.stringify(fieldRule.equals)}, got ${JSON.stringify(actualValue)}`
+      )
+    );
+  }
 
   for (const requiredPath of validate.schemaRequiredPaths ?? []) {
     checks.push(
@@ -637,6 +812,30 @@ function preservesRelativeOrder(actualIds: string[], expectedIds: string[]): boo
   }
 
   return false;
+}
+
+// Exact equality, including order. Use a different helper for order-insensitive checks.
+function stringArraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+}
+
+function valuesEqualForValidation(
+  actual: unknown,
+  expected: string | number | boolean | null
+): boolean {
+  if (typeof expected === "string" && typeof actual === "string") {
+    return normalizeInlineExpression(actual) === normalizeInlineExpression(expected);
+  }
+
+  return actual === expected;
+}
+
+function normalizeInlineExpression(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 function collectUnresolvedResultsRefs(flow: FlowState): string[] {
@@ -873,18 +1072,24 @@ function getInlineScriptPlaceholderModuleIds(flow: FlowState): string[] {
 }
 
 function getImmediateNestedModuleIds(module: Record<string, unknown>): string[] {
-  const ids: string[] = [];
+  return getImmediateNestedModules(module).flatMap((child) =>
+    typeof child.id === "string" ? [child.id] : []
+  );
+}
+
+function getImmediateNestedModules(module: Record<string, unknown>): Array<Record<string, unknown>> {
+  const nested: Array<Record<string, unknown>> = [];
   const value = isObjectRecord(module.value) ? module.value : null;
   if (!value) {
-    return ids;
+    return nested;
   }
 
   if (Array.isArray(value.modules)) {
-    ids.push(...asModuleArray(value.modules).flatMap((child) => (typeof child.id === "string" ? [child.id] : [])));
+    nested.push(...asModuleArray(value.modules));
   }
 
   if (Array.isArray(value.default)) {
-    ids.push(...asModuleArray(value.default).flatMap((child) => (typeof child.id === "string" ? [child.id] : [])));
+    nested.push(...asModuleArray(value.default));
   }
 
   if (Array.isArray(value.branches)) {
@@ -892,18 +1097,89 @@ function getImmediateNestedModuleIds(module: Record<string, unknown>): string[] 
       if (!isObjectRecord(branch) || !Array.isArray(branch.modules)) {
         continue;
       }
-      ids.push(
-        ...asModuleArray(branch.modules).flatMap((child) => (typeof child.id === "string" ? [child.id] : []))
-      );
+      nested.push(...asModuleArray(branch.modules));
     }
   }
 
-  return ids;
+  return nested;
 }
 
 function getModuleCode(module: Record<string, unknown>): string | null {
   const value = isObjectRecord(module.value) ? module.value : null;
   return typeof value?.content === "string" ? value.content : null;
+}
+
+function getValueAtPath(record: Record<string, unknown>, dottedPath: string): unknown {
+  const segments = dottedPath.split(".").filter(Boolean);
+  let current: unknown = record;
+
+  for (const segment of segments) {
+    if (!isObjectRecord(current)) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+
+  return current;
+}
+
+function getInputTransformRecords(module: Record<string, unknown>): Array<Record<string, unknown>> {
+  const value = isObjectRecord(module.value) ? module.value : null;
+  const inputTransforms = isObjectRecord(value?.input_transforms) ? value.input_transforms : null;
+  if (!inputTransforms) {
+    return [];
+  }
+
+  return Object.values(inputTransforms).filter(isObjectRecord);
+}
+
+function matchesRequiredInputTransform(
+  actual: Record<string, unknown>,
+  required: {
+    type?: string;
+    expr?: string;
+    exprAnyOf?: string[];
+    value?: string | number | boolean | null;
+  }
+): boolean {
+  if (required.type !== undefined && !valuesEqualForValidation(actual.type, required.type)) {
+    return false;
+  }
+
+  if (required.expr !== undefined && !valuesEqualForValidation(actual.expr, required.expr)) {
+    return false;
+  }
+
+  if (required.exprAnyOf !== undefined) {
+    if (
+      typeof actual.expr !== "string" ||
+      !required.exprAnyOf.some((candidate) => valuesEqualForValidation(actual.expr, candidate))
+    ) {
+      return false;
+    }
+  }
+
+  if (required.value !== undefined && !valuesEqualForValidation(actual.value, required.value)) {
+    return false;
+  }
+
+  return true;
+}
+
+function summarizeInputTransforms(transforms: Array<Record<string, unknown>>): string {
+  if (transforms.length === 0) {
+    return "(none)";
+  }
+
+  return transforms
+    .map((transform) =>
+      JSON.stringify({
+        type: transform.type,
+        expr: transform.expr,
+        value: transform.value,
+      })
+    )
+    .join("; ");
 }
 
 function asModuleArray(value: unknown[]): Array<Record<string, unknown>> {
@@ -948,6 +1224,14 @@ function getModulePath(module: Record<string, unknown>): string | null {
 
 function hasSuspendConfig(module: Record<string, unknown>): boolean {
   return typeof module.suspend === "object" && module.suspend !== null;
+}
+
+function hasStopAfterIf(module: Record<string, unknown>): boolean {
+  return isObjectRecord(module.stop_after_if);
+}
+
+function hasStopAfterAllItersIf(module: Record<string, unknown>): boolean {
+  return isObjectRecord(module.stop_after_all_iters_if);
 }
 
 function getSuspendRequiredEvents(module: Record<string, unknown>): number | null {

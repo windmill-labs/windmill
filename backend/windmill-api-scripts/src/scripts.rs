@@ -1151,6 +1151,18 @@ async fn create_script_internal<'c>(
         .execute(&mut *tx)
         .await?;
 
+        if p_path != &ns.path {
+            windmill_common::triggers::update_triggers_script_path(
+                &mut tx, &ns.path, p_path, &w_id, false,
+            )
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!(
+                    "Error updating triggers due to runnable path change: {e:#}"
+                ))
+            })?;
+        }
+
         for schedule in schedulables {
             clear_schedule(&mut tx, &schedule.path, &w_id).await?;
 

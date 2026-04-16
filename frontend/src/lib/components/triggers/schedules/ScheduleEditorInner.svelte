@@ -311,6 +311,9 @@
 			retry = s?.retry ?? undefined
 
 			await setScheduleHandler(s)
+			permissionedAs = undefined
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -516,8 +519,8 @@
 		can_write = canWrite(cfg.path, cfg.extra_perms, $userStore)
 		tag = cfg.tag
 		permissionedAs = cfg.permissioned_as
-		selectedPermissionedAs = undefined
-		preservePermissionedAs = false
+		selectedPermissionedAs = cfg.permissioned_as
+		preservePermissionedAs = !!cfg.permissioned_as
 
 		loading = false
 	}

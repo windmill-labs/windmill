@@ -19,6 +19,8 @@ import type { TokenUsage } from '../shared/types'
 export interface FlowFixture {
 	value?: {
 		modules?: FlowModule[]
+		preprocessor_module?: FlowModule
+		failure_module?: FlowModule
 	}
 	schema?: Record<string, unknown>
 }
@@ -54,6 +56,8 @@ export async function runFlowEval(
 	const { helpers, getFlow, cleanup } = await createFlowFileHelpers(
 		options?.initialFlow?.value?.modules ?? [],
 		options?.initialFlow?.schema,
+		options?.initialFlow?.value?.preprocessor_module,
+		options?.initialFlow?.value?.failure_module,
 		workspaceRoot,
 		options?.workspaceFixtures
 	)

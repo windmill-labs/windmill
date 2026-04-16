@@ -55,6 +55,7 @@ bun run cli -- run flow flow-test4-order-processing-loop --model opus
 bun run cli -- run flow flow-test0-sum-two-numbers --models haiku,opus,4o
 bun run cli -- run flow flow-test0-sum-two-numbers --runs 3 --verbose
 bun run cli -- run flow --record
+WMILL_AI_EVAL_BACKEND_URL=http://127.0.0.1:8000 bun run cli -- run flow --backend-validation preview
 bun run cli -- run cli bun-hello-script
 ```
 
@@ -72,6 +73,7 @@ Public CLI surface:
 - `--models <a,b,c>`: run the same cases sequentially against several model aliases
 - `--verbose`: stream assistant output for frontend runs
 - `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl` for full-suite runs only
+- `--backend-validation <mode>`: optional backend smoke validation (`off` or `preview`) for `script` and `flow` evals
 
 ## Models
 
@@ -114,6 +116,7 @@ Optional fields:
 - `initial`: starting state fixture
 - `expected`: expected artifact fixture
 - `validate`: extra deterministic validation rules
+- `runtime.backendPreview`: optional real backend preview config for smoke validation
 
 For `flow` mode, `validate` can express requirements such as:
 
@@ -124,6 +127,23 @@ For `flow` mode, `validate` can express requirements such as:
 For `flow` mode, an `initial` fixture can also include a benchmark workspace catalog of
 existing scripts and flows. That lets the real `search_workspace` and
 `get_runnable_details` tools discover reusable workspace runnables during evals.
+
+If `--backend-validation preview` is enabled:
+
+- `script` evals run a real backend script preview in an isolated temp workspace
+- `flow` evals run a real backend flow preview only for cases that define `runtime.backendPreview`
+- `flow` cases with `initial.workspace` fixtures seed those scripts and flows into the preview workspace before preview
+- when `WMILL_AI_EVAL_BACKEND_WORKSPACE` is set, `ai_evals` treats that workspace as a dedicated test workspace, clears managed eval assets under `f/evals/*` before each preview run, and then reseeds the current case fixtures
+
+Supported backend validation env vars:
+
+- `WMILL_AI_EVAL_BACKEND_VALIDATION=preview`
+- `WMILL_AI_EVAL_BACKEND_URL=http://127.0.0.1:8000`
+- `WMILL_AI_EVAL_BACKEND_EMAIL=admin@windmill.dev`
+- `WMILL_AI_EVAL_BACKEND_PASSWORD=changeme`
+- `WMILL_AI_EVAL_BACKEND_WORKSPACE=integration-tests` to reuse an existing workspace on CE installs with low workspace limits
+- `WMILL_AI_EVAL_KEEP_WORKSPACES=1`
+- `WMILL_AI_EVAL_WORKSPACE_PREFIX=ai-evals`
 
 ## Results And Artifacts
 
@@ -158,6 +178,7 @@ Typical artifacts by mode:
 - `script`: `script.json` plus the generated script file
 - `app`: `app.json` plus frontend/backend files
 - `cli`: `assistant-output.txt` plus generated workspace files
+- backend-validated attempts also include `backend-preview.json`
 
 ## Layout
 

@@ -3703,8 +3703,14 @@ async fn push_next_flow_job(
             )
         };
 
-        // Check tag availability for flow substeps to prevent abuse
-        if let Some(tag_str) = tag.as_deref().filter(|t| !t.is_empty()) {
+        // Check tag availability for flow substeps to prevent abuse.
+        // Skip when the substep inherits the parent flow's tag: that tag was already
+        // validated at flow push time, and for dedicated flows it is the auto-generated
+        // `{workspace_id}:flow/{path}` tag which is never in CUSTOM_TAGS.
+        if let Some(tag_str) = tag
+            .as_deref()
+            .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
+        {
             check_tag_available_for_workspace_internal(
                 &db,
                 &flow_job.workspace_id,

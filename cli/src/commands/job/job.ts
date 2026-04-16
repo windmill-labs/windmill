@@ -155,21 +155,36 @@ function formatFlowSteps(
     // For-loop modules: show parent line + iteration sub-lines
     const flowJobs = mod.flow_jobs as string[] | undefined;
     if (flowJobs && flowJobs.length > 0) {
-      // Total duration for the for-loop
-      const totalMs = flowJobsDuration?.duration_ms
-        ? (flowJobsDuration.duration_ms as number[]).reduce((a: number, b: number) => a + b, 0)
-        : undefined;
+      // Compute actual wall-clock duration for the group from started_at + duration_ms
+      const startedAtArr = (flowJobsDuration?.started_at ?? []) as (string | null)[];
+      const durationMsArr = (flowJobsDuration?.duration_ms ?? []) as (number | null)[];
+      let totalMs: number | undefined;
+      {
+        let minStart = Infinity;
+        let maxEnd = -Infinity;
+        for (let i = 0; i < startedAtArr.length; i++) {
+          const sa = startedAtArr[i];
+          const dm = durationMsArr[i];
+          if (sa != null && dm != null) {
+            const startMs = new Date(sa).getTime();
+            minStart = Math.min(minStart, startMs);
+            maxEnd = Math.max(maxEnd, startMs + dm);
+          }
+        }
+        if (minStart < Infinity && maxEnd > -Infinity) {
+          totalMs = maxEnd - minStart;
+        }
+      }
       const durationStr = totalMs != null ? colors.dim(formatDuration(totalMs)) : "";
       console.log(`  ${icon} ${label}  ${durationStr}`);
 
       const flowJobsSuccess = (mod.flow_jobs_success ?? []) as boolean[];
-      const durationMs = (flowJobsDuration?.duration_ms ?? []) as number[];
       for (let iter = 0; iter < flowJobs.length; iter++) {
         const iterSuccess = flowJobsSuccess[iter];
         const iterIcon = iterSuccess === true ? colors.green("✓")
           : iterSuccess === false ? colors.red("✗")
           : colors.dim("·");
-        const iterDur = durationMs[iter] != null ? colors.dim(formatDuration(durationMs[iter])) : "";
+        const iterDur = durationMsArr[iter] != null ? colors.dim(formatDuration(durationMsArr[iter]!)) : "";
         const iterJobId = colors.dim(flowJobs[iter]);
         console.log(`    ${iterIcon} iteration ${iter}  ${iterJobId}  ${iterDur}`);
       }

@@ -2,10 +2,52 @@ export const EVAL_MODES = ["cli", "flow", "script", "app"] as const;
 
 export type EvalMode = (typeof EVAL_MODES)[number];
 
+export interface EvalCaseRuntimeBackendPreview {
+  args?: Record<string, unknown>;
+  timeoutSeconds?: number;
+}
+
+export interface EvalCaseRuntimeSpec {
+  backendPreview?: EvalCaseRuntimeBackendPreview;
+}
+
 export interface FlowValidationSpec {
   schemaRequiredPaths?: string[];
   schemaAnyOf?: Array<{
     requiredPaths: string[];
+  }>;
+  exactTopLevelStepIds?: string[];
+  topLevelStepIds?: string[];
+  topLevelStepOrder?: string[];
+  topLevelStepTypeCountsAtLeast?: Array<{
+    type: string;
+    count: number;
+  }>;
+  topLevelStepTypes?: Array<{
+    id: string;
+    type: string;
+  }>;
+  moduleRules?: Array<{
+    id: string;
+    hasStopAfterIf?: boolean;
+    hasStopAfterAllItersIf?: boolean;
+    immediateChildStepIds?: string[];
+    exactImmediateChildStepIds?: string[];
+    immediateChildStepTypes?: Array<{
+      id: string;
+      type: string;
+    }>;
+    requiredInputTransforms?: Array<{
+      type?: string;
+      expr?: string;
+      exprAnyOf?: string[];
+      value?: string | number | boolean | null;
+    }>;
+  }>;
+  moduleFieldRules?: Array<{
+    id: string;
+    path: string;
+    equals: string | number | boolean | null;
   }>;
   resolveResultsRefs?: boolean;
   requireSpecialModules?: Array<"preprocessor_module" | "failure_module">;
@@ -23,6 +65,7 @@ export interface EvalCase {
   expectedPath?: string;
   validate?: FlowValidationSpec;
   judgeChecklist?: string[];
+  runtime?: EvalCaseRuntimeSpec;
 }
 
 export interface BenchmarkCheck {
@@ -41,6 +84,11 @@ export interface JudgeResult {
 export interface BenchmarkArtifactFile {
   path: string;
   content: string;
+}
+
+export interface BackendValidationResult {
+  checks: BenchmarkCheck[];
+  artifactFiles?: BenchmarkArtifactFile[];
 }
 
 export interface BenchmarkTokenUsage {
@@ -91,6 +139,15 @@ export interface ModeRunner<TInitial, TExpected, TActual> {
     actual: TActual;
     run: ModeRunOutput<TActual>;
   }): BenchmarkCheck[];
+  backendValidate?(input: {
+    evalCase: EvalCase;
+    prompt: string;
+    initial: TInitial | undefined;
+    expected: TExpected | undefined;
+    actual: TActual;
+    run: ModeRunOutput<TActual>;
+    context: ModeRunContext;
+  }): Promise<BackendValidationResult | null>;
   buildArtifacts?(actual: TActual): BenchmarkArtifactFile[];
 }
 

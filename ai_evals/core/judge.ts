@@ -34,6 +34,8 @@ export async function judgeOutput(input: {
     "If a checklist is provided, treat it as the explicit acceptance criteria for this case.",
     "Be strict about missing requested functionality.",
     "When the prompt wording is ambiguous, prefer the checklist over inferred structural requirements.",
+    "Do not invent additional Windmill-specific constraints that are not explicit in the prompt, checklist, or expected state.",
+    "Do not lower the score just because the output uses a different but valid Windmill idiom, naming choice, or equivalent field shape.",
     "Do not require exact ids, exact topology, or exact field names unless the prompt, checklist, or expected state clearly requires them.",
     `Always respond by calling the ${JUDGE_TOOL_NAME} tool exactly once.`,
   ].join("\n\n");
