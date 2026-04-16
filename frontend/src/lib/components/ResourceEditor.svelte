@@ -28,6 +28,7 @@
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
 	import Label from './Label.svelte'
+	import WsSpecificVersions from './WsSpecificVersions.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -259,6 +260,7 @@
 				<Toggle bind:checked={wsSpecific} />
 			</Label>
 		{/if}
+		<WsSpecificVersions kind="resource" workspaceId={effectiveWorkspace} {initialPath} />
 
 		{#if !emptyString(resourceTypeInfo?.description)}
 			<div class="flex flex-col gap-1">

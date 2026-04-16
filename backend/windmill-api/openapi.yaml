@@ -5603,6 +5603,37 @@ paths:
                     - item_kind
                     - path
 
+  /w/{workspace}/workspaces/list_ws_specific_versions:
+    get:
+      summary: list workspace ids that have a version of the given item
+      operationId: listWsSpecificVersions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - resource
+              - variable
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: list of workspace ids that have a version of the item
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
       summary: Set public app rate limit for this workspace

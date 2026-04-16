@@ -17,6 +17,7 @@
 	import { Loader2, Save } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 	import Label from './Label.svelte'
+	import WsSpecificVersions from './WsSpecificVersions.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -196,6 +197,7 @@
 					<Toggle bind:checked={wsSpecific} />
 				</Label>
 			{/if}
+			<WsSpecificVersions kind="variable" workspaceId={$workspaceStore!} {initialPath} />
 
 			<div class="flex flex-col gap-1">
 				<label for="variable-value" class="flex flex-row justify-left items-center">
