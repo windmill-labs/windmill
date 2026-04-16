@@ -1490,9 +1490,16 @@ export async function elementsToMap(
     }
 
     // Handle workspace-specific files - skip files for other branches/workspaces
+    // A ws-specific file can match either the primary workspace name (from git branch / config)
+    // or the fallback workspace ID (for ws_specific items named by workspace ID during pull)
+    let matchedWsName: string | undefined;
     if ((specificItems || wsSpecificPaths?.length) && isWorkspaceSpecificFile(path)) {
-      if (!isCurrentWorkspaceFile(path, cachedWsName)) {
-        // Skip workspace-specific files for other branches
+      if (cachedWsName && isCurrentWorkspaceFile(path, cachedWsName)) {
+        matchedWsName = cachedWsName;
+      } else if (wsNameFallback && wsNameFallback !== cachedWsName && isCurrentWorkspaceFile(path, wsNameFallback)) {
+        matchedWsName = wsNameFallback;
+      } else {
+        // Skip workspace-specific files for other branches/workspaces
         continue;
       }
     }
@@ -1526,10 +1533,9 @@ export async function elementsToMap(
     }
 
     // Handle workspace-specific path mapping after all filtering
-    if (cachedWsName && isCurrentWorkspaceFile(path, cachedWsName)) {
-      // This is a workspace-specific file for current branch
-      const currentBranch = cachedWsName;
-      const basePath = fromWorkspaceSpecificPath(path, currentBranch);
+    if (matchedWsName) {
+      // This is a workspace-specific file for current branch/workspace
+      const basePath = fromWorkspaceSpecificPath(path, matchedWsName);
 
       // Accept workspace-specific files if:
       // 1. The old specificItems config says so (type configured AND pattern matches), OR
@@ -2458,6 +2464,32 @@ export async function pull(
         }
       }
     }
+
+    // Clean up orphaned workspace-specific files: if a base file was written (item is no
+    // longer ws_specific), remove the old workspace-specific version to avoid confusion.
+    if (wsNameForWsSpecific) {
+      for (const change of changes) {
+        if (change.name === "deleted") continue;
+        // If this change was NOT written to a workspace-specific path, check for orphaned ws-specific file
+        const isWs = (specificItems && isSpecificItem(change.path, specificItems)) || isWsSpecificItem(change.path, wsSpecificPaths);
+        if (!isWs) {
+          const orphanedWsPath = toWorkspaceSpecificPath(change.path, wsNameForWsSpecific);
+          if (orphanedWsPath !== change.path) {
+            const orphanedTarget = path.join(process.cwd(), orphanedWsPath);
+            try {
+              await stat(orphanedTarget);
+              log.info(
+                `Removing orphaned workspace-specific file ${orphanedWsPath}`,
+              );
+              await rm(orphanedTarget);
+            } catch {
+              // File doesn't exist — nothing to clean up
+            }
+          }
+        }
+      }
+    }
+
     if (opts.failConflicts) {
       if (conflicts.length > 0) {
         console.error(colors.red(`Conflicts were found`));
