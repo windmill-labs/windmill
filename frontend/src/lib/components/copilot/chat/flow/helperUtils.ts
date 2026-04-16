@@ -65,90 +65,55 @@ export function applyFlowJsonUpdate(
 	inlineScriptSession: InlineScriptSession,
 	{ modules, schema, preprocessorModule, failureModule }: FlowJsonUpdate
 ): FlowJsonUpdateResult {
-	const previousModules = flow.value.modules
-	const previousSchema = flow.schema
-	const previousPreprocessorModule = flow.value.preprocessor_module
-	const previousFailureModule = flow.value.failure_module
-	const previousInlineScripts = inlineScriptSession.getAll()
 	const emptyInlineScriptModuleIds = new Set<string>()
 
-	try {
-		if (modules !== undefined) {
-			seedMissingInlineScripts(modules, inlineScriptSession).forEach((id) =>
-				emptyInlineScriptModuleIds.add(id)
-			)
-			flow.value.modules = restoreFlowModules(modules, inlineScriptSession)
-		}
+	if (modules !== undefined) {
+		flow.value.modules = restoreFlowModules(modules, inlineScriptSession, emptyInlineScriptModuleIds)
+	}
 
-		if (schema !== undefined) {
-			flow.schema = schema ?? undefined
-		}
+	if (schema !== undefined) {
+		flow.schema = schema ?? undefined
+	}
 
-		if (preprocessorModule !== undefined) {
-			flow.value.preprocessor_module =
-				preprocessorModule === null
-					? undefined
-					: restoreFlowModuleWithSeededInlineScripts(
-							preprocessorModule,
-							inlineScriptSession,
-							emptyInlineScriptModuleIds
-						)
-		}
+	if (preprocessorModule !== undefined) {
+		flow.value.preprocessor_module =
+			preprocessorModule === null
+				? undefined
+				: restoreFlowModule(preprocessorModule, inlineScriptSession, emptyInlineScriptModuleIds)
+	}
 
-		if (failureModule !== undefined) {
-			flow.value.failure_module =
-				failureModule === null
-					? undefined
-					: restoreFlowModuleWithSeededInlineScripts(
-							failureModule,
-							inlineScriptSession,
-							emptyInlineScriptModuleIds
-						)
-		}
+	if (failureModule !== undefined) {
+		flow.value.failure_module =
+			failureModule === null
+				? undefined
+				: restoreFlowModule(failureModule, inlineScriptSession, emptyInlineScriptModuleIds)
+	}
 
-		return {
-			emptyInlineScriptModuleIds: Array.from(emptyInlineScriptModuleIds)
-		}
-	} catch (error) {
-		flow.value.modules = previousModules
-		flow.schema = previousSchema
-		flow.value.preprocessor_module = previousPreprocessorModule
-		flow.value.failure_module = previousFailureModule
-		inlineScriptSession.clear()
-		for (const [moduleId, content] of Object.entries(previousInlineScripts)) {
-			inlineScriptSession.set(moduleId, content)
-		}
-		throw error
+	return {
+		emptyInlineScriptModuleIds: Array.from(emptyInlineScriptModuleIds)
 	}
 }
 
 function restoreFlowModules(
 	modules: FlowModule[],
-	inlineScriptSession: InlineScriptSession
+	inlineScriptSession: InlineScriptSession,
+	emptyInlineScriptModuleIds: Set<string>
 ): FlowModule[] {
 	const restoredModules = inlineScriptSession.restoreInlineScriptReferences(modules)
+	replaceNewInlineScriptRefsWithEmptyCode(restoredModules, emptyInlineScriptModuleIds)
 	assertResolvedInlineScripts(restoredModules, inlineScriptSession)
 	return restoredModules
 }
 
 function restoreFlowModule(
 	module: FlowModule,
-	inlineScriptSession: InlineScriptSession
-): FlowModule {
-	const [restoredModule] = inlineScriptSession.restoreInlineScriptReferences([module])
-	assertResolvedInlineScripts([restoredModule], inlineScriptSession)
-	return restoredModule
-}
-
-function restoreFlowModuleWithSeededInlineScripts(
-	module: FlowModule,
 	inlineScriptSession: InlineScriptSession,
 	emptyInlineScriptModuleIds: Set<string>
 ): FlowModule {
-	seedMissingInlineScripts([module], inlineScriptSession).forEach((id) =>
-		emptyInlineScriptModuleIds.add(id)
-	)
-	return restoreFlowModule(module, inlineScriptSession)
+	const [restoredModule] = inlineScriptSession.restoreInlineScriptReferences([module])
+	replaceNewInlineScriptRefsWithEmptyCode([restoredModule], emptyInlineScriptModuleIds)
+	assertResolvedInlineScripts([restoredModule], inlineScriptSession)
+	return restoredModule
 }
 
 function assertResolvedInlineScripts(
@@ -161,27 +126,23 @@ function assertResolvedInlineScripts(
 	}
 }
 
-function seedMissingInlineScripts(
+function replaceNewInlineScriptRefsWithEmptyCode(
 	modules: FlowModule[],
-	inlineScriptSession: InlineScriptSession
-): string[] {
-	const emptyInlineScriptModuleIds: string[] = []
-
-	function ensureEmptyInlineScript(moduleId: string, inlineScriptRefId: string) {
-		if (moduleId !== inlineScriptRefId || inlineScriptSession.has(moduleId)) {
-			return
+	emptyInlineScriptModuleIds: Set<string>
+): void {
+	function replaceInlineScriptRefWithEmptyCode(ownerId: string, content: string): string {
+		const match = content.match(/^inline_script\.(.+)$/)
+		if (!match || match[1] !== ownerId) {
+			return content
 		}
 
-		inlineScriptSession.set(moduleId, '')
-		emptyInlineScriptModuleIds.push(moduleId)
+		emptyInlineScriptModuleIds.add(ownerId)
+		return ''
 	}
 
 	function visitModule(module: FlowModule) {
 		if (module.value.type === 'rawscript' && module.value.content) {
-			const match = module.value.content.match(/^inline_script\.(.+)$/)
-			if (match) {
-				ensureEmptyInlineScript(module.id, match[1])
-			}
+			module.value.content = replaceInlineScriptRefWithEmptyCode(module.id, module.value.content)
 			return
 		}
 
@@ -212,15 +173,14 @@ function seedMissingInlineScripts(
 					'content' in tool.value &&
 					tool.value.content
 				) {
-					const match = (tool.value.content as string).match(/^inline_script\.(.+)$/)
-					if (match) {
-						ensureEmptyInlineScript(tool.id, match[1])
-					}
+					tool.value.content = replaceInlineScriptRefWithEmptyCode(
+						tool.id,
+						tool.value.content as string
+					)
 				}
 			}
 		}
 	}
 
 	modules.forEach(visitModule)
-	return emptyInlineScriptModuleIds
 }
