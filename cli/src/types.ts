@@ -154,7 +154,8 @@ export async function pushObj(
   alreadySynced: string[],
   message?: string,
   originalLocalPath?: string,
-  permissionedAsContext?: PermissionedAsContext
+  permissionedAsContext?: PermissionedAsContext,
+  wsSpecific?: boolean,
 ) {
   const typeEnding = getTypeStrFromPath(p);
 
@@ -173,7 +174,7 @@ export async function pushObj(
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
-    await pushVariable(workspace, p, befObj, newObj, plainSecrets);
+    await pushVariable(workspace, p, befObj, newObj, plainSecrets, wsSpecific);
   } else if (typeEnding === "flow") {
     const flowName = extractResourceName(p, "flow");
     if (!flowName) {
@@ -183,7 +184,7 @@ export async function pushObj(
   } else if (typeEnding === "resource") {
     if (!alreadySynced.includes(p)) {
       alreadySynced.push(p);
-      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p);
+      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p, wsSpecific);
     }
   } else if (typeEnding === "resource-type") {
     await pushResourceType(workspace, p, befObj, newObj);

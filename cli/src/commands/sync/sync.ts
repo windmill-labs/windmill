@@ -114,6 +114,47 @@ import {
 
 let branchDeprecationWarned = false;
 
+// Map ws_specific item_kind values to SpecificItemsConfig keys and file suffixes.
+// isSpecificItem() matches against the full file path (e.g. "u/admin/a.resource.yaml"),
+// so server paths (e.g. "u/admin/a") must be converted to file-path patterns.
+const WS_SPECIFIC_KIND_MAP: Record<string, { configKey: keyof Omit<SpecificItemsConfig, "settings">; suffix: string }> = {
+  resource: { configKey: "resources", suffix: ".resource.yaml" },
+  variable: { configKey: "variables", suffix: ".variable.yaml" },
+};
+
+// Fetch ws_specific items from the server and merge their paths into specificItems.
+// Each ws_specific entry (item_kind + path) is appended as an exact file-path pattern
+// to the corresponding array in the config, so the existing pattern-matching logic picks them up.
+async function mergeWsSpecificFromServer(
+  workspaceId: string,
+  specificItems: SpecificItemsConfig | undefined,
+): Promise<SpecificItemsConfig | undefined> {
+  let wsSpecificItems: Array<{ item_kind: string; path: string }>;
+  try {
+    wsSpecificItems = await wmill.listWsSpecific({ workspace: workspaceId });
+  } catch {
+    log.debug("Could not fetch ws_specific items from server, skipping");
+    return specificItems;
+  }
+
+  if (wsSpecificItems.length === 0) {
+    return specificItems;
+  }
+
+  const merged: SpecificItemsConfig = specificItems ? { ...specificItems } : {};
+
+  for (const item of wsSpecificItems) {
+    const kindInfo = WS_SPECIFIC_KIND_MAP[item.item_kind];
+    if (!kindInfo) continue;
+    if (!merged[kindInfo.configKey]) {
+      merged[kindInfo.configKey] = [];
+    }
+    merged[kindInfo.configKey]!.push(item.path + kindInfo.suffix);
+  }
+
+  return merged;
+}
+
 // Resolve workspace name from a --branch override (git branch → workspace name).
 // Falls back to using the branch value as-is (backward compat: old key = branch name).
 function resolveWsNameFromBranch(opts: SyncOptions, branchName: string): string {
@@ -2186,10 +2227,13 @@ export async function pull(
   );
 
   // Extract specific items configuration
-  const specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
+  let specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
 
-  // Compute the workspace name for file naming
-  const wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : undefined;
+  // Compute the workspace name for file naming (default to workspaceId)
+  let wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : workspace.workspaceId;
+
+  // Augment specificItems with server-side ws_specific entries
+  specificItems = await mergeWsSpecificFromServer(workspace.workspaceId, specificItems);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2716,10 +2760,13 @@ export async function push(
   );
 
   // Extract specific items configuration
-  const specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
+  let specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
 
-  // Compute the workspace name for file naming
-  const wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : undefined;
+  // Compute the workspace name for file naming (default to workspaceId)
+  let wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : workspace.workspaceId;
+
+  // Augment specificItems with server-side ws_specific entries
+  specificItems = await mergeWsSpecificFromServer(workspace.workspaceId, specificItems);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -3313,12 +3360,16 @@ export async function push(
                   // This ensures workspace-specific files are stored with their base names in the workspace
                   let serverPath = resourceFilePath;
                   const currentBranch = cachedWsNameForPush;
+                  let isFileResWsSpecific = false;
 
                   if (currentBranch && isWorkspaceSpecificFile(resourceFilePath)) {
                     serverPath = fromWorkspaceSpecificPath(
                       resourceFilePath,
                       currentBranch,
                     );
+                    isFileResWsSpecific = true;
+                  } else if (specificItems && isSpecificItem(change.path, specificItems)) {
+                    isFileResWsSpecific = true;
                   }
 
                   await pushResource(
@@ -3327,6 +3378,7 @@ export async function push(
                     undefined,
                     newObj,
                     resourceFilePath,
+                    isFileResWsSpecific ? true : undefined,
                   );
                   if (stateTarget) {
                     await writeFile(stateTarget, change.after, "utf-8");
@@ -3346,12 +3398,16 @@ export async function push(
 
                   let serverPath = resourceFilePath;
                   const currentBranch = cachedWsNameForPush;
+                  let isFilesetResWsSpecific = false;
 
                   if (currentBranch && isWorkspaceSpecificFile(resourceFilePath)) {
                     serverPath = fromWorkspaceSpecificPath(
                       resourceFilePath,
                       currentBranch,
                     );
+                    isFilesetResWsSpecific = true;
+                  } else if (specificItems && isSpecificItem(change.path, specificItems)) {
+                    isFilesetResWsSpecific = true;
                   }
 
                   await pushResource(
@@ -3360,6 +3416,7 @@ export async function push(
                     undefined,
                     newObj,
                     resourceFilePath,
+                    isFilesetResWsSpecific ? true : undefined,
                   );
                   if (stateTarget) {
                     await writeFile(stateTarget, change.after, "utf-8");
@@ -3372,7 +3429,8 @@ export async function push(
 
               // Check if this is a branch-specific item and get the original workspace-specific path
               let originalWorkspaceSpecificPath: string | undefined;
-              if (specificItems && isSpecificItem(change.path, specificItems)) {
+              const isWsSpecific = specificItems && isSpecificItem(change.path, specificItems);
+              if (isWsSpecific) {
                 originalWorkspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
@@ -3390,6 +3448,7 @@ export async function push(
                 opts.message,
                 originalWorkspaceSpecificPath,
                 permissionedAsContext,
+                isWsSpecific ? true : undefined,
               );
 
               if (stateTarget) {
@@ -3440,7 +3499,8 @@ export async function push(
               // Determine the actual local file path for this change
               // For branch-specific items, we read from workspace-specific files but push to base server paths
               let localFilePath = change.path;
-              if (specificItems && isSpecificItem(change.path, specificItems)) {
+              const isAddedWsSpecific = specificItems && isSpecificItem(change.path, specificItems);
+              if (isAddedWsSpecific) {
                 const workspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
@@ -3461,6 +3521,7 @@ export async function push(
                 opts.message,
                 localFilePath, // Pass the actual local file path
                 permissionedAsContext,
+                isAddedWsSpecific ? true : undefined,
               );
 
               if (stateTarget) {
