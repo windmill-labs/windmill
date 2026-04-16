@@ -123,19 +123,102 @@ export async function createAppFileHelpers(
 	}
 	await persistDatatables(workspaceRoot, datatables)
 
+	const setFrontendFile: AppAIChatHelpers['setFrontendFile'] = (path, content) => {
+		frontend[path] = content
+		void writeFrontendFile(workspaceRoot, path, content)
+		return createEmptyLintResult()
+	}
+
+	const deleteFrontendFile: AppAIChatHelpers['deleteFrontendFile'] = (path) => {
+		delete frontend[path]
+		void removeFrontendFile(workspaceRoot, path)
+	}
+
+	const setBackendRunnable: AppAIChatHelpers['setBackendRunnable'] = async (key, runnable) => {
+		backend[key] = runnable
+		await writeBackendRunnable(workspaceRoot, key, runnable)
+		return createEmptyLintResult()
+	}
+
+	const deleteBackendRunnable: AppAIChatHelpers['deleteBackendRunnable'] = (key) => {
+		delete backend[key]
+		void removeBackendRunnable(workspaceRoot, key)
+	}
+
+	const snapshot: AppAIChatHelpers['snapshot'] = () => {
+		const id = ++snapshotId
+		snapshots.set(id, {
+			frontend: { ...frontend },
+			backend: { ...backend }
+		})
+		return id
+	}
+
+	const revertToSnapshot: AppAIChatHelpers['revertToSnapshot'] = (id) => {
+		const snapshot = snapshots.get(id)
+		if (!snapshot) {
+			return
+		}
+		frontend = { ...snapshot.frontend }
+		backend = { ...snapshot.backend }
+		void syncWorkspace()
+	}
+
+	const execDatatableSql: AppAIChatHelpers['execDatatableSql'] = async (
+		datatableName,
+		sql,
+		newTable
+	) => {
+		if (newTable) {
+			datatables.push({
+				datatable_name: datatableName,
+				schemas: {
+					[newTable.schema]: {
+						[newTable.name]: {}
+					}
+				}
+			})
+			await persistDatatables(workspaceRoot, datatables)
+		}
+		return {
+			success: true,
+			result: [
+				{
+					datatableName,
+					sql
+				}
+			]
+		}
+	}
+
+	const addTableToWhitelist: AppAIChatHelpers['addTableToWhitelist'] = (
+		datatableName,
+		schemaName,
+		tableName
+	) => {
+		const existing = datatables.find((entry) => entry.datatable_name === datatableName)
+		if (existing) {
+			existing.schemas[schemaName] ??= {}
+			existing.schemas[schemaName][tableName] ??= {}
+		} else {
+			datatables.push({
+				datatable_name: datatableName,
+				schemas: {
+					[schemaName]: {
+						[tableName]: {}
+					}
+				}
+			})
+		}
+		void persistDatatables(workspaceRoot, datatables)
+	}
+
 	const helpers: AppAIChatHelpers = {
 		listFrontendFiles: () => Object.keys(frontend),
 		getFrontendFile: (path: string) => frontend[path],
 		getFrontendFiles: () => ({ ...frontend }),
-		setFrontendFile: (path: string, content: string) => {
-			frontend[path] = content
-			void writeFrontendFile(workspaceRoot, path, content)
-			return createEmptyLintResult()
-		},
-		deleteFrontendFile: (path: string) => {
-			delete frontend[path]
-			void removeFrontendFile(workspaceRoot, path)
-		},
+		setFrontendFile,
+		deleteFrontendFile,
 		listBackendRunnables: () =>
 			Object.entries(backend).map(([key, runnable]) => ({
 				key,
@@ -143,83 +226,20 @@ export async function createAppFileHelpers(
 			})),
 		getBackendRunnable: (key: string) => backend[key],
 		getBackendRunnables: () => ({ ...backend }),
-		setBackendRunnable: async (key: string, runnable: BackendRunnable) => {
-			backend[key] = runnable
-			await writeBackendRunnable(workspaceRoot, key, runnable)
-			return createEmptyLintResult()
-		},
-		deleteBackendRunnable: (key: string) => {
-			delete backend[key]
-			void removeBackendRunnable(workspaceRoot, key)
-		},
+		setBackendRunnable,
+		deleteBackendRunnable,
 		getFiles: (): AppFiles => ({
 			frontend: { ...frontend },
 			backend: { ...backend }
 		}),
 		getSelectedContext: (): SelectedContext => ({ type: 'none' }),
-		snapshot: () => {
-			const id = ++snapshotId
-			snapshots.set(id, {
-				frontend: { ...frontend },
-				backend: { ...backend }
-			})
-			return id
-		},
-		revertToSnapshot: (id: number) => {
-			const snapshot = snapshots.get(id)
-			if (!snapshot) {
-				return
-			}
-			frontend = { ...snapshot.frontend }
-			backend = { ...snapshot.backend }
-			void syncWorkspace()
-		},
+		snapshot,
+		revertToSnapshot,
 		lint: () => createEmptyLintResult(),
 		getDatatables: async () => structuredClone(datatables),
 		getAvailableDatatableNames: () => datatables.map((datatable) => datatable.datatable_name),
-		execDatatableSql: async (
-			datatableName: string,
-			sql: string,
-			newTable?: { schema: string; name: string }
-		) => {
-			if (newTable) {
-				datatables.push({
-					datatable_name: datatableName,
-					schemas: {
-						[newTable.schema]: {
-							[newTable.name]: {}
-						}
-					}
-				})
-				await persistDatatables(workspaceRoot, datatables)
-			}
-			return {
-				success: true,
-				result: [
-					{
-						datatableName,
-						sql
-					}
-				]
-			}
-		},
-		addTableToWhitelist: (datatableName: string, schemaName: string, tableName: string) => {
-			const existing = datatables.find((entry) => entry.datatable_name === datatableName)
-			if (existing) {
-				existing.schemas[schemaName] ??= {}
-				existing.schemas[schemaName][tableName] ??= {}
-			} else {
-				datatables.push({
-					datatable_name: datatableName,
-					schemas: {
-						[schemaName]: {
-							[tableName]: {}
-						}
-					}
-				})
-			}
-			void persistDatatables(workspaceRoot, datatables)
-		}
+		execDatatableSql,
+		addTableToWhitelist
 	}
 
 	async function syncWorkspace(): Promise<void> {

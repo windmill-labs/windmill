@@ -333,3 +333,48 @@
     - one approval is enough to continue
     - "the flow includes a final step named `finalize_purchase`"
     - "`finalize_purchase` returns an approved status object after approval"
+
+- id: flow-test13-loop-resilience-toggle
+  prompt: |-
+    Update `loop_orders` so it can process orders in parallel.
+    If one order fails, the rest should still continue.
+    Keep the existing order-fetching and summary steps the same.
+  initial: ai_evals/fixtures/frontend/flow/initial/test6_initial.json
+  validate:
+    exactTopLevelStepIds:
+      - get_orders
+      - loop_orders
+      - summarize
+    topLevelStepTypes:
+      - id: loop_orders
+        type: forloopflow
+    moduleFieldRules:
+      - id: loop_orders
+        path: value.parallel
+        equals: true
+      - id: loop_orders
+        path: value.skip_failures
+        equals: true
+  judgeChecklist:
+    - "the flow keeps `get_orders` before `loop_orders` and `summarize` after it"
+    - "`loop_orders` processes orders in parallel"
+    - "a failure in one order does not stop the remaining orders from being processed"
+
+- id: flow-test14-modify-existing-special-modules
+  prompt: |-
+    Update this event-processing flow for a string payload.
+
+    Before `process_event` runs, trim the payload and reject empty strings.
+    If anything fails, return a compact error object with the error message and the failing step id.
+    Keep `process_event` as the main step.
+  initial: ai_evals/fixtures/frontend/flow/initial/test11_initial.json
+  expected: ai_evals/fixtures/frontend/flow/expected/test11_preprocessor_failure.json
+  validate:
+    requireSpecialModules:
+      - preprocessor_module
+      - failure_module
+  judgeChecklist:
+    - the updated flow trims the payload before the main processing runs
+    - the updated flow rejects empty payload strings
+    - "the existing `process_event` step remains the main step"
+    - failures return a compact error object with the error message and failing step id

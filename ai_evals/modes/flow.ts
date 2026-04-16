@@ -3,6 +3,7 @@ import type { BackendValidationSettings } from "../core/backendValidation";
 import type { FrontendEvalModelConfig } from "../core/models";
 import { validateFlowState, type FlowState } from "../core/validators";
 import type { BenchmarkArtifactFile, ModeRunner } from "../core/types";
+import type { FlowModule } from "../../frontend/src/lib/gen";
 import {
   runFlowEval,
   type FlowFixture,
@@ -147,7 +148,7 @@ function normalizeFlowInitialFixture(value: unknown): FlowInitialFixture {
   }
 
   return {
-    flow: normalizeFlowStateFixture(value),
+    flow: normalizeFlowFixture(normalizeFlowStateFixture(value)),
   };
 }
 
@@ -159,6 +160,19 @@ function normalizeFlowStateFixture(value: unknown): FlowState {
     return (value as { flow: FlowState }).flow;
   }
   return value as FlowState;
+}
+
+function normalizeFlowFixture(value: FlowState): FlowFixture {
+  return {
+    schema: value.schema,
+    value: value.value
+      ? {
+          modules: value.value.modules as FlowModule[] | undefined,
+          preprocessor_module: value.value.preprocessor_module as FlowModule | undefined,
+          failure_module: value.value.failure_module as FlowModule | undefined,
+        }
+      : undefined,
+  };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

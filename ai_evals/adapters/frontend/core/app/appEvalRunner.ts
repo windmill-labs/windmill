@@ -69,6 +69,7 @@ export async function runAppEval(
 			onAssistantMessageStart: options?.runContext?.onAssistantMessageStart,
 			onAssistantToken: options?.runContext?.onAssistantChunk,
 			onAssistantMessageEnd: options?.runContext?.onAssistantMessageEnd,
+			onToolCall: options?.runContext?.onToolCall,
 			options: {
 				maxIterations: options?.maxIterations,
 				model,
