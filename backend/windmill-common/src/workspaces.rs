@@ -45,8 +45,8 @@ impl DeploymentSource {
 }
 
 /// Axum extractor that reads `X-Windmill-Deploy-Source` header.
-/// Defaults to `Ui` when absent (safe default for browser clients).
-pub struct DeploySourceHeader(pub DeploymentSource);
+/// `None` when absent — implies a direct API call with no declared source.
+pub struct DeploySourceHeader(pub Option<DeploymentSource>);
 
 impl<S> axum::extract::FromRequestParts<S> for DeploySourceHeader
 where
@@ -62,8 +62,7 @@ where
             .headers
             .get("x-windmill-deploy-source")
             .and_then(|v| v.to_str().ok())
-            .and_then(DeploymentSource::from_str_opt)
-            .unwrap_or(DeploymentSource::Ui);
+            .and_then(DeploymentSource::from_str_opt);
         Ok(DeploySourceHeader(source))
     }
 }
@@ -426,7 +425,7 @@ pub async fn check_user_against_rule(
     username: &str,
     user_groups: &[String],
     is_admin: bool,
-    deploy_source: DeploymentSource,
+    deploy_source: Option<DeploymentSource>,
     db: &DB,
 ) -> Result<RuleCheckResult> {
     if is_admin {
@@ -455,15 +454,20 @@ pub async fn check_user_against_rule(
                 continue;
             }
 
-            // For DisableDirectDeployment, check if the deploy source is allowed
-            if matches!(rule, ProtectionRuleKind::DisableDirectDeployment)
-                && !ruleset.allowed_deploy_sources.is_empty()
-                && ruleset
-                    .allowed_deploy_sources
-                    .iter()
-                    .any(|s| s == deploy_source.as_str())
-            {
-                continue;
+            // For DisableDirectDeployment, check if the deploy source is allowed.
+            // None (direct API call) is always blocked.
+            // A named source is allowed if it appears in allowed_deploy_sources.
+            if matches!(rule, ProtectionRuleKind::DisableDirectDeployment) {
+                if let Some(ref source) = deploy_source {
+                    if !ruleset.allowed_deploy_sources.is_empty()
+                        && ruleset
+                            .allowed_deploy_sources
+                            .iter()
+                            .any(|s| s == source.as_str())
+                    {
+                        continue;
+                    }
+                }
             }
 
             return Ok(RuleCheckResult::Blocked(format!(
@@ -491,7 +495,7 @@ pub async fn check_deploy_rules(
     username: &str,
     user_groups: &[String],
     is_admin: bool,
-    deploy_source: DeploymentSource,
+    deploy_source: Option<DeploymentSource>,
     db: &DB,
 ) -> Result<RuleCheckResult> {
     for rule in [

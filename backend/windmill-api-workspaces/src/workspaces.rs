@@ -40,8 +40,8 @@ use windmill_common::workspaces::GitRepositorySettings;
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
     check_user_against_rule, get_datatable_resource_from_db_unchecked, DataTable,
-    DataTableCatalogResourceType, DataTableForkBehavior, DeploymentSource, ProtectionRuleKind,
-    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
+    DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
+    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -4166,7 +4166,7 @@ async fn create_workspace_fork_branch(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
-        DeploymentSource::Ui,
+        None,
         &db,
     )
     .await?
@@ -4324,7 +4324,7 @@ async fn create_workspace_fork(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
-        DeploymentSource::Ui,
+        None,
         &db,
     )
     .await?
