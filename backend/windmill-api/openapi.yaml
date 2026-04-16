@@ -22773,6 +22773,7 @@ components:
         - sqs
         - gcp
         - google
+        - github
 
     TriggerMode:
       description: job trigger mode
@@ -23263,6 +23264,8 @@ components:
         nextcloud_count:
           type: number
         google_count:
+          type: number
+        github_count:
           type: number
 
     WebsocketHeartbeat:
@@ -26775,6 +26778,7 @@ components:
       enum:
         - nextcloud
         - google
+        - github
 
     NativeTrigger:
       type: object

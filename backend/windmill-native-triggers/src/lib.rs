@@ -63,6 +63,8 @@ pub mod workspace_integrations;
 
 // Service modules - add new services here:
 #[cfg(feature = "native_trigger")]
+pub mod github;
+#[cfg(feature = "native_trigger")]
 pub mod google;
 #[cfg(feature = "native_trigger")]
 pub mod nextcloud;
@@ -75,6 +77,7 @@ pub mod nextcloud;
 pub enum ServiceName {
     Nextcloud,
     Google,
+    Github,
 }
 
 impl TryFrom<String> for ServiceName {
@@ -83,6 +86,7 @@ impl TryFrom<String> for ServiceName {
         let service = match value.as_str() {
             "nextcloud" => ServiceName::Nextcloud,
             "google" => ServiceName::Google,
+            "github" => ServiceName::Github,
             _ => {
                 return Err(anyhow::anyhow!(
                     "Unknown service, currently supported services are: [{}]",
@@ -102,6 +106,7 @@ impl ServiceName {
         match self {
             ServiceName::Nextcloud => "nextcloud",
             ServiceName::Google => "google",
+            ServiceName::Github => "github",
         }
     }
 
@@ -110,6 +115,7 @@ impl ServiceName {
         match self {
             ServiceName::Nextcloud => TriggerKind::Nextcloud,
             ServiceName::Google => TriggerKind::Google,
+            ServiceName::Github => TriggerKind::Github,
         }
     }
 
@@ -118,6 +124,7 @@ impl ServiceName {
         match self {
             ServiceName::Nextcloud => windmill_common::jobs::JobTriggerKind::Nextcloud,
             ServiceName::Google => windmill_common::jobs::JobTriggerKind::Google,
+            ServiceName::Github => windmill_common::jobs::JobTriggerKind::Github,
         }
     }
 
@@ -126,6 +133,7 @@ impl ServiceName {
         match self {
             ServiceName::Nextcloud => "/apps/oauth2/api/v1/token",
             ServiceName::Google => "https://oauth2.googleapis.com/token",
+            ServiceName::Github => "https://github.com/login/oauth/access_token",
         }
     }
 
@@ -134,6 +142,7 @@ impl ServiceName {
         match self {
             ServiceName::Nextcloud => "/apps/oauth2/authorize",
             ServiceName::Google => "https://accounts.google.com/o/oauth2/v2/auth",
+            ServiceName::Github => "https://github.com/login/oauth/authorize",
         }
     }
 
@@ -142,6 +151,7 @@ impl ServiceName {
         match self {
             ServiceName::Nextcloud => "read write",
             ServiceName::Google => "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events",
+            ServiceName::Github => "admin:repo_hook read:user",
         }
     }
 
@@ -150,6 +160,7 @@ impl ServiceName {
         match self {
             ServiceName::Nextcloud => "nextcloud",
             ServiceName::Google => "gworkspace",
+            ServiceName::Github => "github",
         }
     }
 
@@ -158,6 +169,7 @@ impl ServiceName {
         match self {
             ServiceName::Google => &[("access_type", "offline"), ("prompt", "consent")],
             ServiceName::Nextcloud => &[],
+            ServiceName::Github => &[],
         }
     }
 
@@ -1271,6 +1283,13 @@ pub async fn prepare_native_trigger_args(
     match service_name {
         ServiceName::Google => {
             let handler = google::Google;
+            let args = handler
+                .prepare_webhook(db, w_id, headers_map, body, "", false)
+                .await?;
+            Ok(Some(args))
+        }
+        ServiceName::Github => {
+            let handler = github::GitHub;
             let args = handler
                 .prepare_webhook(db, w_id, headers_map, body, "", false)
                 .await?;

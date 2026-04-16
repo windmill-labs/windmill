@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT resource_path FROM workspace_integrations WHERE workspace_id = $1 AND service_name = $2",
+  "query": "SELECT service_config FROM native_trigger WHERE external_id = $1 AND service_name = $2 AND workspace_id = $3",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "resource_path",
-        "type_info": "Text"
+        "name": "service_config",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -23,12 +23,13 @@
               ]
             }
           }
-        }
+        },
+        "Text"
       ]
     },
     "nullable": [
       true
     ]
   },
-  "hash": "993e514229a1d508a44ef07b4399f9697cdefaa1f45ca665f72bc6fcf2797c7e"
+  "hash": "a1acc45f294a3371e3287b55faef529e17477f4cdfa89f760d9608b4192735cd"
 }
