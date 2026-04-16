@@ -152,6 +152,23 @@
 				bind:value={$values['github_enterprise_app'].client_id}
 			/>
 		</div>
+		<div class="flex flex-col gap-1">
+			<label for="ghes_app_owner" class="block text-xs font-semibold text-emphasis mb-1">
+				App owner
+			</label>
+			<TextInput
+				inputProps={{
+					type: 'text',
+					id: 'ghes_app_owner',
+					placeholder: 'my-org',
+					disabled: fieldsDisabled
+				}}
+				bind:value={$values['github_enterprise_app'].app_owner}
+			/>
+			<span class="text-2xs text-secondary">
+				Organization or user that owns the GitHub App. Required for GHE Cloud (*.ghe.com) domains.
+			</span>
+		</div>
 	</div>
 
 	<div class="flex flex-col gap-1">

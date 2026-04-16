@@ -2447,6 +2447,9 @@ paths:
                     type: string
                   client_id:
                     type: string
+                  app_owner:
+                    type: string
+                    nullable: true
                 required:
                   - base_url
                   - app_slug
