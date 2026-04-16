@@ -94,6 +94,9 @@ pub async fn check_env_credentials() -> BedrockCredentialsCheck {
 /// Constants for commonly used strings to avoid allocations
 pub const FUNCTION_TYPE: &str = "function";
 
+// AWS documents Bedrock prompt-caching support as a model allowlist rather than a
+// capability exposed by the model metadata APIs:
+// https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
 const BEDROCK_PROMPT_CACHING_SUPPORTED_MODEL_IDS: &[&str] = &[
     "anthropic.claude-opus-4-5-20251101-v1:0",
     "anthropic.claude-opus-4-1-20250805-v1:0",
