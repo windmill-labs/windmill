@@ -65,43 +65,60 @@ export function applyFlowJsonUpdate(
 	inlineScriptSession: InlineScriptSession,
 	{ modules, schema, preprocessorModule, failureModule }: FlowJsonUpdate
 ): FlowJsonUpdateResult {
+	const previousModules = flow.value.modules
+	const previousSchema = flow.schema
+	const previousPreprocessorModule = flow.value.preprocessor_module
+	const previousFailureModule = flow.value.failure_module
+	const previousInlineScripts = inlineScriptSession.getAll()
 	const emptyInlineScriptModuleIds = new Set<string>()
 
-	if (modules !== undefined) {
-		seedMissingInlineScripts(modules, inlineScriptSession).forEach((id) =>
-			emptyInlineScriptModuleIds.add(id)
-		)
-		flow.value.modules = restoreFlowModules(modules, inlineScriptSession)
-	}
+	try {
+		if (modules !== undefined) {
+			seedMissingInlineScripts(modules, inlineScriptSession).forEach((id) =>
+				emptyInlineScriptModuleIds.add(id)
+			)
+			flow.value.modules = restoreFlowModules(modules, inlineScriptSession)
+		}
 
-	if (schema !== undefined) {
-		flow.schema = schema ?? undefined
-	}
+		if (schema !== undefined) {
+			flow.schema = schema ?? undefined
+		}
 
-	if (preprocessorModule !== undefined) {
-		flow.value.preprocessor_module =
-			preprocessorModule === null
-				? undefined
-				: restoreFlowModuleWithSeededInlineScripts(
-						preprocessorModule,
-						inlineScriptSession,
-						emptyInlineScriptModuleIds
-					)
-	}
+		if (preprocessorModule !== undefined) {
+			flow.value.preprocessor_module =
+				preprocessorModule === null
+					? undefined
+					: restoreFlowModuleWithSeededInlineScripts(
+							preprocessorModule,
+							inlineScriptSession,
+							emptyInlineScriptModuleIds
+						)
+		}
 
-	if (failureModule !== undefined) {
-		flow.value.failure_module =
-			failureModule === null
-				? undefined
-				: restoreFlowModuleWithSeededInlineScripts(
-						failureModule,
-						inlineScriptSession,
-						emptyInlineScriptModuleIds
-					)
-	}
+		if (failureModule !== undefined) {
+			flow.value.failure_module =
+				failureModule === null
+					? undefined
+					: restoreFlowModuleWithSeededInlineScripts(
+							failureModule,
+							inlineScriptSession,
+							emptyInlineScriptModuleIds
+						)
+		}
 
-	return {
-		emptyInlineScriptModuleIds: Array.from(emptyInlineScriptModuleIds)
+		return {
+			emptyInlineScriptModuleIds: Array.from(emptyInlineScriptModuleIds)
+		}
+	} catch (error) {
+		flow.value.modules = previousModules
+		flow.schema = previousSchema
+		flow.value.preprocessor_module = previousPreprocessorModule
+		flow.value.failure_module = previousFailureModule
+		inlineScriptSession.clear()
+		for (const [moduleId, content] of Object.entries(previousInlineScripts)) {
+			inlineScriptSession.set(moduleId, content)
+		}
+		throw error
 	}
 }
 

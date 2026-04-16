@@ -65,6 +65,42 @@ describe('applyFlowJsonUpdate', () => {
 			applyFlowJsonUpdate(flow as any, inlineScriptSession, {
 				modules: [makeRawScriptModule('validate_data', 'inline_script.other_module')]
 			})
+			).toThrow('Unresolved inline script references: other_module')
+	})
+
+	it('rolls back seeded inline scripts after a failed update so retries still warn', () => {
+		const flow = {
+			value: {
+				modules: [makeRawScriptModule('process_data', 'existing code')]
+			}
+		}
+		const inlineScriptSession = createInlineScriptSession()
+		inlineScriptSession.set('process_data', 'existing code')
+
+		expect(() =>
+			applyFlowJsonUpdate(flow as any, inlineScriptSession, {
+				modules: [
+					makeRawScriptModule('validate_data', 'inline_script.validate_data'),
+					makeRawScriptModule('save_results', 'inline_script.other_module')
+				]
+			})
 		).toThrow('Unresolved inline script references: other_module')
+
+		expect(inlineScriptSession.getAll()).toEqual({
+			process_data: 'existing code'
+		})
+		expect((flow.value.modules as Array<FlowModule & { value: any }>)[0]?.value.content).toBe(
+			'existing code'
+		)
+
+		const result = applyFlowJsonUpdate(flow as any, inlineScriptSession, {
+			modules: [
+				makeRawScriptModule('process_data', 'inline_script.process_data'),
+				makeRawScriptModule('validate_data', 'inline_script.validate_data')
+			]
+		})
+
+		expect(result.emptyInlineScriptModuleIds).toEqual(['validate_data'])
+		expect(inlineScriptSession.get('validate_data')).toBe('')
 	})
 })
