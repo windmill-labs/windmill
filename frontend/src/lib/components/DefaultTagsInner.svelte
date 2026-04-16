@@ -7,7 +7,7 @@
 	import {
 		DEFAULT_TAGS_PER_WORKSPACE_SETTING,
 		DEFAULT_TAGS_WORKSPACES_SETTING,
-		FORK_WORKSPACE_TAG_BEHAVIOR_USE_PARENT_SETTING,
+		FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
 		PREVIEW_TAGS_OVERRIDE_SETTING
 	} from '$lib/consts'
 	import Toggle from './Toggle.svelte'
@@ -30,13 +30,13 @@
 	let defaultTags = $state<string[] | undefined>(undefined)
 	let limitToWorkspaces = $state(false)
 	let previewTagsOverride = $state(false)
-	let forkWorkspaceUseParent = $state(true)
+	let forkAppendForkSuffix = $state(false)
 
 	// Change detection
 	let originalDefaultTagPerWorkspace = $state<boolean | undefined>(defaultTagPerWorkspace)
 	let originalDefaultTagWorkspaces = $state<string[]>(defaultTagWorkspaces)
 	let originalPreviewTagsOverride = $state(false)
-	let originalForkWorkspaceUseParent = $state(true)
+	let originalForkAppendForkSuffix = $state(false)
 
 	// Detect changes
 	let hasChanges = $derived(
@@ -44,7 +44,7 @@
 			JSON.stringify($state.snapshot(originalDefaultTagWorkspaces)?.sort() || []) !==
 				JSON.stringify($state.snapshot(defaultTagWorkspaces)?.sort() || []) ||
 			originalPreviewTagsOverride !== previewTagsOverride ||
-			originalForkWorkspaceUseParent !== forkWorkspaceUseParent
+			originalForkAppendForkSuffix !== forkAppendForkSuffix
 	)
 
 	let workspaces: string[] = $state([])
@@ -66,10 +66,10 @@
 				})) as any) ?? false
 			originalPreviewTagsOverride = previewTagsOverride
 			const forkSetting = (await SettingService.getGlobal({
-				key: FORK_WORKSPACE_TAG_BEHAVIOR_USE_PARENT_SETTING
+				key: FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING
 			})) as any
-			forkWorkspaceUseParent = forkSetting ?? true
-			originalForkWorkspaceUseParent = forkWorkspaceUseParent
+			forkAppendForkSuffix = forkSetting ?? false
+			originalForkAppendForkSuffix = forkAppendForkSuffix
 		} catch (err) {
 			sendUserToast(`Could not load default tags: ${err}`, true)
 		}
@@ -98,9 +98,9 @@
 			}
 		})
 		await SettingService.setGlobal({
-			key: FORK_WORKSPACE_TAG_BEHAVIOR_USE_PARENT_SETTING,
+			key: FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
 			requestBody: {
-				value: forkWorkspaceUseParent
+				value: forkAppendForkSuffix
 			}
 		})
 
@@ -108,7 +108,7 @@
 		originalDefaultTagPerWorkspace = defaultTagPerWorkspace
 		originalDefaultTagWorkspaces = [...(defaultTagWorkspaces || [])]
 		originalPreviewTagsOverride = previewTagsOverride
-		originalForkWorkspaceUseParent = forkWorkspaceUseParent
+		originalForkAppendForkSuffix = forkAppendForkSuffix
 
 		loadDefaultTags()
 		sendUserToast('Saved')
@@ -171,29 +171,25 @@
 				<div class="flex flex-col gap-1">
 					<span class="text-xs font-semibold">Fork workspace behavior</span>
 					<ToggleButtonGroup
-						selected={forkWorkspaceUseParent ? 'parent' : 'self'}
-						onSelected={(v) => (forkWorkspaceUseParent = v === 'parent')}
+						selected={forkAppendForkSuffix ? 'parent-fork' : 'parent'}
+						onSelected={(v) => (forkAppendForkSuffix = v === 'parent-fork')}
 						disabled={!$enterpriseLicense}
 					>
 						{#snippet children({ item })}
 							<ToggleButton
 								value="parent"
-								label="Use parent workspace tags"
+								label="Use parent workspace tag"
 								tooltip={'Fork jobs are tagged with the parent workspace id (e.g. python3-{parent_id}), so they are picked up by workers assigned to the parent workspace.'}
 								{item}
 							/>
 							<ToggleButton
-								value="self"
-								label="Use fork's own workspace tags"
-								tooltip="Fork jobs are tagged with the fork's own id. Jobs will not run unless workers are explicitly provisioned for that fork."
+								value="parent-fork"
+								label="Use parent workspace tag + -fork suffix"
+								tooltip={'Fork jobs are tagged with the parent workspace id and a "-fork" suffix (e.g. python3-{parent_id}-fork), so all forks of a given parent share a dedicated tag. Route these jobs to workers provisioned specifically for forks of the parent.'}
 								{item}
 							/>
 						{/snippet}
 					</ToggleButtonGroup>
-					<p class="text-2xs text-secondary">
-						To instead route fork jobs to default (non-workspaced) tags, enable "only for some
-						workspaces" below and exclude fork workspaces from the list.
-					</p>
 				</div>
 				<Toggle
 					bind:checked={limitToWorkspaces}

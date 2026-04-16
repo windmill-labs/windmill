@@ -57,7 +57,7 @@ use windmill_common::{
         CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        FORK_WORKSPACE_TAG_BEHAVIOR_USE_PARENT_SETTING, HUB_API_SECRET_SETTING,
+        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
@@ -79,7 +79,7 @@ use windmill_common::{
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
         store_suspended_pull_query, Connection, WorkerConfig, DEFAULT_TAGS_PER_WORKSPACE,
-        DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_USE_PARENT, INDEXER_CONFIG,
+        DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG,
         PREVIEW_TAGS_OVERRIDE, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG,
         WORKER_GROUP,
     },
@@ -237,8 +237,8 @@ pub async fn initial_load(
             tracing::error!("Error loading default tag per workpsace workspaces: {e:#}");
         }
 
-        if let Err(e) = load_fork_workspace_tag_use_parent(db).await {
-            tracing::error!("Error loading fork workspace tag use parent: {e:#}");
+        if let Err(e) = load_fork_workspace_tag_append_fork_suffix(db).await {
+            tracing::error!("Error loading fork workspace tag append fork suffix: {e:#}");
         }
 
         if let Err(e) = load_preview_tags_override(db).await {
@@ -515,15 +515,15 @@ pub async fn load_preview_tags_override(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
-pub async fn load_fork_workspace_tag_use_parent(db: &DB) -> error::Result<()> {
+pub async fn load_fork_workspace_tag_append_fork_suffix(db: &DB) -> error::Result<()> {
     let value =
-        load_value_from_global_settings(db, FORK_WORKSPACE_TAG_BEHAVIOR_USE_PARENT_SETTING).await;
+        load_value_from_global_settings(db, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING).await;
 
     match value {
         Ok(Some(serde_json::Value::Bool(t))) => {
-            FORK_WORKSPACE_TAG_USE_PARENT.store(t, Ordering::Relaxed)
+            FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX.store(t, Ordering::Relaxed)
         }
-        Ok(None) => FORK_WORKSPACE_TAG_USE_PARENT.store(true, Ordering::Relaxed),
+        Ok(None) => FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX.store(false, Ordering::Relaxed),
         _ => (),
     };
     Ok(())

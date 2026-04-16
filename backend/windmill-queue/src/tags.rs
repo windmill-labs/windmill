@@ -1,6 +1,6 @@
 use sqlx::{Pool, Postgres};
 use windmill_common::worker::{
-    DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_USE_PARENT,
+    DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX,
 };
 use windmill_common::workspaces::WM_FORK_PREFIX;
 
@@ -15,20 +15,21 @@ lazy_static::lazy_static! {
         quick_cache::sync::Cache::new(500);
 }
 
-/// Returns `Some(effective_workspace_id)` if jobs of `workspace_id` should use workspace-specific
-/// tags, where `effective_workspace_id` is the ID to embed in the tag (possibly the parent for
-/// forks). Returns `None` when default (non-workspaced) tags should be used.
+/// Returns `Some(effective_workspace_tag_id)` if jobs of `workspace_id` should use workspace-
+/// specific tags, where `effective_workspace_tag_id` is the string embedded in the tag. For forks,
+/// this is always the parent workspace id, optionally suffixed with `-fork` (controlled by the
+/// `FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX` instance setting) so admins can route fork jobs to
+/// dedicated workers. Returns `None` when default (non-workspaced) tags should be used.
 pub async fn per_workspace_tag(workspace_id: &str, db: &Pool<Postgres>) -> Option<String> {
     // Fast path: global toggle off -> no workspacing at all.
     if !DEFAULT_TAGS_PER_WORKSPACE.load(std::sync::atomic::Ordering::Relaxed) {
         return None;
     }
 
-    // Resolve the effective workspace ID. For forks configured to inherit the parent's tags, look
-    // up the parent. Regular workspaces avoid both the cache and the DB hit.
-    let effective_ws_id: String = if workspace_id.starts_with(WM_FORK_PREFIX)
-        && FORK_WORKSPACE_TAG_USE_PARENT.load(std::sync::atomic::Ordering::Relaxed)
-    {
+    let is_fork = workspace_id.starts_with(WM_FORK_PREFIX);
+
+    // For forks, always resolve to the parent workspace id; regular workspaces avoid the lookup.
+    let effective_ws_id: String = if is_fork {
         lookup_fork_parent(workspace_id, db)
             .await
             .unwrap_or_else(|| workspace_id.to_string()) // no parent found -> fall back to fork's own id
@@ -36,17 +37,29 @@ pub async fn per_workspace_tag(workspace_id: &str, db: &Pool<Postgres>) -> Optio
         workspace_id.to_string()
     };
 
+    // Whitelist check is against the resolved (parent) id so that including a parent in the
+    // whitelist transparently covers all of its forks.
     let per_workspace_workspaces = DEFAULT_TAGS_WORKSPACES.load();
-    if per_workspace_workspaces.is_none()
+    let whitelisted = per_workspace_workspaces.is_none()
         || (**per_workspace_workspaces)
             .as_ref()
             .unwrap()
-            .contains(&effective_ws_id)
-    {
-        Some(effective_ws_id)
-    } else {
-        None
+            .contains(&effective_ws_id);
+
+    if !whitelisted {
+        return None;
     }
+
+    // For forks, optionally append a `-fork` suffix so all forks of a parent share a common
+    // dedicated tag (e.g. `python3-{parent_id}-fork`).
+    let append_fork_suffix =
+        is_fork && FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX.load(std::sync::atomic::Ordering::Relaxed);
+
+    Some(if append_fork_suffix {
+        format!("{}-fork", effective_ws_id)
+    } else {
+        effective_ws_id
+    })
 }
 
 /// Returns the parent workspace id for a fork, or `None` if the fork has no parent set (or the

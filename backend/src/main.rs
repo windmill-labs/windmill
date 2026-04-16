@@ -44,7 +44,7 @@ use windmill_common::{
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        FORK_WORKSPACE_TAG_BEHAVIOR_USE_PARENT_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
         INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
@@ -100,7 +100,7 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, load_fork_workspace_tag_use_parent, load_keep_job_dir,
+    initial_load, load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir,
     load_metrics_debug_enabled, load_preview_tags_override, load_require_preexisting_user,
     load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db,
     reload_app_workspaced_route_setting, reload_audit_log_retention_days_setting,
@@ -1700,9 +1700,11 @@ async fn process_notify_event(
                         );
                     }
                 }
-                FORK_WORKSPACE_TAG_BEHAVIOR_USE_PARENT_SETTING => {
-                    if let Err(e) = load_fork_workspace_tag_use_parent(db).await {
-                        tracing::error!("Error loading fork workspace tag use parent: {e:#}");
+                FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING => {
+                    if let Err(e) = load_fork_workspace_tag_append_fork_suffix(db).await {
+                        tracing::error!(
+                            "Error loading fork workspace tag append fork suffix: {e:#}"
+                        );
                     }
                 }
                 PREVIEW_TAGS_OVERRIDE_SETTING => {
