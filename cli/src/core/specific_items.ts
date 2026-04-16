@@ -32,13 +32,13 @@ export function isWsSpecificItem(filePath: string, wsSpecificPaths: WsSpecificIt
   }
 
   // Extract the item kind and windmill path from the file path
-  if (filePath.endsWith('.variable.yaml')) {
-    const wmPath = filePath.replace(/\.variable\.yaml$/, '');
+  if (filePath.endsWith('.variable.yaml') || filePath.endsWith('.variable.json')) {
+    const wmPath = filePath.replace(/\.variable\.(yaml|json)$/, '');
     return wsSpecificPaths.some(item => item.item_kind === 'variable' && item.path === wmPath);
   }
 
-  if (filePath.endsWith('.resource.yaml')) {
-    const wmPath = filePath.replace(/\.resource\.yaml$/, '');
+  if (filePath.endsWith('.resource.yaml') || filePath.endsWith('.resource.json')) {
+    const wmPath = filePath.replace(/\.resource\.(yaml|json)$/, '');
     return wsSpecificPaths.some(item => item.item_kind === 'resource' && item.path === wmPath);
   }
 
