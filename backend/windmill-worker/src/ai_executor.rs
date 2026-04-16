@@ -111,9 +111,8 @@ fn prepare_auto_memory_messages_for_request(
     loaded_messages: &[OpenAIMessage],
     context_length: usize,
 ) -> Vec<OpenAIMessage> {
-    let non_system_messages = strip_system_messages(loaded_messages);
-    let start_idx = non_system_messages.len().saturating_sub(context_length);
-    strip_leading_tool_messages(non_system_messages[start_idx..].to_vec())
+    let start_idx = loaded_messages.len().saturating_sub(context_length);
+    strip_leading_tool_messages(loaded_messages[start_idx..].to_vec())
 }
 
 fn prepare_auto_memory_messages_for_persistence(
@@ -1386,7 +1385,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_memory_request_filters_system_messages_before_truncating() {
+    fn auto_memory_request_preserves_messages_within_context_window() {
         let loaded_messages = vec![
             text_message("system", "instructions-a"),
             text_message("user", "first-user"),
@@ -1409,17 +1408,16 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(roles, vec!["assistant", "user", "assistant"]);
+        assert_eq!(roles, vec!["system", "user", "assistant"]);
         assert_eq!(
             contents,
-            vec!["first-assistant", "second-user", "second-assistant"]
+            vec!["instructions-b", "second-user", "second-assistant"]
         );
     }
 
     #[test]
-    fn auto_memory_request_drops_legacy_leading_tool_messages() {
+    fn auto_memory_request_drops_leading_tool_messages() {
         let loaded_messages = vec![
-            text_message("system", "instructions"),
             text_message("tool", "stale-tool-result"),
             text_message("user", "hello"),
             text_message("assistant", "hi"),
