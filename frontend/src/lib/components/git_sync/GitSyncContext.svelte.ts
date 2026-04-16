@@ -408,7 +408,7 @@ export function createGitSyncContext(workspace: string) {
 							const defaultTypes: GitSyncObjectType[] =
 								workspaceLegacyIncludeType.length > 0
 									? [...workspaceLegacyIncludeType]
-									: ['script', 'flow', 'app', 'folder']
+									: ['script', 'flow', 'app', 'folder', 'workspacedependencies']
 
 							let repoSettings: SettingsObject
 							if (isRepoLegacy) {
@@ -437,6 +437,7 @@ export function createGitSyncContext(workspace: string) {
 										'script',
 										'flow',
 										'app',
+										'folder',
 										'workspacedependencies'
 									]
 								}
