@@ -982,6 +982,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const parsedArgs = patchFlowJsonSchema.parse(args)
 			const { old_string: oldString, new_string: newString, replace_all: replaceAll } = parsedArgs
 			const { flow, selectedId } = helpers.getFlowAndSelectedId()
+			// Snapshot the current flow with a fresh session so the compact JSON matches what the model saw,
+			// then copy extracted inline scripts back into the helper session before applying the patch.
 			const inlineScriptSession = createInlineScriptSession()
 			const currentFlowJson = JSON.stringify(buildEditableFlowJson(flow, inlineScriptSession))
 			const matchCount = countExactMatches(currentFlowJson, oldString)

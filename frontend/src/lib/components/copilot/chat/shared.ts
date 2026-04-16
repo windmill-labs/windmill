@@ -67,6 +67,57 @@ function prettifyCodeArguments(content: string): string {
 	return codeContent
 }
 
+function decodeEscapedToolString(content: string): string {
+	return content
+		.replace(/\\n/g, '\n')
+		.replace(/\\t/g, '\t')
+		.replace(/\\"/g, '"')
+		.replace(/\\\\/g, '\\')
+}
+
+function extractJsonStringProperty(content: string, property: string): string | undefined {
+	const propertyKey = `"${property}"`
+	const propertyIndex = content.indexOf(propertyKey)
+	if (propertyIndex === -1) {
+		return undefined
+	}
+
+	let cursor = propertyIndex + propertyKey.length
+	while (cursor < content.length && /\s/.test(content[cursor] ?? '')) {
+		cursor++
+	}
+	if (content[cursor] !== ':') {
+		return undefined
+	}
+
+	cursor++
+	while (cursor < content.length && /\s/.test(content[cursor] ?? '')) {
+		cursor++
+	}
+	if (content[cursor] !== '"') {
+		return undefined
+	}
+
+	const start = cursor + 1
+	let escaped = false
+	for (let index = start; index < content.length; index++) {
+		const char = content[index]
+		if (escaped) {
+			escaped = false
+			continue
+		}
+		if (char === '\\') {
+			escaped = true
+			continue
+		}
+		if (char === '"') {
+			return content.slice(start, index)
+		}
+	}
+
+	return content.slice(start)
+}
+
 // Prettify function for set_module_code - extracts code from moduleId/code JSON
 function prettifySetModuleCode(content: string): string {
 	let codeContent = content
@@ -78,43 +129,35 @@ function prettifySetModuleCode(content: string): string {
 				codeContent = parsed.code
 			}
 		} catch {
-			// If JSON is incomplete during streaming, try to extract code property manually
-			const codeMatch = content.match(/"code"\s*:\s*"([\s\S]*?)(?:"\s*}?\s*$|$)/)
-			if (codeMatch) {
-				codeContent = codeMatch[1]
+			const extractedCode = extractJsonStringProperty(content, 'code')
+			if (extractedCode !== undefined) {
+				codeContent = extractedCode
 			}
 		}
 	}
 
-	// Convert escape sequences
-	codeContent = codeContent.replace(/\\n/g, '\n')
-	codeContent = codeContent.replace(/\\t/g, '\t')
-	codeContent = codeContent.replace(/\\"/g, '"')
-	codeContent = codeContent.replace(/\\\\/g, '\\')
-
-	return codeContent
+	return decodeEscapedToolString(codeContent)
 }
 
 function prettifyPatchFlowJson(content: string): string {
-	let newString = ''
+	let newString: string | undefined
 
 	if (typeof content === 'string' && content.trim().startsWith('{')) {
 		try {
 			const parsed = JSON.parse(content)
-			newString = parsed.new_string ?? ''
+			if (typeof parsed.new_string === 'string') {
+				newString = parsed.new_string
+			}
 		} catch {
-			const newStringMatch = content.match(/"new_string"\s*:\s*"([\s\S]*?)"(?:\s*,|$)/)
-			newString = newStringMatch?.[1] ?? ''
+			newString = extractJsonStringProperty(content, 'new_string')
 		}
 	}
 
-	newString = newString
-		.replace(/\\n/g, '\n')
-		.replace(/\\t/g, '\t')
-		.replace(/\\"/g, '"')
-		.replace(/\\\\/g, '\\')
+	if (newString === undefined) {
+		return content
+	}
 
-	return newString
+	return decodeEscapedToolString(newString)
 }
 
 // Prettify function for module value JSON - extracts the 'value' property and formats it
