@@ -1132,19 +1132,19 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				preprocessor_module,
 				'preprocessor_module'
 			) as FlowModule | null | undefined
-				parsedFailureModule = parseOptionalJsonArg(failure_module, 'failure_module') as
-					| FlowModule
-					| null
-					| undefined
-				if (parsedModules === null) {
-					parsedModules = undefined
-				}
-				if (parsedSchema === null) {
-					parsedSchema = undefined
-				}
+			parsedFailureModule = parseOptionalJsonArg(failure_module, 'failure_module') as
+				| FlowModule
+				| null
+				| undefined
+			if (parsedModules === null) {
+				parsedModules = undefined
+			}
+			if (parsedSchema === null) {
+				parsedSchema = undefined
+			}
 
-				if (parsedModules !== undefined) {
-					parsedModules = validateFlowModules(parsedModules)
+			if (parsedModules !== undefined) {
+				parsedModules = validateFlowModules(parsedModules)
 				const reservedIds = collectAllModuleIdsFromArray(parsedModules).filter(
 					(id) =>
 						id === SPECIAL_MODULE_IDS.PREPROCESSOR || id === SPECIAL_MODULE_IDS.FAILURE
