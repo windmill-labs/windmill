@@ -1,0 +1,70 @@
+import { describe, expect, it, vi } from 'vitest'
+import type { FlowModule } from '$lib/gen'
+import { applyFlowJsonUpdate } from './helperUtils'
+import { createInlineScriptSession } from './inlineScriptsUtils'
+
+vi.mock('../shared', () => ({
+	SPECIAL_MODULE_IDS: {
+		PREPROCESSOR: 'preprocessor',
+		FAILURE: 'failure'
+	}
+}))
+
+vi.mock('$lib/components/flows/previousResults', () => ({
+	dfs: () => []
+}))
+
+function makeRawScriptModule(id: string, content: string): FlowModule {
+	return {
+		id,
+		summary: id,
+		value: {
+			type: 'rawscript',
+			language: 'bun',
+			content,
+			input_transforms: {}
+		}
+	} as FlowModule
+}
+
+describe('applyFlowJsonUpdate', () => {
+	it('accepts new self-referenced inline scripts and initializes them as empty', () => {
+		const flow = {
+			value: {
+				modules: [makeRawScriptModule('process_data', 'existing code')]
+			}
+		}
+		const inlineScriptSession = createInlineScriptSession()
+		inlineScriptSession.set('process_data', 'existing code')
+
+		const result = applyFlowJsonUpdate(flow as any, inlineScriptSession, {
+			modules: [
+				makeRawScriptModule('process_data', 'inline_script.process_data'),
+				makeRawScriptModule('validate_data', 'inline_script.validate_data')
+			]
+		})
+		const [processDataModule, validateDataModule] = flow.value.modules as Array<FlowModule & { value: any }>
+
+		expect(result.emptyInlineScriptModuleIds).toEqual(['validate_data'])
+		expect(inlineScriptSession.get('validate_data')).toBe('')
+		expect(processDataModule?.value.type).toBe('rawscript')
+		expect(processDataModule?.value.content).toBe('existing code')
+		expect(validateDataModule?.value.type).toBe('rawscript')
+		expect(validateDataModule?.value.content).toBe('')
+	})
+
+	it('still rejects unresolved inline script references that do not match the module id', () => {
+		const flow = {
+			value: {
+				modules: []
+			}
+		}
+		const inlineScriptSession = createInlineScriptSession()
+
+		expect(() =>
+			applyFlowJsonUpdate(flow as any, inlineScriptSession, {
+				modules: [makeRawScriptModule('validate_data', 'inline_script.other_module')]
+			})
+		).toThrow('Unresolved inline script references: other_module')
+	})
+})

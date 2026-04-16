@@ -207,7 +207,7 @@
 					}
 				}
 
-				applyFlowJsonUpdate(flowStore.val, inlineScriptSession, {
+				const result = applyFlowJsonUpdate(flowStore.val, inlineScriptSession, {
 					modules,
 					schema,
 					preprocessorModule,
@@ -216,6 +216,7 @@
 
 				// Refresh the state store to update UI
 				refreshStateStore(flowStore)
+				return result
 			} catch (error) {
 				throw new Error(
 					`Failed to parse or apply JSON: ${error instanceof Error ? error.message : String(error)}`
