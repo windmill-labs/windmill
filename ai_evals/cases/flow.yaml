@@ -47,6 +47,38 @@
     - "the main step is named `call_add_numbers`"
     - the parent flow delegates to an existing workspace subflow instead of inlining the addition logic
 
+- id: flow-test13-prefer-existing-workspace-flow
+  prompt: |-
+    Create a parent flow that adds two numbers by reusing an existing flow from the workspace if one fits.
+    A reusable script may also be available, but for this task prefer the existing flow rather than calling a script directly or rewriting the logic inline.
+    The parent flow should take `a` and `b` as inputs and use a single top-level step named `call_add_numbers_flow`.
+  initial: ai_evals/fixtures/frontend/flow/initial/test13_prefer_existing_workspace_flow_initial.json
+  expected: ai_evals/fixtures/frontend/flow/expected/test13_prefer_existing_workspace_flow.json
+  validate:
+    exactTopLevelStepIds:
+      - call_add_numbers_flow
+    topLevelStepTypes:
+      - id: call_add_numbers_flow
+        type: flow
+    moduleRules:
+      - id: call_add_numbers_flow
+        requiredInputTransforms:
+          - type: javascript
+            expr: flow_input.a
+          - type: javascript
+            expr: flow_input.b
+  runtime:
+    backendPreview:
+      args:
+        a: 10
+        b: 5
+  judgeChecklist:
+    - "the parent flow takes `a` and `b` as inputs"
+    - "the main step is named `call_add_numbers_flow`"
+    - the parent flow reuses the existing workspace flow as a subflow
+    - the parent flow does not call the standalone workspace script directly
+    - the parent flow does not inline the addition logic
+
 - id: flow-test3-branchone-routing
   prompt: |-
     Create a flow that routes incoming support requests based on the customer's tier.
