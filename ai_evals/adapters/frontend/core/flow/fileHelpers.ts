@@ -4,10 +4,15 @@ import type { FlowModule, InputTransform } from '../../../../../frontend/src/lib
 import type { ExtendedOpenFlow } from '../../../../../frontend/src/lib/components/flows/types'
 import type { FlowAIChatHelpers } from '../../../../../frontend/src/lib/components/copilot/chat/flow/core'
 import type { ScriptLintResult } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
-import { findModuleById } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
+import { getSubModules } from '../../../../../frontend/src/lib/components/flows/flowExplorer'
 import {
 	createInlineScriptSession
 } from '../../../../../frontend/src/lib/components/copilot/chat/flow/inlineScriptsUtils'
+import {
+	applyFlowJsonUpdate,
+	getFlowModuleById,
+	updateRawScriptModuleContent
+} from '../../../../../frontend/src/lib/components/copilot/chat/flow/helperUtils'
 import {
 	registerBenchmarkWorkspace,
 	registerBenchmarkWorkspaceRunnables,
@@ -32,6 +37,8 @@ export interface FlowWorkspaceFixtures {
 export async function createFlowFileHelpers(
 	initialModules: FlowModule[] = [],
 	initialSchema?: Record<string, any>,
+	initialPreprocessorModule?: FlowModule,
+	initialFailureModule?: FlowModule,
 	workspaceRoot?: string,
 	workspaceFixtures?: FlowWorkspaceFixtures
 ): Promise<{
@@ -42,7 +49,11 @@ export async function createFlowFileHelpers(
 	workspaceDir: string | null
 }> {
 	let flow: ExtendedOpenFlow = {
-		value: { modules: structuredClone(initialModules) },
+		value: {
+			modules: structuredClone(initialModules),
+			preprocessor_module: structuredClone(initialPreprocessorModule),
+			failure_module: structuredClone(initialFailureModule)
+		},
 		summary: '',
 		schema: initialSchema ?? {
 			$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -76,36 +87,29 @@ export async function createFlowFileHelpers(
 		getFlowAndSelectedId: () => ({ flow, selectedId: '' }),
 		getModules: (id?: string) => {
 			if (!id) return flow.value.modules
-			const module = findModuleById(flow.value.modules, id)
-			return module ? [module] : []
+			const module = getFlowModuleById(flow, id)
+			return module ? getSubModules(module).flat() : []
 		},
 		inlineScriptSession,
 		setSnapshot: () => {},
 		revertToSnapshot: () => {},
 		setCode: async (id: string, code: string) => {
-			const module = findModuleById(flow.value.modules, id)
-			if (module && module.value.type === 'rawscript') {
-				module.value.content = code
-			}
+			updateRawScriptModuleContent(flow, id, code)
 			inlineScriptSession.set(id, code)
 			await persistFlow()
 		},
 		setFlowJson: async (
 			modules: FlowModule[] | undefined,
-			schema: Record<string, any> | undefined
+			schema: Record<string, any> | undefined,
+			preprocessorModule: FlowModule | null | undefined,
+			failureModule: FlowModule | null | undefined
 		) => {
-			if (modules) {
-				flow.value.modules = inlineScriptSession.restoreInlineScriptReferences(modules)
-				const unresolvedRefs = inlineScriptSession.findUnresolvedInlineScriptRefs(flow.value.modules)
-				if (unresolvedRefs.length > 0) {
-					throw new Error(
-						`Unresolved inline script references: ${unresolvedRefs.join(', ')}`
-					)
-				}
-			}
-			if (schema !== undefined) {
-				flow.schema = schema
-			}
+			applyFlowJsonUpdate(flow, inlineScriptSession, {
+				modules,
+				schema,
+				preprocessorModule,
+				failureModule
+			})
 			await persistFlow()
 		},
 		getFlowInputsSchema: async () => flow.schema ?? {},
@@ -122,7 +126,9 @@ export async function createFlowFileHelpers(
 					JSON.stringify(
 						{
 							requestedArgs: args ?? {},
-							modules: flow.value.modules.map((module) => module.id)
+							modules: flow.value.modules.map((module) => module.id),
+							preprocessor_module: flow.value.preprocessor_module?.id ?? null,
+							failure_module: flow.value.failure_module?.id ?? null
 						},
 						null,
 						2
@@ -136,6 +142,8 @@ export async function createFlowFileHelpers(
 				result: {
 					requestedArgs: args ?? {},
 					modules: flow.value.modules.map((module) => module.id),
+					preprocessor_module: flow.value.preprocessor_module?.id ?? null,
+					failure_module: flow.value.failure_module?.id ?? null,
 					mocked: true
 				},
 				logs: 'Mock benchmark flow test run completed successfully.'

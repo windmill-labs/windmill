@@ -33,7 +33,7 @@
 		Link,
 		Pen,
 		RefreshCw,
-		Share,
+		Shield,
 		Trash,
 		Building,
 		DollarSign,
@@ -529,11 +529,11 @@
 															]
 														: []),
 													{
-														displayName: owner ? 'Share' : 'See Permissions',
+														displayName: 'Permissions',
 														action: () => {
 															shareModal?.openDrawer(path, 'variable')
 														},
-														icon: Share
+														icon: Shield
 													},
 													...(account != undefined
 														? [

@@ -123,7 +123,7 @@
 	}
 
 	function isValidPermissionedAs(value: string): boolean {
-		return value.startsWith('u/') || value.startsWith('g/') || value.includes('@')
+		return /^[ug]\/.+/.test(value) || value.includes('@')
 	}
 
 	// Split a permissioned_as value like "u/alice" or "g/prod" into its kind and name.
@@ -136,7 +136,7 @@
 	}
 	function setRulePermissionedAs(idx: number, kind: 'user' | 'group', name: string) {
 		const prefix = kind === 'user' ? 'u/' : 'g/'
-		defaultPermissionedAs[idx].permissioned_as = name ? prefix + name : ''
+		defaultPermissionedAs[idx].permissioned_as = prefix + name
 	}
 
 	const defaultRulesInvalid = $derived(

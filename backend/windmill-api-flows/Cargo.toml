@@ -12,7 +12,6 @@ path = "src/lib.rs"
 default = []
 enterprise = ["windmill-common/enterprise"]
 private = ["windmill-common/private", "windmill-dep-map/private"]
-
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
 windmill-api-auth.workspace = true

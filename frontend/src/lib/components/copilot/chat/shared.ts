@@ -546,6 +546,7 @@ export function createToolDef(
 	let parameters = z.toJSONSchema(zodSchema)
 	delete parameters.$schema
 	if (!parameters.required) parameters.required = []
+	normalizeToolParameterSchema(parameters)
 
 	return {
 		type: 'function',
@@ -605,9 +606,9 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 })
 
 /**
- * Recursively removes format: null or format: '' from a JSON schema object
+ * Recursively normalizes JSON Schema quirks that specific providers reject.
  */
-function removeNullFormats(schema: Record<string, any> | undefined): void {
+function normalizeToolParameterSchema(schema: Record<string, any> | undefined): void {
 	if (!schema || typeof schema !== 'object') {
 		return
 	}
@@ -620,25 +621,31 @@ function removeNullFormats(schema: Record<string, any> | undefined): void {
 	// Recurse into properties
 	if (schema.properties && typeof schema.properties === 'object') {
 		for (const key of Object.keys(schema.properties)) {
-			removeNullFormats(schema.properties[key])
+			normalizeToolParameterSchema(schema.properties[key])
 		}
 	}
 
 	// Recurse into items (for arrays)
 	if (schema.items) {
-		removeNullFormats(schema.items)
+		if (Array.isArray(schema.items)) {
+			for (const item of schema.items) {
+				normalizeToolParameterSchema(item)
+			}
+		} else {
+			normalizeToolParameterSchema(schema.items)
+		}
 	}
 
 	// Recurse into additionalProperties if it's an object schema
 	if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
-		removeNullFormats(schema.additionalProperties)
+		normalizeToolParameterSchema(schema.additionalProperties)
 	}
 
 	// Recurse into allOf, anyOf, oneOf
 	for (const key of ['allOf', 'anyOf', 'oneOf']) {
 		if (Array.isArray(schema[key])) {
 			for (const subSchema of schema[key]) {
-				removeNullFormats(subSchema)
+				normalizeToolParameterSchema(subSchema)
 			}
 		}
 	}
@@ -662,8 +669,8 @@ export async function buildSchemaForTool(
 
 		toolDef.function.parameters = { ...schema, additionalProperties: false }
 
-		// recursively remove any format: null or format: '' (empty string) from schema
-		removeNullFormats(toolDef.function.parameters)
+		// recursively normalize provider-incompatible schema fragments
+		normalizeToolParameterSchema(toolDef.function.parameters)
 
 		// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
 		const model = getCurrentModel()

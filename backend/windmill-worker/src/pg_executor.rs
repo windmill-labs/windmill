@@ -572,6 +572,60 @@ async fn increment_connection_counter(database_string: &str) {
     *counter_map.entry(database_string.to_string()).or_insert(0) += 1;
 }
 
+/// Parse a date string in formats produced by chrono's Display or JS frontends.
+fn parse_naive_date(s: &str) -> Result<chrono::NaiveDate, chrono::ParseError> {
+    chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .or_else(|_| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.fZ"))
+        .or_else(|_| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ"))
+        .or_else(|_| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f"))
+}
+
+/// Parse a time string in formats produced by chrono's Display or JS frontends.
+fn parse_naive_time(s: &str) -> Result<chrono::NaiveTime, chrono::ParseError> {
+    chrono::NaiveTime::parse_from_str(s, "%H:%M:%S%.f")
+        .or_else(|_| chrono::NaiveTime::parse_from_str(s, "%H:%M:%S"))
+        .or_else(|_| chrono::NaiveTime::parse_from_str(s, "%H:%M"))
+        .or_else(|_| {
+            // Handle full datetime strings by extracting the time part
+            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.fZ")
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f"))
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ"))
+                .map(|dt| dt.time())
+        })
+}
+
+/// Parse a naive datetime string in formats produced by chrono's Display or JS frontends.
+fn parse_naive_datetime(s: &str) -> Result<chrono::NaiveDateTime, chrono::ParseError> {
+    chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S"))
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.fZ"))
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f"))
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ"))
+}
+
+/// Parse a timestamptz string in formats produced by chrono's Display or JS frontends.
+fn parse_datetime_utc(s: &str) -> Result<chrono::DateTime<Utc>, chrono::ParseError> {
+    s.parse::<chrono::DateTime<Utc>>()
+        .or_else(|_| {
+            // Handle numeric timezone offsets: "2024-01-15 10:30:00+00", "+00:00", "+0000"
+            chrono::DateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f%#z")
+                .or_else(|_| chrono::DateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%#z"))
+                .map(|dt| dt.with_timezone(&Utc))
+        })
+        .or_else(|_| {
+            // Handle chrono's Display format: "2024-01-15 10:30:00 UTC"
+            let trimmed = s.trim_end_matches(" UTC");
+            chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S%.f")
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S"))
+                .or_else(|_| {
+                    chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S%.fZ")
+                })
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S%.f"))
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%SZ"))
+                .map(|ndt| ndt.and_utc())
+        })
+}
+
 fn map_as_single_type<T>(
     vec: Option<&Vec<Value>>,
     f: impl Fn(&Value) -> Option<T>,
@@ -641,24 +695,16 @@ fn convert_vec_val(
             v.as_str().map(|x| Uuid::parse_str(x).ok()).flatten()
         })?)),
         "date" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().map(|x| {
-                chrono::NaiveDate::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default()
-            })
+            v.as_str().and_then(|x| parse_naive_date(x).ok())
         })?)),
         "time" | "timetz" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().map(|x| {
-                chrono::NaiveTime::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default()
-            })
+            v.as_str().and_then(|x| parse_naive_time(x).ok())
         })?)),
         "timestamp" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().map(|x| {
-                chrono::NaiveDateTime::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                    .unwrap_or_default()
-            })
+            v.as_str().and_then(|x| parse_naive_datetime(x).ok())
         })?)),
         "timestamptz" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str()
-                .map(|x| x.parse::<chrono::DateTime<Utc>>().unwrap_or_default())
+            v.as_str().and_then(|x| parse_datetime_utc(x).ok())
         })?)),
         "jsonb" | "json" => Ok(Box::new(
             vec.map(|v| v.clone().into_iter().map(Some).collect_vec()),
@@ -761,23 +807,53 @@ fn convert_val(
         Value::Number(n) if n.is_i64() => Ok(Box::new(n.as_i64().unwrap())),
         Value::Number(n) => Ok(Box::new(n.as_f64().unwrap())),
         Value::String(s) if arg_t == "uuid" => Ok(Box::new(Uuid::parse_str(s)?)),
+        Value::String(s)
+            if arg_t == "smallint"
+                || arg_t == "smallserial"
+                || arg_t == "int2"
+                || arg_t == "serial2" =>
+        {
+            s.parse::<i16>()
+                .map(|n| Box::new(n) as Box<dyn ToSql + Sync + Send>)
+                .map_err(|e| anyhow::anyhow!("Cannot parse '{s}' as smallint: {e}").into())
+        }
+        Value::String(s)
+            if arg_t == "int" || arg_t == "integer" || arg_t == "int4" || arg_t == "serial" =>
+        {
+            s.parse::<i32>()
+                .map(|n| Box::new(n) as Box<dyn ToSql + Sync + Send>)
+                .map_err(|e| anyhow::anyhow!("Cannot parse '{s}' as integer: {e}").into())
+        }
+        Value::String(s)
+            if arg_t == "bigint"
+                || arg_t == "bigserial"
+                || arg_t == "int8"
+                || arg_t == "serial8" =>
+        {
+            s.parse::<i64>()
+                .map(|n| Box::new(n) as Box<dyn ToSql + Sync + Send>)
+                .map_err(|e| anyhow::anyhow!("Cannot parse '{s}' as bigint: {e}").into())
+        }
         Value::String(s) if arg_t == "date" => {
-            let date =
-                chrono::NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
+            let date = parse_naive_date(s)
+                .map_err(|e| Error::ExecutionErr(format!("Cannot parse '{s}' as date: {e}")))?;
             Ok(Box::new(date))
         }
         Value::String(s) if arg_t == "time" || arg_t == "timetz" => {
-            let time =
-                chrono::NaiveTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
+            let time = parse_naive_time(s)
+                .map_err(|e| Error::ExecutionErr(format!("Cannot parse '{s}' as time: {e}")))?;
             Ok(Box::new(time))
         }
         Value::String(s) if arg_t == "timestamp" => {
-            let datetime = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
-                .unwrap_or_default();
+            let datetime = parse_naive_datetime(s).map_err(|e| {
+                Error::ExecutionErr(format!("Cannot parse '{s}' as timestamp: {e}"))
+            })?;
             Ok(Box::new(datetime))
         }
         Value::String(s) if arg_t == "timestamptz" => {
-            let datetime = s.parse::<chrono::DateTime<Utc>>().unwrap_or_default();
+            let datetime = parse_datetime_utc(s).map_err(|e| {
+                Error::ExecutionErr(format!("Cannot parse '{s}' as timestamptz: {e}"))
+            })?;
             Ok(Box::new(datetime))
         }
         Value::String(s) if arg_t == "bytea" => {
@@ -1062,5 +1138,133 @@ impl FromSql<'_> for StringCollector {
     }
     fn accepts(_ty: &Type) -> bool {
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_naive_date() {
+        // chrono's NaiveDate::to_string() format
+        let d = parse_naive_date("2024-01-15").unwrap();
+        assert_eq!(d.to_string(), "2024-01-15");
+
+        // JS ISO format
+        let d = parse_naive_date("2024-01-15T00:00:00.000Z").unwrap();
+        assert_eq!(d.to_string(), "2024-01-15");
+
+        // ISO without fractional seconds
+        let d = parse_naive_date("2024-01-15T00:00:00Z").unwrap();
+        assert_eq!(d.to_string(), "2024-01-15");
+    }
+
+    #[test]
+    fn test_parse_naive_time() {
+        // chrono's NaiveTime::to_string() format
+        let t = parse_naive_time("10:30:00").unwrap();
+        assert_eq!(t.to_string(), "10:30:00");
+
+        // With fractional seconds
+        let t = parse_naive_time("10:30:00.123456").unwrap();
+        assert_eq!(t.to_string(), "10:30:00.123456");
+
+        // Short format
+        let t = parse_naive_time("10:30").unwrap();
+        assert_eq!(t.to_string(), "10:30:00");
+
+        // From full datetime string (JS frontend)
+        let t = parse_naive_time("1970-01-01T10:30:00.000Z").unwrap();
+        assert_eq!(t.to_string(), "10:30:00");
+    }
+
+    #[test]
+    fn test_parse_naive_datetime() {
+        // chrono's NaiveDateTime::to_string() format
+        let dt = parse_naive_datetime("2024-01-15 10:30:00").unwrap();
+        assert_eq!(dt.to_string(), "2024-01-15 10:30:00");
+
+        // With fractional seconds
+        let dt = parse_naive_datetime("2024-01-15 10:30:00.123456").unwrap();
+        assert_eq!(dt.to_string(), "2024-01-15 10:30:00.123456");
+
+        // ISO format with Z
+        let dt = parse_naive_datetime("2024-01-15T10:30:00.000Z").unwrap();
+        assert_eq!(dt.to_string(), "2024-01-15 10:30:00");
+
+        // ISO format without Z
+        let dt = parse_naive_datetime("2024-01-15T10:30:00.000").unwrap();
+        assert_eq!(dt.to_string(), "2024-01-15 10:30:00");
+
+        // ISO without fractional seconds
+        let dt = parse_naive_datetime("2024-01-15T10:30:00Z").unwrap();
+        assert_eq!(dt.to_string(), "2024-01-15 10:30:00");
+    }
+
+    #[test]
+    fn test_parse_datetime_utc() {
+        // chrono's DateTime<Utc>::to_string() format
+        let dt = parse_datetime_utc("2024-01-15 10:30:00 UTC").unwrap();
+        assert_eq!(dt.to_string(), "2024-01-15 10:30:00 UTC");
+
+        // With fractional seconds
+        let dt = parse_datetime_utc("2024-01-15 10:30:00.123456 UTC").unwrap();
+        assert_eq!(dt.to_string(), "2024-01-15 10:30:00.123456 UTC");
+
+        // RFC 3339
+        let dt = parse_datetime_utc("2024-01-15T10:30:00Z").unwrap();
+        assert_eq!(dt.to_string(), "2024-01-15 10:30:00 UTC");
+
+        // RFC 3339 with fractional seconds
+        let dt = parse_datetime_utc("2024-01-15T10:30:00.123Z").unwrap();
+        assert_eq!(dt.to_string(), "2024-01-15 10:30:00.123 UTC");
+
+        // Numeric timezone offset (PostgreSQL text representation)
+        let dt = parse_datetime_utc("2026-04-14 18:09:00+00").unwrap();
+        assert_eq!(dt.to_string(), "2026-04-14 18:09:00 UTC");
+
+        // Numeric timezone offset with fractional seconds
+        let dt = parse_datetime_utc("2024-01-15 10:30:00.123+02").unwrap();
+        assert_eq!(dt.to_string(), "2024-01-15 08:30:00.123 UTC");
+
+        // Full offset format +00:00
+        let dt = parse_datetime_utc("2024-01-15 10:30:00+00:00").unwrap();
+        assert_eq!(dt.to_string(), "2024-01-15 10:30:00 UTC");
+
+        // ISO without timezone (treated as UTC)
+        let dt = parse_datetime_utc("2024-01-15T10:30:00.000").unwrap();
+        assert_eq!(dt.to_string(), "2024-01-15 10:30:00 UTC");
+    }
+
+    #[test]
+    fn test_roundtrip_timestamp_formats() {
+        // Verify that the format produced by pg_cell_to_json_value can be parsed back
+        let original = chrono::NaiveDateTime::parse_from_str(
+            "2024-06-15 14:30:45.123",
+            "%Y-%m-%d %H:%M:%S%.f",
+        )
+        .unwrap();
+        let serialized = original.to_string();
+        let parsed = parse_naive_datetime(&serialized).unwrap();
+        assert_eq!(original, parsed);
+    }
+
+    #[test]
+    fn test_roundtrip_timestamptz_formats() {
+        let original = "2024-06-15T14:30:45Z"
+            .parse::<chrono::DateTime<Utc>>()
+            .unwrap();
+        let serialized = original.to_string();
+        let parsed = parse_datetime_utc(&serialized).unwrap();
+        assert_eq!(original, parsed);
+    }
+
+    #[test]
+    fn test_roundtrip_time_formats() {
+        let original = chrono::NaiveTime::parse_from_str("14:30:45.123", "%H:%M:%S%.f").unwrap();
+        let serialized = original.to_string();
+        let parsed = parse_naive_time(&serialized).unwrap();
+        assert_eq!(original, parsed);
     }
 }

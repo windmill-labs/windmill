@@ -4,11 +4,25 @@
       {
         "id": "count_until_target",
         "value": {
-          "type": "whileloopflow"
+          "type": "whileloopflow",
+          "skip_failures": false,
+          "modules": [
+            {
+              "id": "increment_counter",
+              "value": {
+                "type": "rawscript",
+                "language": "bun"
+              }
+            }
+          ]
+        },
+        "stop_after_if": {
+          "expr": "result >= flow_input.target",
+          "skip_if_stopped": false
         }
       },
       {
-        "id": "return_final_count",
+        "id": "return_final_counter",
         "value": {
           "type": "rawscript"
         }
@@ -24,6 +38,9 @@
       }
     },
     "required": [
+      "target"
+    ],
+    "order": [
       "target"
     ]
   }

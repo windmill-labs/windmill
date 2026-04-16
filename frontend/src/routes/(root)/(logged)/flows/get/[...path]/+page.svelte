@@ -28,7 +28,7 @@
 		Archive,
 		Trash,
 		ChevronUpSquare,
-		Share,
+		Shield,
 		Loader2,
 		GitFork,
 		Play,
@@ -353,9 +353,9 @@
 		const menuItems: any = []
 
 		menuItems.push({
-			label: 'Share',
+			label: 'Permissions',
 			onclick: () => shareModal?.openDrawer(flow?.path ?? '', 'flow'),
-			Icon: Share,
+			Icon: Shield,
 			disabled: !can_write
 		})
 

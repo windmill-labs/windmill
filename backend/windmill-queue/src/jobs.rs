@@ -328,7 +328,7 @@ pub async fn cancel_job<'c>(
 WITH RECURSIVE job_tree AS (
     -- Base case: direct children of the given parent job
     SELECT id, parent_job, 1 AS depth
-    FROM v2_job_queue 
+    FROM v2_job_queue
     INNER JOIN v2_job USING (id)
     WHERE parent_job = $1 AND v2_job.workspace_id = $2
 
@@ -913,8 +913,6 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 ) -> windmill_common::error::Result<(Option<Uuid>, i64, bool, Option<serde_json::Value>)> {
     // let start = std::time::Instant::now();
 
-    let mut tx = db.begin().warn_after_seconds(10).await?;
-
     let job_id = completed_job.id;
     // tracing::error!("1 {:?}", start.elapsed());
 
@@ -930,6 +928,8 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     if let Some(value) = check_result_size(db, completed_job, result).await {
         return value;
     }
+
+    let mut tx = db.begin().warn_after_seconds(10).await?;
 
     let duration =  sqlx::query_scalar!(
             "INSERT INTO v2_job_completed AS cj
@@ -1141,13 +1141,13 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     || from_cache
                     || !success
                         && sqlx::query_scalar!(
-                            "SELECT 
-                                flow_status->>'step' = '0' 
+                            "SELECT
+                                flow_status->>'step' = '0'
                                 AND (
-                                    jsonb_array_length(flow_status->'modules') = 0 
-                                    OR flow_status->'modules'->0->>'type' = 'WaitingForPriorSteps' 
+                                    jsonb_array_length(flow_status->'modules') = 0
+                                    OR flow_status->'modules'->0->>'type' = 'WaitingForPriorSteps'
                                     OR (
-                                        flow_status->'modules'->0->>'type' = 'Failure' 
+                                        flow_status->'modules'->0->>'type' = 'Failure'
                                         AND flow_status->'modules'->0->>'job' = $1
                                     )
                                 )
@@ -2788,7 +2788,7 @@ pub async fn get_mini_pulled_job<'c>(
 ) -> windmill_common::error::Result<Option<MiniPulledJob>> {
     let job = sqlx::query_as!(
         MiniPulledJob,
-        "SELECT 
+        "SELECT
         v2_job_queue.workspace_id,
         v2_job_queue.id,
         v2_job.args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
@@ -3638,8 +3638,11 @@ pub fn resolve_debounce_key<'b>(
                 .join(":"),
         ));
 
-    tracing::debug!("Original debounce key (len={}): {}", original_debounce_key.len(), original_debounce_key);
-
+    tracing::debug!(
+        "Original debounce key (len={}): {}",
+        original_debounce_key.len(),
+        original_debounce_key
+    );
 
     // If debounce_key is not too long (< 255 chars), keep it as is, otherwise hash it.
     // On cloud, we prepend "{workspace_id}:" so we must reserve space for that prefix
@@ -3935,7 +3938,7 @@ pub async fn get_result_and_success_by_id_from_flow(
                 r#"WITH modules AS (
                     SELECT jsonb_array_elements(flow_status->'modules') AS module
                     FROM {}
-                    WHERE id = $1 
+                    WHERE id = $1
                 )
                 SELECT module->>'type' = 'Success'
                 FROM modules
@@ -4248,8 +4251,8 @@ pub fn get_mini_completed_job<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> 
         let mut conn = db.acquire().await?;
         sqlx::query_as!(
             MiniCompletedJob,
-            "SELECT 
-            j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as, 
+            "SELECT
+            j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as,
             j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle
             FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id
             WHERE j.id = $1 AND j.workspace_id = $2",
@@ -4619,7 +4622,7 @@ async fn push_inner<'c, 'd>(
                         user_usage
                     } else {
                         sqlx::query_scalar!(
-                            "SELECT usage.usage + 1 FROM usage 
+                            "SELECT usage.usage + 1 FROM usage
                             WHERE is_workspace IS FALSE AND
                             month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)
                             AND id = $1",
@@ -4675,7 +4678,7 @@ async fn push_inner<'c, 'd>(
                         workspace_usage
                     } else {
                         sqlx::query_scalar!(
-                            "SELECT usage.usage + 1 FROM usage 
+                            "SELECT usage.usage + 1 FROM usage
                             WHERE is_workspace IS TRUE AND
                             month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)
                             AND id = $1",
@@ -5383,17 +5386,31 @@ async fn push_inner<'c, 'd>(
                 ..Default::default()
             }
         }
-        JobPayload::DeploymentCallback { path, debouncing_settings } => JobPayloadUntagged {
-            runnable_path: Some(path.clone()),
-            job_kind: JobKind::DeploymentCallback,
-            concurrency_settings: ConcurrencySettings {
-                concurrency_key: Some(format!("{workspace_id}:git_sync")),
-                concurrent_limit: Some(1),
-                concurrency_time_window_s: Some(0),
-            },
-            debouncing_settings,
-            ..Default::default()
-        },
+        JobPayload::DeploymentCallback { path, debouncing_settings, concurrency_key_append } => {
+            const MAX_CONCURRENCY_KEY_LEN: usize = 255;
+            let concurrency_key = match concurrency_key_append {
+                Some(suffix) => {
+                    let full = format!("{workspace_id}:git_sync:{suffix}");
+                    if full.len() <= MAX_CONCURRENCY_KEY_LEN {
+                        full
+                    } else {
+                        format!("{workspace_id}:git_sync:{}", calculate_hash(&suffix))
+                    }
+                }
+                None => format!("{workspace_id}:git_sync"),
+            };
+            JobPayloadUntagged {
+                runnable_path: Some(path.clone()),
+                job_kind: JobKind::DeploymentCallback,
+                concurrency_settings: ConcurrencySettings {
+                    concurrency_key: Some(concurrency_key),
+                    concurrent_limit: Some(1),
+                    concurrency_time_window_s: Some(0),
+                },
+                debouncing_settings,
+                ..Default::default()
+            }
+        }
         JobPayload::Identity => {
             JobPayloadUntagged { job_kind: JobKind::Identity, ..Default::default() }
         }
@@ -5728,7 +5745,7 @@ async fn push_inner<'c, 'd>(
                 trigger, -- 14
                 script_lang, -- 15
                 same_worker, -- 16
-                pre_run_error, -- 17 
+                pre_run_error, -- 17
                 permissioned_as_email, -- 18
                 visible_to_owner, -- 19
                 flow_innermost_root_job, -- 20
@@ -5751,8 +5768,8 @@ async fn push_inner<'c, 'd>(
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
         ),
         inserted_job_perms AS (
-            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email) 
-            values ($1, $32, $33, $34, $35, $36, $37, $2, $41) 
+            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email)
+            values ($1, $32, $33, $34, $35, $36, $37, $2, $41)
             ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email
         )
         INSERT INTO v2_job_queue

@@ -3,6 +3,10 @@
 import { Command, InvalidArgumentError } from "commander";
 import { loadCases, loadSelectedCases } from "../core/cases";
 import {
+  BACKEND_VALIDATION_MODES,
+  parseBackendValidationMode,
+} from "../core/backendValidation";
+import {
   EVAL_MODELS,
   type EvalModelSpec,
   formatRunModelLabel,
@@ -43,6 +47,7 @@ async function main() {
         "  bun run cli -- run flow --models haiku,opus,4o",
         "  bun run cli -- run flow flow-test0-sum-two-numbers --verbose",
         "  bun run cli -- run flow --record",
+        "  bun run cli -- run flow --backend-validation preview",
         "  bun run cli -- run flow flow-test5-simple-modification --runs 3",
         "  bun run cli -- run cli bun-hello-script",
         "",
@@ -77,6 +82,10 @@ async function main() {
     .option("--models <names>", "comma-separated model aliases to run sequentially")
     .option("--verbose", "stream assistant output during frontend runs")
     .option("--record", "append a compact summary line to ai_evals/history/<mode>.jsonl")
+    .option(
+      "--backend-validation <mode>",
+      `backend smoke validation (${BACKEND_VALIDATION_MODES.join(", ")})`
+    )
     .action(
       async (
         mode: EvalMode,
@@ -88,6 +97,7 @@ async function main() {
           models?: string;
           verbose?: boolean;
           record?: boolean;
+          backendValidation?: string;
         }
       ) => {
         await handleRun({
@@ -99,6 +109,7 @@ async function main() {
           models: options.models,
           verbose: options.verbose ?? false,
           record: options.record ?? false,
+          backendValidation: options.backendValidation,
         });
       }
     );
@@ -143,6 +154,7 @@ async function handleRun(input: {
   models?: string;
   verbose: boolean;
   record: boolean;
+  backendValidation?: string;
 }) {
   if (input.record && input.caseIds.length > 0) {
     throw new Error("--record only supports full-suite runs; omit case ids to record history");
@@ -153,8 +165,14 @@ async function handleRun(input: {
 
   const selectedCases = await loadSelectedCases(input.mode, input.caseIds);
   const models = resolveRequestedModels(input.mode, input.model, input.models);
+  const backendValidation = parseBackendValidationMode(
+    input.backendValidation ?? process.env.WMILL_AI_EVAL_BACKEND_VALIDATION
+  );
   if (input.outputPath && models.length > 1) {
     throw new Error("--output only supports a single model run");
+  }
+  if (backendValidation !== "off" && input.mode !== "flow" && input.mode !== "script") {
+    throw new Error("--backend-validation currently supports only flow and script modes");
   }
 
   const summaries: Array<{ label: string; passRate: number; averageDurationMs: number }> = [];
@@ -177,6 +195,7 @@ async function handleRun(input: {
             runs: input.runs,
             model: model.id,
             verbose: input.verbose,
+            backendValidation,
           });
 
     const resolvedOutputPath =

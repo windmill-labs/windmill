@@ -2,7 +2,7 @@
   "workspace": {
     "scripts": [
       {
-        "path": "f/evals/add_two_numbers.ts",
+        "path": "f/evals/add_two_numbers",
         "summary": "Add two numbers",
         "description": "Returns the sum of two numeric inputs.",
         "language": "bun",

@@ -191,6 +191,9 @@
 			activateV5Options.session_expiry_interval = Boolean(
 				defaultValues?.v5_config?.session_expiry_interval
 			)
+			permissionedAs = undefined
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 			originalConfig = undefined
 		} finally {
 			clearTimeout(loadingTimeout)
@@ -220,8 +223,8 @@
 			activateV5Options.topic_alias_maximum = Boolean(v5_config.topic_alias_maximum)
 			activateV5Options.session_expiry_interval = Boolean(v5_config.session_expiry_interval)
 			permissionedAs = cfg?.permissioned_as
-			selectedPermissionedAs = undefined
-			preservePermissionedAs = false
+			selectedPermissionedAs = cfg?.permissioned_as
+			preservePermissionedAs = !!cfg?.permissioned_as
 		} catch (error) {
 			sendUserToast(`Could not load mqtt trigger config: ${error.body}`, true)
 		}

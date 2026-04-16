@@ -255,6 +255,16 @@ export const DUCKDB_TYPES = [
 	'STRING'
 ]
 
+/** Types that are only valid for new columns (CREATE TABLE / ADD COLUMN), not for altering existing ones. */
+export const NEW_COLUMN_ONLY_TYPES: string[] = [
+	'SMALLSERIAL',
+	'SMALLSERIAL[]',
+	'SERIAL',
+	'SERIAL[]',
+	'BIGSERIAL',
+	'BIGSERIAL[]'
+]
+
 export const DB_TYPES: Record<DbType, string[]> = {
 	bigquery: BIGQUERY_TYPES,
 	ms_sql_server: MSSQL_TYPES,

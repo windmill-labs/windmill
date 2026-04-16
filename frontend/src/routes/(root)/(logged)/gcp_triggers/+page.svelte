@@ -32,7 +32,7 @@
 		Eye,
 		Pen,
 		Plus,
-		Share,
+		Shield,
 		Trash,
 		Circle,
 		FileUp,
@@ -546,8 +546,8 @@
 											href: `${base}/audit_logs?resource=${path}`
 										},
 										{
-											displayName: canWrite ? 'Share' : 'See Permissions',
-											icon: Share,
+											displayName: 'Permissions',
+											icon: Shield,
 											action: () => {
 												shareModal?.openDrawer(path, 'gcp_trigger')
 											}

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import type { EvalCase, EvalMode, FlowValidationSpec } from "./types";
+import type { EvalCase, EvalCaseRuntimeSpec, EvalMode, FlowValidationSpec } from "./types";
 
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const CASES_DIR = path.join(REPO_ROOT, "ai_evals", "cases");
@@ -14,6 +14,7 @@ interface RawEvalCase {
   expected?: string;
   validate?: FlowValidationSpec;
   judgeChecklist?: string[];
+  runtime?: EvalCaseRuntimeSpec;
 }
 
 export function getRepoRoot(): string {
@@ -40,6 +41,7 @@ export async function loadCases(mode: EvalMode): Promise<EvalCase[]> {
     expectedPath: resolveFixturePath(entry.expected),
     validate: entry.validate,
     judgeChecklist: entry.judgeChecklist,
+    runtime: entry.runtime,
   }));
 }
 
