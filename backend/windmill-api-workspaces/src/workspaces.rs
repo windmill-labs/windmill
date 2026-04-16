@@ -40,8 +40,8 @@ use windmill_common::workspaces::GitRepositorySettings;
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
     check_user_against_rule, get_datatable_resource_from_db_unchecked, DataTable,
-    DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
-    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
+    DataTableCatalogResourceType, DataTableForkBehavior, DeploymentSource, ProtectionRuleKind,
+    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -4166,6 +4166,7 @@ async fn create_workspace_fork_branch(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        DeploymentSource::Ui,
         &db,
     )
     .await?
@@ -4323,6 +4324,7 @@ async fn create_workspace_fork(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        DeploymentSource::Ui,
         &db,
     )
     .await?
@@ -5282,6 +5284,8 @@ struct CreateProtectionRuleRequest {
     rules: Vec<ProtectionRuleKind>,
     bypass_groups: Vec<String>,
     bypass_users: Vec<String>,
+    #[serde(default)]
+    allowed_deploy_sources: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -5289,6 +5293,8 @@ struct UpdateProtectionRuleRequest {
     rules: Vec<ProtectionRuleKind>,
     bypass_groups: Vec<String>,
     bypass_users: Vec<String>,
+    #[serde(default)]
+    allowed_deploy_sources: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -5298,6 +5304,7 @@ struct ProtectionRulesetResponse {
     pub rules: Vec<ProtectionRuleKind>,
     pub bypass_groups: Vec<String>,
     pub bypass_users: Vec<String>,
+    pub allowed_deploy_sources: Vec<String>,
 }
 
 impl From<ProtectionRuleset> for ProtectionRulesetResponse {
@@ -5316,6 +5323,7 @@ impl From<ProtectionRuleset> for ProtectionRulesetResponse {
             name: value.name,
             bypass_groups: value.bypass_groups,
             bypass_users: value.bypass_users,
+            allowed_deploy_sources: value.allowed_deploy_sources,
         }
     }
 }
@@ -5365,14 +5373,15 @@ async fn create_protection_rule(
     // Insert the new rule
     sqlx::query!(
         r#"
-            INSERT INTO workspace_protection_rule (workspace_id, name, rules, bypass_groups, bypass_users)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO workspace_protection_rule (workspace_id, name, rules, bypass_groups, bypass_users, allowed_deploy_sources)
+            VALUES ($1, $2, $3, $4, $5, $6)
         "#,
         &w_id,
         &req.name,
         ProtectionRules::from(&req.rules).bits(),
         &req.bypass_groups,
         &req.bypass_users,
+        &req.allowed_deploy_sources,
     )
     .execute(&mut *tx)
     .await?;
@@ -5440,12 +5449,13 @@ async fn update_protection_rule(
     sqlx::query!(
         r#"
             UPDATE workspace_protection_rule
-            SET rules = $1, bypass_groups = $2, bypass_users = $3
-            WHERE workspace_id = $4 AND name = $5
+            SET rules = $1, bypass_groups = $2, bypass_users = $3, allowed_deploy_sources = $4
+            WHERE workspace_id = $5 AND name = $6
         "#,
         ProtectionRules::from(&req.rules).bits(),
         &req.bypass_groups,
         &req.bypass_users,
+        &req.allowed_deploy_sources,
         &w_id,
         &rule_name
     )

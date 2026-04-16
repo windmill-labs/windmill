@@ -62,7 +62,7 @@ use windmill_common::{
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
-    workspaces::{check_deploy_rules, RuleCheckResult},
+    workspaces::{check_deploy_rules, DeploySourceHeader, RuleCheckResult},
     HUB_BASE_URL,
 };
 #[cfg(feature = "parquet")]
@@ -1100,6 +1100,7 @@ async fn create_app_raw<'a>(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
+    deploy_source: DeploySourceHeader,
     multipart: Multipart,
 ) -> Result<(StatusCode, String)> {
     if authed.is_operator {
@@ -1113,6 +1114,7 @@ async fn create_app_raw<'a>(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -1170,6 +1172,7 @@ async fn create_app(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
+    deploy_source: DeploySourceHeader,
     Json(app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
     if authed.is_operator {
@@ -1185,6 +1188,7 @@ async fn create_app(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -1460,6 +1464,7 @@ async fn delete_app(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    deploy_source: DeploySourceHeader,
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
@@ -1475,6 +1480,7 @@ async fn delete_app(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -1620,6 +1626,7 @@ async fn update_app(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    deploy_source: DeploySourceHeader,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
     if authed.is_operator {
@@ -1636,6 +1643,7 @@ async fn update_app(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -1666,6 +1674,7 @@ async fn update_app_raw<'a>(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    deploy_source: DeploySourceHeader,
     multipart: Multipart,
 ) -> Result<String> {
     if authed.is_operator {
@@ -1679,6 +1688,7 @@ async fn update_app_raw<'a>(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -1772,7 +1782,8 @@ async fn update_app_internal<'a>(
 
         if let Some(ncustom_path) = &ns.custom_path {
             require_admin(authed.is_admin, &authed.username)?;
-            let as_workspaced_route = APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+            let as_workspaced_route =
+                APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
             if ncustom_path.is_empty() {
                 sqlb.set("custom_path", "NULL");

@@ -18,7 +18,7 @@ use windmill_api_auth::{
     auth::{list_tokens_internal, TruncatedTokenWithEmail},
     check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed,
 };
-use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
+use windmill_common::workspaces::{check_deploy_rules, DeploySourceHeader, RuleCheckResult};
 use windmill_common::{
     utils::{WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
@@ -427,6 +427,7 @@ async fn create_flow(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
+    deploy_source: DeploySourceHeader,
     Json(mut nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
     if authed.is_operator {
@@ -441,6 +442,7 @@ async fn create_flow(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -919,6 +921,7 @@ async fn update_flow(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
+    deploy_source: DeploySourceHeader,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
     if authed.is_operator {
@@ -934,6 +937,7 @@ async fn update_flow(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -1567,6 +1571,7 @@ async fn archive_flow_by_path(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    deploy_source: DeploySourceHeader,
     Json(archived): Json<Archived>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -1576,6 +1581,7 @@ async fn archive_flow_by_path(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -1707,6 +1713,7 @@ async fn delete_flow_by_path(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    deploy_source: DeploySourceHeader,
     Query(query): Query<DeleteFlowQuery>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -1716,6 +1723,7 @@ async fn delete_flow_by_path(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?

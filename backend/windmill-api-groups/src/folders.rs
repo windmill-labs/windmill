@@ -28,7 +28,7 @@ use windmill_common::{
 use windmill_common::{
     error::Error,
     webhook::{WebhookMessage, WebhookShared},
-    workspaces::{check_deploy_rules, RuleCheckResult},
+    workspaces::{check_deploy_rules, DeploySourceHeader, RuleCheckResult},
 };
 
 use serde::{Deserialize, Serialize};
@@ -222,6 +222,7 @@ async fn create_folder(
     Extension(webhook): Extension<WebhookShared>,
     Extension(cache): Extension<Arc<AuthCache>>,
     Path(w_id): Path<String>,
+    deploy_source: DeploySourceHeader,
     Json(ng): Json<NewFolder>,
 ) -> Result<String> {
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -229,6 +230,7 @@ async fn create_folder(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -379,6 +381,7 @@ async fn update_folder(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
+    deploy_source: DeploySourceHeader,
     Json(mut ng): Json<UpdateFolder>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
@@ -388,6 +391,7 @@ async fn update_folder(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -706,12 +710,14 @@ async fn delete_folder(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
+    deploy_source: DeploySourceHeader,
 ) -> Result<String> {
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
