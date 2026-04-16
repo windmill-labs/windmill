@@ -18,10 +18,11 @@ use windmill_common::{client::AuthedClient, error::Error};
 
 // Re-export from shared module for use by other parts of the worker
 use windmill_common::ai_bedrock::{
-    bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
-    bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start, build_tool_config,
-    create_inference_config, format_bedrock_error, is_bedrock_claude_model,
-    openai_messages_to_bedrock, streaming_tool_calls_to_openai, StreamingToolCall,
+    bedrock_model_supports_prompt_caching, bedrock_stream_event_is_block_stop,
+    bedrock_stream_event_to_text, bedrock_stream_event_to_tool_delta,
+    bedrock_stream_event_to_tool_start, build_tool_config, create_inference_config,
+    format_bedrock_error, openai_messages_to_bedrock, streaming_tool_calls_to_openai,
+    StreamingToolCall,
 };
 pub use windmill_common::ai_bedrock::{check_env_credentials, BedrockClient};
 
@@ -71,7 +72,7 @@ impl BedrockQueryBuilder {
         let prepared_messages = prepare_messages_for_api(messages, client, workspace_id).await?;
 
         // Convert messages to Bedrock format (separates system prompts)
-        let enable_prompt_caching = is_bedrock_claude_model(model);
+        let enable_prompt_caching = bedrock_model_supports_prompt_caching(model);
         let (bedrock_messages, system_prompts) =
             openai_messages_to_bedrock(&prepared_messages, enable_prompt_caching)?;
 

@@ -94,6 +94,18 @@ pub async fn check_env_credentials() -> BedrockCredentialsCheck {
 /// Constants for commonly used strings to avoid allocations
 pub const FUNCTION_TYPE: &str = "function";
 
+const BEDROCK_PROMPT_CACHING_SUPPORTED_MODEL_IDS: &[&str] = &[
+    "anthropic.claude-opus-4-5-20251101-v1:0",
+    "anthropic.claude-opus-4-1-20250805-v1:0",
+    "anthropic.claude-opus-4-20250514-v1:0",
+    "anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "anthropic.claude-haiku-4-5-20251001-v1:0",
+    "anthropic.claude-sonnet-4-20250514-v1:0",
+    "anthropic.claude-3-7-sonnet-20250219-v1:0",
+    "anthropic.claude-3-5-haiku-20241022-v1:0",
+    "anthropic.claude-3-5-sonnet-20241022-v2:0",
+];
+
 fn build_default_cache_point() -> aws_sdk_bedrockruntime::types::CachePointBlock {
     aws_sdk_bedrockruntime::types::CachePointBlock::builder()
         .r#type(aws_sdk_bedrockruntime::types::CachePointType::Default)
@@ -101,8 +113,25 @@ fn build_default_cache_point() -> aws_sdk_bedrockruntime::types::CachePointBlock
         .expect("cache point type is required")
 }
 
-pub fn is_bedrock_claude_model(model: &str) -> bool {
-    model.to_ascii_lowercase().contains("claude")
+fn normalize_bedrock_model_id(model: &str) -> String {
+    let model = model
+        .rsplit('/')
+        .next()
+        .unwrap_or(model)
+        .to_ascii_lowercase();
+
+    for prefix in ["global.", "us.", "eu.", "apac."] {
+        if let Some(normalized_model) = model.strip_prefix(prefix) {
+            return normalized_model.to_string();
+        }
+    }
+
+    model
+}
+
+pub fn bedrock_model_supports_prompt_caching(model: &str) -> bool {
+    let normalized_model = normalize_bedrock_model_id(model);
+    BEDROCK_PROMPT_CACHING_SUPPORTED_MODEL_IDS.contains(&normalized_model.as_str())
 }
 
 fn append_cache_point_to_system_prompts(system_prompts: &mut Vec<SystemContentBlock>) {
@@ -867,6 +896,29 @@ mod tests {
                 .as_ref()
                 .and_then(|config| config.tools().last()),
             Some(Tool::CachePoint(_))
+        ));
+    }
+
+    #[test]
+    fn bedrock_prompt_caching_supports_documented_claude_model_ids() {
+        assert!(bedrock_model_supports_prompt_caching(
+            "anthropic.claude-haiku-4-5-20251001-v1:0"
+        ));
+        assert!(bedrock_model_supports_prompt_caching(
+            "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+        ));
+        assert!(bedrock_model_supports_prompt_caching(
+            "arn:aws:bedrock:us-east-1::inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+        ));
+    }
+
+    #[test]
+    fn bedrock_prompt_caching_rejects_unsupported_or_opaque_model_ids() {
+        assert!(!bedrock_model_supports_prompt_caching(
+            "anthropic.claude-3-haiku-20240307-v1:0"
+        ));
+        assert!(!bedrock_model_supports_prompt_caching(
+            "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/my-profile"
         ));
     }
 }

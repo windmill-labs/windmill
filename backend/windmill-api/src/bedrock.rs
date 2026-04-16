@@ -366,7 +366,8 @@ pub async fn handle_bedrock_sdk_streaming(
     .await?;
 
     // Convert messages using shared conversion
-    let enable_prompt_caching = windmill_common::ai_bedrock::is_bedrock_claude_model(model);
+    let enable_prompt_caching =
+        windmill_common::ai_bedrock::bedrock_model_supports_prompt_caching(model);
     let (bedrock_messages, system_prompts) =
         windmill_common::ai_bedrock::openai_messages_to_bedrock(
             &openai_req.messages,
@@ -631,7 +632,8 @@ pub async fn handle_bedrock_sdk_non_streaming(
     .await?;
 
     // Convert messages using shared conversion
-    let enable_prompt_caching = windmill_common::ai_bedrock::is_bedrock_claude_model(model);
+    let enable_prompt_caching =
+        windmill_common::ai_bedrock::bedrock_model_supports_prompt_caching(model);
     let (bedrock_messages, system_prompts) =
         windmill_common::ai_bedrock::openai_messages_to_bedrock(
             &openai_req.messages,
