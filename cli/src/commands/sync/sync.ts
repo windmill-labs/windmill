@@ -1986,7 +1986,7 @@ interface ChangeTracker {
 }
 
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
-  const isScript = exts.some((e) => p.endsWith(e));
+  const isScript = exts.some((e) => p.endsWith(e)) && !isFileResource(p) && !isFilesetResource(p);
   if (isScript) {
     if (isFlowPath(p)) {
       const folder = extractFolderPath(p, "flow")!;
