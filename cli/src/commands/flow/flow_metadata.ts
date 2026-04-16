@@ -51,7 +51,12 @@ async function generateFlowHash(
       );
     }
   }
-  return { ...hashes, [TOP_HASH]: await generateHash(JSON.stringify(hashes)) };
+  // Sort keys so the top hash is deterministic regardless of filesystem readdir order
+  const sortedHashes: Record<string, string> = {};
+  for (const k of Object.keys(hashes).sort()) {
+    sortedHashes[k] = hashes[k];
+  }
+  return { ...sortedHashes, [TOP_HASH]: await generateHash(JSON.stringify(sortedHashes)) };
 }
 /**
  * Result of generating flow locks, including which scripts were updated

@@ -380,7 +380,10 @@ export async function generateScriptMetadataInternal(
     }
   }
 
-  const metadataContentUsedForHash = newMetadataContent;
+  // When justUpdateMetadataLock (sync pull), the metadata file is NOT rewritten,
+  // so use the raw file content for hashing to avoid YAML round-trip differences
+  // (e.g. hand-edited YAML that serializes differently after parse + stringify).
+  const metadataContentUsedForHash = justUpdateMetadataLock ? metadataContent : newMetadataContent;
 
   hash = await generateScriptHash(
     depsForHash,
