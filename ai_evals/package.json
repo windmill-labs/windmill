@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "cli": "bun cli/index.ts"
+    "cli": "bun cli/index.ts",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.25",

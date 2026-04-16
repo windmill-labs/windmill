@@ -1,0 +1,35 @@
+{
+  "summary": "Event processing flow",
+  "value": {
+    "modules": [
+      {
+        "id": "process_event",
+        "summary": "Process the incoming event payload",
+        "value": {
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export async function main(payload: string) {\n  return {\n    success: true,\n    payload,\n    processedAt: new Date().toISOString()\n  };\n}",
+          "input_transforms": {
+            "payload": {
+              "type": "javascript",
+              "expr": "flow_input.payload"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "payload": {
+        "type": "string",
+        "description": "Incoming event payload"
+      }
+    },
+    "required": [
+      "payload"
+    ]
+  }
+}

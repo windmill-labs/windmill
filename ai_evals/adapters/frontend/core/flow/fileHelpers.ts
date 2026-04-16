@@ -83,6 +83,21 @@ export async function createFlowFileHelpers(
 		}
 	}
 
+	const setFlowJson: FlowAIChatHelpers['setFlowJson'] = async ({
+		modules,
+		schema,
+		preprocessorModule,
+		failureModule
+	}) => {
+		applyFlowJsonUpdate(flow, inlineScriptSession, {
+			modules,
+			schema,
+			preprocessorModule,
+			failureModule
+		})
+		await persistFlow()
+	}
+
 	const helpers: FlowAIChatHelpers = {
 		getFlowAndSelectedId: () => ({ flow, selectedId: '' }),
 		getModules: (id?: string) => {
@@ -98,20 +113,7 @@ export async function createFlowFileHelpers(
 			inlineScriptSession.set(id, code)
 			await persistFlow()
 		},
-		setFlowJson: async (
-			modules: FlowModule[] | undefined,
-			schema: Record<string, any> | undefined,
-			preprocessorModule: FlowModule | null | undefined,
-			failureModule: FlowModule | null | undefined
-		) => {
-			applyFlowJsonUpdate(flow, inlineScriptSession, {
-				modules,
-				schema,
-				preprocessorModule,
-				failureModule
-			})
-			await persistFlow()
-		},
+		setFlowJson,
 		getFlowInputsSchema: async () => flow.schema ?? {},
 		updateExprsToSet: (_id: string, _inputTransforms: Record<string, InputTransform>) => {},
 		acceptAllModuleActions: () => {},

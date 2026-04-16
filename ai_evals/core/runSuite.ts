@@ -143,6 +143,20 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
                 runs: input.runs,
               })
           : undefined,
+        onToolCall: input.verbose && surface
+          ? ({ toolName, argumentsText }) =>
+              input.onProgress?.({
+                type: "tool-call",
+                surface,
+                caseId: input.evalCase.id,
+                caseNumber: input.caseIndex + 1,
+                totalCases: input.totalCases,
+                attempt,
+                runs: input.runs,
+                toolName,
+                argumentsText,
+              })
+          : undefined,
       });
       const checks: BenchmarkCheck[] = [
         buildCheck("run succeeded", run.success, run.error),

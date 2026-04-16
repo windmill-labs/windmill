@@ -2,7 +2,7 @@
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import { getContext, untrack } from 'svelte'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
-	import type { FlowModule, InputTransform } from '$lib/gen'
+	import type { InputTransform } from '$lib/gen'
 	import type { FlowAIChatHelpers } from './core'
 	import { createInlineScriptSession } from './inlineScriptsUtils'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
@@ -34,7 +34,6 @@
 
 	// Get diffManager from the graph
 	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
-
 	const flowHelpers: FlowAIChatHelpers = {
 		// flow context
 		getFlowAndSelectedId: () => {
@@ -165,7 +164,6 @@
 		},
 
 		getLintErrors: async (moduleId: string): Promise<ScriptLintResult> => {
-
 			const module = getFlowModuleById(flowStore.val, moduleId)
 			if (!module || module.value.type !== 'rawscript') {
 				return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
@@ -193,12 +191,7 @@
 			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 		},
 
-		setFlowJson: async (
-			modules: FlowModule[] | undefined,
-			schema: Record<string, any> | undefined,
-			preprocessorModule: FlowModule | null | undefined,
-			failureModule: FlowModule | null | undefined
-		) => {
+		setFlowJson: async ({ modules, schema, preprocessorModule, failureModule }) => {
 			try {
 				if (
 					modules !== undefined ||
@@ -224,7 +217,6 @@
 				// Refresh the state store to update UI
 				refreshStateStore(flowStore)
 			} catch (error) {
-				console.error('setFlowJson error:', error)
 				throw new Error(
 					`Failed to parse or apply JSON: ${error instanceof Error ? error.message : String(error)}`
 				)

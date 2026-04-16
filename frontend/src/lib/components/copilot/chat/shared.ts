@@ -67,6 +67,57 @@ function prettifyCodeArguments(content: string): string {
 	return codeContent
 }
 
+function decodeEscapedToolString(content: string): string {
+	return content
+		.replace(/\\n/g, '\n')
+		.replace(/\\t/g, '\t')
+		.replace(/\\"/g, '"')
+		.replace(/\\\\/g, '\\')
+}
+
+function extractJsonStringProperty(content: string, property: string): string | undefined {
+	const propertyKey = `"${property}"`
+	const propertyIndex = content.indexOf(propertyKey)
+	if (propertyIndex === -1) {
+		return undefined
+	}
+
+	let cursor = propertyIndex + propertyKey.length
+	while (cursor < content.length && /\s/.test(content[cursor] ?? '')) {
+		cursor++
+	}
+	if (content[cursor] !== ':') {
+		return undefined
+	}
+
+	cursor++
+	while (cursor < content.length && /\s/.test(content[cursor] ?? '')) {
+		cursor++
+	}
+	if (content[cursor] !== '"') {
+		return undefined
+	}
+
+	const start = cursor + 1
+	let escaped = false
+	for (let index = start; index < content.length; index++) {
+		const char = content[index]
+		if (escaped) {
+			escaped = false
+			continue
+		}
+		if (char === '\\') {
+			escaped = true
+			continue
+		}
+		if (char === '"') {
+			return content.slice(start, index)
+		}
+	}
+
+	return content.slice(start)
+}
+
 // Prettify function for set_module_code - extracts code from moduleId/code JSON
 function prettifySetModuleCode(content: string): string {
 	let codeContent = content
@@ -78,21 +129,35 @@ function prettifySetModuleCode(content: string): string {
 				codeContent = parsed.code
 			}
 		} catch {
-			// If JSON is incomplete during streaming, try to extract code property manually
-			const codeMatch = content.match(/"code"\s*:\s*"([\s\S]*?)(?:"\s*}?\s*$|$)/)
-			if (codeMatch) {
-				codeContent = codeMatch[1]
+			const extractedCode = extractJsonStringProperty(content, 'code')
+			if (extractedCode !== undefined) {
+				codeContent = extractedCode
 			}
 		}
 	}
 
-	// Convert escape sequences
-	codeContent = codeContent.replace(/\\n/g, '\n')
-	codeContent = codeContent.replace(/\\t/g, '\t')
-	codeContent = codeContent.replace(/\\"/g, '"')
-	codeContent = codeContent.replace(/\\\\/g, '\\')
+	return decodeEscapedToolString(codeContent)
+}
 
-	return codeContent
+function prettifyPatchFlowJson(content: string): string {
+	let newString: string | undefined
+
+	if (typeof content === 'string' && content.trim().startsWith('{')) {
+		try {
+			const parsed = JSON.parse(content)
+			if (typeof parsed.new_string === 'string') {
+				newString = parsed.new_string
+			}
+		} catch {
+			newString = extractJsonStringProperty(content, 'new_string')
+		}
+	}
+
+	if (newString === undefined) {
+		return content
+	}
+
+	return decodeEscapedToolString(newString)
 }
 
 // Prettify function for module value JSON - extracts the 'value' property and formats it
@@ -150,6 +215,7 @@ function prettifyModuleValue(content: string): string {
 export const TOOL_PRETTIFY_MAP: Record<string, (content: string) => string> = {
 	edit_code: prettifyCodeArguments,
 	set_module_code: prettifySetModuleCode,
+	patch_flow_json: prettifyPatchFlowJson,
 	add_module: prettifyModuleValue,
 	modify_module: prettifyModuleValue
 }
@@ -228,7 +294,7 @@ const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext
 export function applyCodePiecesToFlowModules(
 	codePieces: FlowModuleCodePieceElement[],
 	flowModules: FlowModule[]
-): string {
+): FlowModule[] {
 	const moduleCodePieces = new Map<string, FlowModuleCodePieceElement[]>()
 	for (const codePiece of codePieces) {
 		const moduleId = codePiece.id
@@ -252,7 +318,7 @@ export function applyCodePiecesToFlowModules(
 		}
 	}
 
-	return JSON.stringify(modifiedModules, null, 2)
+	return modifiedModules
 }
 
 export function buildContextString(selectedContext: ContextElement[]): string {

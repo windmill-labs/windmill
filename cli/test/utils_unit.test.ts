@@ -270,6 +270,10 @@ describe("getTypeStrFromPath", () => {
   test("detects fileset resource files as resource type", () => {
     expect(getTypeStrFromPath("f/test/my_config.fileset/config.yaml")).toBe("resource");
     expect(getTypeStrFromPath("u/admin/templates.fileset/path/to/file.txt")).toBe("resource");
+    // fileset files with script-like extensions should still be detected as resource
+    expect(getTypeStrFromPath("f/test/my_queries.fileset/query.sql")).toBe("resource");
+    expect(getTypeStrFromPath("f/test/my_queries.fileset/script.py")).toBe("resource");
+    expect(getTypeStrFromPath("f/test/my_queries.fileset/nested/dir/file.ts")).toBe("resource");
   });
 
   test("throws for unknown type", () => {

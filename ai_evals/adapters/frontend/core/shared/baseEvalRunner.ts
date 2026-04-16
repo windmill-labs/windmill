@@ -2,8 +2,8 @@ import type {
 	ChatCompletionMessageParam,
 	ChatCompletionSystemMessageParam
 } from 'openai/resources/chat/completions.mjs'
-import type { AIProviderModel } from '$lib/gen/types.gen'
-import type { TokenUsage, ToolCallDetail, EvalRunnerOptions, RawEvalResult } from './types'
+import type { AIProvider } from '$lib/gen/types.gen'
+import type { ToolCallDetail, EvalRunnerOptions, RawEvalResult } from './types'
 import { runChatLoop, type ChatClients } from '../../../../../frontend/src/lib/components/copilot/chat/chatLoop'
 import type {
 	Tool as ProductionTool,
@@ -40,6 +40,7 @@ export interface RunEvalParams<THelpers, TOutput> {
 	onAssistantMessageStart?: () => void
 	onAssistantToken?: (token: string) => void
 	onAssistantMessageEnd?: () => void
+	onToolCall?: (input: { toolName: string; argumentsText: string }) => void
 }
 
 /**
@@ -59,20 +60,18 @@ export async function runEval<THelpers, TOutput>(
 		options,
 		onAssistantMessageStart,
 		onAssistantToken,
-		onAssistantMessageEnd
+		onAssistantMessageEnd,
+		onToolCall
 	} = params
 	let shouldEmitMessageStart = true
 
 	const model = options?.model ?? 'gpt-4o'
 	const maxIterations = options?.maxIterations ?? 20
 	const workspace = options?.workspace ?? 'test-workspace'
-	const provider = options?.provider
+	const provider = toFrontendEvalProvider(options?.provider)
 
-	const modelProvider = resolveEvalModelProvider(
-		model,
-		provider as FrontendEvalProvider | undefined
-	) as AIProviderModel
-	const clients = createEvalClients(modelProvider.provider, apiKey) as ChatClients
+	const modelProvider = resolveEvalModelProvider(model, provider)
+	const clients = createEvalClients(modelProvider.provider, apiKey) as unknown as ChatClients
 
 	const messages: ChatCompletionMessageParam[] = [userMessage]
 	let toolCallsCount = 0
@@ -87,16 +86,22 @@ export async function runEval<THelpers, TOutput>(
 		fn: async (p: any) => {
 			toolCallsCount++
 			toolsCalled.push(tool.def.function.name)
+			let argumentsText = ''
 			try {
-				const args =
-					typeof p.args === 'string' ? JSON.parse(p.args) : p.args
+				const args = typeof p.args === 'string' ? JSON.parse(p.args) : p.args
 				toolCallDetails.push({ name: tool.def.function.name, arguments: args })
+				argumentsText = JSON.stringify(args)
 			} catch {
 				toolCallDetails.push({
 					name: tool.def.function.name,
 					arguments: p.args
 				})
+				argumentsText = typeof p.args === 'string' ? p.args : JSON.stringify(p.args)
 			}
+			onToolCall?.({
+				toolName: tool.def.function.name,
+				argumentsText
+			})
 			return tool.fn(p)
 		}
 	}))
@@ -137,7 +142,7 @@ export async function runEval<THelpers, TOutput>(
 			clients,
 			workspace,
 			maxIterations,
-			skipResponsesApi: modelProvider.provider !== 'openai' && modelProvider.provider !== 'azure_openai'
+			skipResponsesApi: modelProvider.provider !== 'openai'
 		})
 
 		return {
@@ -170,4 +175,11 @@ export async function runEval<THelpers, TOutput>(
 			messages
 		}
 	}
+}
+
+function toFrontendEvalProvider(provider?: AIProvider): FrontendEvalProvider | undefined {
+	if (provider === 'anthropic' || provider === 'openai' || provider === 'googleai') {
+		return provider
+	}
+	return undefined
 }
