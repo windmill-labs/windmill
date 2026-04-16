@@ -61,6 +61,32 @@ export function getMutableRawScriptModuleById(
 	return matchedModule
 }
 
+export function getMutableRawScriptModuleById(
+	flow: FlowLike | undefined,
+	id: string
+): (FlowModule & { value: RawScript }) | undefined {
+	if (!flow) {
+		return undefined
+	}
+
+	if (flow.value.preprocessor_module?.id === id && flow.value.preprocessor_module.value.type === 'rawscript') {
+		return flow.value.preprocessor_module as FlowModule & { value: RawScript }
+	}
+
+	if (flow.value.failure_module?.id === id && flow.value.failure_module.value.type === 'rawscript') {
+		return flow.value.failure_module as FlowModule & { value: RawScript }
+	}
+
+	let matchedModule: (FlowModule & { value: RawScript }) | undefined
+	forEachFlowModule(flow.value.modules, (module) => {
+		if (!matchedModule && module.id === id && module.value.type === 'rawscript') {
+			matchedModule = module as FlowModule & { value: RawScript }
+		}
+	})
+
+	return matchedModule
+}
+
 export function updateRawScriptModuleContent(
 	flow: FlowLike,
 	id: string,
