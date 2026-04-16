@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.685.0](https://github.com/windmill-labs/windmill/compare/v1.684.1...v1.685.0) (2026-04-16)
+
+
+### Features
+
+* add compact json patch tool to flow chat ([#8840](https://github.com/windmill-labs/windmill/issues/8840)) ([b39671d](https://github.com/windmill-labs/windmill/commit/b39671d933e789301017d3efce6a448f35b3d407))
+
+
+### Bug Fixes
+
+* classify fileset resource files with script extensions correctly ([#8851](https://github.com/windmill-labs/windmill/issues/8851)) ([b1aeb33](https://github.com/windmill-labs/windmill/commit/b1aeb33adeb63a1ee521e7a1aacc552faab833da))
+* clean ai memory and cache bedrock prompts ([#8847](https://github.com/windmill-labs/windmill/issues/8847)) ([b177827](https://github.com/windmill-labs/windmill/commit/b1778272fc91d53922ee62fe4be304ff72767f0b))
+* encourage subflow reuse in AI chat flow builder prompt ([#8839](https://github.com/windmill-labs/windmill/issues/8839)) ([49844eb](https://github.com/windmill-labs/windmill/commit/49844eb240a24caacd3a86b5eb6b3c228e8c5fbe))
+* improve flow chat and benchmark coverage ([#8825](https://github.com/windmill-labs/windmill/issues/8825)) ([d3cb0c6](https://github.com/windmill-labs/windmill/commit/d3cb0c62204ebfebfa6859f38b3b597d719c573a))
+* include workspacedependencies in default git sync include_type ([#8852](https://github.com/windmill-labs/windmill/issues/8852)) ([fc49a8f](https://github.com/windmill-labs/windmill/commit/fc49a8fed655a66b89e2324f49121402cdffd507))
+* make sync pull produce consistent wmill-lock.yaml hashes ([#8854](https://github.com/windmill-labs/windmill/issues/8854)) ([625d23f](https://github.com/windmill-labs/windmill/commit/625d23fc85a4b80723d0b267c3fc790dc60993bc))
+* parse assets on inline script module creation to avoid false toast ([#8835](https://github.com/windmill-labs/windmill/issues/8835)) ([12d0a3d](https://github.com/windmill-labs/windmill/commit/12d0a3de0829fb7951d1be93ddbbca582781a9cc))
+* per-branch concurrency key for promotion-mode git sync ([#8844](https://github.com/windmill-labs/windmill/issues/8844)) ([362ae24](https://github.com/windmill-labs/windmill/commit/362ae248fe899368fee05046976f01bc2f128c3f))
+* preserve gemini thought signatures in ai chat ([#8837](https://github.com/windmill-labs/windmill/issues/8837)) ([5c179e5](https://github.com/windmill-labs/windmill/commit/5c179e5448a448d5f9a33484a7205807e5cf107b))
+* skip nsjail uidmap/gidmap when DISABLE_NUSER=true ([#8842](https://github.com/windmill-labs/windmill/issues/8842)) ([4bda600](https://github.com/windmill-labs/windmill/commit/4bda600729f907514f3f58728f2e592d4d1495ed))
+* Update duckdb to 1.5.2 (Ducklake 1.0.0) ([#8848](https://github.com/windmill-labs/windmill/issues/8848)) ([7f2486b](https://github.com/windmill-labs/windmill/commit/7f2486bdba18b95d9edc68ad63eb48e5567f0d45))
+* workspace specfic tags compatibility with forked workspaces ([#8850](https://github.com/windmill-labs/windmill/issues/8850)) ([0773b5b](https://github.com/windmill-labs/windmill/commit/0773b5bc5d809d00350618ed2955a1baf77a26da))
+
 ## [1.684.1](https://github.com/windmill-labs/windmill/compare/v1.684.0...v1.684.1) (2026-04-14)
 
 
