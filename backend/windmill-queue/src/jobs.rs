@@ -3307,16 +3307,15 @@ pub async fn pull(
                         && !(job.kind.is_preview()
                             && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed))
                     {
-                        let per_workspace = per_workspace_tag(&job.workspace_id).await;
+                        let effective_ws = per_workspace_tag(&job.workspace_id, db).await;
                         let base_tag = if job.is_flow() {
                             "flow".to_string()
                         } else {
                             "dependency".to_string()
                         };
-                        let tag = if per_workspace {
-                            format!("{}-{}", base_tag, job.workspace_id)
-                        } else {
-                            base_tag
+                        let tag = match &effective_ws {
+                            Some(ws) => format!("{}-{}", base_tag, ws),
+                            None => base_tag,
                         };
                         sqlx::query!(
                             "UPDATE v2_job_queue SET tag = $1, running = false WHERE id = $2",
@@ -3638,8 +3637,11 @@ pub fn resolve_debounce_key<'b>(
                 .join(":"),
         ));
 
-    tracing::debug!("Original debounce key (len={}): {}", original_debounce_key.len(), original_debounce_key);
-
+    tracing::debug!(
+        "Original debounce key (len={}): {}",
+        original_debounce_key.len(),
+        original_debounce_key
+    );
 
     // If debounce_key is not too long (< 255 chars), keep it as is, otherwise hash it.
     // On cloud, we prepend "{workspace_id}:" so we must reserve space for that prefix
@@ -5492,7 +5494,7 @@ async fn push_inner<'c, 'd>(
         }
 
         let interpolated_tag = tag.map(|x| interpolate_args(x, &args, workspace_id));
-        let per_workspace = per_workspace_tag(&workspace_id).await;
+        let effective_ws = per_workspace_tag(&workspace_id, _db).await;
 
         let default = || {
             let ntag = if job_kind.is_flow()
@@ -5510,10 +5512,9 @@ async fn push_inner<'c, 'd>(
             } else {
                 "deno".to_string()
             };
-            if per_workspace {
-                format!("{}-{}", ntag, workspace_id)
-            } else {
-                ntag
+            match &effective_ws {
+                Some(ws) => format!("{}-{}", ntag, ws),
+                None => ntag,
             }
         };
 
@@ -5521,10 +5522,9 @@ async fn push_inner<'c, 'd>(
             if job_kind.is_preview()
                 && PREVIEW_TAGS_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed)
             {
-                if per_workspace {
-                    format!("preview-{}", workspace_id)
-                } else {
-                    "preview".to_string()
+                match &effective_ws {
+                    Some(ws) => format!("preview-{}", ws),
+                    None => "preview".to_string(),
                 }
             } else {
                 language
@@ -5539,10 +5539,9 @@ async fn push_inner<'c, 'd>(
                         } else {
                             x.as_str()
                         };
-                        if per_workspace {
-                            format!("{}-{}", tag_lang, workspace_id)
-                        } else {
-                            tag_lang.to_string()
+                        match &effective_ws {
+                            Some(ws) => format!("{}-{}", tag_lang, ws),
+                            None => tag_lang.to_string(),
                         }
                     })
                     .unwrap_or_else(default)

@@ -7,6 +7,7 @@
 	import {
 		DEFAULT_TAGS_PER_WORKSPACE_SETTING,
 		DEFAULT_TAGS_WORKSPACES_SETTING,
+		FORK_WORKSPACE_TAG_BEHAVIOR_USE_PARENT_SETTING,
 		PREVIEW_TAGS_OVERRIDE_SETTING
 	} from '$lib/consts'
 	import Toggle from './Toggle.svelte'
@@ -14,6 +15,8 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import Section from './Section.svelte'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	interface Props {
 		defaultTagPerWorkspace?: boolean | undefined
 		defaultTagWorkspaces?: string[]
@@ -27,18 +30,21 @@
 	let defaultTags = $state<string[] | undefined>(undefined)
 	let limitToWorkspaces = $state(false)
 	let previewTagsOverride = $state(false)
+	let forkWorkspaceUseParent = $state(true)
 
 	// Change detection
 	let originalDefaultTagPerWorkspace = $state<boolean | undefined>(defaultTagPerWorkspace)
 	let originalDefaultTagWorkspaces = $state<string[]>(defaultTagWorkspaces)
 	let originalPreviewTagsOverride = $state(false)
+	let originalForkWorkspaceUseParent = $state(true)
 
 	// Detect changes
 	let hasChanges = $derived(
 		originalDefaultTagPerWorkspace !== defaultTagPerWorkspace ||
 			JSON.stringify($state.snapshot(originalDefaultTagWorkspaces)?.sort() || []) !==
 				JSON.stringify($state.snapshot(defaultTagWorkspaces)?.sort() || []) ||
-			originalPreviewTagsOverride !== previewTagsOverride
+			originalPreviewTagsOverride !== previewTagsOverride ||
+			originalForkWorkspaceUseParent !== forkWorkspaceUseParent
 	)
 
 	let workspaces: string[] = $state([])
@@ -59,6 +65,11 @@
 					key: PREVIEW_TAGS_OVERRIDE_SETTING
 				})) as any) ?? false
 			originalPreviewTagsOverride = previewTagsOverride
+			const forkSetting = (await SettingService.getGlobal({
+				key: FORK_WORKSPACE_TAG_BEHAVIOR_USE_PARENT_SETTING
+			})) as any
+			forkWorkspaceUseParent = forkSetting ?? true
+			originalForkWorkspaceUseParent = forkWorkspaceUseParent
 		} catch (err) {
 			sendUserToast(`Could not load default tags: ${err}`, true)
 		}
@@ -86,11 +97,18 @@
 				value: previewTagsOverride
 			}
 		})
+		await SettingService.setGlobal({
+			key: FORK_WORKSPACE_TAG_BEHAVIOR_USE_PARENT_SETTING,
+			requestBody: {
+				value: forkWorkspaceUseParent
+			}
+		})
 
 		// Update original state after save
 		originalDefaultTagPerWorkspace = defaultTagPerWorkspace
 		originalDefaultTagWorkspaces = [...(defaultTagWorkspaces || [])]
 		originalPreviewTagsOverride = previewTagsOverride
+		originalForkWorkspaceUseParent = forkWorkspaceUseParent
 
 		loadDefaultTags()
 		sendUserToast('Saved')
@@ -150,6 +168,33 @@
 				/>
 			</div>
 			{#if defaultTagPerWorkspace}
+				<div class="flex flex-col gap-1">
+					<span class="text-xs font-semibold">Fork workspace behavior</span>
+					<ToggleButtonGroup
+						selected={forkWorkspaceUseParent ? 'parent' : 'self'}
+						onSelected={(v) => (forkWorkspaceUseParent = v === 'parent')}
+						disabled={!$enterpriseLicense}
+					>
+						{#snippet children({ item })}
+							<ToggleButton
+								value="parent"
+								label="Use parent workspace tags"
+								tooltip={'Fork jobs are tagged with the parent workspace id (e.g. python3-{parent_id}), so they are picked up by workers assigned to the parent workspace.'}
+								{item}
+							/>
+							<ToggleButton
+								value="self"
+								label="Use fork's own workspace tags"
+								tooltip="Fork jobs are tagged with the fork's own id. Jobs will not run unless workers are explicitly provisioned for that fork."
+								{item}
+							/>
+						{/snippet}
+					</ToggleButtonGroup>
+					<p class="text-2xs text-secondary">
+						To instead route fork jobs to default (non-workspaced) tags, enable "only for some
+						workspaces" below and exclude fork workspaces from the list.
+					</p>
+				</div>
 				<Toggle
 					bind:checked={limitToWorkspaces}
 					options={{ right: 'only for some workspaces' }}
