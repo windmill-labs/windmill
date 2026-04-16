@@ -2079,6 +2079,9 @@ try {{
                 .replace("{LANG}", if annotation.nodejs { "nodejs" } else { "bun" })
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{UIDGIDMAP}", if *DISABLE_NUSER { "" } else {
+                    "uidmap {\n    inside_id: \"1000\"\n    outside_id: \"\"\n    count: 1\n}\n\ngidmap {\n    inside_id: \"1000\"\n    outside_id: \"\"\n    count: 1\n}"
+                })
                 .replace(
                     "{SHARED_MOUNT}",
                     &shared_mount.replace(

@@ -5,7 +5,7 @@
         "id": "sum_numbers",
         "value": {
           "type": "script",
-          "path": "f/evals/add_two_numbers.ts",
+          "path": "f/evals/add_two_numbers",
           "input_transforms": {
             "a": {
               "type": "javascript",

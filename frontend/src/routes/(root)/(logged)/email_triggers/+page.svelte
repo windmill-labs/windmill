@@ -39,7 +39,7 @@
 		Eye,
 		Pen,
 		Plus,
-		Share,
+		Shield,
 		Trash,
 		FileUp,
 		ClipboardCopy,
@@ -462,8 +462,8 @@
 												href: `${base}/audit_logs?resource=${path}`
 											},
 											{
-												displayName: canWrite ? 'Share' : 'See Permissions',
-												icon: Share,
+												displayName: 'Permissions',
+												icon: Shield,
 												action: () => {
 													shareModal?.openDrawer(path, 'email_trigger')
 												}

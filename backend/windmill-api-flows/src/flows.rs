@@ -222,10 +222,7 @@ async fn list_flows(
 async fn list_hub_flows(Extension(db): Extension<DB>) -> impl IntoResponse {
     let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
-        &format!(
-            "{}/searchFlowData?approved=true",
-            **HUB_BASE_URL.load()
-        ),
+        &format!("{}/searchFlowData?approved=true", **HUB_BASE_URL.load()),
         None,
         &db,
     )
@@ -1146,6 +1143,18 @@ async fn update_flow(
         if schedule.enabled {
             tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
         }
+    }
+
+    if is_new_path {
+        windmill_common::triggers::update_triggers_script_path(
+            &mut tx, &nf.path, &flow_path, &w_id, true,
+        )
+        .await
+        .map_err(|e| {
+            error::Error::internal_err(format!(
+                "Error updating triggers due to runnable path change: {e:#}"
+            ))
+        })?;
     }
 
     sqlx::query!(
