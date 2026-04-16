@@ -94,6 +94,54 @@ pub async fn check_env_credentials() -> BedrockCredentialsCheck {
 /// Constants for commonly used strings to avoid allocations
 pub const FUNCTION_TYPE: &str = "function";
 
+fn build_default_cache_point() -> aws_sdk_bedrockruntime::types::CachePointBlock {
+    aws_sdk_bedrockruntime::types::CachePointBlock::builder()
+        .r#type(aws_sdk_bedrockruntime::types::CachePointType::Default)
+        .build()
+        .expect("cache point type is required")
+}
+
+pub fn is_bedrock_claude_model(model: &str) -> bool {
+    model.to_ascii_lowercase().contains("claude")
+}
+
+fn append_cache_point_to_system_prompts(system_prompts: &mut Vec<SystemContentBlock>) {
+    if system_prompts.is_empty()
+        || matches!(
+            system_prompts.last(),
+            Some(SystemContentBlock::CachePoint(_))
+        )
+    {
+        return;
+    }
+
+    system_prompts.push(SystemContentBlock::CachePoint(build_default_cache_point()));
+}
+
+fn append_cache_point_to_last_message(messages: &mut [Message]) -> Result<(), Error> {
+    let Some(last_message) = messages.last_mut() else {
+        return Ok(());
+    };
+
+    if matches!(
+        last_message.content().last(),
+        Some(ContentBlock::CachePoint(_))
+    ) {
+        return Ok(());
+    }
+
+    let mut content = last_message.content().to_vec();
+    content.push(ContentBlock::CachePoint(build_default_cache_point()));
+
+    *last_message = Message::builder()
+        .role(last_message.role().clone())
+        .set_content(Some(content))
+        .build()
+        .map_err(|e| Error::internal_err(format!("Failed to append cache point: {}", e)))?;
+
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct BearerTokenProvider {
     token: String,
@@ -277,6 +325,7 @@ pub fn json_to_document(value: serde_json::Value) -> aws_smithy_types::Document 
 /// Tuple of (conversation_messages, system_prompts)
 pub fn openai_messages_to_bedrock(
     messages: &[OpenAIMessage],
+    enable_prompt_caching: bool,
 ) -> Result<(Vec<Message>, Vec<SystemContentBlock>), Error> {
     let mut bedrock_messages = Vec::new();
     let mut system_prompts = Vec::new();
@@ -332,6 +381,11 @@ pub fn openai_messages_to_bedrock(
                 Error::internal_err(format!("Failed to build tool results message: {}", e))
             })?;
         bedrock_messages.push(tool_result_message);
+    }
+
+    if enable_prompt_caching {
+        append_cache_point_to_system_prompts(&mut system_prompts);
+        append_cache_point_to_last_message(&mut bedrock_messages)?;
     }
 
     Ok((bedrock_messages, system_prompts))
@@ -703,9 +757,15 @@ pub fn streaming_tool_calls_to_openai(tool_calls: Vec<StreamingToolCall>) -> Vec
 pub fn build_tool_config(
     tools: Option<&[ToolDef]>,
     force_tool_use: bool,
+    enable_prompt_caching: bool,
 ) -> Result<Option<aws_sdk_bedrockruntime::types::ToolConfiguration>, Error> {
     if let Some(tools) = tools {
-        let bedrock_tools = openai_tools_to_bedrock(tools)?;
+        let mut bedrock_tools = openai_tools_to_bedrock(tools)?;
+
+        if enable_prompt_caching && !matches!(bedrock_tools.last(), Some(Tool::CachePoint(_))) {
+            bedrock_tools.push(Tool::CachePoint(build_default_cache_point()));
+        }
+
         let mut tool_config_builder = aws_sdk_bedrockruntime::types::ToolConfiguration::builder()
             .set_tools(Some(bedrock_tools));
 
@@ -722,5 +782,91 @@ pub fn build_tool_config(
         })?))
     } else {
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::value::RawValue;
+
+    fn text_message(role: &str, content: &str) -> OpenAIMessage {
+        OpenAIMessage {
+            role: role.to_string(),
+            content: Some(OpenAIContent::Text(content.to_string())),
+            ..Default::default()
+        }
+    }
+
+    fn test_tool() -> ToolDef {
+        ToolDef {
+            r#type: FUNCTION_TYPE.to_string(),
+            function: crate::ai_types::ToolDefFunction {
+                name: "test_tool".to_string(),
+                description: Some("A test tool".to_string()),
+                parameters: RawValue::from_string(
+                    r#"{"type":"object","properties":{},"additionalProperties":false}"#.to_string(),
+                )
+                .expect("valid raw json"),
+            },
+        }
+    }
+
+    #[test]
+    fn openai_messages_to_bedrock_adds_cache_points_when_enabled() {
+        let messages = vec![
+            text_message("system", "Reply concisely"),
+            text_message("user", "Tell me a joke"),
+        ];
+
+        let (bedrock_messages, system_prompts) =
+            openai_messages_to_bedrock(&messages, true).expect("bedrock conversion succeeds");
+
+        assert!(matches!(
+            system_prompts.last(),
+            Some(SystemContentBlock::CachePoint(_))
+        ));
+        assert!(matches!(
+            bedrock_messages
+                .last()
+                .and_then(|message| message.content().last()),
+            Some(ContentBlock::CachePoint(_))
+        ));
+    }
+
+    #[test]
+    fn openai_messages_to_bedrock_skips_cache_points_when_disabled() {
+        let messages = vec![
+            text_message("system", "Reply concisely"),
+            text_message("user", "Tell me a joke"),
+        ];
+
+        let (bedrock_messages, system_prompts) =
+            openai_messages_to_bedrock(&messages, false).expect("bedrock conversion succeeds");
+
+        assert!(!matches!(
+            system_prompts.last(),
+            Some(SystemContentBlock::CachePoint(_))
+        ));
+        assert!(!matches!(
+            bedrock_messages
+                .last()
+                .and_then(|message| message.content().last()),
+            Some(ContentBlock::CachePoint(_))
+        ));
+    }
+
+    #[test]
+    fn build_tool_config_adds_cache_point_when_enabled() {
+        let tools = vec![test_tool()];
+        let tool_config =
+            build_tool_config(Some(&tools), false, true).expect("tool config succeeds");
+
+        assert!(matches!(
+            tool_config
+                .as_ref()
+                .and_then(|config| config.tools().last()),
+            Some(Tool::CachePoint(_))
+        ));
     }
 }
