@@ -2,6 +2,7 @@ use sqlx::{Pool, Postgres};
 use windmill_common::worker::{
     DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_USE_PARENT,
 };
+use windmill_common::workspaces::WM_FORK_PREFIX;
 
 /// Returns `Some(effective_workspace_id)` if jobs of `workspace_id` should use workspace-specific
 /// tags, where `effective_workspace_id` is the ID to embed in the tag (possibly the parent for
@@ -16,7 +17,7 @@ pub async fn per_workspace_tag(workspace_id: &str, db: &Pool<Postgres>) -> Optio
     // up the parent. This DB hit only occurs for forks, so it is not on the hot path for regular
     // workspaces.
     // TODO(perf): if this becomes a bottleneck, add a TTL cache of fork-id -> parent-id.
-    let effective_ws_id: String = if workspace_id.starts_with("wm-fork-")
+    let effective_ws_id: String = if workspace_id.starts_with(WM_FORK_PREFIX)
         && FORK_WORKSPACE_TAG_USE_PARENT.load(std::sync::atomic::Ordering::Relaxed)
     {
         match sqlx::query_scalar!(
