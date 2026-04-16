@@ -27,6 +27,7 @@
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
+	import Label from './Label.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -251,16 +252,12 @@
 		<LabelsInput bind:labels class="-mt-4" />
 
 		{#if deployTo}
-			<label class="flex flex-col gap-1">
-				<span class="text-xs font-semibold text-emphasis">Workspace specific</span>
-				<Toggle
-					bind:checked={wsSpecific}
-					options={{
-						rightTooltip:
-							'When enabled, this resource will not be synced to other workspaces and will be treated as specific to this workspace'
-					}}
-				/>
-			</label>
+			<Label
+				label="Workspace specific"
+				tooltip="Prevents this resource from being deployed to prod/staging"
+			>
+				<Toggle bind:checked={wsSpecific} />
+			</Label>
 		{/if}
 
 		{#if !emptyString(resourceTypeInfo?.description)}

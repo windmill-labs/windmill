@@ -34,6 +34,7 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
+	import Label from './Label.svelte'
 
 	interface Props {
 		step?: number
@@ -759,16 +760,12 @@
 			/>
 			<LabelsInput bind:labels class="-mt-5" />
 			{#if deployTo}
-				<label class="flex flex-col gap-1">
-					<span class="text-xs font-semibold text-emphasis">Workspace specific</span>
-					<Toggle
-						bind:checked={wsSpecific}
-						options={{
-							rightTooltip:
-								'When enabled, this resource and its linked secret variables will not be synced to other workspaces and will be treated as specific to this workspace'
-						}}
-					/>
-				</label>
+				<Label
+					label="Workspace specific"
+					tooltip="Prevents this resource from being deployed to prod/staging"
+				>
+					<Toggle bind:checked={wsSpecific} />
+				</Label>
 			{/if}
 
 			{#if apiTokenApps[resourceType]}
@@ -978,16 +975,12 @@
 		/>
 		<LabelsInput bind:labels class="-mt-5" />
 		{#if deployTo}
-			<label class="flex flex-col gap-1">
-				<span class="text-xs font-semibold text-emphasis">Workspace specific</span>
-				<Toggle
-					bind:checked={wsSpecific}
-					options={{
-						rightTooltip:
-							'When enabled, this resource and its linked secret variables will not be synced to other workspaces and will be treated as specific to this workspace'
-					}}
-				/>
-			</label>
+			<Label
+				label="Workspace specific"
+				tooltip="Prevents this resource from being deployed to prod/staging"
+			>
+				<Toggle bind:checked={wsSpecific} />
+			</Label>
 		{/if}
 		{#if apiTokenApps[resourceType] || !manual}
 			<ul class="mt-6">

@@ -16,6 +16,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { Loader2, Save } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
+	import Label from './Label.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -188,16 +189,12 @@
 			</label>
 
 			{#if deployTo}
-				<label class="flex flex-col gap-1">
-					<span class="text-xs font-semibold text-emphasis">Workspace specific</span>
-					<Toggle
-						bind:checked={wsSpecific}
-						options={{
-							rightTooltip:
-								'When enabled, this variable will not be synced to other workspaces and will be treated as specific to this workspace'
-						}}
-					/>
-				</label>
+				<Label
+					label="Workspace specific"
+					tooltip="Prevents this variable from being deployed to prod/staging"
+				>
+					<Toggle bind:checked={wsSpecific} />
+				</Label>
 			{/if}
 
 			<div class="flex flex-col gap-1">
