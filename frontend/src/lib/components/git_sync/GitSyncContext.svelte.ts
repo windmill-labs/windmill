@@ -194,7 +194,7 @@ export function createGitSyncContext(workspace: string) {
 				include_path: ['f/**'],
 				exclude_path: [],
 				extra_include_path: [],
-				include_type: ['script', 'flow', 'app', 'folder']
+				include_type: ['script', 'flow', 'app', 'folder', 'workspacedependencies']
 			},
 			exclude_types_override: [],
 			legacyImported: false,
@@ -433,7 +433,12 @@ export function createGitSyncContext(workspace: string) {
 									include_path: repo.settings?.include_path ?? ['f/**'],
 									exclude_path: repo.settings?.exclude_path ?? [],
 									extra_include_path: repo.settings?.extra_include_path ?? [],
-									include_type: repo.settings?.include_type ?? ['script', 'flow', 'app']
+									include_type: repo.settings?.include_type ?? [
+										'script',
+										'flow',
+										'app',
+										'workspacedependencies'
+									]
 								}
 							}
 
@@ -662,7 +667,7 @@ export function createGitSyncContext(workspace: string) {
 				include_path: ['f/**'],
 				exclude_path: [],
 				extra_include_path: [],
-				include_type: ['script', 'flow', 'app', 'folder']
+				include_type: ['script', 'flow', 'app', 'folder', 'workspacedependencies']
 			},
 			exclude_types_override: [],
 			legacyImported: false,
@@ -689,7 +694,7 @@ export function createGitSyncContext(workspace: string) {
 				include_path: ['f/**'],
 				exclude_path: [],
 				extra_include_path: [],
-				include_type: ['script', 'flow', 'app', 'folder']
+				include_type: ['script', 'flow', 'app', 'folder', 'workspacedependencies']
 			},
 			exclude_types_override: [],
 			legacyImported: false,
