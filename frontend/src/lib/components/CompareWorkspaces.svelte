@@ -30,6 +30,7 @@
 		KafkaTriggerService,
 		MqttTriggerService,
 		NatsTriggerService,
+		OpenAPI,
 		PostgresTriggerService,
 		ScheduleService,
 		ScriptService,
@@ -420,20 +421,31 @@
 			return 0
 		})
 		let anyFailed = false
-		for (const itemKey of sortedItems) {
-			const deployable = deployableItems.find((d) => d.key === itemKey)
 
-			if (!deployable) {
-				sendUserToast(`Undeployable item: ${itemKey}`, true)
-				continue
-			}
+		// Mark these API calls as coming from a fork merge
+		const prevHeaders = OpenAPI.HEADERS
+		OpenAPI.HEADERS = {
+			...((prevHeaders as Record<string, string>) ?? {}),
+			'X-Windmill-Deploy-Source': 'merge'
+		}
+		try {
+			for (const itemKey of sortedItems) {
+				const deployable = deployableItems.find((d) => d.key === itemKey)
 
-			const to = mergeIntoParent ? parent : current
-			const from = mergeIntoParent ? current : parent
-			await deploy(deployable.kind, deployable.path, to, from, itemKey, deployable.trigger)
-			if (deploymentStatus[itemKey]?.status === 'failed') {
-				anyFailed = true
+				if (!deployable) {
+					sendUserToast(`Undeployable item: ${itemKey}`, true)
+					continue
+				}
+
+				const to = mergeIntoParent ? parent : current
+				const from = mergeIntoParent ? current : parent
+				await deploy(deployable.kind, deployable.path, to, from, itemKey, deployable.trigger)
+				if (deploymentStatus[itemKey]?.status === 'failed') {
+					anyFailed = true
+				}
 			}
+		} finally {
+			OpenAPI.HEADERS = prevHeaders
 		}
 		deploying = false
 		deselectAll()
