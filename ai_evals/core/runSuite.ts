@@ -100,6 +100,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
       const initial = await input.modeRunner.loadInitial(input.evalCase.initialPath);
       const expected = await input.modeRunner.loadExpected(input.evalCase.expectedPath);
       const run = await input.modeRunner.run(input.evalCase.prompt, initial, {
+        evalCase: input.evalCase,
         caseId: input.evalCase.id,
         caseNumber: input.caseIndex + 1,
         totalCases: input.totalCases,
@@ -181,6 +182,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
             actual: run.actual,
             run,
             context: {
+              evalCase: input.evalCase,
               caseId: input.evalCase.id,
               caseNumber: input.caseIndex + 1,
               totalCases: input.totalCases,

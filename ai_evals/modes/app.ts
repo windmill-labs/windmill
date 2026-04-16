@@ -23,6 +23,7 @@ export function createAppModeRunner(
       const result = await runAppEval(prompt, getFrontendApiKey(modelConfig.provider), {
         initialFrontend: initial?.frontend,
         initialBackend: initial?.backend as AppFiles["backend"] | undefined,
+        maxIterations: context.evalCase?.runtime?.maxTurns,
         provider: modelConfig.provider,
         model: modelConfig.model,
         runContext: context,
