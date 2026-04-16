@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import { applyFlowJsonUpdate } from './helperUtils'
+import { applyFlowJsonUpdate, updateRawScriptModuleContent } from './helperUtils'
 import { createInlineScriptSession } from './inlineScriptsUtils'
 
 vi.mock('../shared', () => ({
@@ -22,6 +22,30 @@ function makeRawScriptModule(id: string, content: string): FlowModule {
 			type: 'rawscript',
 			language: 'bun',
 			content,
+			input_transforms: {}
+		}
+	} as FlowModule
+}
+
+function makeAiAgentWithTool(agentId: string, toolId: string, toolContent: string): FlowModule {
+	return {
+		id: agentId,
+		summary: agentId,
+		value: {
+			type: 'aiagent',
+			tools: [
+				{
+					id: toolId,
+					summary: toolId,
+					value: {
+						tool_type: 'flowmodule',
+						type: 'rawscript',
+						language: 'bun',
+						content: toolContent,
+						input_transforms: {}
+					}
+				}
+			],
 			input_transforms: {}
 		}
 	} as FlowModule
@@ -102,5 +126,26 @@ describe('applyFlowJsonUpdate', () => {
 
 		expect(result.emptyInlineScriptModuleIds).toEqual(['validate_data'])
 		expect(inlineScriptSession.has('validate_data')).toBe(false)
+	})
+
+	it('updates ai agent rawscript tools in place when changing module code', () => {
+		const flow = {
+			value: {
+				modules: [makeAiAgentWithTool('agent', 'sum', '')]
+			}
+		}
+
+		const updatedModule = updateRawScriptModuleContent(
+			flow as any,
+			'sum',
+			'export async function main(numbers: number[]) { return 0 }'
+		)
+
+		expect(updatedModule?.value.content).toBe(
+			'export async function main(numbers: number[]) { return 0 }'
+		)
+		expect((flow.value.modules[0] as any).value.tools[0].value.content).toBe(
+			'export async function main(numbers: number[]) { return 0 }'
+		)
 	})
 })
