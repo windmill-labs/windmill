@@ -870,6 +870,8 @@ async fn create_resource(
         )
         .execute(&mut *tx)
         .await?;
+
+        mark_linked_variables_ws_specific(&mut tx, &w_id, &resource.path).await?;
     }
 
     audit_log(
@@ -1105,6 +1107,45 @@ fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
+async fn mark_linked_variables_ws_specific(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    resource_path: &str,
+) -> Result<()> {
+    let resource_value: Option<Option<serde_json::Value>> =
+        sqlx::query_scalar("SELECT value FROM resource WHERE path = $1 AND workspace_id = $2")
+            .bind(resource_path)
+            .bind(w_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+    let mut linked_var_paths: Vec<String> = Vec::new();
+    if let Some(Some(ref value)) = resource_value {
+        collect_var_refs(value, &mut linked_var_paths);
+    }
+
+    linked_var_paths.sort();
+    linked_var_paths.dedup();
+
+    if linked_var_paths.is_empty() {
+        return Ok(());
+    }
+
+    sqlx::query(
+        "INSERT INTO ws_specific (workspace_id, item_kind, path)
+         SELECT workspace_id, 'variable', path
+         FROM variable
+         WHERE workspace_id = $1 AND path = ANY($2::text[])
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(w_id)
+    .bind(&linked_var_paths)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
 async fn delete_resources_bulk(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1325,6 +1366,15 @@ async fn update_resource(
             )
             .execute(&mut *tx)
             .await?;
+
+            sqlx::query!(
+                "UPDATE ws_specific SET path = $1 WHERE workspace_id = $2 AND item_kind = 'variable' AND path = $3",
+                npath,
+                w_id,
+                path
+            )
+            .execute(&mut *tx)
+            .await?;
         }
     }
 
@@ -1362,6 +1412,22 @@ async fn update_resource(
             .execute(&mut *tx)
             .await?;
         }
+    }
+
+    let effective_ws_specific = if let Some(ws_specific) = ns.ws_specific {
+        ws_specific
+    } else {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2)",
+        )
+        .bind(&w_id)
+        .bind(&npath)
+        .fetch_one(&mut *tx)
+        .await?
+    };
+
+    if effective_ws_specific {
+        mark_linked_variables_ws_specific(&mut tx, &w_id, &npath).await?;
     }
 
     audit_log(
