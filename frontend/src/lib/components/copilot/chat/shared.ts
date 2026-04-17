@@ -257,13 +257,6 @@ export const extractAllModules = (modules: FlowModule[]): FlowModule[] => {
 	})
 }
 
-export const findModuleInFlowModules = (
-	modules: FlowModule[],
-	moduleId: string
-): FlowModule | undefined => {
-	return findModuleInModules(modules, moduleId)
-}
-
 const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext: string) => {
 	let code = codeContext.split('\n')
 	let shiftOffset = 0
@@ -294,7 +287,7 @@ export function applyCodePiecesToFlowModules(
 
 	// Apply code pieces to each module
 	for (const [moduleId, pieces] of moduleCodePieces) {
-		const module = findModuleInFlowModules(modifiedModules, moduleId)
+		const module = findModuleInModules(modifiedModules, moduleId)
 		if (module && module.value.type === 'rawscript' && module.value.content) {
 			module.value.content = applyCodePieceToCodeContext(
 				pieces as unknown as CodePieceElement[],
