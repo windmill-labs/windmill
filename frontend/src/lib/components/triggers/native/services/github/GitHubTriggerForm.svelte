@@ -4,7 +4,7 @@
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Loader2 } from 'lucide-svelte'
+	import { Debounced, resource } from 'runed'
 
 	interface Props {
 		serviceConfig: Record<string, any>
@@ -43,11 +43,6 @@
 		{ label: 'Deployment Status', value: 'deployment_status' }
 	]
 
-	let repos = $state<Array<{ full_name: string; owner: string; name: string; private: boolean }>>(
-		[]
-	)
-	let loadingRepos = $state(false)
-
 	let selectedRepo = $state<string>(
 		externalData?.owner && externalData?.repo
 			? `${externalData.owner}/${externalData.repo}`
@@ -57,32 +52,31 @@
 	)
 	let selectedEvents = $state<string[]>(externalData?.events ?? serviceConfig.events ?? ['push'])
 
-	async function loadRepos() {
-		if (!$workspaceStore) return
-		loadingRepos = true
-		try {
-			const response = await fetch(`/api/w/${$workspaceStore}/native_triggers/github/repos`, {
-				credentials: 'include'
-			})
-			if (response.ok) {
-				repos = await response.json()
-			} else {
-				sendUserToast('Failed to load repositories', true)
-			}
-		} catch (err: any) {
-			sendUserToast(`Failed to load repositories: ${err.message}`, true)
-		} finally {
-			loadingRepos = false
-		}
-	}
+	let filterText = $state('')
+	const debouncedQuery = new Debounced(() => filterText.trim(), 300)
 
-	loadRepos()
+	type RepoEntry = { full_name: string; owner: string; name: string; private: boolean }
+
+	const reposResource = resource(
+		[() => debouncedQuery.current, () => $workspaceStore],
+		async ([query, workspace]) => {
+			if (!workspace) return [] as RepoEntry[]
+			const url = query
+				? `/api/w/${workspace}/native_triggers/github/repos?q=${encodeURIComponent(query)}`
+				: `/api/w/${workspace}/native_triggers/github/repos`
+			const response = await fetch(url, { credentials: 'include' })
+			if (!response.ok) {
+				sendUserToast('Failed to load repositories', true)
+				return [] as RepoEntry[]
+			}
+			return (await response.json()) as RepoEntry[]
+		}
+	)
 
 	$effect(() => {
-		loading = loadingRepos
+		loading = reposResource.loading
 	})
 
-	// Sync form state back to serviceConfig
 	$effect(() => {
 		const parts = selectedRepo.split('/')
 		const owner = parts[0] ?? ''
@@ -94,12 +88,19 @@
 		}
 	})
 
-	let repoItems = $derived(
-		repos.map((r) => ({
+	let repoItems = $derived.by(() => {
+		const repos = reposResource.current ?? []
+		const items = repos.map((r) => ({
 			label: `${r.full_name}${r.private ? ' (private)' : ''}`,
 			value: r.full_name
 		}))
-	)
+		// If the currently-selected repo isn't in the fetched list (e.g. editing an
+		// existing trigger), inject it so the Select can display its label.
+		if (selectedRepo && !items.some((i) => i.value === selectedRepo)) {
+			items.unshift({ label: selectedRepo, value: selectedRepo })
+		}
+		return items
+	})
 
 	export function validate(): Record<string, string> {
 		let serviceErrors: Record<string, string> = {}
@@ -119,19 +120,14 @@
 	<div class="flex flex-col gap-4">
 		<div class="flex flex-col gap-1">
 			<p class="block text-xs font-semibold text-primary">Repository</p>
-			{#if loadingRepos}
-				<div class="flex items-center gap-2 text-secondary text-xs">
-					<Loader2 class="animate-spin" size={14} />
-					Loading repositories...
-				</div>
-			{:else}
-				<Select
-					items={repoItems}
-					bind:value={selectedRepo}
-					placeholder="Select a repository"
-					{disabled}
-				/>
-			{/if}
+			<Select
+				items={repoItems}
+				bind:value={selectedRepo}
+				bind:filterText
+				placeholder="Search repositories..."
+				loading={reposResource.loading}
+				{disabled}
+			/>
 			{#if errors.repo}
 				<p class="text-red-500 text-xs">{errors.repo}</p>
 			{/if}
