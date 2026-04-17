@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { VariableService, WorkspaceService } from '$lib/gen'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
@@ -10,86 +10,93 @@
 	import { canWrite } from '$lib/utils'
 	import { Save } from 'lucide-svelte'
 	import VariableForm from './VariableForm.svelte'
+	import { resource } from 'runed'
 
 	const dispatch = createEventDispatcher()
 
-	let path: string = $state('')
+	let editPath: string | undefined = $state(undefined)
+	let editSession = $state(0)
 
-	let variable: {
-		value: string
-		is_secret: boolean
-		description: string
-	} = $state({
+	let path: string = $state('')
+	let variable: { value: string; is_secret: boolean; description: string } = $state({
 		value: '',
 		is_secret: true,
 		description: ''
 	})
 	let labels: string[] | undefined = $state(undefined)
+	let wsSpecific = $state(false)
+	let pathError = $state('')
 
 	let drawer: Drawer | undefined = $state()
-	let edit = $state(false)
-	let initialPath: string = $state('')
-	let pathError = $state('')
-	let can_write = $state(true)
-	let wsSpecific = $state(false)
-	let deployTo: string | undefined = $state(undefined)
 	let form: VariableForm | undefined = $state()
 
-	WorkspaceService.getDeployTo({ workspace: $workspaceStore! }).then((x) => {
-		deployTo = x.deploy_to
+	const deployTo = resource(
+		() => $workspaceStore,
+		async (ws) =>
+			ws ? (await WorkspaceService.getDeployTo({ workspace: ws })).deploy_to : undefined
+	)
+
+	const variableResource = resource(
+		() => ({ path: editPath, ws: $workspaceStore, session: editSession }),
+		async ({ path, ws }) => {
+			if (!path || !ws) return null
+			return await VariableService.getVariable({ workspace: ws, path, decryptSecret: false })
+		}
+	)
+
+	const MAX_VARIABLE_LENGTH = 10000
+	let edit = $derived(editPath !== undefined)
+	let initialPath = $derived(editPath ?? '')
+	let can_write = $derived(
+		variableResource.current
+			? variableResource.current.workspace_id == $workspaceStore &&
+					canWrite(editPath ?? '', variableResource.current.extra_perms ?? {}, $userStore)
+			: true
+	)
+	let valid = $derived(variable.value.length <= MAX_VARIABLE_LENGTH)
+
+	$effect(() => {
+		const v = variableResource.current
+		if (v) {
+			untrack(() => {
+				path = v.path
+				variable = {
+					value: v.value ?? '',
+					is_secret: v.is_secret,
+					description: v.description ?? ''
+				}
+				labels = v.labels ?? undefined
+				wsSpecific = v.ws_specific ?? false
+			})
+		}
 	})
 
 	export function initNew(): void {
-		variable = {
-			value: '',
-			is_secret: true,
-			description: ''
-		}
-		edit = false
-		initialPath = ''
+		editPath = undefined
+		editSession++
 		path = ''
+		variable = { value: '', is_secret: true, description: '' }
 		labels = undefined
-		can_write = true
 		wsSpecific = false
 		drawer?.openDrawer()
 	}
 
-	export async function editVariable(edit_path: string): Promise<void> {
-		edit = true
-		const getV = await VariableService.getVariable({
-			workspace: $workspaceStore ?? '',
-			path: edit_path,
-			decryptSecret: false
-		})
-		can_write =
-			getV.workspace_id == $workspaceStore &&
-			canWrite(edit_path, getV.extra_perms ?? {}, $userStore)
-
-		variable = {
-			value: getV.value ?? '',
-			is_secret: getV.is_secret,
-			description: getV.description ?? ''
-		}
-		labels = getV.labels ?? undefined
-		wsSpecific = getV.ws_specific ?? false
-		initialPath = edit_path
-		path = edit_path
+	export function editVariable(edit_path: string): void {
+		editPath = edit_path
+		editSession++
 		drawer?.openDrawer()
 	}
 
 	async function loadSecret(): Promise<void> {
+		if (!editPath) return
 		const getV = await VariableService.getVariable({
 			workspace: $workspaceStore ?? '',
-			path: initialPath,
+			path: editPath,
 			decryptSecret: true
 		})
 		variable.value = getV.value ?? ''
 		form?.setCode(variable.value)
 	}
-
-	const MAX_VARIABLE_LENGTH = 10000
-
-	let valid = $derived(variable.value.length <= MAX_VARIABLE_LENGTH)
 
 	async function createVariable(): Promise<void> {
 		await VariableService.createVariable({
@@ -109,16 +116,12 @@
 	}
 
 	async function updateVariable(): Promise<void> {
+		const getV = variableResource.current
+		if (!getV || !editPath) return
 		try {
-			const getV = await VariableService.getVariable({
-				workspace: $workspaceStore ?? '',
-				path: initialPath,
-				decryptSecret: false
-			})
-
 			await VariableService.updateVariable({
 				workspace: $workspaceStore!,
-				path: initialPath,
+				path: editPath,
 				requestBody: {
 					path: getV.path != path ? path : undefined,
 					value: variable.value == '' ? undefined : variable.value,
@@ -128,7 +131,7 @@
 					ws_specific: wsSpecific
 				}
 			})
-			sendUserToast(`Updated variable ${initialPath}`)
+			sendUserToast(`Updated variable ${editPath}`)
 			dispatch('create')
 			drawer?.closeDrawer()
 		} catch (err) {
@@ -156,7 +159,7 @@
 				bind:labels
 				bind:wsSpecific
 				{initialPath}
-				{deployTo}
+				deployTo={deployTo.current}
 				{can_write}
 				{edit}
 				onLoadSecret={loadSecret}

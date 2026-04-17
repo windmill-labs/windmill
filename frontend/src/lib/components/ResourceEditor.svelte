@@ -7,6 +7,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
+	import { resource } from 'runed'
 
 	interface Props {
 		canSave?: boolean
@@ -29,79 +30,110 @@
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	let initialPath = path
 
 	let isValid = $state(true)
 	let jsonError = $state('')
 	let viewJsonSchema = $state(false)
-	let can_write = $state(true)
-
-	let initialPath = path
-
-	let resourceToEdit: Resource | undefined = $state(undefined)
 
 	let description: string = $state('')
 	let labels: string[] | undefined = $state(undefined)
-	let resourceSchema: Schema | undefined = $state(undefined)
 	let args: Record<string, any> = $state({})
-	let loadingSchema = $state(true)
-	let linkedVars: string[] = $state([])
-	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
-	let newResource = $derived(!path)
 	let wsSpecific = $state(false)
-	let deployTo: string | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
-	$effect(() => {
-		if (!effectiveWorkspace) {
-			deployTo = undefined
-			return
-		}
+	const deployToResource = resource(
+		() => effectiveWorkspace,
+		async (ws) =>
+			ws ? (await WorkspaceService.getDeployTo({ workspace: ws })).deploy_to : undefined
+	)
 
-		WorkspaceService.getDeployTo({ workspace: effectiveWorkspace }).then((x) => {
-			deployTo = x.deploy_to
-		})
+	const resource_ = resource(
+		() => (initialPath ? { path: initialPath, workspace: effectiveWorkspace } : null),
+		async (args) => (args ? await ResourceService.getResource(args) : null)
+	)
+	const resourceType = resource([() => resource_type, () => effectiveWorkspace], async () =>
+		resource_type && effectiveWorkspace
+			? ResourceService.getResourceType({ path: resource_type, workspace: effectiveWorkspace })
+			: null
+	)
+
+	let deployTo = $derived(deployToResource.current)
+	let resourceToEdit: Resource | undefined = $derived(resource_.current ?? undefined)
+	let resourceTypeInfo: ResourceType | undefined = $derived(resourceType.current ?? undefined)
+	let resourceSchema: Schema | undefined = $derived.by(() => {
+		const rt = resourceType.current
+		if (!rt?.schema) return undefined
+		const schema = rt.schema as Schema
+		schema.order = schema.order ?? Object.keys(schema.properties).sort()
+		return schema
 	})
-
-	async function initEdit() {
-		resourceToEdit = await ResourceService.getResource({ workspace: effectiveWorkspace, path })
-		description = resourceToEdit!.description ?? ''
-		labels = resourceToEdit!.labels ?? undefined
-		resource_type = resourceToEdit!.resource_type
-		args = resourceToEdit?.value ?? ({} as any)
-		wsSpecific = resourceToEdit?.ws_specific ?? false
-		loadResourceType()
-		can_write =
-			resourceToEdit.workspace_id == effectiveWorkspace &&
-			canWrite(path, resourceToEdit.extra_perms ?? {}, $userStore)
-		linkedVars = Object.entries(args)
+	let loadingSchema = $derived(resourceType.loading)
+	let can_write = $derived(
+		resourceToEdit
+			? resourceToEdit.workspace_id == effectiveWorkspace &&
+					canWrite(path, resourceToEdit.extra_perms ?? {}, $userStore)
+			: true
+	)
+	let linkedVars = $derived(
+		Object.entries(args ?? {})
 			.filter(([_, v]) => typeof v == 'string' && v == `$var:${initialPath}`)
 			.map(([k, _]) => k)
-	}
+	)
 
-	if (!untrack(() => newResource)) {
-		initEdit()
-	} else if (resource_type) {
-		loadResourceType()
-	} else {
-		sendUserToast('Resource type cannot be undefined for new resource creation', true)
-	}
+	$effect(() => {
+		const r = resource_.current
+		if (r) {
+			untrack(() => {
+				description = r.description ?? ''
+				labels = r.labels ?? undefined
+				resource_type = r.resource_type
+				args = r.value ?? ({} as any)
+				wsSpecific = r.ws_specific ?? false
+				path = r.path
+			})
+		}
+	})
+
+	$effect(() => {
+		if (defaultValues && Object.keys(defaultValues).length > 0) {
+			args = defaultValues
+		}
+	})
+
+	$effect(() => {
+		canSave = (can_write && isValid && jsonError == '') || (viewJsonSchema && jsonError == '')
+	})
+
+	$effect(() => {
+		onChange?.({ path, args, description })
+	})
+
+	$effect(() => {
+		if (linkedVars.length > 0 && path) {
+			untrack(() => {
+				linkedVars.forEach((k) => {
+					args[k] = `$var:${path}`
+				})
+			})
+		}
+	})
 
 	export async function editResource(): Promise<void> {
-		if (resourceToEdit) {
-			await ResourceService.updateResource({
-				workspace: effectiveWorkspace,
-				path: resourceToEdit.path,
-				requestBody: { path, value: args, description, labels, ws_specific: wsSpecific }
-			})
-			if (resourceToEdit.resource_type === 'json_schema') {
-				clearJsonSchemaResourceCache(resourceToEdit.path, effectiveWorkspace)
-			}
-			sendUserToast(`Updated resource at ${path}`)
-			dispatch('refresh', path)
-		} else {
+		if (!resourceToEdit) {
 			throw Error('Cannot edit undefined resource')
 		}
+		await ResourceService.updateResource({
+			workspace: effectiveWorkspace,
+			path: resourceToEdit.path,
+			requestBody: { path, value: args, description, labels, ws_specific: wsSpecific }
+		})
+		if (resourceToEdit.resource_type === 'json_schema') {
+			clearJsonSchemaResourceCache(resourceToEdit.path, effectiveWorkspace)
+		}
+		sendUserToast(`Updated resource at ${path}`)
+		dispatch('refresh', path)
 	}
 
 	export async function createResource(): Promise<void> {
@@ -119,54 +151,6 @@
 		sendUserToast(`Updated resource at ${path}`)
 		dispatch('refresh', path)
 	}
-
-	async function loadResourceType(): Promise<void> {
-		if (resource_type) {
-			try {
-				const resourceType = await ResourceService.getResourceType({
-					workspace: effectiveWorkspace,
-					path: resource_type
-				})
-
-				resourceTypeInfo = resourceType
-				if (resourceType.schema) {
-					resourceSchema = resourceType.schema as Schema
-					resourceSchema.order =
-						resourceSchema.order ?? Object.keys(resourceSchema.properties).sort()
-				}
-			} catch (err) {
-				resourceSchema = undefined
-				loadingSchema = false
-			}
-		} else {
-			sendUserToast(`ResourceType cannot be undefined.`, true)
-		}
-		loadingSchema = false
-	}
-
-	$effect(() => {
-		if (defaultValues && Object.keys(defaultValues).length > 0) {
-			args = defaultValues
-		}
-	})
-
-	$effect(() => {
-		canSave = (can_write && isValid && jsonError == '') || (viewJsonSchema && jsonError == '')
-	})
-
-	$effect(() => {
-		onChange && onChange({ path, args, description })
-	})
-
-	$effect(() => {
-		if (linkedVars.length > 0 && path) {
-			untrack(() => {
-				linkedVars.forEach((k) => {
-					args[k] = `$var:${path}`
-				})
-			})
-		}
-	})
 </script>
 
 <div>
@@ -189,7 +173,7 @@
 			{resourceSchema}
 			{loadingSchema}
 			{resourceToEdit}
-			onLoadResourceType={loadResourceType}
+			onLoadResourceType={() => resourceType.refetch()}
 		/>
 	</div>
 </div>
