@@ -286,6 +286,9 @@ export function getTypeStrFromPath(
   if (p.startsWith("dependencies" + SEP)) {
     return "workspace_dependencies";
   }
+  if (isFileResource(p) || isFilesetResource(p)) {
+    return "resource";
+  }
   const parsed = path.parse(p);
   if (
     parsed.ext == ".go" ||
@@ -349,9 +352,6 @@ export function getTypeStrFromPath(
   ) {
     return typeEnding;
   } else {
-    if (isFileResource(p) || isFilesetResource(p)) {
-      return "resource";
-    }
     throw new Error("Could not infer type of path " + JSON.stringify(parsed));
   }
 }

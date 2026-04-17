@@ -18,10 +18,11 @@ use windmill_common::{client::AuthedClient, error::Error};
 
 // Re-export from shared module for use by other parts of the worker
 use windmill_common::ai_bedrock::{
-    bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
-    bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start, build_tool_config,
-    create_inference_config, format_bedrock_error, openai_messages_to_bedrock,
-    streaming_tool_calls_to_openai, StreamingToolCall,
+    bedrock_model_supports_prompt_caching, bedrock_stream_event_is_block_stop,
+    bedrock_stream_event_to_text, bedrock_stream_event_to_tool_delta,
+    bedrock_stream_event_to_tool_start, build_tool_config, create_inference_config,
+    format_bedrock_error, openai_messages_to_bedrock, streaming_tool_calls_to_openai,
+    StreamingToolCall,
 };
 pub use windmill_common::ai_bedrock::{check_env_credentials, BedrockClient};
 
@@ -71,13 +72,19 @@ impl BedrockQueryBuilder {
         let prepared_messages = prepare_messages_for_api(messages, client, workspace_id).await?;
 
         // Convert messages to Bedrock format (separates system prompts)
-        let (bedrock_messages, system_prompts) = openai_messages_to_bedrock(&prepared_messages)?;
+        let enable_prompt_caching = bedrock_model_supports_prompt_caching(model);
+        let (bedrock_messages, system_prompts) =
+            openai_messages_to_bedrock(&prepared_messages, enable_prompt_caching)?;
 
         // Build inference configuration using shared helper
         let inference_config = create_inference_config(temperature, max_tokens.map(|t| t as i32));
 
         // Build tool configuration with optional ToolChoice
-        let tool_config = build_tool_config(tools, structured_output_tool_name.is_some())?;
+        let tool_config = build_tool_config(
+            tools,
+            structured_output_tool_name.is_some(),
+            enable_prompt_caching,
+        )?;
 
         self.execute_converse_stream(
             &bedrock_client,

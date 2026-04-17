@@ -8,6 +8,7 @@ export interface EvalCaseRuntimeBackendPreview {
 }
 
 export interface EvalCaseRuntimeSpec {
+  maxTurns?: number;
   backendPreview?: EvalCaseRuntimeBackendPreview;
 }
 
@@ -109,6 +110,7 @@ export interface ModeRunOutput<TActual> {
 }
 
 export interface ModeRunContext {
+  evalCase?: EvalCase;
   caseId: string;
   caseNumber: number;
   totalCases: number;
@@ -118,6 +120,7 @@ export interface ModeRunContext {
   onAssistantMessageStart?: () => void;
   onAssistantChunk?: (chunk: string) => void;
   onAssistantMessageEnd?: () => void;
+  onToolCall?: (input: { toolName: string; argumentsText: string }) => void;
 }
 
 export interface ModeRunner<TInitial, TExpected, TActual> {
@@ -252,4 +255,15 @@ export type FrontendBenchmarkProgressEvent =
       totalCases: number;
       attempt: number;
       runs: number;
+    }
+  | {
+      type: "tool-call";
+      surface: Exclude<EvalMode, "cli">;
+      caseId: string;
+      caseNumber: number;
+      totalCases: number;
+      attempt: number;
+      runs: number;
+      toolName: string;
+      argumentsText: string;
     };

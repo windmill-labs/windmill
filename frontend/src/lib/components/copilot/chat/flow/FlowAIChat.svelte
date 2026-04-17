@@ -2,7 +2,7 @@
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import { getContext, untrack } from 'svelte'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
-	import type { FlowModule, InputTransform } from '$lib/gen'
+	import type { InputTransform } from '$lib/gen'
 	import type { FlowAIChatHelpers } from './core'
 	import { createInlineScriptSession } from './inlineScriptsUtils'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
@@ -14,7 +14,7 @@
 	import {
 		applyFlowJsonUpdate,
 		getFlowModuleById,
-		getRawScriptModuleById
+		updateRawScriptModuleContent
 	} from './helperUtils'
 
 	let {
@@ -34,7 +34,6 @@
 
 	// Get diffManager from the graph
 	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
-
 	const flowHelpers: FlowAIChatHelpers = {
 		// flow context
 		getFlowAndSelectedId: () => {
@@ -84,11 +83,6 @@
 
 		// ai chat tools
 		setCode: async (id: string, code: string) => {
-			const module = getRawScriptModuleById(flowStore.val, id)
-			if (!module) {
-				throw new Error('Module not found or is not a rawscript')
-			}
-
 			// 1. Take snapshot only if none exists (preserves baseline for cumulative changes)
 			if (!diffManager?.beforeFlow) {
 				const snapshot = $state.snapshot(flowStore).val
@@ -97,7 +91,11 @@
 			}
 
 			// 2. Apply the code change
-			module.value.content = code
+			const module = updateRawScriptModuleContent(flowStore.val, id, code)
+			if (!module) {
+				throw new Error('Module not found or is not a rawscript')
+			}
+
 			inlineScriptSession.set(id, code)
 			const { input_transforms, schema } = await loadSchemaFromModule(module)
 			module.value.input_transforms = input_transforms
@@ -165,7 +163,6 @@
 		},
 
 		getLintErrors: async (moduleId: string): Promise<ScriptLintResult> => {
-
 			const module = getFlowModuleById(flowStore.val, moduleId)
 			if (!module || module.value.type !== 'rawscript') {
 				return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
@@ -193,12 +190,7 @@
 			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 		},
 
-		setFlowJson: async (
-			modules: FlowModule[] | undefined,
-			schema: Record<string, any> | undefined,
-			preprocessorModule: FlowModule | null | undefined,
-			failureModule: FlowModule | null | undefined
-		) => {
+		setFlowJson: async ({ modules, schema, preprocessorModule, failureModule }) => {
 			try {
 				if (
 					modules !== undefined ||
@@ -214,7 +206,7 @@
 					}
 				}
 
-				applyFlowJsonUpdate(flowStore.val, inlineScriptSession, {
+				const result = applyFlowJsonUpdate(flowStore.val, inlineScriptSession, {
 					modules,
 					schema,
 					preprocessorModule,
@@ -223,8 +215,8 @@
 
 				// Refresh the state store to update UI
 				refreshStateStore(flowStore)
+				return result
 			} catch (error) {
-				console.error('setFlowJson error:', error)
 				throw new Error(
 					`Failed to parse or apply JSON: ${error instanceof Error ? error.message : String(error)}`
 				)
