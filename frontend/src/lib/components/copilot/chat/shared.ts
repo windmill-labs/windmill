@@ -139,7 +139,7 @@ function prettifySetModuleCode(content: string): string {
 	return decodeEscapedToolString(codeContent)
 }
 
-function prettifyPatchFlowJson(content: string): string {
+function prettifyPatchReplacement(content: string): string {
 	let newString: string | undefined
 
 	if (typeof content === 'string' && content.trim().startsWith('{')) {
@@ -158,6 +158,14 @@ function prettifyPatchFlowJson(content: string): string {
 	}
 
 	return decodeEscapedToolString(newString)
+}
+
+function prettifyPatchFlowJson(content: string): string {
+	return prettifyPatchReplacement(content)
+}
+
+function prettifyPatchFile(content: string): string {
+	return prettifyPatchReplacement(content)
 }
 
 // Prettify function for module value JSON - extracts the 'value' property and formats it
@@ -216,6 +224,7 @@ export const TOOL_PRETTIFY_MAP: Record<string, (content: string) => string> = {
 	edit_code: prettifyCodeArguments,
 	set_module_code: prettifySetModuleCode,
 	patch_flow_json: prettifyPatchFlowJson,
+	patch_file: prettifyPatchFile,
 	add_module: prettifyModuleValue,
 	modify_module: prettifyModuleValue
 }
