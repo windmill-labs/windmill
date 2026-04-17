@@ -88,9 +88,3 @@ pub struct GithubApiRepoResponse {
 pub struct GithubApiOwner {
     pub login: String,
 }
-
-/// GitHub search API response wrapper (`items` holds the repos).
-#[derive(Debug, Deserialize)]
-pub struct GithubApiSearchResponse {
-    pub items: Vec<GithubApiRepoResponse>,
-}

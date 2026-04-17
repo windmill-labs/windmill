@@ -1,73 +1,51 @@
 use std::sync::Arc;
 
-use axum::{
-    extract::{Path, Query},
-    routing::get,
-    Extension, Json, Router,
-};
+use axum::{extract::Path, routing::get, Extension, Json, Router};
 use http::Method;
-use serde::Deserialize;
 use windmill_common::{error::JsonResult, DB};
 
 use crate::{get_workspace_integration, External, ServiceName};
 
-use super::{GitHub, GithubApiRepoResponse, GithubApiSearchResponse, GithubRepoEntry};
+use super::{GitHub, GithubApiRepoResponse, GithubRepoEntry};
 
-const PER_PAGE: usize = 30;
-
-#[derive(Deserialize)]
-struct ListReposParams {
-    q: Option<String>,
-}
+const PER_PAGE: usize = 100;
+const MAX_PAGES: usize = 10;
 
 async fn list_repos(
     Extension(handler): Extension<Arc<GitHub>>,
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
-    Query(params): Query<ListReposParams>,
 ) -> JsonResult<Vec<GithubRepoEntry>> {
     get_workspace_integration(&db, &workspace_id, ServiceName::Github).await?;
 
-    let query = params.q.as_deref().map(str::trim).filter(|q| !q.is_empty());
+    let mut all_entries = Vec::new();
 
-    let repos: Vec<GithubApiRepoResponse> = if let Some(q) = query {
-        // Authenticated search over repos the user has access to (incl. private).
-        // `user:@me` scopes results to the current user's affiliated repos.
-        let raw = format!("{} in:name user:@me", q);
-        let encoded = urlencoding::encode(&raw);
+    for page in 1..=MAX_PAGES {
         let url = format!(
-            "{}/search/repositories?q={}&per_page={}&sort=updated",
+            "{}/user/repos?sort=updated&per_page={}&type=all&page={}",
             super::GITHUB_API_BASE,
-            encoded,
             PER_PAGE,
+            page,
         );
-        let search: GithubApiSearchResponse = handler
+
+        let repos: Vec<GithubApiRepoResponse> = handler
             .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
             .await?;
-        search.items
-    } else {
-        // Default view: most recently updated repos accessible to the user.
-        let url = format!(
-            "{}/user/repos?sort=updated&per_page={}&type=all",
-            super::GITHUB_API_BASE,
-            PER_PAGE,
-        );
-        handler
-            .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
-            .await?
-    };
 
-    let entries = repos
-        .into_iter()
-        .map(|r| GithubRepoEntry {
+        let count = repos.len();
+        all_entries.extend(repos.into_iter().map(|r| GithubRepoEntry {
             full_name: r.full_name,
             name: r.name,
             owner: r.owner.login,
             private: r.private,
-        })
-        .collect();
+        }));
 
-    Ok(Json(entries))
+        if count < PER_PAGE {
+            break;
+        }
+    }
+
+    Ok(Json(all_entries))
 }
 
 pub fn github_routes(service: GitHub) -> Router {
