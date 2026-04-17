@@ -14600,6 +14600,28 @@ paths:
                 items:
                   $ref: "#/components/schemas/SharedDriveEntry"
 
+  /w/{workspace}/native_triggers/github/repos:
+    get:
+      summary: list GitHub repositories accessible to the user
+      operationId: listGithubRepos
+      tags:
+        - native_trigger
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: list of GitHub repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GithubRepoEntry"
+
   /native_triggers/{service_name}/w/{workspace_id}/webhook/{internal_id}:
     post:
       summary: receive webhook from external native trigger service
@@ -27056,3 +27078,20 @@ components:
       required:
         - id
         - name
+
+    GithubRepoEntry:
+      type: object
+      properties:
+        full_name:
+          type: string
+        name:
+          type: string
+        owner:
+          type: string
+        private:
+          type: boolean
+      required:
+        - full_name
+        - name
+        - owner
+        - private

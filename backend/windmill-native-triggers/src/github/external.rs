@@ -131,7 +131,10 @@ impl External for GitHub {
         _tx: &mut PgConnection,
     ) -> Result<Option<Self::TriggerData>> {
         // We need owner/repo to construct the API URL — fetch from DB
-        let (owner, repo) = self.get_owner_repo_from_db(db, w_id, external_id).await?;
+        let (owner, repo) = match self.get_owner_repo_from_db(db, w_id, external_id).await? {
+            Some(pair) => pair,
+            None => return Ok(None),
+        };
 
         let data = self
             .get_webhook(w_id, &owner, &repo, external_id, db)
@@ -147,10 +150,11 @@ impl External for GitHub {
         db: &DB,
         _tx: &mut PgConnection,
     ) -> Result<()> {
-        // We need owner/repo to construct the API URL — fetch from DB
-        let (owner, repo) = match self.get_owner_repo_from_db(db, w_id, external_id).await {
-            Ok(pair) => pair,
-            Err(_) => return Ok(()), // Trigger not found in DB, nothing to delete
+        // We need owner/repo to construct the API URL — fetch from DB.
+        // Missing row means the trigger was already removed; other DB errors propagate.
+        let (owner, repo) = match self.get_owner_repo_from_db(db, w_id, external_id).await? {
+            Some(pair) => pair,
+            None => return Ok(()),
         };
 
         let url = format!(
@@ -158,18 +162,17 @@ impl External for GitHub {
             GITHUB_API_BASE, owner, repo, external_id
         );
 
+        // Swallow 404 only (webhook may already be deleted on GitHub); propagate
+        // other errors so callers don't think cleanup succeeded when it didn't.
         let result: std::result::Result<serde_json::Value, _> = self
             .http_client_request::<_, ()>(&url, Method::DELETE, w_id, db, None, None)
             .await;
 
-        if let Err(e) = result {
-            // Ignore 404 — webhook may already be deleted
-            if http_error_status(&e) != Some(StatusCode::NOT_FOUND) {
-                tracing::warn!("Failed to delete GitHub webhook {}: {}", external_id, e);
-            }
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) if http_error_status(&e) == Some(StatusCode::NOT_FOUND) => Ok(()),
+            Err(e) => Err(e),
         }
-
-        Ok(())
     }
 
     async fn maintain_triggers(
@@ -289,12 +292,13 @@ impl External for GitHub {
 
 impl GitHub {
     /// Fetch owner/repo from the stored service_config in the DB.
+    /// Returns `Ok(None)` if the trigger row is missing; propagates other DB errors.
     async fn get_owner_repo_from_db(
         &self,
         db: &DB,
         w_id: &str,
         external_id: &str,
-    ) -> Result<(String, String)> {
+    ) -> Result<Option<(String, String)>> {
         let config = sqlx::query_scalar!(
             r#"
             SELECT service_config
@@ -309,12 +313,9 @@ impl GitHub {
         .await?
         .flatten();
 
-        let config = config.ok_or_else(|| {
-            Error::NotFound(format!(
-                "GitHub trigger {} not found in workspace {}",
-                external_id, w_id
-            ))
-        })?;
+        let Some(config) = config else {
+            return Ok(None);
+        };
 
         let owner = config
             .get("owner")
@@ -327,7 +328,7 @@ impl GitHub {
             .map(String::from)
             .unwrap_or_default();
 
-        Ok((owner, repo))
+        Ok(Some((owner, repo)))
     }
 
     /// Fetch a webhook from GitHub API.

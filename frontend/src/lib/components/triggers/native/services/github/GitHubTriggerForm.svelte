@@ -2,6 +2,8 @@
 	import Section from '$lib/components/Section.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import { NativeTriggerService } from '$lib/gen/services.gen'
+	import type { GithubRepoEntry } from '$lib/gen/types.gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { Loader2 } from 'lucide-svelte'
@@ -11,7 +13,7 @@
 		errors: Record<string, string>
 		disabled?: boolean
 		externalData?: any
-		loading?: boolean
+		loading: boolean
 		path?: string
 		isFlow?: boolean
 		token?: string
@@ -22,7 +24,7 @@
 	let {
 		serviceConfig = $bindable(),
 		errors = $bindable(),
-		loading = $bindable(false),
+		loading = $bindable(),
 		disabled = false,
 		externalData
 	}: Props = $props()
@@ -43,10 +45,7 @@
 		{ label: 'Deployment Status', value: 'deployment_status' }
 	]
 
-	let repos = $state<Array<{ full_name: string; owner: string; name: string; private: boolean }>>(
-		[]
-	)
-	let loadingRepos = $state(false)
+	let repos = $state<GithubRepoEntry[]>([])
 
 	let selectedRepo = $state<string>(
 		externalData?.owner && externalData?.repo
@@ -58,28 +57,28 @@
 	let selectedEvents = $state<string[]>(externalData?.events ?? serviceConfig.events ?? ['push'])
 
 	async function loadRepos() {
-		if (!$workspaceStore) return
-		loadingRepos = true
+		if (!$workspaceStore) {
+			repos = []
+			return
+		}
+		loading = true
 		try {
-			const response = await fetch(`/api/w/${$workspaceStore}/native_triggers/github/repos`, {
-				credentials: 'include'
+			repos = await NativeTriggerService.listGithubRepos({
+				workspace: $workspaceStore
 			})
-			if (response.ok) {
-				repos = await response.json()
-			} else {
-				sendUserToast('Failed to load repositories', true)
-			}
 		} catch (err: any) {
-			sendUserToast(`Failed to load repositories: ${err.message}`, true)
+			console.error('Failed to load GitHub repositories:', err)
+			sendUserToast(`Failed to load repositories: ${err.body || err.message}`, true)
+			repos = []
 		} finally {
-			loadingRepos = false
+			loading = false
 		}
 	}
 
-	loadRepos()
-
 	$effect(() => {
-		loading = loadingRepos
+		if ($workspaceStore) {
+			loadRepos()
+		}
 	})
 
 	$effect(() => {
@@ -118,7 +117,7 @@
 	<div class="flex flex-col gap-4">
 		<div class="flex flex-col gap-1">
 			<p class="block text-xs font-semibold text-primary">Repository</p>
-			{#if loadingRepos}
+			{#if loading}
 				<div class="flex items-center gap-2 text-secondary text-xs">
 					<Loader2 class="animate-spin" size={14} />
 					Loading repositories...
