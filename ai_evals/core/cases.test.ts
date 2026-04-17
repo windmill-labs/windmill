@@ -41,10 +41,26 @@ describe("loadCases", () => {
 
   it("loads app validation config for datatable-backed persistence cases", async () => {
     const appCases = await loadCases("app");
-    const caseEntry = appCases.find((entry) => entry.id === "app-test8-inventory-tracker-create");
+    const caseEntry = appCases.find(
+      (entry) => entry.id === "app-test8-inventory-tracker-search-delete"
+    );
 
+    expect(caseEntry?.initialPath).toContain("ai_evals/fixtures/frontend/app/initial/inventory_tracker");
     expect(caseEntry?.validate).toEqual({
-      datatableTableCountAtLeast: 1,
+      requiredFrontendPaths: ["/index.tsx"],
+      requiredBackendRunnableKeys: ["listInventory", "addInventory", "deleteInventory"],
+      requiredBackendRunnableTypes: [
+        { key: "listInventory", type: "inline" },
+        { key: "addInventory", type: "inline" },
+        { key: "deleteInventory", type: "inline" },
+      ],
+      requiredDatatables: [
+        {
+          datatableName: "main",
+          schema: "public",
+          table: "inventory_items",
+        },
+      ],
     });
   });
 
