@@ -25626,7 +25626,6 @@ components:
             - name
       required:
         - access_token
-        - team
 
     TokenResponse:
       type: object

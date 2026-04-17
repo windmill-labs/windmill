@@ -147,7 +147,10 @@ pub struct AllClients {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SlackTokenResponse {
     pub access_token: AccessToken,
-    pub team: SlackTeam,
+    // Optional because Enterprise Grid installs can omit `team`. Callers should surface
+    // a clear error if this is None rather than unwrapping.
+    #[serde(default)]
+    pub team: Option<SlackTeam>,
 }
 
 /// Standard OAuth token response
