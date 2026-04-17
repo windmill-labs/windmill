@@ -10,21 +10,225 @@ export type ModuleParentLocation =
 	| { type: 'failure'; index: -1 }
 	| { type: 'preprocessor'; index: -1 }
 
-type ArrayBackedModuleParentLocation = Exclude<
+export type ArrayBackedModuleParentLocation = Exclude<
 	ModuleParentLocation,
 	{ type: 'failure'; index: -1 } | { type: 'preprocessor'; index: -1 }
 >
 
+type ArrayBackedFlowNodeMatch = {
+	module: FlowModule
+	location: ArrayBackedModuleParentLocation
+	container: FlowModule[]
+}
+
 export type FlowNodeMatch =
-	| {
-			module: FlowModule
-			location: ArrayBackedModuleParentLocation
-			container: FlowModule[]
-	  }
+	| ArrayBackedFlowNodeMatch
 	| {
 			module: FlowModule
 			location: Extract<ModuleParentLocation, { type: 'failure' | 'preprocessor' }>
 	  }
+
+export type FlowNodeLocation = {
+	module: FlowModule
+	location: ModuleParentLocation
+}
+
+function isFlowModuleToolCandidate(tool: FlowModule): boolean {
+	const toolValue = tool.value as FlowModule['value'] & { tool_type?: string }
+	return toolValue.tool_type === undefined || toolValue.tool_type === 'flowmodule'
+}
+
+function visitNestedFlowNodesOfModule(
+	module: FlowModule,
+	visit: (match: ArrayBackedFlowNodeMatch) => boolean | void
+): boolean {
+	if (module.value.type === 'forloopflow') {
+		return visitFlowNodesInModules(
+			module.value.modules,
+			(childIndex) => ({
+				type: 'forloop',
+				parentId: module.id,
+				index: childIndex
+			}),
+			visit
+		)
+	}
+
+	if (module.value.type === 'whileloopflow') {
+		return visitFlowNodesInModules(
+			module.value.modules,
+			(childIndex) => ({
+				type: 'whileloop',
+				parentId: module.id,
+				index: childIndex
+			}),
+			visit
+		)
+	}
+
+	if (module.value.type === 'branchone') {
+		if (
+			visitFlowNodesInModules(
+				module.value.default,
+				(childIndex) => ({
+					type: 'branchone-default',
+					parentId: module.id,
+					index: childIndex
+				}),
+				visit
+			)
+		) {
+			return true
+		}
+
+		for (let branchIndex = 0; branchIndex < module.value.branches.length; branchIndex++) {
+			const branch = module.value.branches[branchIndex]
+			if (
+				visitFlowNodesInModules(
+					branch.modules,
+					(childIndex) => ({
+						type: 'branchone-branch',
+						parentId: module.id,
+						branchIndex,
+						index: childIndex
+					}),
+					visit
+				)
+			) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	if (module.value.type === 'branchall') {
+		for (let branchIndex = 0; branchIndex < module.value.branches.length; branchIndex++) {
+			const branch = module.value.branches[branchIndex]
+			if (
+				visitFlowNodesInModules(
+					branch.modules,
+					(childIndex) => ({
+						type: 'branchall-branch',
+						parentId: module.id,
+						branchIndex,
+						index: childIndex
+					}),
+					visit
+				)
+			) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	if (module.value.type === 'aiagent' && module.value.tools) {
+		const tools = module.value.tools
+		for (let toolIndex = 0; toolIndex < tools.length; toolIndex++) {
+			const tool = tools[toolIndex]
+			if (!isFlowModuleToolCandidate(tool as FlowModule)) {
+				continue
+			}
+
+			const toolMatch: ArrayBackedFlowNodeMatch = {
+				module: tool as FlowModule,
+				location: {
+					type: 'aiagent',
+					parentId: module.id,
+					index: toolIndex
+				},
+				container: tools as FlowModule[]
+			}
+
+			if (visit(toolMatch) || visitNestedFlowNodesOfModule(tool as FlowModule, visit)) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+function visitFlowNodesInModules(
+	modules: FlowModule[],
+	locationBuilder: (index: number) => ArrayBackedModuleParentLocation,
+	visit: (match: ArrayBackedFlowNodeMatch) => boolean | void
+): boolean {
+	for (let index = 0; index < modules.length; index++) {
+		const module = modules[index]
+
+		if (
+			visit({
+				module,
+				location: locationBuilder(index),
+				container: modules
+			})
+		) {
+			return true
+		}
+
+		if (visitNestedFlowNodesOfModule(module, visit)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+function findFlowNodeInModules(
+	modules: FlowModule[],
+	moduleId: string,
+	locationBuilder: (index: number) => ArrayBackedModuleParentLocation
+): ArrayBackedFlowNodeMatch | null {
+	let match: ArrayBackedFlowNodeMatch | null = null
+
+	visitFlowNodesInModules(modules, locationBuilder, (nodeMatch) => {
+		if (nodeMatch.module.id !== moduleId) {
+			return false
+		}
+
+		match = nodeMatch
+		return true
+	})
+
+	return match
+}
+
+export function collectFlowNodes(flow: FlowValue): FlowNodeLocation[] {
+	const matches: FlowNodeLocation[] = []
+
+	if (flow.failure_module) {
+		matches.push({
+			module: flow.failure_module,
+			location: { type: 'failure', index: -1 }
+		})
+	}
+
+	if (flow.preprocessor_module) {
+		matches.push({
+			module: flow.preprocessor_module,
+			location: { type: 'preprocessor', index: -1 }
+		})
+	}
+
+	visitFlowNodesInModules(flow.modules ?? [], (index) => ({ type: 'root', index }), (match) => {
+		matches.push({
+			module: match.module,
+			location: match.location
+		})
+	})
+
+	return matches
+}
+
+export function findModuleInModules(modules: FlowModule[], moduleId: string): FlowModule | undefined {
+	return (
+		findFlowNodeInModules(modules, moduleId, (index) => ({ type: 'root', index }))?.module ??
+		undefined
+	)
+}
 
 export function findFlowNode(flow: FlowValue, moduleId: string): FlowNodeMatch | null {
 	if (flow.failure_module?.id === moduleId) {
@@ -41,85 +245,7 @@ export function findFlowNode(flow: FlowValue, moduleId: string): FlowNodeMatch |
 		}
 	}
 
-	function searchInModules(
-		modules: FlowModule[],
-		locationBuilder: (index: number) => ArrayBackedModuleParentLocation
-	): FlowNodeMatch | null {
-		const matchIndex = modules.findIndex((module) => module.id === moduleId)
-		if (matchIndex >= 0) {
-			return {
-				module: modules[matchIndex],
-				location: locationBuilder(matchIndex),
-				container: modules
-			}
-		}
-
-		for (const module of modules) {
-			if (module.value.type === 'forloopflow') {
-				const nested = searchInModules(module.value.modules, (index) => ({
-					type: 'forloop',
-					parentId: module.id,
-					index
-				}))
-				if (nested) return nested
-			}
-
-			if (module.value.type === 'whileloopflow') {
-				const nested = searchInModules(module.value.modules, (index) => ({
-					type: 'whileloop',
-					parentId: module.id,
-					index
-				}))
-				if (nested) return nested
-			}
-
-			if (module.value.type === 'branchone') {
-				const defaultNested = searchInModules(module.value.default, (index) => ({
-					type: 'branchone-default',
-					parentId: module.id,
-					index
-				}))
-				if (defaultNested) return defaultNested
-
-				for (let branchIndex = 0; branchIndex < module.value.branches.length; branchIndex++) {
-					const branch = module.value.branches[branchIndex]
-					const nested = searchInModules(branch.modules, (index) => ({
-						type: 'branchone-branch',
-						parentId: module.id,
-						branchIndex,
-						index
-					}))
-					if (nested) return nested
-				}
-			}
-
-			if (module.value.type === 'branchall') {
-				for (let branchIndex = 0; branchIndex < module.value.branches.length; branchIndex++) {
-					const branch = module.value.branches[branchIndex]
-					const nested = searchInModules(branch.modules, (index) => ({
-						type: 'branchall-branch',
-						parentId: module.id,
-						branchIndex,
-						index
-					}))
-					if (nested) return nested
-				}
-			}
-
-			if (module.value.type === 'aiagent' && module.value.tools) {
-				const nested = searchInModules(module.value.tools as FlowModule[], (index) => ({
-					type: 'aiagent',
-					parentId: module.id,
-					index
-				}))
-				if (nested) return nested
-			}
-		}
-
-		return null
-	}
-
-	return searchInModules(flow.modules ?? [], (index) => ({ type: 'root', index }))
+	return findFlowNodeInModules(flow.modules ?? [], moduleId, (index) => ({ type: 'root', index }))
 }
 
 export function findModuleInFlow(flow: FlowValue, moduleId: string): FlowModule | null {
@@ -128,6 +254,110 @@ export function findModuleInFlow(flow: FlowValue, moduleId: string): FlowModule 
 
 export function findModuleParent(flow: FlowValue, moduleId: string): ModuleParentLocation | null {
 	return findFlowNode(flow, moduleId)?.location ?? null
+}
+
+function resolveModuleArrayByLocation(
+	flow: FlowValue,
+	location: ArrayBackedModuleParentLocation,
+	options: {
+		createIfMissing?: boolean
+		templateFlow?: FlowValue
+	} = {}
+): FlowModule[] | null {
+	if (location.type === 'root') {
+		if (!flow.modules && options.createIfMissing) {
+			flow.modules = []
+		}
+		return flow.modules ?? null
+	}
+
+	const parentModule = findModuleInFlow(flow, location.parentId)
+	if (!parentModule) {
+		return null
+	}
+
+	if (location.type === 'forloop' && parentModule.value.type === 'forloopflow') {
+		return parentModule.value.modules ?? null
+	}
+
+	if (location.type === 'whileloop' && parentModule.value.type === 'whileloopflow') {
+		return parentModule.value.modules ?? null
+	}
+
+	if (location.type === 'branchone-default' && parentModule.value.type === 'branchone') {
+		return parentModule.value.default ?? null
+	}
+
+	if (location.type === 'branchone-branch' && parentModule.value.type === 'branchone') {
+		let branch = parentModule.value.branches[location.branchIndex]
+		if (!branch && options.templateFlow) {
+			const templateParent = findModuleInFlow(options.templateFlow, location.parentId)
+			const templateBranch =
+				templateParent?.value.type === 'branchone'
+					? templateParent.value.branches[location.branchIndex]
+					: undefined
+			if (templateBranch) {
+				while (parentModule.value.branches.length <= location.branchIndex) {
+					parentModule.value.branches.push({ expr: '', modules: [] })
+				}
+				parentModule.value.branches[location.branchIndex] = {
+					...templateBranch,
+					modules: []
+				}
+				branch = parentModule.value.branches[location.branchIndex]
+			}
+		}
+		return branch?.modules ?? null
+	}
+
+	if (location.type === 'branchall-branch' && parentModule.value.type === 'branchall') {
+		let branch = parentModule.value.branches[location.branchIndex]
+		if (!branch && options.templateFlow) {
+			const templateParent = findModuleInFlow(options.templateFlow, location.parentId)
+			const templateBranch =
+				templateParent?.value.type === 'branchall'
+					? templateParent.value.branches[location.branchIndex]
+					: undefined
+			if (templateBranch) {
+				while (parentModule.value.branches.length <= location.branchIndex) {
+					parentModule.value.branches.push({ modules: [] })
+				}
+				parentModule.value.branches[location.branchIndex] = {
+					...templateBranch,
+					modules: []
+				}
+				branch = parentModule.value.branches[location.branchIndex]
+			}
+		}
+		return branch?.modules ?? null
+	}
+
+	if (location.type === 'aiagent' && parentModule.value.type === 'aiagent') {
+		if (!parentModule.value.tools && options.createIfMissing) {
+			parentModule.value.tools = []
+		}
+		return (parentModule.value.tools as FlowModule[]) ?? null
+	}
+
+	return null
+}
+
+export function getModuleArrayByLocation(
+	flow: FlowValue,
+	location: ArrayBackedModuleParentLocation
+): FlowModule[] | null {
+	return resolveModuleArrayByLocation(flow, location)
+}
+
+export function ensureModuleArrayByLocation(
+	flow: FlowValue,
+	location: ArrayBackedModuleParentLocation,
+	templateFlow?: FlowValue
+): FlowModule[] | null {
+	return resolveModuleArrayByLocation(flow, location, {
+		createIfMissing: true,
+		templateFlow
+	})
 }
 
 export function getModuleArrayContainer(
@@ -143,4 +373,34 @@ export function getModuleArrayContainer(
 		index: match.location.index,
 		modules: match.container
 	}
+}
+
+export function removeFlowModule(flow: FlowValue, moduleId: string): FlowModule | null {
+	if (flow.preprocessor_module?.id === moduleId) {
+		const removed = flow.preprocessor_module
+		flow.preprocessor_module = undefined
+		return removed
+	}
+
+	if (flow.failure_module?.id === moduleId) {
+		const removed = flow.failure_module
+		flow.failure_module = undefined
+		return removed
+	}
+
+	const match = findFlowNode(flow, moduleId)
+	if (!match || !('container' in match)) {
+		return null
+	}
+
+	const [removed] = match.container.splice(match.location.index, 1)
+	return removed ?? null
+}
+
+export function replaceFlowModule(target: FlowModule, next: FlowModule): FlowModule {
+	for (const key of Object.keys(target)) {
+		delete (target as Record<string, unknown>)[key]
+	}
+	Object.assign(target, next)
+	return target
 }

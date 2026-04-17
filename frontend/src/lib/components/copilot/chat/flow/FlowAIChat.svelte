@@ -8,7 +8,6 @@
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { aiChatManager } from '../AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import { getSubModules } from '$lib/components/flows/flowExplorer'
 	import type { FlowCopilotContext } from '../../flow'
 	import type { ScriptLintResult } from '../shared'
 	import {
@@ -43,16 +42,7 @@
 				selectedId: selectedId === 'settings-metadata' ? '' : selectedId
 			}
 		},
-		getModules: (id?: string) => {
-			if (id) {
-				const module = getFlowModuleById(flowStore.val, id)
-
-				if (!module) {
-					throw new Error('Module not found')
-				}
-
-				return getSubModules(module).flat()
-			}
+		getRootModules: () => {
 			return flowStore.val.value.modules
 		},
 		inlineScriptSession,

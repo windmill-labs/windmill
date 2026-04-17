@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { flushSync } from 'svelte'
 import { createFlowDiffManager } from './flowDiffManager.svelte'
 import { DUPLICATE_MODULE_PREFIX, NEW_MODULE_PREFIX } from './flowDiff'
@@ -13,8 +13,18 @@ import {
 	createFlowStore,
 	deepClone,
 	expectModuleOrder,
-	createIdentityModule
+	createIdentityModule,
+	createAiAgentModule,
+	createFlowModuleTool
 } from './flowDiff.testUtils'
+
+vi.mock('../copilot/chat/shared', () => ({
+	SPECIAL_MODULE_IDS: {
+		INPUT: 'Input',
+		PREPROCESSOR: 'preprocessor',
+		FAILURE: 'failure'
+	}
+}))
 
 describe('FlowDiffManager', () => {
 	describe('effect auto-computation', () => {
@@ -1612,6 +1622,65 @@ describe('FlowDiffManager', () => {
 
 				// Branch 2 should have 'r' (restored original)
 				expect(branches[2].modules.some((m) => m.id === 'r')).toBe(true)
+			})
+			cleanup()
+		})
+
+		it('accepts an added ai agent tool into beforeFlow', () => {
+			const cleanup = $effect.root(() => {
+				const manager = createFlowDiffManager({ testMode: true })
+
+				const lookupTool = createFlowModuleTool(createRawScriptModule('lookup_user', 'lookup'))
+				const sumTool = createFlowModuleTool(createRawScriptModule('sum', 'sum'))
+				const beforeFlow = createExtendedOpenFlow({
+					modules: [createAiAgentModule('agent', [deepClone(lookupTool)])]
+				})
+				const currentFlowValue: FlowValue = {
+					modules: [createAiAgentModule('agent', [deepClone(lookupTool), deepClone(sumTool)])]
+				}
+
+				manager.setEditMode(true)
+				manager.setBeforeFlow(beforeFlow)
+				manager.setCurrentFlow(currentFlowValue)
+				flushSync()
+
+				expect(manager.moduleActions['sum']).toEqual({ action: 'added', pending: true })
+
+				manager.acceptModule('sum')
+				flushSync()
+
+				const tools = (((manager.beforeFlow?.value.modules ?? [])[0]?.value as any).tools ?? []) as any[]
+				expect(tools.map((tool) => tool.id)).toEqual(['lookup_user', 'sum'])
+			})
+			cleanup()
+		})
+
+		it('rejects a removed ai agent tool back into the live flow', () => {
+			const cleanup = $effect.root(() => {
+				const manager = createFlowDiffManager({ testMode: true })
+
+				const lookupTool = createFlowModuleTool(createRawScriptModule('lookup_user', 'lookup'))
+				const sumTool = createFlowModuleTool(createRawScriptModule('sum', 'sum'))
+				const beforeFlow = createExtendedOpenFlow({
+					modules: [createAiAgentModule('agent', [deepClone(lookupTool), deepClone(sumTool)])]
+				})
+				const currentFlowValue: FlowValue = {
+					modules: [createAiAgentModule('agent', [deepClone(lookupTool)])]
+				}
+				const flowStore = createFlowStore(createExtendedOpenFlow(currentFlowValue))
+
+				manager.setEditMode(true)
+				manager.setBeforeFlow(beforeFlow)
+				manager.setCurrentFlow(flowStore.val.value)
+				flushSync()
+
+				expect(manager.moduleActions['sum']).toEqual({ action: 'removed', pending: true })
+
+				manager.rejectModule('sum', flowStore)
+				flushSync()
+
+				const tools = (((flowStore.val.value.modules ?? [])[0]?.value as any).tools ?? []) as any[]
+				expect(tools.map((tool) => tool.id)).toEqual(['lookup_user', 'sum'])
 			})
 			cleanup()
 		})

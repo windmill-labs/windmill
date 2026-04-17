@@ -19,7 +19,8 @@ import {
 import {
 	findModuleInFlow,
 	findModuleParent,
-	getModuleArrayContainer
+	removeFlowModule,
+	replaceFlowModule
 } from './flowTree'
 import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
@@ -184,32 +185,11 @@ export function createFlowDiffManager({ testMode = false } = {}) {
 	}
 
 	/**
-	 * Helper to get a module from a flow by ID
-	 */
-	function getModuleFromFlow(id: string, flow: ExtendedOpenFlow): FlowModule | undefined {
-		return findModuleInFlow(flow.value, id) ?? undefined
-	}
-
-	/**
 	 * Internal helper to delete a module from a flow object
 	 * Returns true if the module was found and deleted, false otherwise
 	 */
 	function deleteModuleInternal(id: string, flow: ExtendedOpenFlow): boolean {
-		if (flow.value.preprocessor_module?.id === id) {
-			flow.value.preprocessor_module = undefined
-			return true
-		} else if (flow.value.failure_module?.id === id) {
-			flow.value.failure_module = undefined
-			return true
-		} else {
-			const result = getModuleArrayContainer(flow.value, id)
-			if (!result) {
-				// Module not found (may have been deleted along with a parent)
-				return false
-			}
-			result.modules.splice(result.index, 1)
-			return true
-		}
+		return removeFlowModule(flow.value, id) !== null
 	}
 
 	/**
@@ -265,7 +245,7 @@ export function createFlowDiffManager({ testMode = false } = {}) {
 				parentLoc.type !== 'failure' &&
 				parentLoc.type !== 'preprocessor'
 			) {
-				const parentInBefore = getModuleFromFlow(parentLoc.parentId, beforeFlow)
+				const parentInBefore = findModuleInFlow(beforeFlow.value, parentLoc.parentId) ?? undefined
 				if (!parentInBefore) {
 					// Parent is missing in beforeFlow. It must be pending acceptance.
 					// Accept as skeleton to avoid auto-accepting all siblings.
@@ -274,14 +254,11 @@ export function createFlowDiffManager({ testMode = false } = {}) {
 			}
 
 			// Use insertModuleIntoFlow targeting beforeFlow, sourcing position from currentFlow
-			let module = getModuleFromFlow(actualId, {
-				value: currentFlow,
-				summary: ''
-			} as ExtendedOpenFlow)
+			let module = findModuleInFlow(currentFlow, actualId) ?? undefined
 
 			if (module) {
 				// Check if module already exists in beforeFlow (could be a skeleton from earlier acceptance)
-				const existingModule = getModuleFromFlow(actualId, beforeFlow)
+				const existingModule = findModuleInFlow(beforeFlow.value, actualId) ?? undefined
 
 				if (existingModule) {
 					// Module exists in beforeFlow - check if it's in the same location
@@ -294,8 +271,7 @@ export function createFlowDiffManager({ testMode = false } = {}) {
 					if (sameLocation) {
 						// Module is in the same location, update it in-place
 						const moduleToApply = asSkeleton ? createSkeletonModule(module) : module
-						Object.keys(existingModule).forEach((k) => delete (existingModule as any)[k])
-						Object.assign(existingModule, $state.snapshot(moduleToApply))
+						replaceFlowModule(existingModule, $state.snapshot(moduleToApply))
 					} else {
 						// Module is being moved - insert at new location (the old copy will be removed when old__id is accepted)
 						const moduleToInsert = asSkeleton ? createSkeletonModule(module) : module
@@ -319,15 +295,11 @@ export function createFlowDiffManager({ testMode = false } = {}) {
 			}
 		} else if (info.action === 'modified') {
 			// Modified: Apply modifications to beforeFlow module
-			const beforeModule = getModuleFromFlow(actualId, beforeFlow)
-			const afterModule = getModuleFromFlow(actualId, {
-				value: currentFlow,
-				summary: ''
-			} as ExtendedOpenFlow)
+			const beforeModule = findModuleInFlow(beforeFlow.value, actualId) ?? undefined
+			const afterModule = findModuleInFlow(currentFlow, actualId) ?? undefined
 
 			if (beforeModule && afterModule) {
-				Object.keys(beforeModule).forEach((k) => delete (beforeModule as any)[k])
-				Object.assign(beforeModule, $state.snapshot(afterModule))
+				replaceFlowModule(beforeModule, $state.snapshot(afterModule))
 			}
 		}
 	}
@@ -361,11 +333,11 @@ export function createFlowDiffManager({ testMode = false } = {}) {
 			} else if (info.action === 'removed') {
 				// Removed in after: Restore to flowStore (currentFlow)
 				// Source from beforeFlow
-				const oldModule = getModuleFromFlow(actualId, beforeFlow)
+				const oldModule = findModuleInFlow(beforeFlow.value, actualId) ?? undefined
 				if (oldModule) {
 					// For type changes (old__ prefix), rename the new module to avoid ID conflict
 					if (id.startsWith(DUPLICATE_MODULE_PREFIX)) {
-						const existingNew = getModuleFromFlow(actualId, flowStore.val)
+						const existingNew = findModuleInFlow(flowStore.val.value, actualId) ?? undefined
 						if (existingNew) {
 							existingNew.id = `${NEW_MODULE_PREFIX}${actualId}`
 						}
@@ -380,12 +352,11 @@ export function createFlowDiffManager({ testMode = false } = {}) {
 				refreshStateStore(flowStore)
 			} else if (info.action === 'modified') {
 				// Modified: Revert modifications in flowStore (currentFlow)
-				const oldModule = getModuleFromFlow(actualId, beforeFlow)
-				const newModule = getModuleFromFlow(actualId, flowStore.val)
+				const oldModule = findModuleInFlow(beforeFlow.value, actualId) ?? undefined
+				const newModule = findModuleInFlow(flowStore.val.value, actualId) ?? undefined
 
 				if (oldModule && newModule) {
-					Object.keys(newModule).forEach((k) => delete (newModule as any)[k])
-					Object.assign(newModule, $state.snapshot(oldModule))
+					replaceFlowModule(newModule, $state.snapshot(oldModule))
 				}
 				refreshStateStore(flowStore)
 			}
@@ -460,7 +431,7 @@ export function createFlowDiffManager({ testMode = false } = {}) {
 			})
 		} else {
 			// Show module diff
-			const beforeModule = getModuleFromFlow(moduleId, beforeFlow)
+			const beforeModule = findModuleInFlow(beforeFlow.value, moduleId) ?? undefined
 			// Need to check failure_module and preprocessor_module for currentFlow as well
 			let afterModule: FlowModule | undefined = undefined
 			if (currentFlow) {

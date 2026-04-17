@@ -1,9 +1,10 @@
 import type { FlowModule, FlowValue } from '$lib/gen'
-import { dfs } from './dfs'
 import { deepEqual } from 'fast-equals'
 import {
-	findModuleInFlow,
+	collectFlowNodes,
+	ensureModuleArrayByLocation,
 	findModuleParent,
+	getModuleArrayByLocation,
 	type ModuleParentLocation
 } from './flowTree'
 
@@ -164,22 +165,10 @@ export function computeFlowModuleDiff(
 function getAllModulesMap(flow: FlowValue): Map<string, FlowModule> {
 	const moduleMap = new Map<string, FlowModule>()
 
-	// Get all regular modules
-	const allModules = dfs(flow.modules ?? [], (m) => m)
-	for (const module of allModules) {
+	for (const { module } of collectFlowNodes(flow)) {
 		if (module?.id) {
 			moduleMap.set(module.id, module)
 		}
-	}
-
-	// Add failure module if it exists
-	if (flow.failure_module?.id) {
-		moduleMap.set(flow.failure_module.id, flow.failure_module)
-	}
-
-	// Add preprocessor module if it exists
-	if (flow.preprocessor_module?.id) {
-		moduleMap.set(flow.preprocessor_module.id, flow.preprocessor_module)
 	}
 
 	return moduleMap
@@ -198,29 +187,14 @@ type ModuleWithLocation = {
  */
 function getAllModulesWithLocation(flow: FlowValue): Map<string, ModuleWithLocation> {
 	const result = new Map<string, ModuleWithLocation>()
-	const allModules = dfs(flow.modules ?? [], (m) => m)
 
-	for (const module of allModules) {
-		if (module?.id) {
-			const location = findModuleParent(flow, module.id)
-			if (location) {
-				result.set(module.id, { module, location })
-			}
+	for (const entry of collectFlowNodes(flow)) {
+		if (entry.module?.id) {
+			result.set(entry.module.id, {
+				module: entry.module,
+				location: entry.location
+			})
 		}
-	}
-
-	// Add special modules
-	if (flow.failure_module?.id) {
-		result.set(flow.failure_module.id, {
-			module: flow.failure_module,
-			location: { type: 'failure', index: -1 }
-		})
-	}
-	if (flow.preprocessor_module?.id) {
-		result.set(flow.preprocessor_module.id, {
-			module: flow.preprocessor_module,
-			location: { type: 'preprocessor', index: -1 }
-		})
 	}
 
 	return result
@@ -518,25 +492,7 @@ function reconstructMergedFlow(
 		// Track the newly added module ID
 		mergedIds.add(clonedModule.id)
 
-		// Insert based on parent location
-		if (parentLocation.type === 'failure') {
-			merged.failure_module = clonedModule
-		} else if (parentLocation.type === 'preprocessor') {
-			merged.preprocessor_module = clonedModule
-		} else if (parentLocation.type === 'root') {
-			// Find the best position to insert in root modules
-			const insertIndex = findBestInsertPosition(
-				merged.modules ?? [],
-				beforeFlow.modules ?? [],
-				parentLocation.index,
-				removedId
-			)
-			if (!merged.modules) merged.modules = []
-			merged.modules.splice(insertIndex, 0, clonedModule)
-		} else {
-			// Find the parent module in merged flow and insert into it
-			insertIntoNestedParent(merged, parentLocation, clonedModule, beforeFlow)
-		}
+		insertModuleIntoFlow(merged, clonedModule, beforeFlow, removedId)
 	}
 
 	// Post-process: fix any duplicate IDs that may have been created
@@ -581,147 +537,6 @@ function findBestInsertPosition(
 /**
  * Inserts a removed module into its nested parent in the merged flow
  */
-function insertIntoNestedParent(
-	merged: FlowValue,
-	parentLocation: ModuleParentLocation,
-	moduleToInsert: FlowModule,
-	beforeFlow: FlowValue
-): void {
-	if (
-		parentLocation.type === 'root' ||
-		parentLocation.type === 'failure' ||
-		parentLocation.type === 'preprocessor'
-	) {
-		return
-	}
-
-	// Find the parent module in merged flow
-	const parentModule = findModuleById(merged, parentLocation.parentId)
-	if (!parentModule) {
-		console.warn('Parent module not found', parentLocation)
-		return
-	}
-
-	// Get the before parent to know original ordering
-	const beforeParent = findModuleById(beforeFlow, parentLocation.parentId)
-	if (!beforeParent) {
-		console.warn('Before parent module not found', parentLocation)
-		return
-	}
-
-	// Insert based on type
-	if (parentLocation.type === 'forloop' && parentModule.value.type === 'forloopflow') {
-		const beforeModules = (beforeParent.value as any).modules ?? []
-		const insertIndex = findBestInsertPosition(
-			parentModule.value.modules,
-			beforeModules,
-			parentLocation.index,
-			moduleToInsert.id
-		)
-		parentModule.value.modules.splice(insertIndex, 0, moduleToInsert)
-	} else if (parentLocation.type === 'whileloop' && parentModule.value.type === 'whileloopflow') {
-		const beforeModules = (beforeParent.value as any).modules ?? []
-		const insertIndex = findBestInsertPosition(
-			parentModule.value.modules,
-			beforeModules,
-			parentLocation.index,
-			moduleToInsert.id
-		)
-		parentModule.value.modules.splice(insertIndex, 0, moduleToInsert)
-	} else if (
-		parentLocation.type === 'branchone-default' &&
-		parentModule.value.type === 'branchone'
-	) {
-		const beforeModules = (beforeParent.value as any).default ?? []
-		const insertIndex = findBestInsertPosition(
-			parentModule.value.default,
-			beforeModules,
-			parentLocation.index,
-			moduleToInsert.id
-		)
-		parentModule.value.default.splice(insertIndex, 0, moduleToInsert)
-	} else if (
-		parentLocation.type === 'branchone-branch' &&
-		parentModule.value.type === 'branchone'
-	) {
-		let branch = parentModule.value.branches[parentLocation.branchIndex]
-		const beforeBranch = (beforeParent.value as any).branches?.[parentLocation.branchIndex]
-
-		// If the branch doesn't exist (entire branch was removed), recreate it from beforeFlow
-		if (!branch && beforeBranch) {
-			// Ensure we have enough branch slots
-			while (parentModule.value.branches.length <= parentLocation.branchIndex) {
-				parentModule.value.branches.push({ expr: '', modules: [] })
-			}
-			// Restore the branch with its original expr but empty modules (we'll add them)
-			parentModule.value.branches[parentLocation.branchIndex] = {
-				...beforeBranch,
-				modules: []
-			}
-			branch = parentModule.value.branches[parentLocation.branchIndex]
-		}
-
-		if (branch) {
-			const beforeModules = beforeBranch?.modules ?? []
-			const insertIndex = findBestInsertPosition(
-				branch.modules,
-				beforeModules,
-				parentLocation.index,
-				moduleToInsert.id
-			)
-			branch.modules.splice(insertIndex, 0, moduleToInsert)
-		}
-	} else if (
-		parentLocation.type === 'branchall-branch' &&
-		parentModule.value.type === 'branchall'
-	) {
-		let branch = parentModule.value.branches[parentLocation.branchIndex]
-		const beforeBranch = (beforeParent.value as any).branches?.[parentLocation.branchIndex]
-
-		// If the branch doesn't exist (entire branch was removed), recreate it from beforeFlow
-		if (!branch && beforeBranch) {
-			// Ensure we have enough branch slots
-			while (parentModule.value.branches.length <= parentLocation.branchIndex) {
-				parentModule.value.branches.push({ modules: [] })
-			}
-			// Restore the branch with empty modules (we'll add them)
-			parentModule.value.branches[parentLocation.branchIndex] = {
-				...beforeBranch,
-				modules: []
-			}
-			branch = parentModule.value.branches[parentLocation.branchIndex]
-		}
-
-		if (branch) {
-			const beforeModules = beforeBranch?.modules ?? []
-			const insertIndex = findBestInsertPosition(
-				branch.modules,
-				beforeModules,
-				parentLocation.index,
-				moduleToInsert.id
-			)
-			branch.modules.splice(insertIndex, 0, moduleToInsert)
-		}
-	} else if (parentLocation.type === 'aiagent' && parentModule.value.type === 'aiagent') {
-		const tools = (parentModule.value.tools as FlowModule[]) ?? []
-		const beforeTools = ((beforeParent.value as any).tools as FlowModule[]) ?? []
-		const insertIndex = findBestInsertPosition(
-			tools,
-			beforeTools,
-			parentLocation.index,
-			moduleToInsert.id
-		)
-		tools.splice(insertIndex, 0, moduleToInsert)
-	}
-}
-
-/**
- * Finds a module by ID anywhere in the flow
- */
-function findModuleById(flow: FlowValue, moduleId: string): FlowModule | null {
-	return findModuleInFlow(flow, moduleId)
-}
-
 /**
  * Adjusts the after actions based on display mode and adds entries for prefixed IDs
  */
@@ -832,21 +647,19 @@ export function insertModuleIntoFlow(
 		return
 	}
 
-	// Handle root level modules
-	if (parentLocation.type === 'root') {
-		const insertIndex = findBestInsertPosition(
-			targetFlow.modules ?? [],
-			sourceFlow.modules ?? [],
-			parentLocation.index,
-			moduleId
-		)
-		if (!targetFlow.modules) targetFlow.modules = []
-		targetFlow.modules.splice(insertIndex, 0, moduleToInsert)
+	const targetModules = ensureModuleArrayByLocation(targetFlow, parentLocation, sourceFlow)
+	const sourceModules = getModuleArrayByLocation(sourceFlow, parentLocation)
+	if (!targetModules || !sourceModules) {
 		return
 	}
 
-	// Handle nested modules
-	insertIntoNestedParent(targetFlow, parentLocation, moduleToInsert, sourceFlow)
+	const insertIndex = findBestInsertPosition(
+		targetModules,
+		sourceModules,
+		parentLocation.index,
+		moduleId
+	)
+	targetModules.splice(insertIndex, 0, moduleToInsert)
 }
 
 /**

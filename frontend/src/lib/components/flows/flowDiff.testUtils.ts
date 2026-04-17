@@ -3,6 +3,7 @@ import type {
 	FlowValue,
 	FlowModule,
 	RawScript,
+	AiAgent,
 	Identity,
 	ForloopFlow,
 	WhileloopFlow,
@@ -100,6 +101,34 @@ export function createBranchAllModule(id: string, branches: { modules: FlowModul
 			type: 'branchall',
 			branches: branches.map((b) => ({ modules: b.modules }))
 		} as BranchAll
+	}
+}
+
+/**
+ * Wraps a FlowModule as an AI agent flowmodule tool.
+ */
+export function createFlowModuleTool(module: FlowModule): FlowModule {
+	return {
+		id: module.id,
+		summary: module.summary,
+		value: {
+			tool_type: 'flowmodule',
+			...module.value
+		} as any
+	} as FlowModule
+}
+
+/**
+ * Creates an AI agent module with the provided tools.
+ */
+export function createAiAgentModule(id: string, tools: FlowModule[]): FlowModule {
+	return {
+		id,
+		value: {
+			type: 'aiagent',
+			tools,
+			input_transforms: {}
+		} as AiAgent
 	}
 }
 

@@ -25,7 +25,7 @@ import {
 	buildTestRunArgs,
 	buildContextString,
 	applyCodePiecesToFlowModules,
-	findModuleById,
+	findModuleInFlowModules,
 	SPECIAL_MODULE_IDS,
 	formatScriptLintResult,
 	type ScriptLintResult,
@@ -481,7 +481,7 @@ function findModuleInEditableFlow(flow: EditableFlowJson, moduleId: string): Flo
 	if (flow.failure_module?.id === moduleId) {
 		return flow.failure_module
 	}
-	return findModuleById(flow.modules, moduleId)
+	return findModuleInFlowModules(flow.modules, moduleId)
 }
 
 /**
@@ -493,7 +493,7 @@ function findModuleInEditableFlow(flow: EditableFlowJson, moduleId: string): Flo
 export interface FlowAIChatHelpers {
 	// flow context
 	getFlowAndSelectedId: () => { flow: ExtendedOpenFlow; selectedId: string }
-	getModules: (id?: string) => FlowModule[]
+	getRootModules: () => FlowModule[]
 	inlineScriptSession: InlineScriptSession
 
 	// snapshot management (AI sets this when making changes)
@@ -833,8 +833,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const stepArgs = args.args || {}
 
 			// Find the step in the flow
-			const modules = helpers.getModules()
-			let targetModule: FlowModule | undefined = findModuleById(modules, stepId)
+			const modules = helpers.getRootModules()
+			let targetModule: FlowModule | undefined = findModuleInFlowModules(modules, stepId)
 
 			if (!targetModule) {
 				toolCallbacks.setToolStatus(toolId, {
@@ -1218,7 +1218,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 						: selectedId === SPECIAL_MODULE_IDS.FAILURE
 							? parsedFailureModule ?? undefined
 							: parsedModules
-								? findModuleById(parsedModules, selectedId)
+								? findModuleInFlowModules(parsedModules, selectedId)
 								: undefined
 				if (
 					selectedModule &&

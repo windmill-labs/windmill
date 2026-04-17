@@ -3,6 +3,11 @@ import { isFlowModuleTool } from './agentToolUtils'
 
 type ModuleBranches = FlowModule[][]
 
+/**
+ * Returns read-only projection branches for explorer/search-style consumers.
+ * For `aiagent`, this intentionally returns pseudo FlowModules for flowmodule tools.
+ * Mutation code must use `flowTree.ts` instead so it always works with stored nodes.
+ */
 export function getSubModules(flowModule: FlowModule): ModuleBranches {
 	if (flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow') {
 		return [flowModule.value.modules]

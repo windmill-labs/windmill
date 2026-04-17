@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { FlowModule, FlowValue } from '$lib/gen'
 import {
+	collectFlowNodes,
+	ensureModuleArrayByLocation,
 	findFlowNode,
 	findModuleInFlow,
+	findModuleInModules,
 	findModuleParent,
-	getModuleArrayContainer
+	getModuleArrayContainer,
+	removeFlowModule,
+	replaceFlowModule
 } from './flowTree'
 
 function makeRawModule(id: string): FlowModule {
@@ -36,6 +41,17 @@ function makeAiAgent(id: string, tools: FlowModule[]): FlowModule {
 			input_transforms: {}
 		} as any
 	} as FlowModule
+}
+
+function makeMcpTool(id: string) {
+	return {
+		id,
+		summary: id,
+		value: {
+			tool_type: 'mcp',
+			resource_path: ''
+		}
+	}
 }
 
 describe('flowTree', () => {
@@ -108,6 +124,25 @@ describe('flowTree', () => {
 		expect(agentTools.map((module) => module.id)).toEqual(['lookup_user'])
 	})
 
+	it('finds ai agent flowmodule tools inside a plain modules array', () => {
+		const tool = makeFlowModuleTool(makeRawModule('sum'))
+		const flowModules = [makeAiAgent('agent', [tool])]
+
+		expect(findModuleInModules(flowModules, 'sum')).toBe(tool)
+	})
+
+	it('skips non-flowmodule ai agent tools in module traversal', () => {
+		const lookup = makeFlowModuleTool(makeRawModule('lookup_user'))
+		const agent = makeAiAgent('agent', [lookup, makeMcpTool('search_docs') as any])
+		const flow: FlowValue = {
+			modules: [agent]
+		}
+
+		expect(findModuleInModules(flow.modules ?? [], 'search_docs')).toBeUndefined()
+		expect(findModuleInFlow(flow, 'search_docs')).toBeNull()
+		expect(collectFlowNodes(flow).map((entry) => entry.module.id)).toEqual(['agent', 'lookup_user'])
+	})
+
 	it('returns special modules without pretending they belong to an array container', () => {
 		const failure = makeRawModule('failure')
 		const preprocessor = makeRawModule('preprocessor')
@@ -124,5 +159,81 @@ describe('flowTree', () => {
 		})
 		expect(getModuleArrayContainer(flow, 'failure')).toBeNull()
 		expect(getModuleArrayContainer(flow, 'preprocessor')).toBeNull()
+	})
+
+	it('removes nested ai agent tools from the real stored tools array', () => {
+		const lookup = makeFlowModuleTool(makeRawModule('lookup_user'))
+		const sum = makeFlowModuleTool(makeRawModule('sum'))
+		const agent = makeAiAgent('agent', [lookup, sum])
+		const flow: FlowValue = {
+			modules: [agent]
+		}
+
+		const removed = removeFlowModule(flow, 'sum')
+
+		expect(removed?.id).toBe('sum')
+		expect((((agent.value as any).tools ?? []) as FlowModule[]).map((module) => module.id)).toEqual([
+			'lookup_user'
+		])
+	})
+
+	it('replaces module content while preserving the original object reference', () => {
+		const original = makeRawModule('sum')
+		const replacement = makeRawModule('sum')
+		;(replacement.value as any).content = 'updated'
+
+		const result = replaceFlowModule(original, replacement)
+
+		expect(result).toBe(original)
+		expect((original.value as any).content).toBe('updated')
+	})
+
+	it('recreates a missing branch container from the source flow location', () => {
+		const nested = makeRawModule('nested')
+		const beforeFlow: FlowValue = {
+			modules: [
+				{
+					id: 'router',
+					summary: 'router',
+					value: {
+						type: 'branchone',
+						default: [],
+						branches: [{ expr: 'true', modules: [nested] }],
+						input_transforms: {}
+					} as any
+				}
+			]
+		}
+		const targetFlow: FlowValue = {
+			modules: [
+				{
+					id: 'router',
+					summary: 'router',
+					value: {
+						type: 'branchone',
+						default: [],
+						branches: [],
+						input_transforms: {}
+					} as any
+				}
+			]
+		}
+
+		const recreatedContainer = ensureModuleArrayByLocation(
+			targetFlow,
+			{
+				type: 'branchone-branch',
+				parentId: 'router',
+				branchIndex: 0,
+				index: 0
+			},
+			beforeFlow
+		)
+
+		expect(recreatedContainer).toEqual([])
+		expect((((targetFlow.modules?.[0].value as any).branches ?? []) as any[])[0]).toMatchObject({
+			expr: 'true',
+			modules: []
+		})
 	})
 })
