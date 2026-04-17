@@ -156,6 +156,10 @@ pub fn make_unauthed_service() -> Router {
         .route("/is_first_time_setup", get(is_first_time_setup))
         .route("/request_password_reset", post(request_password_reset))
         .route("/is_smtp_configured", get(is_smtp_configured))
+        .route(
+            "/is_password_login_disabled",
+            get(is_password_login_disabled),
+        )
 }
 
 pub use windmill_api_auth::{
@@ -1876,6 +1880,15 @@ async fn login(
     }
 
     let email = email.to_lowercase();
+
+    if windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(Error::BadRequest(
+            "Password login is disabled on this instance".to_string(),
+        ));
+    }
+
     windmill_common::login_rate_limit::check_and_increment_login_attempt(&headers, &email)?;
 
     let mut tx = db.begin().await?;
@@ -2612,11 +2625,27 @@ async fn is_smtp_configured(Extension(db): Extension<DB>) -> JsonResult<bool> {
     Ok(Json(smtp.is_some()))
 }
 
+/// Check if password login is disabled (instance-wide)
+async fn is_password_login_disabled() -> JsonResult<bool> {
+    Ok(Json(
+        windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+            .load(std::sync::atomic::Ordering::Relaxed),
+    ))
+}
+
 /// Request a password reset email
 async fn request_password_reset(
     Extension(db): Extension<DB>,
     Json(req): Json<RequestPasswordReset>,
 ) -> Result<Json<PasswordResetResponse>> {
+    if windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(Error::BadRequest(
+            "Password login is disabled on this instance".to_string(),
+        ));
+    }
+
     let email = req.email.to_lowercase();
 
     // Check if SMTP is configured

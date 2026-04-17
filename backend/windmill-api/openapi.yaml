@@ -303,6 +303,21 @@ paths:
               schema:
                 type: boolean
 
+  /auth/is_password_login_disabled:
+    get:
+      security: []
+      summary: check if password login is disabled instance-wide
+      operationId: isPasswordLoginDisabled
+      tags:
+        - user
+      responses:
+        "200":
+          description: returns true if password login is disabled
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /auth/request_password_reset:
     post:
       security: []

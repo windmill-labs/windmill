@@ -380,7 +380,16 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		}
 	],
-	'Auth/OAuth/SAML': [],
+	'Auth/OAuth/SAML': [
+		{
+			label: 'Disable password login',
+			description:
+				'Hide the email/password form on the login page and reject password login requests. Use when you only want OAuth/SAML logins.',
+			key: 'disable_password_login',
+			fieldType: 'boolean',
+			storage: 'setting'
+		}
+	],
 	'DB Health': [],
 	Registries: [
 		{
