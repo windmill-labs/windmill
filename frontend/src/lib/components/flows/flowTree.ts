@@ -38,94 +38,40 @@ function isFlowModuleToolCandidate(tool: FlowModule): boolean {
 	return toolValue.tool_type === undefined || toolValue.tool_type === 'flowmodule'
 }
 
+export function getChildModuleBranches(module: FlowModule): FlowModule[][] {
+	if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
+		return [module.value.modules]
+	}
+
+	if (module.value.type === 'branchone') {
+		return [module.value.default, ...module.value.branches.map((branch) => branch.modules)]
+	}
+
+	if (module.value.type === 'branchall') {
+		return module.value.branches.map((branch) => branch.modules)
+	}
+
+	if (module.value.type === 'aiagent' && module.value.tools) {
+		return [
+			(module.value.tools as FlowModule[]).filter((tool) => isFlowModuleToolCandidate(tool))
+		]
+	}
+
+	return []
+}
+
+export function collectDescendantFlowModules(module: FlowModule): FlowModule[] {
+	return getChildModuleBranches(module).flatMap((branch) =>
+		branch.flatMap((childModule) => [childModule, ...collectDescendantFlowModules(childModule)])
+	)
+}
+
 function visitNestedFlowNodesOfModule(
 	module: FlowModule,
 	visit: (match: ArrayBackedFlowNodeMatch) => boolean | void
 ): boolean {
-	if (module.value.type === 'forloopflow') {
-		return visitFlowNodesInModules(
-			module.value.modules,
-			(childIndex) => ({
-				type: 'forloop',
-				parentId: module.id,
-				index: childIndex
-			}),
-			visit
-		)
-	}
-
-	if (module.value.type === 'whileloopflow') {
-		return visitFlowNodesInModules(
-			module.value.modules,
-			(childIndex) => ({
-				type: 'whileloop',
-				parentId: module.id,
-				index: childIndex
-			}),
-			visit
-		)
-	}
-
-	if (module.value.type === 'branchone') {
-		if (
-			visitFlowNodesInModules(
-				module.value.default,
-				(childIndex) => ({
-					type: 'branchone-default',
-					parentId: module.id,
-					index: childIndex
-				}),
-				visit
-			)
-		) {
-			return true
-		}
-
-		for (let branchIndex = 0; branchIndex < module.value.branches.length; branchIndex++) {
-			const branch = module.value.branches[branchIndex]
-			if (
-				visitFlowNodesInModules(
-					branch.modules,
-					(childIndex) => ({
-						type: 'branchone-branch',
-						parentId: module.id,
-						branchIndex,
-						index: childIndex
-					}),
-					visit
-				)
-			) {
-				return true
-			}
-		}
-
-		return false
-	}
-
-	if (module.value.type === 'branchall') {
-		for (let branchIndex = 0; branchIndex < module.value.branches.length; branchIndex++) {
-			const branch = module.value.branches[branchIndex]
-			if (
-				visitFlowNodesInModules(
-					branch.modules,
-					(childIndex) => ({
-						type: 'branchall-branch',
-						parentId: module.id,
-						branchIndex,
-						index: childIndex
-					}),
-					visit
-				)
-			) {
-				return true
-			}
-		}
-
-		return false
-	}
-
 	if (module.value.type === 'aiagent' && module.value.tools) {
-		const tools = module.value.tools
+		const tools = module.value.tools as FlowModule[]
 		for (let toolIndex = 0; toolIndex < tools.length; toolIndex++) {
 			const tool = tools[toolIndex]
 			if (!isFlowModuleToolCandidate(tool as FlowModule)) {
@@ -145,6 +91,54 @@ function visitNestedFlowNodesOfModule(
 			if (visit(toolMatch) || visitNestedFlowNodesOfModule(tool as FlowModule, visit)) {
 				return true
 			}
+		}
+
+		return false
+	}
+
+	const childBranches = getChildModuleBranches(module)
+	for (let branchIndex = 0; branchIndex < childBranches.length; branchIndex++) {
+		const branch = childBranches[branchIndex]
+		const locationBuilder =
+			module.value.type === 'forloopflow'
+				? (childIndex: number) =>
+						({
+							type: 'forloop',
+							parentId: module.id,
+							index: childIndex
+						}) as ArrayBackedModuleParentLocation
+				: module.value.type === 'whileloopflow'
+					? (childIndex: number) =>
+							({
+								type: 'whileloop',
+								parentId: module.id,
+								index: childIndex
+							}) as ArrayBackedModuleParentLocation
+					: module.value.type === 'branchone'
+						? branchIndex === 0
+							? (childIndex: number) =>
+									({
+										type: 'branchone-default',
+										parentId: module.id,
+										index: childIndex
+									}) as ArrayBackedModuleParentLocation
+							: (childIndex: number) =>
+									({
+										type: 'branchone-branch',
+										parentId: module.id,
+										branchIndex: branchIndex - 1,
+										index: childIndex
+									}) as ArrayBackedModuleParentLocation
+						: (childIndex: number) =>
+								({
+									type: 'branchall-branch',
+									parentId: module.id,
+									branchIndex,
+									index: childIndex
+								}) as ArrayBackedModuleParentLocation
+
+		if (visitFlowNodesInModules(branch, locationBuilder, visit)) {
+			return true
 		}
 	}
 
