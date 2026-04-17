@@ -29,6 +29,7 @@ export function createScriptModeRunner(
 
       const result = await runScriptEval(prompt, getFrontendApiKey(modelConfig.provider), {
         initialScript: initial,
+        maxIterations: context.evalCase?.runtime?.maxTurns,
         provider: modelConfig.provider,
         model: modelConfig.model,
         runContext: context,

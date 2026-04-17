@@ -14,7 +14,7 @@
 	import {
 		applyFlowJsonUpdate,
 		getFlowModuleById,
-		getRawScriptModuleById
+		updateRawScriptModuleContent
 	} from './helperUtils'
 
 	let {
@@ -83,11 +83,6 @@
 
 		// ai chat tools
 		setCode: async (id: string, code: string) => {
-			const module = getRawScriptModuleById(flowStore.val, id)
-			if (!module) {
-				throw new Error('Module not found or is not a rawscript')
-			}
-
 			// 1. Take snapshot only if none exists (preserves baseline for cumulative changes)
 			if (!diffManager?.beforeFlow) {
 				const snapshot = $state.snapshot(flowStore).val
@@ -96,7 +91,11 @@
 			}
 
 			// 2. Apply the code change
-			module.value.content = code
+			const module = updateRawScriptModuleContent(flowStore.val, id, code)
+			if (!module) {
+				throw new Error('Module not found or is not a rawscript')
+			}
+
 			inlineScriptSession.set(id, code)
 			const { input_transforms, schema } = await loadSchemaFromModule(module)
 			module.value.input_transforms = input_transforms
@@ -207,7 +206,7 @@
 					}
 				}
 
-				applyFlowJsonUpdate(flowStore.val, inlineScriptSession, {
+				const result = applyFlowJsonUpdate(flowStore.val, inlineScriptSession, {
 					modules,
 					schema,
 					preprocessorModule,
@@ -216,6 +215,7 @@
 
 				// Refresh the state store to update UI
 				refreshStateStore(flowStore)
+				return result
 			} catch (error) {
 				throw new Error(
 					`Failed to parse or apply JSON: ${error instanceof Error ? error.message : String(error)}`

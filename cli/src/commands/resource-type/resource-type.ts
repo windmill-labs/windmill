@@ -12,6 +12,7 @@ import {
 } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
+import { generateTsconfigForIde } from "./tsconfig.ts";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
@@ -189,6 +190,8 @@ export async function generateRTNamespace(opts: GlobalOptions) {
       "Created rt.d.ts with resource types namespace (RT) for TypeScript."
     )
   );
+
+  await generateTsconfigForIde();
 }
 
 const command = new Command()

@@ -526,7 +526,7 @@ export function extractInlineScriptsForApps(
   }
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
-      if (k == "inlineScript" && typeof v == "object") {
+      if (k == "inlineScript" && v != null && typeof v == "object") {
         rec["type"] = undefined;
         const o: Record<string, any> = v as any;
         const name = toId(key ?? "", rec);

@@ -37,6 +37,7 @@ export function createFlowModeRunner(
       const result = await runFlowEval(prompt, getFrontendApiKey(modelConfig.provider), {
         initialFlow: initial?.flowFixture,
         workspaceFixtures: initial?.workspace,
+        maxIterations: context.evalCase?.runtime?.maxTurns,
         provider: modelConfig.provider,
         model: modelConfig.model,
         runContext: context,
