@@ -151,7 +151,10 @@ impl ServiceName {
         match self {
             ServiceName::Nextcloud => "read write",
             ServiceName::Google => "https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events",
-            ServiceName::Github => "admin:repo_hook read:user",
+            // `repo` is required to list private repositories via /user/repos and
+            // /search/repositories. It also covers webhook management, so it
+            // supersedes `admin:repo_hook`.
+            ServiceName::Github => "repo read:user",
         }
     }
 
