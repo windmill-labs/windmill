@@ -124,4 +124,32 @@ describe("validateAppState", () => {
 
     expect(checks.every((check) => check.passed)).toBe(true);
   });
+
+  it("fails validation when frontend static analysis finds broken backend wiring", () => {
+    const checks = validateAppState({
+      actual: {
+        frontend: {
+          "/index.tsx":
+            "import { backend } from 'wmill'\nexport default function App() { void backend.deleteRecipe({ id: 1 }); return <div /> }\n",
+        },
+        backend: {
+          listRecipes: {
+            name: "List recipes",
+            type: "inline",
+            inlineScript: {
+              language: "bun",
+              content: "export async function main() { return [] }\n",
+            },
+          },
+        },
+        datatables: [],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "frontend files have no static analysis errors",
+      passed: false,
+      details: expect.stringContaining("deleteRecipe"),
+    });
+  });
 });

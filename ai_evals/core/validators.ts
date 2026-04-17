@@ -1,5 +1,6 @@
 import path from "node:path";
 import ts from "typescript";
+import { collectAppDiagnostics } from "./appDiagnostics";
 import type { AppValidationSpec, BenchmarkCheck, FlowValidationSpec } from "./types";
 
 export interface ScriptState {
@@ -134,6 +135,12 @@ export function validateAppState(input: {
   const backendEntries = Object.entries(input.actual.backend ?? {});
   const frontendSyntaxProblems = getAppFrontendSyntaxProblems(input.actual.frontend);
   const backendSyntaxProblems = getAppBackendSyntaxProblems(input.actual.backend);
+  const diagnostics = collectAppDiagnostics({
+    frontend: input.actual.frontend,
+    backend: input.actual.backend,
+  });
+  const frontendLintProblems = flattenLintMessages(diagnostics.lintResult.errors.frontend);
+  const backendLintProblems = flattenLintMessages(diagnostics.lintResult.errors.backend);
   const unresolvedBackendRefs = getUnresolvedBackendReferences(
     input.actual.frontend,
     input.actual.backend
@@ -155,6 +162,13 @@ export function validateAppState(input: {
   );
   checks.push(
     check(
+      "frontend files have no static analysis errors",
+      frontendLintProblems.length === 0,
+      summarizeProblems(frontendLintProblems)
+    )
+  );
+  checks.push(
+    check(
       "backend inline scripts have entrypoints",
       backendEntries.every(([, runnable]) => {
         if (runnable.type !== "inline") {
@@ -169,6 +183,13 @@ export function validateAppState(input: {
       "backend inline scripts have no syntax errors",
       backendSyntaxProblems.length === 0,
       summarizeProblems(backendSyntaxProblems)
+    )
+  );
+  checks.push(
+    check(
+      "backend inline scripts have no static analysis errors",
+      backendLintProblems.length === 0,
+      summarizeProblems(backendLintProblems)
     )
   );
   checks.push(
@@ -322,6 +343,18 @@ function summarizeProblems(problems: string[], limit = 5): string | undefined {
   }
 
   return `${problems.slice(0, limit).join("; ")}; ...and ${problems.length - limit} more`;
+}
+
+function flattenLintMessages(messages: Record<string, string[]>): string[] {
+  const flattened: string[] = [];
+
+  for (const [target, targetMessages] of Object.entries(messages)) {
+    for (const message of targetMessages) {
+      flattened.push(`${target}: ${message}`);
+    }
+  }
+
+  return flattened;
 }
 
 function hasSupportedEntrypoint(code: string): boolean {

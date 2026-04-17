@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import type { EvalCase, EvalMode } from "./types";
 import type { EvalCase, EvalCaseRuntimeSpec, EvalMode, EvalValidationSpec } from "./types";
 
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
