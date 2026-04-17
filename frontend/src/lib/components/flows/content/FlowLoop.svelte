@@ -275,7 +275,6 @@
 										}
 									}
 								}}
-								class="h-6"
 							>
 								{#snippet children({ item })}
 									<ToggleButton small label="static" value="static" {item} />
