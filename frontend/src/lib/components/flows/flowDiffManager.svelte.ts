@@ -11,16 +11,18 @@ import type { FlowModule, FlowValue } from '$lib/gen'
 import type { ModuleActionInfo } from './flowDiff'
 import {
 	buildFlowTimeline,
-	findModuleInFlow,
 	insertModuleIntoFlow,
-	findModuleParent,
 	locationsEqual,
 	DUPLICATE_MODULE_PREFIX,
 	NEW_MODULE_PREFIX
 } from './flowDiff'
+import {
+	findModuleInFlow,
+	findModuleParent,
+	getModuleArrayContainer
+} from './flowTree'
 import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
-import { getIndexInNestedModules } from '../copilot/chat/flow/utils'
 import type DiffDrawer from '../DiffDrawer.svelte'
 import { SPECIAL_MODULE_IDS } from '../copilot/chat/shared'
 
@@ -200,18 +202,13 @@ export function createFlowDiffManager({ testMode = false } = {}) {
 			flow.value.failure_module = undefined
 			return true
 		} else {
-			const result = getIndexInNestedModules(flow, id)
+			const result = getModuleArrayContainer(flow.value, id)
 			if (!result) {
 				// Module not found (may have been deleted along with a parent)
 				return false
 			}
-			const { modules } = result
-			const index = modules.findIndex((m) => m.id === id)
-			if (index >= 0) {
-				modules.splice(index, 1)
-				return true
-			}
-			return false
+			result.modules.splice(result.index, 1)
+			return true
 		}
 	}
 

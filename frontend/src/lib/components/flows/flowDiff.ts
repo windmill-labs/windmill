@@ -1,6 +1,13 @@
 import type { FlowModule, FlowValue } from '$lib/gen'
 import { dfs } from './dfs'
 import { deepEqual } from 'fast-equals'
+import {
+	findModuleInFlow,
+	findModuleParent,
+	type ModuleParentLocation
+} from './flowTree'
+
+export { findModuleInFlow, findModuleParent, type ModuleParentLocation } from './flowTree'
 
 /** Prefix added to module IDs when the original module coexists with a replacement */
 export const DUPLICATE_MODULE_PREFIX = 'old__'
@@ -250,111 +257,6 @@ export function locationsEqual(
 		default:
 			return false
 	}
-}
-
-/**
- * Represents the parent location of a module
- */
-export type ModuleParentLocation =
-	| { type: 'root'; index: number }
-	| { type: 'forloop' | 'whileloop'; parentId: string; index: number }
-	| { type: 'branchone-default'; parentId: string; index: number }
-	| { type: 'branchone-branch'; parentId: string; branchIndex: number; index: number }
-	| { type: 'branchall-branch'; parentId: string; branchIndex: number; index: number }
-	| { type: 'aiagent'; parentId: string; index: number }
-	| { type: 'failure'; index: -1 }
-	| { type: 'preprocessor'; index: -1 }
-
-/**
- * Finds the parent location of a module in a flow
- */
-export function findModuleParent(flow: FlowValue, moduleId: string): ModuleParentLocation | null {
-	// Check special modules
-	if (flow.failure_module?.id === moduleId) {
-		return { type: 'failure', index: -1 }
-	}
-	if (flow.preprocessor_module?.id === moduleId) {
-		return { type: 'preprocessor', index: -1 }
-	}
-
-	// Check root level
-	const rootIndex = flow.modules?.findIndex((m) => m.id === moduleId)
-	if (rootIndex !== undefined && rootIndex >= 0) {
-		return { type: 'root', index: rootIndex }
-	}
-
-	// Recursively search nested modules
-	function searchInModules(modules: FlowModule[]): ModuleParentLocation | null {
-		for (const module of modules) {
-			// Check forloopflow
-			if (module.value.type === 'forloopflow') {
-				const index = module.value.modules.findIndex((m) => m.id === moduleId)
-				if (index >= 0) {
-					return { type: 'forloop', parentId: module.id, index }
-				}
-				const nested = searchInModules(module.value.modules)
-				if (nested) return nested
-			}
-
-			// Check whileloopflow
-			if (module.value.type === 'whileloopflow') {
-				const index = module.value.modules.findIndex((m) => m.id === moduleId)
-				if (index >= 0) {
-					return { type: 'whileloop', parentId: module.id, index }
-				}
-				const nested = searchInModules(module.value.modules)
-				if (nested) return nested
-			}
-
-			// Check branchone
-			if (module.value.type === 'branchone') {
-				// Check default branch
-				const defaultIndex = module.value.default.findIndex((m) => m.id === moduleId)
-				if (defaultIndex >= 0) {
-					return { type: 'branchone-default', parentId: module.id, index: defaultIndex }
-				}
-				const nestedDefault = searchInModules(module.value.default)
-				if (nestedDefault) return nestedDefault
-
-				// Check other branches
-				for (let branchIndex = 0; branchIndex < module.value.branches.length; branchIndex++) {
-					const branch = module.value.branches[branchIndex]
-					const index = branch.modules.findIndex((m) => m.id === moduleId)
-					if (index >= 0) {
-						return { type: 'branchone-branch', parentId: module.id, branchIndex, index }
-					}
-					const nested = searchInModules(branch.modules)
-					if (nested) return nested
-				}
-			}
-
-			// Check branchall
-			if (module.value.type === 'branchall') {
-				for (let branchIndex = 0; branchIndex < module.value.branches.length; branchIndex++) {
-					const branch = module.value.branches[branchIndex]
-					const index = branch.modules.findIndex((m) => m.id === moduleId)
-					if (index >= 0) {
-						return { type: 'branchall-branch', parentId: module.id, branchIndex, index }
-					}
-					const nested = searchInModules(branch.modules)
-					if (nested) return nested
-				}
-			}
-
-			// Check aiagent
-			if (module.value.type === 'aiagent' && module.value.tools) {
-				const index = (module.value.tools as FlowModule[]).findIndex((m) => m.id === moduleId)
-				if (index >= 0) {
-					return { type: 'aiagent', parentId: module.id, index }
-				}
-				const nested = searchInModules(module.value.tools as FlowModule[])
-				if (nested) return nested
-			}
-		}
-		return null
-	}
-
-	return searchInModules(flow.modules ?? [])
 }
 
 /**
@@ -817,8 +719,7 @@ function insertIntoNestedParent(
  * Finds a module by ID anywhere in the flow
  */
 function findModuleById(flow: FlowValue, moduleId: string): FlowModule | null {
-	const moduleMap = getAllModulesMap(flow)
-	return moduleMap.get(moduleId) ?? null
+	return findModuleInFlow(flow, moduleId)
 }
 
 /**
@@ -946,17 +847,6 @@ export function insertModuleIntoFlow(
 
 	// Handle nested modules
 	insertIntoNestedParent(targetFlow, parentLocation, moduleToInsert, sourceFlow)
-}
-
-/**
- * Finds a module by ID anywhere in a flow (including nested modules, failure, and preprocessor)
- *
- * @param flow - The flow to search in
- * @param moduleId - The ID of the module to find
- * @returns The module if found, null otherwise
- */
-export function findModuleInFlow(flow: FlowValue, moduleId: string): FlowModule | null {
-	return findModuleById(flow, moduleId)
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { FlowModule, OpenFlow, RawScript } from '$lib/gen'
 import { forEachFlowModule } from '$lib/components/flows/dfs'
-import { dfs } from '$lib/components/flows/previousResults'
+import { findModuleInFlow } from '$lib/components/flows/flowTree'
 import { SPECIAL_MODULE_IDS } from '../shared'
 import type { InlineScriptSession } from './inlineScriptsUtils'
 
@@ -32,33 +32,19 @@ export function getFlowModuleById(flow: FlowLike | undefined, id: string): FlowM
 		return flow.value.failure_module
 	}
 
-	return dfs(id, flow as OpenFlow, false)[0]
+	return findModuleInFlow(flow.value, id) ?? undefined
 }
 
 export function getMutableRawScriptModuleById(
 	flow: FlowLike | undefined,
 	id: string
 ): (FlowModule & { value: RawScript }) | undefined {
-	if (!flow) {
+	const module = getFlowModuleById(flow, id)
+	if (!module || module.value.type !== 'rawscript') {
 		return undefined
 	}
 
-	if (flow.value.preprocessor_module?.id === id && flow.value.preprocessor_module.value.type === 'rawscript') {
-		return flow.value.preprocessor_module as FlowModule & { value: RawScript }
-	}
-
-	if (flow.value.failure_module?.id === id && flow.value.failure_module.value.type === 'rawscript') {
-		return flow.value.failure_module as FlowModule & { value: RawScript }
-	}
-
-	let matchedModule: (FlowModule & { value: RawScript }) | undefined
-	forEachFlowModule(flow.value.modules, (module) => {
-		if (!matchedModule && module.id === id && module.value.type === 'rawscript') {
-			matchedModule = module as FlowModule & { value: RawScript }
-		}
-	})
-
-	return matchedModule
+	return module as FlowModule & { value: RawScript }
 }
 
 export function getMutableRawScriptModuleById(

@@ -10,10 +10,6 @@ vi.mock('../shared', () => ({
 	}
 }))
 
-vi.mock('$lib/components/flows/previousResults', () => ({
-	dfs: () => []
-}))
-
 function makeRawScriptModule(id: string, content: string): FlowModule {
 	return {
 		id,

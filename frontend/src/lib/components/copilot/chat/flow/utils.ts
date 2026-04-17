@@ -1,4 +1,7 @@
-import { findModuleInFlow, findModuleParent } from '$lib/components/flows/flowDiff'
+import {
+	findModuleInFlow,
+	getModuleArrayContainer
+} from '$lib/components/flows/flowTree'
 import type { FlowModule, OpenFlow } from '$lib/gen'
 
 // Helper to find module by ID in a flow
@@ -10,71 +13,7 @@ export function getIndexInNestedModules(
 	flow: OpenFlow,
 	id: string
 ): { index: number; modules: FlowModule[] } | null {
-	const parentLocation = findModuleParent(flow.value, id)
-	if (!parentLocation) {
-		// Module not found in flow.
-		return null
-	}
-
-	if (parentLocation.type === 'failure' || parentLocation.type === 'preprocessor') {
-		return null
-	}
-
-	if (parentLocation.type === 'root') {
-		return {
-			index: parentLocation.index,
-			modules: flow.value.modules
-		}
-	}
-
-	const parent = findModuleInFlow(flow.value, parentLocation.parentId)
-	if (!parent) {
-		return null
-	}
-
-	switch (parentLocation.type) {
-		case 'forloop':
-			if (parent.value.type !== 'forloopflow') {
-				return null
-			}
-			return { index: parentLocation.index, modules: parent.value.modules }
-		case 'whileloop':
-			if (parent.value.type !== 'whileloopflow') {
-				return null
-			}
-			return { index: parentLocation.index, modules: parent.value.modules }
-		case 'branchone-default':
-			if (parent.value.type !== 'branchone') {
-				return null
-			}
-			return { index: parentLocation.index, modules: parent.value.default }
-		case 'branchone-branch':
-			if (parent.value.type !== 'branchone') {
-				return null
-			}
-			return {
-				index: parentLocation.index,
-				modules: parent.value.branches[parentLocation.branchIndex]?.modules ?? []
-			}
-		case 'branchall-branch':
-			if (parent.value.type !== 'branchall') {
-				return null
-			}
-			return {
-				index: parentLocation.index,
-				modules: parent.value.branches[parentLocation.branchIndex]?.modules ?? []
-			}
-		case 'aiagent':
-			if (parent.value.type !== 'aiagent') {
-				return null
-			}
-			return {
-				index: parentLocation.index,
-				modules: (parent.value.tools as FlowModule[]) ?? []
-			}
-		default:
-			return null
-	}
+	return getModuleArrayContainer(flow.value, id)
 }
 
 /**
