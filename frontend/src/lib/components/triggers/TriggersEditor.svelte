@@ -120,7 +120,8 @@
 
 		const nativeTriggerServices: Record<string, NativeServiceName> = {
 			nextcloud: 'nextcloud',
-			google: 'google'
+			google: 'google',
+			github: 'github'
 		}
 
 		const deleteHandler = deleteHandlers[triggerType as keyof typeof deleteHandlers]
@@ -273,6 +274,15 @@
 			await triggersState.fetchNativeTriggers(
 				triggersCount,
 				'google',
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
+		} else if (triggerType === 'github') {
+			await triggersState.fetchNativeTriggers(
+				triggersCount,
+				'github',
 				$workspaceStore,
 				currentPath,
 				isFlow,

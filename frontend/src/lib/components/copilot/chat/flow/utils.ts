@@ -1,69 +1,79 @@
-import { dfs } from '$lib/components/flows/previousResults'
+import { findModuleInFlow, findModuleParent } from '$lib/components/flows/flowDiff'
 import type { FlowModule, OpenFlow } from '$lib/gen'
 
 // Helper to find module by ID in a flow
 export function getModuleById(flow: OpenFlow, moduleId: string): FlowModule | undefined {
-	const allModules = dfs(moduleId, flow, false)
-	return allModules[0]
+	return findModuleInFlow(flow.value, moduleId) ?? undefined
 }
 
 export function getIndexInNestedModules(
 	flow: OpenFlow,
 	id: string
 ): { index: number; modules: FlowModule[] } | null {
-	const accessingModules = dfs(id, flow, true).reverse()
-
-	if (accessingModules.length === 0) {
-		// Module not found in flow
+	const parentLocation = findModuleParent(flow.value, id)
+	if (!parentLocation) {
+		// Module not found in flow.
 		return null
 	}
 
-	let parent = flow.value.modules
-	let lastIndex = -1
-	for (const [ai, am] of accessingModules.entries()) {
-		const index = parent.findIndex((m) => m.id === am.id)
+	if (parentLocation.type === 'failure' || parentLocation.type === 'preprocessor') {
+		return null
+	}
 
-		if (index === -1) {
-			// Module no longer exists in expected location (may have been deleted with parent)
-			return null
+	if (parentLocation.type === 'root') {
+		return {
+			index: parentLocation.index,
+			modules: flow.value.modules
 		}
+	}
 
-		lastIndex = index
+	const parent = findModuleInFlow(flow.value, parentLocation.parentId)
+	if (!parent) {
+		return null
+	}
 
-		if (ai === accessingModules.length - 1) {
-			break
-		}
-
-		if (
-			parent[index].value.type === 'forloopflow' ||
-			parent[index].value.type === 'whileloopflow'
-		) {
-			parent = parent[index].value.modules
-		} else if (
-			parent[index].value.type === 'branchall' ||
-			parent[index].value.type === 'branchone'
-		) {
-			const branchIdx = parent[index].value.branches.findIndex((b) =>
-				b.modules.some((m) => m.id === accessingModules[ai + 1].id)
-			)
-			if (branchIdx === -1) {
-				// Module no longer exists in branch (may have been deleted)
+	switch (parentLocation.type) {
+		case 'forloop':
+			if (parent.value.type !== 'forloopflow') {
 				return null
 			}
-			parent = parent[index].value.branches[branchIdx].modules
-		} else {
-			// Unexpected module type in path
+			return { index: parentLocation.index, modules: parent.value.modules }
+		case 'whileloop':
+			if (parent.value.type !== 'whileloopflow') {
+				return null
+			}
+			return { index: parentLocation.index, modules: parent.value.modules }
+		case 'branchone-default':
+			if (parent.value.type !== 'branchone') {
+				return null
+			}
+			return { index: parentLocation.index, modules: parent.value.default }
+		case 'branchone-branch':
+			if (parent.value.type !== 'branchone') {
+				return null
+			}
+			return {
+				index: parentLocation.index,
+				modules: parent.value.branches[parentLocation.branchIndex]?.modules ?? []
+			}
+		case 'branchall-branch':
+			if (parent.value.type !== 'branchall') {
+				return null
+			}
+			return {
+				index: parentLocation.index,
+				modules: parent.value.branches[parentLocation.branchIndex]?.modules ?? []
+			}
+		case 'aiagent':
+			if (parent.value.type !== 'aiagent') {
+				return null
+			}
+			return {
+				index: parentLocation.index,
+				modules: (parent.value.tools as FlowModule[]) ?? []
+			}
+		default:
 			return null
-		}
-	}
-
-	if (lastIndex === -1) {
-		return null
-	}
-
-	return {
-		index: lastIndex,
-		modules: parent
 	}
 }
 

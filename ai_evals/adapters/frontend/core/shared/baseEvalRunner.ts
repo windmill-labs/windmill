@@ -145,6 +145,20 @@ export async function runEval<THelpers, TOutput>(
 			skipResponsesApi: modelProvider.provider !== 'openai'
 		})
 
+		if (result.hitMaxIterations) {
+			return {
+				success: false,
+				output: getOutput(),
+				error: `Reached max turns (${maxIterations})`,
+				tokenUsage: result.tokenUsage,
+				toolCallsCount,
+				toolsCalled,
+				toolCallDetails,
+				iterations: Math.max(1, result.addedMessages.filter((m) => m.role === 'assistant').length),
+				messages
+			}
+		}
+
 		return {
 			success: true,
 			output: getOutput(),

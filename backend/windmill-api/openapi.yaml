@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.684.1
+  version: 1.686.0
   title: Windmill API
 
   contact:
@@ -2462,6 +2462,9 @@ paths:
                     type: string
                   client_id:
                     type: string
+                  app_owner:
+                    type: string
+                    nullable: true
                 required:
                   - base_url
                   - app_slug
@@ -4580,6 +4583,8 @@ paths:
                     type: boolean
                   google_used:
                     type: boolean
+                  github_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
@@ -4592,6 +4597,7 @@ paths:
                   - email_used
                   - nextcloud_used
                   - google_used
+                  - github_used
   /w/{workspace}/users/list:
     get:
       summary: list users
@@ -14609,6 +14615,28 @@ paths:
                 items:
                   $ref: "#/components/schemas/SharedDriveEntry"
 
+  /w/{workspace}/native_triggers/github/repos:
+    get:
+      summary: list GitHub repositories accessible to the user
+      operationId: listGithubRepos
+      tags:
+        - native_trigger
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: list of GitHub repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GithubRepoEntry"
+
   /native_triggers/{service_name}/w/{workspace_id}/webhook/{internal_id}:
     post:
       summary: receive webhook from external native trigger service
@@ -22788,6 +22816,7 @@ components:
         - sqs
         - gcp
         - google
+        - github
 
     TriggerMode:
       description: job trigger mode
@@ -23278,6 +23307,8 @@ components:
         nextcloud_count:
           type: number
         google_count:
+          type: number
+        github_count:
           type: number
 
     WebsocketHeartbeat:
@@ -25629,20 +25660,18 @@ components:
       properties:
         access_token:
           type: string
-        team_id:
-          type: string
-        team_name:
-          type: string
-        bot:
+        team:
           type: object
           properties:
-            bot_access_token:
+            id:
               type: string
+            name:
+              type: string
+          required:
+            - id
+            - name
       required:
         - access_token
-        - team_id
-        - team_name
-        - bot
 
     TokenResponse:
       type: object
@@ -26790,6 +26819,7 @@ components:
       enum:
         - nextcloud
         - google
+        - github
 
     NativeTrigger:
       type: object
@@ -27063,3 +27093,20 @@ components:
       required:
         - id
         - name
+
+    GithubRepoEntry:
+      type: object
+      properties:
+        full_name:
+          type: string
+        name:
+          type: string
+        owner:
+          type: string
+        private:
+          type: boolean
+      required:
+        - full_name
+        - name
+        - owner
+        - private

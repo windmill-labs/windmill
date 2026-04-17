@@ -23,7 +23,8 @@
             "kind": {
               "Enum": [
                 "nextcloud",
-                "google"
+                "google",
+                "github"
               ]
             }
           }

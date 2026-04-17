@@ -21,6 +21,7 @@ pub enum TriggerKind {
     Gcp,
     Nextcloud,
     Google,
+    Github,
 }
 
 impl TriggerKind {
@@ -39,6 +40,7 @@ impl TriggerKind {
             TriggerKind::Gcp => "gcp".to_string(),
             TriggerKind::Nextcloud => "nextcloud".to_string(),
             TriggerKind::Google => "google".to_string(),
+            TriggerKind::Github => "github".to_string(),
         }
     }
 }
@@ -59,6 +61,7 @@ impl fmt::Display for TriggerKind {
             TriggerKind::Gcp => "gcp",
             TriggerKind::Nextcloud => "nextcloud",
             TriggerKind::Google => "google",
+            TriggerKind::Github => "github",
         };
         write!(f, "{}", s)
     }

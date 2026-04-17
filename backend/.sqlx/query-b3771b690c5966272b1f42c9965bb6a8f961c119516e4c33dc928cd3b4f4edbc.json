@@ -163,7 +163,8 @@
                 "mqtt",
                 "nextcloud",
                 "google",
-                "ci_test"
+                "ci_test",
+                "github"
               ]
             }
           }

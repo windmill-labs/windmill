@@ -35,6 +35,7 @@ import {
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { createInlineScriptSession, type InlineScriptSession } from './inlineScriptsUtils'
+import type { FlowJsonUpdateResult } from './helperUtils'
 import { flowModuleSchema, flowModulesSchema } from './openFlowZod'
 import { collectAllModuleIdsFromArray } from './utils'
 import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
@@ -276,6 +277,17 @@ type EditableFlowJson = {
 	failure_module: FlowModule | null
 }
 
+function formatEmptyInlineScriptWarning({
+	emptyInlineScriptModuleIds
+}: FlowJsonUpdateResult): string {
+	if (emptyInlineScriptModuleIds.length === 0) {
+		return ''
+	}
+
+	const moduleList = emptyInlineScriptModuleIds.map((id) => `'${id}'`).join(', ')
+	return ` Warning: inline scripts ${moduleList} are empty for now. Use set_module_code to fill them in.`
+}
+
 function validateFlowModules(rawModules: unknown): FlowModule[] {
 	if (!Array.isArray(rawModules)) {
 		throw new Error('Flow modules must be an array')
@@ -492,7 +504,7 @@ export interface FlowAIChatHelpers {
 
 	// ai chat tools
 	setCode: (id: string, code: string) => Promise<void>
-	setFlowJson: (update: FlowJsonUpdate) => Promise<void>
+	setFlowJson: (update: FlowJsonUpdate) => Promise<FlowJsonUpdateResult>
 	getFlowInputsSchema: () => Promise<Record<string, any>>
 	/** Update exprsToSet store for InputTransformForm components (only if module is selected) */
 	updateExprsToSet: (id: string, inputTransforms: Record<string, InputTransform>) => void
@@ -1018,12 +1030,13 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				helpers.inlineScriptSession.set(moduleId, content)
 			}
 
-			await helpers.setFlowJson({
+			const updateResult = await helpers.setFlowJson({
 				modules: parsedFlow.modules,
 				schema: parsedFlow.schema,
 				preprocessorModule: parsedFlow.preprocessor_module,
 				failureModule: parsedFlow.failure_module
 			})
+			const warning = formatEmptyInlineScriptWarning(updateResult)
 
 			const selectedModule = findModuleInEditableFlow(parsedFlow, selectedId)
 			if (
@@ -1039,7 +1052,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				result: 'Success'
 			})
 
-			return `Flow JSON updated`
+			return `Flow JSON updated.${warning}`
 		}
 	},
 	{
@@ -1058,7 +1071,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				content:
 					parsedModule === null ? 'Removing preprocessor module...' : 'Setting preprocessor module...'
 			})
-			await helpers.setFlowJson({ preprocessorModule: parsedModule })
+			const updateResult = await helpers.setFlowJson({ preprocessorModule: parsedModule })
+			const warning = formatEmptyInlineScriptWarning(updateResult)
 
 			if (
 				parsedModule &&
@@ -1070,13 +1084,12 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
-				content:
-					parsedModule === null ? 'Preprocessor module removed' : 'Preprocessor module updated',
+				content: parsedModule === null ? 'Preprocessor module removed' : 'Preprocessor module updated',
 				result: 'Success'
 			})
 			return parsedModule === null
 				? 'Preprocessor module removed'
-				: 'Preprocessor module updated successfully.'
+				: `Preprocessor module updated successfully.${warning}`
 		}
 	},
 	{
@@ -1094,7 +1107,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: parsedModule === null ? 'Removing failure module...' : 'Setting failure module...'
 			})
-			await helpers.setFlowJson({ failureModule: parsedModule })
+			const updateResult = await helpers.setFlowJson({ failureModule: parsedModule })
+			const warning = formatEmptyInlineScriptWarning(updateResult)
 
 			if (
 				parsedModule &&
@@ -1111,7 +1125,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 			return parsedModule === null
 				? 'Failure module removed'
-				: 'Failure module updated successfully.'
+				: `Failure module updated successfully.${warning}`
 		}
 	},
 	{
@@ -1181,7 +1195,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Setting flow...`
 			})
-			await helpers.setFlowJson({
+			const updateResult = await helpers.setFlowJson({
 				...(parsedModules !== undefined ? { modules: parsedModules } : {}),
 				...(parsedSchema !== undefined ? { schema: parsedSchema } : {}),
 				...(parsedPreprocessorModule !== undefined
@@ -1189,6 +1203,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 					: {}),
 				...(parsedFailureModule !== undefined ? { failureModule: parsedFailureModule } : {})
 			})
+			const warning = formatEmptyInlineScriptWarning(updateResult)
 
 			// Update exprsToSet if the selected module has input_transforms
 			if (
@@ -1218,7 +1233,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				content: `Flow updated`,
 				result: 'Success'
 			})
-			return `Flow updated`
+			return `Flow updated.${warning}`
 		}
 	},
 	{
@@ -1490,6 +1505,10 @@ To reduce token usage, rawscript content in the flow you receive is replaced wit
 **To inspect existing code:**
 - Use \`inspect_inline_script\` tool to view the current code: \`inspect_inline_script({ moduleId: "step_a" })\`
 
+**If a flow update tool warns that inline scripts are empty:**
+- The module structure was created successfully, but the code is still empty
+- Immediately call \`set_module_code\` for each warned module ID
+
 ### Writing Code for Modules
 
 **IMPORTANT: Before writing any code for a rawscript module, you MUST call the \`get_instructions_for_code_generation\` tool with the target language.** This tool provides essential language-specific instructions.
@@ -1498,14 +1517,15 @@ Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_ge
 
 ### Creating Flows
 
-1. **Search for existing scripts first** (unless user explicitly asks to write from scratch):
-   - First: \`search_workspace\` to find workspace scripts and flows
-   - Use \`get_runnable_details\` to inspect a specific script or flow (inputs, description, code)
+1. **Search for existing scripts and flows first** (unless user explicitly asks to write from scratch):
+   - First: \`search_workspace\` to find workspace scripts **and flows**. Existing flows can be reused as subflow steps — prefer this over rebuilding equivalent logic inline.
+   - Use \`get_runnable_details\` to inspect a specific script or flow (inputs, description, code) so you know how to wire its \`input_transforms\`
    - Then: \`search_hub_scripts\` (only consider highly relevant results)
-   - Only create raw scripts if no suitable script is found
+   - Only create raw scripts if no suitable script or flow is found
 
 2. **Build the complete flow using \`set_flow_json\`:**
-   - If using existing script: use \`type: "script"\` with \`path\`
+   - If using an existing script: use \`type: "script"\` with \`path\`
+   - If using an existing flow as a subflow step: use \`type: "flow"\` with \`path\` (e.g. \`{ type: "flow", path: "f/flows/process_user", input_transforms: { ... } }\`). The step's \`input_transforms\` must cover the subflow's inputs.
    - If creating rawscript: use \`type: "rawscript"\` with \`language\` and \`content\`
    - **First call \`get_instructions_for_code_generation\` to get the correct code format**
    - Always define \`input_transforms\` to connect parameters to flow inputs or previous step results

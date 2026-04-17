@@ -1,6 +1,8 @@
 pub const CUSTOM_TAGS_SETTING: &str = "custom_tags";
 pub const DEFAULT_TAGS_PER_WORKSPACE_SETTING: &str = "default_tags_per_workspace";
 pub const DEFAULT_TAGS_WORKSPACES_SETTING: &str = "default_tags_workspaces";
+pub const FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING: &str =
+    "fork_workspace_tag_append_fork_suffix";
 pub const PREVIEW_TAGS_OVERRIDE_SETTING: &str = "preview_tags_override";
 pub const BASE_URL_SETTING: &str = "base_url";
 pub const WS_BASE_URL_SETTING: &str = "ws_base_url";

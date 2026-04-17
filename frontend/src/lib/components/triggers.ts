@@ -58,6 +58,7 @@ export type TriggerKind =
 	| 'gcp'
 	| 'nextcloud'
 	| 'google'
+	| 'github'
 export function captureTriggerKindToTriggerKind(kind: CaptureTriggerKind): TriggerKind {
 	switch (kind) {
 		case 'webhook':

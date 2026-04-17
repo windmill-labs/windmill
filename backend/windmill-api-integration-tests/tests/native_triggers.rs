@@ -554,9 +554,11 @@ async fn test_cleanup_preserves_triggers(db: Pool<Postgres>) -> anyhow::Result<(
 fn test_parse_stop_channel_params_drive() {
     let config = json!({
         "triggerType": "drive",
+        "googleChannelId": "chan-abc",
         "googleResourceId": "res-123",
     });
-    let (resource_id, url) = parse_stop_channel_params(&config);
+    let (channel_id, resource_id, url) = parse_stop_channel_params(&config);
+    assert_eq!(channel_id.as_deref(), Some("chan-abc"));
     assert_eq!(resource_id, "res-123");
     assert!(
         url.contains("googleapis.com/drive/v3/channels/stop"),
@@ -569,9 +571,11 @@ fn test_parse_stop_channel_params_drive() {
 fn test_parse_stop_channel_params_calendar() {
     let config = json!({
         "triggerType": "calendar",
+        "googleChannelId": "chan-xyz",
         "googleResourceId": "res-456",
     });
-    let (resource_id, url) = parse_stop_channel_params(&config);
+    let (channel_id, resource_id, url) = parse_stop_channel_params(&config);
+    assert_eq!(channel_id.as_deref(), Some("chan-xyz"));
     assert_eq!(resource_id, "res-456");
     assert!(
         url.contains("googleapis.com/calendar/v3/channels/stop"),
@@ -582,9 +586,10 @@ fn test_parse_stop_channel_params_calendar() {
 
 #[test]
 fn test_parse_stop_channel_params_default() {
-    // Missing triggerType defaults to Drive
+    // Missing triggerType defaults to Drive; missing googleChannelId yields None.
     let config = json!({ "googleResourceId": "res-789" });
-    let (resource_id, url) = parse_stop_channel_params(&config);
+    let (channel_id, resource_id, url) = parse_stop_channel_params(&config);
+    assert!(channel_id.is_none());
     assert_eq!(resource_id, "res-789");
     assert!(url.contains("drive/v3/channels/stop"), "url={}", url);
 }
@@ -592,6 +597,7 @@ fn test_parse_stop_channel_params_default() {
 #[test]
 fn test_parse_stop_channel_params_missing_resource_id() {
     let config = json!({ "triggerType": "drive" });
-    let (resource_id, _url) = parse_stop_channel_params(&config);
+    let (channel_id, resource_id, _url) = parse_stop_channel_params(&config);
+    assert!(channel_id.is_none());
     assert_eq!(resource_id, "");
 }

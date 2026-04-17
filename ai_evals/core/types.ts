@@ -8,6 +8,7 @@ export interface EvalCaseRuntimeBackendPreview {
 }
 
 export interface EvalCaseRuntimeSpec {
+  maxTurns?: number;
   backendPreview?: EvalCaseRuntimeBackendPreview;
 }
 
@@ -109,6 +110,7 @@ export interface ModeRunOutput<TActual> {
 }
 
 export interface ModeRunContext {
+  evalCase?: EvalCase;
   caseId: string;
   caseNumber: number;
   totalCases: number;

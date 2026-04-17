@@ -89,13 +89,14 @@ export async function createFlowFileHelpers(
 		preprocessorModule,
 		failureModule
 	}) => {
-		applyFlowJsonUpdate(flow, inlineScriptSession, {
+		const result = applyFlowJsonUpdate(flow, inlineScriptSession, {
 			modules,
 			schema,
 			preprocessorModule,
 			failureModule
 		})
 		await persistFlow()
+		return result
 	}
 
 	const helpers: FlowAIChatHelpers = {

@@ -60,6 +60,7 @@ pub async fn sync_all_triggers(db: &DB) -> Result<BackgroundSyncResult> {
     // Each service only syncs workspaces that have the corresponding integration configured
     #[cfg(feature = "native_trigger")]
     {
+        use crate::github::GitHub;
         use crate::google::Google;
         use crate::nextcloud::NextCloud;
 
@@ -71,6 +72,12 @@ pub async fn sync_all_triggers(db: &DB) -> Result<BackgroundSyncResult> {
 
         // Google sync (handles both Drive and Calendar triggers)
         let (service_name, result) = sync_service_triggers(db, Google).await;
+        total_synced += result.synced_triggers.len();
+        total_errors += result.errors.len();
+        service_results.insert(service_name, result);
+
+        // GitHub sync (verifies webhooks still exist)
+        let (service_name, result) = sync_service_triggers(db, GitHub).await;
         total_synced += result.synced_triggers.len();
         total_errors += result.errors.len();
         service_results.insert(service_name, result);

@@ -44,11 +44,12 @@ use windmill_common::{
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING,
         ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_API_SECRET_SETTING,
-        HUB_BASE_URL_SETTING, INDEXER_SETTING, INSTANCE_EVENTS_WEBHOOK_SETTING,
-        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING,
-        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
-        MAVEN_SETTINGS_XML_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
+        INDEXER_SETTING, INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
         OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
         POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
@@ -99,8 +100,9 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, load_disable_password_login, load_keep_job_dir, load_metrics_debug_enabled,
-    load_preview_tags_override, load_require_preexisting_user, load_tag_per_workspace_enabled,
+    initial_load, load_disable_password_login, load_fork_workspace_tag_append_fork_suffix,
+    load_keep_job_dir, load_metrics_debug_enabled, load_preview_tags_override,
+    load_require_preexisting_user, load_tag_per_workspace_enabled,
     load_tag_per_workspace_workspaces, monitor_db, reload_app_workspaced_route_setting,
     reload_audit_log_retention_days_setting, reload_base_url_setting,
     reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
@@ -1696,6 +1698,13 @@ async fn process_notify_event(
                     if let Err(e) = load_tag_per_workspace_workspaces(db).await {
                         tracing::error!(
                             "Error loading default tag per workspace workspaces: {e:#}"
+                        );
+                    }
+                }
+                FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING => {
+                    if let Err(e) = load_fork_workspace_tag_append_fork_suffix(db).await {
+                        tracing::error!(
+                            "Error loading fork workspace tag append fork suffix: {e:#}"
                         );
                     }
                 }
