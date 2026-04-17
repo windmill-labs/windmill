@@ -97,12 +97,19 @@ async function persistDatatables(
 export async function createAppFileHelpers(
 	initialFrontend: Record<string, string> = {},
 	initialBackend: Record<string, BackendRunnable> = {},
+	initialDatatables: DataTableSchema[] = [],
 	workspaceRoot?: string
 ): Promise<{
 	helpers: AppAIChatHelpers
 	getFiles: () => AppFiles
+	getEvalState: () => {
+		frontend: Record<string, string>
+		backend: Record<string, BackendRunnable>
+		datatables: DataTableSchema[]
+	}
 	getFrontend: () => Record<string, string>
 	getBackend: () => Record<string, BackendRunnable>
+	getDatatables: () => DataTableSchema[]
 	cleanup: () => Promise<void>
 	workspaceDir: string | null
 }> {
@@ -111,9 +118,13 @@ export async function createAppFileHelpers(
 	let snapshotId = 0
 	const snapshots = new Map<
 		number,
-		{ frontend: Record<string, string>; backend: Record<string, BackendRunnable> }
+		{
+			frontend: Record<string, string>
+			backend: Record<string, BackendRunnable>
+			datatables: DataTableSchema[]
+		}
 	>()
-	const datatables: DataTableSchema[] = []
+	const datatables: DataTableSchema[] = structuredClone(initialDatatables)
 
 	for (const [path, content] of Object.entries(frontend)) {
 		await writeFrontendFile(workspaceRoot, path, content)
@@ -149,7 +160,8 @@ export async function createAppFileHelpers(
 		const id = ++snapshotId
 		snapshots.set(id, {
 			frontend: { ...frontend },
-			backend: { ...backend }
+			backend: { ...backend },
+			datatables: structuredClone(datatables)
 		})
 		return id
 	}
@@ -161,6 +173,7 @@ export async function createAppFileHelpers(
 		}
 		frontend = { ...snapshot.frontend }
 		backend = { ...snapshot.backend }
+		datatables.splice(0, datatables.length, ...structuredClone(snapshot.datatables))
 		void syncWorkspace()
 	}
 
@@ -257,18 +270,24 @@ export async function createAppFileHelpers(
 		await persistDatatables(workspaceRoot, datatables)
 	}
 
-	return {
-		helpers,
-		getFiles: () => ({
-			frontend: { ...frontend },
-			backend: { ...backend }
-		}),
-		getFrontend: () => ({ ...frontend }),
-		getBackend: () => ({ ...backend }),
-		cleanup: async () => {
-			if (workspaceRoot) {
-				await rm(workspaceRoot, { recursive: true, force: true })
-			}
+		return {
+			helpers,
+			getFiles: () => ({
+				frontend: { ...frontend },
+				backend: { ...backend }
+			}),
+			getEvalState: () => ({
+				frontend: { ...frontend },
+				backend: { ...backend },
+				datatables: structuredClone(datatables)
+			}),
+			getFrontend: () => ({ ...frontend }),
+			getBackend: () => ({ ...backend }),
+			getDatatables: () => structuredClone(datatables),
+			cleanup: async () => {
+				if (workspaceRoot) {
+					await rm(workspaceRoot, { recursive: true, force: true })
+				}
 		},
 		workspaceDir: workspaceRoot ?? null
 	}

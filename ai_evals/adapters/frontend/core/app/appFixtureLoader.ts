@@ -1,8 +1,9 @@
 import type {
-	AppFiles,
 	BackendRunnable,
+	DataTableSchema,
 	InlineScript
 } from '../../../../../frontend/src/lib/components/copilot/chat/app/core'
+import type { AppFilesState } from '../../../../core/validators'
 
 /**
  * Backend runnable metadata stored in meta.json files.
@@ -127,6 +128,21 @@ async function loadBackend(backendPath: string): Promise<Record<string, BackendR
 	return result
 }
 
+async function loadDatatables(fixturePath: string): Promise<DataTableSchema[]> {
+	// @ts-ignore - Node.js fs/promises
+	const { readFile } = await import('fs/promises')
+	// @ts-ignore - Node.js path
+	const { join } = await import('path')
+
+	try {
+		const content = await readFile(join(fixturePath, 'datatables.json'), 'utf-8')
+		const parsed = JSON.parse(content)
+		return Array.isArray(parsed) ? (parsed as DataTableSchema[]) : []
+	} catch {
+		return []
+	}
+}
+
 /**
  * Loads an app fixture from a directory structure.
  *
@@ -146,14 +162,15 @@ async function loadBackend(backendPath: string): Promise<Record<string, BackendR
  * @param fixturePath - Path to the fixture directory
  * @returns AppFiles object with frontend and backend
  */
-export async function loadAppFixture(fixturePath: string): Promise<AppFiles> {
+export async function loadAppFixture(fixturePath: string): Promise<AppFilesState> {
 	// @ts-ignore - Node.js path
 	const { join } = await import('path')
 
 	const frontend = await loadFrontend(join(fixturePath, 'frontend'))
 	const backend = await loadBackend(join(fixturePath, 'backend'))
+	const datatables = await loadDatatables(fixturePath)
 
-	return { frontend, backend }
+	return { frontend, backend, datatables }
 }
 
 /**
@@ -165,10 +182,12 @@ export async function loadAppFixtureForEval(
 ): Promise<{
 	initialFrontend: Record<string, string>
 	initialBackend: Record<string, BackendRunnable>
+	initialDatatables: DataTableSchema[]
 }> {
-	const { frontend, backend } = await loadAppFixture(fixturePath)
+	const { frontend, backend, datatables } = await loadAppFixture(fixturePath)
 	return {
 		initialFrontend: frontend,
-		initialBackend: backend
+		initialBackend: backend,
+		initialDatatables: datatables
 	}
 }

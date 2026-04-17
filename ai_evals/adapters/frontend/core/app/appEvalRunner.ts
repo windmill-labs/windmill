@@ -2,7 +2,6 @@ import { mkdtemp } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type {
-	AppFiles,
 	BackendRunnable,
 	AppAIChatHelpers
 } from '../../../../../frontend/src/lib/components/copilot/chat/app/core'
@@ -17,10 +16,11 @@ import { runEval } from '../shared'
 import type { AIProvider } from '$lib/gen/types.gen'
 import type { ModeRunContext } from '../../../../core/types'
 import type { TokenUsage } from '../shared/types'
+import type { AppFilesState } from '../../../../core/validators'
 
 export interface AppEvalResult {
 	success: boolean
-	files: AppFiles
+	files: AppFilesState
 	error?: string
 	assistantMessageCount: number
 	toolCallCount: number
@@ -31,6 +31,7 @@ export interface AppEvalResult {
 export interface AppEvalOptions {
 	initialFrontend?: Record<string, string>
 	initialBackend?: Record<string, BackendRunnable>
+	initialDatatables?: AppFilesState['datatables']
 	model?: string
 	maxIterations?: number
 	provider?: AIProvider
@@ -46,9 +47,10 @@ export async function runAppEval(
 	const workspaceRoot =
 		options?.workspaceRoot ??
 		(await mkdtemp(join(tmpdir(), 'wmill-frontend-app-benchmark-')))
-	const { helpers, getFiles, cleanup } = await createAppFileHelpers(
+	const { helpers, getEvalState, cleanup } = await createAppFileHelpers(
 		options?.initialFrontend ?? {},
 		options?.initialBackend ?? {},
+		options?.initialDatatables ?? [],
 		workspaceRoot
 	)
 
@@ -65,7 +67,7 @@ export async function runAppEval(
 			tools,
 			helpers,
 			apiKey,
-			getOutput: getFiles,
+			getOutput: getEvalState,
 			onAssistantMessageStart: options?.runContext?.onAssistantMessageStart,
 			onAssistantToken: options?.runContext?.onAssistantChunk,
 			onAssistantMessageEnd: options?.runContext?.onAssistantMessageEnd,

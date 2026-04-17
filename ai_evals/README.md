@@ -124,6 +124,16 @@ For `flow` mode, `validate` can express requirements such as:
 - required `results.*` reference validity
 - required module/code/input characteristics
 
+For `app` mode, `validate` can express narrow hard requirements such as:
+
+- required frontend file paths or backend runnable keys
+- minimum backend runnable counts
+- required backend runnable types
+- minimum datatable / datatable-table counts
+- specific required datatable tables
+
+App fixtures can also include an optional `datatables.json` file at the fixture root.
+
 For `flow` mode, an `initial` fixture can also include a benchmark workspace catalog of
 existing scripts and flows. That lets the real `search_workspace` and
 `get_runnable_details` tools discover reusable workspace runnables during evals.

@@ -59,12 +59,31 @@ export interface FlowValidationSpec {
   }>;
 }
 
+export interface AppValidationSpec {
+  requiredFrontendPaths?: string[];
+  requiredBackendRunnableKeys?: string[];
+  requiredBackendRunnableTypes?: Array<{
+    key: string;
+    type: string;
+  }>;
+  backendRunnableCountAtLeast?: number;
+  datatableCountAtLeast?: number;
+  datatableTableCountAtLeast?: number;
+  requiredDatatables?: Array<{
+    schema: string;
+    table: string;
+    datatableName?: string;
+  }>;
+}
+
+export type EvalValidationSpec = FlowValidationSpec | AppValidationSpec;
+
 export interface EvalCase {
   id: string;
   prompt: string;
   initialPath?: string;
   expectedPath?: string;
-  validate?: FlowValidationSpec;
+  validate?: EvalValidationSpec;
   judgeChecklist?: string[];
   runtime?: EvalCaseRuntimeSpec;
 }

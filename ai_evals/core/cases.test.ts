@@ -38,4 +38,36 @@ describe("loadCases", () => {
       "ai_evals/fixtures/frontend/flow/expected/test13_prefer_existing_workspace_flow.json"
     );
   });
+
+  it("loads app validation config for datatable-backed persistence cases", async () => {
+    const appCases = await loadCases("app");
+    const caseEntry = appCases.find((entry) => entry.id === "app-test8-inventory-tracker-create");
+
+    expect(caseEntry?.validate).toEqual({
+      datatableTableCountAtLeast: 1,
+    });
+  });
+
+  it("loads the seeded recipe-book app modification case", async () => {
+    const appCases = await loadCases("app");
+    const caseEntry = appCases.find((entry) => entry.id === "app-test9-recipe-book-search-delete");
+
+    expect(caseEntry?.initialPath).toContain("ai_evals/fixtures/frontend/app/initial/recipe_book");
+    expect(caseEntry?.validate).toEqual({
+      requiredFrontendPaths: ["/index.tsx"],
+      requiredBackendRunnableKeys: ["listRecipes", "addRecipe", "deleteRecipe"],
+      requiredBackendRunnableTypes: [
+        { key: "listRecipes", type: "inline" },
+        { key: "addRecipe", type: "inline" },
+        { key: "deleteRecipe", type: "inline" },
+      ],
+      requiredDatatables: [
+        {
+          datatableName: "main",
+          schema: "public",
+          table: "recipes",
+        },
+      ],
+    });
+  });
 });

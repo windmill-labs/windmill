@@ -1,6 +1,7 @@
 import { readJsonFile } from "../core/files";
 import type { BackendValidationSettings } from "../core/backendValidation";
 import type { FrontendEvalModelConfig } from "../core/models";
+import type { FlowValidationSpec } from "../core/types";
 import { validateFlowState, type FlowState } from "../core/validators";
 import type { BenchmarkArtifactFile, ModeRunner } from "../core/types";
 import { runFlowEval } from "../adapters/frontend/core/flow/flowEvalRunner";
@@ -59,7 +60,7 @@ export function createFlowModeRunner(
         actual,
         initial: initial?.flowState,
         expected,
-        validate: evalCase.validate,
+        validate: evalCase.validate as FlowValidationSpec | undefined,
       });
     },
     async backendValidate({ evalCase, initial, actual, context }) {
