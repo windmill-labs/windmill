@@ -1,4 +1,10 @@
-import type { FlowModule, FlowValue } from '$lib/gen'
+import type { FlowModule } from '$lib/gen'
+
+export type FlowModuleTree = {
+	modules?: FlowModule[] | null
+	failure_module?: FlowModule | null
+	preprocessor_module?: FlowModule | null
+}
 
 export type ModuleParentLocation =
 	| { type: 'root'; index: number }
@@ -190,7 +196,7 @@ function findFlowNodeInModules(
 	return match
 }
 
-export function collectFlowNodes(flow: FlowValue): FlowNodeLocation[] {
+export function collectFlowNodes(flow: FlowModuleTree): FlowNodeLocation[] {
 	const matches: FlowNodeLocation[] = []
 
 	if (flow.failure_module) {
@@ -224,7 +230,7 @@ export function findModuleInModules(modules: FlowModule[], moduleId: string): Fl
 	)
 }
 
-export function findFlowNode(flow: FlowValue, moduleId: string): FlowNodeMatch | null {
+export function findFlowNode(flow: FlowModuleTree, moduleId: string): FlowNodeMatch | null {
 	if (flow.failure_module?.id === moduleId) {
 		return {
 			module: flow.failure_module,
@@ -242,20 +248,24 @@ export function findFlowNode(flow: FlowValue, moduleId: string): FlowNodeMatch |
 	return findFlowNodeInModules(flow.modules ?? [], moduleId, (index) => ({ type: 'root', index }))
 }
 
-export function findModuleInFlow(flow: FlowValue, moduleId: string): FlowModule | null {
+/**
+ * Returns the live stored module for any module id in the flow tree.
+ * This includes nested modules, AI-agent flowmodule tools, and special modules.
+ */
+export function findModuleInFlow(flow: FlowModuleTree, moduleId: string): FlowModule | null {
 	return findFlowNode(flow, moduleId)?.module ?? null
 }
 
-export function findModuleParent(flow: FlowValue, moduleId: string): ModuleParentLocation | null {
+export function findModuleParent(flow: FlowModuleTree, moduleId: string): ModuleParentLocation | null {
 	return findFlowNode(flow, moduleId)?.location ?? null
 }
 
 function resolveModuleArrayByLocation(
-	flow: FlowValue,
+	flow: FlowModuleTree,
 	location: ArrayBackedModuleParentLocation,
 	options: {
 		createIfMissing?: boolean
-		templateFlow?: FlowValue
+		templateFlow?: FlowModuleTree
 	} = {}
 ): FlowModule[] | null {
 	if (location.type === 'root') {
@@ -337,16 +347,16 @@ function resolveModuleArrayByLocation(
 }
 
 export function getModuleArrayByLocation(
-	flow: FlowValue,
+	flow: FlowModuleTree,
 	location: ArrayBackedModuleParentLocation
 ): FlowModule[] | null {
 	return resolveModuleArrayByLocation(flow, location)
 }
 
 export function ensureModuleArrayByLocation(
-	flow: FlowValue,
+	flow: FlowModuleTree,
 	location: ArrayBackedModuleParentLocation,
-	templateFlow?: FlowValue
+	templateFlow?: FlowModuleTree
 ): FlowModule[] | null {
 	return resolveModuleArrayByLocation(flow, location, {
 		createIfMissing: true,
@@ -355,7 +365,7 @@ export function ensureModuleArrayByLocation(
 }
 
 export function getModuleArrayContainer(
-	flow: FlowValue,
+	flow: FlowModuleTree,
 	moduleId: string
 ): { index: number; modules: FlowModule[] } | null {
 	const match = findFlowNode(flow, moduleId)
@@ -369,7 +379,7 @@ export function getModuleArrayContainer(
 	}
 }
 
-export function removeFlowModule(flow: FlowValue, moduleId: string): FlowModule | null {
+export function removeFlowModule(flow: FlowModuleTree, moduleId: string): FlowModule | null {
 	if (flow.preprocessor_module?.id === moduleId) {
 		const removed = flow.preprocessor_module
 		flow.preprocessor_module = undefined

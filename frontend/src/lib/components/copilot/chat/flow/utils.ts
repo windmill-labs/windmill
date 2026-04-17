@@ -1,20 +1,4 @@
-import {
-	findModuleInFlow,
-	getModuleArrayContainer
-} from '$lib/components/flows/flowTree'
-import type { FlowModule, OpenFlow } from '$lib/gen'
-
-// Helper to find module by ID in a flow
-export function getModuleById(flow: OpenFlow, moduleId: string): FlowModule | undefined {
-	return findModuleInFlow(flow.value, moduleId) ?? undefined
-}
-
-export function getIndexInNestedModules(
-	flow: OpenFlow,
-	id: string
-): { index: number; modules: FlowModule[] } | null {
-	return getModuleArrayContainer(flow.value, id)
-}
+import type { FlowModule } from '$lib/gen'
 
 /**
  * Collects all module IDs from an array of modules and their nested structures
@@ -29,6 +13,7 @@ export function collectAllModuleIdsFromArray(modules: FlowModule[]): string[] {
 
 /**
  * Recursively collects all module IDs from a module and its nested structures
+ * This includes all AI-agent tool ids because flow JSON validation reserves their ids too.
  */
 export function collectAllModuleIds(module: FlowModule): string[] {
 	const ids: string[] = [module.id]

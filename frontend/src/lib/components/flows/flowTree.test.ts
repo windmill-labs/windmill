@@ -152,14 +152,16 @@ describe('flowTree', () => {
 			preprocessor_module: preprocessor
 		}
 
-		expect(findModuleParent(flow, 'failure')).toEqual({ type: 'failure', index: -1 })
-		expect(findModuleParent(flow, 'preprocessor')).toEqual({
-			type: 'preprocessor',
-			index: -1
-		})
-		expect(getModuleArrayContainer(flow, 'failure')).toBeNull()
-		expect(getModuleArrayContainer(flow, 'preprocessor')).toBeNull()
+	expect(findModuleParent(flow, 'failure')).toEqual({ type: 'failure', index: -1 })
+	expect(findModuleParent(flow, 'preprocessor')).toEqual({
+		type: 'preprocessor',
+		index: -1
 	})
+	expect(findModuleInFlow(flow, 'failure')).toBe(failure)
+	expect(findModuleInFlow(flow, 'preprocessor')).toBe(preprocessor)
+	expect(getModuleArrayContainer(flow, 'failure')).toBeNull()
+	expect(getModuleArrayContainer(flow, 'preprocessor')).toBeNull()
+})
 
 	it('removes nested ai agent tools from the real stored tools array', () => {
 		const lookup = makeFlowModuleTool(makeRawModule('lookup_user'))

@@ -33,7 +33,7 @@ import {
 } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
-import { findModuleInModules } from '$lib/components/flows/flowTree'
+import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
 import { createInlineScriptSession, type InlineScriptSession } from './inlineScriptsUtils'
 import type { FlowJsonUpdateResult } from './helperUtils'
 import { flowModuleSchema, flowModulesSchema } from './openFlowZod'
@@ -472,16 +472,6 @@ function buildEditableFlowJson(
 		preprocessor_module: preprocessorModule ?? null,
 		failure_module: failureModule ?? null
 	}
-}
-
-function findModuleInEditableFlow(flow: EditableFlowJson, moduleId: string): FlowModule | undefined {
-	if (flow.preprocessor_module?.id === moduleId) {
-		return flow.preprocessor_module
-	}
-	if (flow.failure_module?.id === moduleId) {
-		return flow.failure_module
-	}
-	return findModuleInModules(flow.modules, moduleId)
 }
 
 /**
@@ -1038,7 +1028,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 			const warning = formatEmptyInlineScriptWarning(updateResult)
 
-			const selectedModule = findModuleInEditableFlow(parsedFlow, selectedId)
+			const selectedModule = findModuleInFlow(parsedFlow, selectedId) ?? undefined
 			if (
 				selectedModule &&
 				'input_transforms' in selectedModule.value &&

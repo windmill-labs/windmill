@@ -1,7 +1,6 @@
 import type { FlowModule, OpenFlow, RawScript } from '$lib/gen'
 import { forEachFlowModule } from '$lib/components/flows/dfs'
 import { findModuleInFlow } from '$lib/components/flows/flowTree'
-import { SPECIAL_MODULE_IDS } from '../shared'
 import type { InlineScriptSession } from './inlineScriptsUtils'
 
 type FlowLike = Pick<OpenFlow, 'value'> & {
@@ -22,14 +21,6 @@ export interface FlowJsonUpdateResult {
 export function getFlowModuleById(flow: FlowLike | undefined, id: string): FlowModule | undefined {
 	if (!flow) {
 		return undefined
-	}
-
-	if (id === SPECIAL_MODULE_IDS.PREPROCESSOR) {
-		return flow.value.preprocessor_module
-	}
-
-	if (id === SPECIAL_MODULE_IDS.FAILURE) {
-		return flow.value.failure_module
 	}
 
 	return findModuleInFlow(flow.value, id) ?? undefined

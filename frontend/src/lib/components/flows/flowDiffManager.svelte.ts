@@ -432,17 +432,9 @@ export function createFlowDiffManager({ testMode = false } = {}) {
 		} else {
 			// Show module diff
 			const beforeModule = findModuleInFlow(beforeFlow.value, moduleId) ?? undefined
-			// Need to check failure_module and preprocessor_module for currentFlow as well
-			let afterModule: FlowModule | undefined = undefined
-			if (currentFlow) {
-				if (currentFlow.preprocessor_module?.id === moduleId) {
-					afterModule = currentFlow.preprocessor_module
-				} else if (currentFlow.failure_module?.id === moduleId) {
-					afterModule = currentFlow.failure_module
-				} else {
-					afterModule = findModuleInFlow(currentFlow, moduleId) ?? undefined
-				}
-			}
+			const afterModule = currentFlow
+				? (findModuleInFlow(currentFlow, moduleId) ?? undefined)
+				: undefined
 
 			if (beforeModule && afterModule) {
 				diffDrawer.openDrawer()
