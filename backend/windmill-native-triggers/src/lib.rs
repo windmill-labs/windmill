@@ -522,6 +522,17 @@ impl HttpRequestError {
     }
 }
 
+/// Extract the HTTP status code from an error returned by `http_client_request`.
+/// Returns `None` if the error didn't originate from an HTTP call.
+pub fn http_error_status(e: &windmill_common::error::Error) -> Option<StatusCode> {
+    match e {
+        windmill_common::error::Error::Anyhow { error, .. } => error
+            .downcast_ref::<HttpRequestError>()
+            .and_then(|e| e.status()),
+        _ => None,
+    }
+}
+
 /// Read OAuth client_id and client_secret from instance-level global settings.
 /// Used when a workspace integration has `instance_shared: true`.
 async fn get_instance_oauth_credentials(

@@ -1,3 +1,4 @@
+use http::StatusCode;
 use reqwest::Method;
 use sqlx::PgConnection;
 use std::collections::HashMap;
@@ -12,7 +13,7 @@ use crate::{
         routes, CreateWebhookResponse, GitHub, GithubOAuthData, GithubServiceConfig,
         GithubTriggerData, GithubWebhookApiResponse, GITHUB_API_BASE,
     },
-    External, NativeTrigger, NativeTriggerData, PushArgsOwned, ServiceName,
+    http_error_status, External, NativeTrigger, NativeTriggerData, PushArgsOwned, ServiceName,
 };
 
 #[async_trait::async_trait]
@@ -163,7 +164,7 @@ impl External for GitHub {
 
         if let Err(e) = result {
             // Ignore 404 — webhook may already be deleted
-            if !e.to_string().contains("404") {
+            if http_error_status(&e) != Some(StatusCode::NOT_FOUND) {
                 tracing::warn!("Failed to delete GitHub webhook {}: {}", external_id, e);
             }
         }
@@ -218,7 +219,7 @@ impl External for GitHub {
                         });
                     }
                 }
-                Err(e) if e.to_string().contains("404") => {
+                Err(e) if http_error_status(&e) == Some(StatusCode::NOT_FOUND) => {
                     errors.push(crate::sync::SyncError {
                         resource_path: trigger.script_path.clone(),
                         error_message: "Webhook no longer exists on GitHub".to_string(),
