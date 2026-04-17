@@ -225,6 +225,11 @@ lazy_static::lazy_static! {
         .ok()
         .map(|x| SlackVerifier::new(x).unwrap());
 
+    // Comma-separated Slack v2 OAuth bot scopes requested when connecting a workspace.
+    // Must be a subset of the bot scopes declared in the Slack app manifest. Default matches
+    // Windmill's recommended manifest at docs.windmill.dev/docs/misc/setup_oauth.
+    pub static ref SLACK_OAUTH_SCOPES: String = std::env::var("SLACK_OAUTH_SCOPES")
+        .unwrap_or_else(|_| "commands,chat:write,chat:write.public,channels:join,files:write,app_mentions:read,im:history,im:read".to_string());
 }
 
 // Compliance with cloud events spec.
