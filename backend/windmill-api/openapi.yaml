@@ -4565,6 +4565,8 @@ paths:
                     type: boolean
                   google_used:
                     type: boolean
+                  github_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
@@ -4577,6 +4579,7 @@ paths:
                   - email_used
                   - nextcloud_used
                   - google_used
+                  - github_used
   /w/{workspace}/users/list:
     get:
       summary: list users
