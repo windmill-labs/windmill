@@ -957,11 +957,15 @@ pub async fn run_server(
         })
         // JWKS endpoint for HashiCorp Vault JWT authentication (must be outside /api prefix)
         .route("/.well-known/jwks.json", {
-            #[cfg(all(feature = "enterprise", feature = "openidconnect"))]
+            #[cfg(all(feature = "private", feature = "enterprise", feature = "openidconnect"))]
             {
-                get(crate::oidc_ee::jwks)
+                get(crate::oidc_oss::jwks)
             }
-            #[cfg(not(all(feature = "enterprise", feature = "openidconnect")))]
+            #[cfg(not(all(
+                feature = "private",
+                feature = "enterprise",
+                feature = "openidconnect"
+            )))]
             {
                 get(windmill_api_settings::get_jwks)
             }

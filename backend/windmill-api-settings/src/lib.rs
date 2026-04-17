@@ -1357,9 +1357,9 @@ pub struct JwksResponse {
 
 /// Fallback JWKS endpoint used when OIDC support is not compiled in.
 ///
-/// When built with `enterprise` + `openidconnect`, the route in
-/// `windmill-api` dispatches to `oidc_ee::jwks` instead, which serves the
-/// actual public keys.
+/// When built with `private` + `enterprise` + `openidconnect`, the route in
+/// `windmill-api` dispatches to `oidc_oss::jwks` (re-exported from
+/// `oidc_ee::jwks`) instead, which serves the actual public keys.
 pub async fn get_jwks() -> JsonResult<JwksResponse> {
     Ok(Json(JwksResponse { keys: vec![] }))
 }
