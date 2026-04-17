@@ -35,18 +35,6 @@ export function getFlowModuleById(flow: FlowLike | undefined, id: string): FlowM
 	return dfs(id, flow as OpenFlow, false)[0]
 }
 
-export function getRawScriptModuleById(
-	flow: FlowLike | undefined,
-	id: string
-): (FlowModule & { value: RawScript }) | undefined {
-	const module = getFlowModuleById(flow, id)
-	if (!module || module.value.type !== 'rawscript') {
-		return undefined
-	}
-
-	return module as FlowModule & { value: RawScript }
-}
-
 export function getMutableRawScriptModuleById(
 	flow: FlowLike | undefined,
 	id: string

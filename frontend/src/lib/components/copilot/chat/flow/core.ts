@@ -1084,10 +1084,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
-				content:
-					parsedModule === null
-						? 'Preprocessor module removed'
-						: 'Preprocessor module updated',
+				content: parsedModule === null ? 'Preprocessor module removed' : 'Preprocessor module updated',
 				result: 'Success'
 			})
 			return parsedModule === null
@@ -1123,8 +1120,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
-				content:
-					parsedModule === null ? 'Failure module removed' : 'Failure module updated',
+				content: parsedModule === null ? 'Failure module removed' : 'Failure module updated',
 				result: 'Success'
 			})
 			return parsedModule === null
