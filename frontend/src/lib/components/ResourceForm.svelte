@@ -78,24 +78,18 @@
 		}
 	}
 
-	function switchTab(asJson: boolean) {
-		viewJsonSchema = asJson
-		if (asJson) {
-			rawCode = JSON.stringify(args, null, 2)
-		} else {
-			parseJson()
-			if (resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset) {
-				textFileContent = args.content
-			}
-		}
-	}
-
 	function parseTextFileContent() {
 		args = { content: textFileContent }
 	}
 
 	$effect(() => {
 		if (rawCode !== undefined) parseJson()
+	})
+
+	$effect(() => {
+		if (viewJsonSchema && rawCode === undefined) {
+			rawCode = JSON.stringify(args, null, 2)
+		}
 	})
 
 	$effect(() => {
@@ -183,7 +177,14 @@
 <div class="flex flex-col gap-1">
 	<div class="w-full flex gap-4 flex-row-reverse items-center">
 		<Toggle
-			on:change={(e) => switchTab(e.detail)}
+			bind:checked={viewJsonSchema}
+			on:change={(e) => {
+				if (e.detail) {
+					rawCode = JSON.stringify(args, null, 2)
+				} else if (resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset) {
+					textFileContent = args?.content ?? ''
+				}
+			}}
 			options={{
 				right: 'As JSON'
 			}}
