@@ -32,7 +32,7 @@
 		GitFork,
 		List,
 		Pen,
-		Share,
+		Shield,
 		Trash,
 		History,
 		Globe2,
@@ -350,8 +350,8 @@
 						hide: $userStore?.operator
 					},
 					{
-						displayName: owner ? 'Share' : 'See Permissions',
-						icon: Share,
+						displayName: 'Permissions',
+						icon: Shield,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(script.path, 'script')
 						},

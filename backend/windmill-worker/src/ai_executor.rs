@@ -92,6 +92,38 @@ lazy_static::lazy_static! {
 const DEFAULT_MAX_AGENT_ITERATIONS: usize = 10;
 const HARD_MAX_AGENT_ITERATIONS: usize = 1000;
 
+fn strip_system_messages(messages: &[OpenAIMessage]) -> Vec<OpenAIMessage> {
+    messages
+        .iter()
+        .filter(|message| message.role != "system")
+        .cloned()
+        .collect()
+}
+
+fn strip_leading_tool_messages(messages: Vec<OpenAIMessage>) -> Vec<OpenAIMessage> {
+    match messages.iter().position(|message| message.role != "tool") {
+        Some(first_non_tool_index) => messages.into_iter().skip(first_non_tool_index).collect(),
+        None => Vec::new(),
+    }
+}
+
+fn prepare_auto_memory_messages_for_request(
+    loaded_messages: &[OpenAIMessage],
+    context_length: usize,
+) -> Vec<OpenAIMessage> {
+    let start_idx = loaded_messages.len().saturating_sub(context_length);
+    strip_leading_tool_messages(loaded_messages[start_idx..].to_vec())
+}
+
+fn prepare_auto_memory_messages_for_persistence(
+    all_messages: &[OpenAIMessage],
+    context_length: usize,
+) -> Vec<OpenAIMessage> {
+    let non_system_messages = strip_system_messages(all_messages);
+    let start_idx = non_system_messages.len().saturating_sub(context_length);
+    non_system_messages[start_idx..].to_vec()
+}
+
 fn find_module_by_id(
     modules: &Vec<FlowModule>,
     target_id: &str,
@@ -654,18 +686,10 @@ pub async fn run_agent(
                         // Read messages from memory
                         match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
                             Ok(Some(loaded_messages)) => {
-                                // Take the last n messages
-                                let start_idx =
-                                    loaded_messages.len().saturating_sub(*context_length);
-                                let mut messages_to_load = loaded_messages[start_idx..].to_vec();
-                                let first_non_tool_message_index =
-                                    messages_to_load.iter().position(|m| m.role != "tool");
-
-                                // Remove the first messages if their role is "tool" to avoid OpenAI API error
-                                if let Some(index) = first_non_tool_message_index {
-                                    messages_to_load = messages_to_load[index..].to_vec();
-                                }
-
+                                let messages_to_load = prepare_auto_memory_messages_for_request(
+                                    &loaded_messages,
+                                    *context_length,
+                                );
                                 messages.extend(messages_to_load);
                             }
                             Ok(None) => {}
@@ -729,9 +753,7 @@ pub async fn run_agent(
             .unwrap_or(false);
 
         if has_message && has_attachments {
-            let mut parts = vec![ContentPart::Text {
-                text: args.user_message.clone().unwrap(),
-            }];
+            let mut parts = vec![ContentPart::Text { text: args.user_message.clone().unwrap() }];
             for attachment in args.user_attachments.as_ref().unwrap() {
                 if !attachment.s3.is_empty() {
                     parts.push(ContentPart::S3Object { s3_object: attachment.clone() });
@@ -1306,9 +1328,10 @@ pub async fn run_agent(
                     final_messages.iter().map(|m| m.message.clone()).collect();
 
                 if !all_messages.is_empty() {
-                    // Keep only the last n messages
-                    let start_idx = all_messages.len().saturating_sub(*context_length);
-                    let messages_to_persist = all_messages[start_idx..].to_vec();
+                    let messages_to_persist = prepare_auto_memory_messages_for_persistence(
+                        &all_messages,
+                        *context_length,
+                    );
 
                     if let Some(memory_id) = memory_id {
                         if let Err(e) = write_to_memory(
@@ -1347,6 +1370,86 @@ pub async fn run_agent(
             final_usage
         },
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn text_message(role: &str, content: &str) -> OpenAIMessage {
+        OpenAIMessage {
+            role: role.to_string(),
+            content: Some(OpenAIContent::Text(content.to_string())),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn auto_memory_request_preserves_messages_within_context_window() {
+        let loaded_messages = vec![
+            text_message("system", "instructions-a"),
+            text_message("user", "first-user"),
+            text_message("assistant", "first-assistant"),
+            text_message("system", "instructions-b"),
+            text_message("user", "second-user"),
+            text_message("assistant", "second-assistant"),
+        ];
+
+        let prepared = prepare_auto_memory_messages_for_request(&loaded_messages, 3);
+        let roles: Vec<&str> = prepared
+            .iter()
+            .map(|message| message.role.as_str())
+            .collect();
+        let contents: Vec<&str> = prepared
+            .iter()
+            .map(|message| match message.content.as_ref() {
+                Some(OpenAIContent::Text(text)) => text.as_str(),
+                _ => "",
+            })
+            .collect();
+
+        assert_eq!(roles, vec!["system", "user", "assistant"]);
+        assert_eq!(
+            contents,
+            vec!["instructions-b", "second-user", "second-assistant"]
+        );
+    }
+
+    #[test]
+    fn auto_memory_request_drops_leading_tool_messages() {
+        let loaded_messages = vec![
+            text_message("tool", "stale-tool-result"),
+            text_message("user", "hello"),
+            text_message("assistant", "hi"),
+        ];
+
+        let prepared = prepare_auto_memory_messages_for_request(&loaded_messages, 10);
+        let roles: Vec<&str> = prepared
+            .iter()
+            .map(|message| message.role.as_str())
+            .collect();
+
+        assert_eq!(roles, vec!["user", "assistant"]);
+    }
+
+    #[test]
+    fn auto_memory_persistence_excludes_system_messages() {
+        let all_messages = vec![
+            text_message("system", "instructions"),
+            text_message("user", "hello"),
+            text_message("assistant", "hi"),
+            text_message("system", "duplicate-instructions"),
+            text_message("user", "follow-up"),
+        ];
+
+        let persisted = prepare_auto_memory_messages_for_persistence(&all_messages, 10);
+        let roles: Vec<&str> = persisted
+            .iter()
+            .map(|message| message.role.as_str())
+            .collect();
+
+        assert_eq!(roles, vec!["user", "assistant", "user"]);
+    }
 }
 
 /// Handle credentials check mode - check credentials without making API calls

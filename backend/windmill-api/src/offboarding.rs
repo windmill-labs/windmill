@@ -795,7 +795,8 @@ async fn offboard_user_from_workspace<'c>(
 ) -> Result<OffboardSummary> {
     let new_prefix = reassign_to.to_string();
 
-    // Resolve the new operator's email for on_behalf_of_email on scripts/flows
+    // Resolve the new operator's email for on_behalf_of_email on scripts/flows/apps.
+    // resolve_new_permissioned_as already validated the user exists, and usr.email is NOT NULL.
     let new_on_behalf_of_user_username = new_permissioned_as
         .strip_prefix("u/")
         .unwrap_or(new_permissioned_as);
@@ -805,7 +806,13 @@ async fn offboard_user_from_workspace<'c>(
         w_id
     )
     .fetch_optional(&mut **tx)
-    .await?;
+    .await?
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "new on_behalf_of user '{}' not found in workspace '{}'",
+            new_on_behalf_of_user_username, w_id
+        ))
+    })?;
 
     // ---- scripts ----
     let scripts_reassigned = sqlx::query_scalar!(
@@ -822,16 +829,14 @@ async fn offboard_user_from_workspace<'c>(
     .await?
     .unwrap_or(0);
 
-    if let Some(ref new_email) = new_on_behalf_of_user_email {
-        sqlx::query!(
-            "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND workspace_id = $3",
-            new_email,
-            email,
-            w_id
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
+    sqlx::query!(
+        "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND workspace_id = $3",
+        new_on_behalf_of_user_email,
+        email,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
 
     // ---- flows ----
     let flows_reassigned = sqlx::query_scalar!(
@@ -864,16 +869,14 @@ async fn offboard_user_from_workspace<'c>(
     .execute(&mut **tx)
     .await?;
 
-    if let Some(ref new_email) = new_on_behalf_of_user_email {
-        sqlx::query!(
-            "UPDATE flow SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND workspace_id = $3",
-            new_email,
-            email,
-            w_id
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
+    sqlx::query!(
+        "UPDATE flow SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND workspace_id = $3",
+        new_on_behalf_of_user_email,
+        email,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
 
     // ---- apps ----
     let apps_reassigned = sqlx::query_scalar!(
@@ -891,9 +894,17 @@ async fn offboard_user_from_workspace<'c>(
     .unwrap_or(0);
 
     sqlx::query!(
-        "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text)) WHERE policy->>'on_behalf_of' = ('u/' || $2) AND workspace_id = $3",
-        &new_permissioned_as, username, w_id
-    ).execute(&mut **tx).await?;
+        "UPDATE app SET policy = jsonb_set(
+            jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text)),
+            ARRAY['on_behalf_of_email'], to_jsonb($4::text)
+        ) WHERE policy->>'on_behalf_of' = ('u/' || $2) AND workspace_id = $3",
+        &new_permissioned_as,
+        username,
+        w_id,
+        new_on_behalf_of_user_email
+    )
+    .execute(&mut **tx)
+    .await?;
 
     // ---- raw_app (mirrors app paths) ----
     sqlx::query!(

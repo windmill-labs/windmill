@@ -142,7 +142,12 @@ export async function loadGithubInstallations(
 				const hostname = new URL(ghesBaseUrl).hostname
 				const isGHES = hostname !== 'github.com' && !hostname.endsWith('.ghe.com')
 				const appsPath = isGHES ? 'github-apps' : 'apps'
-				state.githubInstallationUrl = `${ghesBaseUrl}/${appsPath}/${ghesConfig.app_slug}/installations/new?state=${stateParam}`
+				// GHE Cloud (*.ghe.com) requires the app owner (org/user) in the URL path
+				const appPath =
+					hostname.endsWith('.ghe.com') && ghesConfig.app_owner
+						? `${ghesConfig.app_owner}/${ghesConfig.app_slug}`
+						: ghesConfig.app_slug
+				state.githubInstallationUrl = `${ghesBaseUrl}/${appsPath}/${appPath}/installations/new?state=${stateParam}`
 			} else {
 				state.githubInstallationUrl = `https://github.com/apps/windmill-sync-helper/installations/new?state=${stateParam}`
 			}

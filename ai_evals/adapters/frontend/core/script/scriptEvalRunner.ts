@@ -1,7 +1,7 @@
 import { mkdtemp } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import type { AIProvider, AIProviderModel, ScriptLang } from '$lib/gen/types.gen'
+import type { AIProvider, AIProviderModel } from '$lib/gen/types.gen'
 import type { ContextElement } from '../../../../../frontend/src/lib/components/copilot/chat/context'
 import {
 	prepareScriptSystemMessage,
@@ -86,6 +86,7 @@ export async function runScriptEval(
 			onAssistantMessageStart: options.runContext?.onAssistantMessageStart,
 			onAssistantToken: options.runContext?.onAssistantChunk,
 			onAssistantMessageEnd: options.runContext?.onAssistantMessageEnd,
+			onToolCall: options.runContext?.onToolCall,
 			options: {
 				maxIterations: options.maxIterations,
 				model,

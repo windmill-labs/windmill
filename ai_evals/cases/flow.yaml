@@ -3,6 +3,11 @@
     Create a flow that takes two numbers, `a` and `b`, and returns their sum.
     Keep it simple and use a single step named `sum_numbers`.
   expected: ai_evals/fixtures/frontend/flow/expected/test0_sum_two_numbers.json
+  runtime:
+    backendPreview:
+      args:
+        a: 4
+        b: 5
   judgeChecklist:
     - "the flow takes `a` and `b` as inputs"
     - "the main step is named `sum_numbers`"
@@ -15,6 +20,11 @@
     The flow should take `a` and `b` as inputs and use a single step named `sum_numbers`.
   initial: ai_evals/fixtures/frontend/flow/initial/test1_reuse_existing_script_initial.json
   expected: ai_evals/fixtures/frontend/flow/expected/test1_reuse_existing_script.json
+  runtime:
+    backendPreview:
+      args:
+        a: 2
+        b: 3
   judgeChecklist:
     - "the flow takes `a` and `b` as inputs"
     - "the main step is named `sum_numbers`"
@@ -27,10 +37,47 @@
     Use a single step named `call_add_numbers`.
   initial: ai_evals/fixtures/frontend/flow/initial/test2_call_existing_subflow_initial.json
   expected: ai_evals/fixtures/frontend/flow/expected/test2_call_existing_subflow.json
+  runtime:
+    backendPreview:
+      args:
+        a: 7
+        b: 8
   judgeChecklist:
     - "the parent flow takes `a` and `b` as inputs"
     - "the main step is named `call_add_numbers`"
     - the parent flow delegates to an existing workspace subflow instead of inlining the addition logic
+
+- id: flow-test13-prefer-existing-workspace-flow
+  prompt: |-
+    Create a parent flow that adds two numbers by reusing an existing flow from the workspace if one fits.
+    A reusable script may also be available, but for this task prefer the existing flow rather than calling a script directly or rewriting the logic inline.
+    The parent flow should take `a` and `b` as inputs and use a single top-level step named `call_add_numbers_flow`.
+  initial: ai_evals/fixtures/frontend/flow/initial/test13_prefer_existing_workspace_flow_initial.json
+  expected: ai_evals/fixtures/frontend/flow/expected/test13_prefer_existing_workspace_flow.json
+  validate:
+    exactTopLevelStepIds:
+      - call_add_numbers_flow
+    topLevelStepTypes:
+      - id: call_add_numbers_flow
+        type: flow
+    moduleRules:
+      - id: call_add_numbers_flow
+        requiredInputTransforms:
+          - type: javascript
+            expr: flow_input.a
+          - type: javascript
+            expr: flow_input.b
+  runtime:
+    backendPreview:
+      args:
+        a: 10
+        b: 5
+  judgeChecklist:
+    - "the parent flow takes `a` and `b` as inputs"
+    - "the main step is named `call_add_numbers_flow`"
+    - the parent flow reuses the existing workspace flow as a subflow
+    - the parent flow does not call the standalone workspace script directly
+    - the parent flow does not inline the addition logic
 
 - id: flow-test3-branchone-routing
   prompt: |-
@@ -121,7 +168,7 @@
     - search FAQs
     - open a support ticket when needed
 
-    After that, log the interaction and return the assistant's response along with any actions it took.
+    After that, log the interaction and return the assistant's response.
   judgeChecklist:
     - "the input schema includes `customer_id` and `query_text`"
     - the flow loads the customer's profile and order history
@@ -131,24 +178,42 @@
     - the assistant can search FAQs
     - the assistant can open a support ticket
     - the flow logs the interaction
-    - the final output returns the assistant response along with any actions taken or resulting support action details
+    - the final output returns the assistant response
 
 - id: flow-test7-simple-modification
   prompt: |-
     Update this flow so it validates processed data before saving it.
 
     After `process_data`, add a `validate_data` step that checks the data array is not empty.
-    If the array is empty, it should return an error object with the message `No data to save`.
+    If the array is empty, the flow should surface the message `No data to save` and prevent saving.
     If validation passes, let the save continue normally.
-    Update `save_results` so it handles the validation result correctly.
+    Update `save_results` so it uses the validation outcome instead of bypassing it.
   initial: ai_evals/fixtures/frontend/flow/initial/test5_initial.json
-  expected: ai_evals/fixtures/frontend/flow/expected/test5_modify_simple.json
+  runtime:
+    maxTurns: 8
+  validate:
+    topLevelStepIds:
+      - fetch_data
+      - process_data
+      - validate_data
+    topLevelStepOrder:
+      - fetch_data
+      - process_data
+      - validate_data
+    topLevelStepTypes:
+      - id: fetch_data
+        type: rawscript
+      - id: process_data
+        type: rawscript
+      - id: validate_data
+        type: rawscript
   judgeChecklist:
     - the updated flow keeps the original fetch and process steps intact
     - "a `validate_data` step is added after `process_data`"
     - "`validate_data` checks that the processed data array is not empty"
-    - "empty data returns an error object with the message `No data to save`"
-    - "`save_results` handles the validation result correctly"
+    - "when processed data is empty, the flow surfaces the message `No data to save` and does not save results"
+    - "`save_results` uses the validation outcome instead of reading `results.process_data` directly"
+    - "exact field names or wrapper object shape for the validation result are not important"
 
 - id: flow-test8-branching-in-loop
   prompt: |-
@@ -178,7 +243,29 @@
     Update `combine_data` so it merges the enrichment results and sets a `hasFallbacks` flag when any fallback was used.
     Keep `get_item` as the first step and `return_result` as the last step.
   initial: ai_evals/fixtures/frontend/flow/initial/test7_initial.json
-  expected: ai_evals/fixtures/frontend/flow/expected/test7_modify_complex.json
+  validate:
+    topLevelStepIds:
+      - get_item
+      - combine_data
+      - return_result
+    topLevelStepOrder:
+      - get_item
+      - combine_data
+      - return_result
+    topLevelStepTypeCountsAtLeast:
+      - type: branchall
+        count: 1
+    topLevelStepTypes:
+      - id: get_item
+        type: rawscript
+      - id: combine_data
+        type: rawscript
+      - id: return_result
+        type: rawscript
+    moduleRules:
+      - id: enrich_price
+      - id: enrich_inventory
+      - id: enrich_reviews
   judgeChecklist:
     - "the updated flow keeps `get_item` as the first step"
     - "the updated flow keeps `return_result` as the last step"
@@ -191,14 +278,42 @@
   prompt: |-
     Create a flow that keeps incrementing a counter until it reaches a target value.
     The input should include a number field named `target`.
-    Name the looping step `count_until_target`.
-    Once the target is reached, return the final counter value.
-  expected: ai_evals/fixtures/frontend/flow/expected/test10_while_loop_counter.json
+    Use a top-level loop step named `count_until_target`.
+    Inside it, use a single step named `increment_counter` that increments the current counter.
+    The loop should stop once the counter reaches `target`.
+    After the loop, add a top-level step named `return_final_counter` that returns the last counter value.
+  validate:
+    exactTopLevelStepIds:
+      - count_until_target
+      - return_final_counter
+    topLevelStepOrder:
+      - count_until_target
+      - return_final_counter
+    topLevelStepTypes:
+      - id: count_until_target
+        type: whileloopflow
+      - id: return_final_counter
+        type: rawscript
+    moduleRules:
+      - id: count_until_target
+        hasStopAfterIf: true
+        hasStopAfterAllItersIf: false
+        exactImmediateChildStepIds:
+          - increment_counter
+        immediateChildStepTypes:
+          - id: increment_counter
+            type: rawscript
+    moduleFieldRules:
+      - id: count_until_target
+        path: stop_after_if.expr
+        equals: result >= flow_input.target
   judgeChecklist:
     - "the input schema includes a number field named `target`"
-    - "the looping step is named `count_until_target`"
-    - the flow keeps incrementing a counter until the target is reached
-    - the final output returns the final counter value
+    - "the top-level while loop step is named `count_until_target`"
+    - "`count_until_target` contains a single increment step named `increment_counter`"
+    - "`count_until_target` uses module-level `stop_after_if` to stop when the counter reaches `target`"
+    - "`increment_counter` uses `flow_input.iter.value` or an equivalent loop-state expression and falls back to `0` on the first iteration"
+    - "`return_final_counter` returns the final counter value"
 
 - id: flow-test11-preprocessor-and-failure-handler
   prompt: |-
@@ -227,8 +342,16 @@
     Add an approval step named `request_approval` that pauses the flow and asks the approver for a comment.
     One approval should be enough to continue.
     After approval, add a final step named `finalize_purchase` that returns an approved status object.
-  expected: ai_evals/fixtures/frontend/flow/expected/test12_approval_step.json
   validate:
+    topLevelStepIds:
+      - request_approval
+      - finalize_purchase
+    topLevelStepOrder:
+      - request_approval
+      - finalize_purchase
+    topLevelStepTypes:
+      - id: finalize_purchase
+        type: rawscript
     schemaRequiredPaths:
       - requester_email
       - amount
@@ -244,3 +367,48 @@
     - one approval is enough to continue
     - "the flow includes a final step named `finalize_purchase`"
     - "`finalize_purchase` returns an approved status object after approval"
+
+- id: flow-test13-loop-resilience-toggle
+  prompt: |-
+    Update `loop_orders` so it can process orders in parallel.
+    If one order fails, the rest should still continue.
+    Keep the existing order-fetching and summary steps the same.
+  initial: ai_evals/fixtures/frontend/flow/initial/test6_initial.json
+  validate:
+    exactTopLevelStepIds:
+      - get_orders
+      - loop_orders
+      - summarize
+    topLevelStepTypes:
+      - id: loop_orders
+        type: forloopflow
+    moduleFieldRules:
+      - id: loop_orders
+        path: value.parallel
+        equals: true
+      - id: loop_orders
+        path: value.skip_failures
+        equals: true
+  judgeChecklist:
+    - "the flow keeps `get_orders` before `loop_orders` and `summarize` after it"
+    - "`loop_orders` processes orders in parallel"
+    - "a failure in one order does not stop the remaining orders from being processed"
+
+- id: flow-test14-modify-existing-special-modules
+  prompt: |-
+    Update this event-processing flow for a string payload.
+
+    Before `process_event` runs, trim the payload and reject empty strings.
+    If anything fails, return a compact error object with the error message and the failing step id.
+    Keep `process_event` as the main step.
+  initial: ai_evals/fixtures/frontend/flow/initial/test11_initial.json
+  expected: ai_evals/fixtures/frontend/flow/expected/test11_preprocessor_failure.json
+  validate:
+    requireSpecialModules:
+      - preprocessor_module
+      - failure_module
+  judgeChecklist:
+    - the updated flow trims the payload before the main processing runs
+    - the updated flow rejects empty payload strings
+    - "the existing `process_event` step remains the main step"
+    - failures return a compact error object with the error message and failing step id

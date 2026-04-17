@@ -11,6 +11,7 @@ import type { FlowModule, FlowValue } from '$lib/gen'
 import type { ModuleActionInfo } from './flowDiff'
 import {
 	buildFlowTimeline,
+	findModuleInFlow,
 	insertModuleIntoFlow,
 	findModuleParent,
 	locationsEqual,
@@ -20,7 +21,6 @@ import {
 import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
 import { getIndexInNestedModules } from '../copilot/chat/flow/utils'
-import { dfs } from './previousResults'
 import type DiffDrawer from '../DiffDrawer.svelte'
 import { SPECIAL_MODULE_IDS } from '../copilot/chat/shared'
 
@@ -185,13 +185,7 @@ export function createFlowDiffManager({ testMode = false } = {}) {
 	 * Helper to get a module from a flow by ID
 	 */
 	function getModuleFromFlow(id: string, flow: ExtendedOpenFlow): FlowModule | undefined {
-		if (flow.value.preprocessor_module?.id === id) {
-			return flow.value.preprocessor_module
-		} else if (flow.value.failure_module?.id === id) {
-			return flow.value.failure_module
-		} else {
-			return dfs(id, flow, false)[0]
-		}
+		return findModuleInFlow(flow.value, id) ?? undefined
 	}
 
 	/**
@@ -478,7 +472,7 @@ export function createFlowDiffManager({ testMode = false } = {}) {
 				} else if (currentFlow.failure_module?.id === moduleId) {
 					afterModule = currentFlow.failure_module
 				} else {
-					afterModule = dfs(moduleId, { value: currentFlow, summary: '' }, false)[0]
+					afterModule = findModuleInFlow(currentFlow, moduleId) ?? undefined
 				}
 			}
 

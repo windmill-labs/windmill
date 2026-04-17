@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.683.2"
+version = "1.686.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -85,7 +85,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.683.2"
+version = "1.686.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -617,11 +617,11 @@ quote = "1.0.36"
 regex-lite = "0.1.6"
 yaml-rust = "0.4.5"
 tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }
-tree-sitter = { version = "0.23.0", features = [] }
-tree-sitter-c-sharp = "0.23.0"
-tree-sitter-java = "0.23.0"
-tree-sitter-ruby = "0.23.0"
-tree-sitter-r = "1.2.0"
+tree-sitter = { version = "=0.23.2", features = [] }
+tree-sitter-c-sharp = "=0.23.1"
+tree-sitter-java = "=0.23.5"
+tree-sitter-ruby = "=0.23.1"
+tree-sitter-r = "=1.2.0"
 oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
 strum = { version = "0.27", features = ["derive"] }

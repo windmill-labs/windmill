@@ -1,0 +1,19 @@
+{
+  "extends": "../frontend/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": [],
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "./adapters/**/*.ts",
+    "./cli/**/*.ts",
+    "./core/**/*.ts",
+    "./modes/**/*.ts",
+    "../frontend/src/app.d.ts"
+  ],
+  "exclude": [
+    "./**/*.test.ts",
+    "./adapters/frontend/vitest.config.ts"
+  ]
+}
