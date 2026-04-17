@@ -54,6 +54,7 @@
 	let isValid = $state(true)
 	let jsonError = $state('')
 	let viewJsonSchema = $state(false)
+	let perWsValid: Record<string, boolean> = $state({})
 
 	const deployToResource = resource(
 		() => effectiveWorkspace,
@@ -103,6 +104,13 @@
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
 	const otherDirty = $derived(dirtyWorkspaces.filter((ws) => ws !== $workspaceStore))
+	const dirtyValid = $derived(dirtyWorkspaces.every((ws) => perWsValid[ws] !== false))
+	const dirtyCanWrite = $derived(
+		dirtyWorkspaces.every((ws) => {
+			const r = fetchedResources[ws]
+			return !r || canWrite(states[ws]?.path ?? initialPath, r.extra_perms ?? {}, $userStore)
+		})
+	)
 
 	// Bootstrap: ensure selected is set on mount (edit or new)
 	$effect(() => {
@@ -160,8 +168,13 @@
 	})
 
 	$effect(() => {
-		canSave =
-			anyDirty && ((can_write && isValid && jsonError == '') || (viewJsonSchema && jsonError == ''))
+		if (selected !== undefined) {
+			perWsValid[selected] = isValid && jsonError == ''
+		}
+	})
+
+	$effect(() => {
+		canSave = anyDirty && dirtyValid && dirtyCanWrite
 	})
 
 	$effect(() => {

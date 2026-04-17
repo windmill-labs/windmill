@@ -51,13 +51,20 @@
 		if (!perms) return true
 		return canWrite(editPath ?? '', perms, $userStore)
 	})
-	const valid = $derived((current?.variable.value.length ?? 0) <= MAX_VARIABLE_LENGTH)
-
 	const dirtyWorkspaces = $derived(
 		Object.keys(states).filter((ws) => !deepEqual(states[ws], initialStates[ws]))
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
 	const otherDirty = $derived(dirtyWorkspaces.filter((ws) => ws !== $workspaceStore))
+	const dirtyValid = $derived(
+		dirtyWorkspaces.every((ws) => states[ws].variable.value.length <= MAX_VARIABLE_LENGTH)
+	)
+	const dirtyCanWrite = $derived(
+		dirtyWorkspaces.every((ws) => {
+			const perms = extraPerms[ws]
+			return !perms || canWrite(editPath ?? '', perms, $userStore)
+		})
+	)
 
 	// Lazy-fetch the variable for the selected workspace when not already cached
 	$effect(() => {
@@ -225,7 +232,7 @@
 		{#snippet actions()}
 			<Button
 				on:click={save}
-				disabled={!can_write || !valid || pathError != '' || !anyDirty}
+				disabled={!anyDirty || !dirtyValid || !dirtyCanWrite || pathError != ''}
 				startIcon={{ icon: Save }}
 				variant="accent"
 				size="sm"
