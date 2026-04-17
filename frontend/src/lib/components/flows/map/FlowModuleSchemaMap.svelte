@@ -33,7 +33,7 @@
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { JobService } from '$lib/gen'
-	import { dfsByModule } from '../previousResults'
+	import { findModuleInFlow } from '../flowTree'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { MoveManager } from '$lib/components/graph/moveManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
@@ -263,7 +263,7 @@
 	let compactTopbar = $derived(flowPaneWidth < 800)
 
 	function findModuleById(id: string) {
-		return dfsByModule(id, flowStore.val.value.modules)[0]
+		return findModuleInFlow(flowStore.val.value, id)
 	}
 
 	export async function addBranch(id: string) {
@@ -932,6 +932,9 @@
 			}}
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)
+				if (!module) {
+					throw new Error(`Node ${detail.id} not found`)
+				}
 				module.mock = $state.snapshot(detail.mock)
 				refreshStateStore(flowStore)
 			}}
