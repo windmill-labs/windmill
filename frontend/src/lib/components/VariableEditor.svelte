@@ -10,21 +10,26 @@
 	import { canWrite } from '$lib/utils'
 	import { Save } from 'lucide-svelte'
 	import VariableForm from './VariableForm.svelte'
+	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import { resource } from 'runed'
+	import { deepEqual } from 'fast-equals'
 
 	const dispatch = createEventDispatcher()
 
-	let editPath: string | undefined = $state(undefined)
-	let editSession = $state(0)
+	type VariableState = {
+		path: string
+		variable: { value: string; is_secret: boolean; description: string }
+		labels: string[] | undefined
+		wsSpecific: boolean
+	}
 
-	let path: string = $state('')
-	let variable: { value: string; is_secret: boolean; description: string } = $state({
-		value: '',
-		is_secret: true,
-		description: ''
-	})
-	let labels: string[] | undefined = $state(undefined)
-	let wsSpecific = $state(false)
+	let editPath: string | undefined = $state(undefined)
+
+	let states: Record<string, VariableState> = $state({})
+	let initialStates: Record<string, VariableState> = $state({})
+	let existedInitially: Record<string, boolean> = $state({})
+	let extraPerms: Record<string, Record<string, boolean>> = $state({})
+	let selected: string | undefined = $state(undefined)
 	let pathError = $state('')
 
 	let drawer: Drawer | undefined = $state()
@@ -36,106 +41,138 @@
 			ws ? (await WorkspaceService.getDeployTo({ workspace: ws })).deploy_to : undefined
 	)
 
-	const variableResource = resource(
-		() => ({ path: editPath, ws: $workspaceStore, session: editSession }),
-		async ({ path, ws }) => {
-			if (!path || !ws) return null
-			return await VariableService.getVariable({ workspace: ws, path, decryptSecret: false })
-		}
-	)
-
 	const MAX_VARIABLE_LENGTH = 10000
-	let edit = $derived(editPath !== undefined)
-	let initialPath = $derived(editPath ?? '')
-	let can_write = $derived(
-		variableResource.current
-			? variableResource.current.workspace_id == $workspaceStore &&
-					canWrite(editPath ?? '', variableResource.current.extra_perms ?? {}, $userStore)
-			: true
-	)
-	let valid = $derived(variable.value.length <= MAX_VARIABLE_LENGTH)
+	const edit = $derived(editPath !== undefined)
+	const initialPath = $derived(editPath ?? '')
+	const current = $derived(selected ? states[selected] : undefined)
+	const can_write = $derived.by(() => {
+		if (!selected || !edit) return true
+		const perms = extraPerms[selected]
+		if (!perms) return true
+		return canWrite(editPath ?? '', perms, $userStore)
+	})
+	const valid = $derived((current?.variable.value.length ?? 0) <= MAX_VARIABLE_LENGTH)
 
+	const dirtyWorkspaces = $derived(
+		Object.keys(states).filter((ws) => !deepEqual(states[ws], initialStates[ws]))
+	)
+	const anyDirty = $derived(dirtyWorkspaces.length > 0)
+	const otherDirty = $derived(dirtyWorkspaces.filter((ws) => ws !== $workspaceStore))
+
+	// Lazy-fetch the variable for the selected workspace when not already cached
 	$effect(() => {
-		const v = variableResource.current
-		if (v) {
-			untrack(() => {
-				path = v.path
-				variable = {
-					value: v.value ?? '',
-					is_secret: v.is_secret,
-					description: v.description ?? ''
+		const ws = selected
+		const p = editPath
+		if (!ws || !p) return
+		if (ws in states) return
+		untrack(() => {
+			VariableService.getVariable({ workspace: ws, path: p, decryptSecret: false }).then((v) => {
+				const s: VariableState = {
+					path: v.path,
+					variable: {
+						value: v.value ?? '',
+						is_secret: v.is_secret,
+						description: v.description ?? ''
+					},
+					labels: v.labels ?? undefined,
+					wsSpecific: v.ws_specific ?? false
 				}
-				labels = v.labels ?? undefined
-				wsSpecific = v.ws_specific ?? false
+				states[ws] = s
+				initialStates[ws] = structuredClone(s)
+				existedInitially[ws] = true
+				extraPerms[ws] = v.extra_perms ?? {}
 			})
-		}
+		})
 	})
 
+	function reset() {
+		states = {}
+		initialStates = {}
+		existedInitially = {}
+		extraPerms = {}
+		pathError = ''
+	}
+
 	export function initNew(): void {
+		reset()
 		editPath = undefined
-		editSession++
-		path = ''
-		variable = { value: '', is_secret: true, description: '' }
-		labels = undefined
-		wsSpecific = false
+		const ws = $workspaceStore!
+		const s: VariableState = {
+			path: '',
+			variable: { value: '', is_secret: true, description: '' },
+			labels: undefined,
+			wsSpecific: false
+		}
+		states[ws] = s
+		initialStates[ws] = structuredClone(s)
+		existedInitially[ws] = false
+		selected = ws
 		drawer?.openDrawer()
 	}
 
 	export function editVariable(edit_path: string): void {
+		reset()
 		editPath = edit_path
-		editSession++
+		selected = $workspaceStore!
 		drawer?.openDrawer()
 	}
 
 	async function loadSecret(): Promise<void> {
-		if (!editPath) return
+		if (!editPath || !selected) return
 		const getV = await VariableService.getVariable({
-			workspace: $workspaceStore ?? '',
+			workspace: selected,
 			path: editPath,
 			decryptSecret: true
 		})
-		variable.value = getV.value ?? ''
-		form?.setCode(variable.value)
+		const s = states[selected]
+		const ini = initialStates[selected]
+		if (s) s.variable.value = getV.value ?? ''
+		if (ini) ini.variable.value = getV.value ?? ''
+		form?.setCode(getV.value ?? '')
 	}
 
-	async function createVariable(): Promise<void> {
-		await VariableService.createVariable({
-			workspace: $workspaceStore!,
-			requestBody: {
-				path,
-				value: variable.value,
-				is_secret: variable.is_secret,
-				description: variable.description,
-				labels,
-				ws_specific: wsSpecific
-			}
-		})
-		sendUserToast(`Created variable ${path}`)
-		dispatch('create')
-		drawer?.closeDrawer()
-	}
-
-	async function updateVariable(): Promise<void> {
-		const getV = variableResource.current
-		if (!getV || !editPath) return
+	async function save(): Promise<void> {
+		const dirty = dirtyWorkspaces
 		try {
-			await VariableService.updateVariable({
-				workspace: $workspaceStore!,
-				path: editPath,
-				requestBody: {
-					path: getV.path != path ? path : undefined,
-					value: variable.value == '' ? undefined : variable.value,
-					is_secret: getV.is_secret != variable.is_secret ? variable.is_secret : undefined,
-					description: getV.description != variable.description ? variable.description : undefined,
-					labels,
-					ws_specific: wsSpecific
+			for (const ws of dirty) {
+				const s = states[ws]
+				const ini = initialStates[ws]
+				if (existedInitially[ws]) {
+					await VariableService.updateVariable({
+						workspace: ws,
+						path: ini.path,
+						requestBody: {
+							path: ini.path != s.path ? s.path : undefined,
+							value: s.variable.value == '' ? undefined : s.variable.value,
+							is_secret:
+								ini.variable.is_secret != s.variable.is_secret ? s.variable.is_secret : undefined,
+							description:
+								ini.variable.description != s.variable.description
+									? s.variable.description
+									: undefined,
+							labels: s.labels,
+							ws_specific: s.wsSpecific
+						}
+					})
+				} else {
+					await VariableService.createVariable({
+						workspace: ws,
+						requestBody: {
+							path: s.path,
+							value: s.variable.value,
+							is_secret: s.variable.is_secret,
+							description: s.variable.description,
+							labels: s.labels,
+							ws_specific: s.wsSpecific
+						}
+					})
 				}
-			})
-			sendUserToast(`Updated variable ${editPath}`)
+			}
+			sendUserToast(edit ? `Updated variable in ${dirty.length} workspace(s)` : `Created variable`)
 			dispatch('create')
 			drawer?.closeDrawer()
 		} catch (err) {
-			sendUserToast(`Could not update variable: ${err.body}`, true)
+			sendUserToast(`Could not save variable: ${err.body}`, true)
 		}
 	}
 </script>
@@ -151,24 +188,44 @@
 					You only have read access to this resource and cannot edit it
 				</Alert>
 			{/if}
-			<VariableForm
-				bind:this={form}
-				bind:path
-				bind:pathError
-				bind:variable
-				bind:labels
-				bind:wsSpecific
-				{initialPath}
-				deployTo={deployTo.current}
-				{can_write}
-				{edit}
-				onLoadSecret={loadSecret}
-			/>
+
+			{#if edit && $workspaceStore}
+				<WsSpecificVersions
+					kind="variable"
+					workspaceId={$workspaceStore}
+					{initialPath}
+					bind:selected
+				/>
+			{/if}
+
+			{#if otherDirty.length > 0}
+				<Alert type="warning" title="Editing multiple workspaces">
+					You are going to edit the value in: {otherDirty.join(', ')}
+				</Alert>
+			{/if}
+
+			{#if current}
+				{#key current}
+					<VariableForm
+						bind:this={form}
+						bind:path={current.path}
+						bind:pathError
+						bind:variable={current.variable}
+						bind:labels={current.labels}
+						bind:wsSpecific={current.wsSpecific}
+						{initialPath}
+						deployTo={deployTo.current}
+						{can_write}
+						{edit}
+						onLoadSecret={loadSecret}
+					/>
+				{/key}
+			{/if}
 		</div>
 		{#snippet actions()}
 			<Button
-				on:click={() => (edit ? updateVariable() : createVariable())}
-				disabled={!can_write || !valid || pathError != ''}
+				on:click={save}
+				disabled={!can_write || !valid || pathError != '' || !anyDirty}
 				startIcon={{ icon: Save }}
 				variant="accent"
 				size="sm"

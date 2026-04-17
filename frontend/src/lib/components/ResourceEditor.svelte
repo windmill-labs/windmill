@@ -7,7 +7,10 @@
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
+	import WsSpecificVersions from './WsSpecificVersions.svelte'
+	import Alert from './common/alert/Alert.svelte'
 	import { resource } from 'runed'
+	import { deepEqual } from 'fast-equals'
 
 	interface Props {
 		canSave?: boolean
@@ -29,151 +32,240 @@
 		workspace = undefined
 	}: Props = $props()
 
+	type ResourceState = {
+		path: string
+		description: string
+		args: Record<string, any>
+		labels: string[] | undefined
+		wsSpecific: boolean
+	}
+
+	const dispatch = createEventDispatcher()
+
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
 	let initialPath = path
+
+	let states: Record<string, ResourceState> = $state({})
+	let initialStates: Record<string, ResourceState> = $state({})
+	let existedInitially: Record<string, boolean> = $state({})
+	let fetchedResources: Record<string, Resource> = $state({})
+	let selected: string | undefined = $state(undefined)
 
 	let isValid = $state(true)
 	let jsonError = $state('')
 	let viewJsonSchema = $state(false)
-
-	let description: string = $state('')
-	let labels: string[] | undefined = $state(undefined)
-	let args: Record<string, any> = $state({})
-	let wsSpecific = $state(false)
-
-	const dispatch = createEventDispatcher()
 
 	const deployToResource = resource(
 		() => effectiveWorkspace,
 		async (ws) =>
 			ws ? (await WorkspaceService.getDeployTo({ workspace: ws })).deploy_to : undefined
 	)
-
-	const resource_ = resource(
-		() => (initialPath ? { path: initialPath, workspace: effectiveWorkspace } : null),
-		async (args) => (args ? await ResourceService.getResource(args) : null)
-	)
-	const resourceType = resource([() => resource_type, () => effectiveWorkspace], async () =>
-		resource_type && effectiveWorkspace
-			? ResourceService.getResourceType({ path: resource_type, workspace: effectiveWorkspace })
-			: null
+	const resourceTypeResource = resource(
+		[() => resource_type, () => effectiveWorkspace],
+		async ([rt, ws]) =>
+			rt && ws ? ResourceService.getResourceType({ path: rt, workspace: ws }) : null
 	)
 
 	let deployTo = $derived(deployToResource.current)
-	let resourceToEdit: Resource | undefined = $derived(resource_.current ?? undefined)
-	let resourceTypeInfo: ResourceType | undefined = $derived(resourceType.current ?? undefined)
+	let resourceTypeInfo: ResourceType | undefined = $derived(
+		resourceTypeResource.current ?? undefined
+	)
 	let resourceSchema: Schema | undefined = $derived.by(() => {
-		const rt = resourceType.current
+		const rt = resourceTypeResource.current
 		if (!rt?.schema) return undefined
 		const schema = rt.schema as Schema
-		schema.order = schema.order ?? Object.keys(schema.properties).sort()
-		return schema
+		return {
+			...schema,
+			order: schema.order ?? Object.keys(schema.properties).sort()
+		}
 	})
-	let loadingSchema = $derived(resourceType.loading)
-	let can_write = $derived(
-		resourceToEdit
-			? resourceToEdit.workspace_id == effectiveWorkspace &&
-					canWrite(path, resourceToEdit.extra_perms ?? {}, $userStore)
-			: true
+	let loadingSchema = $derived(resourceTypeResource.loading)
+
+	let current = $derived(selected ? states[selected] : undefined)
+	let resourceToEdit: Resource | undefined = $derived(
+		selected ? fetchedResources[selected] : undefined
 	)
+	let can_write = $derived.by(() => {
+		if (!selected) return true
+		const r = fetchedResources[selected]
+		if (!r) return true
+		return canWrite(current?.path ?? initialPath, r.extra_perms ?? {}, $userStore)
+	})
+
 	let linkedVars = $derived(
-		Object.entries(args ?? {})
+		Object.entries(current?.args ?? {})
 			.filter(([_, v]) => typeof v == 'string' && v == `$var:${initialPath}`)
 			.map(([k, _]) => k)
 	)
 
+	const dirtyWorkspaces = $derived(
+		Object.keys(states).filter((ws) => !deepEqual(states[ws], initialStates[ws]))
+	)
+	const anyDirty = $derived(dirtyWorkspaces.length > 0)
+	const otherDirty = $derived(dirtyWorkspaces.filter((ws) => ws !== $workspaceStore))
+
+	// Bootstrap: ensure selected is set on mount (edit or new)
 	$effect(() => {
-		const r = resource_.current
-		if (r) {
-			untrack(() => {
-				description = r.description ?? ''
-				labels = r.labels ?? undefined
-				resource_type = r.resource_type
-				args = r.value ?? ({} as any)
-				wsSpecific = r.ws_specific ?? false
-				path = r.path
+		if (selected !== undefined) return
+		if (!effectiveWorkspace) return
+		untrack(() => {
+			selected = effectiveWorkspace
+			if (!initialPath) {
+				// New resource
+				const s: ResourceState = {
+					path: '',
+					description: '',
+					args: (defaultValues && Object.keys(defaultValues).length > 0
+						? defaultValues
+						: {}) as any,
+					labels: undefined,
+					wsSpecific: false
+				}
+				states[effectiveWorkspace] = s
+				initialStates[effectiveWorkspace] = structuredClone(s)
+				existedInitially[effectiveWorkspace] = false
+			}
+		})
+	})
+
+	// Lazy-fetch the resource for the selected workspace when not already cached
+	$effect(() => {
+		const ws = selected
+		if (!ws || !initialPath) return
+		if (ws in states) return
+		untrack(() => {
+			ResourceService.getResource({ workspace: ws, path: initialPath }).then((r) => {
+				fetchedResources[ws] = r
+				const s: ResourceState = {
+					path: r.path,
+					description: r.description ?? '',
+					args: (r.value ?? {}) as any,
+					labels: r.labels ?? undefined,
+					wsSpecific: r.ws_specific ?? false
+				}
+				states[ws] = s
+				initialStates[ws] = structuredClone(s)
+				existedInitially[ws] = true
+				// Keep resource_type in sync for the base workspace (controls the schema)
+				if (ws === effectiveWorkspace) {
+					resource_type = r.resource_type
+				}
 			})
-		}
+		})
+	})
+
+	// Keep current.path bound to the outer `path` prop for consumers
+	$effect(() => {
+		if (current) path = current.path
 	})
 
 	$effect(() => {
-		if (defaultValues && Object.keys(defaultValues).length > 0) {
-			args = defaultValues
-		}
+		canSave =
+			anyDirty && ((can_write && isValid && jsonError == '') || (viewJsonSchema && jsonError == ''))
 	})
 
 	$effect(() => {
-		canSave = (can_write && isValid && jsonError == '') || (viewJsonSchema && jsonError == '')
+		if (current)
+			onChange?.({ path: current.path, args: current.args, description: current.description })
 	})
 
 	$effect(() => {
-		onChange?.({ path, args, description })
-	})
-
-	$effect(() => {
-		if (linkedVars.length > 0 && path) {
+		if (!current) return
+		if (linkedVars.length > 0 && current.path) {
 			untrack(() => {
 				linkedVars.forEach((k) => {
-					args[k] = `$var:${path}`
+					current!.args[k] = `$var:${current!.path}`
 				})
 			})
 		}
 	})
 
-	export async function editResource(): Promise<void> {
-		if (!resourceToEdit) {
-			throw Error('Cannot edit undefined resource')
-		}
-		await ResourceService.updateResource({
-			workspace: effectiveWorkspace,
-			path: resourceToEdit.path,
-			requestBody: { path, value: args, description, labels, ws_specific: wsSpecific }
-		})
-		if (resourceToEdit.resource_type === 'json_schema') {
-			clearJsonSchemaResourceCache(resourceToEdit.path, effectiveWorkspace)
-		}
-		sendUserToast(`Updated resource at ${path}`)
-		dispatch('refresh', path)
-	}
-
-	export async function createResource(): Promise<void> {
-		await ResourceService.createResource({
-			workspace: effectiveWorkspace,
-			requestBody: {
-				path,
-				value: args,
-				description,
-				resource_type: resource_type!,
-				labels,
-				ws_specific: wsSpecific
+	export async function save(): Promise<void> {
+		const dirty = dirtyWorkspaces
+		try {
+			for (const ws of dirty) {
+				const s = states[ws]
+				const ini = initialStates[ws]
+				if (existedInitially[ws]) {
+					await ResourceService.updateResource({
+						workspace: ws,
+						path: ini.path,
+						requestBody: {
+							path: s.path,
+							value: s.args,
+							description: s.description,
+							labels: s.labels,
+							ws_specific: s.wsSpecific
+						}
+					})
+					const fetched = fetchedResources[ws]
+					if (fetched?.resource_type === 'json_schema') {
+						clearJsonSchemaResourceCache(ini.path, ws)
+					}
+				} else {
+					await ResourceService.createResource({
+						workspace: ws,
+						requestBody: {
+							path: s.path,
+							value: s.args,
+							description: s.description,
+							resource_type: resource_type!,
+							labels: s.labels,
+							ws_specific: s.wsSpecific
+						}
+					})
+				}
 			}
-		})
-		sendUserToast(`Updated resource at ${path}`)
-		dispatch('refresh', path)
+			sendUserToast(
+				dirty.length > 1 ? `Saved resource in ${dirty.length} workspaces` : `Saved resource`
+			)
+			dispatch('refresh', current?.path ?? path)
+		} catch (err) {
+			sendUserToast(`Could not save resource: ${err.body ?? err.message}`, true)
+		}
 	}
 </script>
 
 <div>
 	<div class="flex flex-col gap-6 py-2">
-		<ResourceForm
-			bind:path
-			bind:labels
-			bind:description
-			bind:args
-			bind:wsSpecific
-			bind:isValid
-			bind:viewJsonSchema
-			bind:jsonError
-			{initialPath}
-			{hidePath}
-			{deployTo}
-			{can_write}
-			{resource_type}
-			{resourceTypeInfo}
-			{resourceSchema}
-			{loadingSchema}
-			{resourceToEdit}
-			onLoadResourceType={() => resourceType.refetch()}
-		/>
+		{#if initialPath && effectiveWorkspace}
+			<WsSpecificVersions
+				kind="resource"
+				workspaceId={effectiveWorkspace}
+				{initialPath}
+				bind:selected
+			/>
+		{/if}
+
+		{#if otherDirty.length > 0}
+			<Alert type="warning" title="Editing multiple workspaces">
+				You are going to edit the value in: {otherDirty.join(', ')}
+			</Alert>
+		{/if}
+
+		{#if current}
+			{#key current}
+				<ResourceForm
+					bind:path={current.path}
+					bind:labels={current.labels}
+					bind:description={current.description}
+					bind:args={current.args}
+					bind:wsSpecific={current.wsSpecific}
+					bind:isValid
+					bind:viewJsonSchema
+					bind:jsonError
+					{initialPath}
+					{hidePath}
+					{deployTo}
+					{can_write}
+					{resource_type}
+					{resourceTypeInfo}
+					{resourceSchema}
+					{loadingSchema}
+					{resourceToEdit}
+					onLoadResourceType={() => resourceTypeResource.refetch()}
+				/>
+			{/key}
+		{/if}
 	</div>
 </div>

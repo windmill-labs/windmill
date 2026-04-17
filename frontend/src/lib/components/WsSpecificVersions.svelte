@@ -4,15 +4,15 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonMore from './common/toggleButton-v2/ToggleButtonMore.svelte'
-	import Alert from './common/alert/Alert.svelte'
 
 	interface Props {
 		kind: 'resource' | 'variable'
 		workspaceId: string
 		initialPath: string
+		selected: string | undefined
 	}
 
-	let { kind, workspaceId, initialPath }: Props = $props()
+	let { kind, workspaceId, initialPath, selected = $bindable() }: Props = $props()
 
 	let versionsResource = resource(
 		[() => ({ path: initialPath, ws: workspaceId, kind })],
@@ -27,8 +27,6 @@
 	])
 	let regular = $derived(versions.filter((v) => !v.startsWith('wm-fork-') || v === workspaceId))
 	let forks = $derived(versions.filter((v) => v.startsWith('wm-fork-') && v !== workspaceId))
-
-	let selected: string | undefined = $derived(workspaceId)
 </script>
 
 {#if versions.length > 1}
@@ -47,8 +45,4 @@
 			{/if}
 		{/snippet}
 	</ToggleButtonGroup>
-{/if}
-
-{#if selected !== workspaceId}
-	<Alert title="You are editing a {kind} in another workspace" type="warning" />
 {/if}

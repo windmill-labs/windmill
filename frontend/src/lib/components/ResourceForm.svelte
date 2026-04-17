@@ -112,7 +112,7 @@
 {#if !hidePath}
 	<div>
 		{#if !can_write}
-			<div class="m-2">
+			<div class="my-2">
 				<Alert type="warning" title="Only read access">
 					You only have read access to this resource and cannot edit it
 				</Alert>

@@ -15,8 +15,7 @@
 	let resource_type: string | undefined = $state(undefined)
 	let defaultValues: Record<string, any> | undefined = $state(undefined)
 
-	let resourceEditor: { editResource: () => void; createResource: () => void } | undefined =
-		$state(undefined)
+	let resourceEditor: { save: () => void } | undefined = $state(undefined)
 
 	let path: string | undefined = $state(undefined)
 
@@ -63,11 +62,7 @@
 				unifiedSize="md"
 				startIcon={{ icon: Save }}
 				on:click={() => {
-					if (mode == 'edit') {
-						resourceEditor?.editResource()
-					} else {
-						resourceEditor?.createResource()
-					}
+					resourceEditor?.save()
 					drawer?.closeDrawer()
 				}}
 				disabled={!canSave}
