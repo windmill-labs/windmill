@@ -80,6 +80,10 @@
 
 	let { children }: Props = $props()
 	OpenAPI.WITH_CREDENTIALS = true
+	OpenAPI.HEADERS = {
+		...((OpenAPI.HEADERS as Record<string, string>) ?? {}),
+		'X-Windmill-Deploy-Source': 'ui'
+	}
 	let menuOpen = $state(false)
 	let globalSearchModal: GlobalSearchModal | undefined = $state(undefined)
 	let isCollapsed = $state(false)

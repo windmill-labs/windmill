@@ -8,7 +8,7 @@
 
 use windmill_api_auth::{check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed};
 use windmill_common::db::DB;
-use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
+use windmill_common::workspaces::{check_deploy_rules, DeploySourceHeader, RuleCheckResult};
 
 use crate::secret_backend_ext::{
     delete_secret_from_backend, get_secret_value, is_vault_stored_value, rename_vault_secret,
@@ -387,6 +387,7 @@ async fn create_variable(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
+    deploy_source: DeploySourceHeader,
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
@@ -396,6 +397,7 @@ async fn create_variable(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -499,6 +501,7 @@ async fn delete_variable(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    deploy_source: DeploySourceHeader,
 ) -> Result<String> {
     let path = path.to_path();
 
@@ -508,6 +511,7 @@ async fn delete_variable(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -644,6 +648,7 @@ async fn delete_variables_bulk(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
+    deploy_source: DeploySourceHeader,
     Json(request): Json<BulkDeleteRequest>,
 ) -> JsonResult<Vec<String>> {
     for path in &request.paths {
@@ -655,6 +660,7 @@ async fn delete_variables_bulk(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -791,6 +797,7 @@ async fn update_variable(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    deploy_source: DeploySourceHeader,
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(ns): Json<EditVariable>,
 ) -> Result<String> {
@@ -801,6 +808,7 @@ async fn update_variable(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?

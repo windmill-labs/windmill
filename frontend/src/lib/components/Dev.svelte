@@ -625,6 +625,10 @@
 		if (token) {
 			OpenAPI.WITH_CREDENTIALS = true
 			OpenAPI.TOKEN = token
+			OpenAPI.HEADERS = {
+				...((OpenAPI.HEADERS as Record<string, string>) ?? {}),
+				'X-Windmill-Deploy-Source': 'ui'
+			}
 		}
 	})
 	$effect.pre(() => {
@@ -702,7 +706,7 @@
 
 	const selectedModule = $derived(
 		selectedId && flowStore.val?.value
-			? findModuleInFlow(flowStore.val.value, selectedId) ?? undefined
+			? (findModuleInFlow(flowStore.val.value, selectedId) ?? undefined)
 			: undefined
 	)
 </script>
@@ -866,7 +870,11 @@
 					{/if}
 				</div>
 
-				<div class="flex justify-center pt-1 z-50 absolute gap-2 {compactPreview ? 'left-1/2 -translate-x-1/2 top-14' : '-translate-x-[100%] right-2 top-2'}">
+				<div
+					class="flex justify-center pt-1 z-50 absolute gap-2 {compactPreview
+						? 'left-1/2 -translate-x-1/2 top-14'
+						: '-translate-x-[100%] right-2 top-2'}"
+				>
 					<FlowPreviewButtons
 						{suspendStatus}
 						bind:this={flowPreviewButtons}
@@ -933,7 +941,9 @@
 					</Pane>
 				</Splitpanes>
 				{#if selectedModule}
-					<div class="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-surface shrink-0">
+					<div
+						class="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-surface shrink-0"
+					>
 						<span class="text-xs text-secondary shrink-0">{selectedModule.id} summary</span>
 						<input
 							type="text"

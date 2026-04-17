@@ -13,6 +13,60 @@ use crate::{
     PgDatabase, DB,
 };
 
+/// Source of a deployment request.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum DeploymentSource {
+    /// Browser-based frontend (direct edits)
+    Ui,
+    /// wmill CLI tool
+    Cli,
+    /// Merge from a fork workspace
+    Merge,
+}
+
+impl DeploymentSource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DeploymentSource::Ui => "ui",
+            DeploymentSource::Cli => "cli",
+            DeploymentSource::Merge => "merge",
+        }
+    }
+
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "ui" => Some(DeploymentSource::Ui),
+            "cli" => Some(DeploymentSource::Cli),
+            "merge" => Some(DeploymentSource::Merge),
+            _ => None,
+        }
+    }
+}
+
+/// Axum extractor that reads `X-Windmill-Deploy-Source` header.
+/// `None` when absent — implies a direct API call with no declared source.
+pub struct DeploySourceHeader(pub Option<DeploymentSource>);
+
+impl<S> axum::extract::FromRequestParts<S> for DeploySourceHeader
+where
+    S: Send + Sync,
+{
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> std::result::Result<Self, Self::Rejection> {
+        let source = parts
+            .headers
+            .get("x-windmill-deploy-source")
+            .and_then(|v| v.to_str().ok())
+            .and_then(DeploymentSource::from_str_opt);
+        Ok(DeploySourceHeader(source))
+    }
+}
+
 macro_rules! sqlx_bitflags {
     (
         $flags:ty => $repr:ty
@@ -59,6 +113,9 @@ pub struct ProtectionRuleset {
     pub rules: ProtectionRules,
     pub bypass_groups: Vec<String>,
     pub bypass_users: Vec<String>,
+    /// Deployment sources that are allowed when DisableDirectDeployment is active.
+    /// Empty means all sources are blocked (current behavior / backward compatible).
+    pub allowed_deploy_sources: Vec<String>,
 }
 
 bitflags::bitflags! {
@@ -325,7 +382,8 @@ pub async fn get_protection_rules(
                 name,
                 rules as "rules: ProtectionRules",
                 bypass_groups,
-                bypass_users
+                bypass_users,
+                allowed_deploy_sources
             FROM workspace_protection_rule
             WHERE workspace_id = $1
             ORDER BY name
@@ -371,6 +429,7 @@ pub async fn check_user_against_rule(
     username: &str,
     user_groups: &[String],
     is_admin: bool,
+    deploy_source: Option<DeploymentSource>,
     db: &DB,
 ) -> Result<RuleCheckResult> {
     if is_admin {
@@ -389,6 +448,7 @@ pub async fn check_user_against_rule(
 
     for ruleset in rulesets.iter() {
         if ruleset.rules.contains(rule.flag()) {
+            // Check per-ruleset user/group bypass
             if ruleset.bypass_users.iter().any(|u| u == username)
                 || ruleset
                     .bypass_groups
@@ -397,6 +457,23 @@ pub async fn check_user_against_rule(
             {
                 continue;
             }
+
+            // For DisableDirectDeployment, check if the deploy source is allowed.
+            // None (direct API call) is always blocked.
+            // A named source is allowed if it appears in allowed_deploy_sources.
+            if matches!(rule, ProtectionRuleKind::DisableDirectDeployment) {
+                if let Some(ref source) = deploy_source {
+                    if !ruleset.allowed_deploy_sources.is_empty()
+                        && ruleset
+                            .allowed_deploy_sources
+                            .iter()
+                            .any(|s| s == source.as_str())
+                    {
+                        continue;
+                    }
+                }
+            }
+
             return Ok(RuleCheckResult::Blocked(format!(
                 "Ruleset {} of {} blocked this action: {}",
                 ruleset.name,
@@ -422,14 +499,23 @@ pub async fn check_deploy_rules(
     username: &str,
     user_groups: &[String],
     is_admin: bool,
+    deploy_source: Option<DeploymentSource>,
     db: &DB,
 ) -> Result<RuleCheckResult> {
     for rule in [
         ProtectionRuleKind::DisableDirectDeployment,
         ProtectionRuleKind::RestrictDeployToDeployers,
     ] {
-        let res = check_user_against_rule(workspace_id, &rule, username, user_groups, is_admin, db)
-            .await?;
+        let res = check_user_against_rule(
+            workspace_id,
+            &rule,
+            username,
+            user_groups,
+            is_admin,
+            deploy_source,
+            db,
+        )
+        .await?;
         if matches!(res, RuleCheckResult::Blocked(_)) {
             return Ok(res);
         }

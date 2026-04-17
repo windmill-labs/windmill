@@ -5241,6 +5241,10 @@ paths:
                   $ref: "#/components/schemas/RuleBypasserGroups"
                 bypass_users:
                   $ref: "#/components/schemas/RuleBypasserUsers"
+                allowed_deploy_sources:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/DeploymentSource"
       responses:
         "200":
           description: protection rule created successfully
@@ -5283,6 +5287,10 @@ paths:
                   $ref: "#/components/schemas/RuleBypasserGroups"
                 bypass_users:
                   $ref: "#/components/schemas/RuleBypasserUsers"
+                allowed_deploy_sources:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/DeploymentSource"
       responses:
         "200":
           description: protection rule updated successfully
@@ -26630,6 +26638,7 @@ components:
         - rules
         - bypass_groups
         - bypass_users
+        - allowed_deploy_sources
       properties:
         name:
           type: string
@@ -26643,6 +26652,13 @@ components:
           $ref: "#/components/schemas/RuleBypasserGroups"
         bypass_users:
           $ref: "#/components/schemas/RuleBypasserUsers"
+        allowed_deploy_sources:
+          type: array
+          description: >
+            Deployment sources that are allowed when DisableDirectDeployment is active.
+            Empty array means all sources are blocked (current behavior).
+          items:
+            $ref: "#/components/schemas/DeploymentSource"
     ProtectionRules:
       type: array
       description: Configuration of protection restrictions
@@ -26654,6 +26670,13 @@ components:
         - DisableDirectDeployment
         - DisableWorkspaceForking
         - RestrictDeployToDeployers
+    DeploymentSource:
+      type: string
+      description: Source of a deployment request
+      enum:
+        - ui
+        - cli
+        - merge
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset

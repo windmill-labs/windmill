@@ -12,4 +12,8 @@ export function setClient(token?: string, baseUrl?: string) {
   OpenAPI.WITH_CREDENTIALS = true;
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";
+  OpenAPI.HEADERS = {
+    ...((OpenAPI.HEADERS as Record<string, string>) ?? {}),
+    "X-Windmill-Deploy-Source": "cli",
+  };
 }

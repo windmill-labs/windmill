@@ -14,7 +14,7 @@ use windmill_api_auth::{
     Tokened,
 };
 use windmill_common::db::DB;
-use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
+use windmill_common::workspaces::{check_deploy_rules, DeploySourceHeader, RuleCheckResult};
 
 use crate::secret_backend_ext::rename_vault_secret;
 use crate::var_resource_cache::{cache_resource, get_cached_resource};
@@ -766,6 +766,7 @@ async fn create_resource(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
+    deploy_source: DeploySourceHeader,
     Query(q): Query<CreateResourceQuery>,
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
@@ -775,6 +776,7 @@ async fn create_resource(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -888,6 +890,7 @@ async fn delete_resource(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    deploy_source: DeploySourceHeader,
 ) -> Result<String> {
     let path = path.to_path();
 
@@ -897,6 +900,7 @@ async fn delete_resource(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -1086,6 +1090,7 @@ async fn delete_resources_bulk(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
+    deploy_source: DeploySourceHeader,
     Json(request): Json<BulkDeleteRequest>,
 ) -> JsonResult<Vec<String>> {
     for path in &request.paths {
@@ -1097,6 +1102,7 @@ async fn delete_resources_bulk(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -1192,6 +1198,7 @@ async fn update_resource(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    deploy_source: DeploySourceHeader,
     Json(ns): Json<EditResource>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
@@ -1203,6 +1210,7 @@ async fn update_resource(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -1386,6 +1394,7 @@ async fn update_resource_value(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    deploy_source: DeploySourceHeader,
     Json(nv): Json<UpdateResource>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -1395,6 +1404,7 @@ async fn update_resource_value(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -1576,6 +1586,7 @@ async fn create_resource_type(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
+    deploy_source: DeploySourceHeader,
     Json(resource_type): Json<CreateResourceType>,
 ) -> Result<(StatusCode, String)> {
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -1583,6 +1594,7 @@ async fn create_resource_type(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -1683,6 +1695,7 @@ async fn delete_resource_type(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
+    deploy_source: DeploySourceHeader,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -1690,6 +1703,7 @@ async fn delete_resource_type(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -1747,6 +1761,7 @@ async fn update_resource_type(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
+    deploy_source: DeploySourceHeader,
     Json(ns): Json<EditResourceType>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
@@ -1755,6 +1770,7 @@ async fn update_resource_type(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?

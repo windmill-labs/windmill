@@ -9,6 +9,7 @@
 		GroupService,
 		UserService,
 		WorkspaceService,
+		type DeploymentSource,
 		type ProtectionRuleKind,
 		type ProtectionRuleset
 	} from '$lib/gen'
@@ -32,11 +33,20 @@
 	// Helper function to check if a rule is in the array
 	const hasRule = (ruleKind: string) => rule?.rules?.includes(ruleKind as any) ?? false
 
+	const ALL_DEPLOY_SOURCES: { value: DeploymentSource; label: string }[] = [
+		{ value: 'ui', label: 'UI (direct edits)' },
+		{ value: 'cli', label: 'CLI (wmill)' },
+		{ value: 'merge', label: 'Merge (fork merge)' }
+	]
+
 	// Editable state
 	let name = $state(untrack(() => rule)?.name ?? '')
 	let disableDirectDeployment = $state(hasRule('DisableDirectDeployment'))
 	let disableFork = $state(hasRule('DisableWorkspaceForking'))
 	let restrictDeployToDeployers = $state(hasRule('RestrictDeployToDeployers'))
+	let allowedDeploySources = $state<DeploymentSource[]>(
+		(untrack(() => rule)?.allowed_deploy_sources as DeploymentSource[]) ?? []
+	)
 	let selectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups?.map((g) => g.replace('g/', '')) ?? []
 	)
@@ -49,6 +59,9 @@
 	let initialDisableDirectDeployment = $state(hasRule('DisableDirectDeployment'))
 	let initialDisableFork = $state(hasRule('DisableWorkspaceForking'))
 	let initialRestrictDeployToDeployers = $state(hasRule('RestrictDeployToDeployers'))
+	let initialAllowedDeploySources = $state<DeploymentSource[]>(
+		(untrack(() => rule)?.allowed_deploy_sources as DeploymentSource[]) ?? []
+	)
 	let initialSelectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups
 			? untrack(() => rule)!.bypass_groups.map((g) => g.replace('g/', ''))
@@ -59,6 +72,14 @@
 			? untrack(() => rule)!.bypass_users.map((u) => u.replace('u/', ''))
 			: []
 	)
+
+	function toggleSource(source: DeploymentSource) {
+		if (allowedDeploySources.includes(source)) {
+			allowedDeploySources = allowedDeploySources.filter((s) => s !== source)
+		} else {
+			allowedDeploySources = [...allowedDeploySources, source]
+		}
+	}
 
 	// Available options
 	let availableGroups = $state<string[]>([])
@@ -115,12 +136,15 @@
 					disableDirectDeployment ||
 					disableFork ||
 					restrictDeployToDeployers ||
+					allowedDeploySources.length > 0 ||
 					selectedGroups.length > 0 ||
 					selectedUsers.length > 0
 			: name !== initialName ||
 					disableDirectDeployment !== initialDisableDirectDeployment ||
 					disableFork !== initialDisableFork ||
 					restrictDeployToDeployers !== initialRestrictDeployToDeployers ||
+					JSON.stringify([...allowedDeploySources].sort()) !==
+						JSON.stringify([...initialAllowedDeploySources].sort()) ||
 					JSON.stringify([...selectedGroups].sort()) !==
 						JSON.stringify([...initialSelectedGroups].sort()) ||
 					JSON.stringify([...selectedUsers].sort()) !==
@@ -163,7 +187,8 @@
 							: [])
 					],
 					bypass_groups: selectedGroups,
-					bypass_users: selectedUsers
+					bypass_users: selectedUsers,
+					allowed_deploy_sources: allowedDeploySources
 				}
 			})
 
@@ -191,7 +216,8 @@
 							: [])
 					],
 					bypass_groups: selectedGroups,
-					bypass_users: selectedUsers
+					bypass_users: selectedUsers,
+					allowed_deploy_sources: allowedDeploySources
 				}
 			})
 
@@ -202,6 +228,7 @@
 			initialDisableDirectDeployment = disableDirectDeployment
 			initialDisableFork = disableFork
 			initialRestrictDeployToDeployers = restrictDeployToDeployers
+			initialAllowedDeploySources = clone(allowedDeploySources)
 			initialSelectedGroups = clone(selectedGroups)
 			initialSelectedUsers = clone(selectedUsers)
 
@@ -309,6 +336,29 @@
 				<div class="text-xs text-secondary ml-6">
 					Users must use a fork or git branch to make changes. Direct edits are not allowed.
 				</div>
+
+				{#if disableDirectDeployment}
+					<div class="ml-6 mt-2 flex flex-col gap-2 border-l-2 border-surface-secondary pl-4">
+						<Label class="text-xs">Allowed sources (exceptions)</Label>
+						<div class="text-xs text-secondary">
+							Select which deployment sources should still be allowed despite the restriction above.
+							If none are selected, all direct deployments are blocked.
+						</div>
+						<div class="flex flex-col gap-1.5 mt-1">
+							{#each ALL_DEPLOY_SOURCES as { value, label } (value)}
+								<label class="flex items-center gap-2 cursor-pointer">
+									<input
+										class="rounded max-w-4"
+										type="checkbox"
+										checked={allowedDeploySources.includes(value)}
+										onchange={() => toggleSource(value)}
+									/>
+									<span class="text-sm">{label}</span>
+								</label>
+							{/each}
+						</div>
+					</div>
+				{/if}
 			</div>
 
 			<!-- Disable Fork -->

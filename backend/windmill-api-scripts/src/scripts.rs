@@ -14,7 +14,7 @@ use windmill_api_auth::{
 use windmill_common::{
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
-    workspaces::{check_deploy_rules, RuleCheckResult},
+    workspaces::{check_deploy_rules, DeploySourceHeader, RuleCheckResult},
     DB,
 };
 use windmill_queue::schedule::clear_schedule;
@@ -571,6 +571,7 @@ async fn create_script(
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    deploy_source: DeploySourceHeader,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -578,6 +579,7 @@ async fn create_script(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -2146,6 +2148,7 @@ async fn archive_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    deploy_source: DeploySourceHeader,
 ) -> Result<()> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
@@ -2159,6 +2162,7 @@ async fn archive_script_by_path(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -2226,6 +2230,7 @@ async fn archive_script_by_hash(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
+    deploy_source: DeploySourceHeader,
 ) -> JsonResult<Script<ScriptRunnableSettingsInline>> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
@@ -2237,6 +2242,7 @@ async fn archive_script_by_hash(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -2289,6 +2295,7 @@ async fn delete_script_by_hash(
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
+    deploy_source: DeploySourceHeader,
 ) -> JsonResult<Script<ScriptRunnableSettingsInline>> {
     require_admin(authed.is_admin, &authed.username)?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -2296,6 +2303,7 @@ async fn delete_script_by_hash(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -2350,6 +2358,7 @@ async fn delete_script_by_path(
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    deploy_source: DeploySourceHeader,
     Query(query): Query<DeleteScriptQuery>,
 ) -> JsonResult<String> {
     let path = path.to_path();
@@ -2367,6 +2376,7 @@ async fn delete_script_by_path(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?
@@ -2511,6 +2521,7 @@ async fn delete_scripts_bulk(
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    deploy_source: DeploySourceHeader,
     Json(request): Json<BulkDeleteRequest>,
 ) -> JsonResult<Vec<String>> {
     for path in &request.paths {
@@ -2530,6 +2541,7 @@ async fn delete_scripts_bulk(
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
+        deploy_source.0,
         &db,
     )
     .await?

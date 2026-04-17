@@ -275,7 +275,9 @@ async function main() {
 
     const extraHeaders = getHeaders();
     if (extraHeaders) {
-      OpenAPI.HEADERS = extraHeaders;
+      OpenAPI.HEADERS = { ...extraHeaders, "X-Windmill-Deploy-Source": "cli" };
+    } else {
+      OpenAPI.HEADERS = { "X-Windmill-Deploy-Source": "cli" };
     }
     await command.parse(args);
   } catch (e) {
