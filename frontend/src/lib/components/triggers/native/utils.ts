@@ -43,7 +43,7 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 		supportsSync: true,
 		isCloudCompatible: true,
 		templates: {
-			script: '/scripts/add?hub=hub%2F28201',
+			script: '/scripts/add?hub=hub%2F28202',
 			flow: '/flows/add?hub=80'
 		}
 	}
