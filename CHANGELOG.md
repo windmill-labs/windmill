@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.687.0](https://github.com/windmill-labs/windmill/compare/v1.686.0...v1.687.0) (2026-04-17)
+
+
+### Features
+
+* add disable_password_login global setting ([#8873](https://github.com/windmill-labs/windmill/issues/8873)) ([0cfa131](https://github.com/windmill-labs/windmill/commit/0cfa131254a517331124a83ae21fbe6508a8c24f))
+* add GitHub as a native trigger service ([#8856](https://github.com/windmill-labs/windmill/issues/8856)) ([4f998cc](https://github.com/windmill-labs/windmill/commit/4f998cc231119ba0ba5224223222b1d4d5976e22))
+
+
+### Bug Fixes
+
+* default null script/flow schema to empty in bg runnable ([#8872](https://github.com/windmill-labs/windmill/issues/8872)) ([1d2d12a](https://github.com/windmill-labs/windmill/commit/1d2d12a27de5731b6bf3e4dae14025ec87b7b4b8))
+* mint fresh Google channel IDs on update/renew ([#8870](https://github.com/windmill-labs/windmill/issues/8870)) ([ad2e855](https://github.com/windmill-labs/windmill/commit/ad2e855a83c94299c6fa9f572acb7e4688346e2e))
+
 ## [1.686.0](https://github.com/windmill-labs/windmill/compare/v1.685.0...v1.686.0) (2026-04-17)
 
 
