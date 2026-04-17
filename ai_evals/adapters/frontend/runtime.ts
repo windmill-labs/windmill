@@ -101,8 +101,8 @@ async function runVitestBenchmark(
 	})
 
 	await new Promise<void>((resolve, reject) => {
-		child.once('error', reject)
-		child.once('close', (code) => {
+		child.on('error', reject)
+		child.on('close', (code) => {
 			if (stderrLineBuffer.length > 0) {
 				const {
 					remainder,
@@ -128,11 +128,6 @@ async function runVitestBenchmark(
 	})
 }
 
-function drainProgressLines(buffer: string): {
-	remainder: string
-	passthrough: string
-	nextAssistantStreamOpen: boolean
-}
 function drainProgressLines(
 	buffer: string,
 	initialAssistantStreamOpen: boolean

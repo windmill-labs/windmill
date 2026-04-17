@@ -3,18 +3,15 @@ import type { BackendValidationSettings } from "../core/backendValidation";
 import type { FrontendEvalModelConfig } from "../core/models";
 import { validateFlowState, type FlowState } from "../core/validators";
 import type { BenchmarkArtifactFile, ModeRunner } from "../core/types";
-import {
-  runFlowEval,
-  type FlowFixture,
-} from "../adapters/frontend/core/flow/flowEvalRunner";
+import { runFlowEval } from "../adapters/frontend/core/flow/flowEvalRunner";
 import type { FlowWorkspaceFixtures } from "../adapters/frontend/core/flow/fileHelpers";
 import { BackendPreviewClient } from "../adapters/frontend/backendPreview";
 import { DEFAULT_FRONTEND_EVAL_MODEL, getFrontendApiKey } from "./frontendCommon";
-
-interface FlowInitialFixture {
-  flow?: FlowFixture;
-  workspace?: FlowWorkspaceFixtures;
-}
+import {
+  normalizeFlowInitialFixture,
+  normalizeFlowStateFixture,
+  type FlowInitialFixture,
+} from "./flowFixtures";
 
 export function createFlowModeRunner(
   modelConfig: FrontendEvalModelConfig = DEFAULT_FRONTEND_EVAL_MODEL,
@@ -38,7 +35,7 @@ export function createFlowModeRunner(
     },
     async run(prompt, initial, context) {
       const result = await runFlowEval(prompt, getFrontendApiKey(modelConfig.provider), {
-        initialFlow: initial?.flow,
+        initialFlow: initial?.flowFixture,
         workspaceFixtures: initial?.workspace,
         provider: modelConfig.provider,
         model: modelConfig.model,
@@ -59,7 +56,7 @@ export function createFlowModeRunner(
     validate({ evalCase, actual, initial, expected }) {
       return validateFlowState({
         actual,
-        initial: initial?.flow,
+        initial: initial?.flowState,
         expected,
         validate: evalCase.validate,
       });
@@ -132,37 +129,6 @@ export function createFlowModeRunner(
       ];
     },
   };
-}
-
-function normalizeFlowInitialFixture(value: unknown): FlowInitialFixture {
-  if (isObject(value) && ("flow" in value || "workspace" in value)) {
-    const fixture = value as {
-      flow?: FlowFixture;
-      workspace?: FlowWorkspaceFixtures;
-    };
-    return {
-      flow: fixture.flow,
-      workspace: fixture.workspace,
-    };
-  }
-
-  return {
-    flow: normalizeFlowStateFixture(value),
-  };
-}
-
-function normalizeFlowStateFixture(value: unknown): FlowState {
-  if (!isObject(value)) {
-    return {};
-  }
-  if ("flow" in value && isObject((value as { flow?: unknown }).flow)) {
-    return (value as { flow: FlowState }).flow;
-  }
-  return value as FlowState;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function seedWorkspaceFixtures(

@@ -1162,6 +1162,7 @@ def main():
 
     script_base = read_markdown_file(base_dir / "script-base.md")
     flow_base = read_markdown_file(base_dir / "flow-base.md")
+    flow_chat_special_modules = read_markdown_file(base_dir / "flow-chat-special-modules.md")
 
     # Read language files
     languages = {}
@@ -1212,6 +1213,7 @@ def main():
         # Base prompts
         'SCRIPT_BASE': script_base,
         'FLOW_BASE': flow_base,
+        'FLOW_CHAT_SPECIAL_MODULES': flow_chat_special_modules,
 
         # SDKs
         'SDK_TYPESCRIPT': ts_sdk_md,

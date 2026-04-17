@@ -1,7 +1,6 @@
 import { mkdir, rm, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import type { ScriptLang } from '../../../../../frontend/src/lib/gen/types.gen'
-import type { ReviewChangesOpts } from '../../../../../frontend/src/lib/components/copilot/chat/monaco-adapter'
 import type { ScriptChatHelpers } from '../../../../../frontend/src/lib/components/copilot/chat/script/core'
 import { buildScriptLintResult } from './preview'
 import { registerBenchmarkWorkspace, unregisterBenchmarkWorkspace } from '../../mockBackend'
@@ -39,6 +38,23 @@ export async function createScriptFileHelpers(
 		registerBenchmarkWorkspace(workspaceRoot)
 	}
 
+	const applyCode: NonNullable<ScriptChatHelpers['applyCode']> = async (
+		code,
+		opts
+	) => {
+		if (opts?.mode === 'revert') {
+			return
+		}
+		script = {
+			...script,
+			code
+		}
+		await persistScript()
+	}
+
+	const getLintErrors: NonNullable<ScriptChatHelpers['getLintErrors']> = () =>
+		buildScriptLintResult(script.code, script.lang)
+
 	const helpers: ScriptChatHelpers = {
 		getScriptOptions: () => ({
 			code: script.code,
@@ -46,17 +62,8 @@ export async function createScriptFileHelpers(
 			path: script.path,
 			args: structuredClone(script.args)
 		}),
-		applyCode: async (code: string, opts?: ReviewChangesOpts) => {
-			if (opts?.mode === 'revert') {
-				return
-			}
-			script = {
-				...script,
-				code
-			}
-			await persistScript()
-		},
-		getLintErrors: () => buildScriptLintResult(script.code, script.lang)
+		applyCode,
+		getLintErrors
 	}
 
 	return {

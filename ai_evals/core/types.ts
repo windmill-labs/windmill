@@ -16,6 +16,39 @@ export interface FlowValidationSpec {
   schemaAnyOf?: Array<{
     requiredPaths: string[];
   }>;
+  exactTopLevelStepIds?: string[];
+  topLevelStepIds?: string[];
+  topLevelStepOrder?: string[];
+  topLevelStepTypeCountsAtLeast?: Array<{
+    type: string;
+    count: number;
+  }>;
+  topLevelStepTypes?: Array<{
+    id: string;
+    type: string;
+  }>;
+  moduleRules?: Array<{
+    id: string;
+    hasStopAfterIf?: boolean;
+    hasStopAfterAllItersIf?: boolean;
+    immediateChildStepIds?: string[];
+    exactImmediateChildStepIds?: string[];
+    immediateChildStepTypes?: Array<{
+      id: string;
+      type: string;
+    }>;
+    requiredInputTransforms?: Array<{
+      type?: string;
+      expr?: string;
+      exprAnyOf?: string[];
+      value?: string | number | boolean | null;
+    }>;
+  }>;
+  moduleFieldRules?: Array<{
+    id: string;
+    path: string;
+    equals: string | number | boolean | null;
+  }>;
   resolveResultsRefs?: boolean;
   requireSpecialModules?: Array<"preprocessor_module" | "failure_module">;
   requireSuspendSteps?: Array<{
@@ -85,6 +118,7 @@ export interface ModeRunContext {
   onAssistantMessageStart?: () => void;
   onAssistantChunk?: (chunk: string) => void;
   onAssistantMessageEnd?: () => void;
+  onToolCall?: (input: { toolName: string; argumentsText: string }) => void;
 }
 
 export interface ModeRunner<TInitial, TExpected, TActual> {
@@ -219,4 +253,15 @@ export type FrontendBenchmarkProgressEvent =
       totalCases: number;
       attempt: number;
       runs: number;
+    }
+  | {
+      type: "tool-call";
+      surface: Exclude<EvalMode, "cli">;
+      caseId: string;
+      caseNumber: number;
+      totalCases: number;
+      attempt: number;
+      runs: number;
+      toolName: string;
+      argumentsText: string;
     };
