@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO asset_trigger ( workspace_id, path, script_path, is_flow, owner_script_path, owner_script_hash, is_implicit, on_event, subscription_set, fires, debounce_s, partition_map, cancel_on_new, backlog, edited_by, email ) VALUES ( $1, $2, $3, false, $3, $4, true, $5, $6, $7, $8, $9, $10, $11, $12, $13 )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Varchar",
+        "Jsonb",
+        "Varchar",
+        "Int4",
+        "Jsonb",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e3d9b2bd73f1864255d27df33f2bdafbc126b6261c0046358022a345c4c8cb34"
+}

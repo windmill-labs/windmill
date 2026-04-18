@@ -1161,6 +1161,13 @@ async fn create_script_internal<'c>(
                     "Error updating triggers due to runnable path change: {e:#}"
                 ))
             })?;
+            windmill_common::implicit_triggers::rename_implicit_asset_triggers_for_script(
+                &mut tx, &w_id, p_path, &ns.path,
+            )
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!("Error renaming implicit asset triggers: {e:#}"))
+            })?;
         }
 
         for schedule in schedulables {
@@ -1276,6 +1283,19 @@ async fn create_script_internal<'c>(
         insert_static_asset_usage(&mut *tx, &w_id, &asset, &ns.path, AssetUsageKind::Script)
             .await?;
     }
+
+    windmill_common::implicit_triggers::sync_implicit_asset_triggers_for_script(
+        &mut tx,
+        &w_id,
+        &ns.path,
+        hash.0,
+        ns.language,
+        &ns.content,
+        ns.assets.as_deref().unwrap_or(&[]),
+        &authed.email,
+        &authed.username,
+    )
+    .await?;
 
     let permissioned_as = username_to_permissioned_as(&authed.username);
     if let Some(parent_hash) = ns.parent_hash {
@@ -2179,6 +2199,10 @@ async fn archive_script_by_path(
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
     clear_static_asset_usage(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    windmill_common::implicit_triggers::delete_implicit_asset_triggers_for_script(
+        &mut tx, &w_id, path,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -2414,6 +2438,11 @@ async fn delete_script_by_path(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?;
+
+    windmill_common::implicit_triggers::delete_implicit_asset_triggers_for_script(
+        &mut tx, &w_id, path,
+    )
+    .await?;
 
     if !trash_scripts.is_empty() {
         let mut trash_data = serde_json::json!({"scripts": trash_scripts});

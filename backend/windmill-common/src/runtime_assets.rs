@@ -69,6 +69,9 @@ pub struct InsertRuntimeAssetParams {
     pub access_type: Option<AssetUsageAccessType>,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
     pub columns: Option<BTreeMap<String, AssetUsageAccessType>>,
+    // Forward-compatibility fields for asset-change triggers (v1 unused: partitioning lands in stage 8).
+    pub partition_key: Option<String>,
+    pub script_hash: Option<i64>,
 }
 
 async fn insert_runtime_assets(
@@ -88,6 +91,57 @@ async fn insert_runtime_assets(
                 .push_bind(&asset.created_at);
         });
         query_builder.push(" ON CONFLICT DO NOTHING");
+        query_builder.build().execute(executor).await?;
+    }
+    insert_asset_events(executor, assets).await?;
+    Ok(())
+}
+
+/// Append rows to `asset_event` for every write/read-write asset access,
+/// and pg_notify on channel `asset_event` so the asset-trigger dispatcher
+/// can react in near-real-time. No-op for read-only accesses.
+async fn insert_asset_events(
+    executor: &Pool<Postgres>,
+    assets: &[InsertRuntimeAssetParams],
+) -> error::Result<()> {
+    let write_assets: Vec<&InsertRuntimeAssetParams> = assets
+        .iter()
+        .filter(|a| {
+            matches!(
+                a.access_type,
+                Some(AssetUsageAccessType::W) | Some(AssetUsageAccessType::RW)
+            )
+        })
+        .collect();
+    if write_assets.is_empty() {
+        return Ok(());
+    }
+    for chunk in write_assets.chunks(1000) {
+        let mut query_builder = QueryBuilder::new(
+            "WITH inserted AS (INSERT INTO asset_event \
+             (workspace_id, asset_kind, asset_path, partition_key, job_id, script_hash, access_type, columns, at) ",
+        );
+        query_builder.push_values(chunk, |mut b, asset| {
+            b.push_bind(&asset.workspace_id)
+                .push_bind(&asset.asset_kind)
+                .push_bind(&asset.asset_path)
+                .push_bind(&asset.partition_key)
+                .push_bind(asset.job_id)
+                .push_bind(&asset.script_hash)
+                .push_bind(asset.access_type.expect("filtered above"))
+                .push_bind(Json(&asset.columns))
+                .push_bind(asset.created_at.unwrap_or_else(chrono::Utc::now));
+        });
+        query_builder.push(
+            " RETURNING id, workspace_id, asset_kind::text AS asset_kind, asset_path, partition_key) \
+             SELECT pg_notify('asset_event', json_build_object( \
+                'id', id, \
+                'workspace_id', workspace_id, \
+                'asset_kind', asset_kind, \
+                'asset_path', asset_path, \
+                'partition_key', partition_key \
+             )::text) FROM inserted",
+        );
         query_builder.build().execute(executor).await?;
     }
     Ok(())

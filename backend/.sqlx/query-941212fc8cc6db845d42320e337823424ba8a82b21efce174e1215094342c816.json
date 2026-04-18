@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT owner_script_path FROM asset_trigger WHERE workspace_id = $1 AND path = $2 AND is_implicit = true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owner_script_path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "941212fc8cc6db845d42320e337823424ba8a82b21efce174e1215094342c816"
+}
