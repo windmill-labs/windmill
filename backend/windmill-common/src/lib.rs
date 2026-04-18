@@ -34,6 +34,7 @@ pub mod ai_google;
 pub mod ai_providers;
 pub mod ai_types;
 pub mod apps;
+pub mod asset_dispatcher;
 pub mod assets;
 pub mod audit;
 pub mod auth;

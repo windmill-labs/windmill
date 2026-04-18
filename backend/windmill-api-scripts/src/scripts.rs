@@ -999,6 +999,22 @@ async fn create_script_internal<'c>(
         )
     };
 
+    // Stage 5 validation: reject asset-triggered scripts whose signature has
+    // required args outside the reserved dispatcher set, so the script can
+    // actually be run by a reactive fire.
+    {
+        let asset_annotations = windmill_common::trigger_annotations::parse_trigger_annotations(
+            &ns.content,
+            ns.language,
+        )
+        .map_err(|e| Error::BadRequest(e.to_string()))?;
+        if !asset_annotations.is_empty() {
+            let schema_raw = ns.schema.as_ref().map(|s| &**s.0.as_ref());
+            windmill_common::implicit_triggers::validate_asset_triggered_script_schema(schema_raw)
+                .map_err(Error::BadRequest)?;
+        }
+    }
+
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \

@@ -26,6 +26,49 @@ use crate::{
 /// work unchanged (`SPLIT_PART(path, '/', 1)` — 'u' / 'f' / 'g').
 pub const IMPLICIT_TRIGGER_PATH_SUFFIX: &str = "/__asset_trigger__";
 
+/// Reserved argument names that asset-triggered scripts may receive from
+/// the dispatcher. When a `#trigger: asset` annotation is present, any
+/// *other* required-without-default arg makes the script un-fillable and
+/// is rejected at save time (stage 5).
+pub const RESERVED_ARG_NAMES: &[&str] = &["wm_asset_event", "wm_partition", "wm_backfill"];
+
+/// Validate that an asset-triggered script's schema has no required args
+/// outside the reserved set. Schema follows the JSON-Schema convention
+/// used everywhere else in Windmill: `required: [name,...]` plus
+/// `properties: { name: { default?: ... } }`.
+///
+/// Returns `Err` with a user-facing message on the first offending arg.
+pub fn validate_asset_triggered_script_schema(
+    schema: Option<&serde_json::value::RawValue>,
+) -> std::result::Result<(), String> {
+    let Some(raw) = schema else { return Ok(()) };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(raw.get()) else {
+        return Ok(());
+    };
+    let Some(required) = parsed.get("required").and_then(|v| v.as_array()) else {
+        return Ok(());
+    };
+    let properties = parsed.get("properties").and_then(|v| v.as_object());
+    for arg in required {
+        let Some(name) = arg.as_str() else { continue };
+        if RESERVED_ARG_NAMES.contains(&name) {
+            continue;
+        }
+        let has_default = properties
+            .and_then(|p| p.get(name))
+            .and_then(|v| v.as_object())
+            .map(|obj| obj.contains_key("default"))
+            .unwrap_or(false);
+        if !has_default {
+            return Err(format!(
+                "Script has required parameter `{name}` but is asset-triggered. \
+                 Give it a default, make it optional, or remove the asset trigger annotation."
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub fn implicit_trigger_path(script_path: &str) -> String {
     format!("{script_path}{IMPLICIT_TRIGGER_PATH_SUFFIX}")
 }
