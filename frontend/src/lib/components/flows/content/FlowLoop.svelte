@@ -246,9 +246,13 @@
 											: ''
 									},
 									(value) => {
-										;(mod.value as ForloopFlow).parallelism = {
-											type: 'static',
-											value
+										if (value === '' || value === null || value === undefined) {
+											;(mod.value as ForloopFlow).parallelism = undefined
+										} else {
+											;(mod.value as ForloopFlow).parallelism = {
+												type: 'static',
+												value
+											}
 										}
 									}
 								}
