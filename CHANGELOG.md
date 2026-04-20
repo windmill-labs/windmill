@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.688.0](https://github.com/windmill-labs/windmill/compare/v1.687.0...v1.688.0) (2026-04-20)
+
+
+### Features
+
+* add homepage connect drawer ([#8880](https://github.com/windmill-labs/windmill/issues/8880)) ([f35e10c](https://github.com/windmill-labs/windmill/commit/f35e10cc0aed86e5230db5786ad1d6d33bb37b94))
+* improve app evals and localized app edits ([#8863](https://github.com/windmill-labs/windmill/issues/8863)) ([46b2915](https://github.com/windmill-labs/windmill/commit/46b2915a9d6350452d1f43ef108e7925b7f879e0))
+
+
+### Bug Fixes
+
+* batch cancel dropping jobs from other workspaces ([#8887](https://github.com/windmill-labs/windmill/issues/8887)) ([10d1a93](https://github.com/windmill-labs/windmill/commit/10d1a932d50044bedfd3c837c7980d68df49bbe6))
+* log boolean predicate eval errors to root flow logs ([#8885](https://github.com/windmill-labs/windmill/issues/8885)) ([94f27af](https://github.com/windmill-labs/windmill/commit/94f27af838294bc76bac57fcd1784a21675aec1c))
+* populate wmill.d.ts schemas in wmill app dev ([#8882](https://github.com/windmill-labs/windmill/issues/8882)) ([12c08cc](https://github.com/windmill-labs/windmill/commit/12c08cc95c2aedbcad50fe0e6392b30fd8438e49))
+* use POST for oidc token request in authed client ([#8883](https://github.com/windmill-labs/windmill/issues/8883)) ([71c4212](https://github.com/windmill-labs/windmill/commit/71c4212a903870357ff62bf90343a2fa0aeaac79))
+
+
+### Performance Improvements
+
+* speed up mssql s3 ingest and add phase logs to job output ([#8884](https://github.com/windmill-labs/windmill/issues/8884)) ([43a6b57](https://github.com/windmill-labs/windmill/commit/43a6b575817ebe386299c022b9bbb5f3e92ccffe))
+
 ## [1.687.0](https://github.com/windmill-labs/windmill/compare/v1.686.0...v1.687.0) (2026-04-17)
 
 
