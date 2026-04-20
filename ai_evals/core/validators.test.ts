@@ -125,7 +125,7 @@ describe("validateAppState", () => {
     expect(checks.every((check) => check.passed)).toBe(true);
   });
 
-  it("fails validation when frontend static analysis finds broken backend wiring", () => {
+  it("fails validation when frontend references a missing backend runnable", () => {
     const checks = validateAppState({
       actual: {
         frontend: {
@@ -147,7 +147,7 @@ describe("validateAppState", () => {
     });
 
     expect(checks).toContainEqual({
-      name: "frontend files have no static analysis errors",
+      name: "frontend backend references resolve",
       passed: false,
       details: expect.stringContaining("deleteRecipe"),
     });
