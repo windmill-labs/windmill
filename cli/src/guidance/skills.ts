@@ -5253,7 +5253,7 @@ wmill sync push
 `,
   "cli-commands": `---
 name: cli-commands
-description: MUST use when using the CLI.
+description: MUST use when using the CLI, including debugging job failures and inspecting run history via \`wmill job\`.
 ---
 
 # Windmill CLI Commands
