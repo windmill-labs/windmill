@@ -20,6 +20,7 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_assets))
         .route("/list_by_usages", post(list_assets_by_usages))
         .route("/list_favorites", get(list_favorites))
+        .route("/graph", get(asset_graph))
 }
 
 #[derive(Deserialize)]
@@ -362,4 +363,122 @@ async fn list_favorites(
     .await?;
 
     Ok(Json(favorites))
+}
+
+// ------------------------------------------------------------------
+// GET /w/:workspace/assets/graph
+// ------------------------------------------------------------------
+// Workspace-wide asset ↔ runnable graph. One row per unique
+// (asset_kind, asset_path, usage_kind, usage_path, access_type) — the
+// frontend aggregates into nodes and edges.
+
+#[derive(Deserialize)]
+struct GraphQuery {
+    pub asset_kinds: Option<String>,
+    pub folder: Option<String>,
+}
+
+#[derive(Serialize, Debug)]
+struct GraphAssetNode {
+    kind: AssetKind,
+    path: String,
+}
+
+#[derive(Serialize, Debug)]
+struct GraphRunnableNode {
+    path: String,
+    usage_kind: AssetUsageKind,
+}
+
+#[derive(Serialize, Debug)]
+struct GraphEdge {
+    runnable_path: String,
+    runnable_kind: AssetUsageKind,
+    asset_kind: AssetKind,
+    asset_path: String,
+    access_type: Option<String>,
+}
+
+#[derive(Serialize, Debug)]
+struct AssetGraphResponse {
+    assets: Vec<GraphAssetNode>,
+    runnables: Vec<GraphRunnableNode>,
+    edges: Vec<GraphEdge>,
+}
+
+async fn asset_graph(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+    Query(q): Query<GraphQuery>,
+) -> JsonResult<AssetGraphResponse> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let kind_filter: Option<Vec<AssetKind>> = q.asset_kinds.as_ref().map(|s| {
+        s.split(',')
+            .filter_map(|k| {
+                serde_json::from_value::<AssetKind>(Value::String(k.trim().into())).ok()
+            })
+            .collect()
+    });
+    let kind_filter_ref = kind_filter.as_deref();
+
+    let folder_filter = q.folder.as_deref().map(|f| format!("f/{}/%", f));
+
+    // One row per (asset_kind, asset_path, usage_kind, usage_path, access_type).
+    // The `usage_kind IN ('script','flow')` clause excludes `job`-kind usage rows
+    // (runtime-detected, ephemeral) so the graph stays stable.
+    let rows = sqlx::query!(
+        r#"
+        SELECT
+            asset.kind        AS "asset_kind!: AssetKind",
+            asset.path        AS "asset_path!",
+            asset.usage_kind  AS "usage_kind!: AssetUsageKind",
+            asset.usage_path  AS "usage_path!",
+            asset.usage_access_type::text AS "access_type"
+        FROM asset
+        WHERE asset.workspace_id = $1
+          AND asset.usage_kind IN ('script', 'flow')
+          AND ($2::asset_kind[] IS NULL OR asset.kind = ANY($2))
+          AND ($3::text IS NULL OR asset.usage_path LIKE $3)
+        GROUP BY asset.kind, asset.path, asset.usage_kind, asset.usage_path, asset.usage_access_type
+        "#,
+        &w_id,
+        kind_filter_ref as Option<&[AssetKind]>,
+        folder_filter.as_deref(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    let mut edges = Vec::with_capacity(rows.len());
+    let mut asset_set: std::collections::HashSet<(AssetKind, String)> = Default::default();
+    let mut runnable_set: std::collections::HashSet<(AssetUsageKind, String)> = Default::default();
+
+    for r in rows {
+        asset_set.insert((r.asset_kind, r.asset_path.clone()));
+        runnable_set.insert((r.usage_kind, r.usage_path.clone()));
+        edges.push(GraphEdge {
+            runnable_path: r.usage_path,
+            runnable_kind: r.usage_kind,
+            asset_kind: r.asset_kind,
+            asset_path: r.asset_path,
+            access_type: r.access_type,
+        });
+    }
+
+    let mut assets: Vec<GraphAssetNode> = asset_set
+        .into_iter()
+        .map(|(kind, path)| GraphAssetNode { kind, path })
+        .collect();
+    assets.sort_by(|a, b| a.path.cmp(&b.path));
+
+    let mut runnables: Vec<GraphRunnableNode> = runnable_set
+        .into_iter()
+        .map(|(usage_kind, path)| GraphRunnableNode { path, usage_kind })
+        .collect();
+    runnables.sort_by(|a, b| a.path.cmp(&b.path));
+
+    Ok(Json(AssetGraphResponse { assets, runnables, edges }))
 }

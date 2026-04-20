@@ -106,6 +106,14 @@
 
 	let forceJson = $state(false)
 	let isWac = $derived(!!previewJob?.workflow_as_code_status)
+	// Hide the tab strip when only the "Logs & Result" tab would render —
+	// avoids a single-item bar in embedded contexts (e.g. asset graph pane).
+	let visibleTabCount = $derived(
+		1 +
+			(customUi?.disableHistory !== true ? 1 : 0) +
+			(showCaptures && customUi?.disableTriggerCaptures !== true ? 1 : 0) +
+			(customUi?.disableTracing !== true ? 1 : 0)
+	)
 	let wacDone = $derived(
 		previewJob?.type == 'CompletedJob' ||
 			(previewJob != undefined && !previewIsLoading && !!previewJob.workflow_as_code_status)
@@ -134,7 +142,11 @@
 	</DrawerContent>
 </Drawer>
 <div class="h-full flex flex-col">
-	<Tabs bind:selected={selectedTab} class="pt-1" wrapperClass="flex-none">
+	<Tabs
+		bind:selected={selectedTab}
+		class="pt-1"
+		wrapperClass={visibleTabCount > 1 ? 'flex-none' : 'hidden'}
+	>
 		<Tab value="logs" label="Logs & Result" />
 		{#if customUi?.disableHistory !== true}
 			<Tab value="history" label="History" />
