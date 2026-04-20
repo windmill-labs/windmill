@@ -34,6 +34,8 @@ import {
 } from "./raw_apps.ts";
 import { replaceInlineScripts, AppFile as NormalAppFile } from "./app.ts";
 import {
+  EXTENSION_TO_LANGUAGE,
+  getLanguageFromExtension,
   newPathAssigner,
   newRawAppPathAssigner,
   SupportedLanguage,
@@ -788,9 +790,11 @@ export interface InferredSchemaResult {
  */
 export async function inferRunnableSchemaFromFile(
   appFolder: string,
-  runnableFilePath: string
+  runnableFilePath: string,
+  defaultTs: "bun" | "deno" = "bun",
 ): Promise<InferredSchemaResult | undefined> {
-  // Extract runnable ID from file path (e.g., "myRunnable.ts" -> "myRunnable")
+  // Extract runnable ID from file path (e.g., "myRunnable.ts" -> "myRunnable",
+  // "fetch_data.bun.ts" -> "fetch_data")
   const fileName = path.basename(runnableFilePath);
 
   // Skip lock files and yaml files (runnable metadata)
@@ -798,13 +802,22 @@ export async function inferRunnableSchemaFromFile(
     return undefined;
   }
 
-  // Match pattern: {runnableId}.{ext} - extract the runnable ID (everything before the last dot)
-  const match = fileName.match(/^(.+)\.[^.]+$/);
-  if (!match) {
+  // Match the longest known extension so compound extensions like "bun.ts" or
+  // "pg.sql" win over the trailing single-segment extension.
+  let runnableId: string | undefined;
+  let ext: string | undefined;
+  for (const knownExt of Object.keys(EXTENSION_TO_LANGUAGE)) {
+    if (
+      fileName.endsWith("." + knownExt) &&
+      (!ext || knownExt.length > ext.length)
+    ) {
+      ext = knownExt;
+      runnableId = fileName.slice(0, -(knownExt.length + 1));
+    }
+  }
+  if (!runnableId || !ext) {
     return undefined;
   }
-
-  const runnableId = match[1];
 
   // Read the runnable from its separate YAML file (new format)
   const runnableFilePath2 = path.join(
@@ -829,20 +842,40 @@ export async function inferRunnableSchemaFromFile(
       }
       runnable = appFile.runnables[runnableId];
     } catch {
-      log.warn(
-        colors.yellow(`Could not read runnable ${runnableId} from any source`)
-      );
-      return undefined;
+      // No YAML at all - in the new backend-folder format a code-only runnable
+      // (no .yaml sibling) is treated as inline. We can still infer its schema.
+      runnable = { type: "inline" };
     }
   }
 
-  // Only process inline scripts
-  if (!runnable?.inlineScript) {
+  // Determine language and current schema. Two cases:
+  // - Old format: the YAML carries an `inlineScript` block with language + schema
+  // - New format: the YAML only declares `type: inline` and the language is
+  //   derived from the code file's extension (the inlineScript is reconstructed
+  //   from sibling files at load time).
+  let language: SupportedLanguage | undefined;
+  let currentSchema: any;
+  if (runnable?.inlineScript) {
+    language = runnable.inlineScript.language as SupportedLanguage;
+    currentSchema = runnable.inlineScript.schema;
+  } else if (
+    runnable?.type === "inline" ||
+    runnable?.type === "runnableByName"
+  ) {
+    language = getLanguageFromExtension(ext, defaultTs);
+  } else {
+    // Path-based runnable or unknown type - schema lives at the script/flow path
     return undefined;
   }
 
-  const inlineScript = runnable.inlineScript;
-  const language = inlineScript.language as SupportedLanguage;
+  if (!language) {
+    log.warn(
+      colors.yellow(
+        `Could not determine language for ${runnableId} (ext: ${ext})`
+      )
+    );
+    return undefined;
+  }
 
   // Read the actual content from the file
   const fullFilePath = path.join(
@@ -858,8 +891,6 @@ export async function inferRunnableSchemaFromFile(
     return undefined;
   }
 
-  // Infer schema from script content
-  const currentSchema = inlineScript.schema;
   const remotePath = appFolder.replaceAll(SEP, "/");
 
   try {
