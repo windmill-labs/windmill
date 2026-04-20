@@ -607,7 +607,7 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                         let id_ctx = get_id_ctx_for_expr(expr, flow, db, &old_status).await?;
 
-                        compute_bool_from_expr(
+                        match compute_bool_from_expr(
                             &expr,
                             Marc::new(args),
                             None,
@@ -618,7 +618,23 @@ pub async fn update_flow_status_after_job_completion_internal(
                             None,
                             None,
                         )
-                        .await?
+                        .await
+                        {
+                            Ok(v) => v,
+                            Err(e) => {
+                                append_predicate_error_to_root_logs(
+                                    db,
+                                    fetch_root_flow_id(db, flow).await,
+                                    w_id,
+                                    Some(&current_module.id),
+                                    "stop_after_if",
+                                    expr,
+                                    &e,
+                                )
+                                .await;
+                                return Err(e);
+                            }
+                        }
                     } else {
                         false
                     };
@@ -2256,6 +2272,42 @@ async fn compute_bool_from_expr(
     }
 }
 
+// Appends a predicate-evaluation error to the root flow job's logs so users can
+// see which boolean expression failed even when the failure is masked further up
+// the flow tree (e.g. by `skip_failures: true` on a surrounding forloop).
+async fn append_predicate_error_to_root_logs(
+    db: &DB,
+    root_flow_id: Uuid,
+    workspace_id: &str,
+    module_id: Option<&str>,
+    predicate: &str,
+    expr: &str,
+    err: &Error,
+) {
+    let module_part = module_id
+        .map(|id| format!(" of module '{id}'"))
+        .unwrap_or_default();
+    let log = format!("Error evaluating {predicate}{module_part} expression `{expr}`: {err:#}\n");
+    append_logs(&root_flow_id, workspace_id, log, &db.into()).await;
+}
+
+fn root_flow_id_for(flow_job: &MiniPulledJob) -> Uuid {
+    flow_job.flow_innermost_root_job.unwrap_or(flow_job.id)
+}
+
+async fn fetch_root_flow_id(db: &DB, flow_id: Uuid) -> Uuid {
+    sqlx::query_scalar!(
+        "SELECT flow_innermost_root_job FROM v2_job WHERE id = $1",
+        flow_id
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .flatten()
+    .unwrap_or(flow_id)
+}
+
 struct FailureContext {
     started_at: Arc<Box<RawValue>>,
     flow_job_id: Uuid,
@@ -2757,7 +2809,7 @@ async fn push_next_flow_job(
             }
         }
         if let Some(skip_expr) = &flow.skip_expr {
-            let skip = compute_bool_from_expr(
+            let skip = match compute_bool_from_expr(
                 &skip_expr,
                 arc_flow_job_args.clone(),
                 flow_env,
@@ -2772,7 +2824,23 @@ async fn push_next_flow_job(
                 )]),
             )
             .warn_after_seconds(3)
-            .await?;
+            .await
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    append_predicate_error_to_root_logs(
+                        db,
+                        root_flow_id_for(&flow_job),
+                        &flow_job.workspace_id,
+                        None,
+                        "flow skip_expr",
+                        skip_expr,
+                        &e,
+                    )
+                    .await;
+                    return Err(e);
+                }
+            };
             if skip {
                 return Ok(PushNextFlowJob::Done(Some(UpdateFlow {
                     flow: flow_job.id,
@@ -3269,7 +3337,7 @@ async fn push_next_flow_job(
 
     let is_skipped = if let Some(skip_if) = &module.skip_if {
         let idcontext = get_transform_context(&flow_job, previous_id.as_str(), &status);
-        compute_bool_from_expr(
+        match compute_bool_from_expr(
             &skip_if.expr,
             arc_flow_job_args.clone(),
             flow_env,
@@ -3281,7 +3349,23 @@ async fn push_next_flow_job(
             None,
         )
         .warn_after_seconds(3)
-        .await?
+        .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                append_predicate_error_to_root_logs(
+                    db,
+                    root_flow_id_for(&flow_job),
+                    &flow_job.workspace_id,
+                    Some(&module.id),
+                    "skip_if",
+                    &skip_if.expr,
+                    &e,
+                )
+                .await;
+                return Err(e);
+            }
+        }
     } else {
         false
     };
@@ -4719,7 +4803,7 @@ async fn compute_next_flow_transform(
                     let mut branch_chosen = BranchChosen::Default;
                     let idcontext = get_transform_context(&flow_job, previous_id, &status);
                     for (i, b) in branches.iter().enumerate() {
-                        let pred = compute_bool_from_expr(
+                        let pred = match compute_bool_from_expr(
                             &b.expr,
                             arc_flow_job_args.clone(),
                             flow_env,
@@ -4730,7 +4814,23 @@ async fn compute_next_flow_transform(
                             Some((resumes.clone(), resume.clone(), approvers.clone())),
                             None,
                         )
-                        .await?;
+                        .await
+                        {
+                            Ok(v) => v,
+                            Err(e) => {
+                                append_predicate_error_to_root_logs(
+                                    db,
+                                    root_flow_id_for(flow_job),
+                                    &flow_job.workspace_id,
+                                    Some(&module.id),
+                                    &format!("branchone branch {i}"),
+                                    &b.expr,
+                                    &e,
+                                )
+                                .await;
+                                return Err(e);
+                            }
+                        };
 
                         if pred {
                             branch_chosen = BranchChosen::Branch { branch: i };
