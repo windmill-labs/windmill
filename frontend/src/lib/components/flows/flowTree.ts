@@ -222,9 +222,7 @@ export function collectAllFlowModuleIds(flow: FlowModuleTree): string[] {
 					walkModules(branch.modules)
 				}
 			} else if (module.value.type === 'aiagent' && module.value.tools) {
-				for (const tool of module.value.tools as FlowModule[]) {
-					ids.push(tool.id)
-				}
+				walkModules(module.value.tools as FlowModule[])
 			}
 		}
 	}
