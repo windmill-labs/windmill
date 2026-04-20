@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readFile, mkdir } from "node:fs/promises";
+import { readFile, mkdir, readdir } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
@@ -914,6 +914,48 @@ export async function inferRunnableSchemaFromFile(
     );
     return undefined;
   }
+}
+
+/**
+ * Infers schemas for every inline runnable code file in the app's backend
+ * folder. Used at `wmill app dev` startup so the initial wmill.d.ts has typed
+ * args without waiting for a file change to trigger the watcher.
+ *
+ * Returns a map of runnableId -> schema. Files that fail inference or are not
+ * inline runnables are silently skipped - their entries will fall back to
+ * `args: {}` in the generated d.ts.
+ */
+export async function inferAllInlineSchemas(
+  appFolder: string,
+  defaultTs: "bun" | "deno" = "bun",
+): Promise<Record<string, any>> {
+  const schemas: Record<string, any> = {};
+  const backendPath = path.join(appFolder, APP_BACKEND_FOLDER);
+
+  let entries: Array<{ name: string; isFile: () => boolean }>;
+  try {
+    entries = await readdir(backendPath, { withFileTypes: true });
+  } catch {
+    // No backend folder (e.g. old-format app using raw_app.yaml only)
+    return schemas;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const fileName = entry.name;
+    if (fileName.endsWith(".yaml") || fileName.endsWith(".lock")) continue;
+
+    const result = await inferRunnableSchemaFromFile(
+      appFolder,
+      fileName,
+      defaultTs,
+    );
+    if (result) {
+      schemas[result.runnableId] = result.schema;
+    }
+  }
+
+  return schemas;
 }
 
 export function getAppFolders(elems: Record<string, any>, extension: string) {

@@ -23,6 +23,7 @@ import * as os from "node:os";
 import { loadRunnablesFromBackend } from "../src/commands/app/raw_apps.ts";
 import {
   APP_BACKEND_FOLDER,
+  inferAllInlineSchemas,
   inferRunnableSchemaFromFile,
 } from "../src/commands/app/app_metadata.ts";
 import { buildWmillTs } from "../src/commands/app/dev.ts";
@@ -209,5 +210,75 @@ describe("inferRunnableSchemaFromFile (regression: new backend-folder format)", 
     expect(result!.runnableId).toBe("tagged");
     const props = result!.schema.properties as Record<string, any>;
     expect(props.value.type).toBe("string");
+  });
+});
+
+describe("inferAllInlineSchemas (startup seed for wmill.d.ts)", () => {
+  test("seeds schemas for every inline code file in the backend folder", async () => {
+    fs.writeFileSync(
+      path.join(backendDir, "alpha.yaml"),
+      "type: inline\nfields: {}\n",
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(backendDir, "alpha.ts"),
+      "export async function main(a: string, b: number) {\n  return { a, b };\n}\n",
+      "utf-8",
+    );
+
+    // Code-only (no YAML) - auto-detected as inline by loadRunnablesFromBackend
+    fs.writeFileSync(
+      path.join(backendDir, "beta.bun.ts"),
+      "export async function main(flag: boolean) {\n  return flag;\n}\n",
+      "utf-8",
+    );
+
+    // Path-based runnable - schema lives remotely, must be skipped here
+    fs.writeFileSync(
+      path.join(backendDir, "gamma.yaml"),
+      "type: script\npath: u/admin/gamma\nfields: {}\n",
+      "utf-8",
+    );
+
+    const seeded = await inferAllInlineSchemas(tempDir);
+
+    expect(Object.keys(seeded).sort()).toEqual(["alpha", "beta"]);
+    expect(seeded.alpha.properties.a.type).toBe("string");
+    expect(seeded.alpha.properties.b.type).toBe("number");
+    expect(seeded.beta.properties.flag.type).toBe("boolean");
+    expect(seeded.gamma).toBeUndefined();
+  });
+
+  test("returns empty map when backend folder is missing", async () => {
+    fs.rmSync(backendDir, { recursive: true });
+    const seeded = await inferAllInlineSchemas(tempDir);
+    expect(seeded).toEqual({});
+  });
+
+  test("e2e: initial wmill.d.ts has typed args without any file edits", async () => {
+    fs.writeFileSync(
+      path.join(backendDir, "greet.yaml"),
+      "type: inline\nfields: {}\n",
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(backendDir, "greet.ts"),
+      "export async function main(name: string, times: number) {\n" +
+        "  return Array(times).fill(`hi ${name}`);\n" +
+        "}\n",
+      "utf-8",
+    );
+
+    // Mirror the dev-server startup pipeline: seed schemas, then render.
+    const seeded = await inferAllInlineSchemas(tempDir);
+    const runnables = await loadRunnablesFromBackend(backendDir);
+    const ts = buildWmillTs(runnables, seeded);
+
+    // Without the startup seed this would render as `greet: (args: {}) => ...`
+    // because inferredSchemas would be empty until the watcher fires.
+    expect(ts).toMatch(/greet:\s*\(args:\s*\{[^}]*name/);
+    expect(ts).toContain("name");
+    expect(ts).toContain("times");
+    expect(ts).not.toMatch(/greet:\s*\(args:\s*\{\s*\}\)/);
   });
 });

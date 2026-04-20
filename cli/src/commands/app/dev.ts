@@ -30,6 +30,7 @@ import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { Runnable } from "./metadata.ts";
 import {
   APP_BACKEND_FOLDER,
+  inferAllInlineSchemas,
   inferRunnableSchemaFromFile,
 } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
@@ -417,7 +418,19 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
   // In-memory cache of inferred schemas (runnableId -> schema)
   // Used to generate wmill.d.ts without modifying raw_app.yaml
+  // Seed with schemas inferred from every inline code file in the backend folder
+  // so the initial wmill.d.ts already has typed args (without waiting for a file
+  // change to trigger the watcher).
   const inferredSchemas: Record<string, any> = {};
+  try {
+    Object.assign(inferredSchemas, await inferAllInlineSchemas(process.cwd()));
+  } catch (err: any) {
+    log.warn(
+      colors.yellow(
+        `Could not seed inline schemas at startup: ${err.message}`,
+      ),
+    );
+  }
 
   // In-memory cache of schemas for path-based runnables fetched from the API.
   // Path-based runnables don't carry their schema in the local YAML (the script /
