@@ -2098,11 +2098,11 @@ async fn cancel_selection(
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec());
-    let all_workspaces = query.all_workspaces.unwrap_or(false);
-    // When not in all_workspaces mode, enforce the path workspace so jobs
-    // posted from other workspaces are never touched. When all_workspaces is
-    // set (superadmin on the "admins" workspace), allow cross-workspace jobs
-    // and let RLS in v2_job gate visibility.
+    // Only honor all_workspaces when the path workspace is "admins", matching
+    // the convention used by count_queue_jobs / count_completed_jobs_detail.
+    // Outside the admins workspace, always scope to the path w_id so a client
+    // cannot drop workspace scoping by passing all_workspaces=true.
+    let all_workspaces = w_id == "admins" && query.all_workspaces.unwrap_or(false);
     let path_w_id = if all_workspaces {
         None
     } else {
