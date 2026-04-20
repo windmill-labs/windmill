@@ -37,7 +37,7 @@ import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flo
 import { createInlineScriptSession, type InlineScriptSession } from './inlineScriptsUtils'
 import type { FlowJsonUpdateResult } from './helperUtils'
 import { flowModuleSchema, flowModulesSchema } from './openFlowZod'
-import { collectAllModuleIdsFromArray } from './utils'
+import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
 import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
 
 /**
@@ -330,7 +330,7 @@ function validateFlowModules(rawModules: unknown): FlowModule[] {
 		throw new Error(`Invalid flow modules:\n${errors.join('\n')}`)
 	}
 
-	const ids = collectAllModuleIdsFromArray(parsedModules)
+	const ids = collectAllFlowModuleIdsFromModules(parsedModules)
 	if (ids.length !== new Set(ids).size) {
 		throw new Error('Duplicate module IDs found in flow')
 	}
@@ -408,7 +408,7 @@ function validateEditableFlowJson(rawFlow: unknown): EditableFlowJson {
 		}
 	}
 
-	const ids = new Set(collectAllModuleIdsFromArray(modules))
+	const ids = new Set(collectAllFlowModuleIdsFromModules(modules))
 	if (preprocessorModule) {
 		if (ids.has(preprocessorModule.id)) {
 			throw new Error(`Duplicate module ID found in preprocessor_module: ${preprocessorModule.id}`)
@@ -1151,7 +1151,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			if (parsedModules !== undefined) {
 				parsedModules = validateFlowModules(parsedModules)
-				const reservedIds = collectAllModuleIdsFromArray(parsedModules).filter(
+				const reservedIds = collectAllFlowModuleIdsFromModules(parsedModules).filter(
 					(id) =>
 						id === SPECIAL_MODULE_IDS.PREPROCESSOR || id === SPECIAL_MODULE_IDS.FAILURE
 				)
@@ -1172,7 +1172,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			parsedFailureModule = validateSpecialFlowModule(parsedFailureModule, 'failure_module')
 
 			const ids = [
-				...(parsedModules ? collectAllModuleIdsFromArray(parsedModules) : []),
+				...(parsedModules ? collectAllFlowModuleIdsFromModules(parsedModules) : []),
 				...([parsedPreprocessorModule, parsedFailureModule].filter(
 					(module): module is FlowModule => module !== undefined && module !== null
 				)

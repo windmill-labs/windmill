@@ -1,6 +1,7 @@
 import type { FlowModule, FlowValue } from '$lib/gen'
 import { deepEqual } from 'fast-equals'
 import {
+	collectAllFlowModuleIds,
 	collectFlowNodes,
 	ensureModuleArrayByLocation,
 	findModuleParent,
@@ -300,50 +301,8 @@ function prependModuleId(module: FlowModule, prefix: string): FlowModule {
 	return newModule
 }
 
-/**
- * Collects all module IDs from a flow structure recursively
- */
 function getAllModuleIds(flow: FlowValue): Set<string> {
-	const ids = new Set<string>()
-
-	function collectFromModules(modules: FlowModule[]): void {
-		for (const module of modules) {
-			if (module.id) {
-				ids.add(module.id)
-			}
-
-			// Recursively collect from nested modules
-			if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
-				collectFromModules(module.value.modules)
-			} else if (module.value.type === 'branchone') {
-				collectFromModules(module.value.default)
-				for (const branch of module.value.branches) {
-					collectFromModules(branch.modules)
-				}
-			} else if (module.value.type === 'branchall') {
-				for (const branch of module.value.branches) {
-					collectFromModules(branch.modules)
-				}
-			} else if (module.value.type === 'aiagent' && module.value.tools) {
-				collectFromModules(module.value.tools as FlowModule[])
-			}
-		}
-	}
-
-	// Collect from root modules
-	if (flow.modules) {
-		collectFromModules(flow.modules)
-	}
-
-	// Collect from special modules
-	if (flow.failure_module?.id) {
-		ids.add(flow.failure_module.id)
-	}
-	if (flow.preprocessor_module?.id) {
-		ids.add(flow.preprocessor_module.id)
-	}
-
-	return ids
+	return new Set(collectAllFlowModuleIds(flow))
 }
 
 /**

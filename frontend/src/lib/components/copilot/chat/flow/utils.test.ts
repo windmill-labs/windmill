@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import { collectAllModuleIdsFromArray } from './utils'
+import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
 
 function createAiAgentTool(id: string, content: string) {
 	return {
@@ -52,7 +52,7 @@ describe('chat flow utils', () => {
 			])
 		]
 
-		expect(collectAllModuleIdsFromArray(modules)).toEqual([
+		expect(collectAllFlowModuleIdsFromModules(modules)).toEqual([
 			'router',
 			'branch_step',
 			'default_step',

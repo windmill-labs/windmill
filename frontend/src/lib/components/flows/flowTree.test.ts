@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { FlowModule, FlowValue } from '$lib/gen'
 import {
+	collectAllFlowModuleIds,
+	collectAllFlowModuleIdsFromModules,
 	collectFlowNodes,
 	ensureModuleArrayByLocation,
 	findFlowNode,
@@ -188,6 +190,52 @@ describe('flowTree', () => {
 
 		expect(result).toBe(original)
 		expect((original.value as any).content).toBe('updated')
+	})
+
+	it('collectAllFlowModuleIds includes all aiagent tool IDs including non-flowmodule', () => {
+		const lookup = makeFlowModuleTool(makeRawModule('lookup_user'))
+		const mcp = makeMcpTool('search_docs') as any
+		const agent = makeAiAgent('agent', [lookup, mcp])
+		const failure = makeRawModule('failure')
+		const flow: FlowValue = {
+			modules: [makeRawModule('step_a'), agent],
+			failure_module: failure
+		}
+
+		const ids = collectAllFlowModuleIds(flow)
+
+		// Should include ALL tool IDs (both flowmodule and MCP)
+		expect(ids).toContain('step_a')
+		expect(ids).toContain('agent')
+		expect(ids).toContain('lookup_user')
+		expect(ids).toContain('search_docs')
+		expect(ids).toContain('failure')
+		expect(ids).toHaveLength(5)
+	})
+
+	it('collectAllFlowModuleIdsFromModules works without special modules', () => {
+		const agent = makeAiAgent('agent', [
+			makeFlowModuleTool(makeRawModule('sum')),
+			makeMcpTool('websearch') as any
+		])
+
+		const ids = collectAllFlowModuleIdsFromModules([agent])
+
+		expect(ids).toEqual(['agent', 'sum', 'websearch'])
+	})
+
+	it('collectFlowNodes excludes non-flowmodule tools (MCP)', () => {
+		// Verify that collectFlowNodes still filters non-flowmodule tools
+		const lookup = makeFlowModuleTool(makeRawModule('lookup_user'))
+		const mcp = makeMcpTool('search_docs') as any
+		const agent = makeAiAgent('agent', [lookup, mcp])
+		const flow: FlowValue = { modules: [agent] }
+
+		const nodeIds = collectFlowNodes(flow).map((n) => n.module.id)
+
+		expect(nodeIds).toContain('agent')
+		expect(nodeIds).toContain('lookup_user')
+		expect(nodeIds).not.toContain('search_docs')
 	})
 
 	it('recreates a missing branch container from the source flow location', () => {

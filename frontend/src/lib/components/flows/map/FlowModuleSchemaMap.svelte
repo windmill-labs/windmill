@@ -23,7 +23,6 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
-	import { getAllModules } from '../flowExplorer'
 	import { locateModules, groupByParent } from '../multiSelectUtils'
 	import { workspaceStore } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
@@ -727,9 +726,7 @@
 
 				// Agent tool inserts operate on the FlowModule's tools array directly
 				if (isAgentInsert) {
-					const agentMod = getAllModules(flowStore.val.value.modules).find(
-						(m) => m.id === detail.agentId
-					)
+					const agentMod = findModuleInFlow(flowStore.val.value, detail.agentId!)
 					if (agentMod && (agentMod.value as any).tools) {
 						const tools = (agentMod.value as any).tools as AgentTool[]
 						await insertNewModuleAtIndex(

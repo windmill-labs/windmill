@@ -196,6 +196,60 @@ function findFlowNodeInModules(
 	return match
 }
 
+/**
+ * Collect every module ID in a flow tree, including ALL aiagent tool IDs
+ * (both flowmodule and non-flowmodule like MCP).  Used for ID uniqueness
+ * validation where every tool's ID must be reserved regardless of type.
+ */
+export function collectAllFlowModuleIds(flow: FlowModuleTree): string[] {
+	const ids: string[] = []
+
+	function walkModules(modules: FlowModule[]): void {
+		for (const module of modules) {
+			if (module.id) {
+				ids.push(module.id)
+			}
+
+			if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
+				walkModules(module.value.modules)
+			} else if (module.value.type === 'branchone') {
+				for (const branch of module.value.branches) {
+					walkModules(branch.modules)
+				}
+				walkModules(module.value.default)
+			} else if (module.value.type === 'branchall') {
+				for (const branch of module.value.branches) {
+					walkModules(branch.modules)
+				}
+			} else if (module.value.type === 'aiagent' && module.value.tools) {
+				for (const tool of module.value.tools as FlowModule[]) {
+					ids.push(tool.id)
+				}
+			}
+		}
+	}
+
+	if (flow.modules) {
+		walkModules(flow.modules)
+	}
+	if (flow.failure_module?.id) {
+		ids.push(flow.failure_module.id)
+	}
+	if (flow.preprocessor_module?.id) {
+		ids.push(flow.preprocessor_module.id)
+	}
+
+	return ids
+}
+
+/**
+ * Like collectAllFlowModuleIds but operates on a modules array directly
+ * (without failure_module/preprocessor_module).
+ */
+export function collectAllFlowModuleIdsFromModules(modules: FlowModule[]): string[] {
+	return collectAllFlowModuleIds({ modules })
+}
+
 export function collectFlowNodes(flow: FlowModuleTree): FlowNodeLocation[] {
 	const matches: FlowNodeLocation[] = []
 
