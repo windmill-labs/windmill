@@ -244,19 +244,61 @@ pub async fn do_mssql(
         // fetching data in an asynchronous manner, if needed.
 
         if let Some(s3) = s3 {
+            let s3_format = s3.format;
             let rows_stream = async_stream::stream! {
                 let mut stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?.into_row_stream().map(|row| {
-                    let raw_value = row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow);
-                    let json = raw_value.and_then(|raw_value| serde_json::from_str(raw_value.get()).map_err(to_anyhow));
-                    json
+                    row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow)
                 });
                 while let Some(row) = stream.next().await {
                     yield row;
                 }
             };
 
-            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
+            let (progress_tx, mut progress_rx) =
+                tokio::sync::mpsc::channel::<windmill_object_store::IngestStats>(8);
+            let progress_conn = conn.clone();
+            let progress_job_id = job.id;
+            let progress_workspace = job.workspace_id.clone();
+            let progress_task = tokio::spawn(async move {
+                while let Some(stats) = progress_rx.recv().await {
+                    let logs = format!(
+                        "\nMSSQL s3 stream progress: {} rows, {:.1} MB | elapsed {:.1}s (db-fetch {:.1}s, write {:.1}s)",
+                        stats.rows,
+                        stats.bytes as f64 / 1_048_576.0,
+                        stats.elapsed.as_secs_f64(),
+                        stats.fetch_wait.as_secs_f64(),
+                        stats.write_time.as_secs_f64(),
+                    );
+                    append_logs(&progress_job_id, &progress_workspace, logs, &progress_conn).await;
+                }
+            });
+
+            let (stream, ingest_stats) =
+                convert_json_line_stream(rows_stream.boxed(), s3_format, Some(progress_tx)).await?;
+            let _ = progress_task.await;
+
+            let ingest_log = format!(
+                "\nMSSQL s3 stream ingest done ({:?}): {} rows, {:.1} MB in {:.2}s (db-fetch {:.2}s, write {:.2}s, first row after {:.2}s)",
+                s3_format,
+                ingest_stats.rows,
+                ingest_stats.bytes as f64 / 1_048_576.0,
+                ingest_stats.elapsed.as_secs_f64(),
+                ingest_stats.fetch_wait.as_secs_f64(),
+                ingest_stats.write_time.as_secs_f64(),
+                ingest_stats.first_row_latency.unwrap_or_default().as_secs_f64(),
+            );
+            append_logs(&job.id, &job.workspace_id, ingest_log, conn).await;
+
+            let upload_start = std::time::Instant::now();
             s3.upload(stream.boxed()).await?;
+            let upload_elapsed = upload_start.elapsed();
+
+            let final_log = format!(
+                "\nMSSQL s3 stream upload+transcode done: {:.2}s | total {:.2}s",
+                upload_elapsed.as_secs_f64(),
+                (ingest_stats.elapsed + upload_elapsed).as_secs_f64(),
+            );
+            append_logs(&job.id, &job.workspace_id, final_log, conn).await;
 
             Ok(to_raw_value(&s3.to_return_s3_obj()))
         } else {

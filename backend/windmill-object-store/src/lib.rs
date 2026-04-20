@@ -979,25 +979,67 @@ impl Write for ChannelWriter {
 }
 
 #[cfg(not(feature = "parquet"))]
-pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
-    mut _stream: impl futures::TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
+#[derive(Debug, Clone, Copy, Default)]
+pub struct IngestStats {
+    pub rows: u64,
+    pub bytes: u64,
+    pub elapsed: std::time::Duration,
+    pub fetch_wait: std::time::Duration,
+    pub write_time: std::time::Duration,
+    pub first_row_latency: Option<std::time::Duration>,
+}
+
+#[cfg(not(feature = "parquet"))]
+pub async fn convert_json_line_stream<V, E>(
+    mut _stream: impl futures::TryStreamExt<Item = Result<V, E>> + Unpin,
     _output_format: S3ModeFormat,
-) -> anyhow::Result<impl futures::TryStreamExt<Item = anyhow::Result<bytes::Bytes>>> {
-    Ok(async_stream::stream! {
+    _progress: Option<tokio::sync::mpsc::Sender<IngestStats>>,
+) -> anyhow::Result<(
+    impl futures::TryStreamExt<Item = anyhow::Result<bytes::Bytes>>,
+    IngestStats,
+)>
+where
+    V: serde::Serialize,
+    E: Into<anyhow::Error>,
+{
+    let stream = async_stream::stream! {
         yield Err(anyhow::anyhow!("Parquet feature is not enabled. Cannot convert JSON line stream."));
-    })
+    };
+    Ok((stream, IngestStats::default()))
 }
 
 #[cfg(feature = "parquet")]
-pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
-    mut stream: impl TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
+#[derive(Debug, Clone, Copy)]
+pub struct IngestStats {
+    pub rows: u64,
+    pub bytes: u64,
+    pub elapsed: std::time::Duration,
+    pub fetch_wait: std::time::Duration,
+    pub write_time: std::time::Duration,
+    pub first_row_latency: Option<std::time::Duration>,
+}
+
+#[cfg(feature = "parquet")]
+pub async fn convert_json_line_stream<V, E>(
+    mut stream: impl TryStreamExt<Item = Result<V, E>> + Unpin,
     output_format: S3ModeFormat,
-) -> anyhow::Result<impl TryStreamExt<Item = anyhow::Result<bytes::Bytes>>> {
+    progress: Option<tokio::sync::mpsc::Sender<IngestStats>>,
+) -> anyhow::Result<(
+    impl TryStreamExt<Item = anyhow::Result<bytes::Bytes>>,
+    IngestStats,
+)>
+where
+    V: serde::Serialize,
+    E: Into<anyhow::Error>,
+{
     const MAX_MPSC_SIZE: usize = 1000;
+    const WRITE_BUF_CAPACITY: usize = 256 * 1024;
+    const PROGRESS_INTERVAL_SECS: u64 = 30;
 
     use datafusion::{execution::context::SessionContext, prelude::NdJsonReadOptions};
     use futures::StreamExt;
     use std::path::PathBuf;
+    use std::time::{Duration, Instant};
     use tokio::io::AsyncWriteExt;
 
     let mut path = PathBuf::from(std::env::temp_dir());
@@ -1006,25 +1048,77 @@ pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
 
-    let mut file: tokio::fs::File = tokio::fs::File::create(&path).await.map_err(to_anyhow)?;
+    let file: tokio::fs::File = tokio::fs::File::create(&path).await.map_err(to_anyhow)?;
+    let mut file = tokio::io::BufWriter::with_capacity(WRITE_BUF_CAPACITY, file);
 
-    while let Some(chunk) = stream.next().await {
-        match chunk {
-            Ok(chunk) => {
-                let b: bytes::Bytes = serde_json::to_string(&chunk)?.into();
-                file.write_all(&b).await?;
-                file.write_all(b"\n").await?;
+    let ingest_start = Instant::now();
+    let mut first_row_latency: Option<Duration> = None;
+    let mut row_count: u64 = 0;
+    let mut bytes_written: u64 = 0;
+    let mut write_time = Duration::ZERO;
+    let mut progress_timer = tokio::time::interval(Duration::from_secs(PROGRESS_INTERVAL_SECS));
+    progress_timer.tick().await; // drop the immediate tick
+    let build_stats = |row_count: u64,
+                       bytes_written: u64,
+                       write_time: Duration,
+                       first_row_latency: Option<Duration>,
+                       elapsed: Duration|
+     -> IngestStats {
+        IngestStats {
+            rows: row_count,
+            bytes: bytes_written,
+            elapsed,
+            fetch_wait: elapsed.saturating_sub(write_time),
+            write_time,
+            first_row_latency,
+        }
+    };
+
+    let mut done = false;
+    while !done {
+        tokio::select! {
+            chunk = stream.next() => {
+                match chunk {
+                    Some(Ok(chunk)) => {
+                        if first_row_latency.is_none() {
+                            first_row_latency = Some(ingest_start.elapsed());
+                        }
+                        let t_write = Instant::now();
+                        let mut s = serde_json::to_string(&chunk)?;
+                        s.push('\n');
+                        bytes_written += s.len() as u64;
+                        file.write_all(s.as_bytes()).await?;
+                        write_time += t_write.elapsed();
+                        row_count += 1;
+                    }
+                    Some(Err(e)) => {
+                        tokio::fs::remove_file(&path).await?;
+                        return Err(e.into());
+                    }
+                    None => done = true,
+                }
             }
-            Err(e) => {
-                tokio::fs::remove_file(&path).await?;
-                return Err(e.into());
+            _ = progress_timer.tick(), if progress.is_some() => {
+                let stats = build_stats(row_count, bytes_written, write_time, first_row_latency, ingest_start.elapsed());
+                if let Some(tx) = &progress {
+                    let _ = tx.try_send(stats);
+                }
             }
         }
     }
 
     file.flush().await?;
+    let file = file.into_inner();
     file.sync_all().await?;
     drop(file);
+
+    let ingest_stats = build_stats(
+        row_count,
+        bytes_written,
+        write_time,
+        first_row_latency,
+        ingest_start.elapsed(),
+    );
 
     let ctx = SessionContext::new();
     ctx.register_json("my_table", path_str, NdJsonReadOptions::default())
@@ -1109,7 +1203,10 @@ pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
         Ok::<_, anyhow::Error>(())
     });
 
-    Ok(tokio_stream::wrappers::ReceiverStream::new(rx))
+    Ok((
+        tokio_stream::wrappers::ReceiverStream::new(rx),
+        ingest_stats,
+    ))
 }
 
 lazy_static::lazy_static! {
@@ -1821,5 +1918,119 @@ mod tests {
         // file_index is None → returns None
         let result = get_logs_from_store(1, "logs", &None).await;
         assert!(result.is_none());
+    }
+
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_convert_json_line_stream_many_rows_preserved() {
+        // Feeds ~10_000 rows (~1 MB) through convert_json_line_stream to make the
+        // BufWriter cycle its 256 KiB buffer multiple times. Verifies every row
+        // lands in the parquet output (no buffer-flush data loss).
+        use datafusion::parquet::file::reader::{FileReader, SerializedFileReader};
+        use futures::{stream, StreamExt};
+        use serde_json::value::RawValue;
+
+        const N: usize = 10_000;
+        let items: Vec<Result<Box<RawValue>, anyhow::Error>> = (0..N)
+            .map(|i| {
+                let s = format!(r#"{{"idx":{},"payload":"row-{:0>80}"}}"#, i, i);
+                Ok(RawValue::from_string(s).unwrap())
+            })
+            .collect();
+
+        let (mut out, _) =
+            convert_json_line_stream(stream::iter(items), S3ModeFormat::Parquet, None)
+                .await
+                .unwrap();
+        let mut buf = Vec::new();
+        while let Some(chunk) = out.next().await {
+            buf.extend_from_slice(&chunk.unwrap());
+        }
+
+        let reader = SerializedFileReader::new(bytes::Bytes::from(buf)).unwrap();
+        let total_rows: i64 = reader
+            .metadata()
+            .row_groups()
+            .iter()
+            .map(|g| g.num_rows())
+            .sum();
+        assert_eq!(total_rows as usize, N, "expected {} rows in parquet", N);
+
+        // Spot check: first and last rows readable with expected values
+        let mut iter = reader.get_row_iter(None).unwrap();
+        let first = iter.next().unwrap().unwrap();
+        eprintln!("First row: {:?}", first);
+        let last = iter.last().unwrap().unwrap();
+        eprintln!("Last row:  {:?}", last);
+    }
+
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_convert_json_line_stream_wide_decimal() {
+        use datafusion::parquet::file::reader::{FileReader, SerializedFileReader};
+        use futures::{stream, StreamExt};
+        use serde_json::value::RawValue;
+
+        async fn collect_parquet_raw(it: Vec<Result<Box<RawValue>, anyhow::Error>>) -> Vec<u8> {
+            let s = stream::iter(it);
+            let (mut out, _) = convert_json_line_stream(s, S3ModeFormat::Parquet, None)
+                .await
+                .unwrap();
+            let mut buf = Vec::new();
+            while let Some(chunk) = out.next().await {
+                buf.extend_from_slice(&chunk.unwrap());
+            }
+            buf
+        }
+
+        async fn collect_parquet_value(
+            it: Vec<Result<serde_json::Value, anyhow::Error>>,
+        ) -> Vec<u8> {
+            let s = stream::iter(it);
+            let (mut out, _) = convert_json_line_stream(s, S3ModeFormat::Parquet, None)
+                .await
+                .unwrap();
+            let mut buf = Vec::new();
+            while let Some(chunk) = out.next().await {
+                buf.extend_from_slice(&chunk.unwrap());
+            }
+            buf
+        }
+
+        let raw_json = r#"{"n":12345678901234567890.1234567890,"label":"hi"}"#;
+        let raw: Box<RawValue> = RawValue::from_string(raw_json.to_string()).unwrap();
+
+        // Path A: RawValue direct (new code)
+        let bytes_a = collect_parquet_raw(vec![Ok(raw.clone())]).await;
+
+        // Path B: via Value round-trip (old code simulation)
+        let v: serde_json::Value = serde_json::from_str(raw.get()).unwrap();
+        let bytes_b = collect_parquet_value(vec![Ok(v)]).await;
+
+        let reader_a = SerializedFileReader::new(bytes::Bytes::from(bytes_a)).unwrap();
+        let reader_b = SerializedFileReader::new(bytes::Bytes::from(bytes_b)).unwrap();
+        eprintln!(
+            "Schema A (RawValue): {:#?}",
+            reader_a.metadata().file_metadata().schema()
+        );
+        eprintln!(
+            "Schema B (Value):    {:#?}",
+            reader_b.metadata().file_metadata().schema()
+        );
+
+        let row_a = reader_a
+            .get_row_iter(None)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+        let row_b = reader_b
+            .get_row_iter(None)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+        eprintln!("Row A (RawValue): {:?}", row_a);
+        eprintln!("Row B (Value):    {:?}", row_b);
     }
 }

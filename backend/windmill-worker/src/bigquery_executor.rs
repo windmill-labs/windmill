@@ -203,8 +203,8 @@ fn do_bigquery_inner<'a>(
                             }
                         };
 
-                        let stream =
-                            convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
+                        let (stream, _) =
+                            convert_json_line_stream(rows_stream.boxed(), s3.format, None).await?;
                         s3.upload(stream.boxed()).await?;
 
                         return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);

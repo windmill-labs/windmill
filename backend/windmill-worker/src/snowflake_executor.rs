@@ -501,7 +501,8 @@ fn do_snowflake_inner<'a>(
             if let Some(s3) = s3 {
                 let rows_stream =
                     rows_stream.map(|r| serde_json::value::to_value(&r?).map_err(to_anyhow));
-                let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
+                let (stream, _) =
+                    convert_json_line_stream(rows_stream.boxed(), s3.format, None).await?;
                 s3.upload(stream.boxed()).await?;
                 Ok(vec![to_raw_value(&s3.to_return_s3_obj())])
             } else {
