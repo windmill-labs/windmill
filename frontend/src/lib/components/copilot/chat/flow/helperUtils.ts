@@ -18,36 +18,17 @@ export interface FlowJsonUpdateResult {
 	emptyInlineScriptModuleIds: string[]
 }
 
-export function getFlowModuleById(flow: FlowLike | undefined, id: string): FlowModule | undefined {
-	if (!flow) {
-		return undefined
-	}
-
-	return findModuleInFlow(flow.value, id) ?? undefined
-}
-
-export function getMutableRawScriptModuleById(
-	flow: FlowLike | undefined,
-	id: string
-): (FlowModule & { value: RawScript }) | undefined {
-	const module = getFlowModuleById(flow, id)
-	if (!module || module.value.type !== 'rawscript') {
-		return undefined
-	}
-
-	return module as FlowModule & { value: RawScript }
-}
-
 export function updateRawScriptModuleContent(
 	flow: FlowLike,
 	id: string,
 	code: string
 ): (FlowModule & { value: RawScript }) | undefined {
-	const rawScriptModule = getMutableRawScriptModuleById(flow, id)
-	if (!rawScriptModule) {
+	const module = findModuleInFlow(flow.value, id)
+	if (!module || module.value.type !== 'rawscript') {
 		return undefined
 	}
 
+	const rawScriptModule = module as FlowModule & { value: RawScript }
 	rawScriptModule.value.content = code
 	return rawScriptModule
 }
@@ -60,7 +41,11 @@ export function applyFlowJsonUpdate(
 	const emptyInlineScriptModuleIds = new Set<string>()
 
 	if (modules !== undefined) {
-		flow.value.modules = restoreFlowModules(modules, inlineScriptSession, emptyInlineScriptModuleIds)
+		flow.value.modules = restoreFlowModules(
+			modules,
+			inlineScriptSession,
+			emptyInlineScriptModuleIds
+		)
 	}
 
 	if (schema !== undefined) {
