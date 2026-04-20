@@ -36,6 +36,7 @@ pub enum JobTriggerKind {
     Postgres,
     Schedule,
     Gcp,
+    Azure,
     Nextcloud,
     Google,
     #[serde(rename = "ci_test")]
@@ -57,6 +58,7 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::Postgres => "postgres",
             JobTriggerKind::Schedule => "schedule",
             JobTriggerKind::Gcp => "gcp",
+            JobTriggerKind::Azure => "azure",
             JobTriggerKind::Nextcloud => "nextcloud",
             JobTriggerKind::Google => "google",
             JobTriggerKind::CiTest => "ci_test",

@@ -4,6 +4,7 @@ import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
+import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 import type {
 	CaptureTriggerKind,
 	ErrorHandler,
@@ -24,6 +25,7 @@ import { saveSqsTriggerFromCfg } from './sqs/utils'
 import { saveNatsTriggerFromCfg } from './nats/utils'
 import { saveMqttTriggerFromCfg } from './mqtt/utils'
 import { saveGcpTriggerFromCfg } from './gcp/utils'
+import { saveAzureTriggerFromCfg } from './azure/utils'
 import type { Triggers } from './triggers.svelte'
 import { emptyString } from '$lib/utils'
 import { saveEmailTriggerFromCfg } from './email/utils'
@@ -37,6 +39,7 @@ export const CLOUD_DISABLED_TRIGGER_TYPES = [
 	'sqs',
 	'mqtt',
 	'gcp',
+	'azure',
 	'websocket',
 	'postgres'
 ]
@@ -54,6 +57,7 @@ export type TriggerType =
 	| 'mqtt'
 	| 'sqs'
 	| 'gcp'
+	| 'azure'
 	| 'email'
 	| 'poll'
 	| 'cli'
@@ -73,6 +77,7 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'postgres',
 	'schedule',
 	'gcp',
+	'azure',
 	'google'
 ]
 
@@ -103,6 +108,7 @@ export const triggerIconMap = {
 	mqtt: MqttIcon,
 	sqs: AwsIcon,
 	gcp: GoogleCloudIcon,
+	azure: AzureIcon,
 	primary_schedule: Calendar,
 	poll: SchedulePollIcon,
 	cli: Terminal,
@@ -120,6 +126,7 @@ export const triggerDisplayNamesMap = {
 	mqtt: 'MQTT',
 	sqs: 'SQS',
 	gcp: 'GCP Pub/Sub',
+	azure: 'Azure Event Grid',
 	email: 'Email',
 	poll: 'Scheduled Poll',
 	webhook: 'Webhook',
@@ -148,6 +155,7 @@ export function triggerTypeToCaptureKind(triggerType: TriggerType): CaptureTrigg
 		'mqtt',
 		'sqs',
 		'gcp',
+		'azure',
 		'cli'
 	]
 
@@ -178,6 +186,7 @@ export function updateTriggersCount(
 		mqtt: 'mqtt_count',
 		sqs: 'sqs_count',
 		gcp: 'gcp_count',
+		azure: 'azure_count',
 		email: 'email_count',
 		poll: undefined,
 		cli: undefined,
@@ -354,6 +363,14 @@ export async function deployTriggers(
 				workspaceId,
 				usedTriggerKinds
 			),
+		azure: (trigger: Trigger) =>
+			saveAzureTriggerFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			),
 		email: (trigger: Trigger) =>
 			saveEmailTriggerFromCfg(
 				trigger.path ?? trigger.draftConfig?.path ?? '',
@@ -478,6 +495,14 @@ export function getLightConfig(
 		return { queue_url: trigger.queue_url }
 	} else if (triggerType === 'gcp') {
 		return { gcp_resource_path: trigger.gcp_resource_path, topic: trigger.topic }
+	} else if (triggerType === 'azure') {
+		return {
+			azure_resource_path: trigger.azure_resource_path,
+			azure_mode: trigger.azure_mode,
+			scope_resource_id: trigger.scope_resource_id,
+			topic_name: trigger.topic_name,
+			subscription_name: trigger.subscription_name
+		}
 	} else if (triggerType === 'email') {
 		return { local_part: trigger.local_part }
 	} else if (triggerType === 'nextcloud') {
@@ -521,6 +546,10 @@ export function getTriggerLabel(trigger: Trigger): string {
 		return `${config?.queue_url}`
 	} else if (type === 'gcp' && config?.gcp_resource_path && config?.topic) {
 		return `${config?.gcp_resource_path} - ${config?.topic}`
+	} else if (type === 'azure' && config?.scope_resource_id) {
+		const mode = config?.azure_mode ? `[${config.azure_mode}] ` : ''
+		const topic = config?.topic_name ? ` / ${config.topic_name}` : ''
+		return `${mode}${config.scope_resource_id}${topic}`
 	} else if (type === 'websocket' && config?.url) {
 		return `${config?.url}`
 	} else if (type === 'email' && config?.local_part) {

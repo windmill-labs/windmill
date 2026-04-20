@@ -258,6 +258,7 @@ pub enum ScopeDomain {
     MqttTriggers,
     SqsTriggers,
     GcpTriggers,
+    AzureTriggers,
     PostgresTriggers,
     EmailTriggers,
 
@@ -315,6 +316,7 @@ impl ScopeDomain {
             Self::MqttTriggers => "mqtt_triggers",
             Self::SqsTriggers => "sqs_triggers",
             Self::GcpTriggers => "gcp_triggers",
+            Self::AzureTriggers => "azure_triggers",
             Self::PostgresTriggers => "postgres_triggers",
             Self::EmailTriggers => "email_triggers",
             Self::NativeTriggers => "native_triggers",
@@ -363,6 +365,7 @@ impl ScopeDomain {
             "mqtt_triggers" => Some(Self::MqttTriggers),
             "sqs_triggers" => Some(Self::SqsTriggers),
             "gcp_triggers" => Some(Self::GcpTriggers),
+            "azure_triggers" => Some(Self::AzureTriggers),
             "postgres_triggers" => Some(Self::PostgresTriggers),
             "email_triggers" => Some(Self::EmailTriggers),
             "audit" => Some(Self::Audit),

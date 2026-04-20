@@ -10,6 +10,7 @@
 	import MqttTriggerPanel from './mqtt/MqttTriggersPanel.svelte'
 	import SqsTriggerPanel from './sqs/SqsTriggerPanel.svelte'
 	import GcpTriggerPanel from './gcp/GcpTriggerPanel.svelte'
+	import AzureTriggerPanel from './azure/AzureTriggerPanel.svelte'
 	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
 	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanel.svelte'
 	import { triggerIconMap, type Trigger } from './utils'
@@ -153,6 +154,15 @@
 	/>
 {:else if selectedTrigger.type === 'gcp'}
 	<GcpTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		{customLabel}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'azure'}
+	<AzureTriggerPanel
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}

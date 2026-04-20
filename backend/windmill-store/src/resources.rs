@@ -1820,6 +1820,7 @@ async fn update_resource_type(
         any(
             feature = "sqs_trigger",
             feature = "gcp_trigger",
+            feature = "azure_trigger",
             feature = "kafka",
             feature = "nats"
         )
