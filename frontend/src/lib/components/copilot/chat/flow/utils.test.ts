@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
+import { collectAllFlowModuleIdsFromModules } from '../../../../components/flows/flowTree'
 
 function createAiAgentTool(id: string, content: string) {
 	return {

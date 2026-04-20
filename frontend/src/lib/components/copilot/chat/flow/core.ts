@@ -822,9 +822,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const stepId = args.stepId
 			const stepArgs = args.args || {}
 
-			// Find the step in the flow
-			const modules = helpers.getRootModules()
-			let targetModule: FlowModule | undefined = findModuleInModules(modules, stepId)
+			// Find the step in the flow (includes preprocessor/failure modules)
+			let targetModule: FlowModule | undefined = findModuleInFlow(flow.value, stepId) ?? undefined
 
 			if (!targetModule) {
 				toolCallbacks.setToolStatus(toolId, {
@@ -832,7 +831,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 					error: `Step with id '${stepId}' does not exist in the current flow`
 				})
 				throw new Error(
-					`Step with id '${stepId}' not found in flow. Available steps: ${modules.map((m) => m.id).join(', ')}`
+					`Step with id '${stepId}' not found in flow. Available steps: ${(flow.value.modules ?? []).map((m: FlowModule) => m.id).join(', ')}`
 				)
 			}
 
