@@ -291,7 +291,7 @@
 					variant="default"
 					unifiedSize="sm"
 					startIcon={{ icon: PlugZap }}
-					btnClasses="!rounded-full whitespace-nowrap"
+					btnClasses="whitespace-nowrap"
 					onClick={() => homeConnectDrawer?.openDrawer?.()}
 				>
 					CLI / MCP
@@ -323,7 +323,7 @@
 					variant="default"
 					unifiedSize="sm"
 					startIcon={{ icon: PlugZap }}
-					btnClasses="!rounded-full whitespace-nowrap shrink-0"
+					btnClasses="whitespace-nowrap shrink-0"
 					onClick={() => homeConnectDrawer?.openDrawer?.()}
 				>
 					CLI / MCP
