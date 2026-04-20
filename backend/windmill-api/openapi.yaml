@@ -11168,6 +11168,10 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: all_workspaces
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: uuids of the jobs to cancel
         required: true

@@ -2085,31 +2085,43 @@ async fn list_queue_jobs(
 #[derive(Deserialize)]
 pub struct CancelSelectionQuery {
     force_cancel: Option<bool>,
+    all_workspaces: Option<bool>,
 }
 
 async fn cancel_selection(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Path(_w_id): Path<String>,
+    Path(w_id): Path<String>,
     Query(query): Query<CancelSelectionQuery>,
     Json(jobs): Json<Vec<Uuid>>,
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec());
+    let all_workspaces = query.all_workspaces.unwrap_or(false);
+    // When not in all_workspaces mode, enforce the path workspace so jobs
+    // posted from other workspaces are never touched. When all_workspaces is
+    // set (superadmin on the "admins" workspace), allow cross-workspace jobs
+    // and let RLS in v2_job gate visibility.
+    let path_w_id = if all_workspaces {
+        None
+    } else {
+        Some(w_id.as_str())
+    };
     let rows = sqlx::query!(
-            "SELECT j.id AS \"id!\", j.workspace_id AS \"workspace_id!\" FROM v2_job j LEFT JOIN v2_job_queue q USING (id) WHERE j.id = ANY($1) AND j.trigger_kind IS DISTINCT FROM 'schedule'::job_trigger_kind AND ($2::text[] IS NULL OR j.tag = ANY($2))",
+            "SELECT j.id AS \"id!\", j.workspace_id AS \"workspace_id!\" FROM v2_job j LEFT JOIN v2_job_queue q USING (id) WHERE j.id = ANY($1) AND j.trigger_kind IS DISTINCT FROM 'schedule'::job_trigger_kind AND ($2::text[] IS NULL OR j.tag = ANY($2)) AND ($3::text IS NULL OR j.workspace_id = $3)",
             &jobs,
-            tags.as_ref().map(|v| v.as_slice())
+            tags.as_ref().map(|v| v.as_slice()),
+            path_w_id
         )
         .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
 
-    // Jobs can span multiple workspaces when the caller is a superadmin using
-    // the "admins" workspace with the all_workspaces filter. cancel_jobs
-    // enforces workspace_id per row, so dispatch one call per workspace and
-    // aggregate, otherwise cross-workspace jobs are silently dropped.
+    // cancel_jobs enforces workspace_id per row, so dispatch one call per
+    // workspace so cross-workspace selections (all_workspaces=true) aren't
+    // silently dropped. In single-workspace mode the SQL filter above ensures
+    // this collapses to a single call.
     let mut jobs_by_workspace: HashMap<String, Vec<Uuid>> = HashMap::new();
     for row in rows {
         jobs_by_workspace
