@@ -45,6 +45,7 @@
 	let mcpCreationMode = $state(false)
 	let mcpScope = $state('mcp:favorites')
 	let lastRequestedMcpMode = $state<boolean | undefined>(undefined)
+	let mcpLabelAutofilled = $state(false)
 
 	let customScopes = $state<string[]>([])
 	let showCustomScopes = $state(false)
@@ -67,16 +68,25 @@
 		mcpCreationMode = true
 		newTokenExpiration = undefined
 		newTokenWorkspace = defaultNewTokenWorkspace ?? $workspaceStore
-		newTokenLabel = newTokenLabel ?? 'MCP token'
+		newToken = undefined
+		newMcpToken = undefined
+		if (!newTokenLabel) {
+			newTokenLabel = 'MCP token'
+			mcpLabelAutofilled = true
+		} else {
+			mcpLabelAutofilled = false
+		}
 	}
 
 	function exitMcpMode() {
 		mcpCreationMode = false
 		newTokenExpiration = undefined
 		newTokenWorkspace = defaultNewTokenWorkspace
-		if (newTokenLabel === 'MCP token') {
+		newMcpToken = undefined
+		if (mcpLabelAutofilled) {
 			newTokenLabel = undefined
 		}
+		mcpLabelAutofilled = false
 	}
 
 	async function createToken(mcpMode: boolean = false): Promise<void> {
@@ -135,6 +145,12 @@
 		}
 
 		lastRequestedMcpMode = requestedMcpMode
+	})
+
+	$effect(() => {
+		if (mcpLabelAutofilled && newTokenLabel !== 'MCP token') {
+			mcpLabelAutofilled = false
+		}
 	})
 </script>
 
