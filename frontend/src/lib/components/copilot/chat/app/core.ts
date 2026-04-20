@@ -637,10 +637,11 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 					throw new Error("'/wmill.d.ts' is generated automatically. Edit backend runnables instead.")
 				}
 
-				currentContent = helpers.getFrontendFile(target.path)
-				if (currentContent === undefined) {
+				const frontendContent = helpers.getFrontendFile(target.path)
+				if (frontendContent === undefined) {
 					throw new Error(`Frontend file '${target.path}' not found.`)
 				}
+				currentContent = frontendContent
 			} else {
 				backendRunnable = helpers.getBackendRunnable(target.key)
 				if (!backendRunnable) {
