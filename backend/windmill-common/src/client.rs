@@ -49,7 +49,31 @@ impl AuthedClient {
             "{}/api/w/{}/oidc/token/{}",
             self.base_internal_url, self.workspace, audience
         );
-        make_basic_get_request(self, &url, None, Some("decoding oidc token as json string")).await
+        let response = self
+            .force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
+            .post(&url)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))?,
+            )
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::error!("Error requesting oidc token from {url}: {e:#?}");
+                anyhow::anyhow!("Error requesting oidc token from {url}: {e:#?}")
+            })?;
+
+        match response.status().as_u16() {
+            200u16 => Ok(response.text().await.context("reading oidc token body")?),
+            status => {
+                let body = response.text().await.unwrap_or_default();
+                Err(anyhow::anyhow!(
+                    "oidc token request to {url} failed with status {status}: {body}"
+                ))
+            }
+        }
     }
 
     pub async fn get_resource_value<T: DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {
