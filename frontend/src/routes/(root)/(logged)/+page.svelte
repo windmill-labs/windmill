@@ -286,17 +286,18 @@
 			title="Home"
 			childrenWrapperDivClasses="flex-1 flex flex-row gap-4 flex-wrap justify-end items-center"
 		>
-			<Button
-				variant="default"
-				unifiedSize="sm"
-				startIcon={{ icon: PlugZap }}
-				btnClasses="!rounded-full"
-				onClick={() => homeConnectDrawer?.openDrawer?.()}
-			>
-				Connect
-			</Button>
+			{#if $userStore?.operator}
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: PlugZap }}
+					btnClasses="!rounded-full whitespace-nowrap"
+					onClick={() => homeConnectDrawer?.openDrawer?.()}
+				>
+					CLI / MCP
+				</Button>
+			{/if}
 			{#if !$userStore?.operator && showCreateButtons}
-				<span class="text-xs font-normal text-primary">Create a</span>
 				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
 				{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
 				{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
@@ -308,13 +309,25 @@
 		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => showCreateButtons = v}/>
 
 		{#if !$userStore?.operator}
-			<div class="w-full overflow-auto scrollbar-hidden pb-2">
-				<Tabs values={['hub', 'workspace']} hashNavigation bind:selected={tab}>
-					<Tab value="workspace" label="Workspace" icon={Building} />
-					{#if HOME_SHOW_HUB}
-						<Tab value="hub" label="Hub" icon={Globe2} />
-					{/if}
-				</Tabs>
+			<div class="flex w-full items-center gap-3 pb-2">
+				<div class="min-w-0 flex-1 overflow-auto scrollbar-hidden">
+					<Tabs values={['hub', 'workspace']} hashNavigation bind:selected={tab}>
+						<Tab value="workspace" label="Workspace" icon={Building} />
+						{#if HOME_SHOW_HUB}
+							<Tab value="hub" label="Hub" icon={Globe2} />
+						{/if}
+					</Tabs>
+				</div>
+
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: PlugZap }}
+					btnClasses="!rounded-full whitespace-nowrap shrink-0"
+					onClick={() => homeConnectDrawer?.openDrawer?.()}
+				>
+					CLI / MCP
+				</Button>
 			</div>
 		{/if}
 		{#if tab == 'hub'}
