@@ -86,4 +86,19 @@ describe("loadCases", () => {
       ],
     });
   });
+
+  it("loads the session id micro-edit app case", async () => {
+    const appCases = await loadCases("app");
+    const caseEntry = appCases.find((entry) => entry.id === "app-test10-session-id-no-crypto");
+
+    expect(caseEntry?.initialPath).toContain("ai_evals/fixtures/frontend/app/initial/session_id_chat");
+    expect(caseEntry?.runtime).toEqual({
+      maxTurns: 4,
+    });
+    expect(caseEntry?.validate).toEqual({
+      requiredFrontendPaths: ["/index.tsx"],
+      requiredBackendRunnableKeys: ["a"],
+      requiredBackendRunnableTypes: [{ key: "a", type: "inline" }],
+    });
+  });
 });

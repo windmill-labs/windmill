@@ -127,3 +127,25 @@
     - adds a delete action for existing recipes
     - deleting a recipe updates the visible list
     - keeps recipe persistence working through the existing datatable-backed app setup
+
+- id: app-test10-session-id-no-crypto
+  prompt: |-
+    Update `generateSessionId` so it no longer uses `crypto.randomUUID()`.
+    Make it return a handmade string id built from the current time and random characters.
+    Keep the existing sessionStorage-based chat session behavior unchanged.
+  initial: ai_evals/fixtures/frontend/app/initial/session_id_chat
+  runtime:
+    maxTurns: 4
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    requiredBackendRunnableKeys:
+      - a
+    requiredBackendRunnableTypes:
+      - key: a
+        type: inline
+  judgeChecklist:
+    - generateSessionId no longer calls crypto.randomUUID
+    - generateSessionId returns a handmade string id without using crypto
+    - getSessionId still stores and reuses chat_session_id in sessionStorage
+    - the existing new chat and send message session behavior remains wired up
