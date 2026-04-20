@@ -19,6 +19,7 @@ import { get } from 'svelte/store'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
+import { findModuleInModules } from '$lib/components/flows/flowTree'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { z } from 'zod'
 import {
@@ -256,38 +257,6 @@ export const extractAllModules = (modules: FlowModule[]): FlowModule[] => {
 	})
 }
 
-export const findModuleById = (modules: FlowModule[], moduleId: string): FlowModule | undefined => {
-	for (const module of modules) {
-		if (module.id === moduleId) {
-			return module
-		}
-		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
-			const found = findModuleById(module.value.modules, moduleId)
-			if (found) {
-				return found
-			}
-		}
-		if (module.value.type === 'branchall') {
-			const allModules = module.value.branches.flatMap((b) => b.modules)
-			const found = findModuleById(allModules, moduleId)
-			if (found) {
-				return found
-			}
-		}
-		if (module.value.type === 'branchone') {
-			const allModules = [
-				...module.value.branches.flatMap((b) => b.modules),
-				...module.value.default
-			]
-			const found = findModuleById(allModules, moduleId)
-			if (found) {
-				return found
-			}
-		}
-	}
-	return undefined
-}
-
 const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext: string) => {
 	let code = codeContext.split('\n')
 	let shiftOffset = 0
@@ -318,7 +287,7 @@ export function applyCodePiecesToFlowModules(
 
 	// Apply code pieces to each module
 	for (const [moduleId, pieces] of moduleCodePieces) {
-		const module = findModuleById(modifiedModules, moduleId)
+		const module = findModuleInModules(modifiedModules, moduleId)
 		if (module && module.value.type === 'rawscript' && module.value.content) {
 			module.value.content = applyCodePieceToCodeContext(
 				pieces as unknown as CodePieceElement[],

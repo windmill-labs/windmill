@@ -25,7 +25,6 @@ import {
 	buildTestRunArgs,
 	buildContextString,
 	applyCodePiecesToFlowModules,
-	findModuleById,
 	SPECIAL_MODULE_IDS,
 	formatScriptLintResult,
 	type ScriptLintResult,
@@ -34,10 +33,11 @@ import {
 } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
+import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
 import { createInlineScriptSession, type InlineScriptSession } from './inlineScriptsUtils'
 import type { FlowJsonUpdateResult } from './helperUtils'
 import { flowModuleSchema, flowModulesSchema } from './openFlowZod'
-import { collectAllModuleIdsFromArray } from './utils'
+import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
 import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
 
 /**
@@ -330,7 +330,7 @@ function validateFlowModules(rawModules: unknown): FlowModule[] {
 		throw new Error(`Invalid flow modules:\n${errors.join('\n')}`)
 	}
 
-	const ids = collectAllModuleIdsFromArray(parsedModules)
+	const ids = collectAllFlowModuleIdsFromModules(parsedModules)
 	if (ids.length !== new Set(ids).size) {
 		throw new Error('Duplicate module IDs found in flow')
 	}
@@ -408,7 +408,7 @@ function validateEditableFlowJson(rawFlow: unknown): EditableFlowJson {
 		}
 	}
 
-	const ids = new Set(collectAllModuleIdsFromArray(modules))
+	const ids = new Set(collectAllFlowModuleIdsFromModules(modules))
 	if (preprocessorModule) {
 		if (ids.has(preprocessorModule.id)) {
 			throw new Error(`Duplicate module ID found in preprocessor_module: ${preprocessorModule.id}`)
@@ -474,16 +474,6 @@ function buildEditableFlowJson(
 	}
 }
 
-function findModuleInEditableFlow(flow: EditableFlowJson, moduleId: string): FlowModule | undefined {
-	if (flow.preprocessor_module?.id === moduleId) {
-		return flow.preprocessor_module
-	}
-	if (flow.failure_module?.id === moduleId) {
-		return flow.failure_module
-	}
-	return findModuleById(flow.modules, moduleId)
-}
-
 /**
  * Helper interface for AI chat flow operations
  *
@@ -493,7 +483,7 @@ function findModuleInEditableFlow(flow: EditableFlowJson, moduleId: string): Flo
 export interface FlowAIChatHelpers {
 	// flow context
 	getFlowAndSelectedId: () => { flow: ExtendedOpenFlow; selectedId: string }
-	getModules: (id?: string) => FlowModule[]
+	getRootModules: () => FlowModule[]
 	inlineScriptSession: InlineScriptSession
 
 	// snapshot management (AI sets this when making changes)
@@ -832,9 +822,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			const stepId = args.stepId
 			const stepArgs = args.args || {}
 
-			// Find the step in the flow
-			const modules = helpers.getModules()
-			let targetModule: FlowModule | undefined = findModuleById(modules, stepId)
+			// Find the step in the flow (includes preprocessor/failure modules)
+			let targetModule: FlowModule | undefined = findModuleInFlow(flow.value, stepId) ?? undefined
 
 			if (!targetModule) {
 				toolCallbacks.setToolStatus(toolId, {
@@ -842,7 +831,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 					error: `Step with id '${stepId}' does not exist in the current flow`
 				})
 				throw new Error(
-					`Step with id '${stepId}' not found in flow. Available steps: ${modules.map((m) => m.id).join(', ')}`
+					`Step with id '${stepId}' not found in flow. Available steps: ${(flow.value.modules ?? []).map((m: FlowModule) => m.id).join(', ')}`
 				)
 			}
 
@@ -1038,7 +1027,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 			const warning = formatEmptyInlineScriptWarning(updateResult)
 
-			const selectedModule = findModuleInEditableFlow(parsedFlow, selectedId)
+			const selectedModule = findModuleInFlow(parsedFlow, selectedId) ?? undefined
 			if (
 				selectedModule &&
 				'input_transforms' in selectedModule.value &&
@@ -1161,7 +1150,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			if (parsedModules !== undefined) {
 				parsedModules = validateFlowModules(parsedModules)
-				const reservedIds = collectAllModuleIdsFromArray(parsedModules).filter(
+				const reservedIds = collectAllFlowModuleIdsFromModules(parsedModules).filter(
 					(id) =>
 						id === SPECIAL_MODULE_IDS.PREPROCESSOR || id === SPECIAL_MODULE_IDS.FAILURE
 				)
@@ -1182,7 +1171,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			parsedFailureModule = validateSpecialFlowModule(parsedFailureModule, 'failure_module')
 
 			const ids = [
-				...(parsedModules ? collectAllModuleIdsFromArray(parsedModules) : []),
+				...(parsedModules ? collectAllFlowModuleIdsFromModules(parsedModules) : []),
 				...([parsedPreprocessorModule, parsedFailureModule].filter(
 					(module): module is FlowModule => module !== undefined && module !== null
 				)
@@ -1218,7 +1207,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 						: selectedId === SPECIAL_MODULE_IDS.FAILURE
 							? parsedFailureModule ?? undefined
 							: parsedModules
-								? findModuleById(parsedModules, selectedId)
+								? findModuleInModules(parsedModules, selectedId)
 								: undefined
 				if (
 					selectedModule &&

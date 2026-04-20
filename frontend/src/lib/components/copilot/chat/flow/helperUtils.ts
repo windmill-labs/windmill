@@ -1,7 +1,6 @@
 import type { FlowModule, OpenFlow, RawScript } from '$lib/gen'
 import { forEachFlowModule } from '$lib/components/flows/dfs'
-import { dfs } from '$lib/components/flows/previousResults'
-import { SPECIAL_MODULE_IDS } from '../shared'
+import { findModuleInFlow } from '$lib/components/flows/flowTree'
 import type { InlineScriptSession } from './inlineScriptsUtils'
 
 type FlowLike = Pick<OpenFlow, 'value'> & {
@@ -19,58 +18,17 @@ export interface FlowJsonUpdateResult {
 	emptyInlineScriptModuleIds: string[]
 }
 
-export function getFlowModuleById(flow: FlowLike | undefined, id: string): FlowModule | undefined {
-	if (!flow) {
-		return undefined
-	}
-
-	if (id === SPECIAL_MODULE_IDS.PREPROCESSOR) {
-		return flow.value.preprocessor_module
-	}
-
-	if (id === SPECIAL_MODULE_IDS.FAILURE) {
-		return flow.value.failure_module
-	}
-
-	return dfs(id, flow as OpenFlow, false)[0]
-}
-
-export function getMutableRawScriptModuleById(
-	flow: FlowLike | undefined,
-	id: string
-): (FlowModule & { value: RawScript }) | undefined {
-	if (!flow) {
-		return undefined
-	}
-
-	if (flow.value.preprocessor_module?.id === id && flow.value.preprocessor_module.value.type === 'rawscript') {
-		return flow.value.preprocessor_module as FlowModule & { value: RawScript }
-	}
-
-	if (flow.value.failure_module?.id === id && flow.value.failure_module.value.type === 'rawscript') {
-		return flow.value.failure_module as FlowModule & { value: RawScript }
-	}
-
-	let matchedModule: (FlowModule & { value: RawScript }) | undefined
-	forEachFlowModule(flow.value.modules, (module) => {
-		if (!matchedModule && module.id === id && module.value.type === 'rawscript') {
-			matchedModule = module as FlowModule & { value: RawScript }
-		}
-	})
-
-	return matchedModule
-}
-
 export function updateRawScriptModuleContent(
 	flow: FlowLike,
 	id: string,
 	code: string
 ): (FlowModule & { value: RawScript }) | undefined {
-	const rawScriptModule = getMutableRawScriptModuleById(flow, id)
-	if (!rawScriptModule) {
+	const module = findModuleInFlow(flow.value, id)
+	if (!module || module.value.type !== 'rawscript') {
 		return undefined
 	}
 
+	const rawScriptModule = module as FlowModule & { value: RawScript }
 	rawScriptModule.value.content = code
 	return rawScriptModule
 }
@@ -83,7 +41,11 @@ export function applyFlowJsonUpdate(
 	const emptyInlineScriptModuleIds = new Set<string>()
 
 	if (modules !== undefined) {
-		flow.value.modules = restoreFlowModules(modules, inlineScriptSession, emptyInlineScriptModuleIds)
+		flow.value.modules = restoreFlowModules(
+			modules,
+			inlineScriptSession,
+			emptyInlineScriptModuleIds
+		)
 	}
 
 	if (schema !== undefined) {
