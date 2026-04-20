@@ -30,6 +30,7 @@ import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { Runnable } from "./metadata.ts";
 import {
   APP_BACKEND_FOLDER,
+  inferAllInlineSchemas,
   inferRunnableSchemaFromFile,
 } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
@@ -417,9 +418,42 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
   // In-memory cache of inferred schemas (runnableId -> schema)
   // Used to generate wmill.d.ts without modifying raw_app.yaml
+  // Seed with schemas inferred from every inline code file in the backend folder
+  // so the initial wmill.d.ts already has typed args (without waiting for a file
+  // change to trigger the watcher).
   const inferredSchemas: Record<string, any> = {};
+  try {
+    Object.assign(inferredSchemas, await inferAllInlineSchemas(process.cwd()));
+  } catch (err: any) {
+    log.warn(
+      colors.yellow(
+        `Could not seed inline schemas at startup: ${err.message}`,
+      ),
+    );
+  }
 
-  genRunnablesTs(inferredSchemas);
+  // In-memory cache of schemas for path-based runnables fetched from the API.
+  // Path-based runnables don't carry their schema in the local YAML (the script /
+  // flow at the path is the source of truth), so we fetch once at dev start and
+  // reuse for every wmill.d.ts regeneration.
+  const pathRunnableSchemas: Record<string, any> = {};
+  try {
+    const initialRunnables = await loadRunnablesFromBackend(
+      path.join(process.cwd(), APP_BACKEND_FOLDER),
+    );
+    Object.assign(
+      pathRunnableSchemas,
+      await fetchPathRunnableSchemas(workspaceId, initialRunnables),
+    );
+  } catch (err: any) {
+    log.warn(
+      colors.yellow(
+        `Could not fetch schemas for path-based runnables: ${err.message}`,
+      ),
+    );
+  }
+
+  await genRunnablesTs(inferredSchemas, pathRunnableSchemas);
 
   // Ensure dist directory exists
   const distDir = path.join(process.cwd(), "dist");
@@ -589,7 +623,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
               ),
             );
             // Regenerate wmill.d.ts with updated schema from memory
-            await genRunnablesTs(inferredSchemas);
+            await genRunnablesTs(inferredSchemas, pathRunnableSchemas);
           }
         } catch (error: any) {
           log.error(
@@ -1320,9 +1354,13 @@ export default command;
  * or falls back to raw_app.yaml (old format).
  * Merges in-memory inferred schemas with runnables.
  *
- * @param schemaOverrides - In-memory schema overrides (runnableId -> schema)
+ * @param inlineSchemaOverrides - Inferred schemas for inline runnables (runnableId -> schema)
+ * @param pathSchemaOverrides - Schemas fetched from the API for path-based runnables (runnableId -> schema)
  */
-async function genRunnablesTs(schemaOverrides: Record<string, any> = {}) {
+async function genRunnablesTs(
+  inlineSchemaOverrides: Record<string, any> = {},
+  pathSchemaOverrides: Record<string, any> = {},
+) {
   log.info(colors.blue("🔄 Generating wmill.d.ts..."));
 
   const localPath = process.cwd();
@@ -1343,22 +1381,104 @@ async function genRunnablesTs(schemaOverrides: Record<string, any> = {}) {
     }
   }
 
-  // Apply schema overrides from in-memory cache
-  if (Object.keys(schemaOverrides).length > 0) {
-    for (const [runnableId, schema] of Object.entries(schemaOverrides)) {
-      if (runnables[runnableId]?.inlineScript) {
-        runnables[runnableId].inlineScript.schema = schema;
-        runnables[runnableId].type = "inline";
-      }
-    }
-  }
-
   try {
-    const newWmillTs = windmillUtils.genWmillTs(runnables);
+    const newWmillTs = buildWmillTs(
+      runnables,
+      inlineSchemaOverrides,
+      pathSchemaOverrides,
+    );
     writeFileSync(path.join(process.cwd(), "wmill.d.ts"), newWmillTs);
   } catch (error: any) {
     log.error(colors.red(`Failed to generate wmill.d.ts: ${error.message}`));
   }
+}
+
+/**
+ * Merges inline + path schema overrides into the runnables map and renders the
+ * wmill.d.ts source via shared-utils. Exported so unit tests can exercise the
+ * exact pipeline without touching disk.
+ */
+export function buildWmillTs(
+  runnables: Record<string, any>,
+  inlineSchemaOverrides: Record<string, any> = {},
+  pathSchemaOverrides: Record<string, any> = {},
+): string {
+  // Apply inline schema overrides (inferred locally from script content)
+  for (const [runnableId, schema] of Object.entries(inlineSchemaOverrides)) {
+    if (runnables[runnableId]?.inlineScript) {
+      runnables[runnableId].inlineScript.schema = schema;
+      runnables[runnableId].type = "inline";
+    }
+  }
+
+  // Apply path-based runnable schemas (fetched from the API)
+  for (const [runnableId, schema] of Object.entries(pathSchemaOverrides)) {
+    const runnable = runnables[runnableId];
+    if (runnable?.type === "path" && schema) {
+      runnable.schema = schema;
+    }
+  }
+
+  // Defensive: shared-utils' genWmillTs crashes on path runnables with an
+  // undefined schema (it calls removeStaticFields(undefined, ...)). Stamp an
+  // empty schema so the generated d.ts falls back cleanly to `args: {}`.
+  for (const runnable of Object.values(runnables)) {
+    if (runnable?.type === "path" && !runnable.schema) {
+      runnable.schema = {};
+    }
+  }
+
+  return windmillUtils.genWmillTs(runnables);
+}
+
+/**
+ * Fetches schemas from the Windmill API for path-based runnables (script / flow).
+ * Returns a map of runnableId -> schema. Path-based runnables don't store their
+ * schema locally (the script or flow at the path is the source of truth), so we
+ * fetch them once at dev start to type the args in wmill.d.ts.
+ *
+ * Failures (network, missing script) are logged but never thrown - the
+ * corresponding runnable will fall back to `args: {}` in the generated types.
+ *
+ * Exported for testing.
+ */
+export async function fetchPathRunnableSchemas(
+  workspaceId: string,
+  runnables: Record<string, any>,
+): Promise<Record<string, any>> {
+  const schemas: Record<string, any> = {};
+  for (const [runnableId, runnable] of Object.entries(runnables)) {
+    if (runnable?.type !== "path" || !runnable.path) continue;
+    if (runnable.schema) {
+      // Already populated locally - keep it (e.g. fixture / offline mode)
+      schemas[runnableId] = runnable.schema;
+      continue;
+    }
+    try {
+      if (runnable.runType === "script") {
+        const script = await wmill.getScriptByPath({
+          workspace: workspaceId,
+          path: runnable.path,
+        });
+        if (script.schema) schemas[runnableId] = script.schema;
+      } else if (runnable.runType === "flow") {
+        const flow = await wmill.getFlowByPath({
+          workspace: workspaceId,
+          path: runnable.path,
+        });
+        const flowSchema = (flow as any)?.value?.schema ?? (flow as any)?.schema;
+        if (flowSchema) schemas[runnableId] = flowSchema;
+      }
+      // hubscript schemas are not fetched (no scoped API); falls back to {}
+    } catch (err: any) {
+      log.warn(
+        colors.yellow(
+          `Failed to fetch schema for ${runnable.runType} ${runnable.path}: ${err.message}`,
+        ),
+      );
+    }
+  }
+  return schemas;
 }
 
 /**
