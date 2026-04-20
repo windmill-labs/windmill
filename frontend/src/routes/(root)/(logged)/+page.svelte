@@ -13,6 +13,7 @@
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import HomeConnectDrawer from '$lib/components/home/HomeConnectDrawer.svelte'
 	import {
 		Building,
 		ExternalLink,
@@ -20,7 +21,8 @@
 		Globe2,
 		Loader2,
 		Code,
-		LayoutDashboard
+		LayoutDashboard,
+		PlugZap
 	} from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -98,6 +100,7 @@
 	}
 
 	let workspaceTutorials: WorkspaceTutorials | undefined = $state(undefined)
+	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
 	// Provide workspaceTutorials to child components via a reactive wrapper
 	let workspaceTutorialsContext = $derived(workspaceTutorials)
@@ -283,6 +286,15 @@
 			title="Home"
 			childrenWrapperDivClasses="flex-1 flex flex-row gap-4 flex-wrap justify-end items-center"
 		>
+			<Button
+				variant="default"
+				unifiedSize="sm"
+				startIcon={{ icon: PlugZap }}
+				btnClasses="!rounded-full"
+				onClick={() => homeConnectDrawer?.openDrawer?.()}
+			>
+				Connect
+			</Button>
 			{#if !$userStore?.operator && showCreateButtons}
 				<span class="text-xs font-normal text-primary">Create a</span>
 				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
@@ -374,3 +386,4 @@
 </div>
 
 <WorkspaceTutorials bind:this={workspaceTutorials} />
+<HomeConnectDrawer bind:this={homeConnectDrawer} />

@@ -9,9 +9,19 @@
 		language: LanguageType<string>
 		disabled?: boolean
 		wrap?: boolean
+		copyOnClick?: boolean
 	}
 
-	let { code, language, disabled = false, wrap = false }: Props = $props()
+	let { code, language, disabled = false, wrap = false, copyOnClick = true }: Props = $props()
+
+	function copyCode(event?: MouseEvent) {
+		if (disabled) {
+			return
+		}
+		event?.preventDefault()
+		event?.stopPropagation()
+		copyToClipboard(code)
+	}
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -19,22 +29,24 @@
 <div
 	class="flex flex-col flex-1 border rounded-md relative bg-surface-input"
 	class:cursor-not-allowed={disabled}
+	class:cursor-pointer={copyOnClick && !disabled}
+	class:cursor-text={!copyOnClick && !disabled}
 	onclick={(e) => {
-		if (disabled) {
-			return
+		if (copyOnClick) {
+			copyCode(e)
 		}
-		e.preventDefault()
-		copyToClipboard(code)
 	}}
 >
-	<div class="absolute top-2 right-1 z-10 pointer-events-none">
-		<Copy size={14} class="w-8 cursor-pointer pointer-events-auto" />
+	<div class="absolute top-2 right-1 z-10">
+		<div class="w-8 cursor-pointer" onclick={copyCode}>
+			<Copy size={14} />
+		</div>
 	</div>
 	<div class="p-2 w-full overflow-auto">
 		<Highlight
 			{language}
 			{code}
-			class="pointer-events-none {wrap ? 'whitespace-pre-wrap break-all pr-8' : ''}"
+			class="{copyOnClick ? 'pointer-events-none' : 'select-text'} {wrap ? 'whitespace-pre-wrap break-all pr-8' : ''}"
 		/>
 	</div>
 </div>
