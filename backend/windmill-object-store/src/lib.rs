@@ -1034,7 +1034,7 @@ where
 {
     const MAX_MPSC_SIZE: usize = 1000;
     const WRITE_BUF_CAPACITY: usize = 256 * 1024;
-    const PROGRESS_INTERVAL_SECS: u64 = 30;
+    const PROGRESS_INTERVAL_SECS: u64 = 10;
 
     use datafusion::{execution::context::SessionContext, prelude::NdJsonReadOptions};
     use futures::StreamExt;
