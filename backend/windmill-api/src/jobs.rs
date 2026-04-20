@@ -2091,14 +2091,14 @@ async fn cancel_selection(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
+    Path(_w_id): Path<String>,
     Query(query): Query<CancelSelectionQuery>,
     Json(jobs): Json<Vec<Uuid>>,
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec());
-    let jobs_to_cancel = sqlx::query_scalar!(
-            "SELECT j.id AS \"id!\" FROM v2_job j LEFT JOIN v2_job_queue q USING (id) WHERE j.id = ANY($1) AND j.trigger_kind IS DISTINCT FROM 'schedule'::job_trigger_kind AND ($2::text[] IS NULL OR j.tag = ANY($2))",
+    let rows = sqlx::query!(
+            "SELECT j.id AS \"id!\", j.workspace_id AS \"workspace_id!\" FROM v2_job j LEFT JOIN v2_job_queue q USING (id) WHERE j.id = ANY($1) AND j.trigger_kind IS DISTINCT FROM 'schedule'::job_trigger_kind AND ($2::text[] IS NULL OR j.tag = ANY($2))",
             &jobs,
             tags.as_ref().map(|v| v.as_slice())
         )
@@ -2106,14 +2106,33 @@ async fn cancel_selection(
         .await?;
     tx.commit().await?;
 
-    cancel_jobs(
-        jobs_to_cancel,
-        &db,
-        authed.username.as_str(),
-        w_id.as_str(),
-        query.force_cancel.unwrap_or(false),
-    )
-    .await
+    // Jobs can span multiple workspaces when the caller is a superadmin using
+    // the "admins" workspace with the all_workspaces filter. cancel_jobs
+    // enforces workspace_id per row, so dispatch one call per workspace and
+    // aggregate, otherwise cross-workspace jobs are silently dropped.
+    let mut jobs_by_workspace: HashMap<String, Vec<Uuid>> = HashMap::new();
+    for row in rows {
+        jobs_by_workspace
+            .entry(row.workspace_id)
+            .or_default()
+            .push(row.id);
+    }
+
+    let force_cancel = query.force_cancel.unwrap_or(false);
+    let mut cancelled = Vec::new();
+    for (workspace_id, ids) in jobs_by_workspace {
+        let Json(mut w_cancelled) = cancel_jobs(
+            ids,
+            &db,
+            authed.username.as_str(),
+            workspace_id.as_str(),
+            force_cancel,
+        )
+        .await?;
+        cancelled.append(&mut w_cancelled);
+    }
+
+    Ok(Json(cancelled))
 }
 
 async fn list_filtered_job_uuids(
