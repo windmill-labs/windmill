@@ -52,7 +52,9 @@ function createSkeletonModule(module: FlowModule): FlowModule {
 	} else if (clone.value.type === 'branchall') {
 		clone.value.branches.forEach((b: any) => (b.modules = []))
 	} else if (clone.value.type === 'aiagent') {
-		clone.value.tools = []
+		clone.value.tools = (clone.value.tools ?? []).filter(
+			(t: any) => t.value?.tool_type && t.value.tool_type !== 'flowmodule'
+		)
 	}
 	return clone
 }

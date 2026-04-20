@@ -366,5 +366,12 @@ export function getPreviousModule(moduleId: string, flow: OpenFlow): FlowModule 
 		return undefined
 	}
 
-	return container.modules[container.index - 1]
+	for (let i = container.index - 1; i >= 0; i--) {
+		const mod = container.modules[i]
+		const toolType = (mod.value as any)?.tool_type
+		if (toolType === undefined || toolType === 'flowmodule') {
+			return mod
+		}
+	}
+	return undefined
 }
