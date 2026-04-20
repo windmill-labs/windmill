@@ -37,3 +37,5 @@ export type AssetGraphNodeData =
 			runnable_kind: GraphUsageKind
 			path: string
 	  }
+
+export type AssetGraphSelection = AssetGraphNodeData

@@ -2,37 +2,58 @@
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
-	import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
+	import AssetGraphDetailsPane from '$lib/components/assets/AssetGraph/AssetGraphDetailsPane.svelte'
+	import type {
+		AssetGraphResponse,
+		AssetGraphSelection
+	} from '$lib/components/assets/AssetGraph/types'
 	import { ArrowLeft, Loader2, NetworkIcon, RefreshCw } from 'lucide-svelte'
 	import { OpenAPI } from '$lib/gen'
+	import { resource } from 'runed'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
-	let loading = $state(true)
-	let error = $state<string | null>(null)
-	let graph = $state<AssetGraphResponse | null>(null)
+	// Variables and resources tend to be hubs (DB creds, API keys) used by
+	// most runnables, so they swamp the layout. Hidden by default; the
+	// toggle in the header opts back in.
+	const DATA_KINDS = ['s3object', 'ducklake', 'datatable', 'volume']
 
-	async function load() {
-		if (!$workspaceStore) return
-		loading = true
-		error = null
-		try {
+	let includeConfigKinds = $state(false)
+	let selection = $state<AssetGraphSelection | undefined>(undefined)
+
+	let graphRes = resource(
+		[() => $workspaceStore, () => includeConfigKinds],
+		async ([ws, includeAll], _prev, { signal }) => {
+			if (!ws) return undefined
 			const base_url = OpenAPI.BASE ?? ''
-			const res = await fetch(`${base_url}/api/w/${$workspaceStore}/assets/graph`, {
-				credentials: 'include'
+			const qs = includeAll ? '' : `?asset_kinds=${DATA_KINDS.join(',')}`
+			const res = await fetch(`${base_url}/w/${ws}/assets/graph${qs}`, {
+				credentials: 'include',
+				signal
 			})
-			if (!res.ok) {
-				throw new Error(`GET /assets/graph → ${res.status}`)
-			}
-			graph = (await res.json()) as AssetGraphResponse
-		} catch (e) {
-			error = e instanceof Error ? e.message : String(e)
-		} finally {
-			loading = false
+			if (!res.ok) throw new Error(`GET /assets/graph → ${res.status}`)
+			return (await res.json()) as AssetGraphResponse
 		}
+	)
+
+	// Pluralize the kind label: 1 script, 2 scripts, 1 s3object, 2 s3objects.
+	function pluralize(n: number, singular: string): string {
+		return `${n} ${singular}${n === 1 ? '' : 's'}`
 	}
 
-	$effect(() => {
-		if ($workspaceStore) load()
+	let summary = $derived.by<string[]>(() => {
+		const g = graphRes.current
+		if (!g) return []
+		const parts: string[] = []
+		const scripts = g.runnables.filter((r) => r.usage_kind === 'script').length
+		const flows = g.runnables.filter((r) => r.usage_kind === 'flow').length
+		if (scripts) parts.push(pluralize(scripts, 'script'))
+		if (flows) parts.push(pluralize(flows, 'flow'))
+		const byKind = new Map<string, number>()
+		for (const a of g.assets) byKind.set(a.kind, (byKind.get(a.kind) ?? 0) + 1)
+		for (const [kind, n] of byKind) parts.push(pluralize(n, kind))
+		return parts
 	})
 </script>
 
@@ -43,62 +64,77 @@
 {#if $userStore?.operator}
 	<div class="p-8 text-tertiary">Page not available for operators.</div>
 {:else}
-	<div class="flex flex-col h-[calc(100vh-3rem)]">
+	<div class="flex flex-col h-full">
 		<div
-			class="flex items-center justify-between gap-4 px-4 py-2 border-b border-gray-200 dark:border-gray-800"
+			class="border-b flex flex-row justify-between gap-2 px-2 py-1 items-center overflow-y-visible overflow-x-auto min-h-10 shrink-0 whitespace-nowrap"
 		>
-			<div class="flex items-center gap-3">
+			<div class="flex flex-row items-center gap-2">
 				<Button
 					variant="subtle"
 					unifiedSize="sm"
 					href="{base}/assets"
 					startIcon={{ icon: ArrowLeft }}
-				>
-					Assets
-				</Button>
-				<div class="flex items-center gap-2">
-					<NetworkIcon size={18} class="text-tertiary" />
-					<h1 class="text-lg font-semibold">Asset graph</h1>
-				</div>
-				<span class="text-xs text-tertiary">
-					Workspace-wide view of assets and their producers/consumers.
-				</span>
-			</div>
-			<div class="flex items-center gap-2">
-				{#if graph}
-					<span class="text-xs text-tertiary">
-						{graph.assets.length} assets · {graph.runnables.length} runnables · {graph.edges.length}
-						edges
-					</span>
+					iconOnly
+					title="Back to assets"
+				/>
+				<NetworkIcon size={16} class="text-tertiary shrink-0" />
+				<h1 class="text-sm font-semibold">Asset graph</h1>
+				{#if summary.length > 0}
+					<span class="text-xs text-tertiary">· {summary.join(' · ')}</span>
 				{/if}
+			</div>
+			<div class="flex flex-row items-center gap-2">
+				<Toggle
+					bind:checked={includeConfigKinds}
+					size="xs"
+					options={{ right: 'Vars & resources' }}
+					disabled={graphRes.loading}
+				/>
 				<Button
 					variant="subtle"
 					unifiedSize="sm"
 					startIcon={{ icon: RefreshCw }}
-					onclick={load}
-					disabled={loading}
-				>
-					Refresh
-				</Button>
+					onclick={() => graphRes.refetch()}
+					disabled={graphRes.loading}
+					iconOnly
+					title="Refresh"
+				/>
 			</div>
 		</div>
 
-		<div class="flex-1 relative">
-			{#if loading}
-				<div class="absolute inset-0 flex items-center justify-center gap-2 text-tertiary">
+		<div class="flex-1 min-h-0">
+			{#if graphRes.loading && !graphRes.current}
+				<div class="h-full flex items-center justify-center gap-2 text-tertiary">
 					<Loader2 size={18} class="animate-spin" />
 					<span>Loading graph…</span>
 				</div>
-			{:else if error}
-				<div class="absolute inset-0 flex items-center justify-center text-red-500 text-sm">
-					Failed to load graph: {error}
+			{:else if graphRes.error}
+				<div class="h-full flex items-center justify-center text-red-500 text-sm">
+					Failed to load graph: {graphRes.error.message}
 				</div>
-			{:else if graph && graph.assets.length === 0 && graph.runnables.length === 0}
-				<div class="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
+			{:else if graphRes.current && graphRes.current.assets.length === 0 && graphRes.current.runnables.length === 0}
+				<div class="h-full flex items-center justify-center text-tertiary text-sm">
 					No assets are referenced by scripts or flows in this workspace yet.
 				</div>
-			{:else if graph}
-				<AssetGraphCanvas {graph} />
+			{:else if graphRes.current}
+				<Splitpanes class="!h-full">
+					<Pane size={selection ? 60 : 100}>
+						<AssetGraphCanvas
+							graph={graphRes.current}
+							{selection}
+							onselect={(s) => (selection = s)}
+						/>
+					</Pane>
+					{#if selection && $workspaceStore}
+						<Pane size={40} minSize={25}>
+							<AssetGraphDetailsPane
+								{selection}
+								workspace={$workspaceStore}
+								onclose={() => (selection = undefined)}
+							/>
+						</Pane>
+					{/if}
+				</Splitpanes>
 			{/if}
 		</div>
 	</div>

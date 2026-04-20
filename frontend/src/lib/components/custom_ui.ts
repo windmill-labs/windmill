@@ -56,6 +56,7 @@ export type PreviewPanelUi = {
 	disableTracing?: boolean
 	disableTriggerCaptures?: boolean
 	disableTriggerButton?: boolean
+	disableJsonView?: boolean
 	displayResult?: DisplayResultUi
 	disableVariablePicker?: boolean
 	disableDownload?: boolean

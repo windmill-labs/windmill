@@ -1,10 +1,15 @@
 import { dagStratify, sugiyama, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
 import type { AssetGraphNodeData } from './types'
+import { NODE } from '$lib/components/graph/util'
 
-const NODE_WIDTH = 260
-const NODE_HEIGHT = 64
-const LAYER_GAP = 80
-const SIBLING_GAP = 32
+// Match the flow editor's per-node sizing and inter-node gaps so the asset
+// graph's spacing feels familiar. NODE.height is the flow-step pill height (34
+// px) which is too tight for a 2-line asset card, so we add a bit of vertical
+// breathing room.
+const NODE_WIDTH = NODE.width
+const NODE_HEIGHT = NODE.height + 30
+const LAYER_GAP = NODE.gap.vertical
+const SIBLING_GAP = NODE.gap.horizontal
 
 interface GraphInput {
 	nodes: Array<{ id: string; data: AssetGraphNodeData }>
@@ -16,9 +21,9 @@ interface Positioned {
 	y: number
 }
 
-// Sugiyama layered layout: producers left → assets middle → consumers right.
-// Falls back to a stable grid if d3-dag throws (e.g., on cyclic inputs —
-// shouldn't happen in practice for asset usage).
+// Sugiyama layered layout (top-down, same orientation as the flow editor —
+// see compoundLayout.ts): producers above → assets in the middle → consumers
+// below. Falls back to a stable grid if d3-dag throws (e.g., cyclic inputs).
 export function layoutAssetGraph(graph: GraphInput): Map<string, Positioned> {
 	const byId = new Map<string, Positioned>()
 	if (graph.nodes.length === 0) return byId

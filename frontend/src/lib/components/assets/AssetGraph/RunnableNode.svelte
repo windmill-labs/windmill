@@ -1,42 +1,35 @@
 <script lang="ts">
 	import { Handle, Position } from '@xyflow/svelte'
-	import { Code2, GitBranch, ExternalLink } from 'lucide-svelte'
-	import { base } from '$lib/base'
+	import { Code2, GitBranch } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 	import type { GraphUsageKind } from './types'
+	import { NODE } from '$lib/components/graph/util'
 
 	interface Props {
 		data: { runnable_kind: GraphUsageKind; path: string }
 	}
 	let { data }: Props = $props()
 
-	let href = $derived(
-		data.runnable_kind === 'flow'
-			? `${base}/flows/edit/${data.path}`
-			: `${base}/scripts/edit/${data.path}`
-	)
 	let Icon = $derived(data.runnable_kind === 'flow' ? GitBranch : Code2)
-	let label = $derived(data.runnable_kind === 'flow' ? 'FLOW' : 'SCRIPT')
+	let label = $derived(data.runnable_kind === 'flow' ? 'flow' : 'script')
 </script>
 
-<div
-	class="bg-surface-secondary border border-gray-300 dark:border-gray-700 rounded-md shadow-sm px-3 py-2 w-[260px] hover:border-emerald-500 transition-colors"
->
-	<Handle type="target" position={Position.Left} class="!bg-emerald-500" />
-	<div class="flex items-center gap-2">
-		<Icon size={16} class="text-emerald-700 dark:text-emerald-400 shrink-0" />
-		<div class="flex flex-col min-w-0 flex-1">
-			<span class="text-[10px] uppercase tracking-wide text-tertiary">{label}</span>
-			<span class="text-xs font-mono truncate" title={data.path}>{data.path}</span>
+<div class="relative">
+	<div
+		class={twMerge(
+			'flex items-center rounded-md drop-shadow-sm overflow-hidden',
+			'bg-surface-tertiary outline outline-1 outline-transparent hover:outline-emerald-500 transition-colors'
+		)}
+		style="width: {NODE.width}px; min-height: {NODE.height + 30}px;"
+		title={data.path}
+	>
+		<Icon size={16} class="shrink-0 ml-2 mr-2 text-emerald-700 dark:text-emerald-400" />
+		<div class="flex flex-col min-w-0 flex-1 pr-2 py-1.5">
+			<span class="text-3xs uppercase tracking-wide text-tertiary truncate">{label}</span>
+			<span class="text-2xs font-mono text-emphasis truncate">{data.path}</span>
 		</div>
-		<a
-			{href}
-			target="_blank"
-			class="text-tertiary hover:text-primary"
-			onclick={(e) => e.stopPropagation()}
-			aria-label="Open {label.toLowerCase()} editor"
-		>
-			<ExternalLink size={14} />
-		</a>
 	</div>
-	<Handle type="source" position={Position.Right} class="!bg-emerald-500" />
 </div>
+
+<Handle type="target" position={Position.Top} isConnectable={false} />
+<Handle type="source" position={Position.Bottom} isConnectable={false} />

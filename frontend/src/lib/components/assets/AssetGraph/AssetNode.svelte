@@ -1,42 +1,38 @@
 <script lang="ts">
 	import { Handle, Position } from '@xyflow/svelte'
-	import { Database, FileBox, Layers, HardDrive, KeyRound } from 'lucide-svelte'
-	import type { AssetKind } from '$lib/gen'
+	import { twMerge } from 'tailwind-merge'
+	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
+	import { formatShortAssetPath, type AssetKind } from '$lib/components/assets/lib'
+	import { NODE } from '$lib/components/graph/util'
 
 	interface Props {
 		data: { asset_kind: AssetKind; path: string }
 	}
 	let { data }: Props = $props()
 
-	function iconFor(kind: AssetKind) {
-		switch (kind) {
-			case 's3object':
-				return FileBox
-			case 'resource':
-				return KeyRound
-			case 'ducklake':
-				return Database
-			case 'datatable':
-				return Layers
-			case 'volume':
-				return HardDrive
-			default:
-				return FileBox
-		}
-	}
-	let Icon = $derived(iconFor(data.asset_kind))
+	let asset = $derived({ kind: data.asset_kind, path: data.path })
 </script>
 
-<div
-	class="bg-surface border border-gray-300 dark:border-gray-700 rounded-md shadow-sm px-3 py-2 w-[260px] hover:border-blue-400 transition-colors"
->
-	<Handle type="target" position={Position.Left} class="!bg-blue-500" />
-	<div class="flex items-center gap-2">
-		<Icon size={16} class="text-blue-600 dark:text-blue-400 shrink-0" />
-		<div class="flex flex-col min-w-0 flex-1">
-			<span class="text-[10px] uppercase tracking-wide text-tertiary">{data.asset_kind}</span>
-			<span class="text-xs font-mono truncate" title={data.path}>{data.path}</span>
+<div class="relative">
+	<div
+		class={twMerge(
+			'flex items-center rounded-md drop-shadow-sm overflow-hidden',
+			'bg-surface-secondary outline outline-1 outline-transparent hover:outline-blue-400 transition-colors'
+		)}
+		style="width: {NODE.width}px; min-height: {NODE.height + 30}px;"
+		title={data.path}
+	>
+		<AssetGenericIcon
+			assetKind={data.asset_kind}
+			class="shrink-0 ml-2 mr-2 text-blue-600 dark:text-blue-400"
+			size="16px"
+		/>
+		<div class="flex flex-col min-w-0 flex-1 pr-2 py-1.5">
+			<span class="text-3xs uppercase tracking-wide text-tertiary truncate">{data.asset_kind}</span>
+			<span class="text-2xs font-mono text-emphasis truncate">{formatShortAssetPath(asset)}</span>
 		</div>
 	</div>
-	<Handle type="source" position={Position.Right} class="!bg-blue-500" />
 </div>
+
+<Handle type="target" position={Position.Top} isConnectable={false} />
+<Handle type="source" position={Position.Bottom} isConnectable={false} />
