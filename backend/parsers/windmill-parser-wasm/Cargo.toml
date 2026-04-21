@@ -1,5 +1,48 @@
 cargo-features = ["panic-immediate-abort"]
 
+# This crate is intentionally excluded from the parent backend workspace
+# (see `backend/Cargo.toml` `exclude = [...]`) because it uses nightly-only
+# features (`cargo-features`, `-Z build-std`) that would break stable builds.
+# It declares its own workspace here so that `.workspace = true` inheritance
+# resolves against its own `[workspace.package]` / `[workspace.dependencies]`
+# tables below. Sibling windmill-parser-* crates are referenced by path and
+# keep using the parent workspace for their own dependencies.
+[workspace]
+resolver = "2"
+members = ["."]
+
+[workspace.package]
+version = "1.688.0"
+edition = "2021"
+authors = ["Ruben Fiszel <ruben@windmill.dev>"]
+
+[workspace.dependencies]
+anyhow = "^1"
+serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
+wasm-bindgen = "=0.2.103"
+wasm-bindgen-test = "^0"
+getrandom = "0.2"
+windmill-parser = { path = "../windmill-parser" }
+windmill-parser-ts = { path = "../windmill-parser-ts" }
+windmill-parser-ts-asset = { path = "../windmill-parser-ts-asset" }
+windmill-parser-py = { path = "../windmill-parser-py" }
+windmill-parser-py-asset = { path = "../windmill-parser-py-asset" }
+windmill-parser-py-imports = { path = "../windmill-parser-py-imports" }
+windmill-parser-go = { path = "../windmill-parser-go" }
+windmill-parser-rust = { path = "../windmill-parser-rust" }
+windmill-parser-yaml = { path = "../windmill-parser-yaml" }
+windmill-parser-csharp = { path = "../windmill-parser-csharp" }
+windmill-parser-java = { path = "../windmill-parser-java" }
+windmill-parser-ruby = { path = "../windmill-parser-ruby" }
+windmill-parser-r = { path = "../windmill-parser-r" }
+windmill-parser-nu = { path = "../windmill-parser-nu" }
+windmill-parser-bash = { path = "../windmill-parser-bash" }
+windmill-parser-sql = { path = "../windmill-parser-sql" }
+windmill-parser-sql-asset = { path = "../windmill-parser-sql-asset" }
+windmill-parser-graphql = { path = "../windmill-parser-graphql" }
+windmill-parser-php = { path = "../windmill-parser-php" }
+windmill-parser-wac = { path = "../windmill-parser-wac" }
+
 [package]
 name = "windmill-parser-wasm"
 version.workspace = true
