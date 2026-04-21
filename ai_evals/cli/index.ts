@@ -27,11 +27,18 @@ import { EVAL_MODES, type EvalMode } from "../core/types";
 import { DEFAULT_JUDGE_MODEL } from "../core/judge";
 import { createCliModeRunner } from "../modes/cli";
 import { runFrontendBenchmarkAdapter } from "../adapters/frontend/runtime";
+import {
+  FRONTEND_EVAL_TRANSPORTS,
+  type FrontendEvalTransport,
+  parseFrontendEvalTransport,
+} from "../core/frontendTransport";
 
 async function main() {
   const program = new Command()
     .name("bun run cli --")
-    .description("Run AI eval cases against the current production prompts and guidance")
+    .description(
+      "Run AI eval cases against the current production prompts and guidance",
+    )
     .showHelpAfterError()
     .showSuggestionAfterError()
     .addHelpText(
@@ -53,7 +60,7 @@ async function main() {
         "",
         "Models:",
         getEvalModelHelpText(),
-      ].join("\n")
+      ].join("\n"),
     );
 
   program
@@ -76,15 +83,33 @@ async function main() {
     .description("Run one benchmark mode")
     .argument("<mode>", "cli, flow, script, or app", parseMode)
     .argument("[caseIds...]", "specific case ids to run")
-    .option("--runs <n>", "number of attempts per case", parsePositiveInteger, 1)
+    .option(
+      "--runs <n>",
+      "number of attempts per case",
+      parsePositiveInteger,
+      1,
+    )
     .option("--output <path>", "write the result JSON to this path")
-    .option("--model <name>", `model alias (${EVAL_MODELS.map((entry) => entry.id).join(", ")})`)
-    .option("--models <names>", "comma-separated model aliases to run sequentially")
+    .option(
+      "--model <name>",
+      `model alias (${EVAL_MODELS.map((entry) => entry.id).join(", ")})`,
+    )
+    .option(
+      "--models <names>",
+      "comma-separated model aliases to run sequentially",
+    )
+    .option(
+      "--transport <mode>",
+      `frontend transport (${FRONTEND_EVAL_TRANSPORTS.join(", ")})`,
+    )
     .option("--verbose", "stream assistant output during frontend runs")
-    .option("--record", "append a compact summary line to ai_evals/history/<mode>.jsonl")
+    .option(
+      "--record",
+      "append a compact summary line to ai_evals/history/<mode>.jsonl",
+    )
     .option(
       "--backend-validation <mode>",
-      `backend smoke validation (${BACKEND_VALIDATION_MODES.join(", ")})`
+      `backend smoke validation (${BACKEND_VALIDATION_MODES.join(", ")})`,
     )
     .action(
       async (
@@ -95,10 +120,11 @@ async function main() {
           output?: string;
           model?: string;
           models?: string;
+          transport?: string;
           verbose?: boolean;
           record?: boolean;
           backendValidation?: string;
-        }
+        },
       ) => {
         await handleRun({
           mode,
@@ -107,11 +133,14 @@ async function main() {
           outputPath: options.output,
           model: options.model,
           models: options.models,
+          transport: options.transport
+            ? parseFrontendEvalTransport(options.transport)
+            : undefined,
           verbose: options.verbose ?? false,
           record: options.record ?? false,
           backendValidation: options.backendValidation,
         });
-      }
+      },
     );
 
   await program.parseAsync(process.argv);
@@ -137,7 +166,10 @@ function handleModels() {
       ...(model.frontend ? ["flow", "script", "app"] : []),
       ...(model.cli ? ["cli"] : []),
     ];
-    const aliases = [model.id, ...model.aliases.filter((alias) => alias !== model.id)];
+    const aliases = [
+      model.id,
+      ...model.aliases.filter((alias) => alias !== model.id),
+    ];
     process.stdout.write(`- ${model.id}: ${model.label}\n`);
     process.stdout.write(`  aliases: ${aliases.join(", ")}\n`);
     process.stdout.write(`  modes: ${supports.join(", ")}\n`);
@@ -152,48 +184,72 @@ async function handleRun(input: {
   outputPath?: string;
   model?: string;
   models?: string;
+  transport?: FrontendEvalTransport;
   verbose: boolean;
   record: boolean;
   backendValidation?: string;
 }) {
   if (input.record && input.caseIds.length > 0) {
-    throw new Error("--record only supports full-suite runs; omit case ids to record history");
+    throw new Error(
+      "--record only supports full-suite runs; omit case ids to record history",
+    );
   }
   if (input.model && input.models) {
     throw new Error("Use either --model or --models, not both");
+  }
+  if (input.mode === "cli" && input.transport === "proxy") {
+    throw new Error(
+      "--transport proxy is only supported for flow, script, and app modes",
+    );
   }
 
   const selectedCases = await loadSelectedCases(input.mode, input.caseIds);
   const models = resolveRequestedModels(input.mode, input.model, input.models);
   const backendValidation = parseBackendValidationMode(
-    input.backendValidation ?? process.env.WMILL_AI_EVAL_BACKEND_VALIDATION
+    input.backendValidation ?? process.env.WMILL_AI_EVAL_BACKEND_VALIDATION,
   );
   if (input.outputPath && models.length > 1) {
     throw new Error("--output only supports a single model run");
   }
-  if (backendValidation !== "off" && input.mode !== "flow" && input.mode !== "script") {
-    throw new Error("--backend-validation currently supports only flow and script modes");
+  if (
+    backendValidation !== "off" &&
+    input.mode !== "flow" &&
+    input.mode !== "script"
+  ) {
+    throw new Error(
+      "--backend-validation currently supports only flow and script modes",
+    );
   }
 
-  const summaries: Array<{ label: string; passRate: number; averageDurationMs: number }> = [];
+  const summaries: Array<{
+    label: string;
+    passRate: number;
+    averageDurationMs: number;
+  }> = [];
 
   for (const [index, model] of models.entries()) {
     const runModel = formatRunModelLabel(input.mode, model);
     if (models.length > 1) {
       process.stdout.write(
-        `${index > 0 ? "\n" : ""}=== ${input.mode} ${model.id} (${runModel}) ===\n`
+        `${index > 0 ? "\n" : ""}=== ${input.mode} ${model.id} (${runModel}) ===\n`,
       );
     }
     process.stderr.write(`Starting ${input.mode} benchmark...\n`);
 
     const result =
       input.mode === "cli"
-        ? await runCliBenchmark(selectedCases, input.runs, getCliEvalModel(model), runModel)
+        ? await runCliBenchmark(
+            selectedCases,
+            input.runs,
+            getCliEvalModel(model),
+            runModel,
+          )
         : await runFrontendBenchmarkAdapter({
             mode: input.mode,
             caseIds: input.caseIds,
             runs: input.runs,
             model: model.id,
+            transport: input.transport,
             verbose: input.verbose,
             backendValidation,
           });
@@ -225,7 +281,7 @@ async function handleRun(input: {
     process.stdout.write("\nModel summary\n");
     for (const summary of summaries) {
       process.stdout.write(
-        `- ${summary.label}: ${formatPercent(summary.passRate)} | ${Math.round(summary.averageDurationMs)}ms\n`
+        `- ${summary.label}: ${formatPercent(summary.passRate)} | ${Math.round(summary.averageDurationMs)}ms\n`,
       );
     }
   }
@@ -235,7 +291,7 @@ async function runCliBenchmark(
   cases: Awaited<ReturnType<typeof loadSelectedCases>>,
   runs: number,
   model: ReturnType<typeof getCliEvalModel>,
-  runModel: string
+  runModel: string,
 ) {
   const caseResults = await runSuite({
     modeRunner: createCliModeRunner(model),
@@ -258,7 +314,9 @@ function parseMode(value: string): EvalMode {
   if (EVAL_MODES.includes(value as EvalMode)) {
     return value as EvalMode;
   }
-  throw new InvalidArgumentError(`mode must be one of: ${EVAL_MODES.join(", ")}`);
+  throw new InvalidArgumentError(
+    `mode must be one of: ${EVAL_MODES.join(", ")}`,
+  );
 }
 
 function parseOptionalMode(value: string | undefined): EvalMode | undefined {
@@ -276,7 +334,7 @@ function parsePositiveInteger(value: string): number {
 function resolveRequestedModels(
   mode: EvalMode,
   singleModel?: string,
-  multipleModels?: string
+  multipleModels?: string,
 ): EvalModelSpec[] {
   if (!multipleModels) {
     return [resolveEvalModel(mode, singleModel)];
