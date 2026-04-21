@@ -46,6 +46,7 @@ import { requireLogin } from "../../core/auth.ts";
 import { getNonDottedPaths } from "../../utils/resource_folders.ts";
 import { extractRelativeImports } from "../../utils/relative_imports.ts";
 import { DoubleLinkedDependencyTree } from "../../utils/dependency_tree.ts";
+import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 
 const TOP_HASH = "__app_hash";
 export const APP_BACKEND_FOLDER = "backend";
@@ -710,8 +711,8 @@ async function generateInlineScriptLock(
 
   const extraHeaders = getHeaders();
 
-  const rawResponse = await fetch(
-    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies`,
+  const queueResponse = await fetch(
+    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies_async`,
     {
       method: "POST",
       headers: {
@@ -739,36 +740,43 @@ async function generateInlineScriptLock(
     }
   );
 
-  if (!rawResponse.ok) {
-    const text = await rawResponse.text();
+  if (!queueResponse.ok) {
+    const text = await queueResponse.text();
     throw new Error(
-      `Dependency generation failed: ${rawResponse.status} ${rawResponse.statusText}\n${text}`
+      `Dependency generation failed: ${queueResponse.status} ${queueResponse.statusText}\n${text}`
     );
   }
 
-  let responseText = "reading response failed";
+  const jobId = (await queueResponse.text()).trim();
+
+  let completion;
   try {
-    responseText = await rawResponse.text();
-    const response = JSON.parse(responseText);
-    const lock = response.lock;
-
-    if (lock === undefined) {
-      if (response?.["error"]?.["message"]) {
-        throw new Error(
-          `Failed to generate lockfile: ${response?.["error"]?.["message"]}`
-        );
-      }
-      throw new Error(
-        `Failed to generate lockfile: ${JSON.stringify(response, null, 2)}`
-      );
-    }
-
-    return lock ?? "";
+    completion = await pollJobWithQueueLogging(
+      workspace.workspaceId,
+      jobId,
+      { label: `deps ${scriptPath}` },
+    );
   } catch (e: any) {
     throw new Error(
-      `Failed to parse dependency response: ${rawResponse.statusText}, ${responseText}, ${e.message}`
+      `Failed to poll dependencies job ${jobId}: ${e?.message ?? e}`
     );
   }
+
+  const result = completion.result as any;
+  if (!completion.success) {
+    const message =
+      result?.error?.message ??
+      (typeof result === "string" ? result : JSON.stringify(result, null, 2));
+    throw new Error(`Failed to generate lockfile: ${message}`);
+  }
+
+  const lock = result?.lock;
+  if (lock === undefined) {
+    throw new Error(
+      `Failed to generate lockfile: ${JSON.stringify(result, null, 2)}`
+    );
+  }
+  return lock ?? "";
 }
 
 /**

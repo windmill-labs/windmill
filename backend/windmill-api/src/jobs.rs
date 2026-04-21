@@ -348,7 +348,12 @@ pub fn workspaced_service() -> Router {
             get(get_flow_env_by_flow_job_id).layer(cors.clone()),
         )
         .route("/run/dependencies", post(run_dependencies_job))
+        .route("/run/dependencies_async", post(run_dependencies_job_async))
         .route("/run/flow_dependencies", post(run_flow_dependencies_job))
+        .route(
+            "/run/flow_dependencies_async",
+            post(run_flow_dependencies_job_async),
+        )
         .route(
             "/send_email_with_instance_smtp",
             post(send_email_with_instance_smtp),
@@ -5909,13 +5914,13 @@ pub struct RunDependenciesResponse {
     pub dependencies: String,
 }
 
-async fn run_dependencies_job(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(req): Json<RunDependenciesRequest>,
-) -> error::Result<Response> {
-    check_scopes(&authed, || format!("jobs:run"))?;
+async fn push_dependencies_job(
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    req: RunDependenciesRequest,
+) -> error::Result<Uuid> {
+    check_scopes(authed, || format!("jobs:run"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run dependencies jobs for security reasons".to_string(),
@@ -5944,12 +5949,7 @@ async fn run_dependencies_job(
             ));
     }
 
-    let RawScriptForDependencies {
-        // unwrap
-        script_path,
-        raw_code,
-        language,
-    } = req.raw_scripts[0].clone();
+    let RawScriptForDependencies { script_path, raw_code, language } = req.raw_scripts[0].clone();
 
     let mut hm = HashMap::new();
     req.raw_workspace_dependencies
@@ -5958,9 +5958,9 @@ async fn run_dependencies_job(
         .map(|v| hm.insert("temp_script_refs".to_owned(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
-        &db,
+        db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
-        &w_id,
+        w_id,
         JobPayload::RawScriptDependencies {
             script_path,
             content: raw_code.unwrap_or_default(),
@@ -5993,9 +5993,27 @@ async fn run_dependencies_job(
     )
     .await?;
     tx.commit().await?;
+    Ok(uuid)
+}
 
-    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
-    wait_result
+async fn run_dependencies_job(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunDependenciesRequest>,
+) -> error::Result<Response> {
+    let uuid = push_dependencies_job(&authed, &db, &w_id, req).await?;
+    run_wait_result(&db, uuid, &w_id, None, &authed.username).await
+}
+
+async fn run_dependencies_job_async(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunDependenciesRequest>,
+) -> error::Result<(StatusCode, String)> {
+    let uuid = push_dependencies_job(&authed, &db, &w_id, req).await?;
+    Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 #[derive(Deserialize)]
@@ -6015,13 +6033,13 @@ pub struct RunFlowDependenciesResponse {
     pub dependencies: String,
 }
 
-async fn run_flow_dependencies_job(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(req): Json<RunFlowDependenciesRequest>,
-) -> error::Result<Response> {
-    check_scopes(&authed, || format!("jobs:run"))?;
+async fn push_flow_dependencies_job(
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    req: RunFlowDependenciesRequest,
+) -> error::Result<Uuid> {
+    check_scopes(authed, || format!("jobs:run"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run dependencies jobs for security reasons".to_string(),
@@ -6044,21 +6062,18 @@ async fn run_flow_dependencies_job(
             .await?;
     }
 
-    // Create args HashMap with skip_flow_update and raw_workspace_dependencies if present
     let mut args_map = HashMap::from([("skip_flow_update".to_string(), to_raw_value(&true))]);
 
-    // Add raw_workspace_dependencies to args if present
     req.raw_workspace_dependencies
         .map(|v| args_map.insert("raw_workspace_dependencies".to_string(), to_raw_value(&v)));
 
-    // Add temp_script_refs to args if present (for CLI local import resolution)
     req.temp_script_refs
         .map(|v| args_map.insert("temp_script_refs".to_string(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
-        &db,
+        db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
-        &w_id,
+        w_id,
         JobPayload::RawFlowDependencies { path: req.path, flow_value: req.flow_value },
         PushArgs::from(&args_map),
         authed.display_username(),
@@ -6087,9 +6102,27 @@ async fn run_flow_dependencies_job(
     )
     .await?;
     tx.commit().await?;
+    Ok(uuid)
+}
 
-    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
-    wait_result
+async fn run_flow_dependencies_job(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunFlowDependenciesRequest>,
+) -> error::Result<Response> {
+    let uuid = push_flow_dependencies_job(&authed, &db, &w_id, req).await?;
+    run_wait_result(&db, uuid, &w_id, None, &authed.username).await
+}
+
+async fn run_flow_dependencies_job_async(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunFlowDependenciesRequest>,
+) -> error::Result<(StatusCode, String)> {
+    let uuid = push_flow_dependencies_job(&authed, &db, &w_id, req).await?;
+    Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 #[derive(Deserialize)]

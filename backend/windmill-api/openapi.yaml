@@ -10804,6 +10804,74 @@ paths:
                 required:
                   - lock
 
+  /w/{workspace}/jobs/run/dependencies_async:
+    post:
+      summary: queue a one-off dependencies job and return the job uuid
+      operationId: runRawScriptDependenciesAsync
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      requestBody:
+        description: raw script content
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                raw_scripts:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/RawScriptForDependencies"
+                entrypoint:
+                  type: string
+              required:
+                - entrypoint
+                - raw_scripts
+      responses:
+        "201":
+          description: dependency job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
+  /w/{workspace}/jobs/run/flow_dependencies_async:
+    post:
+      summary: queue a one-off flow dependencies job and return the job uuid
+      operationId: runFlowDependenciesAsync
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      requestBody:
+        description: flow value and path
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                flow_value:
+                  $ref: "#/components/schemas/FlowValue"
+              required:
+                - path
+                - flow_value
+      responses:
+        "201":
+          description: flow dependencies job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
   /w/{workspace}/jobs/run/preview_flow:
     post:
       summary: run flow preview
