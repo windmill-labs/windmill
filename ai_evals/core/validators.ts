@@ -446,7 +446,7 @@ function validateCliExpectations(
     checks.push(
       check(
         "assistant proposes expected commands in order",
-        commandListContainsInOrder(trace.proposedCommands, cliExpect.orderedProposedCommands!),
+        stringsAppearInOrder(trace.proposedCommands.join("\n"), cliExpect.orderedProposedCommands!),
         `ordered=${cliExpect.orderedProposedCommands!.join(" -> ")}; proposed=${trace.proposedCommands.join("; ") || "(none)"}`
       )
     );
@@ -466,7 +466,7 @@ function validateCliExpectations(
 }
 
 function cliSkillWasInvoked(trace: CliTrace, skillName: string): boolean {
-  return trace.skillsInvoked.some((skill) => skill === skillName || skill.includes(skillName));
+  return trace.skillsInvoked.some((skill) => skill === skillName);
 }
 
 function getFirstSkillToolIndex(trace: CliTrace, skillName: string): number | null {
@@ -476,7 +476,7 @@ function getFirstSkillToolIndex(trace: CliTrace, skillName: string): number | nu
     }
 
     const inputSkill = typeof tool.input.skill === "string" ? tool.input.skill : null;
-    if (inputSkill && (inputSkill === skillName || inputSkill.includes(skillName))) {
+    if (inputSkill === skillName) {
       return index;
     }
   }
@@ -506,29 +506,6 @@ function stringsAppearInOrder(output: string, phrases: string[]): boolean {
 function commandListContains(commands: string[], command: string): boolean {
   const normalizedNeedle = command.toLowerCase();
   return commands.some((entry) => entry.toLowerCase().includes(normalizedNeedle));
-}
-
-function commandListContainsInOrder(commands: string[], orderedCommands: string[]): boolean {
-  let startIndex = 0;
-
-  for (const expected of orderedCommands) {
-    const normalizedExpected = expected.toLowerCase();
-    let matched = false;
-
-    for (let index = startIndex; index < commands.length; index += 1) {
-      if (commands[index]!.toLowerCase().includes(normalizedExpected)) {
-        startIndex = index + 1;
-        matched = true;
-        break;
-      }
-    }
-
-    if (!matched) {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 function matchesCommandPattern(command: string, pattern: string): boolean {

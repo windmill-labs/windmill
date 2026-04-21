@@ -44,6 +44,22 @@ export const DEFAULT_CLI_EVAL_MODEL: CliEvalModelConfig = getCliEvalModel(resolv
 const WMILL_STUB_DIR_NAME = ".wmill-benchmark-bin";
 const WMILL_LOG_FILE_NAME = ".wmill-benchmark-wmill-invocations.log";
 const WMILL_LOG_MARKER = "__WMILL_BENCHMARK__";
+const NEGATED_COMMAND_PREFIX = /(?:^|\b)(?:do not|don't|dont|never|instead of)\s+(?:run|use)?\s*$/i;
+const COMMAND_STOP_WORDS = new Set([
+  "and",
+  "before",
+  "after",
+  "then",
+  "instead",
+  "otherwise",
+  "because",
+  "so",
+  "if",
+  "when",
+  "while",
+  "once",
+]);
+const COMMAND_STOP_TOKENS = new Set(["-", "–", "—", "|"]);
 
 export function getGeneratedSkillsSource(): string {
   return join(REPO_ROOT, "system_prompts", "auto-generated", "skills");
@@ -137,67 +153,53 @@ export async function runPromptAndCapture(
     model: modelConfig.model,
     maxTurns,
     settingSources: ["project"],
-    allowedTools: ["Skill", "Read", "Glob", "Grep", "Bash", "Write", "Edit"]
+    allowedTools: ["Skill", "Read", "Glob", "Grep", "Bash", "Write", "Edit"],
+    env: {
+      ...getQueryEnv(),
+      PATH: process.env.PATH ? `${stubBinDir}${delimiter}${process.env.PATH}` : stubBinDir,
+      WMILL_BENCHMARK_LOG_PATH: wmillLogPath,
+    },
   };
 
   await installWmillStub(stubBinDir);
 
-  const previousPath = process.env.PATH;
-  const previousLogPath = process.env.WMILL_BENCHMARK_LOG_PATH;
-  process.env.PATH = previousPath ? `${stubBinDir}${delimiter}${previousPath}` : stubBinDir;
-  process.env.WMILL_BENCHMARK_LOG_PATH = wmillLogPath;
+  for await (const message of query({ prompt, options })) {
+    if (message.type === "assistant") {
+      assistantMessageCount += 1;
+      const content = message.message?.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === "tool_use") {
+            const input = normalizeToolInput(block.input);
+            toolsUsed.push({
+              tool: block.name,
+              input,
+              timestamp: Date.now()
+            });
 
-  try {
-    for await (const message of query({ prompt, options })) {
-      if (message.type === "assistant") {
-        assistantMessageCount += 1;
-        const content = message.message?.content;
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === "tool_use") {
-              const input = normalizeToolInput(block.input);
-              toolsUsed.push({
-                tool: block.name,
-                input,
-                timestamp: Date.now()
-              });
-
-              if (block.name === "Skill") {
-                const skillInput = input as { skill?: string };
-                if (skillInput.skill) {
-                  skillsInvoked.push(skillInput.skill);
-                }
+            if (block.name === "Skill") {
+              const skillInput = input as { skill?: string };
+              if (skillInput.skill) {
+                pushUnique(skillsInvoked, skillInput.skill);
               }
-
-              if (block.name === "Bash") {
-                for (const command of extractBashCommands(input)) {
-                  pushUnique(bashCommands, command);
-                }
-              }
-            } else if (block.type === "text") {
-              output += block.text;
             }
+
+            if (block.name === "Bash") {
+              for (const command of extractBashCommands(input)) {
+                pushUnique(bashCommands, command);
+              }
+            }
+          } else if (block.type === "text") {
+            output += block.text;
           }
         }
-      } else if (message.type === "result") {
-        const resultMessage = message as { result?: string };
-        tokenUsage = extractCliResultTokenUsage(message) ?? tokenUsage;
-        if (typeof resultMessage.result === "string") {
-          output += resultMessage.result;
-        }
       }
-    }
-  } finally {
-    if (previousPath === undefined) {
-      delete process.env.PATH;
-    } else {
-      process.env.PATH = previousPath;
-    }
-
-    if (previousLogPath === undefined) {
-      delete process.env.WMILL_BENCHMARK_LOG_PATH;
-    } else {
-      process.env.WMILL_BENCHMARK_LOG_PATH = previousLogPath;
+    } else if (message.type === "result") {
+      const resultMessage = message as { result?: string };
+      tokenUsage = extractCliResultTokenUsage(message) ?? tokenUsage;
+      if (typeof resultMessage.result === "string") {
+        output += resultMessage.result;
+      }
     }
   }
 
@@ -222,7 +224,7 @@ export async function runPromptAndCapture(
 }
 
 export function wasSkillInvoked(result: PromptRunResult, skillName: string): boolean {
-  return result.trace.skillsInvoked.some((skill) => skill === skillName || skill.includes(skillName));
+  return result.trace.skillsInvoked.some((skill) => skill === skillName);
 }
 
 export function wasToolUsed(result: PromptRunResult, toolName: string): boolean {
@@ -250,20 +252,8 @@ export function extractProposedWmillCommands(output: string): string[] {
       pushUnique(commands, command);
     }
 
-    const normalizedLine = normalizeCommandCandidate(
-      line.replace(/^\s*(?:[-*]|\d+\.)\s*/, "")
-    );
-    if (normalizedLine && normalizedLine.startsWith("wmill ")) {
-      pushUnique(commands, normalizedLine);
-      continue;
-    }
-
-    const inlineIndex = line.toLowerCase().indexOf("wmill ");
-    if (inlineIndex >= 0) {
-      const inlineCommand = normalizeCommandCandidate(line.slice(inlineIndex));
-      if (inlineCommand) {
-        pushUnique(commands, inlineCommand);
-      }
+    for (const command of extractInlineProseCommands(line.replace(/^\s*(?:[-*]|\d+\.)\s*/, ""))) {
+      pushUnique(commands, command);
     }
   }
 
@@ -303,7 +293,7 @@ async function installWmillStub(binDir: string): Promise<void> {
 set -euo pipefail
 {
   printf '${WMILL_LOG_MARKER}\\n'
-  date -Iseconds
+  date -u +"%Y-%m-%dT%H:%M:%SZ"
   printf '%s\\n' "$PWD"
   printf '%s\\n' "$#"
   printf '%s\\n' "$@"
@@ -322,6 +312,14 @@ async function readWmillInvocationLog(logPath: string): Promise<CliWmillInvocati
     return [];
   }
   return parseWmillInvocationLog(raw);
+}
+
+function getQueryEnv(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(process.env).flatMap(([key, value]) =>
+      typeof value === "string" ? [[key, value]] : []
+    )
+  );
 }
 
 function normalizeToolInput(input: unknown): Record<string, unknown> {
@@ -360,6 +358,10 @@ function extractInlineBacktickCommands(line: string): string[] {
   let match: RegExpExecArray | null = null;
 
   while ((match = regex.exec(line)) !== null) {
+    if (hasNegatedCommandPrefix(line.slice(0, match.index))) {
+      continue;
+    }
+
     const command = normalizeCommandCandidate(match[1]);
     if (command) {
       pushUnique(commands, command);
@@ -367,6 +369,118 @@ function extractInlineBacktickCommands(line: string): string[] {
   }
 
   return commands;
+}
+
+function extractInlineProseCommands(line: string): string[] {
+  const commands: string[] = [];
+  let searchFrom = 0;
+
+  while (true) {
+    const inlineIndex = line.toLowerCase().indexOf("wmill ", searchFrom);
+    if (inlineIndex === -1) {
+      return commands;
+    }
+
+    if (!hasNegatedCommandPrefix(line.slice(0, inlineIndex))) {
+      const command = extractInlineProseCommandAt(line, inlineIndex);
+      if (command) {
+        pushUnique(commands, command);
+      }
+    }
+
+    searchFrom = inlineIndex + "wmill ".length;
+  }
+}
+
+function extractInlineProseCommandAt(line: string, startIndex: number): string | null {
+  const tokens = ["wmill"];
+  let cursor = startIndex + "wmill".length;
+
+  while (cursor < line.length) {
+    while (cursor < line.length && /\s/.test(line[cursor]!)) {
+      cursor += 1;
+    }
+
+    if (cursor >= line.length) {
+      break;
+    }
+
+    const current = line[cursor]!;
+    if ("`.,;:()[]{}".includes(current)) {
+      break;
+    }
+
+    const token = readCommandToken(line, cursor);
+    if (!token) {
+      break;
+    }
+
+    if (COMMAND_STOP_WORDS.has(token.value.toLowerCase())) {
+      break;
+    }
+
+    if (COMMAND_STOP_TOKENS.has(token.value)) {
+      break;
+    }
+
+    tokens.push(token.value);
+    cursor = token.nextIndex;
+  }
+
+  if (tokens.length <= 1) {
+    return null;
+  }
+
+  return normalizeCommandCandidate(tokens.join(" "));
+}
+
+function readCommandToken(
+  line: string,
+  startIndex: number
+): { value: string; nextIndex: number } | null {
+  const firstChar = line[startIndex]!;
+
+  if (firstChar === `"` || firstChar === `'`) {
+    const endIndex = line.indexOf(firstChar, startIndex + 1);
+    const nextIndex = endIndex === -1 ? line.length : endIndex + 1;
+    return {
+      value: line.slice(startIndex, nextIndex),
+      nextIndex,
+    };
+  }
+
+  if (firstChar === "<") {
+    const endIndex = line.indexOf(">", startIndex + 1);
+    const nextIndex = endIndex === -1 ? line.length : endIndex + 1;
+    return {
+      value: line.slice(startIndex, nextIndex),
+      nextIndex,
+    };
+  }
+
+  let endIndex = startIndex;
+  while (endIndex < line.length && !/[\s`.,;:()[\]{}#]/.test(line[endIndex]!)) {
+    endIndex += 1;
+  }
+
+  if (endIndex === startIndex) {
+    return null;
+  }
+
+  return {
+    value: line.slice(startIndex, endIndex),
+    nextIndex: endIndex,
+  };
+}
+
+function hasNegatedCommandPrefix(prefix: string): boolean {
+  const normalizedPrefix = prefix
+    .toLowerCase()
+    .replace(/[`"'“”‘’]/g, " ")
+    .replace(/\s+/g, " ")
+    .trimEnd();
+
+  return NEGATED_COMMAND_PREFIX.test(normalizedPrefix);
 }
 
 function normalizeCommandCandidate(value: string): string | null {

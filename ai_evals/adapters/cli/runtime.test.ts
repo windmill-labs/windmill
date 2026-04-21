@@ -95,7 +95,23 @@ You can inspect failures with \`wmill job logs 123\`.
       extractProposedWmillCommands(
         "The first command is wmill sync pull before you edit locally."
       )
-    ).toEqual(["wmill sync pull before you edit locally"]);
+    ).toEqual(["wmill sync pull"]);
+  });
+
+  it("extracts multiple inline prose commands from a single sentence", () => {
+    expect(
+      extractProposedWmillCommands(
+        "Run wmill generate-metadata and then wmill sync push when you are ready."
+      )
+    ).toEqual(["wmill generate-metadata", "wmill sync push"]);
+  });
+
+  it("ignores negated command mentions", () => {
+    expect(
+      extractProposedWmillCommands(
+        "Do not run `wmill sync push`. Instead run `wmill sync pull` first."
+      )
+    ).toEqual(["wmill sync pull"]);
   });
 });
 

@@ -251,4 +251,86 @@ describe("validateCliWorkspace", () => {
 
     expect(checks.every((check) => check.passed)).toBe(true);
   });
+
+  it("matches skills by exact name instead of substring", () => {
+    const checks = validateCliWorkspace({
+      actualFiles: {},
+      assistantOutput: "No workspace changes needed.",
+      trace: {
+        toolsUsed: [{ tool: "Skill", input: { skill: "write-flow-helper" }, timestamp: 1 }],
+        skillsInvoked: ["write-flow-helper"],
+        assistantMessageCount: 1,
+        bashCommands: [],
+        proposedCommands: [],
+        executedWmillCommands: [],
+        wmillInvocations: [],
+        firstMutationToolIndex: null,
+      },
+      cliExpect: {
+        requiredSkills: ["write-flow"],
+        forbiddenSkills: ["write-flow"],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "invokes skill write-flow",
+      passed: false,
+      details: "skills=write-flow-helper",
+    });
+    expect(checks).toContainEqual({
+      name: "does not invoke skill write-flow",
+      passed: true,
+    });
+  });
+
+  it("accepts ordered proposed commands when they appear in one concatenated entry", () => {
+    const checks = validateCliWorkspace({
+      actualFiles: {},
+      assistantOutput: "Run wmill generate-metadata and then wmill sync push.",
+      trace: {
+        toolsUsed: [{ tool: "Skill", input: { skill: "cli-commands" }, timestamp: 1 }],
+        skillsInvoked: ["cli-commands"],
+        assistantMessageCount: 1,
+        bashCommands: [],
+        proposedCommands: ["wmill generate-metadata and then wmill sync push"],
+        executedWmillCommands: [],
+        wmillInvocations: [],
+        firstMutationToolIndex: null,
+      },
+      cliExpect: {
+        orderedProposedCommands: ["wmill generate-metadata", "wmill sync push"],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "assistant proposes expected commands in order",
+      passed: true,
+    });
+  });
+
+  it("fails skill-before-mutation checks cleanly when no mutation happened", () => {
+    const checks = validateCliWorkspace({
+      actualFiles: {},
+      assistantOutput: "Run `wmill sync pull` first.",
+      trace: {
+        toolsUsed: [{ tool: "Skill", input: { skill: "cli-commands" }, timestamp: 1 }],
+        skillsInvoked: ["cli-commands"],
+        assistantMessageCount: 1,
+        bashCommands: [],
+        proposedCommands: ["wmill sync pull"],
+        executedWmillCommands: [],
+        wmillInvocations: [],
+        firstMutationToolIndex: null,
+      },
+      cliExpect: {
+        requiredSkillsBeforeFirstMutation: ["cli-commands"],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "invokes skill cli-commands before first mutation",
+      passed: false,
+      details: "firstSkillIndex=0; firstMutationIndex=none",
+    });
+  });
 });
