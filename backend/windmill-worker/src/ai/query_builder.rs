@@ -93,6 +93,11 @@ impl StreamEventProcessor {
     pub fn to_handle(self) -> Option<tokio::task::JoinHandle<()>> {
         self.handle
     }
+
+    /// Clone this processor into a boxed StreamEventSink for passing to QueryBuilder methods.
+    pub fn boxed_sink(&self) -> Box<dyn StreamEventSink> {
+        Box::new(self.clone())
+    }
 }
 
 #[async_trait]

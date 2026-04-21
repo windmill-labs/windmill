@@ -23,7 +23,6 @@ scoped_cache = []
 cloud = []
 dev_override = []
 openidconnect = ["dep:openidconnect"]
-bedrock = ["dep:aws-sdk-bedrockruntime", "dep:aws-credential-types", "dep:aws-smithy-types", "dep:aws-config"]
 python = ["dep:windmill-parser-py"]
 
 [lib]
@@ -69,9 +68,6 @@ magic-crypt.workspace = true
 prometheus = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
-aws-credential-types = { workspace = true, optional = true }
-aws-smithy-types = { workspace = true, optional = true }
-aws-sdk-bedrockruntime = { workspace = true, optional = true }
 base64.workspace = true
 bitflags.workspace = true
 once_cell.workspace = true

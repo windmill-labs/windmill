@@ -39,7 +39,7 @@ ruby = ["dep:windmill-parser-ruby"]
 rlang = ["dep:windmill-parser-r"]
 duckdb = ["dep:libloading"]
 quickjs = ["windmill-jseval/quickjs"]
-bedrock = ["windmill-ai/bedrock", "dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config", "dep:aws-credential-types", "dep:aws-smithy-types"]
+bedrock = ["windmill-ai/bedrock", "dep:aws-sdk-bedrockruntime", "dep:aws-config", "dep:aws-credential-types", "dep:aws-smithy-types"]
 
 [dependencies]
 windmill-ai = { workspace = true, default-features = false }

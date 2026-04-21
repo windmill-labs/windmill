@@ -897,7 +897,7 @@ pub async fn run_agent(
                         args.max_completion_tokens,
                         api_key,
                         region,
-                        stream_event_processor.as_ref().map(|p| Box::new(p.clone()) as Box<dyn windmill_ai::query_builder::StreamEventSink>),
+                        stream_event_processor.as_ref().map(|p| p.boxed_sink()),
                         client,
                         &job.workspace_id,
                         structured_output_tool_name.as_deref(),
@@ -1023,7 +1023,7 @@ pub async fn run_agent(
 
             if let Some(ref stream_event_processor) = stream_event_processor {
                 query_builder
-                    .parse_streaming_response(resp, Box::new(stream_event_processor.clone()))
+                    .parse_streaming_response(resp, stream_event_processor.boxed_sink())
                     .await?
             } else {
                 query_builder.parse_image_response(resp).await?
