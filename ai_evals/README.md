@@ -187,7 +187,7 @@ Typical artifacts by mode:
 - `flow`: `flow.json`
 - `script`: `script.json` plus the generated script file
 - `app`: `app.json` plus frontend/backend files
-- `cli`: `assistant-output.txt` plus generated workspace files
+- `cli`: `assistant-output.txt`, `trace.json`, `wmill-invocations.jsonl`, plus generated workspace files
 - backend-validated attempts also include `backend-preview.json`
 
 ## Layout
@@ -203,5 +203,6 @@ Typical artifacts by mode:
 
 - Frontend modes reuse the production frontend chat code through the Vitest bridge.
 - CLI mode creates an isolated workspace, writes the current checkout guidance into it, and benchmarks the real skills / `AGENTS.md` flow.
+- CLI mode now also records a structured trace of invoked skills, tool calls, proposed `wmill` commands, and any attempted `wmill` executions.
 - Frontend progress streams live while the benchmark is running.
 - Deterministic validators should stay focused on real correctness constraints, not one exact implementation shape.
