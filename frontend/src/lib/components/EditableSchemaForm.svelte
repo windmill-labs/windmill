@@ -832,6 +832,10 @@
 																	bind:properties={schema.properties[argName].properties}
 																	bind:order={schema.properties[argName].order}
 																	bind:requiredProperty={schema.properties[argName].required}
+																	bind:hideCatalogPicker={
+																		schema.properties[argName].hideCatalogPicker
+																	}
+																	bind:hideRawInput={schema.properties[argName].hideRawInput}
 																	{displayWebhookWarning}
 																	on:requiredChange={(event) => {
 																		if (event.detail.required) {
