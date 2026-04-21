@@ -37,10 +37,11 @@
 		customErrorMessage?: string | undefined
 		itemsType?:
 			| {
-					type?: 'string' | 'number' | 'bytes' | 'object'
+					type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 					contentEncoding?: 'base64'
 					enum?: string[]
 					multiselect?: string[]
+					resourceType?: string
 			  }
 			| undefined
 		properties?: Record<string, any> | undefined
@@ -82,8 +83,7 @@
 	let isS3Field = $derived(
 		format === 'resource-s3_object' ||
 			(type === 'array' &&
-				((itemsType as any)?.resourceType === 's3_object' ||
-					(itemsType as any)?.resourceType === 's3object'))
+				(itemsType?.resourceType === 's3_object' || itemsType?.resourceType === 's3object'))
 	)
 
 	let oneOfSelected: string | undefined = $state(oneOf?.[0]?.title)
