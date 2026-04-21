@@ -33,6 +33,7 @@ import {
 import {
   fromWorkspaceSpecificPath,
   isWorkspaceSpecificFile,
+  resolveWsNameForGitBranch,
 } from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
 import { requireLogin } from "../../core/auth.ts";
@@ -567,14 +568,17 @@ function checkIfValidTrigger(kind: string | undefined): kind is TriggerType {
   }
 }
 
-function extractTriggerKindFromPath(filePath: string): string | undefined {
+async function extractTriggerKindFromPath(filePath: string): Promise<string | undefined> {
   let pathToAnalyze = filePath;
 
-  // If this is a branch-specific file, convert it to the base path first
+  // If this is a workspace-specific file, convert it to the base path first.
+  // Resolve the wmill.yaml config key for the current branch (falls back to
+  // the branch name when no matching workspace entry exists).
   if (isWorkspaceSpecificFile(filePath)) {
     const currentBranch = getCurrentGitBranch();
     if (currentBranch) {
-      pathToAnalyze = fromWorkspaceSpecificPath(filePath, currentBranch);
+      const wsName = await resolveWsNameForGitBranch(currentBranch);
+      pathToAnalyze = fromWorkspaceSpecificPath(filePath, wsName);
     }
   }
 
@@ -598,7 +602,7 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
 
   console.log(colors.bold.yellow("Pushing trigger..."));
 
-  const triggerKind = extractTriggerKindFromPath(filePath);
+  const triggerKind = await extractTriggerKindFromPath(filePath);
   if (!checkIfValidTrigger(triggerKind)) {
     throw new Error("Invalid trigger kind: " + triggerKind);
   }
