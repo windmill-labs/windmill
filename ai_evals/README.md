@@ -55,6 +55,7 @@ bun run cli -- run flow flow-test4-order-processing-loop --model opus
 bun run cli -- run flow flow-test0-sum-two-numbers --models haiku,opus,4o
 bun run cli -- run flow flow-test0-sum-two-numbers --runs 3 --verbose
 bun run cli -- run flow --record
+GEMINI_API_KEY=... bun run cli -- run app app-test1-counter-create --model gemini-pro --transport proxy
 WMILL_AI_EVAL_BACKEND_URL=http://127.0.0.1:8000 bun run cli -- run flow --backend-validation preview
 bun run cli -- run cli bun-hello-script
 ```
@@ -71,6 +72,7 @@ Public CLI surface:
 - `--output <path>`: custom result JSON path
 - `--model <alias>`: choose the model under test
 - `--models <a,b,c>`: run the same cases sequentially against several model aliases
+- `--transport <mode>`: frontend request transport (`direct` by default, `proxy` to exercise `/api/w/{workspace}/ai/proxy`)
 - `--verbose`: stream assistant output for frontend runs
 - `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl` for full-suite runs only
 - `--backend-validation <mode>`: optional backend smoke validation (`off` or `preview`) for `script` and `flow` evals
@@ -155,6 +157,15 @@ Supported backend validation env vars:
 - `WMILL_AI_EVAL_KEEP_WORKSPACES=1`
 - `WMILL_AI_EVAL_WORKSPACE_PREFIX=ai-evals`
 
+Frontend proxy transport uses the same backend auth/workspace env vars.
+
+When `--transport proxy` is set:
+
+- `ai_evals` creates or reuses a backend workspace
+- it upserts a provider resource under `f/evals/ai/<provider>`
+- frontend requests go through `/api/w/{workspace}/ai/proxy`
+- result JSON and history records include `transport` so direct vs proxy runs stay distinguishable
+
 ## Results And Artifacts
 
 Every run writes:
@@ -171,7 +182,7 @@ If `--record` is used, the CLI also appends one compact JSON line to:
 
 Each recorded line contains:
 
-- run metadata (`createdAt`, `gitSha`, `mode`, `runModel`, `judgeModel`)
+- run metadata (`createdAt`, `gitSha`, `mode`, `runModel`, `transport`, `judgeModel`)
 - suite totals (`caseCount`, `attemptCount`, `passedAttempts`, `passRate`, `averageDurationMs`, `averageJudgeScore`)
 - average token usage (`averageTokenUsagePerAttempt`)
 - per-case metrics under `cases[]` (`averageDurationMs`, `averageJudgeScore`, `averageTokenUsagePerAttempt`, pass rate)

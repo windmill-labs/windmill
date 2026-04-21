@@ -32,6 +32,7 @@ import { workspaceDependenciesLanguages } from "../../utils/script_common.ts";
 import { extractNameFromFolder, getFolderSuffix, getNonDottedPaths } from "../../utils/resource_folders.ts";
 import { extractRelativeImports } from "../../utils/relative_imports.ts";
 import { DoubleLinkedDependencyTree } from "../../utils/dependency_tree.ts";
+import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 
 const TOP_HASH = "__flow_hash";
 async function generateFlowHash(
@@ -341,84 +342,71 @@ export async function updateFlow(
   rawWorkspaceDependencies: Record<string, string>,
   tempScriptRefs?: Record<string, string>
 ): Promise<FlowValue | undefined> {
-  let rawResponse;
-
-  if (Object.keys(rawWorkspaceDependencies).length > 0) {
+  const useRawWorkspaceDeps = Object.keys(rawWorkspaceDependencies).length > 0;
+  if (useRawWorkspaceDeps) {
     log.info(
       colors.blue("Using raw workspace dependencies for flow dependencies")
     );
-
-    // generate the script lock running a dependency job in Windmill and update it inplace
-    const extraHeaders = getHeaders();
-    rawResponse = await fetch(
-      `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies`,
-      {
-        method: "POST",
-        headers: {
-          Cookie: `token=${workspace.token}`,
-          "Content-Type": "application/json",
-          ...extraHeaders,
-        },
-        body: JSON.stringify({
-          flow_value,
-          path: remotePath,
-          use_local_lockfiles: true,
-          raw_workspace_dependencies: rawWorkspaceDependencies,
-          ...(tempScriptRefs && Object.keys(tempScriptRefs).length > 0
-            ? { temp_script_refs: tempScriptRefs }
-            : {}),
-        }),
-      }
-    );
-  } else {
-    // Standard dependency resolution on the server
-    const extraHeaders = getHeaders();
-    rawResponse = await fetch(
-      `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies`,
-      {
-        method: "POST",
-        headers: {
-          Cookie: `token=${workspace.token}`,
-          "Content-Type": "application/json",
-          ...extraHeaders,
-        },
-        body: JSON.stringify({
-          flow_value,
-          path: remotePath,
-          ...(tempScriptRefs && Object.keys(tempScriptRefs).length > 0
-            ? { temp_script_refs: tempScriptRefs }
-            : {}),
-        }),
-      }
-    );
   }
 
-  let responseText = "reading response failed";
-  try {
-    const res = (await rawResponse.json()) as
-      | { updated_flow_value: any }
-      | { error: { message: string } }
-      | undefined;
-    if (rawResponse.status != 200) {
-      const msg = (res as any)?.["error"]?.["message"];
-      if (msg) {
-        throw new LockfileGenerationError(
-          `Failed to generate lockfile: ${msg}`
-        );
-      }
-      throw new LockfileGenerationError(
-        `Failed to generate lockfile: ${rawResponse.statusText}, ${responseText}`
-      );
+  const body: Record<string, unknown> = {
+    flow_value,
+    path: remotePath,
+  };
+  if (useRawWorkspaceDeps) {
+    body.use_local_lockfiles = true;
+    body.raw_workspace_dependencies = rawWorkspaceDependencies;
+  }
+  if (tempScriptRefs && Object.keys(tempScriptRefs).length > 0) {
+    body.temp_script_refs = tempScriptRefs;
+  }
+
+  const extraHeaders = getHeaders();
+  const queueResponse = await fetch(
+    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies_async`,
+    {
+      method: "POST",
+      headers: {
+        Cookie: `token=${workspace.token}`,
+        "Content-Type": "application/json",
+        ...extraHeaders,
+      },
+      body: JSON.stringify(body),
     }
-    return (res as any).updated_flow_value;
-  } catch (e) {
+  );
+
+  if (!queueResponse.ok) {
+    let bodyText = "";
     try {
-      responseText = await rawResponse.text();
-    } catch {
-      responseText = "";
-    }
-    throw new Error(
-      `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`
+      bodyText = await queueResponse.text();
+    } catch { /* ignore */ }
+    throw new LockfileGenerationError(
+      `Failed to queue flow dependencies job: ${queueResponse.status} ${queueResponse.statusText}, ${bodyText}`
     );
   }
+
+  const jobId = (await queueResponse.text()).trim();
+
+  let completion;
+  try {
+    completion = await pollJobWithQueueLogging(
+      workspace.workspaceId,
+      jobId,
+      { label: `flow deps ${remotePath}` },
+    );
+  } catch (e: any) {
+    throw new LockfileGenerationError(
+      `Failed to poll flow dependencies job ${jobId}: ${e?.message ?? e}`
+    );
+  }
+
+  const result = completion.result as any;
+  if (!completion.success) {
+    const message =
+      result?.error?.message ??
+      (typeof result === "string" ? result : JSON.stringify(result, null, 2));
+    throw new LockfileGenerationError(`Failed to generate lockfile: ${message}`);
+  }
+
+  return result?.updated_flow_value;
 }

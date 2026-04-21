@@ -23,6 +23,7 @@ import {
 } from "./bundle.ts";
 import { wmillTsDev as wmillTs } from "./wmillTsDev.ts";
 import * as wmill from "../../../gen/services.gen.ts";
+import { logQueueStatus } from "../../utils/job_polling.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { GLOBAL_CONFIG_OPT } from "../../core/conf.ts";
@@ -1618,6 +1619,7 @@ async function executeRunnable(
 
 const ITERATIONS_BEFORE_SLOW_REFRESH = 10;
 const ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100;
+const QUEUE_LOG_INTERVAL_MS = 5000;
 
 async function waitForJob(workspace: string, jobId: string): Promise<any> {
   if (!jobId) {
@@ -1625,6 +1627,7 @@ async function waitForJob(workspace: string, jobId: string): Promise<any> {
   }
 
   let syncIteration = 0;
+  let lastQueueLogAt = Date.now();
 
   return new Promise((resolve, reject) => {
     async function checkJob() {
@@ -1650,6 +1653,11 @@ async function waitForJob(workspace: string, jobId: string): Promise<any> {
         }
       } catch (err: any) {
         log.error(colors.red(`Error checking job ${jobId}: ${err.message}`));
+      }
+
+      if (Date.now() - lastQueueLogAt >= QUEUE_LOG_INTERVAL_MS) {
+        lastQueueLogAt = Date.now();
+        await logQueueStatus(workspace, jobId);
       }
 
       syncIteration++;

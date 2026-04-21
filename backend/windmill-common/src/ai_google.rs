@@ -643,6 +643,7 @@ pub fn gemini_event_to_openai_sse_chunks(
 pub fn sanitize_schema_for_google(value: &mut serde_json::Value) {
     const UNSUPPORTED: &[&str] = &[
         "additionalProperties",
+        "propertyNames",
         "strict",
         "$schema",
         "default",
@@ -747,8 +748,8 @@ fn openai_tool_call_json(
 #[cfg(test)]
 mod tests {
     use super::{
-        gemini_event_to_openai_sse_chunks, gemini_response_to_openai, GeminiParsedEvent,
-        GeminiToolCallEvent,
+        gemini_event_to_openai_sse_chunks, gemini_response_to_openai, sanitize_schema_for_google,
+        GeminiParsedEvent, GeminiToolCallEvent,
     };
 
     #[test]
@@ -813,5 +814,24 @@ mod tests {
             "stream-thought-signature"
         );
         assert_eq!(tool_call["index"], 0);
+    }
+
+    #[test]
+    fn sanitize_schema_for_google_removes_property_names() {
+        let mut schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "staticInputs": {
+                    "type": "object",
+                    "propertyNames": { "type": "string" },
+                    "additionalProperties": true
+                }
+            }
+        });
+
+        sanitize_schema_for_google(&mut schema);
+
+        assert!(schema["properties"]["staticInputs"]["propertyNames"].is_null());
+        assert!(schema["properties"]["staticInputs"]["additionalProperties"].is_null());
     }
 }
