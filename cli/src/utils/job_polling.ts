@@ -6,6 +6,7 @@ const DEFAULT_FAST_POLL_INTERVAL_MS = 100;
 const DEFAULT_FAST_POLL_DURATION_MS = 2000;
 const DEFAULT_SLOW_POLL_INTERVAL_MS = 2000;
 const QUEUE_LOG_INTERVAL_MS = 5000;
+const MAX_CONSECUTIVE_POLL_ERRORS = 10;
 
 export type JobCompletion = { result: unknown; success: boolean };
 
@@ -85,16 +86,33 @@ export async function pollJobWithQueueLogging(
   const label = options?.label ? `[${options.label}] ` : "Job ";
   const startedAt = Date.now();
   let lastQueueLogAt = Date.now();
+  let consecutiveErrors = 0;
 
   while (true) {
-    const maybe = await wmill.getCompletedJobResultMaybe({
-      workspace,
-      id: jobId,
-      getStarted: false,
-    });
+    try {
+      const maybe = await wmill.getCompletedJobResultMaybe({
+        workspace,
+        id: jobId,
+        getStarted: false,
+      });
 
-    if (maybe.completed) {
-      return { result: maybe.result, success: maybe.success ?? false };
+      consecutiveErrors = 0;
+
+      if (maybe.completed) {
+        return { result: maybe.result, success: maybe.success ?? false };
+      }
+    } catch (err: any) {
+      consecutiveErrors++;
+      log.warn(
+        colors.yellow(
+          `${label}${jobId}: error checking job status (${consecutiveErrors}/${MAX_CONSECUTIVE_POLL_ERRORS}): ${err?.message ?? err}`,
+        ),
+      );
+      if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+        throw new Error(
+          `Giving up polling job ${jobId} after ${MAX_CONSECUTIVE_POLL_ERRORS} consecutive errors. Last error: ${err?.message ?? err}`,
+        );
+      }
     }
 
     if (Date.now() - lastQueueLogAt >= QUEUE_LOG_INTERVAL_MS) {
