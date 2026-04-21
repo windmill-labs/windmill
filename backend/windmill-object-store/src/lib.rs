@@ -995,17 +995,18 @@ pub async fn convert_json_line_stream<V, E>(
     _output_format: S3ModeFormat,
     _progress: Option<tokio::sync::mpsc::Sender<IngestStats>>,
 ) -> anyhow::Result<(
-    impl futures::TryStreamExt<Item = anyhow::Result<bytes::Bytes>>,
+    futures::stream::BoxStream<'static, anyhow::Result<bytes::Bytes>>,
     IngestStats,
 )>
 where
     V: serde::Serialize,
     E: Into<anyhow::Error>,
 {
+    use futures::StreamExt;
     let stream = async_stream::stream! {
         yield Err(anyhow::anyhow!("Parquet feature is not enabled. Cannot convert JSON line stream."));
     };
-    Ok((stream, IngestStats::default()))
+    Ok((stream.boxed(), IngestStats::default()))
 }
 
 #[cfg(feature = "parquet")]
@@ -1025,7 +1026,7 @@ pub async fn convert_json_line_stream<V, E>(
     output_format: S3ModeFormat,
     progress: Option<tokio::sync::mpsc::Sender<IngestStats>>,
 ) -> anyhow::Result<(
-    impl TryStreamExt<Item = anyhow::Result<bytes::Bytes>>,
+    futures::stream::BoxStream<'static, anyhow::Result<bytes::Bytes>>,
     IngestStats,
 )>
 where
@@ -1204,7 +1205,7 @@ where
     });
 
     Ok((
-        tokio_stream::wrappers::ReceiverStream::new(rx),
+        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
         ingest_stats,
     ))
 }

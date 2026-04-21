@@ -8,9 +8,9 @@ use reqwest::{Client, Response};
 use serde_json::{json, value::RawValue, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use uuid::Uuid;
 use windmill_common::error::to_anyhow;
 use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
-use windmill_object_store::convert_json_line_stream;
 
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{
@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::common::{build_args_values, get_reserved_variables};
 use crate::common::{
-    build_http_client, resolve_job_timeout, s3_mode_args_to_worker_data, OccupancyMetrics,
-    S3ModeWorkerData,
+    build_http_client, resolve_job_timeout, s3_mode_args_to_worker_data,
+    s3_stream_and_upload_with_logs, OccupancyMetrics, S3ModeWorkerData,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
@@ -194,6 +194,9 @@ fn do_snowflake_inner<'a>(
     s3: Option<S3ModeWorkerData>,
     reserved_variables: &HashMap<String, String>,
     deadline: std::time::Instant,
+    job_id: Uuid,
+    workspace_id: &'a str,
+    log_conn: &'a Connection,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Vec<Box<RawValue>>>>>
 {
     let sig = parse_snowflake_sig(&query)
@@ -501,9 +504,15 @@ fn do_snowflake_inner<'a>(
             if let Some(s3) = s3 {
                 let rows_stream =
                     rows_stream.map(|r| serde_json::value::to_value(&r?).map_err(to_anyhow));
-                let (stream, _) =
-                    convert_json_line_stream(rows_stream.boxed(), s3.format, None).await?;
-                s3.upload(stream.boxed()).await?;
+                s3_stream_and_upload_with_logs(
+                    "Snowflake",
+                    rows_stream.boxed(),
+                    &s3,
+                    job_id,
+                    workspace_id,
+                    log_conn,
+                )
+                .await?;
                 Ok(vec![to_raw_value(&s3.to_return_s3_obj())])
             } else {
                 let rows = rows_stream
@@ -688,6 +697,9 @@ pub async fn do_snowflake(
                 s3.clone(),
                 &reserved_variables,
                 deadline,
+                job.id,
+                &job.workspace_id,
+                conn,
             )?
             .await?;
             results.push(result);

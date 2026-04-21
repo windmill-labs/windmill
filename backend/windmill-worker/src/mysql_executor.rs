@@ -12,12 +12,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
 use std::str::FromStr;
 use tokio::sync::Mutex;
+use uuid::Uuid;
 use windmill_common::{
     client::AuthedClient,
     error::{to_anyhow, Error},
     worker::{to_raw_value, Connection, SqlResultCollectionStrategy},
 };
-use windmill_object_store::convert_json_line_stream;
 use windmill_parser_sql::{
     parse_db_resource, parse_mysql_sig, parse_s3_mode, parse_sql_blocks,
     parse_sql_statement_named_params, RE_ARG_MYSQL_NAMED,
@@ -27,8 +27,8 @@ use windmill_queue::MiniPulledJob;
 
 use crate::{
     common::{
-        build_args_values, get_reserved_variables, s3_mode_args_to_worker_data, OccupancyMetrics,
-        S3ModeWorkerData,
+        build_args_values, get_reserved_variables, s3_mode_args_to_worker_data,
+        s3_stream_and_upload_with_logs, OccupancyMetrics, S3ModeWorkerData,
     },
     handle_child::run_future_with_polling_update_job_poller,
     sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
@@ -52,6 +52,9 @@ fn do_mysql_inner<'a>(
     skip_collect: bool,
     first_row_only: bool,
     s3: Option<S3ModeWorkerData>,
+    job_id: Uuid,
+    workspace_id: &'a str,
+    log_conn: &'a Connection,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Vec<Box<RawValue>>>>>
 {
     let param_names = parse_sql_statement_named_params(query, ':')
@@ -107,9 +110,15 @@ fn do_mysql_inner<'a>(
                 }
             };
 
-            let (stream, _) =
-                convert_json_line_stream(rows_stream.boxed(), s3.format, None).await?;
-            s3.upload(stream.boxed()).await?;
+            s3_stream_and_upload_with_logs(
+                "MySQL",
+                rows_stream.boxed(),
+                s3,
+                job_id,
+                workspace_id,
+                log_conn,
+            )
+            .await?;
 
             Ok(vec![to_raw_value(&s3.to_return_s3_obj())])
         } else {
@@ -321,6 +330,9 @@ pub async fn do_mysql(
                     && i < queries.len() - 1,
                 collection_strategy.collect_first_row_only(),
                 s3.clone(),
+                job.id,
+                &job.workspace_id,
+                conn,
             )?
             .await?;
             results.push(result);

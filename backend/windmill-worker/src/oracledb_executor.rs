@@ -8,11 +8,11 @@ use itertools::Itertools;
 use oracle::sql_type::{InnerValue, OracleType, ToSql};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
+use uuid::Uuid;
 use windmill_common::{
     error::{to_anyhow, Error},
     worker::{to_raw_value, Connection, SqlResultCollectionStrategy},
 };
-use windmill_object_store::convert_json_line_stream;
 use windmill_queue::MiniPulledJob;
 
 use windmill_parser_sql::{
@@ -24,7 +24,8 @@ use windmill_queue::CanceledBy;
 use crate::{
     common::{
         build_args_values, check_executor_binary_exists, get_reserved_variables,
-        s3_mode_args_to_worker_data, OccupancyMetrics, S3ModeWorkerData,
+        s3_mode_args_to_worker_data, s3_stream_and_upload_with_logs, OccupancyMetrics,
+        S3ModeWorkerData,
     },
     handle_child::run_future_with_polling_update_job_poller,
     sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
@@ -50,6 +51,9 @@ pub fn do_oracledb_inner<'a>(
     skip_collect: bool,
     first_row_only: bool,
     s3: Option<S3ModeWorkerData>,
+    job_id: Uuid,
+    workspace_id: &'a str,
+    log_conn: &'a Connection,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Vec<Box<RawValue>>>>>
 {
     let qw = query.trim_end_matches(';').to_string();
@@ -162,9 +166,15 @@ pub fn do_oracledb_inner<'a>(
             }
 
             if let Some(s3) = s3 {
-                let (stream, _) =
-                    convert_json_line_stream(rows_stream.boxed(), s3.format, None).await?;
-                s3.upload(stream.boxed()).await?;
+                s3_stream_and_upload_with_logs(
+                    "OracleDB",
+                    rows_stream.boxed(),
+                    &s3,
+                    job_id,
+                    workspace_id,
+                    log_conn,
+                )
+                .await?;
                 return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
             } else {
                 let rows: Vec<_> = rows_stream.collect().await;
@@ -444,6 +454,9 @@ pub async fn do_oracledb(
                     && i < queries.len() - 1,
                 collection_strategy.collect_first_row_only(),
                 s3.clone(),
+                job.id,
+                &job.workspace_id,
+                conn,
             )?
             .await?;
             results.push(result);

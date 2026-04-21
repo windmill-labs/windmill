@@ -29,7 +29,6 @@ use windmill_common::worker::{
 };
 use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult, DB};
-use windmill_object_store::convert_json_line_stream;
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig_with_typed_schema,
@@ -39,8 +38,8 @@ use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::agent_workers::get_datatable_resource_from_agent_http;
 use crate::common::{
-    build_args_values, get_reserved_variables, s3_mode_args_to_worker_data, sizeof_val,
-    OccupancyMetrics, S3ModeWorkerData,
+    build_args_values, get_reserved_variables, s3_mode_args_to_worker_data,
+    s3_stream_and_upload_with_logs, sizeof_val, OccupancyMetrics, S3ModeWorkerData,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
@@ -139,6 +138,9 @@ fn do_postgresql_inner<'a>(
     first_row_only: bool,
     s3: Option<S3ModeWorkerData>,
     typed_schema: bool,
+    job_id: Uuid,
+    workspace_id: &'a str,
+    log_conn: &'a Connection,
 ) -> error::Result<BoxFuture<'a, error::Result<Vec<Box<RawValue>>>>> {
     let mut query_params = vec![];
     let mut param_types = vec![];
@@ -203,9 +205,15 @@ fn do_postgresql_inner<'a>(
                 row_result.and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
             });
 
-            let (stream, _) =
-                convert_json_line_stream(rows_stream.boxed(), s3.format, None).await?;
-            s3.upload(stream.boxed()).await?;
+            s3_stream_and_upload_with_logs(
+                "PostgreSQL",
+                rows_stream.boxed(),
+                s3,
+                job_id,
+                workspace_id,
+                log_conn,
+            )
+            .await?;
 
             return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
         } else {
@@ -456,6 +464,9 @@ pub async fn do_postgresql(
                 collection_strategy.collect_first_row_only(),
                 s3.clone(),
                 typed_schema,
+                job.id,
+                &job.workspace_id,
+                conn,
             )?
             .await?;
             results.push(result);

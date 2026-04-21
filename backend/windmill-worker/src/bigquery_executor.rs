@@ -4,11 +4,11 @@ use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt};
 use reqwest::Client;
 use serde_json::{json, value::RawValue, Value};
+use uuid::Uuid;
 use windmill_common::client::AuthedClient;
 use windmill_common::error::to_anyhow;
 use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
 use windmill_common::{error::Error, worker::to_raw_value};
-use windmill_object_store::convert_json_line_stream;
 use windmill_parser_sql::{
     parse_bigquery_sig, parse_db_resource, parse_s3_mode, parse_sql_blocks,
     parse_sql_statement_named_params,
@@ -19,8 +19,8 @@ use serde::Deserialize;
 
 use crate::common::{build_args_values, resolve_job_timeout};
 use crate::common::{
-    build_http_client, get_reserved_variables, s3_mode_args_to_worker_data, OccupancyMetrics,
-    S3ModeWorkerData,
+    build_http_client, get_reserved_variables, s3_mode_args_to_worker_data,
+    s3_stream_and_upload_with_logs, OccupancyMetrics, S3ModeWorkerData,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
@@ -89,6 +89,9 @@ fn do_bigquery_inner<'a>(
     first_row_only: bool,
     http_client: &'a Client,
     s3: Option<S3ModeWorkerData>,
+    job_id: Uuid,
+    workspace_id: &'a str,
+    log_conn: &'a Connection,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Vec<Box<RawValue>>>>>
 {
     let param_names = parse_sql_statement_named_params(query, '@');
@@ -203,9 +206,15 @@ fn do_bigquery_inner<'a>(
                             }
                         };
 
-                        let (stream, _) =
-                            convert_json_line_stream(rows_stream.boxed(), s3.format, None).await?;
-                        s3.upload(stream.boxed()).await?;
+                        s3_stream_and_upload_with_logs(
+                            "BigQuery",
+                            rows_stream.boxed(),
+                            &s3,
+                            job_id,
+                            workspace_id,
+                            log_conn,
+                        )
+                        .await?;
 
                         return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
                     }
@@ -455,6 +464,9 @@ pub async fn do_bigquery(
                 collection_strategy.collect_first_row_only(),
                 &http_client,
                 s3.clone(),
+                job.id,
+                &job.workspace_id,
+                conn,
             )?
             .await?;
             results.push(result);
