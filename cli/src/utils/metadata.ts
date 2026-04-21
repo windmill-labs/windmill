@@ -28,6 +28,7 @@ import { argSigToJsonSchemaType } from "../../windmill-utils-internal/src/parse/
 import { getIsWin } from "./utils.ts";
 import { extractRelativeImports } from "./relative_imports.ts";
 import { DoubleLinkedDependencyTree } from "./dependency_tree.ts";
+import { pollJobWithQueueLogging } from "./job_polling.ts";
 
 const _require = createRequire(import.meta.url);
 const _parserCache = new Map<string, Promise<any>>();
@@ -578,8 +579,8 @@ async function fetchScriptLock(
   }
 
   const extraHeaders = getHeaders();
-  const rawResponse = await fetch(
-    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies`,
+  const queueResponse = await fetch(
+    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies_async`,
     {
       method: "POST",
       headers: {
@@ -604,33 +605,49 @@ async function fetchScriptLock(
     }
   );
 
-  let responseText = "reading response failed";
-  try {
-    responseText = await rawResponse.text();
-    const response = JSON.parse(responseText);
-    const lock = response.lock;
-    if (lock === undefined) {
-      if (response?.["error"]?.["message"]) {
-        throw new LockfileGenerationError(
-          `Failed to generate lockfile: ${response?.["error"]?.["message"]}`
-        );
-      }
-      throw new LockfileGenerationError(
-        `Failed to generate lockfile: ${JSON.stringify(response, null, 2)}`
-      );
-    }
-    if (cacheKey) {
-      lockCache.set(cacheKey, lock);
-    }
-    return lock;
-  } catch (e) {
-    if (e instanceof LockfileGenerationError) {
-      throw e;
-    }
+  if (!queueResponse.ok) {
+    let bodyText = "";
+    try {
+      bodyText = await queueResponse.text();
+    } catch { /* ignore */ }
     throw new LockfileGenerationError(
-      `Failed to generate lockfile:${rawResponse.statusText}, ${responseText}, ${e}`
+      `Failed to queue dependencies job: ${queueResponse.status} ${queueResponse.statusText}, ${bodyText}`
     );
   }
+
+  const jobId = (await queueResponse.text()).trim();
+
+  let completion;
+  try {
+    completion = await pollJobWithQueueLogging(
+      workspace.workspaceId,
+      jobId,
+      { label: `deps ${remotePath}` },
+    );
+  } catch (e: any) {
+    throw new LockfileGenerationError(
+      `Failed to poll dependencies job ${jobId}: ${e?.message ?? e}`
+    );
+  }
+
+  const result = completion.result as any;
+  if (!completion.success) {
+    const message =
+      result?.error?.message ??
+      (typeof result === "string" ? result : JSON.stringify(result, null, 2));
+    throw new LockfileGenerationError(`Failed to generate lockfile: ${message}`);
+  }
+
+  const lock = result?.lock;
+  if (lock === undefined) {
+    throw new LockfileGenerationError(
+      `Failed to generate lockfile: ${JSON.stringify(result, null, 2)}`
+    );
+  }
+  if (cacheKey) {
+    lockCache.set(cacheKey, lock);
+  }
+  return lock;
 }
 
 async function updateScriptLock(

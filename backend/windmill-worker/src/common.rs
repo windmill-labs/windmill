@@ -1570,6 +1570,77 @@ impl S3ModeWorkerData {
     }
 }
 
+/// Stream rows to S3 (via `convert_json_line_stream` + `s3.upload`) while appending
+/// periodic progress, ingest-done, and upload-done logs to the job output.
+///
+/// `db_name` is a human-readable prefix for the log lines (e.g. "MSSQL", "PostgreSQL").
+pub async fn s3_stream_and_upload_with_logs<S, V, E>(
+    db_name: &str,
+    rows_stream: S,
+    s3: &S3ModeWorkerData,
+    job_id: Uuid,
+    workspace_id: &str,
+    conn: &Connection,
+) -> anyhow::Result<()>
+where
+    S: futures::TryStreamExt<Item = Result<V, E>> + Unpin,
+    V: serde::Serialize,
+    E: Into<anyhow::Error>,
+{
+    let s3_format = s3.format;
+    let (progress_tx, mut progress_rx) =
+        tokio::sync::mpsc::channel::<windmill_object_store::IngestStats>(8);
+    let progress_conn = conn.clone();
+    let progress_workspace = workspace_id.to_string();
+    let progress_db_name = db_name.to_string();
+    let progress_task = tokio::spawn(async move {
+        while let Some(stats) = progress_rx.recv().await {
+            let logs = format!(
+                "\n{} s3 stream progress: {} rows, {:.1} MB | elapsed {:.1}s (db-fetch {:.1}s, write {:.1}s)",
+                progress_db_name,
+                stats.rows,
+                stats.bytes as f64 / 1_048_576.0,
+                stats.elapsed.as_secs_f64(),
+                stats.fetch_wait.as_secs_f64(),
+                stats.write_time.as_secs_f64(),
+            );
+            windmill_queue::append_logs(&job_id, &progress_workspace, logs, &progress_conn).await;
+        }
+    });
+
+    let (stream, ingest_stats) =
+        windmill_object_store::convert_json_line_stream(rows_stream, s3_format, Some(progress_tx))
+            .await?;
+    let _ = progress_task.await;
+
+    let ingest_log = format!(
+        "\n{} s3 stream ingest done ({:?}): {} rows, {:.1} MB in {:.2}s (db-fetch {:.2}s, write {:.2}s, first row after {:.2}s)",
+        db_name,
+        s3_format,
+        ingest_stats.rows,
+        ingest_stats.bytes as f64 / 1_048_576.0,
+        ingest_stats.elapsed.as_secs_f64(),
+        ingest_stats.fetch_wait.as_secs_f64(),
+        ingest_stats.write_time.as_secs_f64(),
+        ingest_stats.first_row_latency.unwrap_or_default().as_secs_f64(),
+    );
+    windmill_queue::append_logs(&job_id, workspace_id, ingest_log, conn).await;
+
+    let upload_start = std::time::Instant::now();
+    s3.upload(stream).await?;
+    let upload_elapsed = upload_start.elapsed();
+
+    let final_log = format!(
+        "\n{} s3 stream upload+transcode done: {:.2}s | total {:.2}s",
+        db_name,
+        upload_elapsed.as_secs_f64(),
+        (ingest_stats.elapsed + upload_elapsed).as_secs_f64(),
+    );
+    windmill_queue::append_logs(&job_id, workspace_id, final_log, conn).await;
+
+    Ok(())
+}
+
 pub fn s3_mode_args_to_worker_data(
     s3: S3ModeArgs,
     client: AuthedClient,

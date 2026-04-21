@@ -53,6 +53,7 @@ import {
   readConfigFile,
 } from "../../core/conf.ts";
 import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
+import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 import fs from "node:fs";
 import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
 
@@ -1143,25 +1144,11 @@ export async function track_job(workspace: string, id: string) {
   }
 }
 
-const POLL_INTERVAL_MS = 2000;
-
 export async function pollForJobResult(
   workspace: string,
   jobId: string,
 ): Promise<{ result: unknown; success: boolean }> {
-  while (true) {
-    const maybeResult = await wmill.getCompletedJobResultMaybe({
-      workspace,
-      id: jobId,
-      getStarted: false,
-    });
-
-    if (maybeResult.completed) {
-      return { result: maybeResult.result, success: maybeResult.success ?? false };
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-  }
+  return await pollJobWithQueueLogging(workspace, jobId);
 }
 
 async function show(opts: GlobalOptions, path: string) {
