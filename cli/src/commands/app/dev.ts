@@ -23,6 +23,7 @@ import {
 } from "./bundle.ts";
 import { wmillTsDev as wmillTs } from "./wmillTsDev.ts";
 import * as wmill from "../../../gen/services.gen.ts";
+import { logQueueStatus } from "../../utils/job_polling.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { GLOBAL_CONFIG_OPT } from "../../core/conf.ts";
@@ -1620,46 +1621,6 @@ const ITERATIONS_BEFORE_SLOW_REFRESH = 10;
 const ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100;
 const QUEUE_LOG_INTERVAL_MS = 5000;
 
-async function logQueuePositionForJob(
-  workspace: string,
-  jobId: string,
-): Promise<void> {
-  try {
-    const job: any = await wmill.getJob({ workspace, id: jobId });
-    if (!job || typeof job.running !== "boolean") return;
-    if (job.running === true) {
-      log.info(colors.gray(`Job ${jobId}: running, waiting for completion...`));
-      return;
-    }
-    const scheduledFor = job.scheduled_for as string | undefined;
-    const scheduledForMs = scheduledFor ? new Date(scheduledFor).getTime() : NaN;
-    if (!Number.isFinite(scheduledForMs)) {
-      log.info(colors.gray(`Job ${jobId}: queued, waiting for executor...`));
-      return;
-    }
-    try {
-      const pos = await wmill.getQueuePosition({
-        workspace,
-        scheduledFor: scheduledForMs,
-      });
-      const position = (pos as any)?.position;
-      if (position != null) {
-        log.info(
-          colors.gray(
-            `Job ${jobId}: queued, waiting for executor (position ${position} in queue)`,
-          ),
-        );
-      } else {
-        log.info(colors.gray(`Job ${jobId}: queued, waiting for executor...`));
-      }
-    } catch {
-      log.info(colors.gray(`Job ${jobId}: queued, waiting for executor...`));
-    }
-  } catch {
-    // ignore transient errors
-  }
-}
-
 async function waitForJob(workspace: string, jobId: string): Promise<any> {
   if (!jobId) {
     throw new Error("Job ID is required");
@@ -1696,7 +1657,7 @@ async function waitForJob(workspace: string, jobId: string): Promise<any> {
 
       if (Date.now() - lastQueueLogAt >= QUEUE_LOG_INTERVAL_MS) {
         lastQueueLogAt = Date.now();
-        logQueuePositionForJob(workspace, jobId);
+        await logQueueStatus(workspace, jobId);
       }
 
       syncIteration++;

@@ -9,10 +9,10 @@ const QUEUE_LOG_INTERVAL_MS = 5000;
 
 export type JobCompletion = { result: unknown; success: boolean };
 
-async function logQueueStatus(
+export async function logQueueStatus(
   workspace: string,
   jobId: string,
-  label: string,
+  label: string = "Job ",
 ): Promise<void> {
   try {
     const job: any = await wmill.getJob({ workspace, id: jobId });
