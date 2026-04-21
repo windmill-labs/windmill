@@ -383,7 +383,7 @@ pub async fn do_bigquery(
         &reserved_variables,
     )?;
 
-    let queries = parse_sql_blocks(query);
+    let queries = parse_sql_blocks(query, false);
 
     let mut statement_values: HashMap<String, Value> = HashMap::new();
 

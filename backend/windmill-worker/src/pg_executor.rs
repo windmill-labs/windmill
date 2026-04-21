@@ -386,7 +386,7 @@ pub async fn do_postgresql(
     let (query, _) =
         &sanitize_and_interpolate_unsafe_sql_args(query, &sig.args, &pg_args, &reserved_variables)?;
 
-    let queries = parse_sql_blocks(query);
+    let queries = parse_sql_blocks(query, true);
 
     let (client, handle) = if let Some((client, handle)) = new_client.as_ref() {
         (client, Some(handle))

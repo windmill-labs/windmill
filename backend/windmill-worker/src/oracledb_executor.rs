@@ -420,7 +420,7 @@ pub async fn do_oracledb(
 
     let conn_a = Arc::new(std::sync::Mutex::new(oracle_conn));
 
-    let queries = parse_sql_blocks(&query);
+    let queries = parse_sql_blocks(&query, false);
 
     let result_f = async move {
         let mut results = vec![];

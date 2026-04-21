@@ -298,7 +298,7 @@ pub async fn do_mysql(
     let mysql_conn = pool.get_conn().await.map_err(to_anyhow)?;
     let conn_a = Arc::new(Mutex::new(mysql_conn));
 
-    let queries = parse_sql_blocks(query);
+    let queries = parse_sql_blocks(query, false);
 
     let conn_a_ref = &conn_a;
     let result_f = async move {

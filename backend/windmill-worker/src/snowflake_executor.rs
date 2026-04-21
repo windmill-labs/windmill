@@ -650,7 +650,7 @@ pub async fn do_snowflake(
         .as_secs();
     body.insert("timeout".to_string(), json!(timeout));
 
-    let queries = parse_sql_blocks(query);
+    let queries = parse_sql_blocks(query, false);
 
     let (timeout_duration, _, _) =
         resolve_job_timeout(&conn, &job.workspace_id, job.id, job.timeout).await;
