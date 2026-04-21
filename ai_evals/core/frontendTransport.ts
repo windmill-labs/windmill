@@ -33,9 +33,7 @@ export function resolveFrontendEvalTransportSettings(input: {
   evalMode: EvalMode;
   requestedTransport?: string | null;
 }): FrontendEvalTransportSettings {
-  const transport = parseFrontendEvalTransport(
-    input.requestedTransport ?? process.env.WMILL_AI_EVAL_TRANSPORT,
-  );
+  const transport = parseFrontendEvalTransport(input.requestedTransport);
 
   if (transport === "proxy" && input.evalMode === "cli") {
     throw new Error(

@@ -31,6 +31,22 @@ export async function runFrontendBenchmarkAdapter(input: {
     path.join(tmpdir(), "wmill-frontend-benchmark-"),
   );
   const outputPath = path.join(tempDir, "result.json");
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    BROWSERSLIST_IGNORE_OLD_DATA: "1",
+    WMILL_FRONTEND_AI_EVAL_OUTPUT_PATH: outputPath,
+    WMILL_FRONTEND_AI_EVAL_MODE: input.mode,
+    WMILL_FRONTEND_AI_EVAL_CASE_IDS: JSON.stringify(input.caseIds),
+    WMILL_FRONTEND_AI_EVAL_RUNS: String(input.runs),
+    WMILL_FRONTEND_AI_EVAL_MODEL: input.model ?? "",
+    WMILL_FRONTEND_AI_EVAL_PROGRESS: "1",
+    WMILL_FRONTEND_AI_EVAL_VERBOSE: input.verbose ? "1" : "0",
+    WMILL_FRONTEND_AI_EVAL_BACKEND_VALIDATION: input.backendValidation ?? "",
+  };
+
+  if (input.transport) {
+    env.WMILL_FRONTEND_AI_EVAL_TRANSPORT = input.transport;
+  }
 
   try {
     await runVitestBenchmark(
@@ -45,20 +61,7 @@ export async function runFrontendBenchmarkAdapter(input: {
       ],
       {
         cwd: FRONTEND_DIR,
-        env: {
-          ...process.env,
-          BROWSERSLIST_IGNORE_OLD_DATA: "1",
-          WMILL_FRONTEND_AI_EVAL_OUTPUT_PATH: outputPath,
-          WMILL_FRONTEND_AI_EVAL_MODE: input.mode,
-          WMILL_FRONTEND_AI_EVAL_CASE_IDS: JSON.stringify(input.caseIds),
-          WMILL_FRONTEND_AI_EVAL_RUNS: String(input.runs),
-          WMILL_FRONTEND_AI_EVAL_MODEL: input.model ?? "",
-          WMILL_FRONTEND_AI_EVAL_TRANSPORT: input.transport ?? "",
-          WMILL_FRONTEND_AI_EVAL_PROGRESS: "1",
-          WMILL_FRONTEND_AI_EVAL_VERBOSE: input.verbose ? "1" : "0",
-          WMILL_FRONTEND_AI_EVAL_BACKEND_VALIDATION:
-            input.backendValidation ?? "",
-        },
+        env,
       },
     );
 

@@ -5,14 +5,16 @@ import {
 } from "./frontendTransport";
 
 const ORIGINAL_ENV = {
-  WMILL_AI_EVAL_TRANSPORT: process.env.WMILL_AI_EVAL_TRANSPORT,
   WMILL_AI_EVAL_BACKEND_URL: process.env.WMILL_AI_EVAL_BACKEND_URL,
 };
 
 afterEach(() => {
-  process.env.WMILL_AI_EVAL_TRANSPORT = ORIGINAL_ENV.WMILL_AI_EVAL_TRANSPORT;
-  process.env.WMILL_AI_EVAL_BACKEND_URL =
-    ORIGINAL_ENV.WMILL_AI_EVAL_BACKEND_URL;
+  if (ORIGINAL_ENV.WMILL_AI_EVAL_BACKEND_URL === undefined) {
+    delete process.env.WMILL_AI_EVAL_BACKEND_URL;
+  } else {
+    process.env.WMILL_AI_EVAL_BACKEND_URL =
+      ORIGINAL_ENV.WMILL_AI_EVAL_BACKEND_URL;
+  }
 });
 
 describe("parseFrontendEvalTransport", () => {

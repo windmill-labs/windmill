@@ -157,11 +157,9 @@ Supported backend validation env vars:
 - `WMILL_AI_EVAL_KEEP_WORKSPACES=1`
 - `WMILL_AI_EVAL_WORKSPACE_PREFIX=ai-evals`
 
-Frontend proxy transport uses the same backend auth/workspace env vars and adds:
+Frontend proxy transport uses the same backend auth/workspace env vars.
 
-- `WMILL_AI_EVAL_TRANSPORT=proxy` to force frontend evals through the workspace AI proxy
-
-When `--transport proxy` or `WMILL_AI_EVAL_TRANSPORT=proxy` is set:
+When `--transport proxy` is set:
 
 - `ai_evals` creates or reuses a backend workspace
 - it upserts a provider resource under `f/evals/ai/<provider>`
