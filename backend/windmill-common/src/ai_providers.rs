@@ -29,6 +29,19 @@ lazy_static::lazy_static! {
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const GOOGLE_AI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 
+/// Claude Opus 4.7 no longer accepts sampling parameters like temperature, top_p, or top_k.
+/// Keep this helper conservative and only match the documented Opus 4.7 model family.
+pub fn anthropic_model_disallows_sampling_params(model: &str) -> bool {
+    let model = model
+        .trim()
+        .trim_end_matches("/thinking")
+        .to_ascii_lowercase();
+
+    model == "claude-opus-4-7"
+        || model.starts_with("claude-opus-4-7-")
+        || model.starts_with("claude-opus-4-7@")
+}
+
 /// Empty string signals BedrockClient::from_env() to use the region from AWS environment/config
 /// (e.g., AWS_REGION or AWS_DEFAULT_REGION env vars, or ~/.aws/config)
 pub const USE_ENV_REGION: &str = "";
@@ -176,4 +189,34 @@ pub struct ProviderConfig {
 pub struct ProviderModel {
     pub model: String,
     pub provider: AIProvider,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::anthropic_model_disallows_sampling_params;
+
+    #[test]
+    fn anthropic_sampling_is_disabled_for_opus_4_7_variants() {
+        assert!(anthropic_model_disallows_sampling_params("claude-opus-4-7"));
+        assert!(anthropic_model_disallows_sampling_params(
+            "claude-opus-4-7@20260416"
+        ));
+        assert!(anthropic_model_disallows_sampling_params(
+            "claude-opus-4-7-20260416"
+        ));
+        assert!(anthropic_model_disallows_sampling_params(
+            "claude-opus-4-7/thinking"
+        ));
+    }
+
+    #[test]
+    fn anthropic_sampling_is_allowed_for_other_models() {
+        assert!(!anthropic_model_disallows_sampling_params(
+            "claude-opus-4-6"
+        ));
+        assert!(!anthropic_model_disallows_sampling_params("claude-opus-4"));
+        assert!(!anthropic_model_disallows_sampling_params(
+            "claude-sonnet-4-6"
+        ));
+    }
 }

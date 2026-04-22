@@ -2,7 +2,10 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use windmill_common::{
-    ai_google::parse_data_url, ai_providers::AIProvider, client::AuthedClient, error::Error,
+    ai_google::parse_data_url,
+    ai_providers::{anthropic_model_disallows_sampling_params, AIProvider},
+    client::AuthedClient,
+    error::Error,
 };
 
 use crate::ai::{
@@ -372,11 +375,7 @@ pub struct AnthropicQueryBuilder {
 }
 
 impl AnthropicQueryBuilder {
-    pub fn new(
-        provider_kind: AIProvider,
-        platform: AIPlatform,
-        enable_1m_context: bool,
-    ) -> Self {
+    pub fn new(provider_kind: AIProvider, platform: AIPlatform, enable_1m_context: bool) -> Self {
         Self { provider_kind, platform, enable_1m_context }
     }
 
@@ -448,6 +447,11 @@ impl AnthropicQueryBuilder {
 
         let mut tools_option = if tools.is_empty() { None } else { Some(tools) };
         let max_tokens = Some(args.max_tokens.unwrap_or(64000));
+        let temperature = if anthropic_model_disallows_sampling_params(args.model) {
+            None
+        } else {
+            args.temperature
+        };
 
         // Apply cache_control on the last custom tool
         if !self.is_vertex() {
@@ -484,7 +488,7 @@ impl AnthropicQueryBuilder {
                 messages: anthropic_messages,
                 tools: tools_option,
                 tool_choice,
-                temperature: args.temperature,
+                temperature,
                 max_tokens,
                 stream: true,
             };
@@ -498,7 +502,7 @@ impl AnthropicQueryBuilder {
                 messages: anthropic_messages,
                 tools: tools_option,
                 tool_choice,
-                temperature: args.temperature,
+                temperature,
                 max_tokens,
                 stream: true,
             };
