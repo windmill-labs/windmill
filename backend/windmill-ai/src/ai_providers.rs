@@ -2,8 +2,8 @@
  * This file contains shared AI provider utilities used by both the API and worker.
  */
 
-use crate::db::DB;
-use crate::error::{Error, Result};
+use windmill_common::db::DB;
+use windmill_common::error::{Error, Result};
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Deserializes an Option<String> where empty strings become None.
@@ -65,7 +65,7 @@ impl AIProvider {
     pub async fn get_base_url(&self, resource_base_url: Option<String>, db: &DB) -> Result<String> {
         if let Some(base_url) = resource_base_url {
             if !*ALLOW_PRIVATE_AI_BASE_URLS {
-                crate::ssrf::validate_url_for_ssrf(&base_url)
+                windmill_common::ssrf::validate_url_for_ssrf(&base_url)
                     .await
                     .map_err(|e| {
                         Error::BadRequest(format!(

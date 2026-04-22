@@ -1,17 +1,14 @@
 use async_trait::async_trait;
-use windmill_common::{
-    ai_google::{
-        openai_messages_to_gemini, openai_tools_to_gemini, GeminiGenerationConfig,
-        GeminiImageContent, GeminiImageRequest, GeminiImageResponse, GeminiInlineData, GeminiPart,
-        GeminiPredictContent, GeminiTextRequest, GeminiTool,
-    },
-    client::AuthedClient,
-    error::Error,
+use windmill_ai::ai_google::{
+    openai_messages_to_gemini, openai_tools_to_gemini, GeminiGenerationConfig,
+    GeminiImageContent, GeminiImageRequest, GeminiImageResponse, GeminiInlineData, GeminiPart,
+    GeminiPredictContent, GeminiTextRequest, GeminiTool,
 };
+use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
     image_handler::{download_and_encode_s3_image, prepare_messages_for_api},
-    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
+    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{GeminiSSEParser, SSEParser},
     types::*,
 };
@@ -222,9 +219,9 @@ impl QueryBuilder for GoogleAIQueryBuilder {
     async fn parse_streaming_response(
         &self,
         response: reqwest::Response,
-        stream_event_processor: StreamEventProcessor,
+        stream_event_sink: Box<dyn StreamEventSink>,
     ) -> Result<ParsedResponse, Error> {
-        let mut gemini_sse_parser = GeminiSSEParser::new(stream_event_processor);
+        let mut gemini_sse_parser = GeminiSSEParser::new(stream_event_sink);
         gemini_sse_parser.parse_events(response).await?;
 
         let GeminiSSEParser {

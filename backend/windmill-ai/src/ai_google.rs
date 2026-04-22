@@ -13,7 +13,7 @@ use crate::ai_types::{
     ContentPart, ExtraContent, GoogleExtraContent, OpenAIContent, OpenAIMessage, ToolDef,
     UrlCitation,
 };
-use crate::error::Error;
+use windmill_common::error::Error;
 
 // ============================================================================
 // Request / Content Types
