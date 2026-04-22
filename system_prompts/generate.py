@@ -11,11 +11,14 @@ This script:
 
 Usage:
     python generate.py
+    python generate.py --plugin-dir /path/to/windmill-claude-plugin
 """
 
+import argparse
 import ast
 import json
 import re
+import shutil
 from pathlib import Path
 
 import yaml
@@ -1104,13 +1107,121 @@ def generate_skills_ts_export(skills: list[str], schema_yaml_content: dict[str, 
     return ts
 
 
+def format_schema_for_markdown(schema_yaml: str, schema_name: str, file_pattern: str) -> str:
+    """Format a standalone schema block for plugin skill files."""
+    return f"""## {schema_name} (`{file_pattern}`)
+
+Must be a YAML file that adheres to the following schema:
+
+```yaml
+{schema_yaml.strip()}
+```"""
+
+
+def render_plugin_skill_content(skill_name: str, schema_yaml_content: dict[str, str]) -> str:
+    """Render plugin-ready skill content from generated base skill files."""
+    skill_path = OUTPUT_SKILLS_DIR / skill_name / "SKILL.md"
+    if not skill_path.exists():
+        raise FileNotFoundError(f"Missing generated skill content for {skill_name}: {skill_path}")
+
+    skill_content = skill_path.read_text()
+    schema_mappings = SCHEMA_MAPPINGS.get(skill_name, [])
+    if not schema_mappings:
+        return skill_content
+
+    schema_docs = []
+    for schema_name, schema_key in schema_mappings:
+        schema_yaml = schema_yaml_content.get(schema_key)
+        if not schema_yaml:
+            continue
+        schema_docs.append(
+            format_schema_for_markdown(
+                schema_yaml=schema_yaml,
+                schema_name=schema_name,
+                file_pattern=f"*.{schema_key}.yaml",
+            )
+        )
+
+    if not schema_docs:
+        return skill_content
+
+    return f"{skill_content}\n\n" + "\n\n".join(schema_docs)
+
+
+def resolve_plugin_skills_dir(plugin_dir: Path) -> Path:
+    """Resolve the plugin skills directory from a repo root, plugin root, or skills dir."""
+    plugin_dir = plugin_dir.expanduser().resolve()
+
+    repo_skills_dir = plugin_dir / "plugins" / "windmill-code-plugin" / "skills"
+    repo_plugin_json = plugin_dir / "plugins" / "windmill-code-plugin" / ".claude-plugin" / "plugin.json"
+    if repo_plugin_json.exists():
+        return repo_skills_dir
+
+    plugin_skills_dir = plugin_dir / "skills"
+    plugin_json = plugin_dir / ".claude-plugin" / "plugin.json"
+    if plugin_json.exists():
+        return plugin_skills_dir
+
+    if plugin_dir.name == "skills":
+        return plugin_dir
+
+    return plugin_skills_dir
+
+
+def generate_plugin_skills(
+    plugin_dir: Path,
+    skills: list[str],
+    schema_yaml_content: dict[str, str],
+) -> Path:
+    """Generate standalone skills in a Claude plugin checkout."""
+    skills_dir = resolve_plugin_skills_dir(plugin_dir)
+    skills_dir.mkdir(parents=True, exist_ok=True)
+
+    expected_skills = set(skills)
+    for existing in skills_dir.iterdir():
+        if existing.is_dir() and existing.name not in expected_skills:
+            shutil.rmtree(existing)
+
+    for skill_name in skills:
+        skill_dir = skills_dir / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(
+            render_plugin_skill_content(skill_name, schema_yaml_content)
+        )
+
+    print(f"\nGenerated for plugin:")
+    print(f"  - {skills_dir} ({len(skills)} skills)")
+    return skills_dir
+
+
 # =============================================================================
 # Main Entry Point
 # =============================================================================
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate Windmill system prompts, CLI guidance, and optionally "
+            "plugin-ready standalone skills."
+        )
+    )
+    parser.add_argument(
+        "--plugin-dir",
+        type=Path,
+        help=(
+            "Optional plugin target. Accepts a windmill-claude-plugin repo root, "
+            "a plugin root, or a skills directory, and refreshes standalone skills there."
+        ),
+    )
+    return parser.parse_args()
+
+
 def main():
     """Main generation function."""
+    args = parse_args()
+
     print("Generating system prompts documentation...")
 
     # Ensure output directories exist
@@ -1344,6 +1455,10 @@ export function getDatatableSdkReference(): string {
     print(f"  - auto-generated/schemas/ ({len(schema_yaml_content)} schema files)")
     print(f"\nGenerated for CLI:")
     print(f"  - cli/src/guidance/skills.ts")
+
+    if args.plugin_dir:
+        generate_plugin_skills(args.plugin_dir, skills, schema_yaml_content)
+
     print("\nDone!")
 
 
