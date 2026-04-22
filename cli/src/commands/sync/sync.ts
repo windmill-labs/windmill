@@ -3397,12 +3397,48 @@ export async function push(
                 await writeFile(stateTarget, change.after, "utf-8");
               }
             } else if (change.name === "added") {
+              if (isFilesetResource(change.path)) {
+                // Re-push the parent resource so the new fileset file is included.
+                // If the parent is also being added here, its own push covers all children.
+                let resourceFilePath: string | undefined;
+                try {
+                  resourceFilePath = await findFilesetResourceFile(change.path);
+                } catch {
+                  continue;
+                }
+                if (alreadySynced.includes(resourceFilePath)) {
+                  continue;
+                }
+                alreadySynced.push(resourceFilePath);
+
+                const newObj = parseFromPath(
+                  resourceFilePath,
+                  await readFile(resourceFilePath, "utf-8"),
+                );
+
+                let serverPath = resourceFilePath;
+                const currentBranch = cachedWsNameForPush;
+                if (currentBranch && isWorkspaceSpecificFile(resourceFilePath)) {
+                  serverPath = fromWorkspaceSpecificPath(
+                    resourceFilePath,
+                    currentBranch,
+                  );
+                }
+
+                await pushResource(
+                  workspace.workspaceId,
+                  serverPath,
+                  undefined,
+                  newObj,
+                  resourceFilePath,
+                );
+                continue;
+              }
               if (
                 change.path.endsWith(".script.json") ||
                 change.path.endsWith(".script.yaml") ||
                 change.path.endsWith(".lock") ||
-                isFileResource(change.path) ||
-                isFilesetResource(change.path)
+                isFileResource(change.path)
               ) {
                 continue;
               } else if (
@@ -3481,6 +3517,44 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                );
+                continue;
+              }
+              if (isFilesetResource(change.path)) {
+                // Re-push the parent resource with the updated fileset contents.
+                // If the parent is also being deleted, its own "deleted" change
+                // removes the whole resource, so skip this child.
+                let resourceFilePath: string | undefined;
+                try {
+                  resourceFilePath = await findFilesetResourceFile(change.path);
+                } catch {
+                  continue;
+                }
+                if (alreadySynced.includes(resourceFilePath)) {
+                  continue;
+                }
+                alreadySynced.push(resourceFilePath);
+
+                const newObj = parseFromPath(
+                  resourceFilePath,
+                  await readFile(resourceFilePath, "utf-8"),
+                );
+
+                let serverPath = resourceFilePath;
+                const currentBranch = cachedWsNameForPush;
+                if (currentBranch && isWorkspaceSpecificFile(resourceFilePath)) {
+                  serverPath = fromWorkspaceSpecificPath(
+                    resourceFilePath,
+                    currentBranch,
+                  );
+                }
+
+                await pushResource(
+                  workspace.workspaceId,
+                  serverPath,
+                  undefined,
+                  newObj,
+                  resourceFilePath,
                 );
                 continue;
               }
