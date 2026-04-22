@@ -407,6 +407,7 @@ struct OtelSetting {
     otel_exporter_otlp_protocol: Option<String>,
     #[serde(default, deserialize_with = "empty_as_none")]
     otel_exporter_otlp_compression: Option<String>,
+    stderr_default_severity: Option<windmill_common::StderrLogSeverity>,
 }
 
 pub async fn load_otel(db: &DB) {
@@ -434,6 +435,9 @@ pub async fn load_otel(db: &DB) {
                 OTEL_METRICS_ENABLED.store(metrics_enabled, Ordering::Relaxed);
                 OTEL_LOGS_ENABLED.store(logs_enabled, Ordering::Relaxed);
                 OTEL_TRACING_ENABLED.store(tracing_enabled, Ordering::Relaxed);
+
+                windmill_common::STDERR_LOG_SEVERITY
+                    .store(Arc::new(o.stderr_default_severity.unwrap_or_default()));
 
                 let endpoint = if let Some(endpoint) = o.otel_exporter_otlp_endpoint {
                     unsafe {

@@ -199,6 +199,14 @@ lazy_static::lazy_static! {
     pub static ref OTEL_TRACING_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_TRACING").is_ok());
     pub static ref OTEL_LOGS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_LOGS").is_ok());
 
+    /// Severity at which job stderr output is emitted to the tracing bridge.
+    /// Defaults to `Error`; operators can lower it via the `otel` instance
+    /// setting when their scripts write routine warnings/info to stderr
+    /// (Python `logging` is the common offender) and flood observability
+    /// backends with false-positive errors.
+    pub static ref STDERR_LOG_SEVERITY: arc_swap::ArcSwap<StderrLogSeverity> =
+        arc_swap::ArcSwap::from_pointee(StderrLogSeverity::Error);
+
 
     pub static ref METRICS_DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -383,6 +391,21 @@ async fn metrics() -> Result<String, Error> {
 #[cfg(feature = "prometheus")]
 async fn reset() -> () {
     todo!()
+}
+
+/// Severity level at which job stderr output is emitted.
+///
+/// Serialized lowercase (`"error"`, `"warn"`, `"info"`, `"debug"`) for the
+/// `otel.stderr_default_severity` instance setting.
+#[derive(Deserialize, Serialize, Copy, Clone, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum StderrLogSeverity {
+    #[default]
+    Error,
+    Warn,
+    Info,
+    Debug,
 }
 
 #[derive(Serialize, Debug)]
