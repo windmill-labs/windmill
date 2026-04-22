@@ -18,8 +18,7 @@ use std::time::Duration;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::ai_cache::current_instance_ai_config_revision;
 use windmill_common::ai_providers::{
-    anthropic_model_disallows_sampling_params, empty_string_as_none, AIPlatform, AIProvider,
-    ProviderConfig, ProviderModel,
+    empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
 use windmill_common::db::UserDB;
 use windmill_common::error::{to_anyhow, Error, Result};
@@ -404,12 +403,6 @@ impl AIRequestConfig {
             body
         };
 
-        let body = if matches!(provider, AIProvider::Anthropic) && method != Method::GET {
-            sanitize_anthropic_request_body(body)?
-        } else {
-            body
-        };
-
         let base_url = self.base_url.trim_end_matches('/');
 
         let is_azure = provider.is_azure_openai(base_url);
@@ -593,50 +586,6 @@ fn transform_anthropic_for_vertex(body: &Bytes) -> Result<(String, Bytes)> {
         .map_err(|e| Error::internal_err(format!("Failed to serialize Vertex request: {}", e)))?;
 
     Ok((model, Bytes::from(transformed_body)))
-}
-
-fn sanitize_anthropic_request_body(body: Bytes) -> Result<Bytes> {
-    let mut json_body: serde_json::Map<String, serde_json::Value> = serde_json::from_slice(&body)
-        .map_err(|e| {
-        Error::internal_err(format!("Failed to parse Anthropic request: {}", e))
-    })?;
-
-    let Some(model) = json_body
-        .get("model")
-        .and_then(|value| value.as_str())
-        .map(str::to_string)
-    else {
-        return Ok(body);
-    };
-
-    if !anthropic_model_disallows_sampling_params(&model) {
-        return Ok(body);
-    }
-
-    let removed_temperature = json_body.remove("temperature").is_some();
-    let removed_top_p = json_body.remove("top_p").is_some();
-    let removed_top_k = json_body.remove("top_k").is_some();
-
-    if !(removed_temperature || removed_top_p || removed_top_k) {
-        return Ok(body);
-    }
-
-    tracing::debug!(
-        model = %model,
-        removed_temperature,
-        removed_top_p,
-        removed_top_k,
-        "Removed deprecated Anthropic sampling parameters from proxy request"
-    );
-
-    let sanitized_body = serde_json::to_vec(&json_body).map_err(|e| {
-        Error::internal_err(format!(
-            "Failed to serialize sanitized Anthropic request: {}",
-            e
-        ))
-    })?;
-
-    Ok(Bytes::from(sanitized_body))
 }
 
 // FIM (Fill-in-the-Middle) simulation for providers that don't support native FIM
@@ -1223,46 +1172,5 @@ mod tests {
         bump_instance_ai_config_revision();
 
         assert!(cached.is_expired());
-    }
-
-    #[test]
-    fn sanitize_anthropic_request_body_strips_sampling_params_for_opus_4_7() {
-        let body = Bytes::from_static(
-            br#"{"model":"claude-opus-4-7","temperature":0,"top_p":0.9,"top_k":40,"messages":[]}"#,
-        );
-
-        let sanitized = sanitize_anthropic_request_body(body).expect("sanitizing body succeeds");
-        let json_body: serde_json::Value =
-            serde_json::from_slice(&sanitized).expect("sanitized body is valid json");
-
-        assert_eq!(json_body.get("temperature"), None);
-        assert_eq!(json_body.get("top_p"), None);
-        assert_eq!(json_body.get("top_k"), None);
-        assert_eq!(
-            json_body.get("model").and_then(|value| value.as_str()),
-            Some("claude-opus-4-7")
-        );
-    }
-
-    #[test]
-    fn sanitize_anthropic_request_body_keeps_sampling_params_for_other_models() {
-        let body = Bytes::from_static(
-            br#"{"model":"claude-sonnet-4-6","temperature":0,"top_p":0.9,"messages":[]}"#,
-        );
-
-        let sanitized = sanitize_anthropic_request_body(body).expect("sanitizing body succeeds");
-        let json_body: serde_json::Value =
-            serde_json::from_slice(&sanitized).expect("sanitized body is valid json");
-
-        assert_eq!(
-            json_body
-                .get("temperature")
-                .and_then(|value| value.as_f64()),
-            Some(0.0)
-        );
-        assert_eq!(
-            json_body.get("top_p").and_then(|value| value.as_f64()),
-            Some(0.9)
-        );
     }
 }
