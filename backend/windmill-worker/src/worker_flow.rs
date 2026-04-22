@@ -1990,6 +1990,20 @@ fn find_flow_job_index(flow_jobs: &Vec<Uuid>, job_id_for_status: &Uuid) -> Optio
     flow_jobs.iter().position(|x| x == job_id_for_status)
 }
 
+fn format_chat_message_value(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(_) | Value::Number(_) => value.to_string(),
+        Value::String(text) => text.clone(),
+        Value::Array(_) | Value::Object(_) => serde_json::to_string_pretty(value)
+            .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+    }
+}
+
+/// Selects the assistant message persisted for the final non-AI step in a chat-enabled flow.
+/// `windmill_chat_answer` is the explicit override contract:
+/// - `null` suppresses the assistant message
+/// - any other JSON value is rendered as the chat message
 fn extract_chat_message_from_flow_result(result: &RawValue) -> error::Result<Option<String>> {
     let value: Value = serde_json::from_str(result.get())
         .map_err(|e| Error::internal_err(format!("Failed to parse flow result: {e}")))?;
@@ -1998,7 +2012,7 @@ fn extract_chat_message_from_flow_result(result: &RawValue) -> error::Result<Opt
         Value::Object(map) => {
             match map.get("windmill_chat_answer") {
                 Some(Value::Null) => return Ok(None),
-                Some(Value::String(answer)) => return Ok(Some(answer.clone())),
+                Some(answer) => return Ok(Some(format_chat_message_value(answer))),
                 _ => {}
             }
 
@@ -5623,5 +5637,40 @@ mod tests {
         let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
 
         assert_eq!(message, None);
+    }
+
+    #[test]
+    fn coerces_scalar_windmill_chat_answer_to_a_string() {
+        let result = to_raw_value(&json!({
+            "windmill_chat_answer": 42,
+            "output": "ignored output",
+            "metadata": { "foo": "bar" }
+        }))
+        .unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(message, Some("42".to_string()));
+    }
+
+    #[test]
+    fn pretty_prints_structured_windmill_chat_answer_only() {
+        let override_value = json!({
+            "text": "chat-visible answer",
+            "meta": ["a", "b"]
+        });
+        let result = to_raw_value(&json!({
+            "windmill_chat_answer": override_value,
+            "output": "ignored output",
+            "metadata": { "foo": "bar" }
+        }))
+        .unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(
+            message,
+            Some(serde_json::to_string_pretty(&override_value).unwrap())
+        );
     }
 }
