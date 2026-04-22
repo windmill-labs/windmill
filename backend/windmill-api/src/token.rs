@@ -66,7 +66,7 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
             true,
         ),
         (
-            "flow_conversation",
+            "flow_conversations",
             "Flow Conversations",
             "Flow conversation management",
             false,

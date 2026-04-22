@@ -241,7 +241,7 @@ pub enum ScopeDomain {
     Jobs,
     Scripts,
     Flows,
-    FlowConversation,
+    FlowConversations,
     Apps,
     Variables,
     Resources,
@@ -301,7 +301,7 @@ impl ScopeDomain {
             Self::Jobs => "jobs",
             Self::Scripts => "scripts",
             Self::Flows => "flows",
-            Self::FlowConversation => "flow_conversation",
+            Self::FlowConversations => "flow_conversations",
             Self::Apps => "apps",
             Self::Variables => "variables",
             Self::Resources => "resources",
@@ -350,7 +350,7 @@ impl ScopeDomain {
             "jobs" | "jobs_u" => Some(Self::Jobs),
             "scripts" => Some(Self::Scripts),
             "flows" => Some(Self::Flows),
-            "flow_conversation" | "flow_conversations" => Some(Self::FlowConversation),
+            "flow_conversations" => Some(Self::FlowConversations),
             "apps" | "apps_u" => Some(Self::Apps),
             "variables" => Some(Self::Variables),
             "resources" => Some(Self::Resources),
@@ -770,7 +770,7 @@ mod tests {
 
         let (domain, kind, route_suffix) =
             extract_domain_from_route("/api/w/test_workspace/flow_conversations/list").unwrap();
-        assert_eq!(domain, ScopeDomain::FlowConversation);
+        assert_eq!(domain, ScopeDomain::FlowConversations);
         assert_eq!(kind, None);
         assert_eq!(route_suffix, Some("flow_conversations/list".to_string()));
     }
@@ -798,24 +798,23 @@ mod tests {
             Some(ScopeDomain::AgentWorkers)
         );
         assert_eq!(
-            ScopeDomain::from_str("flow_conversation"),
-            Some(ScopeDomain::FlowConversation)
-        );
-        assert_eq!(
             ScopeDomain::from_str("flow_conversations"),
-            Some(ScopeDomain::FlowConversation)
+            Some(ScopeDomain::FlowConversations)
         );
 
-        // Test that string conversion works both ways
+        // Test canonical string conversion
         assert_eq!(ScopeDomain::Acls.as_str(), "acls");
         assert_eq!(ScopeDomain::RawApps.as_str(), "raw_apps");
         assert_eq!(ScopeDomain::AgentWorkers.as_str(), "agent_workers");
-        assert_eq!(ScopeDomain::FlowConversation.as_str(), "flow_conversation");
+        assert_eq!(
+            ScopeDomain::FlowConversations.as_str(),
+            "flow_conversations"
+        );
     }
 
     #[test]
-    fn test_flow_conversation_scope_access() {
-        let read_scopes = vec!["flow_conversation:read".to_string()];
+    fn test_flow_conversations_scope_access() {
+        let read_scopes = vec!["flow_conversations:read".to_string()];
         assert!(check_route_access(
             &read_scopes,
             "/api/w/test_workspace/flow_conversations/list",
@@ -835,7 +834,7 @@ mod tests {
         )
         .is_err());
 
-        let write_scopes = vec!["flow_conversation:write".to_string()];
+        let write_scopes = vec!["flow_conversations:write".to_string()];
         assert!(check_route_access(
             &write_scopes,
             "/api/w/test_workspace/flow_conversations/delete/123",
