@@ -1990,6 +1990,35 @@ fn find_flow_job_index(flow_jobs: &Vec<Uuid>, job_id_for_status: &Uuid) -> Optio
     flow_jobs.iter().position(|x| x == job_id_for_status)
 }
 
+fn extract_chat_message_from_flow_result(result: &RawValue) -> error::Result<Option<String>> {
+    let value: Value = serde_json::from_str(result.get())
+        .map_err(|e| Error::internal_err(format!("Failed to parse flow result: {e}")))?;
+
+    match value {
+        Value::Object(mut map) => {
+            match map.get("windmill_chat_answer") {
+                Some(Value::Null) => return Ok(None),
+                Some(Value::String(answer)) => return Ok(Some(answer.clone())),
+                _ => {}
+            }
+
+            if let Some(Value::String(output)) = map.remove("output") {
+                return Ok(Some(output));
+            }
+
+            Ok(Some(
+                serde_json::to_string_pretty(&Value::Object(map))
+                    .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+            ))
+        }
+        Value::String(content) => Ok(Some(content)),
+        value => Ok(Some(
+            serde_json::to_string_pretty(&value)
+                .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+        )),
+    }
+}
+
 async fn add_tool_message_to_conversation(
     db: &DB,
     job_id: &Uuid,
@@ -2007,28 +2036,8 @@ async fn add_tool_message_to_conversation(
         if let Some(conversation_id) = conversation_id {
             // Only create assistant message if last module is NOT an AI agent, or there was an error
             if !is_ai_agent_step || success == false {
-                let value = serde_json::to_value(result.get())
-                    .map_err(|e| Error::internal_err(format!("Failed to serialize result: {e}")))?;
-
-                let content = match value {
-                    // If it's an Object with "output" key AND the output is a String, return it
-                    serde_json::Value::Object(mut map)
-                        if map.contains_key("output")
-                            && matches!(map.get("output"), Some(serde_json::Value::String(_))) =>
-                    {
-                        if let Some(serde_json::Value::String(s)) = map.remove("output") {
-                            s
-                        } else {
-                            // prettify the whole result
-                            serde_json::to_string_pretty(&map)
-                                .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
-                        }
-                    }
-                    // Otherwise, if the whole value is a String, return it
-                    serde_json::Value::String(s) => s,
-                    // Otherwise, prettify the whole result
-                    v => serde_json::to_string_pretty(&v)
-                        .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+                let Some(content) = extract_chat_message_from_flow_result(result.as_ref())? else {
+                    return Ok(());
                 };
 
                 // Insert new assistant message
@@ -5572,5 +5581,51 @@ pub async fn get_previous_job_result(
             .0,
         )),
         _ => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_chat_message_from_flow_result;
+    use serde_json::{json, value::to_raw_value};
+
+    #[test]
+    fn preserves_existing_output_extraction_when_no_override_is_present() {
+        let result = to_raw_value(&json!({
+            "output": "final answer",
+            "metadata": { "foo": "bar" }
+        }))
+        .unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(message, Some("final answer".to_string()));
+    }
+
+    #[test]
+    fn uses_windmill_chat_answer_when_it_is_a_string() {
+        let result = to_raw_value(&json!({
+            "windmill_chat_answer": "chat-visible answer",
+            "output": "ignored output",
+            "metadata": { "foo": "bar" }
+        }))
+        .unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(message, Some("chat-visible answer".to_string()));
+    }
+
+    #[test]
+    fn skips_persisting_when_windmill_chat_answer_is_null() {
+        let result = to_raw_value(&json!({
+            "windmill_chat_answer": null,
+            "output": "should not be stored"
+        }))
+        .unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(message, None);
     }
 }
