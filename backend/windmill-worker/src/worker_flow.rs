@@ -405,6 +405,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         chat_input_enabled: bool,
         conversation_id: Option<Uuid>,
         is_ai_agent_step: bool,
+        store_output_in_conversation: bool,
     }
     let (
         should_continue_flow,
@@ -1613,6 +1614,16 @@ pub async fn update_flow_status_after_job_completion_internal(
             chat_input_enabled: old_status.chat_input_enabled.unwrap_or(false),
             conversation_id: old_status.memory_id,
             is_ai_agent_step: current_module.is_some_and(|m| m.is_ai_agent()),
+            store_output_in_conversation: if let Some(module) = current_module {
+                match module.get_value()? {
+                    FlowModuleValue::AIAgent { store_output_in_conversation, .. } => {
+                        store_output_in_conversation
+                    }
+                    _ => true,
+                }
+            } else {
+                true
+            },
         };
         (
             should_continue_flow,
@@ -1843,6 +1854,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 success,
                 skipped,
                 chat_ai_info.is_ai_agent_step,
+                chat_ai_info.store_output_in_conversation,
                 &nresult,
                 chat_ai_info.chat_input_enabled,
                 chat_ai_info.conversation_id,
@@ -1996,10 +2008,15 @@ async fn add_tool_message_to_conversation(
     success: bool,
     skipped: bool,
     is_ai_agent_step: bool,
+    store_output_in_conversation: bool,
     result: &Box<RawValue>,
     chat_input_enabled: bool,
     conversation_id: Option<Uuid>,
 ) -> error::Result<()> {
+    if is_ai_agent_step && !store_output_in_conversation {
+        return Ok(());
+    }
+
     // Create assistant message if it's a flow and it's done, but only if last module is not an AI agent
     if !skipped && chat_input_enabled {
         // Get conversation_id from flow_status.memory_id

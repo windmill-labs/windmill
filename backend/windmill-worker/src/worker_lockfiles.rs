@@ -1184,7 +1184,11 @@ async fn lock_modules<'c>(
                     .execute(&mut *tx)
                     .await?;
                 }
-                FlowModuleValue::AIAgent { input_transforms, mut tools } => {
+                FlowModuleValue::AIAgent {
+                    input_transforms,
+                    mut tools,
+                    store_output_in_conversation,
+                } => {
                     // Extract FlowModules from tools and track their original indices
                     // MCP tools don't need locking, so we filter them out
                     let mut flow_modules = Vec::new();
@@ -1232,7 +1236,12 @@ async fn lock_modules<'c>(
                         tools[idx] = locked.into();
                     }
 
-                    e.value = FlowModuleValue::AIAgent { input_transforms, tools }.into();
+                    e.value = FlowModuleValue::AIAgent {
+                        input_transforms,
+                        tools,
+                        store_output_in_conversation,
+                    }
+                    .into();
                 }
                 _ => (),
             };
