@@ -131,9 +131,53 @@ export async function generateHashFromBuffer(
   return Buffer.from(hashBuffer).toString("hex");
 }
 
+function decodeBufferAsUtf8(buf: Buffer, path: string | URL): string {
+  if (buf.length >= 2) {
+    if (buf[0] === 0xff && buf[1] === 0xfe) {
+      if (buf.length >= 4 && buf[2] === 0x00 && buf[3] === 0x00) {
+        throw new Error(
+          `File ${path} is encoded as UTF-32 LE, which is not supported. Please convert it to UTF-8.`
+        );
+      }
+      throw new Error(
+        `File ${path} is encoded as UTF-16 LE, which is not supported. Please convert it to UTF-8.`
+      );
+    }
+    if (buf[0] === 0xfe && buf[1] === 0xff) {
+      throw new Error(
+        `File ${path} is encoded as UTF-16 BE, which is not supported. Please convert it to UTF-8.`
+      );
+    }
+    if (buf.length >= 4 && buf[0] === 0x00 && buf[1] === 0x00 && buf[2] === 0xfe && buf[3] === 0xff) {
+      throw new Error(
+        `File ${path} is encoded as UTF-32 BE, which is not supported. Please convert it to UTF-8.`
+      );
+    }
+  }
+  if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+    return buf.subarray(3).toString("utf-8");
+  }
+  return buf.toString("utf-8");
+}
+
+export function stripBom(content: string): string {
+  if (content.charCodeAt(0) === 0xfeff) {
+    return content.slice(1);
+  }
+  return content;
+}
+
+export async function readTextFile(path: string | URL): Promise<string> {
+  return decodeBufferAsUtf8(await readFile(path), path);
+}
+
+export function readTextFileSync(path: string | URL): string {
+  return decodeBufferAsUtf8(readFileSync(path), path);
+}
+
 export function readInlinePathSync(path: string): string {
   try {
-    return readFileSync(path.replaceAll("/", SEP), "utf-8");
+    return readTextFileSync(path.replaceAll("/", SEP));
   } catch (error) {
     log.warn(`Error reading inline path: ${path}, ${error}`);
     return "";
@@ -253,7 +297,7 @@ export async function getIsWin(): Promise<boolean> {
  */
 export function writeIfChanged(path: string, content: string): boolean {
   try {
-    const existing = readFileSync(path, "utf-8");
+    const existing = readTextFileSync(path);
     if (existing === content) {
       return false; // Content unchanged, skip write
     }

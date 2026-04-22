@@ -1,6 +1,6 @@
 import { parse as yamlParse } from "yaml";
 import type { ParseOptions, DocumentOptions, SchemaOptions, ToJSOptions, ScalarTag } from "yaml";
-import { readFile } from "node:fs/promises";
+import { readTextFile } from "./utils.ts";
 
 // Custom YAML tags that resolve `!inline value` and `!inline_fileset value`
 // back to their string-prefix form ("!inline value").
@@ -26,7 +26,7 @@ type YamlParseOptions = ParseOptions & DocumentOptions & SchemaOptions & ToJSOpt
 
 export async function yamlParseFile(path: string, options: YamlParseOptions = {}) {
   try {
-    return yamlParse(await readFile(path, "utf-8"), {
+    return yamlParse(await readTextFile(path), {
       ...options,
       customTags: [...WINDMILL_CUSTOM_TAGS, ...((options.customTags as ScalarTag[] | undefined) ?? [])],
     });

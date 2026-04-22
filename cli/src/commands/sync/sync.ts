@@ -1,6 +1,6 @@
 import { requireLogin } from "../../core/auth.ts";
 import { fetchVersion, resolveWorkspace } from "../../core/context.ts";
-import { readFile, writeFile, readdir, stat, rm, copyFile, mkdir } from "node:fs/promises";
+import { writeFile, readdir, stat, rm, copyFile, mkdir } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
@@ -42,6 +42,7 @@ import {
   isFilesetResource,
   isRawAppFile,
   isWorkspaceDependencies,
+  readTextFile,
 } from "../../utils/utils.ts";
 import {
   getEffectiveSettings,
@@ -325,7 +326,7 @@ export async function FSFSElement(
         }
       },
       async getContentText(): Promise<string> {
-        const content = await readFile(localP, "utf-8");
+        const content = await readTextFile(localP);
         const itemPath = localP.substring(p.length + 1);
         const r = await addCodebaseDigestIfRelevant(
           itemPath,
@@ -2331,7 +2332,7 @@ export async function pull(
       if (change.name === "edited") {
         if (opts.stateful) {
           try {
-            const currentLocal = await readFile(target, "utf-8");
+            const currentLocal = await readTextFile(target);
             if (
               currentLocal !== change.before &&
               currentLocal !== change.after
@@ -3307,7 +3308,7 @@ export async function push(
 
                   const newObj = parseFromPath(
                     resourceFilePath,
-                    await readFile(resourceFilePath, "utf-8"),
+                    await readTextFile(resourceFilePath),
                   );
 
                   // For branch-specific resources, push to the base path on the workspace server
@@ -3342,7 +3343,7 @@ export async function push(
 
                   const newObj = parseFromPath(
                     resourceFilePath,
-                    await readFile(resourceFilePath, "utf-8"),
+                    await readTextFile(resourceFilePath),
                   );
 
                   let serverPath = resourceFilePath;

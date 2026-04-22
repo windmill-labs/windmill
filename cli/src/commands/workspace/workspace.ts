@@ -1,4 +1,5 @@
-import { readFile, writeFile, open as fsOpen } from "node:fs/promises";
+import { writeFile, open as fsOpen } from "node:fs/promises";
+import { readTextFile } from "../../utils/utils.ts";
 import process from "node:process";
 import { GlobalOptions } from "../../types.ts";
 import {
@@ -31,7 +32,7 @@ export async function allWorkspaces(
 ): Promise<Workspace[]> {
   try {
     const file = await getWorkspaceConfigFilePath(configDirOverride);
-    const txt = await readFile(file, "utf-8");
+    const txt = await readTextFile(file);
     return txt
       .split("\n")
       .map((line) => {
@@ -55,7 +56,7 @@ async function getActiveWorkspaceName(
   }
   try {
     const file = await getActiveWorkspaceConfigFilePath(opts?.configDir);
-    return await readFile(file, "utf-8");
+    return await readTextFile(file);
   } catch {
     return undefined;
   }
