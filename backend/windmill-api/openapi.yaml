@@ -9391,7 +9391,7 @@ paths:
       summary: list flow conversations
       operationId: listFlowConversations
       tags:
-        - flow_conversation
+        - flow_conversations
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Page"
@@ -9416,7 +9416,7 @@ paths:
       summary: delete flow conversation
       operationId: deleteFlowConversation
       tags:
-        - flow_conversation
+        - flow_conversations
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: conversation_id
@@ -9439,7 +9439,7 @@ paths:
       summary: list conversation messages
       operationId: listConversationMessages
       tags:
-        - flow_conversation
+        - flow_conversations
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Page"
