@@ -53,7 +53,7 @@ use windmill_common::runnable_settings::{
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
-use windmill_common::worker::{to_raw_value, Connection};
+use windmill_common::worker::{error_to_value, to_raw_value, Connection};
 use windmill_common::{
     add_time, get_latest_flow_version_info_for_path, get_script_info_for_hash, FlowVersionInfo,
     ScriptHashInfo, DB,
@@ -3540,6 +3540,32 @@ async fn push_next_flow_job(
                 ));
             }
         }
+        NextFlowTransform::StepFailure { error } => {
+            let result = Arc::new(to_raw_value(&WrappedError { error }));
+            update_flow_status_after_job_completion(
+                db,
+                client,
+                flow_job.id,
+                &Uuid::nil(),
+                &flow_job.workspace_id,
+                false,
+                None,
+                result,
+                None,
+                false,
+                same_worker_tx,
+                worker_dir,
+                None,
+                worker_name,
+                job_completed_tx,
+                flow_runners,
+                killpill_rx,
+                #[cfg(feature = "benchmark")]
+                &mut BenchmarkIter::new(),
+            )
+            .await?;
+            return Ok(PushNextFlowJob::Done(None));
+        }
     };
 
     // only start runners if we're not already in a squash for loop
@@ -4396,6 +4422,10 @@ enum ContinuePayload {
 enum NextFlowTransform {
     EmptyInnerFlows { branch_chosen: Option<BranchChosen> },
     Continue(ContinuePayload, NextStatus),
+    // The current module failed in-place (e.g. a BranchOne predicate threw).
+    // The error is reported as the step's result so the normal flow machinery
+    // (including `failure_module` and surrounding `skip_failures`) applies.
+    StepFailure { error: serde_json::Value },
 }
 
 fn insert_iter_arg(
@@ -4793,6 +4823,7 @@ async fn compute_next_flow_transform(
                 | FlowStatusModule::WaitingForExecutor { .. } => {
                     let mut branch_chosen = BranchChosen::Default;
                     let idcontext = get_transform_context(&flow_job, previous_id, &status);
+                    let mut predicate_err: Option<Error> = None;
                     for (i, b) in branches.iter().enumerate() {
                         let pred_res = compute_bool_from_expr(
                             &b.expr,
@@ -4818,12 +4849,21 @@ async fn compute_next_flow_transform(
                             )
                             .await;
                         }
-                        let pred = pred_res?;
+                        let pred = match pred_res {
+                            Ok(p) => p,
+                            Err(e) => {
+                                predicate_err = Some(e);
+                                break;
+                            }
+                        };
 
                         if pred {
                             branch_chosen = BranchChosen::Branch { branch: i };
                             break;
                         }
+                    }
+                    if let Some(e) = predicate_err {
+                        return Ok(NextFlowTransform::StepFailure { error: error_to_value(&e) });
                     }
                     branch_chosen
                 }
