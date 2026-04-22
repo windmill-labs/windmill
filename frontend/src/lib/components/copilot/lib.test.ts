@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { getDefaultChatTemperature, modelDisallowsSamplingParams } from './modelConfig'
 
 describe('modelConfig', () => {
-	it('flags Opus 4.7 model IDs via normalized includes matching', () => {
+	it('flags Opus 4.7 model IDs via includes matching', () => {
 		expect(modelDisallowsSamplingParams('claude-opus-4-7')).toBe(true)
 		expect(modelDisallowsSamplingParams('claude-opus-4-7@20260416')).toBe(true)
 		expect(modelDisallowsSamplingParams('claude-opus-4-7/thinking')).toBe(true)

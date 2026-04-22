@@ -1,7 +1,7 @@
 import type { AIProviderModel } from '$lib/gen'
 
 export function modelDisallowsSamplingParams(model: string) {
-	const normalizedModel = model.toLowerCase().replace(/\/thinking$/, '')
+	const normalizedModel = model.toLowerCase()
 	return normalizedModel.includes('claude-opus-4-7')
 }
 
