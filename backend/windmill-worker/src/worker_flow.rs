@@ -1995,15 +1995,11 @@ fn extract_chat_message_from_flow_result(result: &RawValue) -> error::Result<Opt
         .map_err(|e| Error::internal_err(format!("Failed to parse flow result: {e}")))?;
 
     match value {
-        Value::Object(mut map) => {
+        Value::Object(map) => {
             match map.get("windmill_chat_answer") {
                 Some(Value::Null) => return Ok(None),
                 Some(Value::String(answer)) => return Ok(Some(answer.clone())),
                 _ => {}
-            }
-
-            if let Some(Value::String(output)) = map.remove("output") {
-                return Ok(Some(output));
             }
 
             Ok(Some(
@@ -5590,16 +5586,16 @@ mod tests {
     use serde_json::{json, value::to_raw_value};
 
     #[test]
-    fn preserves_existing_output_extraction_when_no_override_is_present() {
-        let result = to_raw_value(&json!({
+    fn pretty_prints_full_result_when_no_override_is_present() {
+        let value = json!({
             "output": "final answer",
             "metadata": { "foo": "bar" }
-        }))
-        .unwrap();
+        });
+        let result = to_raw_value(&value).unwrap();
 
         let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
 
-        assert_eq!(message, Some("final answer".to_string()));
+        assert_eq!(message, Some(serde_json::to_string_pretty(&value).unwrap()));
     }
 
     #[test]
