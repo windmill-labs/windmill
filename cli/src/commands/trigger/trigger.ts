@@ -1,4 +1,5 @@
-import { stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 
 import * as wmill from "../../../gen/services.gen.ts";
@@ -30,12 +31,13 @@ import {
   extractNativeTriggerInfo,
 } from "../../types.ts";
 import {
-  fromBranchSpecificPath,
-  isBranchSpecificFile,
+  fromWorkspaceSpecificPath,
+  isWorkspaceSpecificFile,
 } from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { validatePath, resolveWorkspace } from "../../core/context.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 
 type Trigger = {
   http: HttpTrigger;
@@ -148,7 +150,8 @@ export async function pushTrigger<K extends TriggerType>(
   workspace: string,
   path: string,
   trigger: TriggerFile<K> | Trigger[K] | undefined,
-  localTrigger: TriggerFile<K>
+  localTrigger: TriggerFile<K>,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<void> {
   path = removeType(path, triggerType + "_trigger").replaceAll(SEP, "/");
   log.debug(`Processing local ${triggerType} trigger ${path}`);
@@ -161,6 +164,20 @@ export async function pushTrigger<K extends TriggerType>(
     //ignore
   }
 
+  // Strip CLI-only boolean marker before sending to API
+  delete (localTrigger as any).has_permissioned_as;
+
+  const preserveFields: { permissioned_as?: string; preserve_permissioned_as?: boolean } = {};
+  if (permissionedAsContext?.userIsAdminOrDeployer) {
+    if (trigger) {
+      preserveFields.preserve_permissioned_as = true;
+      if ((trigger as any).permissioned_as) {
+        preserveFields.permissioned_as = (trigger as any).permissioned_as;
+        log.info(`Preserving ${(trigger as any).permissioned_as} as permissioned_as for trigger ${path}`);
+      }
+    }
+  }
+
   if (trigger) {
     if (isSuperset(localTrigger, trigger)) {
       log.debug(`${triggerType} trigger ${path} is up to date`);
@@ -170,6 +187,7 @@ export async function pushTrigger<K extends TriggerType>(
     try {
       await updateTrigger(triggerType, workspace, path, {
         ...localTrigger,
+        ...preserveFields,
         path,
       } as Trigger[K]);
     } catch (e) {
@@ -183,6 +201,7 @@ export async function pushTrigger<K extends TriggerType>(
     try {
       await createTrigger(triggerType, workspace, path, {
         ...localTrigger,
+        ...preserveFields,
         path,
       } as Trigger[K]);
     } catch (e) {
@@ -308,11 +327,20 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     http_method: "get",
     is_async: false,
     requires_auth: true,
+    request_type: "sync",
+    authentication_method: "none",
+    is_static_website: false,
+    workspaced_route: false,
+    wrap_body: false,
+    raw_string: false,
   },
   websocket: {
     script_path: "",
     is_flow: false,
     url: "",
+    filters: [],
+    can_return_message: false,
+    can_return_error_result: false,
     enabled: false,
   },
   kafka: {
@@ -321,6 +349,7 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     kafka_resource_path: "",
     group_id: "",
     topics: [],
+    filters: [],
     enabled: false,
   },
   nats: {
@@ -328,6 +357,7 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     is_flow: false,
     nats_resource_path: "",
     subjects: [],
+    use_jetstream: false,
     enabled: false,
   },
   postgres: {
@@ -342,28 +372,31 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     script_path: "",
     is_flow: false,
     mqtt_resource_path: "",
-    topics: [],
-    subscribe_qos: 0,
+    subscribe_topics: [],
     enabled: false,
   },
   sqs: {
     script_path: "",
     is_flow: false,
-    sqs_resource_path: "",
     queue_url: "",
+    aws_resource_path: "",
+    aws_auth_resource_type: "credentials",
     enabled: false,
   },
   gcp: {
     script_path: "",
     is_flow: false,
     gcp_resource_path: "",
-    subscription_id: "",
     topic_id: "",
+    subscription_id: "",
+    delivery_type: "pull",
+    subscription_mode: "create_update",
     enabled: false,
   },
   email: {
     script_path: "",
     is_flow: false,
+    local_part: "",
     enabled: false,
   },
 };
@@ -387,6 +420,7 @@ async function newTrigger(opts: GlobalOptions & { kind: string }, path: string) 
     if (e.message?.startsWith("File already exists")) throw e;
   }
   const template = triggerTemplates[kind];
+  await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, yamlStringify(template), {
     flag: "wx",
     encoding: "utf-8",
@@ -394,7 +428,29 @@ async function newTrigger(opts: GlobalOptions & { kind: string }, path: string) 
   log.info(colors.green(`Created ${filePath}`));
 }
 
+const TRIGGER_SKIP_FIELDS = new Set(["workspace_id", "extra_perms", "edited_by", "edited_at"]);
+
+function printTriggerDetails(trigger: any, kind: string) {
+  console.log(colors.bold("Path:") + " " + trigger.path);
+  console.log(colors.bold("Kind:") + " " + kind);
+  console.log(colors.bold("Enabled:") + " " + (trigger.enabled ?? trigger.mode ?? "-"));
+  console.log(colors.bold("Script Path:") + " " + (trigger.script_path ?? ""));
+  console.log(colors.bold("Is Flow:") + " " + (trigger.is_flow ? "true" : "false"));
+  // Show all other non-internal fields
+  for (const [key, value] of Object.entries(trigger)) {
+    if (["path", "enabled", "mode", "script_path", "is_flow"].includes(key)) continue;
+    if (TRIGGER_SKIP_FIELDS.has(key)) continue;
+    if (value === undefined || value === null || value === "") continue;
+    const display = Array.isArray(value) ? (value.length > 0 ? JSON.stringify(value) : "[]") :
+                    typeof value === "object" ? JSON.stringify(value) : String(value);
+    if (display === "[]" || display === "{}") continue;
+    const label = key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    console.log(colors.bold(label + ":") + " " + display);
+  }
+}
+
 async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -406,11 +462,7 @@ async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path
     if (opts.json) {
       console.log(JSON.stringify(trigger));
     } else {
-      console.log(colors.bold("Path:") + " " + (trigger as any).path);
-      console.log(colors.bold("Kind:") + " " + opts.kind);
-      console.log(colors.bold("Enabled:") + " " + ((trigger as any).enabled ?? "-"));
-      console.log(colors.bold("Script Path:") + " " + ((trigger as any).script_path ?? ""));
-      console.log(colors.bold("Is Flow:") + " " + ((trigger as any).is_flow ? "true" : "false"));
+      printTriggerDetails(trigger as any, opts.kind);
     }
     return;
   }
@@ -435,11 +487,7 @@ async function get(opts: GlobalOptions & { json?: boolean; kind?: string }, path
     if (opts.json) {
       console.log(JSON.stringify(trigger));
     } else {
-      console.log(colors.bold("Path:") + " " + trigger.path);
-      console.log(colors.bold("Kind:") + " " + kind);
-      console.log(colors.bold("Enabled:") + " " + (trigger.enabled ?? "-"));
-      console.log(colors.bold("Script Path:") + " " + (trigger.script_path ?? ""));
-      console.log(colors.bold("Is Flow:") + " " + (trigger.is_flow ? "true" : "false"));
+      printTriggerDetails(trigger, kind);
     }
     return;
   }
@@ -461,6 +509,7 @@ async function listOrEmpty<T>(fn: () => Promise<T[]>): Promise<T[]> {
 }
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -522,10 +571,10 @@ function extractTriggerKindFromPath(filePath: string): string | undefined {
   let pathToAnalyze = filePath;
 
   // If this is a branch-specific file, convert it to the base path first
-  if (isBranchSpecificFile(filePath)) {
+  if (isWorkspaceSpecificFile(filePath)) {
     const currentBranch = getCurrentGitBranch();
     if (currentBranch) {
-      pathToAnalyze = fromBranchSpecificPath(filePath, currentBranch);
+      pathToAnalyze = fromWorkspaceSpecificPath(filePath, currentBranch);
     }
   }
 
@@ -584,6 +633,43 @@ const command = new Command()
     "push a local trigger spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string>")
-  .action(push as any);
+  .action(push as any)
+  .command(
+    "set-permissioned-as",
+    "Set the email (run-as user) for a trigger (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .option(
+    "--kind <kind:string>",
+    "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)"
+  )
+  .action((async (opts: any, triggerPath: string, email: string) => {
+    const workspace = await resolveWorkspace(opts);
+    await requireLogin(opts);
+
+    if (!opts.kind) {
+      throw new Error("--kind is required. Valid kinds: " + TRIGGER_TYPES.join(", "));
+    }
+    if (!checkIfValidTrigger(opts.kind)) {
+      throw new Error("Invalid trigger kind: " + opts.kind + ". Valid kinds: " + TRIGGER_TYPES.join(", "));
+    }
+
+    const { lookupUsernameByEmail } = await import("../../core/permissioned_as.ts");
+    const cache = new Map<string, { username: string; email: string }>();
+    const username = await lookupUsernameByEmail(workspace.workspaceId, email, cache);
+
+    const remote = await getTrigger(opts.kind as TriggerType, workspace.workspaceId, triggerPath);
+    if (!remote) throw new Error(`${opts.kind} trigger ${triggerPath} not found`);
+
+    await updateTrigger(opts.kind, workspace.workspaceId, triggerPath, {
+      ...(remote as any),
+      permissioned_as: `u/${username}`,
+      preserve_permissioned_as: true,
+      path: triggerPath,
+    } as any);
+    log.info(colors.green(
+      `Updated permissioned_as for ${opts.kind} trigger ${triggerPath} to ${email} (username: ${username})`
+    ));
+  }) as any);
 
 export default command;

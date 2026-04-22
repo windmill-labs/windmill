@@ -8,8 +8,9 @@
  * - Cross-platform path constants
  */
 
-export * from "./inline-scripts.ts";
-export * from "./path-utils.ts";
-export * from "./parse.ts";
-export * from "./config.ts";
-export { SEP, DELIMITER } from "./constants.ts";
+export * from "./inline-scripts";
+export * from "./path-utils";
+export * from "./parse";
+export * from "./config";
+export * from "./deploy";
+export { SEP, DELIMITER } from "./constants";

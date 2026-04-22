@@ -1,6 +1,9 @@
 pub const CUSTOM_TAGS_SETTING: &str = "custom_tags";
 pub const DEFAULT_TAGS_PER_WORKSPACE_SETTING: &str = "default_tags_per_workspace";
 pub const DEFAULT_TAGS_WORKSPACES_SETTING: &str = "default_tags_workspaces";
+pub const FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING: &str =
+    "fork_workspace_tag_append_fork_suffix";
+pub const PREVIEW_TAGS_OVERRIDE_SETTING: &str = "preview_tags_override";
 pub const BASE_URL_SETTING: &str = "base_url";
 pub const WS_BASE_URL_SETTING: &str = "ws_base_url";
 pub const OAUTH_SETTING: &str = "oauths";
@@ -27,6 +30,7 @@ pub const EXTRA_PIP_INDEX_URL_SETTING: &str = "pip_extra_index_url";
 pub const PIP_INDEX_URL_SETTING: &str = "pip_index_url";
 pub const UV_INDEX_STRATEGY_SETTING: &str = "uv_index_strategy";
 pub const INSTANCE_PYTHON_VERSION_SETTING: &str = "instance_python_version";
+pub const RUFF_CONFIG_SETTING: &str = "ruff_config";
 pub const SCIM_TOKEN_SETTING: &str = "scim_token";
 pub const SAML_METADATA_SETTING: &str = "saml_metadata";
 pub const SMTP_SETTING: &str = "smtp_settings";
@@ -45,6 +49,7 @@ pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
 pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
+pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
 pub const HUB_ACCESSIBLE_URL_SETTING: &str = "hub_accessible_url";
 pub const DISABLE_HUB_SETTING: &str = "disable_hub";
@@ -58,11 +63,21 @@ pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
 pub const OTEL_TRACING_PROXY_SETTING: &str = "otel_tracing_proxy";
 pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
+pub const HTTP_ROUTE_WORKSPACED_ROUTE_SETTING: &str = "http_route_workspaced_route";
 pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
 pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
 pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
 pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
+pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
+pub const ALERT_CONFIG_SETTING: &str = "alert_job_queue_waiting";
+
+use std::sync::atomic::AtomicBool;
+
+lazy_static::lazy_static! {
+    pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
+    pub static ref DISABLE_PASSWORD_LOGIN: AtomicBool = AtomicBool::new(false);
+}
 
 pub const ENV_SETTINGS: &[&str] = &[
     "DISABLE_NSJAIL",
@@ -90,6 +105,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "BUNDLE_PATH",
     "GEM_PATH",
     "RUBY_CONCURRENT_DOWNLOADS",
+    "RSCRIPT_PATH",
     // for related places search: ADD_NEW_LANG
     "GOPRIVATE",
     "GOPROXY",

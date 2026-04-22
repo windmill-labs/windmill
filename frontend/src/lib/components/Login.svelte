@@ -21,6 +21,7 @@
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Button from './common/button/Button.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
+	import { isValidLogoutRedirect } from '$lib/logoutRedirect'
 
 	interface Props {
 		rd?: string | undefined
@@ -91,6 +92,7 @@
 	let logins: OAuthLogin[] | undefined = $state(undefined)
 	let saml: string | undefined = $state(undefined)
 	let smtpConfigured: boolean | undefined = $state(undefined)
+	let disablePasswordLogin = $state(false)
 
 	type OAuthLogin = {
 		type: string
@@ -134,7 +136,11 @@
 
 	async function redirectUser() {
 		if (rd?.startsWith('http')) {
-			window.location.href = rd
+			if (isValidLogoutRedirect(rd)) {
+				window.location.href = rd
+				return
+			}
+			goto('/')
 			return
 		}
 		if ($workspaceStore) {
@@ -183,21 +189,33 @@
 	}
 
 	async function loadLogins() {
-		try {
-			const allLogins = await OauthService.listOauthLogins()
-			logins = allLogins.oauth.map((login) => ({
+		const [loginsResult, disabledResult] = await Promise.allSettled([
+			OauthService.listOauthLogins(),
+			UserService.isPasswordLoginDisabled()
+		])
+
+		if (disabledResult.status === 'fulfilled') {
+			disablePasswordLogin = disabledResult.value ?? false
+		} else {
+			disablePasswordLogin = false
+			console.error('Could not load password login setting', disabledResult.reason)
+		}
+
+		if (loginsResult.status === 'fulfilled') {
+			logins = loginsResult.value.oauth.map((login) => ({
 				type: login.type,
 				displayName: login.display_name || login.type
 			}))
-			saml = allLogins.saml
-
-			showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
-		} catch (e) {
+			saml = loginsResult.value.saml
+		} else {
 			logins = []
 			saml = undefined
-			showPassword = true
-			console.error('Could not load logins', e)
+			console.error('Could not load logins', loginsResult.reason)
 		}
+
+		showPassword =
+			!disablePasswordLogin &&
+			((logins?.length === 0 && !saml) || (email != undefined && email.length > 0))
 	}
 
 	loadLogins()
@@ -359,7 +377,7 @@
 			</Button>
 		{/if}
 	</div>
-	{#if saml || (logins && logins.length > 0)}
+	{#if !disablePasswordLogin && (saml || (logins && logins.length > 0))}
 		<div class={classNames('center-center', logins && logins.length > 0 ? 'mt-6' : '')}>
 			<Button
 				size="xs"
@@ -373,7 +391,7 @@
 		</div>
 	{/if}
 
-	{#if showPassword}
+	{#if showPassword && !disablePasswordLogin}
 		<div>
 			{#if firstTime}
 				<p class="text-xs text-center w-full pb-4 text-secondary">

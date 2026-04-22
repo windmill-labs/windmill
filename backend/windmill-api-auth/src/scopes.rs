@@ -241,6 +241,7 @@ pub enum ScopeDomain {
     Jobs,
     Scripts,
     Flows,
+    FlowConversations,
     Apps,
     Variables,
     Resources,
@@ -300,6 +301,7 @@ impl ScopeDomain {
             Self::Jobs => "jobs",
             Self::Scripts => "scripts",
             Self::Flows => "flows",
+            Self::FlowConversations => "flow_conversations",
             Self::Apps => "apps",
             Self::Variables => "variables",
             Self::Resources => "resources",
@@ -348,6 +350,7 @@ impl ScopeDomain {
             "jobs" | "jobs_u" => Some(Self::Jobs),
             "scripts" => Some(Self::Scripts),
             "flows" => Some(Self::Flows),
+            "flow_conversations" => Some(Self::FlowConversations),
             "apps" | "apps_u" => Some(Self::Apps),
             "variables" => Some(Self::Variables),
             "resources" => Some(Self::Resources),
@@ -442,9 +445,22 @@ pub fn check_route_access(
     // Find the domain and kind for this route
     let (required_domain, required_kind, route_suffix) = extract_domain_from_route(route_path)?;
 
-    // Backward compatibility: MCP handlers expect unusual scope actions: all, favorites, hub.
+    // MCP scopes (mcp:all, mcp:favorites, mcp:hub:*, etc.) use a custom format
+    // that doesn't fit the standard domain:action model. Verify the token has at
+    // least one mcp: scope; MCP handlers do their own fine-grained checking.
     if required_domain == ScopeDomain::Mcp {
-        return Ok(());
+        let is_scoped_token = token_scopes
+            .iter()
+            .any(|s| !s.starts_with("if_jobs:filter_tags:"));
+        if !is_scoped_token {
+            return Ok(());
+        }
+        if token_scopes.iter().any(|s| s.starts_with("mcp:")) {
+            return Ok(());
+        }
+        return Err(Error::NotAuthorized(
+            "Access denied. Required scope: mcp:*".to_string(),
+        ));
     }
 
     // tracing::error!("Checking route access {:?} {:?} {:?} {:?}", required_action, required_domain, required_kind, route_suffix);
@@ -595,11 +611,12 @@ fn extract_domain_from_route(
     )))
 }
 
-const RUN_WHITELISTED_GET_PATHS: [&'static str; 19] = [
+const RUN_WHITELISTED_GET_PATHS: [&'static str; 20] = [
     "jobs_u/get_flow/",
     "jobs_u/get_root_job_id/",
     "jobs_u/get/",
     "jobs_u/get_logs/",
+    "jobs_u/get_flow_all_logs/",
     "jobs_u/get_args/",
     "jobs_u/get_flow_debug_info/",
     "jobs_u/completed/get/",
@@ -750,6 +767,12 @@ mod tests {
         assert_eq!(domain, ScopeDomain::Scripts);
         assert_eq!(kind, None);
         assert_eq!(route_suffix, Some("scripts/test_script".to_string()));
+
+        let (domain, kind, route_suffix) =
+            extract_domain_from_route("/api/w/test_workspace/flow_conversations/list").unwrap();
+        assert_eq!(domain, ScopeDomain::FlowConversations);
+        assert_eq!(kind, None);
+        assert_eq!(route_suffix, Some("flow_conversations/list".to_string()));
     }
 
     #[test]
@@ -774,11 +797,50 @@ mod tests {
             ScopeDomain::from_str("agent_workers"),
             Some(ScopeDomain::AgentWorkers)
         );
+        assert_eq!(
+            ScopeDomain::from_str("flow_conversations"),
+            Some(ScopeDomain::FlowConversations)
+        );
 
-        // Test that string conversion works both ways
+        // Test canonical string conversion
         assert_eq!(ScopeDomain::Acls.as_str(), "acls");
         assert_eq!(ScopeDomain::RawApps.as_str(), "raw_apps");
         assert_eq!(ScopeDomain::AgentWorkers.as_str(), "agent_workers");
+        assert_eq!(
+            ScopeDomain::FlowConversations.as_str(),
+            "flow_conversations"
+        );
+    }
+
+    #[test]
+    fn test_flow_conversations_scope_access() {
+        let read_scopes = vec!["flow_conversations:read".to_string()];
+        assert!(check_route_access(
+            &read_scopes,
+            "/api/w/test_workspace/flow_conversations/list",
+            "GET"
+        )
+        .is_ok());
+        assert!(check_route_access(
+            &read_scopes,
+            "/api/w/test_workspace/flow_conversations/123/messages",
+            "GET"
+        )
+        .is_ok());
+        assert!(check_route_access(
+            &read_scopes,
+            "/api/w/test_workspace/flow_conversations/delete/123",
+            "DELETE"
+        )
+        .is_err());
+
+        let write_scopes = vec!["flow_conversations:write".to_string()];
+        assert!(check_route_access(
+            &write_scopes,
+            "/api/w/test_workspace/flow_conversations/delete/123",
+            "DELETE"
+        )
+        .is_ok());
     }
 
     #[test]
@@ -930,5 +992,51 @@ mod tests {
         let required_broad =
             ScopeDefinition::new("scripts", "read", None, Some(vec!["u/*".to_string()]));
         assert!(scope_specific_path.includes(&required_broad));
+    }
+
+    #[test]
+    fn test_mcp_scope_bypass_blocked_without_mcp_scope() {
+        // A token with only jobs:read should NOT be able to access MCP endpoints
+        let scopes = vec!["jobs:read".to_string()];
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "GET").is_err());
+        assert!(
+            check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "POST").is_err()
+        );
+    }
+
+    #[test]
+    fn test_mcp_scope_allowed_with_mcp_scope() {
+        // A token with mcp:all should access MCP endpoints
+        let scopes = vec!["mcp:all".to_string()];
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "GET").is_ok());
+
+        // mcp:favorites should also work
+        let scopes = vec!["mcp:favorites".to_string()];
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "POST").is_ok());
+
+        // mcp:scripts:path should also work
+        let scopes = vec!["mcp:scripts:u/admin/script1".to_string()];
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "GET").is_ok());
+    }
+
+    #[test]
+    fn test_mcp_scope_filter_tags_only_treated_as_unrestricted() {
+        // Token with only filter_tags is not considered scoped — should be allowed
+        let scopes = vec!["if_jobs:filter_tags:tag1".to_string()];
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "GET").is_ok());
+    }
+
+    #[test]
+    fn test_mcp_scope_mixed_scopes_without_mcp() {
+        // Token with multiple non-MCP scopes should be denied
+        let scopes = vec!["jobs:read".to_string(), "scripts:write".to_string()];
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "GET").is_err());
+    }
+
+    #[test]
+    fn test_mcp_scope_mixed_scopes_with_mcp() {
+        // Token with MCP scope + other scopes should be allowed for MCP
+        let scopes = vec!["jobs:read".to_string(), "mcp:all".to_string()];
+        assert!(check_route_access(&scopes, "/api/w/test_workspace/mcp/something", "GET").is_ok());
     }
 }

@@ -35,7 +35,9 @@
                 "gcp",
                 "mqtt",
                 "nextcloud",
-                "google"
+                "google",
+                "ci_test",
+                "github"
               ]
             }
           }
@@ -69,7 +71,9 @@
                 "gcp",
                 "mqtt",
                 "nextcloud",
-                "google"
+                "google",
+                "ci_test",
+                "github"
               ]
             }
           }

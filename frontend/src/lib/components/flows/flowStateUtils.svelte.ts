@@ -9,6 +9,7 @@ import {
 	type Script
 } from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
+import { inferAssets } from '$lib/infer'
 import { userStore, workspaceStore } from '$lib/stores'
 import { getScriptByPath } from '$lib/scripts'
 import { get } from 'svelte/store'
@@ -84,6 +85,11 @@ export async function createInlineScriptModule(
 ): Promise<[FlowModule, FlowModuleState]> {
 	const code = initialCode(language, kind, subkind)
 
+	// Needed when the predefined code has assets in it
+	const inferResult = await inferAssets(language, code)
+	const assets =
+		inferResult.status === 'ok' && inferResult.assets.length > 0 ? inferResult.assets : undefined
+
 	const flowModule: FlowModule = {
 		id,
 		summary,
@@ -92,7 +98,8 @@ export async function createInlineScriptModule(
 			content: code,
 			language,
 			input_transforms: {},
-			...(kind === 'trigger' ? { is_trigger: true } : {})
+			...(kind === 'trigger' ? { is_trigger: true } : {}),
+			...(assets ? { assets } : {})
 		}
 	}
 

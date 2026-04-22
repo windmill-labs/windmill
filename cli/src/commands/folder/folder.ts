@@ -19,9 +19,11 @@ export interface FolderFile {
   display_name: string | undefined;
   owners: Array<string> | undefined;
   extra_perms: { [record: string]: boolean } | undefined;
+  default_permissioned_as?: Array<{ path_glob: string; permissioned_as: string }>;
 }
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -239,6 +241,76 @@ const command = new Command()
     "create default folder.meta.yaml for all subdirectories of f/ that are missing one"
   )
   .option("-y, --yes", "skip confirmation prompt")
-  .action(addMissing as any);
+  .action(addMissing as any)
+  .command(
+    "show-rules",
+    "Show default_permissioned_as rules for a folder. Use --test-path to see which rule matches a given item path."
+  )
+  .arguments("<name:string>")
+  .option("--test-path <path:string>", "Test which rule matches this item path (e.g. f/prod/jobs/my_script)")
+  .option("--json", "Output as JSON")
+  .action((async (opts: any, folderName: string) => {
+    const workspace = await resolveWorkspace(opts);
+    await requireLogin(opts);
+
+    const folder = await wmill.getFolder({
+      workspace: workspace.workspaceId,
+      name: folderName,
+    });
+
+    const rules = (folder as any).default_permissioned_as ?? [];
+
+    if (opts.json && !opts.testPath) {
+      console.log(JSON.stringify(rules, null, 2));
+      return;
+    }
+
+    if (rules.length === 0) {
+      log.info(`Folder '${folderName}' has no default_permissioned_as rules.`);
+      return;
+    }
+
+    if (!opts.testPath) {
+      log.info(colors.bold(`Rules for folder '${folderName}' (first match wins):\n`));
+      new Table()
+        .header(["#", "path_glob", "permissioned_as"])
+        .padding(2)
+        .border(true)
+        .body(rules.map((r: any, i: number) => [String(i + 1), r.path_glob, r.permissioned_as]))
+        .render();
+      return;
+    }
+
+    // Test a path against the rules
+    const testPath = opts.testPath as string;
+    const prefix = `f/${folderName}/`;
+    if (!testPath.startsWith(prefix)) {
+      log.error(`Path '${testPath}' is not under folder '${folderName}' (expected prefix '${prefix}')`);
+      return;
+    }
+    const relative = testPath.slice(prefix.length);
+
+    const { minimatch } = await import("minimatch");
+    for (let i = 0; i < rules.length; i++) {
+      const rule = rules[i];
+      if (minimatch(relative, rule.path_glob)) {
+        if (opts.json) {
+          console.log(JSON.stringify({ matched: true, rule_index: i, rule, relative_path: relative }));
+        } else {
+          log.info(colors.green(
+            `✓ Rule #${i + 1} matches: path_glob='${rule.path_glob}' → permissioned_as='${rule.permissioned_as}'`
+          ));
+          log.info(colors.gray(`  (relative path tested: '${relative}')`));
+        }
+        return;
+      }
+    }
+
+    if (opts.json) {
+      console.log(JSON.stringify({ matched: false, relative_path: relative }));
+    } else {
+      log.info(colors.yellow(`No rule matches path '${testPath}' (relative: '${relative}')`));
+    }
+  }) as any);
 
 export default command;

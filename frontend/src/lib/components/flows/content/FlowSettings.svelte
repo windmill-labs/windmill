@@ -20,6 +20,7 @@
 	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
 	import Badge from '$lib/components/Badge.svelte'
+	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import AIFormSettings from '$lib/components/copilot/AIFormSettings.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { inputBaseClass, inputBorderClass } from '$lib/components/text_input/TextInput.svelte'
@@ -124,6 +125,8 @@
 						}}
 					/>
 				</Label>
+				<!-- prettier-ignore -->
+				<LabelsInput bind:labels={(flowStore.val as any).labels} class="-mt-4" />
 
 				{#if !noEditor}
 					<Label label="Path">
@@ -586,6 +589,34 @@
 						{/if}
 					{/snippet}
 				</Toggle>
+
+				<Toggle
+					textClass="font-medium"
+					size="xs"
+					disabled={!$enterpriseLicense}
+					checked={flowStore.val.value.delete_after_secs != null}
+					on:change={() => {
+						if (flowStore.val.value.delete_after_secs != null) {
+							flowStore.val.value.delete_after_secs = undefined
+						} else {
+							flowStore.val.value.delete_after_secs = 0
+						}
+					}}
+					options={{
+						right: 'Delete all step results after completion',
+						rightTooltip: `When enabled, the logs, arguments and results of all flow steps will be deleted after the specified delay once the flow completes. Set to 0 for immediate deletion. The deletion is irreversible. ${!$enterpriseLicense ? 'This is a feature only available on enterprise edition.' : ''}`
+					}}
+					eeOnly={true}
+				/>
+				{#if flowStore.val.value.delete_after_secs != null}
+					<div class="ml-6 mt-1">
+						<SecondsInput
+							bind:seconds={flowStore.val.value.delete_after_secs}
+							disabled={!$enterpriseLicense}
+							size="sm"
+						/>
+					</div>
+				{/if}
 
 				<div>
 					<Toggle

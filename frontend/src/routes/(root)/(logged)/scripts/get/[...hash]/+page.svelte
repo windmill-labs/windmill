@@ -58,7 +58,7 @@
 		Loader2,
 		Pen,
 		ChevronUpSquare,
-		Share,
+		Shield,
 		Trash,
 		Play,
 		ClipboardCopy,
@@ -92,6 +92,10 @@
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
+	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import CiTestResults from '$lib/components/CiTestResults.svelte'
 
 	let script: Script | undefined = $state()
 	let topHash: string | undefined = $state()
@@ -112,6 +116,10 @@
 	let jsonView = $state(false)
 
 	let previousHash: string | undefined = $state(undefined)
+
+	let isWac = $derived(
+		script?.content && script?.language ? isWorkflowAsCode(script.content, script.language) : false
+	)
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 
@@ -495,8 +503,8 @@
 		})
 
 		menuItems.push({
-			label: 'Share',
-			Icon: Share,
+			label: 'Permissions',
+			Icon: Shield,
 			onclick: () => {
 				shareModal?.openDrawer(script?.path ?? '', 'script')
 			}
@@ -655,6 +663,7 @@
 				errorHandlerKind="script"
 				scriptOrFlowPath={script?.path ?? ''}
 				tag={script?.tag ?? ''}
+				labels={script?.labels}
 				on:seeTriggers={() => {
 					rightPaneSelected = 'triggers'
 				}}
@@ -665,7 +674,7 @@
 							if (newPath !== script?.path) {
 								await goto(`/scripts/get/${newPath}?workspace=${$workspaceStore}`)
 							} else {
-								loadScript(page.params.hash ?? '')
+								loadScript(newPath)
 							}
 						}
 					: undefined}
@@ -696,6 +705,14 @@
 							Workflow-as-Code
 						{/snippet}
 						<Badge small color="indigo" baseClass="border border-indigo-200">wac</Badge>
+					</Popover>
+				{/if}
+				{#if script?.auto_kind === 'test'}
+					<Popover notClickable>
+						{#snippet text()}
+							CI test script
+						{/snippet}
+						<Badge small color="yellow" baseClass="border">CI test</Badge>
 					</Popover>
 				{/if}
 				{#if script?.codebase}
@@ -733,150 +750,170 @@
 				<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showEditButtons = v)} />
 			</div>
 			{#if script}
-				<div class="p-8 w-full max-w-3xl mx-auto md:min-h-[300px] flex flex-col md:justify-center">
-					<div class="flex flex-col gap-0.5 mb-1">
-						{#if script.lock_error_logs || topHash || script.archived || script.deleted}
-							<div class="flex flex-col gap-2 my-2">
-								{#if script.lock_error_logs}
-									<Alert type="error" title="Deployment failed">
-										<p>
-											This script has not been deployed successfully because of the following
-											errors:
-										</p>
-										<LogViewer content={script.lock_error_logs} isLoading={false} tag={undefined} />
-									</Alert>
-								{/if}
-								{#if topHash}
-									<div class="mt-2"></div>
-									<Alert type="warning" title="Not HEAD">
-										This hash is not HEAD (latest non-archived version at this path) :
-										<a href="{base}/scripts/get/{topHash}?workspace={$workspaceStore}"
-											>Go to the HEAD of this path</a
+				<div class={twMerge('flex flex-col', isWac ? 'h-full divide-y' : '')}>
+					<div
+						class={twMerge(
+							'p-8 w-full max-w-3xl overflow-y-auto mx-auto flex flex-col relative',
+							isWac ? 'max-h-1/2' : ''
+						)}
+					>
+						{#if script?.path}
+							<CiTestResults path={script.path} kind="script" />
+						{/if}
+
+						<div class="flex flex-col gap-0.5 mb-1">
+							{#if script.lock_error_logs || topHash || script.archived || script.deleted}
+								<div class="flex flex-col gap-2 my-2">
+									{#if script.lock_error_logs}
+										<Alert type="error" title="Deployment failed">
+											<p>
+												This script has not been deployed successfully because of the following
+												errors:
+											</p>
+											<LogViewer
+												content={script.lock_error_logs}
+												isLoading={false}
+												tag={undefined}
+											/>
+										</Alert>
+									{/if}
+									{#if topHash}
+										<div class="mt-2"></div>
+										<Alert type="warning" title="Not HEAD">
+											This hash is not HEAD (latest non-archived version at this path) :
+											<a href="{base}/scripts/get/{topHash}?workspace={$workspaceStore}"
+												>Go to the HEAD of this path</a
+											>
+										</Alert>
+									{/if}
+									{#if script.archived && !topHash}
+										<Alert type="error" title="Archived">This path was archived</Alert>
+									{/if}
+									{#if script.deleted}
+										<Alert type="error" title="Deleted">
+											<p>The content of this script was deleted (by an admin, no less)</p>
+										</Alert>
+									{/if}
+								</div>
+							{/if}
+
+							{#if !emptyString(script.description)}
+								<div class="p-4 rounded-md bg-surface-secondary">
+									<GfmMarkdown
+										md={defaultIfEmptyString(script?.description, 'No description')}
+										noPadding
+									/>
+								</div>
+								<div class="h-4"></div>
+							{/if}
+						</div>
+
+						{#if deploymentInProgress}
+							<div class="pb-4" transition:slide={{ duration: 150 }}>
+								<Badge color="yellow">
+									<Loader2 size={12} class="inline animate-spin mr-1" />
+									Deployment in progress
+									{#if deploymentJobId}
+										<a
+											href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+											class="underline"
+											target="_blank">view job</a
 										>
-									</Alert>
-								{/if}
-								{#if script.archived && !topHash}
-									<Alert type="error" title="Archived">This path was archived</Alert>
-								{/if}
-								{#if script.deleted}
-									<Alert type="error" title="Deleted">
-										<p>The content of this script was deleted (by an admin, no less)</p>
-									</Alert>
-								{/if}
+									{/if}
+								</Badge>
 							</div>
 						{/if}
 
-						{#if !emptyString(script.description)}
-							<div class="p-4 rounded-md bg-surface-secondary">
-								<GfmMarkdown
-									md={defaultIfEmptyString(script?.description, 'No description')}
-									noPadding
+						<div class="flex flex-col align-left">
+							{#if (script.schema && Object.keys(script.schema.properties ?? {}).length > 0) || inputSelected}
+								{@const hasSchema =
+									script.schema && Object.keys(script.schema.properties ?? {}).length > 0}
+								<div
+									class="flex flex-row justify-between min-h-12"
+									transition:slide={{ duration: 150 }}
+								>
+									<InputSelectedBadge
+										onReject={() => {
+											savedInputsV2?.resetSelected()
+										}}
+										{inputSelected}
+									/>
+									{#if hasSchema}
+										<Toggle
+											bind:checked={jsonView}
+											size="xs"
+											options={{
+												right: 'JSON',
+												rightTooltip: 'Fill args from JSON'
+											}}
+											lightMode
+											on:change={(e) => {
+												runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+											}}
+										/>
+									{/if}
+								</div>
+							{/if}
+
+							{#if script?.schema?.prompt_for_ai !== undefined}
+								<AIFormAssistant
+									instructions={script.schema?.prompt_for_ai as string}
+									onEditInstructions={() => {
+										goto(`/scripts/edit/${script?.path}?metadata_open=true`)
+									}}
+									runnableType="script"
 								/>
-							</div>
-							<div class="h-4"></div>
-						{/if}
-					</div>
+							{/if}
 
-					{#if deploymentInProgress}
-						<div class="pb-4" transition:slide={{ duration: 150 }}>
-							<Badge color="yellow">
-								<Loader2 size={12} class="inline animate-spin mr-1" />
-								Deployment in progress
-								{#if deploymentJobId}
-									<a
-										href="/run/{deploymentJobId}?workspace={$workspaceStore}"
-										class="underline"
-										target="_blank">view job</a
-									>
+							<RunForm
+								bind:scheduledForStr
+								bind:invisible_to_owner
+								bind:overrideTag
+								viewKeybinding
+								loading={runLoading}
+								autofocus
+								detailed={false}
+								bind:isValid
+								runnable={script}
+								runAction={runScript}
+								bind:args
+								schedulable={true}
+								bind:this={runForm}
+								{jsonView}
+							/>
+						</div>
+
+						<div class="pt-4 flex flex-row gap-1 w-full justify-end items-center">
+							{#if !isHubScript}
+								<span class="text-2xs text-secondary">
+									Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by ||
+										'unknown'}
+								</span>
+							{/if}
+							<div class="flex flex-row gap-x-2 flex-wrap items-center">
+								{#if !isHubScript}
+									<Badge small color="gray">
+										{truncateHash(script?.hash ?? '')}
+									</Badge>
 								{/if}
-							</Badge>
+								{#if script?.is_template}
+									<Badge color="blue">Template</Badge>
+								{/if}
+								{#if script && script.kind !== 'script'}
+									<Badge color="blue">
+										{script?.kind}
+									</Badge>
+								{/if}
+
+								<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
+							</div>
+						</div>
+					</div>
+					{#if isWac && script.content}
+						<div class="grow min-h-0" style="min-height: 400px;">
+							<WacDiagram code={script.content} language={script.language ?? ''} />
 						</div>
 					{/if}
-
-					<div class="flex flex-col align-left">
-						{#if (script.schema && Object.keys(script.schema.properties ?? {}).length > 0) || inputSelected}
-							{@const hasSchema =
-								script.schema && Object.keys(script.schema.properties ?? {}).length > 0}
-							<div
-								class="flex flex-row justify-between min-h-12"
-								transition:slide={{ duration: 150 }}
-							>
-								<InputSelectedBadge
-									onReject={() => {
-										savedInputsV2?.resetSelected()
-									}}
-									{inputSelected}
-								/>
-								{#if hasSchema}
-									<Toggle
-										bind:checked={jsonView}
-										size="xs"
-										options={{
-											right: 'JSON',
-											rightTooltip: 'Fill args from JSON'
-										}}
-										lightMode
-										on:change={(e) => {
-											runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-										}}
-									/>
-								{/if}
-							</div>
-						{/if}
-
-						{#if script?.schema?.prompt_for_ai !== undefined}
-							<AIFormAssistant
-								instructions={script.schema?.prompt_for_ai as string}
-								onEditInstructions={() => {
-									goto(`/scripts/edit/${script?.path}?metadata_open=true`)
-								}}
-								runnableType="script"
-							/>
-						{/if}
-
-						<RunForm
-							bind:scheduledForStr
-							bind:invisible_to_owner
-							bind:overrideTag
-							viewKeybinding
-							loading={runLoading}
-							autofocus
-							detailed={false}
-							bind:isValid
-							runnable={script}
-							runAction={runScript}
-							bind:args
-							schedulable={true}
-							bind:this={runForm}
-							{jsonView}
-						/>
-					</div>
-
-					<div class="pt-4 flex flex-row gap-1 w-full justify-end items-center">
-						{#if !isHubScript}
-							<span class="text-2xs text-secondary">
-								Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by ||
-									'unknown'}
-							</span>
-						{/if}
-						<div class="flex flex-row gap-x-2 flex-wrap items-center">
-							{#if !isHubScript}
-								<Badge small color="gray">
-									{truncateHash(script?.hash ?? '')}
-								</Badge>
-							{/if}
-							{#if script?.is_template}
-								<Badge color="blue">Template</Badge>
-							{/if}
-							{#if script && script.kind !== 'script'}
-								<Badge color="blue">
-									{script?.kind}
-								</Badge>
-							{/if}
-
-							<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
-						</div>
-					</div>
 				</div>
 			{/if}
 		{/snippet}

@@ -231,6 +231,22 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "type": "string",
                         "description": "filter variables by path prefix"
                 },
+                "path": {
+                        "type": "string",
+                        "description": "exact path match filter"
+                },
+                "description": {
+                        "type": "string",
+                        "description": "pattern match filter for description field (case-insensitive)"
+                },
+                "value": {
+                        "type": "string",
+                        "description": "pattern match filter for non-secret variable values (case-insensitive)"
+                },
+                "broad_filter": {
+                        "type": "string",
+                        "description": "broad search across multiple fields (case-insensitive substring match)"
+                },
                 "page": {
                         "type": "integer",
                         "description": "which page to return (start at 1, default 1)"
@@ -415,6 +431,22 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "path_start": {
                         "type": "string",
                         "description": "filter resources by path prefix"
+                },
+                "path": {
+                        "type": "string",
+                        "description": "exact path match filter"
+                },
+                "description": {
+                        "type": "string",
+                        "description": "pattern match filter for description field (case-insensitive)"
+                },
+                "value": {
+                        "type": "string",
+                        "description": "JSONB subset match filter using base64 encoded JSON"
+                },
+                "broad_filter": {
+                        "type": "string",
+                        "description": "broad search across multiple fields (case-insensitive substring match)"
                 }
         },
         "required": []
@@ -461,7 +493,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "created_by": {
                         "type": "string",
-                        "description": "mask to filter exact matching user creator"
+                        "description": "filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')"
                 },
                 "path_start": {
                         "type": "string",
@@ -572,7 +604,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "required": [
                 "path",
                 "summary",
-                "description",
                 "content",
                 "language"
         ]
@@ -718,7 +749,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "created_by": {
                         "type": "string",
-                        "description": "mask to filter exact matching user creator"
+                        "description": "filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')"
                 },
                 "path_start": {
                         "type": "string",
@@ -1088,6 +1119,37 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "lock": {
                         "type": "string"
+                },
+                "flow_path": {
+                        "type": "string"
+                },
+                "modules": {
+                        "type": "object",
+                        "nullable": true,
+                        "description": "Additional script modules keyed by relative file path",
+                        "additionalProperties": {
+                                "type": "object",
+                                "description": "An additional module file associated with a script",
+                                "properties": {
+                                        "content": {
+                                                "type": "string",
+                                                "description": "The source code content of this module"
+                                        },
+                                        "language": {
+                                                "type": "string",
+                                                "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, duckdb, bunnative"
+                                        },
+                                        "lock": {
+                                                "type": "string",
+                                                "nullable": true,
+                                                "description": "Lock file content for this module's dependencies"
+                                        }
+                                },
+                                "required": [
+                                        "content",
+                                        "language"
+                                ]
+                        }
                 }
         },
         "required": [
@@ -1116,7 +1178,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "created_by": {
                         "type": "string",
-                        "description": "mask to filter exact matching user creator"
+                        "description": "filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')"
                 },
                 "parent_job": {
                         "type": "string",
@@ -1125,15 +1187,15 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "worker": {
                         "type": "string",
-                        "description": "worker this job was ran on"
+                        "description": "filter by worker this job ran on. Supports comma-separated list (e.g. 'worker-1,worker-2') and negation by prefixing all values with '!' (e.g. '!worker-1,!worker-2')"
                 },
                 "script_path_exact": {
                         "type": "string",
-                        "description": "mask to filter exact matching path"
+                        "description": "filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')"
                 },
                 "script_path_start": {
                         "type": "string",
-                        "description": "mask to filter matching starting path"
+                        "description": "filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')"
                 },
                 "schedule_path": {
                         "type": "string",
@@ -1141,11 +1203,11 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "trigger_path": {
                         "type": "string",
-                        "description": "mask to filter by trigger path"
+                        "description": "filter by trigger path. Supports comma-separated list (e.g. 'f/trigger1,f/trigger2') and negation by prefixing all values with '!' (e.g. '!f/trigger1,!f/trigger2')"
                 },
                 "trigger_kind": {
-                        "description": "trigger kind (schedule, http, websocket...). Possible values: webhook, default_email, email, schedule, http, websocket, postgres, kafka, nats, mqtt, sqs, gcp",
-                        "type": "string"
+                        "type": "string",
+                        "description": "filter by trigger kind. Supports comma-separated list (e.g. 'schedule,webhook') and negation by prefixing all values with '!' (e.g. '!schedule,!webhook')"
                 },
                 "script_hash": {
                         "type": "string",
@@ -1171,7 +1233,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "job_kinds": {
                         "type": "string",
-                        "description": "filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,"
+                        "description": "filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')"
                 },
                 "suspended": {
                         "type": "boolean",
@@ -1195,7 +1257,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "tag": {
                         "type": "string",
-                        "description": "filter on jobs with a given tag/worker group"
+                        "description": "filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')"
                 },
                 "page": {
                         "type": "integer",
@@ -1233,15 +1295,15 @@ export const mcpEndpointTools: EndpointTool[] = [
         "properties": {
                 "created_by": {
                         "type": "string",
-                        "description": "mask to filter exact matching user creator"
+                        "description": "filter by exact matching user creator. Supports comma-separated list (e.g. 'alice,bob') and negation by prefixing all values with '!' (e.g. '!alice,!bob')"
                 },
                 "label": {
                         "type": "string",
-                        "description": "mask to filter exact matching job's label (job labels are completed jobs with as a result an object containing a string in the array at key 'wm_labels')"
+                        "description": "filter by exact matching job label. Supports comma-separated list (e.g. 'deploy,release') and negation by prefixing all values with '!' (e.g. '!deploy,!release')"
                 },
                 "worker": {
                         "type": "string",
-                        "description": "worker this job was ran on"
+                        "description": "filter by worker this job ran on. Supports comma-separated list (e.g. 'worker-1,worker-2') and negation by prefixing all values with '!' (e.g. '!worker-1,!worker-2')"
                 },
                 "parent_job": {
                         "type": "string",
@@ -1250,11 +1312,11 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "script_path_exact": {
                         "type": "string",
-                        "description": "mask to filter exact matching path"
+                        "description": "filter by exact matching script path. Supports comma-separated list (e.g. 'f/script1,f/script2') and negation by prefixing all values with '!' (e.g. '!f/script1,!f/script2')"
                 },
                 "script_path_start": {
                         "type": "string",
-                        "description": "mask to filter matching starting path"
+                        "description": "filter by script path prefix. Supports comma-separated list (e.g. 'f/folder1,f/folder2') and negation by prefixing all values with '!' (e.g. '!f/folder1,!f/folder2')"
                 },
                 "schedule_path": {
                         "type": "string",
@@ -1314,7 +1376,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "job_kinds": {
                         "type": "string",
-                        "description": "filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,"
+                        "description": "filter by job kind. Supports comma-separated list of values ('preview', 'script', 'dependencies', 'flow') and negation by prefixing all values with '!' (e.g. '!preview,!dependencies')"
                 },
                 "suspended": {
                         "type": "boolean",
@@ -1326,7 +1388,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "tag": {
                         "type": "string",
-                        "description": "filter on jobs with a given tag/worker group"
+                        "description": "filter by tag/worker group. Supports comma-separated list (e.g. 'gpu,highmem') and negation by prefixing all values with '!' (e.g. '!gpu,!highmem')"
                 },
                 "result": {
                         "type": "string",
@@ -1341,8 +1403,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "description": "number of items to return for a given page (default 30, max 100)"
                 },
                 "trigger_kind": {
-                        "description": "trigger kind (schedule, http, websocket...). Possible values: webhook, default_email, email, schedule, http, websocket, postgres, kafka, nats, mqtt, sqs, gcp",
-                        "type": "string"
+                        "type": "string",
+                        "description": "filter by trigger kind. Supports comma-separated list (e.g. 'schedule,webhook') and negation by prefixing all values with '!' (e.g. '!schedule,!webhook')"
                 },
                 "is_skipped": {
                         "type": "boolean",
@@ -1367,6 +1429,77 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "is_not_schedule": {
                         "type": "boolean",
                         "description": "is not a scheduled job"
+                },
+                "broad_filter": {
+                        "type": "string",
+                        "description": "broad search across multiple fields (case-insensitive substring match on path, tag, schedule path, trigger kind, label)"
+                }
+        },
+        "required": []
+},
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "getJob",
+        description: "get job",
+        instructions: "",
+        path: "/w/{workspace}/jobs_u/get/{id}",
+        method: "GET",
+        pathParamsSchema: {
+        "type": "object",
+        "properties": {
+                "id": {
+                        "type": "string",
+                        "format": "uuid"
+                }
+        },
+        "required": [
+                "id"
+        ]
+},
+        queryParamsSchema: {
+        "type": "object",
+        "properties": {
+                "no_logs": {
+                        "type": "boolean"
+                },
+                "no_code": {
+                        "type": "boolean"
+                }
+        },
+        "required": []
+},
+        bodySchema: undefined,
+        pathFieldRenames: undefined,
+        queryFieldRenames: undefined,
+        bodyFieldRenames: undefined
+    },
+    {
+        name: "getJobLogs",
+        description: "get job logs",
+        instructions: "",
+        path: "/w/{workspace}/jobs_u/get_logs/{id}",
+        method: "GET",
+        pathParamsSchema: {
+        "type": "object",
+        "properties": {
+                "id": {
+                        "type": "string",
+                        "format": "uuid"
+                }
+        },
+        "required": [
+                "id"
+        ]
+},
+        queryParamsSchema: {
+        "type": "object",
+        "properties": {
+                "remove_ansi_warnings": {
+                        "type": "boolean"
                 }
         },
         "required": []
@@ -1418,14 +1551,17 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "on_failure": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Path to a script or flow to run when the scheduled job fails"
                 },
                 "on_failure_times": {
                         "type": "number",
+                        "nullable": true,
                         "description": "Number of consecutive failures before the on_failure handler is triggered (default 1)"
                 },
                 "on_failure_exact": {
                         "type": "boolean",
+                        "nullable": true,
                         "description": "If true, trigger on_failure handler only on exactly N failures, not on every failure after N"
                 },
                 "on_failure_extra_args": {
@@ -1435,10 +1571,12 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "on_recovery": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Path to a script or flow to run when the schedule recovers after failures"
                 },
                 "on_recovery_times": {
                         "type": "number",
+                        "nullable": true,
                         "description": "Number of consecutive successes before the on_recovery handler is triggered (default 1)"
                 },
                 "on_recovery_extra_args": {
@@ -1448,6 +1586,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "on_success": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Path to a script or flow to run after each successful execution"
                 },
                 "on_success_extra_args": {
@@ -1523,28 +1662,42 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "summary": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Short summary describing the purpose of this schedule"
                 },
                 "description": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Detailed description of what this schedule does"
                 },
                 "tag": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Worker tag to route jobs to specific worker groups"
                 },
                 "paused_until": {
                         "type": "string",
+                        "nullable": true,
                         "format": "date-time",
                         "description": "ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time"
                 },
                 "cron_version": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Cron parser version. Use 'v2' for extended syntax with additional features"
                 },
                 "dynamic_skip": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)"
+                },
+                "permissioned_as": {
+                        "type": "string",
+                        "description": "The user or group this schedule runs as. Used during deployment to preserve the original schedule owner."
+                },
+                "preserve_permissioned_as": {
+                        "type": "boolean",
+                        "description": "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
                 }
         },
         "required": [
@@ -1596,14 +1749,17 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "on_failure": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Path to a script or flow to run when the scheduled job fails"
                 },
                 "on_failure_times": {
                         "type": "number",
+                        "nullable": true,
                         "description": "Number of consecutive failures before the on_failure handler is triggered (default 1)"
                 },
                 "on_failure_exact": {
                         "type": "boolean",
+                        "nullable": true,
                         "description": "If true, trigger on_failure handler only on exactly N failures, not on every failure after N"
                 },
                 "on_failure_extra_args": {
@@ -1613,10 +1769,12 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "on_recovery": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Path to a script or flow to run when the schedule recovers after failures"
                 },
                 "on_recovery_times": {
                         "type": "number",
+                        "nullable": true,
                         "description": "Number of consecutive successes before the on_recovery handler is triggered (default 1)"
                 },
                 "on_recovery_extra_args": {
@@ -1626,6 +1784,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "on_success": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Path to a script or flow to run after each successful execution"
                 },
                 "on_success_extra_args": {
@@ -1701,28 +1860,44 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "summary": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Short summary describing the purpose of this schedule"
                 },
                 "description": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Detailed description of what this schedule does"
                 },
                 "tag": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Worker tag to route jobs to specific worker groups"
                 },
                 "paused_until": {
                         "type": "string",
+                        "nullable": true,
                         "format": "date-time",
                         "description": "ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time"
                 },
                 "cron_version": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Cron parser version. Use 'v2' for extended syntax with additional features"
                 },
                 "dynamic_skip": {
                         "type": "string",
+                        "nullable": true,
                         "description": "Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)"
+                },
+                "permissioned_as": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "The user or group this schedule runs as (e.g., 'u/admin' or 'g/mygroup'). Only admins and wm_deployers can set this via preserve_permissioned_as."
+                },
+                "preserve_permissioned_as": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "If true and user is admin/wm_deployers, preserve the provided permissioned_as instead of using the deploying user's identity"
                 }
         },
         "required": [
@@ -1805,7 +1980,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "path": {
                         "type": "string",
-                        "description": "filter by path"
+                        "description": "filter by path (script path)"
                 },
                 "is_flow": {
                         "type": "boolean",
@@ -1814,6 +1989,22 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "path_start": {
                         "type": "string",
                         "description": "filter schedules by path prefix"
+                },
+                "schedule_path": {
+                        "type": "string",
+                        "description": "exact match on the schedule's path"
+                },
+                "description": {
+                        "type": "string",
+                        "description": "pattern match filter for description field (case-insensitive)"
+                },
+                "summary": {
+                        "type": "string",
+                        "description": "pattern match filter for summary field (case-insensitive)"
+                },
+                "broad_filter": {
+                        "type": "string",
+                        "description": "broad search across multiple fields (case-insensitive substring match)"
                 }
         },
         "required": []

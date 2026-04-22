@@ -1,5 +1,7 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
+#[cfg(feature = "mcp")]
+use uuid::Uuid;
 
 use windmill_test_utils::*;
 
@@ -516,5 +518,184 @@ async fn test_mcp_tools(db: Pool<Postgres>) -> anyhow::Result<()> {
         "expected connection error, got: {body}"
     );
 
+    Ok(())
+}
+
+#[cfg(feature = "mcp")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_mcp_endpoint_tools_list(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/mcp/w/test-workspace/list_tools"
+    )))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200);
+
+    let tools: Vec<serde_json::Value> = resp.json().await?;
+
+    let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+
+    assert!(
+        tool_names.contains(&"getJob"),
+        "getJob not found in MCP endpoint tools: {tool_names:?}"
+    );
+    assert!(
+        tool_names.contains(&"getJobLogs"),
+        "getJobLogs not found in MCP endpoint tools: {tool_names:?}"
+    );
+
+    // Verify getJob has the expected path and method
+    let get_job_tool = tools.iter().find(|t| t["name"] == "getJob").unwrap();
+    assert_eq!(get_job_tool["path"], "/w/{workspace}/jobs_u/get/{id}");
+    assert_eq!(get_job_tool["method"], "GET");
+
+    // Verify getJobLogs has the expected path and method
+    let get_job_logs_tool = tools.iter().find(|t| t["name"] == "getJobLogs").unwrap();
+    assert_eq!(
+        get_job_logs_tool["path"],
+        "/w/{workspace}/jobs_u/get_logs/{id}"
+    );
+    assert_eq!(get_job_logs_tool["method"], "GET");
+
+    Ok(())
+}
+
+#[cfg(feature = "mcp")]
+async fn insert_completed_job_with_logs(db: &Pool<Postgres>) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, kind, tag, args)
+         VALUES ($1, 'test-workspace', 'test-user', 'u/test-user', 'script', 'deno', '{}'::jsonb)",
+    )
+    .bind(id)
+    .execute(db)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, result, status)
+         VALUES ($1, 'test-workspace', 100, '42'::jsonb, 'success')",
+    )
+    .bind(id)
+    .execute(db)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO job_logs (job_id, workspace_id, logs, log_offset)
+         VALUES ($1, 'test-workspace', 'hello world test log', 0)",
+    )
+    .bind(id)
+    .execute(db)
+    .await
+    .unwrap();
+
+    id
+}
+
+#[cfg(feature = "mcp")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_mcp_client_get_job_and_logs(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use rmcp::model::{
+        CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation,
+        InitializeRequestParams,
+    };
+    use rmcp::service::{RoleClient, RunningService};
+    use rmcp::transport::streamable_http_client::{
+        StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
+    };
+    use rmcp::ServiceExt;
+
+    initialize_tracing().await;
+    set_jwt_secret().await;
+    let server = ApiServer::start_mcp(db.clone()).await?;
+    let port = server.addr.port();
+
+    let job_id = insert_completed_job_with_logs(&db).await;
+
+    // Create a token with MCP scopes
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes)
+         VALUES (encode(sha256('MCP_TOKEN'::bytea), 'hex'), 'MCP_TOK', 'MCP_TOKEN', 'test@windmill.dev', 'mcp token', true, ARRAY['mcp:all'])",
+    )
+    .execute(&db)
+    .await?;
+
+    // Connect as MCP client
+    let config = StreamableHttpClientTransportConfig::with_uri(format!(
+        "http://localhost:{port}/api/mcp/w/test-workspace/mcp"
+    ))
+    .auth_header("MCP_TOKEN");
+    let transport = StreamableHttpClientTransport::from_config(config);
+
+    let client_info = ClientInfo {
+        protocol_version: Default::default(),
+        capabilities: ClientCapabilities::default(),
+        client_info: Implementation {
+            name: "test-client".to_string(),
+            title: None,
+            version: "0.0.1".to_string(),
+            description: None,
+            website_url: None,
+            icons: None,
+        },
+        meta: None,
+    };
+
+    let client: RunningService<RoleClient, InitializeRequestParams> =
+        client_info.serve(transport).await?;
+
+    // --- Test getJob ---
+    let result = client
+        .call_tool(CallToolRequestParams {
+            name: "getJob".into(),
+            arguments: Some(serde_json::from_value(json!({ "id": job_id.to_string() }))?),
+            task: None,
+            meta: None,
+        })
+        .await?;
+
+    let text = result
+        .content
+        .first()
+        .and_then(|c| c.raw.as_text())
+        .expect("getJob should return text content");
+    let job: serde_json::Value = serde_json::from_str(&text.text)?;
+    assert_eq!(job["id"], job_id.to_string());
+    assert_eq!(job["workspace_id"], "test-workspace");
+    assert_eq!(job["created_by"], "test-user");
+    assert_eq!(job["job_kind"], "script");
+    assert!(
+        job["success"].as_bool().unwrap_or(false),
+        "job should be successful: {job}"
+    );
+
+    // --- Test getJobLogs ---
+    let result = client
+        .call_tool(CallToolRequestParams {
+            name: "getJobLogs".into(),
+            arguments: Some(serde_json::from_value(json!({ "id": job_id.to_string() }))?),
+            task: None,
+            meta: None,
+        })
+        .await?;
+
+    let text = result
+        .content
+        .first()
+        .and_then(|c| c.raw.as_text())
+        .expect("getJobLogs should return text content");
+    // The logs endpoint returns text/plain, which gets wrapped as a JSON string by call_endpoint
+    let logs: String = serde_json::from_str(&text.text)?;
+    assert!(
+        logs.contains("hello world test log"),
+        "expected logs to contain test log, got: {logs}"
+    );
+
+    client.cancel().await?;
     Ok(())
 }

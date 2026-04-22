@@ -1,7 +1,6 @@
 #[cfg(feature = "enterprise")]
 use crate::ee_oss::ExternalJwks;
 use axum::{
-    async_trait,
     extract::{FromRequestParts, OriginalUri, Query},
     Extension, Json,
 };
@@ -451,7 +450,11 @@ pub(crate) async fn extract_token<S: Send + Sync>(parts: &mut Parts, state: &S) 
         None => Extension::<Cookies>::from_request_parts(parts, state)
             .await
             .ok()
-            .and_then(|cookies| cookies.get(COOKIE_NAME).map(|c| c.value().to_owned())),
+            .and_then(|cookies| {
+                cookies
+                    .get(COOKIE_NAME)
+                    .map(|c| c.value_trimmed().to_owned())
+            }),
     };
 
     #[derive(Deserialize)]
@@ -504,7 +507,6 @@ impl BruteForceCounter {
     }
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for Tokened
 where
     S: Send + Sync,
@@ -535,7 +537,6 @@ where
     }
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for OptTokened
 where
     S: Send + Sync,
@@ -685,6 +686,21 @@ pub async fn resolve_opt_job_authed(
 
                 Span::current().record("username", &authed.username.as_str());
                 Span::current().record("email", &authed.email);
+
+                // Mirror into the per-request LogContext so exported OTEL
+                // LogRecords carry the same identifiers (the log bridge
+                // doesn't walk span fields — see windmill_common::log_context).
+                let username_copy = authed.username.clone();
+                let email_copy = authed.email.clone();
+                let workspace_copy = workspace_id.clone();
+                windmill_common::log_context::update_log_context(move |c| {
+                    windmill_common::log_context::LogContext {
+                        username: Some(username_copy),
+                        email: Some(email_copy),
+                        workspace_id: workspace_copy.or_else(|| c.workspace_id.clone()),
+                        ..c.clone()
+                    }
+                });
 
                 if let Some(workspace_id) = workspace_id {
                     Span::current().record("workspace_id", &workspace_id);

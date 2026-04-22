@@ -13,6 +13,11 @@ import {
 	parseOpenAIResponsesCompletion
 } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
+import {
+	addChatTokenUsage,
+	emptyChatTokenUsage,
+	type ChatTokenUsage
+} from './tokenUsage'
 
 export interface ChatClients {
 	openai: OpenAI
@@ -49,6 +54,8 @@ export interface ChatLoopConfig {
 
 export interface ChatLoopResult {
 	addedMessages: ChatCompletionMessageParam[]
+	tokenUsage: ChatTokenUsage
+	hitMaxIterations: boolean
 }
 
 export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResult> {
@@ -66,10 +73,13 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 	let skipResponsesApi = config.skipResponsesApi ?? false
 
 	const addedMessages: ChatCompletionMessageParam[] = []
+	let tokenUsage = emptyChatTokenUsage()
 	let iterations = 0
+	let hitMaxIterations = false
 
 	while (true) {
 		if (maxIterations !== undefined && iterations >= maxIterations) {
+			hitMaxIterations = true
 			break
 		}
 		iterations++
@@ -122,7 +132,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						helpers,
 						parseOptions
 					)
-					if (!continueCompletion) {
+					tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+					if (!continueCompletion.shouldContinue) {
 						break
 					}
 				} catch (err) {
@@ -155,7 +166,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					undefined,
 					parseOptions
 				)
-				if (!continueCompletion) {
+				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				if (!continueCompletion.shouldContinue) {
 					break
 				}
 			}
@@ -180,7 +192,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					abortController,
 					parseOptions
 				)
-				if (!continueCompletion) {
+				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				if (!continueCompletion.shouldContinue) {
 					break
 				}
 			}
@@ -200,12 +213,13 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					undefined,
 					parseOptions
 				)
-				if (!continueCompletion) {
+				tokenUsage = addChatTokenUsage(tokenUsage, continueCompletion.tokenUsage)
+				if (!continueCompletion.shouldContinue) {
 					break
 				}
 			}
 		}
 	}
 
-	return { addedMessages }
+	return { addedMessages, tokenUsage, hitMaxIterations }
 }

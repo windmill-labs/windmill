@@ -329,11 +329,12 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
 
                     let mut tx = db.begin().await?;
                     let mut to_process = vec![];
-                    let mut modules_to_check = flow_data.flow.modules.iter().collect::<Vec<_>>();
-                    if let Some(failure_module) = flow_data.flow.failure_module.as_ref() {
+                    let flow_value = flow_data.value();
+                    let mut modules_to_check = flow_value.modules.iter().collect::<Vec<_>>();
+                    if let Some(failure_module) = flow_value.failure_module.as_ref() {
                         modules_to_check.push(failure_module.as_ref());
                     }
-                    if let Some(preprocessor_module) = flow_data.flow.preprocessor_module.as_ref() {
+                    if let Some(preprocessor_module) = flow_value.preprocessor_module.as_ref() {
                         modules_to_check.push(preprocessor_module.as_ref());
                     }
 
@@ -444,7 +445,28 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
         }
     }
 
-    /// Get dependents of any imported path - returns scripts/flows/apps that depend on it
+    /// Get imports of a given importer path - returns paths that the importer depends on
+    pub async fn get_imports<'c>(
+        importer_path: &str,
+        workspace_id: &str,
+        e: impl PgExecutor<'c>,
+    ) -> Result<Vec<String>> {
+        sqlx::query_scalar!(
+            r#"
+            SELECT DISTINCT imported_path as "imported_path!"
+            FROM dependency_map
+            WHERE workspace_id = $1
+                AND importer_path = $2
+                AND imported_path NOT LIKE 'dependencies/%'
+            "#,
+            workspace_id,
+            importer_path
+        )
+        .fetch_all(e)
+        .await
+        .map_err(Error::from)
+    }
+
     pub async fn get_dependents<'c>(
         imported_path: &str,
         workspace_id: &str,

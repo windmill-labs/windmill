@@ -8,9 +8,9 @@ use std::{
     sync::Arc,
 };
 use uuid::Uuid;
+use windmill_ai::ai_providers::AIProvider;
 use windmill_common::flows::FlowModuleValue;
 use windmill_common::{
-    ai_providers::AIProvider,
     db::DB,
     error::Error,
     flow_conversations::{add_message_to_conversation_tx, MessageType},
@@ -515,7 +515,7 @@ async fn refresh_token_if_expired(
     );
 
     // Call the API refresh endpoint
-    let base_url = windmill_common::BASE_URL.read().await.clone();
+    let base_url = (**windmill_common::BASE_URL.load()).clone();
     let refresh_url = format!(
         "{}/api/w/{}/oauth/refresh_token/{}",
         base_url, workspace_id, account_id

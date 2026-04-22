@@ -14,6 +14,7 @@ use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::time::Duration;
 
+#[allow(unused_imports)]
 use windmill_test_utils::*;
 
 /// Row shape for querying deployment callback jobs from v2_job_queue
@@ -27,6 +28,7 @@ struct DeploymentCallbackJob {
 }
 
 /// Poll for deployment callback jobs in the queue for a given script path
+#[allow(dead_code)]
 async fn get_deployment_callback_jobs(
     db: &Pool<Postgres>,
     script_path: &str,
@@ -63,6 +65,7 @@ async fn get_deployment_callback_jobs(
 }
 
 /// Configure git sync for the test workspace with workspace dependencies enabled
+#[allow(dead_code)]
 async fn setup_git_sync_config(db: &Pool<Postgres>, sync_script_path: &str) -> anyhow::Result<()> {
     let git_sync_config = json!({
         "include_type": ["workspacedependencies"],
@@ -87,6 +90,7 @@ async fn setup_git_sync_config(db: &Pool<Postgres>, sync_script_path: &str) -> a
 }
 
 /// Create a git repository resource for testing
+#[allow(dead_code)]
 async fn create_git_repo_resource(db: &Pool<Postgres>) -> anyhow::Result<()> {
     sqlx::query(
         r#"
@@ -107,6 +111,7 @@ async fn create_git_repo_resource(db: &Pool<Postgres>) -> anyhow::Result<()> {
 }
 
 /// Create a dummy sync script for testing (with version >= 28103 for debouncing support)
+#[allow(dead_code)]
 async fn create_sync_script(db: &Pool<Postgres>, path: &str) -> anyhow::Result<i64> {
     let hash: i64 = rand::random::<i64>().unsigned_abs() as i64;
     sqlx::query(
@@ -126,6 +131,7 @@ async fn create_sync_script(db: &Pool<Postgres>, path: &str) -> anyhow::Result<i
 }
 
 /// Create a folder for the versioned script path
+#[allow(dead_code)]
 async fn create_folder(db: &Pool<Postgres>, name: &str) -> anyhow::Result<()> {
     sqlx::query(
         r#"

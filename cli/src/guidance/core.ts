@@ -49,6 +49,19 @@ You MUST use the \`resources\` skill to manage resource types and credentials.
 
 You MUST use the \`cli-commands\` skill to use the CLI.
 
+## Debugging Jobs
+
+When the user reports a script or flow failure, is investigating unexpected output, or asks why something ran the way it did, use the CLI to fetch job details before speculating. See the \`cli-commands\` skill for all flags.
+
+- \`wmill job list --script-path <path>\` — recent runs of a specific script or flow
+- \`wmill job list --failed --limit 20\` — recent failures across the workspace
+- \`wmill job get <id>\` — status, timing, and (for flows) the step tree with sub-job IDs
+- \`wmill job logs <id>\` — stdout/stderr; for flows, aggregates every step's logs
+- \`wmill job result <id>\` — JSON result of a completed job
+- \`wmill job cancel <id>\` — stop a running or queued job
+
+For flow failures, start with \`wmill job get <id>\` to identify the failing step and its sub-job ID, then \`wmill job logs <sub-job-id>\` to drill in.
+
 ## Skills
 
 For specific guidance, ALWAYS use the skills listed below.

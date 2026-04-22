@@ -17,15 +17,16 @@
 		removeTriggerKindIfUnused
 	} from '$lib/utils'
 	import { base } from '$app/paths'
+	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp, Pause } from 'lucide-svelte'
+	import { Code, Eye, Pen, Plus, Shield, Trash, Circle, FileUp, Pause } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -122,6 +123,21 @@
 	})
 	let sqsTriggerEditor: SqsTriggerEditor | undefined = $state()
 
+	let hashHandled = false
+	$effect(() => {
+		if (!hashHandled && triggers.length > 0 && sqsTriggerEditor) {
+			let hash = $page.url.hash
+			if (hash.length > 1) {
+				let path = hash.slice(1)
+				let trigger = triggers.find((t) => t.path === path)
+				if (trigger) {
+					hashHandled = true
+					sqsTriggerEditor?.openEdit(path, trigger.is_flow)
+				}
+			}
+		}
+	})
+
 	let filteredItems: (TriggerD & { marked?: any })[] | undefined = $state([])
 	let items: typeof filteredItems | undefined = $state([])
 	let preFilteredItems: typeof filteredItems | undefined = $state([])
@@ -208,12 +224,14 @@
 		setQuery(
 			new URL(window.location.href),
 			TRIGGER_PATH_KIND_FILTER_SETTING,
-			selectedFilterKind
+			selectedFilterKind,
+			window.location.hash || undefined
 		).then(() => {
 			setQuery(
 				new URL(window.location.href),
 				FILTER_USER_FOLDER_SETTING_NAME,
-				String(filterUserFolders)
+				String(filterUserFolders),
+				window.location.hash || undefined
 			)
 		})
 	}
@@ -306,7 +324,7 @@
 			<div class="text-center text-sm text-primary mt-2"> No sqs triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, retry, error_handler_path, error_handler_args } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, retry, error_handler_path, error_handler_args, labels } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
@@ -335,6 +353,11 @@
 
 							<div class="hidden lg:flex flex-row gap-1 items-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
+								{#if labels?.length}
+									{#each labels as label}
+										<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+									{/each}
+								{/if}
 							</div>
 
 							<div class="w-10">
@@ -453,8 +476,8 @@
 											href: `${base}/audit_logs?resource=${path}`
 										},
 										{
-											displayName: canWrite ? 'Share' : 'See Permissions',
-											icon: Share,
+											displayName: 'Permissions',
+											icon: Shield,
 											action: () => {
 												shareModal?.openDrawer(path, 'sqs_trigger')
 											}

@@ -530,7 +530,7 @@ const command = new Command()
   .command("remove", "Delete a user")
   .arguments("<email:string>")
   .action(remove as any)
-  .command("create-token")
+  .command("create-token", "Create a new API token for the authenticated user")
   .option(
     "--email <email:string>",
     "Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.",

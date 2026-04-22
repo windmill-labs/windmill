@@ -17,6 +17,12 @@ import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 import type { AIProviderModel } from '$lib/gen'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
 import { processToolCall, type Tool, type ToolCallbacks } from './shared'
+import { anthropicUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
+
+interface ParsedCompletionResult {
+	shouldContinue: boolean
+	tokenUsage: ChatTokenUsage
+}
 
 export async function getAnthropicCompletion(
 	messages: ChatCompletionMessageParam[],
@@ -70,7 +76,7 @@ export async function parseAnthropicCompletion(
 	helpers: any,
 	abortController?: AbortController,
 	options?: { workspace?: string }
-): Promise<boolean> {
+): Promise<ParsedCompletionResult> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error = null
 
@@ -205,6 +211,9 @@ export async function parseAnthropicCompletion(
 		throw error
 	}
 
+	const finalMessage = await completion.finalMessage()
+	const tokenUsage = anthropicUsageToChatTokenUsage(finalMessage.usage)
+
 	// Process tool calls if any
 	if (toolCallsToProcess.length > 0) {
 		const assistantWithTools = {
@@ -226,10 +235,10 @@ export async function parseAnthropicCompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
-		return true // Continue the conversation loop
+		return { shouldContinue: true, tokenUsage }
 	}
 
-	return false // End the conversation
+	return { shouldContinue: false, tokenUsage }
 }
 
 export function convertOpenAIToAnthropicMessages(messages: ChatCompletionMessageParam[]): {

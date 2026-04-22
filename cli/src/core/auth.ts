@@ -2,11 +2,55 @@ import { colors } from "@cliffy/ansi/colors";
 import * as log from "./log.ts";
 import { setClient } from "./client.ts";
 import * as wmill from "../../gen/services.gen.ts";
-import { GlobalUserInfo } from "../../gen/types.gen.ts";
+import { GlobalUserInfo, User } from "../../gen/types.gen.ts";
 
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
 import { GlobalOptions } from "../types.ts";
 
+
+// Workspace-scoped tokens (tokens bound to a workspace via token.workspace_id)
+// cannot call /api/users/whoami because the backend rejects any token with a
+// workspace binding when the request path has no workspace in it. Fall back to
+// the workspace-scoped whoami endpoint in that case so the CLI still works.
+// Uses a name-based ApiError check rather than `instanceof` to match the
+// pattern in cli/src/main.ts: bundling (bun build for npm, JSR dev path) can
+// produce multiple module instances of gen/core/ApiError.ts, making
+// `instanceof` silently return false and reintroducing the bug this fixes.
+async function fetchWhoami(workspaceId: string): Promise<GlobalUserInfo> {
+  try {
+    return await wmill.globalWhoami();
+  } catch (error) {
+    if (
+      error && typeof error === "object" &&
+      "name" in error && (error as { name: unknown }).name === "ApiError" &&
+      (error as { status?: number }).status === 401
+    ) {
+      const user = await wmill.whoami({ workspace: workspaceId });
+      return workspaceUserToGlobalUserInfo(user);
+    }
+    throw error;
+  }
+}
+
+// Adapter for the 401 fallback path. `login_type`, `verified`, `first_time_user`
+// and `role_source` are NOT derivable from the workspace-scoped User response
+// and are filled with best-effort defaults — do not trust them downstream after
+// a fallback whoami. Today only cli/src/commands/hub/hub.ts reads this return
+// value, and only `.email`.
+function workspaceUserToGlobalUserInfo(user: User): GlobalUserInfo {
+  return {
+    email: user.email,
+    login_type: "password",
+    super_admin: user.is_super_admin,
+    verified: true,
+    name: user.name,
+    username: user.username,
+    operator_only: user.operator,
+    first_time_user: false,
+    role_source: "manual",
+    disabled: user.disabled,
+  };
+}
 
 /**
  * Main authentication function - moved from context.ts to break circular dependencies
@@ -28,7 +72,7 @@ export async function requireLogin(
   setClient(token, workspace.remote.substring(0, workspace.remote.length - 1));
 
   try {
-    return await wmill.globalWhoami();
+    return await fetchWhoami(workspace.workspaceId);
   } catch (error) {
     // Check for network errors and provide clearer messages
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -62,6 +106,6 @@ export async function requireLogin(
       newToken,
       workspace.remote.substring(0, workspace.remote.length - 1)
     );
-    return await wmill.globalWhoami();
+    return await fetchWhoami(workspace.workspaceId);
   }
 }

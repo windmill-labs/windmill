@@ -31,6 +31,8 @@ import {
   isAppMetadataFile,
   isRawAppMetadataFile,
   isRawAppFolderMetadataFile,
+  isAppFolderMetadataFile,
+  isFlowFolderMetadataFile,
   getDeleteSuffix,
   transformJsonPathToDir,
   isModuleEntryPoint,
@@ -492,6 +494,38 @@ describe("isRawAppFolderMetadataFile", () => {
 
   test("rejects non-metadata files", () => {
     expect(isRawAppFolderMetadataFile("f/my_raw.raw_app/backend/handler.ts")).toBe(false);
+  });
+});
+
+describe("isAppFolderMetadataFile", () => {
+  test("detects app folder metadata file (dotted)", () => {
+    expect(isAppFolderMetadataFile("f/common/landing.app/app.yaml")).toBe(true);
+    expect(isAppFolderMetadataFile("f/common/landing.app/app.json")).toBe(true);
+  });
+
+  test("rejects inline script files inside app folder", () => {
+    expect(isAppFolderMetadataFile("f/common/landing.app/eval_of_e.inline_script.frontend.js")).toBe(false);
+    expect(isAppFolderMetadataFile("f/common/landing.app/button1.inline_script.bun.ts")).toBe(false);
+  });
+
+  test("rejects top-level app metadata files", () => {
+    expect(isAppFolderMetadataFile("f/common/landing.app.json")).toBe(false);
+    expect(isAppFolderMetadataFile("f/common/landing.app.yaml")).toBe(false);
+  });
+});
+
+describe("isFlowFolderMetadataFile", () => {
+  test("detects flow folder metadata file (dotted)", () => {
+    expect(isFlowFolderMetadataFile("f/common/my_flow.flow/flow.yaml")).toBe(true);
+    expect(isFlowFolderMetadataFile("f/common/my_flow.flow/flow.json")).toBe(true);
+  });
+
+  test("rejects inline script files inside flow folder", () => {
+    expect(isFlowFolderMetadataFile("f/common/my_flow.flow/step_0.inline_script.ts")).toBe(false);
+  });
+
+  test("rejects top-level flow metadata files", () => {
+    expect(isFlowFolderMetadataFile("f/common/my_flow.flow.json")).toBe(false);
   });
 });
 

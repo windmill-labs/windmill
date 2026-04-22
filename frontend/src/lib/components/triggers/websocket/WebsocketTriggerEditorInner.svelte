@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -13,6 +14,7 @@
 		type Script,
 		type ScriptArgs,
 		type WebsocketTriggerInitialMessage,
+		type WebsocketHeartbeat,
 		type Retry,
 		type ErrorHandler,
 		type TriggerMode
@@ -96,10 +98,15 @@
 		key: string
 		value: any
 	}[] = $state([])
+	let filterLogic = $state<'and' | 'or'>('and')
 	let initial_messages: WebsocketTriggerInitialMessage[] = $state([])
 	let url_runnable_args: Record<string, any> | undefined = $state({})
 	let can_return_message = $state(false)
 	let can_return_error_result = $state(false)
+	let heartbeat_enabled = $state(false)
+	let heartbeat_interval_secs = $state(41)
+	let heartbeat_message = $state('')
+	let heartbeat_state_field = $state('')
 	let dirtyPath = $state(false)
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
@@ -203,6 +210,7 @@
 			path = defaultValues?.path ?? ''
 			initialPath = ''
 			filters = []
+			filterLogic = 'and'
 			initial_messages = []
 			url_runnable_args = defaultValues?.url_runnable_args ?? {}
 			dirtyPath = false
@@ -213,6 +221,9 @@
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			mode = defaultValues?.mode ?? 'enabled'
+			permissionedAs = undefined
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 			originalConfig = undefined
 		} finally {
 			clearTimeout(loadingTimeout)
@@ -228,10 +239,16 @@
 		path = cfg?.path
 		url = cfg?.url
 		filters = cfg?.filters
+		filterLogic = cfg?.filter_logic ?? 'and'
 		initial_messages = cfg?.initial_messages ?? []
 		url_runnable_args = cfg?.url_runnable_args
 		can_return_message = cfg?.can_return_message
 		can_return_error_result = cfg?.can_return_error_result
+		const hb = cfg?.heartbeat as WebsocketHeartbeat | undefined | null
+		heartbeat_enabled = !!hb
+		heartbeat_interval_secs = hb?.interval_secs ?? 41
+		heartbeat_message = hb?.message ?? ''
+		heartbeat_state_field = hb?.state_field ?? ''
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
@@ -239,8 +256,8 @@
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		mode = cfg?.mode ?? 'enabled'
 		permissionedAs = cfg?.permissioned_as
-		selectedPermissionedAs = undefined
-		preservePermissionedAs = false
+		selectedPermissionedAs = cfg?.permissioned_as
+		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
 	function getSaveCfg() {
@@ -250,10 +267,18 @@
 			path,
 			url,
 			filters,
+			filter_logic: filterLogic,
 			initial_messages,
 			url_runnable_args,
 			can_return_message,
 			can_return_error_result,
+			heartbeat: heartbeat_enabled
+				? {
+						interval_secs: heartbeat_interval_secs,
+						message: heartbeat_message,
+						...(heartbeat_state_field ? { state_field: heartbeat_state_field } : {})
+					}
+				: undefined,
 			error_handler_path,
 			error_handler_args,
 			retry,
@@ -447,15 +472,14 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
-		{#if edit}
-			<PermissionedAsLine
-				{permissionedAs}
-				onPermissionedAsChange={(pa, preserve) => {
-					selectedPermissionedAs = pa
-					preservePermissionedAs = preserve
-				}}
-			/>
-		{/if}
+		<PermissionedAsLine
+			{permissionedAs}
+			{path}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
+		/>
 		<div class="flex flex-col gap-4">
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
@@ -704,6 +728,71 @@
 				</div>
 			</Section>
 
+			<Section label="Heartbeat" collapsable collapsed={!heartbeat_enabled}>
+				{#snippet header()}
+					{#if heartbeat_enabled}
+						<span class="text-2xs text-tertiary ml-2">every {heartbeat_interval_secs}s</span>
+					{/if}
+				{/snippet}
+
+				<div class="flex flex-col gap-4">
+					<p class="text-xs text-tertiary">
+						Send periodic application-level heartbeat messages to keep the connection alive.
+						Required for protocols like Discord Gateway, STOMP, etc.
+					</p>
+
+					<Toggle
+						checked={heartbeat_enabled}
+						on:change={() => {
+							heartbeat_enabled = !heartbeat_enabled
+						}}
+						options={{
+							right: 'Enable heartbeat'
+						}}
+						disabled={!can_write}
+					/>
+
+					{#if heartbeat_enabled}
+						<Label label="Interval (seconds)">
+							<TextInput
+								bind:value={heartbeat_interval_secs}
+								inputProps={{ type: 'number', placeholder: '41', disabled: !can_write, min: 1 }}
+							/>
+						</Label>
+
+						<Label label="Message">
+							<svelte:boundary>
+								<textarea
+									class="textarea textarea-sm w-full font-mono text-xs"
+									rows={3}
+									bind:value={heartbeat_message}
+									placeholder={'{"op": 1, "d": {{state}}}'}
+									disabled={!can_write}
+								></textarea>
+							</svelte:boundary>
+							<p class="text-2xs text-tertiary mt-1">
+								Use <code>{'{{state}}'}</code> as a placeholder for a value extracted from incoming messages.
+							</p>
+						</Label>
+
+						<Label label="State field (optional)">
+							<TextInput
+								bind:value={heartbeat_state_field}
+								inputProps={{
+									placeholder: 'e.g. s (for Discord sequence number)',
+									disabled: !can_write
+								}}
+							/>
+							<p class="text-2xs text-tertiary mt-1">
+								Top-level JSON field to extract from incoming messages. Replaces <code
+									>{'{{state}}'}</code
+								> in the heartbeat message.
+							</p>
+						</Label>
+					{/if}
+				</div>
+			</Section>
+
 			<Section label="Advanced" collapsable>
 				{#snippet header()}
 					<TriggerAdvancedBadges
@@ -713,7 +802,7 @@
 					/>
 				{/snippet}
 				<div class="flex flex-col gap-6">
-					<TriggerFilters bind:filters disabled={!can_write} />
+					<TriggerFilters bind:filters bind:filterLogic disabled={!can_write} />
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
 							<Tab value="error_handler" label="Error Handler" />

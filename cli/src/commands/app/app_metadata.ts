@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readFile, mkdir } from "node:fs/promises";
+import { readFile, mkdir, readdir } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
@@ -34,6 +34,8 @@ import {
 } from "./raw_apps.ts";
 import { replaceInlineScripts, AppFile as NormalAppFile } from "./app.ts";
 import {
+  EXTENSION_TO_LANGUAGE,
+  getLanguageFromExtension,
   newPathAssigner,
   newRawAppPathAssigner,
   SupportedLanguage,
@@ -44,6 +46,7 @@ import { requireLogin } from "../../core/auth.ts";
 import { getNonDottedPaths } from "../../utils/resource_folders.ts";
 import { extractRelativeImports } from "../../utils/relative_imports.ts";
 import { DoubleLinkedDependencyTree } from "../../utils/dependency_tree.ts";
+import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 
 const TOP_HASH = "__app_hash";
 export const APP_BACKEND_FOLDER = "backend";
@@ -92,7 +95,12 @@ async function generateAppHash(
     }
   }
 
-  return { ...hashes, [TOP_HASH]: await generateHash(JSON.stringify(hashes)) };
+  // Sort keys so the top hash is deterministic regardless of filesystem readdir order
+  const sortedHashes: Record<string, string> = {};
+  for (const k of Object.keys(hashes).sort()) {
+    sortedHashes[k] = hashes[k];
+  }
+  return { ...sortedHashes, [TOP_HASH]: await generateHash(JSON.stringify(sortedHashes)) };
 }
 
 /**
@@ -117,7 +125,6 @@ export async function generateAppLocksInternal(
   },
   justUpdateMetadataLock?: boolean,
   noStaleMessage?: boolean,
-  legacyBehaviour?: boolean,
   tree?: DoubleLinkedDependencyTree
 ): Promise<string | AppLocksResult | void> {
   if (appFolder.endsWith(SEP)) {
@@ -143,8 +150,8 @@ export async function generateAppLocksInternal(
   let filteredDeps: Record<string, string> = {};
   const conf = await readLockfile();
 
-  // New behaviour: tree-based dependency tracking
-  if (!legacyBehaviour && tree) {
+  // Tree-based dependency tracking
+  if (tree) {
     if (dryRun) {
       const hashes = await generateAppHash({}, appFolder, rawApp, opts.defaultTs);
       const isDirectlyStale = !(await checkifMetadataUptodate(appFolder, hashes[TOP_HASH], conf, TOP_HASH));
@@ -245,7 +252,7 @@ export async function generateAppLocksInternal(
     // In tree mode, the tree already verified this app is stale (possibly via dependency change).
     // Per-script hashes only detect content changes, not transitive dependency changes,
     // so we must regenerate locks for all inline scripts regardless.
-    if (changedScripts.length > 0 || (tree && !legacyBehaviour)) {
+    if (changedScripts.length > 0 || tree) {
       if (!noStaleMessage) {
         log.info(
           `Recomputing locks of ${changedScripts.join(", ")} in ${appFolder}`
@@ -309,8 +316,8 @@ export async function generateAppLocksInternal(
     }
   }
 
-  // Non-legacy mode excludes workspace deps from hash (tracked via tree instead)
-  const depsForHash = (tree && !legacyBehaviour) ? {} : filteredDeps;
+  // In tree mode, workspace deps are tracked via the tree — exclude from hash
+  const depsForHash = tree ? {} : filteredDeps;
   const finalHashes = await generateAppHash(
     depsForHash,
     appFolder,
@@ -473,8 +480,11 @@ async function updateRawAppRunnables(
     // Skip frontend scripts - they don't need locks
     if (language === "frontend") {
       // Still need to write the runnable YAML file
+      // Use runnableId (the dict key) for file naming, consistent with
+      // extractInlineScriptsForApps in sync.ts which also uses the key.
+      // Using runnable.name would create duplicate files when name != key.
       const [basePathO, ext] = pathAssigner.assignPath(
-        runnable.name ?? runnableId,
+        runnableId,
         language
       );
       const basePath = basePathO.replaceAll(SEP, "/");
@@ -510,8 +520,11 @@ async function updateRawAppRunnables(
       );
 
       // Determine file extension for this language
+      // Use runnableId (the dict key) for file naming, consistent with
+      // extractInlineScriptsForApps in sync.ts which also uses the key.
+      // Using runnable.name would create duplicate files when name != key.
       const [basePathO, ext] = pathAssigner.assignPath(
-        runnable.name ?? runnableId,
+        runnableId,
         language
       );
       const basePath = basePathO.replaceAll(SEP, "/");
@@ -698,8 +711,8 @@ async function generateInlineScriptLock(
 
   const extraHeaders = getHeaders();
 
-  const rawResponse = await fetch(
-    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies`,
+  const queueResponse = await fetch(
+    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies_async`,
     {
       method: "POST",
       headers: {
@@ -727,36 +740,43 @@ async function generateInlineScriptLock(
     }
   );
 
-  if (!rawResponse.ok) {
-    const text = await rawResponse.text();
+  if (!queueResponse.ok) {
+    const text = await queueResponse.text();
     throw new Error(
-      `Dependency generation failed: ${rawResponse.status} ${rawResponse.statusText}\n${text}`
+      `Dependency generation failed: ${queueResponse.status} ${queueResponse.statusText}\n${text}`
     );
   }
 
-  let responseText = "reading response failed";
+  const jobId = (await queueResponse.text()).trim();
+
+  let completion;
   try {
-    responseText = await rawResponse.text();
-    const response = JSON.parse(responseText);
-    const lock = response.lock;
-
-    if (lock === undefined) {
-      if (response?.["error"]?.["message"]) {
-        throw new Error(
-          `Failed to generate lockfile: ${response?.["error"]?.["message"]}`
-        );
-      }
-      throw new Error(
-        `Failed to generate lockfile: ${JSON.stringify(response, null, 2)}`
-      );
-    }
-
-    return lock ?? "";
+    completion = await pollJobWithQueueLogging(
+      workspace.workspaceId,
+      jobId,
+      { label: `deps ${scriptPath}` },
+    );
   } catch (e: any) {
     throw new Error(
-      `Failed to parse dependency response: ${rawResponse.statusText}, ${responseText}, ${e.message}`
+      `Failed to poll dependencies job ${jobId}: ${e?.message ?? e}`
     );
   }
+
+  const result = completion.result as any;
+  if (!completion.success) {
+    const message =
+      result?.error?.message ??
+      (typeof result === "string" ? result : JSON.stringify(result, null, 2));
+    throw new Error(`Failed to generate lockfile: ${message}`);
+  }
+
+  const lock = result?.lock;
+  if (lock === undefined) {
+    throw new Error(
+      `Failed to generate lockfile: ${JSON.stringify(result, null, 2)}`
+    );
+  }
+  return lock ?? "";
 }
 
 /**
@@ -778,9 +798,11 @@ export interface InferredSchemaResult {
  */
 export async function inferRunnableSchemaFromFile(
   appFolder: string,
-  runnableFilePath: string
+  runnableFilePath: string,
+  defaultTs: "bun" | "deno" = "bun",
 ): Promise<InferredSchemaResult | undefined> {
-  // Extract runnable ID from file path (e.g., "myRunnable.ts" -> "myRunnable")
+  // Extract runnable ID from file path (e.g., "myRunnable.ts" -> "myRunnable",
+  // "fetch_data.bun.ts" -> "fetch_data")
   const fileName = path.basename(runnableFilePath);
 
   // Skip lock files and yaml files (runnable metadata)
@@ -788,13 +810,22 @@ export async function inferRunnableSchemaFromFile(
     return undefined;
   }
 
-  // Match pattern: {runnableId}.{ext} - extract the runnable ID (everything before the last dot)
-  const match = fileName.match(/^(.+)\.[^.]+$/);
-  if (!match) {
+  // Match the longest known extension so compound extensions like "bun.ts" or
+  // "pg.sql" win over the trailing single-segment extension.
+  let runnableId: string | undefined;
+  let ext: string | undefined;
+  for (const knownExt of Object.keys(EXTENSION_TO_LANGUAGE)) {
+    if (
+      fileName.endsWith("." + knownExt) &&
+      (!ext || knownExt.length > ext.length)
+    ) {
+      ext = knownExt;
+      runnableId = fileName.slice(0, -(knownExt.length + 1));
+    }
+  }
+  if (!runnableId || !ext) {
     return undefined;
   }
-
-  const runnableId = match[1];
 
   // Read the runnable from its separate YAML file (new format)
   const runnableFilePath2 = path.join(
@@ -819,20 +850,40 @@ export async function inferRunnableSchemaFromFile(
       }
       runnable = appFile.runnables[runnableId];
     } catch {
-      log.warn(
-        colors.yellow(`Could not read runnable ${runnableId} from any source`)
-      );
-      return undefined;
+      // No YAML at all - in the new backend-folder format a code-only runnable
+      // (no .yaml sibling) is treated as inline. We can still infer its schema.
+      runnable = { type: "inline" };
     }
   }
 
-  // Only process inline scripts
-  if (!runnable?.inlineScript) {
+  // Determine language and current schema. Two cases:
+  // - Old format: the YAML carries an `inlineScript` block with language + schema
+  // - New format: the YAML only declares `type: inline` and the language is
+  //   derived from the code file's extension (the inlineScript is reconstructed
+  //   from sibling files at load time).
+  let language: SupportedLanguage | undefined;
+  let currentSchema: any;
+  if (runnable?.inlineScript) {
+    language = runnable.inlineScript.language as SupportedLanguage;
+    currentSchema = runnable.inlineScript.schema;
+  } else if (
+    runnable?.type === "inline" ||
+    runnable?.type === "runnableByName"
+  ) {
+    language = getLanguageFromExtension(ext, defaultTs);
+  } else {
+    // Path-based runnable or unknown type - schema lives at the script/flow path
     return undefined;
   }
 
-  const inlineScript = runnable.inlineScript;
-  const language = inlineScript.language as SupportedLanguage;
+  if (!language) {
+    log.warn(
+      colors.yellow(
+        `Could not determine language for ${runnableId} (ext: ${ext})`
+      )
+    );
+    return undefined;
+  }
 
   // Read the actual content from the file
   const fullFilePath = path.join(
@@ -848,8 +899,6 @@ export async function inferRunnableSchemaFromFile(
     return undefined;
   }
 
-  // Infer schema from script content
-  const currentSchema = inlineScript.schema;
   const remotePath = appFolder.replaceAll(SEP, "/");
 
   try {
@@ -873,6 +922,48 @@ export async function inferRunnableSchemaFromFile(
     );
     return undefined;
   }
+}
+
+/**
+ * Infers schemas for every inline runnable code file in the app's backend
+ * folder. Used at `wmill app dev` startup so the initial wmill.d.ts has typed
+ * args without waiting for a file change to trigger the watcher.
+ *
+ * Returns a map of runnableId -> schema. Files that fail inference or are not
+ * inline runnables are silently skipped - their entries will fall back to
+ * `args: {}` in the generated d.ts.
+ */
+export async function inferAllInlineSchemas(
+  appFolder: string,
+  defaultTs: "bun" | "deno" = "bun",
+): Promise<Record<string, any>> {
+  const schemas: Record<string, any> = {};
+  const backendPath = path.join(appFolder, APP_BACKEND_FOLDER);
+
+  let entries: Array<{ name: string; isFile: () => boolean }>;
+  try {
+    entries = await readdir(backendPath, { withFileTypes: true });
+  } catch {
+    // No backend folder (e.g. old-format app using raw_app.yaml only)
+    return schemas;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const fileName = entry.name;
+    if (fileName.endsWith(".yaml") || fileName.endsWith(".lock")) continue;
+
+    const result = await inferRunnableSchemaFromFile(
+      appFolder,
+      fileName,
+      defaultTs,
+    );
+    if (result) {
+      schemas[result.runnableId] = result.schema;
+    }
+  }
+
+  return schemas;
 }
 
 export function getAppFolders(elems: Record<string, any>, extension: string) {

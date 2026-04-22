@@ -9,6 +9,10 @@ properties:
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
   kafka_resource_path:
     type: string
     description: Path to the Kafka resource containing connection configuration
@@ -28,6 +32,13 @@ properties:
         key:
           type: string
         value: {}
+  filter_logic:
+    type: string
+    enum:
+    - and
+    - or
+    description: Logic to apply when evaluating filters. 'and' requires all filters
+      to match, 'or' requires any filter to match.
   auto_offset_reset:
     type: string
     enum:

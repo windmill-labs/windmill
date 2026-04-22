@@ -1,4 +1,5 @@
-import { stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 
 import { Command } from "@cliffy/command";
@@ -8,7 +9,10 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import * as wmill from "../../../gen/services.gen.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { lookupUsernameByEmail } from "../../core/permissioned_as.ts";
 
 import {
   GlobalOptions,
@@ -29,6 +33,7 @@ export interface ScheduleFile {
 }
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -60,7 +65,7 @@ async function newSchedule(opts: GlobalOptions, path: string) {
     if (e.message?.startsWith("File already exists")) throw e;
   }
   const template: ScheduleFile = {
-    schedule: "0 */6 * * *",
+    schedule: "0 0 */6 * * *",
     on_failure: "",
     script_path: "",
     args: {},
@@ -68,6 +73,7 @@ async function newSchedule(opts: GlobalOptions, path: string) {
     is_flow: false,
     enabled: false,
   };
+  await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, yamlStringify(template as Record<string, any>), {
     flag: "wx",
     encoding: "utf-8",
@@ -76,6 +82,7 @@ async function newSchedule(opts: GlobalOptions, path: string) {
 }
 
 async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const s = await wmill.getSchedule({
@@ -98,7 +105,8 @@ export async function pushSchedule(
   workspace: string,
   path: string,
   schedule: Schedule | ScheduleFile | undefined,
-  localSchedule: ScheduleFile
+  localSchedule: ScheduleFile,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<void> {
   path = removeType(path, "schedule").replaceAll(SEP, "/");
   log.debug(`Processing local schedule ${path}`);
@@ -110,6 +118,21 @@ export async function pushSchedule(
   } catch {
     log.debug(`Schedule ${path} does not exist on remote`);
     //ignore
+  }
+
+  // Strip CLI-only boolean marker before sending to API
+  delete (localSchedule as any).has_permissioned_as;
+
+  const preserveFields: { permissioned_as?: string; preserve_permissioned_as?: boolean } = {};
+  if (permissionedAsContext?.userIsAdminOrDeployer) {
+    if (schedule) {
+      preserveFields.preserve_permissioned_as = true;
+      if ((schedule as Schedule).permissioned_as) {
+        preserveFields.permissioned_as = (schedule as Schedule).permissioned_as;
+        log.info(`Preserving ${(schedule as Schedule).permissioned_as} as permissioned_as for schedule ${path}`);
+      }
+    }
+    // On create: no client-side rule resolution needed — the backend applies folder defaults
   }
 
   if (schedule) {
@@ -127,6 +150,7 @@ export async function pushSchedule(
         path,
         requestBody: {
           ...localSchedule,
+          ...preserveFields,
         },
       });
       if (localSchedule.enabled != schedule.enabled) {
@@ -153,6 +177,7 @@ export async function pushSchedule(
         requestBody: {
           path: path,
           ...localSchedule,
+          ...preserveFields,
         },
       });
     } catch (e) {
@@ -160,6 +185,34 @@ export async function pushSchedule(
       throw e;
     }
   }
+}
+
+async function enable(opts: GlobalOptions, path: string) {
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  await wmill.setScheduleEnabled({
+    workspace: workspace.workspaceId,
+    path,
+    requestBody: { enabled: true },
+  });
+
+  log.info(colors.green(`Schedule ${path} enabled.`));
+}
+
+async function disable(opts: GlobalOptions, path: string) {
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  await wmill.setScheduleEnabled({
+    workspace: workspace.workspaceId,
+    path,
+    requestBody: { enabled: false },
+  });
+
+  log.info(colors.yellow(`Schedule ${path} disabled.`));
 }
 
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
@@ -205,6 +258,49 @@ const command = new Command()
     "push a local schedule spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string>")
-  .action(push as any);
+  .action(push as any)
+  .command("enable", "Enable a schedule")
+  .arguments("<path:string>")
+  .action(enable as any)
+  .command("disable", "Disable a schedule")
+  .arguments("<path:string>")
+  .action(disable as any)
+  .command(
+    "set-permissioned-as",
+    "Set the email (run-as user) for a schedule (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action((async (opts: any, schedulePath: string, email: string) => {
+    const workspace = await resolveWorkspace(opts);
+    await requireLogin(opts);
+
+    const cache = new Map<string, { username: string; email: string }>();
+    const username = await lookupUsernameByEmail(
+      workspace.workspaceId,
+      email,
+      cache,
+    );
+
+    const remote = await wmill.getSchedule({
+      workspace: workspace.workspaceId,
+      path: schedulePath,
+    });
+    if (!remote) throw new Error(`Schedule ${schedulePath} not found`);
+
+    await wmill.updateSchedule({
+      workspace: workspace.workspaceId,
+      path: schedulePath,
+      requestBody: {
+        ...(remote as any),
+        permissioned_as: `u/${username}`,
+        preserve_permissioned_as: true,
+      } as any,
+    });
+    log.info(
+      colors.green(
+        `Updated permissioned_as for schedule ${schedulePath} to ${email} (username: ${username})`
+      )
+    );
+  }) as any);
 
 export default command;

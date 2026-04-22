@@ -5,7 +5,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { HttpTriggerService } from '$lib/gen'
+	import { HttpTriggerService, SettingService } from '$lib/gen'
 	// import { page } from '$app/state'
 	import { getHttpRoute } from './utils'
 	import { isCloudHosted } from '$lib/cloud'
@@ -105,7 +105,33 @@
 	})
 
 	let userIsAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
-	let userCanEditConfig = $derived(userIsAdmin || isDraftOnly) // User can edit config if they are admin or if the trigger is a draft which will not be saved
+
+	let globalHttpWorkspacedRoute = $state(false)
+
+	let effectiveWorkspaced = $derived(workspaced_route || globalHttpWorkspacedRoute)
+	let userCanEditConfig = $derived(userIsAdmin || isDraftOnly || effectiveWorkspaced)
+
+	async function loadGlobalHttpWorkspacedRouteSetting() {
+		try {
+			const setting = await SettingService.getGlobal({ key: 'http_route_workspaced_route' })
+			globalHttpWorkspacedRoute = (setting as boolean) ?? false
+		} catch (error) {
+			globalHttpWorkspacedRoute = false
+		}
+	}
+
+	loadGlobalHttpWorkspacedRouteSetting()
+
+	$effect.pre(() => {
+		// Force workspaced route for non-admins on new triggers only.
+		// Existing non-workspaced triggers created by admins can still be edited by non-admins
+		// (with restricted fields), so we don't override their workspaced_route value.
+		const isNewTrigger = !initialTriggerPath
+		if ((globalHttpWorkspacedRoute || (!userIsAdmin && isNewTrigger)) && !workspaced_route) {
+			workspaced_route = true
+			dirtyRoutePath = true
+		}
+	})
 </script>
 
 <div>
@@ -115,9 +141,10 @@
 				<TestingBadge />
 			{/if}
 		{/snippet}
-		{#if !userCanEditConfig && isDraftOnly}
-			<Alert type="info" title="Admin only" collapsible size="xs">
-				Route endpoints can only be edited by workspace admins
+		{#if !userCanEditConfig}
+			<Alert type="info" title="Route config restricted" collapsible size="xs">
+				Route path, HTTP method, and workspace prefix can only be changed by workspace admins on
+				non-workspaced routes
 			</Alert>
 			<div class="my-2"></div>
 		{/if}
@@ -172,13 +199,17 @@
 					<Toggle
 						size="sm"
 						checked={workspaced_route}
-						disabled={!can_write || !userCanEditConfig}
+						disabled={!can_write || !userIsAdmin || globalHttpWorkspacedRoute}
 						on:change={() => {
 							workspaced_route = !workspaced_route
 							dirtyRoutePath = true
 						}}
 						options={{
-							right: 'Prefix with workspace',
+							right: globalHttpWorkspacedRoute
+								? 'Prefix with workspace (enforced by instance setting)'
+								: !userIsAdmin
+									? 'Prefix with workspace (required for non-admin users)'
+									: 'Prefix with workspace',
 							rightTooltip:
 								'Prefixes the route with the workspace ID (e.g., {base_url}/api/r/{workspace_id}/{route}). Note: deploying the HTTP trigger to another workspace updates the route workspace prefix accordingly.',
 							rightDocumentationLink:

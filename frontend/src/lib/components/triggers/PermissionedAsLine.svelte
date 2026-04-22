@@ -3,6 +3,7 @@
 		type OnBehalfOfChoice,
 		type OnBehalfOfDetails
 	} from '$lib/components/OnBehalfOfSelector.svelte'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { AlertTriangle } from 'lucide-svelte'
 
@@ -11,9 +12,15 @@
 		permissionedAs: string | undefined
 		/** Callback when user changes the permissioned_as selection */
 		onPermissionedAsChange: (permissionedAs: string | undefined, preserve: boolean) => void
+		/**
+		 * Item path (e.g. `f/prod/my_trigger`). When provided and the user is an
+		 * admin/wm_deployers member, the component fetches the parent folder's
+		 * `default_permissioned_as` rules and preselects the matching default.
+		 */
+		path?: string | undefined
 	}
 
-	let { permissionedAs, onPermissionedAsChange }: Props = $props()
+	let { permissionedAs, onPermissionedAsChange, path = undefined }: Props = $props()
 
 	const canPreserve = $derived(
 		$userStore?.is_admin || ($userStore?.groups ?? []).includes('wm_deployers')
@@ -21,8 +28,31 @@
 
 	const myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
 
+	const folderDefault = useFolderDefaultPermissionedAs(() => path)
+
 	let onBehalfOfChoice = $state<OnBehalfOfChoice>(undefined)
 	let customPermissionedAs = $state<string | undefined>(undefined)
+	let userHasSelected = $state(false)
+
+	// Full reset when permissionedAs changes (e.g. switching between edit/create).
+	$effect(() => {
+		permissionedAs
+		userHasSelected = false
+		customPermissionedAs = undefined
+		onBehalfOfChoice = undefined
+	})
+
+	// On creation with no folder default, default to "me". When the folder default
+	// loads async, transition to undefined so OnBehalfOfSelector's auto-select applies
+	// the folder default. Skip if the user has already made an explicit selection.
+	$effect(() => {
+		if (userHasSelected) return
+		if (permissionedAs === undefined && !folderDefault.value) {
+			onBehalfOfChoice = 'me'
+		} else {
+			onBehalfOfChoice = undefined
+		}
+	})
 
 	const effectivePermissionedAs = $derived.by(() => {
 		if (onBehalfOfChoice === 'target') return permissionedAs
@@ -36,7 +66,19 @@
 			permissionedAs !== effectivePermissionedAs
 	)
 
+	const shouldRender = $derived(!!$workspaceStore && (permissionedAs !== undefined || canPreserve))
+
+	// For non-admin users editing a trigger owned by someone else: signal that
+	// permissioned_as will change to the current user (backend ignores preserve for non-admins).
+	// Only fires when there's an actual change (DB value differs from current user).
+	$effect(() => {
+		if (!canPreserve && permissionedAs !== undefined && permissionedAs !== myPermissionedAs) {
+			onPermissionedAsChange(undefined, false)
+		}
+	})
+
 	function handleSelect(choice: OnBehalfOfChoice, details?: OnBehalfOfDetails) {
+		userHasSelected = true
 		onBehalfOfChoice = choice
 		if (choice === 'target') {
 			customPermissionedAs = undefined
@@ -51,7 +93,7 @@
 	}
 </script>
 
-{#if permissionedAs && $workspaceStore}
+{#if shouldRender && $workspaceStore}
 	<div class="flex items-center gap-1.5 text-2xs text-tertiary mb-4">
 		<span>Permissioned as</span>
 		{#if canPreserve}
@@ -64,6 +106,7 @@
 				{canPreserve}
 				customValue={customPermissionedAs}
 				isDeployment={false}
+				folderDefault={folderDefault.value}
 			/>
 			{#if willChange}
 				<AlertTriangle class="w-3.5 h-3.5 text-yellow-500" />
@@ -71,7 +114,7 @@
 					>will change from <strong>{permissionedAs}</strong> on save</span
 				>
 			{/if}
-		{:else}
+		{:else if permissionedAs}
 			<strong class="text-secondary">{permissionedAs}</strong>
 			{#if willChange}
 				<AlertTriangle class="w-3.5 h-3.5 text-yellow-500" />

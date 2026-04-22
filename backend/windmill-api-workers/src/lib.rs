@@ -158,7 +158,7 @@ async fn exists_workers_with_tags(
         if !has_devops_role {
             if let Some(ref workspace) = tags_query.workspace {
                 // Filter to only tags visible in this workspace
-                let custom_tags = CUSTOM_TAGS_PER_WORKSPACE.read().await;
+                let custom_tags = CUSTOM_TAGS_PER_WORKSPACE.load();
                 let allowed_tags = custom_tags.to_string_vec(Some(workspace.clone()));
                 tags.retain(|t| allowed_tags.contains(t));
             } else {
@@ -203,7 +203,7 @@ async fn get_custom_tags(
     Query(query): Query<CustomTagQuery>,
 ) -> JsonResult<Vec<String>> {
     if query.show_workspace_restriction.is_some_and(|x| x) {
-        let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
+        let tags_o = CUSTOM_TAGS_PER_WORKSPACE.load();
         let all_tags = tags_o.to_string_vec(None);
         return Ok(Json(all_tags));
     }
@@ -213,14 +213,14 @@ async fn get_custom_tags(
             return Ok(Json(vec![]));
         }
     }
-    Ok(Json(ALL_TAGS.read().await.clone().into()))
+    Ok(Json((**ALL_TAGS.load()).clone().into()))
 }
 
 async fn get_custom_tags_for_workspace(
     _authed: ApiAuthed,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
-    let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
+    let tags_o = CUSTOM_TAGS_PER_WORKSPACE.load();
     let all_tags = tags_o.to_string_vec(Some(w_id));
     Ok(Json(all_tags))
 }

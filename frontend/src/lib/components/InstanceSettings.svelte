@@ -21,6 +21,7 @@
 	import SettingsFooter from './workspaceSettings/SettingsFooter.svelte'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 	import WorkspaceRegistries from './instanceSettings/WorkspaceRegistries.svelte'
+	import DbHealth from './instanceSettings/DbHealth.svelte'
 
 	interface Props {
 		tab?: string
@@ -67,6 +68,16 @@
 
 	loadSettings()
 	loadVersion()
+
+	// When the user enables object storage for the first time, default
+	// `monitor_logs_on_s3` to true so S3 log files get cleaned up with their
+	// jobs. Backend still defaults to false for backwards compat with
+	// operators who never touched the setting.
+	$effect(() => {
+		if ($values['object_store_cache_config'] && $values['monitor_logs_on_s3'] === undefined) {
+			values.update((v) => ({ ...v, monitor_logs_on_s3: true }))
+		}
+	})
 
 	const dispatch = createEventDispatcher()
 
@@ -176,13 +187,14 @@
 		})
 
 		let shouldReloadPage = false
+		let willRestart = false
 		if ($values) {
 			// Trim license key before saving
 			if ($values['license_key'] && typeof $values['license_key'] === 'string') {
 				$values['license_key'] = $values['license_key'].trim()
 			}
 
-			// Check which settings require a page reload
+			// Check which settings require a page reload or server restart
 			const allSettings = [...Object.values(settings), scimSamlSetting].flat()
 			let licenseKeySet = false
 			for (const s of allSettings) {
@@ -192,6 +204,9 @@
 					}
 					if (s.requiresReloadOnChange) {
 						shouldReloadPage = true
+					}
+					if (s.triggersRestart) {
+						willRestart = true
 					}
 				}
 			}
@@ -230,6 +245,15 @@
 			sendUserToast('Settings updated, reloading page...')
 			await sleep(1000)
 			window.location.reload()
+		} else if (willRestart) {
+			sendUserToast(
+				'Settings updated. Servers are restarting and changes may take up to a minute to fully propagate.',
+				false,
+				[],
+				undefined,
+				8000
+			)
+			dispatch('saved')
 		} else {
 			sendUserToast('Settings updated')
 			dispatch('saved')
@@ -524,6 +548,7 @@
 		}
 
 		let shouldReloadPage = false
+		let willRestart = false
 		const categorySettings = getSettingsForCategory(category)
 
 		let licenseKeySet = false
@@ -541,6 +566,7 @@
 				.map(async (x) => {
 					if (x.key === 'license_key') licenseKeySet = true
 					if (x.requiresReloadOnChange) shouldReloadPage = true
+					if (x.triggersRestart) willRestart = true
 					let value = $values?.[x.key]
 					if (x.fieldType === 'codearea' && typeof value === 'string' && value.trim() === '') {
 						value = undefined
@@ -598,6 +624,15 @@
 			sendUserToast('Settings updated, reloading page...')
 			await sleep(1000)
 			window.location.reload()
+		} else if (willRestart) {
+			sendUserToast(
+				'Settings updated. Servers are restarting and changes may take up to a minute to fully propagate.',
+				false,
+				[],
+				undefined,
+				8000
+			)
+			dispatch('saved')
 		} else {
 			sendUserToast('Settings updated')
 			dispatch('saved')
@@ -622,8 +657,12 @@
 		'workspace_registries'
 	])
 
-	// Settings that should never appear in YAML export/import
-	const excludedKeys: Set<string> = new Set([])
+	// Settings that should never appear in YAML export/import.
+	// `worker_configs` is a legacy ghost key: worker configs live in the `config`
+	// table (managed from /workers), not in `global_settings`. Older DBs may
+	// still carry a stale `global_settings.worker_configs` row; filter it here
+	// so it never round-trips through this editor.
+	const excludedKeys: Set<string> = new Set(['worker_configs'])
 
 	// Nested fields inside object-valued settings that contain secrets.
 	// Each entry maps a top-level key to its sensitive sub-field names.
@@ -1052,6 +1091,12 @@
 				title="GitHub Enterprise App"
 				description="Configure a self-managed GitHub App for GitHub Enterprise Server git sync."
 			/>
+		{:else if category == 'DB Health'}
+			<SettingsPageHeader
+				title="DB Health"
+				description="On-demand database diagnostics. Analyze table sizes, job retention, connection pool health, vacuum status, and more."
+			/>
+			<DbHealth />
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings
 				bind:oauths

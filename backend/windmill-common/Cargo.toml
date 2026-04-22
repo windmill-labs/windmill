@@ -9,7 +9,7 @@ default = []
 enterprise = ["dep:aws-config"]
 instance_config_schema = ["dep:schemars"]
 local_reports = ["dep:rsa", "dep:aes-gcm"]
-private = ["dep:aws-sdk-rds"]
+private = ["dep:aws-sdk-rds", "dep:aws-sdk-secretsmanager"]
 jemalloc = ["dep:tikv-jemalloc-ctl"]
 tantivy = []
 prometheus = ["dep:prometheus"]
@@ -21,8 +21,8 @@ otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep
 smtp = ["dep:mail-send"]
 scoped_cache = []
 cloud = []
+dev_override = []
 openidconnect = ["dep:openidconnect"]
-bedrock = ["dep:aws-sdk-bedrockruntime", "dep:aws-credential-types", "dep:aws-smithy-types", "dep:aws-config"]
 python = ["dep:windmill-parser-py"]
 
 [lib]
@@ -56,6 +56,7 @@ tokio-util.workspace = true
 datafusion = { workspace = true, optional = true}
 reqwest = { workspace = true }
 tracing-subscriber = { workspace = true }
+aho-corasick = "1"
 lazy_static.workspace = true
 tracing-appender.workspace = true
 gethostname.workspace = true
@@ -67,9 +68,6 @@ magic-crypt.workspace = true
 prometheus = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
-aws-credential-types = { workspace = true, optional = true }
-aws-smithy-types = { workspace = true, optional = true }
-aws-sdk-bedrockruntime = { workspace = true, optional = true }
 base64.workspace = true
 bitflags.workspace = true
 once_cell.workspace = true
@@ -79,6 +77,7 @@ postgres-native-tls.workspace = true
 native-tls.workspace = true
 
 aws-smithy-types-convert = { workspace = true, optional = true }
+aws-sdk-secretsmanager = { workspace = true, optional = true }
 aws-sdk-rds = { workspace = true, optional = true }
 indexmap.workspace = true
 bytes.workspace = true
@@ -112,10 +111,12 @@ aes-gcm = { workspace = true, optional = true }
 semver.workspace = true
 croner.workspace = true
 quick_cache.workspace = true
+arc-swap.workspace = true
 pin-project-lite.workspace = true
 futures.workspace = true
 tempfile.workspace = true
 globset.workspace = true
+dashmap.workspace = true
 
 opentelemetry-semantic-conventions = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }

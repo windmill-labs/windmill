@@ -252,7 +252,7 @@ pub struct ListableCompletedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<serde_json::Value>,
 }
@@ -293,7 +293,7 @@ pub struct UnifiedJob {
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
     pub priority: Option<i16>,
-    pub labels: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
     pub self_wait_time_ms: Option<i64>,
     pub aggregate_wait_time_ms: Option<i64>,
     pub preprocessed: Option<bool>,
@@ -334,7 +334,7 @@ const CJ_FIELDS: &[&str] = &[
     "null as concurrent_limit",
     "null as concurrency_time_window_s",
     "v2_job.priority",
-    "v2_job_completed.result->'wm_labels' as labels",
+    "v2_job.labels",
     "self_wait_time_ms",
     "aggregate_wait_time_ms",
     "v2_job.preprocessed",
@@ -375,7 +375,7 @@ const QJ_FIELDS: &[&str] = &[
     "v2_job.concurrent_limit",
     "v2_job.concurrency_time_window_s",
     "v2_job.priority",
-    "null as labels",
+    "v2_job.labels",
     "self_wait_time_ms",
     "aggregate_wait_time_ms",
     "v2_job.preprocessed",
@@ -482,6 +482,7 @@ impl From<UnifiedJob> for Job {
                     priority: uj.priority,
                     preprocessed: uj.preprocessed,
                     runnable_settings_handle: uj.runnable_settings_handle,
+                    labels: uj.labels,
                 },
             )),
             t => panic!("job type {} not valid", t),
@@ -511,18 +512,14 @@ pub struct ResumeUrls {
 
 pub struct QueryOrBody<D>(pub Option<D>);
 
-#[axum::async_trait]
-impl<S, D> FromRequest<S, axum::body::Body> for QueryOrBody<D>
+impl<S, D> FromRequest<S> for QueryOrBody<D>
 where
     D: DeserializeOwned,
     S: Send + Sync,
 {
     type Rejection = Response;
 
-    async fn from_request(
-        req: Request<axum::body::Body>,
-        state: &S,
-    ) -> std::result::Result<Self, Self::Rejection> {
+    async fn from_request(req: Request, state: &S) -> std::result::Result<Self, Self::Rejection> {
         return if req.method() == axum::http::Method::GET {
             let Query(InPayload { payload }) = Query::from_request(req, state)
                 .await

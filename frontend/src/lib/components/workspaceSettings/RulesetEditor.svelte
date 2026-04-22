@@ -36,6 +36,7 @@
 	let name = $state(untrack(() => rule)?.name ?? '')
 	let disableDirectDeployment = $state(hasRule('DisableDirectDeployment'))
 	let disableFork = $state(hasRule('DisableWorkspaceForking'))
+	let restrictDeployToDeployers = $state(hasRule('RestrictDeployToDeployers'))
 	let selectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups?.map((g) => g.replace('g/', '')) ?? []
 	)
@@ -47,6 +48,7 @@
 	let initialName = $state(untrack(() => rule)?.name ?? '')
 	let initialDisableDirectDeployment = $state(hasRule('DisableDirectDeployment'))
 	let initialDisableFork = $state(hasRule('DisableWorkspaceForking'))
+	let initialRestrictDeployToDeployers = $state(hasRule('RestrictDeployToDeployers'))
 	let initialSelectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups
 			? untrack(() => rule)!.bypass_groups.map((g) => g.replace('g/', ''))
@@ -112,11 +114,13 @@
 			? name.trim() !== '' ||
 					disableDirectDeployment ||
 					disableFork ||
+					restrictDeployToDeployers ||
 					selectedGroups.length > 0 ||
 					selectedUsers.length > 0
 			: name !== initialName ||
 					disableDirectDeployment !== initialDisableDirectDeployment ||
 					disableFork !== initialDisableFork ||
+					restrictDeployToDeployers !== initialRestrictDeployToDeployers ||
 					JSON.stringify([...selectedGroups].sort()) !==
 						JSON.stringify([...initialSelectedGroups].sort()) ||
 					JSON.stringify([...selectedUsers].sort()) !==
@@ -153,7 +157,10 @@
 					name,
 					rules: [
 						...(disableDirectDeployment ? ['DisableDirectDeployment' as ProtectionRuleKind] : []),
-						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : [])
+						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : []),
+						...(restrictDeployToDeployers
+							? ['RestrictDeployToDeployers' as ProtectionRuleKind]
+							: [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -178,7 +185,10 @@
 				requestBody: {
 					rules: [
 						...(disableDirectDeployment ? ['DisableDirectDeployment' as ProtectionRuleKind] : []),
-						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : [])
+						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : []),
+						...(restrictDeployToDeployers
+							? ['RestrictDeployToDeployers' as ProtectionRuleKind]
+							: [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -191,6 +201,7 @@
 			initialName = name
 			initialDisableDirectDeployment = disableDirectDeployment
 			initialDisableFork = disableFork
+			initialRestrictDeployToDeployers = restrictDeployToDeployers
 			initialSelectedGroups = clone(selectedGroups)
 			initialSelectedUsers = clone(selectedUsers)
 
@@ -309,6 +320,20 @@
 					}}
 				/>
 				<div class="text-xs text-secondary ml-6">Users cannot create forks of this workspace.</div>
+			</div>
+
+			<!-- Restrict deploy to deployers -->
+			<div class="flex flex-col gap-2">
+				<Toggle
+					bind:checked={restrictDeployToDeployers}
+					options={{
+						right: 'Restrict deployment to wm_deployers'
+					}}
+				/>
+				<div class="text-xs text-secondary ml-6">
+					Only workspace admins and members of <code>wm_deployers</code> can deploy to this workspace.
+					Non-deployers can still fork, browse, and request a review.
+				</div>
 			</div>
 		</div>
 	</Section>

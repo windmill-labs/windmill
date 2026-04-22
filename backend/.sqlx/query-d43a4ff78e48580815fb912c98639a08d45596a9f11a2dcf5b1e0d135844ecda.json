@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value FROM global_settings WHERE name = 'plain_emails_telemetry'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d43a4ff78e48580815fb912c98639a08d45596a9f11a2dcf5b1e0d135844ecda"
+}

@@ -102,7 +102,12 @@
 			})
 		}
 
-		if (defaultLang !== undefined || defaultOriginal !== undefined || defaultModified !== undefined) {
+		if (
+			defaultLang !== undefined ||
+			defaultOriginal !== undefined ||
+			defaultModified !== undefined ||
+			modifiedModel !== undefined
+		) {
 			setupModel(defaultLang ?? 'plaintext', defaultOriginal, defaultModified, defaultModifiedLang)
 		}
 	}
@@ -113,6 +118,11 @@
 		modified?: string,
 		modifiedLang?: string
 	) {
+		defaultLang = lang
+		defaultOriginal = original
+		defaultModified = modified
+		defaultModifiedLang = modifiedLang
+
 		const o = meditor.createModel(original ?? '', lang)
 		const m = modifiedModel ?? meditor.createModel(modified ?? '', modifiedLang ?? lang)
 		diffEditor?.setModel({
@@ -136,6 +146,7 @@
 	}
 
 	export function setModifiedModel(model: meditor.ITextModel) {
+		modifiedModel = model
 		const curr = diffEditor?.getModel()
 		if (!curr) return
 		diffEditor?.setModel({
@@ -174,6 +185,49 @@
 			diffEditor.updateOptions({
 				renderSideBySide: inlineDiff ? false : editorWidth >= SIDE_BY_SIDE_MIN_WIDTH
 			})
+		}
+	})
+
+	$effect(() => {
+		if (!diffEditor) {
+			return
+		}
+
+		const lang = defaultLang ?? 'plaintext'
+		const modifiedLang = defaultModifiedLang ?? lang
+		const currentModel = diffEditor.getModel()
+
+		if (!currentModel) {
+			setupModel(lang, defaultOriginal, defaultModified, defaultModifiedLang)
+			return
+		}
+
+		if (currentModel.original.getLanguageId() !== lang) {
+			meditor.setModelLanguage(currentModel.original, lang)
+		}
+
+		const originalValue = defaultOriginal ?? ''
+		if (currentModel.original.getValue() !== originalValue) {
+			currentModel.original.setValue(originalValue)
+		}
+
+		if (modifiedModel) {
+			if (currentModel.modified !== modifiedModel) {
+				diffEditor.setModel({
+					original: currentModel.original,
+					modified: modifiedModel as meditor.ITextModel
+				})
+			}
+			return
+		}
+
+		if (currentModel.modified.getLanguageId() !== modifiedLang) {
+			meditor.setModelLanguage(currentModel.modified, modifiedLang)
+		}
+
+		const modifiedValue = defaultModified ?? ''
+		if (currentModel.modified.getValue() !== modifiedValue) {
+			currentModel.modified.setValue(modifiedValue)
 		}
 	})
 

@@ -12,6 +12,7 @@
 	import { json as jsonLang } from 'svelte-highlight/languages'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ClipboardCopy, InfoIcon, LogOut, Play, Square } from 'lucide-svelte'
@@ -19,15 +20,26 @@
 	import { onDestroy, tick } from 'svelte'
 	import JobLoader from '$lib/components/JobLoader.svelte'
 
-	interface Props {
-		recording: ScriptRecording
-	}
-
-	let { recording }: Props = $props()
+	export type ScriptTabValue = 'parameters' | 'code' | 'args' | 'schema' | 'result'
 
 	type ReplayState = 'loaded' | 'playing'
 
-	let replayState: ReplayState = $state('loaded')
+	interface Props {
+		recording: ScriptRecording
+		selectedTab?: ScriptTabValue
+		replayState?: ReplayState
+		hideControls?: boolean
+		hideTabs?: boolean
+	}
+
+	let {
+		recording,
+		selectedTab = $bindable(),
+		replayState = $bindable(),
+		hideControls = false,
+		hideTabs = false
+	}: Props = $props()
+
 	let jobId: string | undefined = $state(undefined)
 	let job: Job | undefined = $state(undefined)
 	let jobLoader: JobLoader | undefined = $state(undefined)
@@ -35,7 +47,18 @@
 
 	let scriptRecordingStore = createScriptRecording()
 
-	function stop() {
+	let schema = $derived(recording.schema)
+
+	if (selectedTab === undefined) {
+		if (schema && recording.args) selectedTab = 'parameters'
+		else if (recording.args && Object.keys(recording.args).length > 0) selectedTab = 'args'
+		else selectedTab = 'code'
+	}
+	if (replayState === undefined) {
+		replayState = 'loaded'
+	}
+
+	export function stop() {
 		setActiveReplay(undefined)
 		job = undefined
 		replayState = 'loaded'
@@ -85,13 +108,14 @@
 
 	initRecording()
 
-	async function startReplay() {
+	export async function startReplay() {
 		const snapshot = JSON.parse(JSON.stringify(recording)) as ScriptRecording
 		rebaseTimestamps(snapshot)
 		const replayData = scriptRecordingStore.toReplayData(snapshot)
 		setActiveReplay(replayData)
 		job = undefined
 		replayState = 'playing'
+		selectedTab = 'result'
 		await tick()
 		if (jobLoader && jobId) {
 			jobLoader.watchJob(jobId)
@@ -101,8 +125,6 @@
 	onDestroy(() => {
 		setActiveReplay(undefined)
 	})
-
-	let schema = $derived(recording.schema)
 </script>
 
 <HighlightTheme />
@@ -115,48 +137,141 @@
 			</p>
 		</div>
 	</div>
-{:else if replayState === 'loaded'}
-	<div class="flex flex-col gap-4">
-		<div class="flex items-center justify-between">
-			<div class="flex items-center gap-2">
-				<h2 class="text-lg font-semibold text-emphasis"
-					>{recording.script_path || 'Untitled script'}</h2
-				>
-				<span class="text-xs text-secondary px-2 py-0.5 bg-surface-secondary rounded"
-					>{recording.language}</span
-				>
-				<Tooltip placement="bottom">
-					<InfoIcon size={16} class="text-tertiary" />
-					{#snippet text()}
-						<span class="text-2xs">
-							Recorded {new Date(recording.recorded_at).toLocaleString()} &mdash;
-							{(recording.total_duration_ms / 1000).toFixed(1)}s
-						</span>
-					{/snippet}
-				</Tooltip>
+{:else}
+	<div class="flex flex-col gap-4 h-full">
+		{#if !hideControls}
+			<div class="flex items-center justify-between">
+				<div class="flex items-center gap-2">
+					<h2 class="text-lg font-semibold text-emphasis">
+						{replayState === 'playing' ? 'Replaying: ' : ''}{recording.script_path ||
+							'Untitled script'}
+					</h2>
+					<span class="text-xs text-secondary px-2 py-0.5 bg-surface-secondary rounded">
+						{recording.language}
+					</span>
+					<Tooltip placement="bottom">
+						<InfoIcon size={16} class="text-tertiary" />
+						{#snippet text()}
+							<span class="text-2xs">
+								Recorded {new Date(recording.recorded_at).toLocaleString()} &mdash;
+								{(recording.total_duration_ms / 1000).toFixed(1)}s
+							</span>
+						{/snippet}
+					</Tooltip>
+				</div>
+				{#if replayState === 'loaded'}
+					<Button variant="contained" color="blue" onclick={startReplay} startIcon={{ icon: Play }}>
+						Play
+					</Button>
+				{:else}
+					<Button
+						variant="border"
+						size="xs"
+						onclick={stop}
+						startIcon={{ icon: done ? LogOut : Square }}
+					>
+						{done ? 'Exit' : 'Stop'}
+					</Button>
+				{/if}
 			</div>
-			<Button variant="contained" color="blue" on:click={startReplay} startIcon={{ icon: Play }}>
-				Play
-			</Button>
-		</div>
-
-		{#if recording.args && Object.keys(recording.args).length > 0}
-			<JobArgs args={recording.args} />
 		{/if}
 
-		<Tabs selected="code">
-			<Tab value="code" label="Code" />
+		{#if replayState === 'playing'}
+			<JobLoader noCode={true} bind:this={jobLoader} bind:job />
+		{/if}
+
+		<Tabs bind:selected={selectedTab as string} {hideTabs}>
+			{#if replayState === 'playing'}
+				<Tab value="result" label="Result" />
+			{/if}
+			{#if schema && recording.args}
+				<Tab value="parameters" label="Code" />
+			{/if}
+			{#if recording.args && Object.keys(recording.args).length > 0}
+				<Tab value="args" label="Args" />
+			{/if}
+			{#if !schema || !recording.args}
+				<Tab value="code" label="Code" />
+			{/if}
 			{#if schema}
 				<Tab value="schema" label="Schema" />
 			{/if}
 			{#snippet content()}
+				<TabContent value="result" class="flex-1 min-h-0">
+					{#if replayState === 'playing' && jobId}
+						<div class="grid grid-cols-2 gap-4 w-full h-full">
+							<div class="flex flex-col min-h-0">
+								<h3 class="shrink-0 text-xs font-semibold text-emphasis mb-1">Result</h3>
+								<div class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary p-4">
+									{#if job !== undefined && job.type === 'CompletedJob' && job.result !== undefined}
+										<DisplayResult result={job.result} language={job.language} />
+									{:else if done}
+										<div
+											class="w-full h-full flex items-center justify-center text-secondary text-sm"
+										>
+											No output available
+										</div>
+									{:else}
+										<div
+											class="w-full h-full flex items-center justify-center text-secondary text-sm"
+										>
+											Waiting for result...
+										</div>
+									{/if}
+								</div>
+							</div>
+							<div class="flex flex-col min-h-0">
+								<h3 class="shrink-0 text-xs font-semibold text-emphasis mb-1">Logs</h3>
+								<div class="flex-1 min-h-0 overflow-auto rounded-md border bg-surface-tertiary">
+									<LogViewer
+										jobId={job?.id}
+										duration={job?.['duration_ms']}
+										mem={job?.['mem_peak']}
+										isLoading={!done}
+										content={job?.logs}
+										tag={job?.tag}
+										download={false}
+									/>
+								</div>
+							</div>
+						</div>
+					{/if}
+				</TabContent>
+				<TabContent value="parameters" class="flex-1 min-h-0">
+					{#if schema && recording.args}
+						<div class="flex gap-4 p-2 h-full">
+							<div class="w-1/2 overflow-auto text-2xs">
+								<HighlightCode
+									language={recording.language as Script['language']}
+									code={recording.code}
+									className="text-2xs"
+								/>
+							</div>
+							<div class="w-1/2 overflow-auto">
+								<SchemaForm
+									{schema}
+									args={recording.args}
+									disabled={true}
+									noVariablePicker={true}
+								/>
+							</div>
+						</div>
+					{/if}
+				</TabContent>
+				<TabContent value="args">
+					{#if recording.args && Object.keys(recording.args).length > 0}
+						<div class="p-2">
+							<JobArgs args={recording.args} />
+						</div>
+					{/if}
+				</TabContent>
 				<TabContent value="code">
-					<div class="p-2 w-full overflow-auto">
+					<div class="p-2 w-full overflow-auto text-2xs">
 						<HighlightCode
 							language={recording.language as Script['language']}
 							code={recording.code}
 							lines
-							className="text-xs"
+							className="text-2xs"
 						/>
 					</div>
 				</TabContent>
@@ -179,47 +294,5 @@
 				</TabContent>
 			{/snippet}
 		</Tabs>
-	</div>
-{:else if replayState === 'playing' && jobId}
-	<div class="flex flex-col gap-4">
-		<div class="flex items-center justify-between">
-			<h2 class="text-lg font-semibold text-emphasis"
-				>Replaying: {recording.script_path || 'Untitled script'}</h2
-			>
-			<Button
-				variant="border"
-				size="xs"
-				on:click={stop}
-				startIcon={{ icon: done ? LogOut : Square }}
-			>
-				{done ? 'Exit' : 'Stop'}
-			</Button>
-		</div>
-		<JobLoader noCode={true} bind:this={jobLoader} bind:job />
-
-		{#if done && job}
-			<div>
-				<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
-				<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-screen">
-					{#if job.type === 'CompletedJob' && job.result !== undefined}
-						<DisplayResult result={job.result} language={job.language} />
-					{:else}
-						<div class="text-secondary text-sm">No result available</div>
-					{/if}
-				</div>
-			</div>
-		{/if}
-
-		<div class="border rounded-md p-2 bg-surface-secondary overflow-auto min-h-[300px]">
-			<LogViewer
-				jobId={job?.id}
-				duration={job?.['duration_ms']}
-				mem={job?.['mem_peak']}
-				isLoading={!done}
-				content={job?.logs}
-				tag={job?.tag}
-				download={false}
-			/>
-		</div>
 	</div>
 {/if}

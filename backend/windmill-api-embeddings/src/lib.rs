@@ -259,7 +259,7 @@ impl EmbeddingsDb {
         self.db
             .create_collection("resource_types".to_string(), 384, Distance::Cosine)?;
 
-        let hub_base_url = HUB_BASE_URL.read().await.clone();
+        let hub_base_url = (**HUB_BASE_URL.load()).clone();
 
         let response = match hub_base_url.as_str() {
             DEFAULT_HUB_BASE_URL => {

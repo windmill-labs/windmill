@@ -93,6 +93,7 @@
 		open={Boolean(deleteConfirmedCallback)}
 		title="Remove"
 		confirmationText="Remove"
+		trashbin
 		on:canceled={() => {
 			deleteConfirmedCallback = undefined
 		}}

@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use axum::async_trait;
+use async_trait::async_trait;
 use itertools::Itertools;
 use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, PgConnection};
@@ -36,10 +36,12 @@ impl TriggerCrud for WebsocketTrigger {
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[
         "url",
         "filters",
+        "filter_logic",
         "initial_messages",
         "url_runnable_args",
         "can_return_message",
         "can_return_error_result",
+        "heartbeat",
     ];
     const IS_ALLOWED_ON_CLOUD: bool = false;
 
@@ -63,6 +65,19 @@ impl TriggerCrud for WebsocketTrigger {
             if !args.is_object() {
                 return Err(Error::BadRequest(
                     "url_runnable_args must be an object".to_string(),
+                ));
+            }
+        }
+
+        if let Some(ref hb) = config.heartbeat {
+            if hb.interval_secs < 1 {
+                return Err(Error::BadRequest(
+                    "heartbeat interval_secs must be at least 1".to_string(),
+                ));
+            }
+            if hb.message.is_empty() {
+                return Err(Error::BadRequest(
+                    "heartbeat message cannot be empty".to_string(),
                 ));
             }
         }
@@ -103,6 +118,7 @@ impl TriggerCrud for WebsocketTrigger {
                 is_flow,
                 mode,
                 filters,
+                filter_logic,
                 initial_messages,
                 url_runnable_args,
                 edited_by,
@@ -112,9 +128,10 @@ impl TriggerCrud for WebsocketTrigger {
                 edited_at,
                 error_handler_path,
                 error_handler_args,
-                retry
+                retry,
+                heartbeat
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now(), $14, $15, $16
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), $15, $16, $17, $18
             )
             "#,
             w_id,
@@ -124,6 +141,7 @@ impl TriggerCrud for WebsocketTrigger {
             trigger.base.is_flow,
             trigger.base.mode() as _,
             &filters as _,
+            trigger.config.filter_logic,
             &initial_messages as _,
             trigger
                 .config
@@ -135,7 +153,8 @@ impl TriggerCrud for WebsocketTrigger {
             resolved_permissioned_as,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
-            trigger.error_handling.retry as _
+            trigger.error_handling.retry as _,
+            trigger.config.heartbeat.map(SqlxJson) as _
         )
         .execute(&mut *tx)
         .await?;
@@ -178,26 +197,29 @@ impl TriggerCrud for WebsocketTrigger {
             path = $3,
             is_flow = $4,
             filters = $5,
-            initial_messages = $6,
-            url_runnable_args = $7,
-            edited_by = $8,
-            permissioned_as = $9,
-            can_return_message = $10,
-            can_return_error_result = $11,
+            filter_logic = $6,
+            initial_messages = $7,
+            url_runnable_args = $8,
+            edited_by = $9,
+            permissioned_as = $10,
+            can_return_message = $11,
+            can_return_error_result = $12,
             edited_at = now(),
             server_id = NULL,
             error = NULL,
-            error_handler_path = $14,
-            error_handler_args = $15,
-            retry = $16
+            error_handler_path = $15,
+            error_handler_args = $16,
+            retry = $17,
+            heartbeat = $18
         WHERE
-            workspace_id = $12 AND path = $13
+            workspace_id = $13 AND path = $14
     ",
             trigger.config.url,
             trigger.base.script_path,
             trigger.base.path,
             trigger.base.is_flow,
             filters.as_slice() as &[SqlxJson<Box<RawValue>>],
+            trigger.config.filter_logic,
             initial_messages.as_slice() as &[SqlxJson<Box<RawValue>>],
             trigger
                 .config
@@ -212,7 +234,8 @@ impl TriggerCrud for WebsocketTrigger {
             path,
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
-            trigger.error_handling.retry as _
+            trigger.error_handling.retry as _,
+            trigger.config.heartbeat.map(SqlxJson) as _
         )
         .execute(&mut *tx)
         .await?;

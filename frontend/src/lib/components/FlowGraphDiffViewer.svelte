@@ -19,7 +19,6 @@
 
 	let { beforeYaml, afterYaml }: Props = $props()
 
-	let parseError = $state<string | undefined>(undefined)
 	let viewerWidth = $state(SIDE_BY_SIDE_MIN_WIDTH)
 	let beforePaneSize = $state(50)
 	let viewMode = $state<'sidebyside' | 'unified'>('sidebyside')
@@ -30,25 +29,31 @@
 	let beforeGraph: FlowGraphV2 | undefined = $state(undefined)
 	let afterGraph: FlowGraphV2 | undefined = $state(undefined)
 
-	let beforeFlow: OpenFlow | undefined = $derived.by(() => {
+	function parseFlow(yaml: string, label: 'before' | 'after'): {
+		flow: OpenFlow | undefined
+		error: string | undefined
+	} {
 		try {
-			const parsed = YAML.parse(beforeYaml)
-			return parsed as OpenFlow
+			return { flow: YAML.parse(yaml) as OpenFlow, error: undefined }
 		} catch (error) {
-			parseError = `Error parsing before flow: ${error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error'}`
-			return undefined
+			return {
+				flow: undefined,
+				error: `Error parsing ${label} flow: ${
+					error instanceof Error
+						? error.message
+						: typeof error === 'string'
+							? error
+							: 'Unknown error'
+				}`
+			}
 		}
-	})
+	}
 
-	let afterFlow: OpenFlow | undefined = $derived.by(() => {
-		try {
-			const parsed = YAML.parse(afterYaml)
-			return parsed as OpenFlow
-		} catch (error) {
-			parseError = `Error parsing after flow: ${error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error'}`
-			return undefined
-		}
-	})
+	let beforeParsed = $derived.by(() => parseFlow(beforeYaml, 'before'))
+	let afterParsed = $derived.by(() => parseFlow(afterYaml, 'after'))
+	let parseError = $derived(beforeParsed.error ?? afterParsed.error)
+	let beforeFlow: OpenFlow | undefined = $derived(beforeParsed.flow)
+	let afterFlow: OpenFlow | undefined = $derived(afterParsed.flow)
 
 	// Determine if we should render side-by-side or unified (user controlled via toggle)
 	let isSideBySide = $derived(viewMode === 'sidebyside')

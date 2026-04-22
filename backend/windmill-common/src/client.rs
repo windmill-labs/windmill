@@ -2,7 +2,7 @@ use anyhow::Context;
 use reqwest::{Body, Response};
 use serde::de::DeserializeOwned;
 
-use crate::utils::HTTP_CLIENT;
+use crate::utils::{HTTP_CLIENT, HTTP_CLIENT_STREAMING};
 
 #[derive(Clone)]
 pub struct AuthedClient {
@@ -49,7 +49,31 @@ impl AuthedClient {
             "{}/api/w/{}/oidc/token/{}",
             self.base_internal_url, self.workspace, audience
         );
-        make_basic_get_request(self, &url, None, Some("decoding oidc token as json string")).await
+        let response = self
+            .force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
+            .post(&url)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))?,
+            )
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::error!("Error requesting oidc token from {url}: {e:#?}");
+                anyhow::anyhow!("Error requesting oidc token from {url}: {e:#?}")
+            })?;
+
+        match response.status().as_u16() {
+            200u16 => Ok(response.text().await.context("reading oidc token body")?),
+            status => {
+                let body = response.text().await.unwrap_or_default();
+                Err(anyhow::anyhow!(
+                    "oidc token request to {url} failed with status {status}: {body}"
+                ))
+            }
+        }
     }
 
     pub async fn get_resource_value<T: DeserializeOwned>(&self, path: &str) -> anyhow::Result<T> {
@@ -166,14 +190,17 @@ impl AuthedClient {
         if let Some(storage) = storage {
             query.push(("storage", storage));
         }
+        let url = format!(
+            "{}/api/w/{}/job_helpers/upload_s3_file",
+            self.base_internal_url, workspace_id
+        );
+        // Use the streaming HTTP client (no total request timeout) because the
+        // upload body is streamed and total time depends on data size.
         let response = self
             .force_client
             .as_ref()
-            .unwrap_or(&HTTP_CLIENT)
-            .post(format!(
-                "{}/api/w/{}/job_helpers/upload_s3_file",
-                self.base_internal_url, workspace_id
-            ))
+            .unwrap_or(&HTTP_CLIENT_STREAMING)
+            .post(&url)
             .query(&query)
             .header(
                 reqwest::header::ACCEPT,
@@ -187,12 +214,17 @@ impl AuthedClient {
             .body(Body::wrap_stream(body))
             .send()
             .await
-            .context(format!("Sent upload_s3_file request",))
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            .context(format!("Failed to send upload_s3_file request to {url}"))?;
 
         match response.status().as_u16() {
             200u16 => Ok(()),
-            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default()))?,
+            _ => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                Err(anyhow::anyhow!(
+                    "upload_s3_file request to {url} failed with status {status}: {body}"
+                ))
+            }
         }
     }
 

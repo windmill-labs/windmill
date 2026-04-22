@@ -35,7 +35,7 @@ mod dependency_map {
             schema: std::collections::HashMap::new(),
             ws_error_handler_muted: Some(false),
             priority: None,
-            delete_after_use: None,
+            delete_after_secs: None,
             timeout: None,
             restart_unless_cancelled: None,
             deployment_message: None,
@@ -450,6 +450,7 @@ def main():
                 on_behalf_of_email: None,
                 preserve_on_behalf_of: None,
                 ws_error_handler_muted: None,
+                labels: None,
             })
             .send()
             .await
@@ -511,6 +512,7 @@ def main():
                 deployment_message: None,
                 custom_path: None,
                 preserve_on_behalf_of: None,
+                labels: None,
             })
             .send()
             .await

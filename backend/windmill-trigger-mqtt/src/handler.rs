@@ -1,4 +1,4 @@
-use axum::async_trait;
+use async_trait::async_trait;
 use itertools::Itertools;
 use sqlx::{types::Json as SqlxJson, PgConnection};
 use windmill_api_auth::ApiAuthed;

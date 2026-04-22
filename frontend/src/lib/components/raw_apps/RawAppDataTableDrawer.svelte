@@ -42,7 +42,9 @@
 	const datatables = resource<string[]>([], async () => {
 		if (!$workspaceStore) return []
 		try {
-			return await WorkspaceService.listDataTables({ workspace: $workspaceStore })
+			return (await WorkspaceService.listDataTables({ workspace: $workspaceStore })).map(
+				(d) => d.name
+			)
 		} catch (e) {
 			console.error('Failed to load datatables:', e)
 			return []

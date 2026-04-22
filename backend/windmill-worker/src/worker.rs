@@ -164,6 +164,9 @@ use crate::java_executor::{handle_java_job, JobHandlerInput as JobHandlerInputJa
 #[cfg(feature = "ruby")]
 use crate::ruby_executor::{handle_ruby_job, JobHandlerInput as JobHandlerInputRuby};
 
+#[cfg(feature = "rlang")]
+use crate::r_executor::{handle_r_job, JobHandlerInput as JobHandlerInputRlang};
+
 #[cfg(feature = "php")]
 use crate::php_executor::handle_php_job;
 
@@ -229,6 +232,9 @@ lazy_static::lazy_static! {
 
     // Ruby
     pub static ref RUBY_CACHE_DIR: String = format!("{}ruby", *ROOT_CACHE_DIR);
+
+    // R
+    pub static ref R_CACHE_DIR: String = format!("{}rlang", *ROOT_CACHE_DIR);
 
     // for related places search: ADD_NEW_LANG
     pub static ref BUN_CACHE_DIR: String = format!("{}bun", *ROOT_CACHE_NOMOUNT_DIR);
@@ -763,7 +769,11 @@ pub async fn read_ee_registry_with_workspace_override(
                 _ => None,
             })
     };
-    let value = ws_value.or(global_value);
+    // An empty/whitespace-only value (from either source) means "unset" — a
+    // workspace override of `""` still takes precedence over the global
+    // value, but neither triggers the spurious "requires Enterprise" warning
+    // on CE jobs.
+    let value = ws_value.or(global_value).filter(|s| !s.trim().is_empty());
     read_ee_registry(value, display_name, job_id, w_id, conn).await
 }
 
@@ -906,8 +916,14 @@ pub fn get_otel_context_envs(job_id: &uuid::Uuid) -> Vec<(&'static str, String)>
 /// Get proxy environment variables for job execution for a specific language.
 /// When OTEL tracing proxy is enabled for this language, routes all traffic through the proxy.
 /// Otherwise, uses the standard HTTP_PROXY/HTTPS_PROXY from environment.
+///
+/// Deployment callback jobs (git sync) always bypass the MITM tracing proxy and use the
+/// stock corporate proxy. Routing git's HTTPS through the local MITM breaks TLS for
+/// GitHub/GitLab in chained-upstream-proxy setups, and we don't need HTTP spans for the
+/// system git sync script anyway.
 pub async fn get_proxy_envs_for_lang(
     lang: &ScriptLang,
+    job_kind: JobKind,
     job_id: &uuid::Uuid,
     w_id: &str,
     conn: &Connection,
@@ -915,14 +931,16 @@ pub async fn get_proxy_envs_for_lang(
     #[allow(unused_mut)]
     let mut envs;
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    if is_otel_tracing_proxy_enabled_for_lang(lang).await {
+    if !matches!(job_kind, JobKind::DeploymentCallback)
+        && is_otel_tracing_proxy_enabled_for_lang(lang).await
+    {
         envs = get_otel_tracing_proxy_envs(job_id, w_id, conn).await?;
     } else {
         envs = PROXY_ENVS.clone();
     }
     #[cfg(not(all(feature = "private", feature = "enterprise")))]
     {
-        let _ = (lang, w_id, conn);
+        let _ = (lang, job_kind, w_id, conn);
         envs = PROXY_ENVS.clone();
     }
     envs.extend(get_otel_context_envs(job_id));
@@ -1271,12 +1289,17 @@ fn add_outstanding_wait_time(
 
     if let Some(db) = conn.as_sql() {
         let db = db.clone();
-        tokio::spawn(async move {
-            match insert_wait_time(job_id, root_job_id, &db, wait_time).await {
-                Ok(()) => tracing::warn!("job {job_id} waited for an executor for a significant amount of time. Recording value wait_time={}ms", wait_time),
-                Err(e) => tracing::error!("Failed to insert outstanding wait time: {}", e),
+        let span = tracing::Span::current();
+        windmill_common::log_context::spawn_with_log_context(async move {
+            async move {
+                match insert_wait_time(job_id, root_job_id, &db, wait_time).await {
+                    Ok(()) => tracing::warn!("job {job_id} waited for an executor for a significant amount of time. Recording value wait_time={}ms", wait_time),
+                    Err(e) => tracing::error!("Failed to insert outstanding wait time: {}", e),
+                }
             }
-        }.in_current_span());
+            .instrument(span)
+            .await
+        });
     }
 }
 
@@ -1310,6 +1333,11 @@ pub fn create_span_with_name(
         script_path = field::Empty,
         flow_step_id = field::Empty,
         parent_job = field::Empty,
+        job_kind = %arc_job.kind.as_str(),
+        created_by = %arc_job.created_by,
+        trigger_kind = field::Empty,
+        trigger = field::Empty,
+        script_hash = field::Empty,
         otel.name = field::Empty
     );
 
@@ -1336,9 +1364,50 @@ pub fn create_span_with_name(
     if let Some(hostname) = hostname {
         span.record("hostname", hostname);
     }
+    if let Some(trigger_kind) = arc_job.trigger_kind.as_ref() {
+        span.record("trigger_kind", trigger_kind.to_string().as_str());
+    }
+    if let Some(trigger) = arc_job.trigger.as_ref() {
+        span.record("trigger", trigger.as_str());
+    }
+    if let Some(script_hash) = arc_job.runnable_id.as_ref() {
+        span.record("script_hash", script_hash.to_string().as_str());
+    }
 
     windmill_common::otel_oss::set_span_parent(&span, &rj);
     span
+}
+
+/// Build the per-job `LogContext` that gets seeded at the top of job
+/// execution. Mirrors the field set recorded on the `"job"` tracing span in
+/// `create_span_with_name` so exported log records and traces carry the
+/// same identifiers.
+pub fn log_context_for_job(
+    arc_job: &MiniPulledJob,
+    worker_name: &str,
+    hostname: Option<&str>,
+) -> windmill_common::log_context::LogContext {
+    let existing = windmill_common::log_context::current_log_context()
+        .map(|arc| (*arc).clone())
+        .unwrap_or_default();
+    windmill_common::log_context::LogContext {
+        job_id: Some(arc_job.id.to_string()),
+        workspace_id: Some(arc_job.workspace_id.clone()),
+        worker: Some(worker_name.to_string()),
+        tag: Some(arc_job.tag.clone()),
+        job_kind: Some(arc_job.kind.as_str().to_string()),
+        created_by: Some(arc_job.created_by.clone()),
+        script_path: arc_job.runnable_path.clone(),
+        script_hash: arc_job.runnable_id.map(|h| h.to_string()),
+        language: arc_job.script_lang.map(|l| l.as_str().to_string()),
+        flow_step_id: arc_job.flow_step_id.clone(),
+        parent_job: arc_job.parent_job.map(|id| id.to_string()),
+        root_job: arc_job.flow_innermost_root_job.map(|id| id.to_string()),
+        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.to_string()),
+        trigger: arc_job.trigger.clone(),
+        hostname: hostname.map(|h| h.to_string()),
+        ..existing
+    }
 }
 
 pub async fn handle_all_job_kind_error(
@@ -1868,7 +1937,7 @@ pub async fn run_worker(
     let mut jobs_executed = 0;
 
     let is_dedicated_worker: bool = {
-        let config = WORKER_CONFIG.read().await;
+        let config = WORKER_CONFIG.load();
         config.dedicated_worker.is_some()
             || config
                 .dedicated_workers
@@ -1979,7 +2048,7 @@ pub async fn run_worker(
             worker = %worker_name, hostname = %hostname,
             "listening for jobs, WORKER_GROUP: {}, config: {:?}",
             *WORKER_GROUP,
-            WORKER_CONFIG.read().await
+            WORKER_CONFIG.load()
         );
     }
 
@@ -1988,9 +2057,8 @@ pub async fn run_worker(
     // Option<JoinHandle<()>>,
 
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    let (dedicated_workers, dedicated_flow_paths, dedicated_handles): (
+    let (dedicated_workers, dedicated_handles): (
         HashMap<String, Sender<DedicatedWorkerJob>>,
-        HashSet<String>,
         Vec<JoinHandle<()>>,
     ) = match conn {
         Connection::Sql(pool) => {
@@ -2005,15 +2073,14 @@ pub async fn run_worker(
             )
             .await
         }
-        Connection::Http(_) => (HashMap::new(), HashSet::new(), vec![]),
+        Connection::Http(_) => (HashMap::new(), vec![]),
     };
 
     #[cfg(any(not(feature = "private"), not(feature = "enterprise")))]
-    let (dedicated_workers, dedicated_flow_paths, dedicated_handles): (
+    let (dedicated_workers, dedicated_handles): (
         HashMap<String, Sender<DedicatedWorkerJob>>,
-        HashSet<String>,
         Vec<JoinHandle<()>>,
-    ) = (HashMap::new(), HashSet::new(), vec![]);
+    ) = (HashMap::new(), vec![]);
 
     if i_worker == 1 {
         // Initialize runtime asset inserter for batched database inserts
@@ -2074,7 +2141,7 @@ pub async fn run_worker(
         }
         #[cfg(feature = "enterprise")]
         {
-            let valid_key = *LICENSE_KEY_VALID.read().await;
+            let valid_key = LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed);
 
             if !valid_key {
                 tracing::error!(
@@ -2474,17 +2541,21 @@ pub async fn run_worker(
                     JobKind::Script | JobKind::Preview | JobKind::FlowScript
                 ) {
                     if !dedicated_workers.is_empty() {
-                        // Try flow path + step_id combinations for flow jobs, otherwise use runnable_path
-                        let dedicated_worker_tx = if let Some(step_id) = job.flow_step_id.as_ref() {
-                            dedicated_flow_paths.iter().find_map(|flow_path| {
-                                let key = format!("{}:{}", flow_path, step_id);
-                                dedicated_workers.get(&key)
-                            })
-                        } else {
-                            job.runnable_path
-                                .as_ref()
-                                .and_then(|path| dedicated_workers.get(path))
-                        };
+                        let dedicated_worker_tx = job.runnable_path.as_ref().and_then(|path| {
+                            // For flow steps inside branches/loops, runnable_path includes
+                            // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
+                            // worker map is keyed by flow_root/step_id (e.g. f/flow/a).
+                            // When nesting segments are present, use flow_root + flow_step_id
+                            // to construct the correct key.
+                            let key =
+                                if let Some(flow_root) = crate::common::extract_flow_root(path) {
+                                    let step_id = job.flow_step_id.as_deref().unwrap_or("");
+                                    format!("{}:{}/{}", job.workspace_id, flow_root, step_id)
+                                } else {
+                                    format!("{}:{}", job.workspace_id, path)
+                                };
+                            dedicated_workers.get(&key)
+                        });
                         if let Some(dedicated_worker_tx) = dedicated_worker_tx {
                             let dedicated_job = DedicatedWorkerJob {
                                 job: Arc::new(job.job()),
@@ -2745,31 +2816,37 @@ pub async fn run_worker(
 
                     let arc_job = Arc::new(job);
 
-                    let span = create_span_with_name(&arc_job, &worker_name, Some(hostname), "job");
+                    windmill_common::sensitive_log_masks::register_running_job(arc_job.id);
 
-                    let job_result = handle_queued_job(
-                        arc_job.clone(),
-                        raw_code,
-                        raw_lock,
-                        raw_flow,
-                        parent_runnable_path,
-                        &conn,
-                        &authed_client,
-                        hostname,
-                        &worker_name,
-                        &worker_dir,
-                        &job_dir,
-                        Some(same_worker_tx.clone()),
-                        base_internal_url,
-                        job_completed_tx.clone(),
-                        &mut occupancy_metrics,
-                        &mut killpill_rx2,
-                        precomputed_bundle,
-                        flow_runners,
-                        #[cfg(feature = "benchmark")]
-                        &mut bench,
+                    let span = create_span_with_name(&arc_job, &worker_name, Some(hostname), "job");
+                    let log_ctx = log_context_for_job(&arc_job, &worker_name, Some(hostname));
+
+                    let job_result = windmill_common::log_context::with_log_context(
+                        log_ctx,
+                        handle_queued_job(
+                            arc_job.clone(),
+                            raw_code,
+                            raw_lock,
+                            raw_flow,
+                            parent_runnable_path,
+                            &conn,
+                            &authed_client,
+                            hostname,
+                            &worker_name,
+                            &worker_dir,
+                            &job_dir,
+                            Some(same_worker_tx.clone()),
+                            base_internal_url,
+                            job_completed_tx.clone(),
+                            &mut occupancy_metrics,
+                            &mut killpill_rx2,
+                            precomputed_bundle,
+                            flow_runners,
+                            #[cfg(feature = "benchmark")]
+                            &mut bench,
+                        )
+                        .instrument(span),
                     )
-                    .instrument(span)
                     .await;
 
                     match job_result {
@@ -2843,6 +2920,8 @@ pub async fn run_worker(
                         }
                         _ => {}
                     }
+
+                    windmill_common::sensitive_log_masks::unregister_running_job(job_id);
 
                     #[cfg(feature = "prometheus")]
                     if let Some(duration) = _timer.map(|x| x.stop_and_record()) {
@@ -2935,7 +3014,7 @@ pub async fn run_worker(
 
     #[cfg(feature = "enterprise")]
     {
-        let valid_key = *LICENSE_KEY_VALID.read().await;
+        let valid_key = LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed);
 
         if !valid_key {
             tracing::info!(worker = %worker_name, hostname = %hostname, "Invalid license key, exiting immediately");
@@ -2995,7 +3074,7 @@ async fn queue_init_bash_maybe<'c>(
     same_worker_tx: SameWorkerSender,
     worker_name: &str,
 ) -> anyhow::Result<bool> {
-    let uuid_content = if let Some(content) = WORKER_CONFIG.read().await.init_bash.clone() {
+    let uuid_content = if let Some(content) = WORKER_CONFIG.load().init_bash.clone() {
         let uuid = match conn {
             Connection::Sql(db) => push_init_job(db, content.clone(), worker_name).await?,
             Connection::Http(client) => queue_init_job(client, &content).await?,
@@ -3023,7 +3102,7 @@ fn spawn_periodic_script_task(
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     tokio::spawn(async move {
-        let config = WORKER_CONFIG.read().await;
+        let config = WORKER_CONFIG.load();
 
         match (
             &config.periodic_script_bash,
@@ -4598,7 +4677,8 @@ mount {{
             | ScriptLang::Bash
             | ScriptLang::Powershell
             | ScriptLang::Ansible
-            | ScriptLang::Ruby => "#",
+            | ScriptLang::Ruby
+            | ScriptLang::Rlang => "#",
             ScriptLang::Deno
             | ScriptLang::Bun
             | ScriptLang::Bunnative
@@ -5110,6 +5190,38 @@ mount {{
                 .await
             }
         }
+        ScriptLang::Rlang => {
+            #[cfg(not(feature = "rlang"))]
+            return Err(
+                anyhow::anyhow!("R is not available because the feature is not enabled").into(),
+            );
+
+            #[cfg(feature = "rlang")]
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                Box::pin(handle_r_job(JobHandlerInputRlang {
+                    mem_peak,
+                    canceled_by,
+                    job,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    inner_content: &code,
+                    job_dir,
+                    requirements_o: lock.as_ref(),
+                    shared_mount: &shared_mount,
+                    base_internal_url,
+                    worker_name,
+                    envs,
+                    occupancy_metrics,
+                }))
+                .await
+            }
+        }
         // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
@@ -5243,6 +5355,10 @@ pub fn parse_sig_of_lang(
             ScriptLang::Ruby => Some(windmill_parser_ruby::parse_ruby_signature(code)?),
             #[cfg(not(feature = "ruby"))]
             ScriptLang::Ruby => None,
+            #[cfg(feature = "rlang")]
+            ScriptLang::Rlang => Some(windmill_parser_r::parse_r_signature(code)?),
+            #[cfg(not(feature = "rlang"))]
+            ScriptLang::Rlang => None,
             // for related places search: ADD_NEW_LANG
         }
     } else {

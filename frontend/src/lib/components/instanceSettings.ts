@@ -64,6 +64,7 @@ export interface Setting {
 	hiddenInEe?: boolean
 	hideInQuickSetup?: boolean
 	requiresReloadOnChange?: boolean
+	triggersRestart?: boolean
 	isValid?: (value: any) => boolean
 	validate?: (value: any) => Record<string, string>
 	error?: string
@@ -79,6 +80,7 @@ export interface Setting {
 export type SettingStorage = 'setting'
 
 const positiveNumber = z.number().positive('Must be a positive number')
+const nonNegativeNumber = z.number().nonnegative('Must be zero or a positive number')
 
 const indexerSettingsSchema = z
 	.object({
@@ -88,7 +90,7 @@ const indexerSettingsSchema = z
 		max_indexed_job_log_size: positiveNumber.optional(),
 		commit_log_max_batch_size: positiveNumber.optional(),
 		refresh_log_index_period: positiveNumber.optional(),
-		max_index_time_window_secs: positiveNumber.optional()
+		max_index_time_window_secs: nonNegativeNumber.optional()
 	})
 	.passthrough()
 
@@ -121,7 +123,8 @@ export const scimSamlSetting: Setting[] = [
 		fieldType: 'textarea',
 		placeholder: 'https://dev-2578259.okta.com/app/exkaell8gidiiUWrg5d7/sso/saml/metadata ',
 		storage: 'setting',
-		ee_only: ''
+		ee_only: '',
+		triggersRestart: true
 	}
 ]
 
@@ -150,6 +153,7 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'text',
 			placeholder: 'mail.windmill.com',
 			storage: 'setting',
+			triggersRestart: true,
 			error: 'Must be a valid domain',
 			isValid: (value: string | undefined) =>
 				value == undefined ||
@@ -165,7 +169,8 @@ export const settings: Record<string, Setting[]> = {
 			key: 'request_size_limit_mb',
 			fieldType: 'number',
 			placeholder: '50',
-			storage: 'setting'
+			storage: 'setting',
+			triggersRestart: true
 		},
 		{
 			label: 'License key',
@@ -191,6 +196,16 @@ export const settings: Record<string, Setting[]> = {
 			description:
 				'When enabled apps will be accessible at /a/{workspace_id}/{custom_path} instead of /a/{custom_path} allowing you to define same custom path for apps in different workspace without conflict',
 			key: 'app_workspaced_route',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'HTTP route workspace prefix',
+			description:
+				'When enabled HTTP routes will be accessible at /api/r/{workspace_id}/{route} instead of /api/r/{route} allowing you to define same route path in different workspaces without conflict',
+			key: 'http_route_workspaced_route',
 			fieldType: 'boolean',
 			storage: 'setting',
 			ee_only: '',
@@ -284,7 +299,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Delete logs from s3 periodically',
 			description:
-				'Job and service logs are periodically deleted from disk. When this setting is on, they will also be deleted from the object storage.',
+				'Job and service logs are periodically deleted from disk when they expire. When this setting is on, they are also deleted from object storage. Defaults to on when object storage is configured; turn off to keep logs in object storage indefinitely.',
 			key: 'monitor_logs_on_s3',
 			fieldType: 'boolean',
 			storage: 'setting',
@@ -365,7 +380,17 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		}
 	],
-	'Auth/OAuth/SAML': [],
+	'Auth/OAuth/SAML': [
+		{
+			label: 'Disable password login',
+			description:
+				'Hide the email/password form on the login page and reject password login requests. Use when you only want OAuth/SAML logins.',
+			key: 'disable_password_login',
+			fieldType: 'boolean',
+			storage: 'setting'
+		}
+	],
+	'DB Health': [],
 	Registries: [
 		{
 			label: 'Instance Python Version',
@@ -628,7 +653,8 @@ export const settings: Record<string, Setting[]> = {
 			key: 'otel',
 			fieldType: 'otel',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			triggersRestart: true
 		},
 		{
 			label: 'HTTP Request Tracing',
@@ -638,6 +664,7 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'otel_tracing_proxy',
 			storage: 'setting',
 			ee_only: 'HTTP Request Tracing is an EE feature',
+			triggersRestart: true,
 			defaultValue: () => ({ enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] })
 		},
 		{
@@ -647,7 +674,8 @@ export const settings: Record<string, Setting[]> = {
 			key: 'expose_metrics',
 			fieldType: 'boolean',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			triggersRestart: true
 		}
 	],
 	Indexer: [
@@ -672,27 +700,28 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Backend type',
 			description:
-				'By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault as an external secret store.',
+				'By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault, Azure Key Vault, and AWS Secrets Manager as external secret backends.',
 			key: 'secret_backend',
 			fieldType: 'secret_backend',
 			storage: 'setting',
-			ee_only: 'HashiCorp Vault integration is an Enterprise Edition feature'
+			ee_only:
+				'HashiCorp Vault, Azure Key Vault, and AWS Secrets Manager integrations are Enterprise Edition features'
 		}
 	],
-	'GitHub Enterprise App': [
+	'GitHub App': [
 		{
-			label: 'GitHub Enterprise App',
+			label: 'GitHub App',
 			description:
-				'Configure a self-managed GitHub App for GitHub Enterprise Server (or any GitHub instance) to enable git sync without stats.windmill.dev.',
+				'Configure a self-managed GitHub App to enable git sync without stats.windmill.dev.',
 			key: 'github_enterprise_app',
 			fieldType: 'github_enterprise_app',
 			storage: 'setting',
 			ee_only: '',
 			error:
-				'When self-managed mode is enabled, Base URL, App ID, App Slug, and Private Key are required.',
+				'When self-managed mode is enabled, Base URL, App ID, App Slug, Client ID, and Private Key are required.',
 			isValid: (v: any) => {
 				if (!v?.self_managed) return true
-				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.private_key)
+				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.client_id && v?.private_key)
 			}
 		}
 	],
@@ -711,6 +740,18 @@ export const settings: Record<string, Setting[]> = {
 					value.includes('://') &&
 					!value.endsWith('/') &&
 					!value.endsWith(' '))
+		}
+	],
+	LSP: [
+		{
+			label: 'Ruff config (ruff.toml)',
+			description:
+				'Shared ruff.toml applied to the Python editor linter across the whole instance. The LSP container fetches this every minute and writes it next to edited files. See <a href="https://docs.astral.sh/ruff/configuration/">ruff docs</a>',
+			key: 'ruff_config',
+			fieldType: 'codearea',
+			codeAreaLang: 'toml',
+			placeholder: 'line-length = 100\n\n[lint]\nselect = ["E", "F", "I"]\nignore = ["E501"]',
+			storage: 'setting'
 		}
 	]
 }
@@ -819,6 +860,12 @@ export const instanceSettingsNavigationGroups = [
 				aiId: 'instance-settings-indexer',
 				aiDescription: 'Instance indexer settings',
 				isEE: true
+			},
+			{
+				id: 'db_health',
+				label: 'DB Health',
+				aiId: 'instance-settings-db-health',
+				aiDescription: 'Database health diagnostics and performance insights'
 			}
 		]
 	},
@@ -838,9 +885,9 @@ export const instanceSettingsNavigationGroups = [
 		items: [
 			{
 				id: 'github_enterprise_app',
-				label: 'GitHub Enterprise App',
+				label: 'GitHub App',
 				aiId: 'instance-settings-github-enterprise-app',
-				aiDescription: 'Self-managed GitHub App for GitHub Enterprise Server git sync',
+				aiDescription: 'Self-managed GitHub App for git sync',
 				isEE: true
 			},
 			{
@@ -867,6 +914,12 @@ export const instanceSettingsNavigationGroups = [
 				label: 'WebSocket',
 				aiId: 'instance-settings-websocket',
 				aiDescription: 'WebSocket connectivity test and URL override'
+			},
+			{
+				id: 'lsp',
+				label: 'LSP',
+				aiId: 'instance-settings-lsp',
+				aiDescription: 'Language server protocol settings (ruff config, editor linting)'
 			}
 		]
 	}
@@ -889,8 +942,10 @@ export const tabToCategoryMap: Record<string, string> = {
 	object_storage: 'Object Storage',
 	jobs: 'Jobs',
 	private_hub: 'Private Hub',
-	github_enterprise_app: 'GitHub Enterprise App',
-	websocket: 'WebSocket'
+	github_enterprise_app: 'GitHub App',
+	websocket: 'WebSocket',
+	db_health: 'DB Health',
+	lsp: 'LSP'
 }
 
 export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
@@ -922,8 +977,10 @@ export const categoryToTabMap: Record<string, string> = {
 	'Object Storage': 'object_storage',
 	Jobs: 'jobs',
 	'Private Hub': 'private_hub',
-	'GitHub Enterprise App': 'github_enterprise_app',
-	WebSocket: 'websocket'
+	'GitHub App': 'github_enterprise_app',
+	WebSocket: 'websocket',
+	'DB Health': 'db_health',
+	LSP: 'lsp'
 }
 
 export interface SearchableSettingItem {

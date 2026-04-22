@@ -15,8 +15,8 @@ use crate::db::ApiAuthed;
 use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
 use argon2::Argon2;
 use axum::{
-    extract::{Extension, Path},
-    routing::post,
+    extract::{Extension, Path, Query},
+    routing::{get, post},
     Json, Router,
 };
 use hyper::StatusCode;
@@ -31,14 +31,36 @@ use windmill_common::{
     DB,
 };
 
+/// Wraps the subcrate's workspaced_service with offboarding routes.
+pub fn workspaced_service() -> Router {
+    windmill_api_users::users::workspaced_service()
+        .route(
+            "/offboard_preview/{user}",
+            get(crate::offboarding::offboard_preview),
+        )
+        .route(
+            "/offboard/{user}",
+            post(crate::offboarding::offboard_workspace_user),
+        )
+}
+
 /// Wraps the subcrate's global_service with routes that depend on windmill-api internals.
 pub fn global_service() -> Router {
     windmill_api_users::users::global_service()
         .route("/setpassword", post(set_password))
-        .route("/set_password_of/:user", post(set_password_of_user))
+        .route("/set_password_of/{user}", post(set_password_of_user))
         .route("/create", post(create_user))
-        .route("/rename/:user", post(rename_user))
+        .route("/rename/{user}", post(rename_user))
         .route("/onboarding", post(submit_onboarding_data))
+        .route("/ext_jwt_tokens", get(list_ext_jwt_tokens))
+        .route(
+            "/offboard_preview/{user}",
+            get(crate::offboarding::global_offboard_preview),
+        )
+        .route(
+            "/offboard/{user}",
+            post(crate::offboarding::offboard_global_user),
+        )
 }
 
 /// Wraps the subcrate's make_unauthed_service with routes that depend on windmill-api internals.
@@ -63,6 +85,56 @@ async fn submit_onboarding_data(
     Json(data): Json<crate::users_oss::OnboardingData>,
 ) -> Result<String> {
     crate::users_oss::submit_onboarding_data(authed, Extension(db), Json(data)).await
+}
+
+#[derive(serde::Serialize)]
+pub struct ExternalJwtToken {
+    pub jwt_hash: i64,
+    pub email: String,
+    pub username: String,
+    pub is_admin: bool,
+    pub is_operator: bool,
+    pub workspace_id: Option<String>,
+    pub label: Option<String>,
+    pub scopes: Option<Vec<String>>,
+    pub last_used_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(serde::Deserialize)]
+struct ListExtJwtTokensQuery {
+    page: Option<usize>,
+    per_page: Option<usize>,
+    #[serde(default)]
+    active_only: bool,
+}
+
+async fn list_ext_jwt_tokens(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<ListExtJwtTokensQuery>,
+) -> Result<Json<Vec<ExternalJwtToken>>> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let (per_page, offset) = windmill_common::utils::paginate(windmill_common::utils::Pagination {
+        page: query.page,
+        per_page: query.per_page,
+    });
+
+    let rows = sqlx::query_as!(
+        ExternalJwtToken,
+        "SELECT jwt_hash, email, username, is_admin, is_operator, workspace_id, label, scopes, last_used_at
+         FROM unique_ext_jwt_token
+         WHERE NOT $3 OR last_used_at > NOW() - INTERVAL '30 days'
+         ORDER BY last_used_at DESC
+         LIMIT $1 OFFSET $2",
+        per_page as i64,
+        offset as i64,
+        query.active_only,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(rows))
 }
 
 async fn set_password(
@@ -294,13 +366,13 @@ async fn update_username_in_workpsace<'c>(
     let old_prefix = format!("u/{}/", old_username);
     let new_prefix = format!("u/{}/", new_username);
 
-    // Fetch all Vault-stored secret variables under this user's path
+    // Fetch all externally-stored secret variables under this user's path
     let vault_secrets: Vec<(String, String)> = sqlx::query!(
         r#"SELECT path, value FROM variable
            WHERE path LIKE ('u/' || $1 || '/%')
            AND workspace_id = $2
            AND is_secret = true
-           AND value LIKE '$vault:%'"#,
+           AND (value LIKE '$vault:%' OR value LIKE '$azure_kv:%')"#,
         old_username,
         w_id
     )
@@ -676,6 +748,14 @@ async fn reset_password(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(req): Json<ResetPassword>,
 ) -> Result<Json<PasswordResetResponse>> {
+    if windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(Error::BadRequest(
+            "Password login is disabled on this instance".to_string(),
+        ));
+    }
+
     let mut tx = db.begin().await?;
 
     // Find the token and verify it's not expired

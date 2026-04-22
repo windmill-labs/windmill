@@ -1032,6 +1032,93 @@ result: S3Object = wmill.write_s3_file(
 ```
 
 
+# R
+
+## Structure
+
+Define a `main` function using `<-` or `=` assignment. Parameters become the script inputs:
+
+```r
+library(dplyr)
+library(jsonlite)
+
+main <- function(x, name = "default", flag = TRUE) {
+    df <- tibble(x = x, name = name)
+    result <- df %>% mutate(greeting = paste("Hello", name))
+    return(toJSON(result, auto_unbox = TRUE))
+}
+```
+
+**Important:**
+- The `main` function is required
+- Use `library()` to load packages — they are resolved and installed automatically
+- `jsonlite` is always available (used internally for argument parsing)
+- Return values must be JSON-serializable
+
+## Parameters
+
+R types map to Windmill types:
+- `numeric` → float/int
+- `character` → string
+- `logical` → bool (use `TRUE`/`FALSE`)
+- `list` → object/dict
+- `NULL` → null
+
+Default values are inferred from the function signature:
+
+```r
+main <- function(
+    name,              # required string
+    count = 10,        # optional int, default 10
+    verbose = FALSE    # optional bool, default FALSE
+) {
+    # ...
+}
+```
+
+## Resources and Variables
+
+Use the built-in Windmill helpers (no import needed):
+
+```r
+main <- function() {
+    # Get a variable
+    api_key <- get_variable("f/my_folder/api_key")
+
+    # Get a resource (returns a list)
+    db <- get_resource("f/my_folder/postgres_config")
+    host <- db$host
+    port <- db$port
+
+    return(list(host = host, port = port))
+}
+```
+
+## Output
+
+Return any JSON-serializable value from `main`. The return value becomes the step result:
+
+```r
+main <- function(x) {
+    # Return a scalar
+    return(x + 1)
+
+    # Or a list (becomes JSON object)
+    return(list(result = x + 1, status = "ok"))
+}
+```
+
+## Annotations
+
+Control execution behavior with comment annotations:
+
+```r
+#renv_verbose = true        # Show verbose renv output during resolution
+#renv_install_verbose = true # Show verbose output during package installation
+#sandbox = true              # Run in nsjail sandbox (requires nsjail)
+```
+
+
 # Rust
 
 ## Structure
@@ -1125,6 +1212,8 @@ SELECT * FROM users WHERE name = ? AND age > ?;
 # TypeScript SDK (windmill-client)
 
 Import: import * as wmill from 'windmill-client'
+
+workerHasInternalServer(): boolean
 
 /**
  * Initialize the Windmill client with authentication token and base URL
@@ -1663,6 +1752,8 @@ ducklake(name: string = "main"): SqlTemplateFunction
 
 Import: import wmill
 
+def worker_has_internal_server() -> bool
+
 def get_mocked_api() -> Optional[dict]
 
 # Get the HTTP client instance.
@@ -1727,7 +1818,10 @@ def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int
 # Run script by hash synchronously and return its result.
 def run_script_by_hash(hash_: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any
 
-# Run a script on the current worker without creating a job
+# Run a script on the current worker without creating a job.
+# 
+# On agent workers (no internal server), falls back to running a normal
+# preview job and waiting for the result.
 def run_inline_script_preview(content: str, language: str, args: dict = None) -> Any
 
 # Wait for a job to complete and return its result.

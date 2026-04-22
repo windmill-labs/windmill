@@ -12,6 +12,7 @@ use sqlx::{Postgres, Transaction};
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use windmill_api_auth::ApiAuthed;
@@ -58,7 +59,44 @@ use windmill_common::{
 use windmill_common::{BASE_URL, HUB_BASE_URL};
 use windmill_git_sync::handle_deployment_metadata;
 
-const COOKIE_PATH: &str = "/";
+pub const COOKIE_PATH: &str = "/";
+
+const TOKEN_CREATE_LIMIT_PER_MINUTE: i32 = 10;
+
+struct TokenRateLimitEntry {
+    count: i32,
+    minute_bucket: i64,
+}
+
+static TOKEN_CREATE_RATE_LIMIT: LazyLock<dashmap::DashMap<String, TokenRateLimitEntry>> =
+    LazyLock::new(dashmap::DashMap::new);
+
+fn check_token_create_rate_limit(username: &str) -> Result<()> {
+    if !*CLOUD_HOSTED {
+        return Ok(());
+    }
+
+    let current_minute = chrono::Utc::now().timestamp() / 60;
+
+    let mut entry = TOKEN_CREATE_RATE_LIMIT
+        .entry(username.to_string())
+        .or_insert(TokenRateLimitEntry { count: 0, minute_bucket: current_minute });
+
+    if entry.minute_bucket != current_minute {
+        entry.count = 0;
+        entry.minute_bucket = current_minute;
+    }
+
+    if entry.count >= TOKEN_CREATE_LIMIT_PER_MINUTE {
+        return Err(Error::Generic(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many token creation requests. Please try again later.".to_string(),
+        ));
+    }
+
+    entry.count += 1;
+    Ok(())
+}
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -66,32 +104,37 @@ pub fn workspaced_service() -> Router {
         .route("/list_usage", get(list_user_usage))
         .route("/list_usernames", get(list_usernames))
         .route("/exists", post(exists_username))
-        .route("/get/:user", get(get_workspace_user))
-        .route("/update/:user", post(update_workspace_user))
-        .route("/delete/:user", delete(delete_workspace_user))
-        .route("/convert_to_group/:user", post(convert_user_to_group))
-        .route("/is_owner/*path", get(is_owner_of_path))
-        .route("/whois/:username", get(whois))
+        .route("/get/{user}", get(get_workspace_user))
+        .route("/update/{user}", post(update_workspace_user))
+        .route("/delete/{user}", delete(delete_workspace_user))
+        .route("/convert_to_group/{user}", post(convert_user_to_group))
+        .route("/is_owner/{*path}", get(is_owner_of_path))
+        .route("/whois/{username}", get(whois))
         .route("/whoami", get(whoami))
         .route("/leave", post(leave_workspace))
-        .route("/username_to_email/:username", get(username_to_email))
+        .route("/username_to_email/{username}", get(username_to_email))
+        .route(
+            "/impersonate_service_account",
+            post(impersonate_service_account),
+        )
+        .route("/exit_impersonation", post(exit_impersonation))
 }
 
 pub fn global_service() -> Router {
     Router::new()
-        .route("/exists/:email", get(exists_email))
+        .route("/exists/{email}", get(exists_email))
         .route("/email", get(get_email))
         .route("/whoami", get(global_whoami))
         .route("/list_invites", get(list_invites))
         .route("/decline_invite", post(decline_invite))
         .route("/accept_invite", post(accept_invite))
         .route("/list_as_super_admin", get(list_users_as_super_admin))
-        .route("/set_login_type/:user", post(set_login_type))
-        .route("/update/:user", post(update_user))
-        .route("/delete/:user", delete(delete_user))
-        .route("/username_info/:user", get(get_instance_username_info))
+        .route("/set_login_type/{user}", post(set_login_type))
+        .route("/update/{user}", post(update_user))
+        .route("/delete/{user}", delete(delete_user))
+        .route("/username_info/{user}", get(get_instance_username_info))
         .route("/tokens/create", post(create_token))
-        .route("/tokens/delete/:token_prefix", delete(delete_token))
+        .route("/tokens/delete/{token_prefix}", delete(delete_token))
         .route("/tokens/list", get(list_tokens))
         .route("/tokens/impersonate", post(impersonate))
         .route("/usage", get(get_usage))
@@ -113,6 +156,10 @@ pub fn make_unauthed_service() -> Router {
         .route("/is_first_time_setup", get(is_first_time_setup))
         .route("/request_password_reset", post(request_password_reset))
         .route("/is_smtp_configured", get(is_smtp_configured))
+        .route(
+            "/is_password_login_disabled",
+            get(is_password_login_disabled),
+        )
 }
 
 pub use windmill_api_auth::{
@@ -135,6 +182,7 @@ pub struct User {
     pub role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub added_via: Option<serde_json::Value>,
+    pub is_service_account: bool,
 }
 
 #[derive(Serialize)]
@@ -176,6 +224,7 @@ pub struct UserInfo {
     pub folders: Vec<String>,
     pub folders_owners: Vec<String>,
     pub name: Option<String>,
+    pub is_service_account: bool,
 }
 
 #[derive(FromRow, Serialize)]
@@ -606,7 +655,7 @@ async fn is_valid_logout_redirect(rd: &str) -> bool {
     if host == "windmill.dev" || host.ends_with(".windmill.dev") {
         return true;
     }
-    let hub_url = HUB_BASE_URL.read().await.clone();
+    let hub_url = (**HUB_BASE_URL.load()).clone();
     if let Ok(hub_parsed) = url::Url::parse(&hub_url) {
         if let Some(hub_host) = hub_parsed.host_str() {
             if host == hub_host {
@@ -620,8 +669,9 @@ async fn is_valid_logout_redirect(rd: &str) -> bool {
 async fn whoami(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { username, email, is_admin, groups, folders, .. }: ApiAuthed,
+    authed: ApiAuthed,
 ) -> JsonResult<UserInfo> {
+    let ApiAuthed { username, email, is_admin, groups, folders, .. } = authed;
     let user = get_user(&w_id, &username, &db).await?;
     if let Some(user) = user {
         Ok(Json(user))
@@ -648,6 +698,7 @@ async fn whoami(
                 .into_iter()
                 .filter_map(|x| if x.2 { Some(x.0) } else { None })
                 .collect(),
+            is_service_account: false,
         }))
     }
 }
@@ -663,11 +714,11 @@ async fn global_whoami(
          email = $1",
         email
     )
-    .fetch_one(&db)
+    .fetch_optional(&db)
     .await
-    .map_err(|e| Error::internal_err(format!("fetching global identity: {e:#}")));
+    .map_err(|e| Error::internal_err(format!("fetching global identity: {e:#}")))?;
 
-    if let Ok(user) = user {
+    if let Some(user) = user {
         Ok(Json(user))
     } else if std::env::var("SUPERADMIN_SECRET").ok() == Some(token) {
         Ok(Json(GlobalUserInfo {
@@ -685,7 +736,21 @@ async fn global_whoami(
             disabled: false,
         }))
     } else {
-        Err(user.unwrap_err())
+        // Service accounts don't have a password row
+        Ok(Json(GlobalUserInfo {
+            email: email.clone(),
+            login_type: Some("service_account".to_string()),
+            super_admin: false,
+            devops: false,
+            verified: true,
+            name: None,
+            company: None,
+            username: None,
+            operator_only: Some(true),
+            first_time_user: false,
+            role_source: "service_account".to_string(),
+            disabled: false,
+        }))
     }
 }
 
@@ -736,12 +801,13 @@ pub struct User2 {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub added_via: Option<serde_json::Value>,
+    pub is_service_account: bool,
 }
 
 async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo>> {
     let user = sqlx::query_as!(
         User2,
-        "SELECT usr.*, password.super_admin, password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2
+        "SELECT usr.*, COALESCE(password.super_admin, false) as \"super_admin!\", password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2
         ",
         username,
         w_id
@@ -782,6 +848,7 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
             .into_iter()
             .filter_map(|x| if x.2 { Some(x.0) } else { None })
             .collect(),
+        is_service_account: usr.is_service_account,
     }))
 }
 
@@ -1604,6 +1671,78 @@ pub async fn delete_workspace_user_internal(
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
+    // ---- Clean up extra_perms referencing this user ----
+    let extra_perms_tables = [
+        "script",
+        "flow",
+        "app",
+        "resource",
+        "variable",
+        "schedule",
+        "group_",
+        "folder",
+        "raw_app",
+        "http_trigger",
+        "websocket_trigger",
+        "kafka_trigger",
+        "postgres_trigger",
+        "mqtt_trigger",
+        "nats_trigger",
+        "sqs_trigger",
+        "gcp_trigger",
+        "email_trigger",
+    ];
+    for table in &extra_perms_tables {
+        sqlx::query(&format!(
+            "UPDATE {table} SET extra_perms = extra_perms - ('u/' || $1) \
+             WHERE extra_perms ? ('u/' || $1) AND workspace_id = $2"
+        ))
+        .bind(username_to_delete)
+        .bind(w_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // ---- Clean up folder owners ----
+    sqlx::query!(
+        "UPDATE folder SET owners = array_remove(owners, 'u/' || $1) WHERE ('u/' || $1) = ANY(owners) AND workspace_id = $2",
+        username_to_delete, w_id
+    ).execute(&mut **tx).await?;
+
+    // ---- Delete personal data ----
+    sqlx::query!(
+        "DELETE FROM draft WHERE path LIKE ('u/' || $1 || '/%') AND workspace_id = $2",
+        username_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM favorite WHERE usr = $1 AND workspace_id = $2",
+        username_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM input WHERE created_by = $1 AND workspace_id = $2",
+        username_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM capture WHERE created_by = $1 AND workspace_id = $2",
+        username_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // ---- Delete user records ----
     sqlx::query_scalar!(
         "DELETE FROM usr WHERE email = $1 AND workspace_id = $2",
         email_to_delete,
@@ -1615,6 +1754,14 @@ pub async fn delete_workspace_user_internal(
     sqlx::query!(
         "DELETE FROM usr_to_group WHERE usr = $1 AND workspace_id = $2",
         username_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM token WHERE email = $1 AND workspace_id = $2",
+        email_to_delete,
         w_id
     )
     .execute(&mut **tx)
@@ -1721,6 +1868,7 @@ async fn set_login_type(
 
 #[allow(unreachable_code, unused_variables)]
 async fn login(
+    headers: axum::http::HeaderMap,
     cookies: Cookies,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
@@ -1731,8 +1879,19 @@ async fn login(
         return Ok("no_auth".to_string());
     }
 
-    let mut tx = db.begin().await?;
     let email = email.to_lowercase();
+
+    if windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(Error::BadRequest(
+            "Password login is disabled on this instance".to_string(),
+        ));
+    }
+
+    windmill_common::login_rate_limit::check_and_increment_login_attempt(&headers, &email)?;
+
+    let mut tx = db.begin().await?;
     let audit_author = AuditAuthor {
         email: email.clone(),
         username: email.clone(),
@@ -1764,6 +1923,7 @@ async fn login(
                 None,
             )
             .await?;
+            windmill_common::login_rate_limit::record_login_failure(&email);
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
             let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
@@ -1800,6 +1960,7 @@ async fn login(
             None,
         )
         .await?;
+        windmill_common::login_rate_limit::record_login_failure(&email);
         Err(Error::BadRequest("Invalid login".to_string()))
     }
 }
@@ -1923,7 +2084,7 @@ pub async fn create_session_token<'c>(
     .await?;
 
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
-    cookie.set_secure(IS_SECURE.read().await.clone());
+    cookie.set_secure(IS_SECURE.load(std::sync::atomic::Ordering::Relaxed));
     cookie.set_same_site(Some(tower_cookies::cookie::SameSite::Lax));
     cookie.set_http_only(true);
     cookie.set_path(COOKIE_PATH);
@@ -1945,6 +2106,8 @@ async fn create_token(
     authed: ApiAuthed,
     Json(token_config): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
+    check_token_create_rate_limit(&authed.username)?;
+
     let mut tx = db.begin().await?;
 
     let token = create_token_internal(&mut *tx, &db, &authed, token_config).await?;
@@ -2023,6 +2186,44 @@ async fn impersonate(
     .await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, token))
+}
+
+#[derive(Deserialize)]
+pub struct ImpersonateServiceAccountRequest {
+    pub username: String,
+}
+
+async fn impersonate_service_account(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    cookies: Cookies,
+    Tokened { token: current_token }: Tokened,
+    Path(w_id): Path<String>,
+    Json(req): Json<ImpersonateServiceAccountRequest>,
+) -> Result<(StatusCode, String)> {
+    crate::users_oss::impersonate_service_account(db, authed, cookies, current_token, w_id, req)
+        .await
+}
+
+#[derive(Deserialize)]
+struct ExitImpersonationRequest {
+    token: String,
+}
+
+async fn exit_impersonation(
+    cookies: Cookies,
+    Json(req): Json<ExitImpersonationRequest>,
+) -> Result<String> {
+    let mut cookie = tower_cookies::Cookie::new(COOKIE_NAME, req.token);
+    cookie.set_secure(IS_SECURE.load(std::sync::atomic::Ordering::Relaxed));
+    cookie.set_same_site(Some(tower_cookies::cookie::SameSite::Lax));
+    cookie.set_http_only(true);
+    cookie.set_path(COOKIE_PATH);
+    if COOKIE_DOMAIN.is_some() {
+        cookie.set_domain(COOKIE_DOMAIN.clone().unwrap());
+    }
+    cookies.add(cookie);
+    Ok("exited impersonation".to_string())
 }
 
 #[derive(Deserialize)]
@@ -2424,11 +2625,27 @@ async fn is_smtp_configured(Extension(db): Extension<DB>) -> JsonResult<bool> {
     Ok(Json(smtp.is_some()))
 }
 
+/// Check if password login is disabled (instance-wide)
+async fn is_password_login_disabled() -> JsonResult<bool> {
+    Ok(Json(
+        windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+            .load(std::sync::atomic::Ordering::Relaxed),
+    ))
+}
+
 /// Request a password reset email
 async fn request_password_reset(
     Extension(db): Extension<DB>,
     Json(req): Json<RequestPasswordReset>,
 ) -> Result<Json<PasswordResetResponse>> {
+    if windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(Error::BadRequest(
+            "Password login is disabled on this instance".to_string(),
+        ));
+    }
+
     let email = req.email.to_lowercase();
 
     // Check if SMTP is configured
@@ -2467,7 +2684,7 @@ async fn request_password_reset(
         .await?;
 
         // Get the base URL for the reset link
-        let base_url = BASE_URL.read().await.clone();
+        let base_url = (**BASE_URL.load()).clone();
         let base_url = if base_url.is_empty() {
             std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string())
         } else {

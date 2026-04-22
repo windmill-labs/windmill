@@ -63,7 +63,7 @@ pub fn workspaced_service() -> Router {
         .route("/get_copilot_info", get(get_copilot_info))
         .route("/critical_alerts", get(get_critical_alerts))
         .route(
-            "/critical_alerts/:id/acknowledge",
+            "/critical_alerts/{id}/acknowledge",
             post(acknowledge_critical_alert),
         )
         .route(

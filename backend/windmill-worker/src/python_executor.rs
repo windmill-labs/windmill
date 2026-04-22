@@ -201,7 +201,7 @@ pub async fn uv_pip_compile(
     logs.push_str(&format!("\ncontent of requirements:\n{}\n", requirements));
 
     let requirements = if let Some(pip_local_dependencies) =
-        WORKER_CONFIG.read().await.pip_local_dependencies.as_ref()
+        WORKER_CONFIG.load().pip_local_dependencies.as_ref()
     {
         let deps = pip_local_dependencies.clone();
         let compiled_deps = deps.iter().map(|dep| {
@@ -957,8 +957,14 @@ mount {{
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::Python3, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Python3,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
@@ -986,8 +992,14 @@ mount {{
             .envs(envs)
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::Python3, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Python3,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
@@ -1213,8 +1225,8 @@ pub struct PyScriptEntry<'a> {
 /// Generate a wrapper for Python dedicated workers and runner groups.
 /// All scripts are baked in at codegen time with proper Python imports and inline arg handling.
 /// Protocol:
-///   exec:<path>:<json_args>         -> wm_res[success]:<result> | wm_res[error]:<err>
-///   exec_preprocess:<path>:<json>   -> wm_res[preprocessed_args]:<result> then wm_res[success]:<result> | wm_res[error]:<err>
+///   execd:<json_args>               -> execute the single registered script (non-runner-group)
+///   exec:<path>:<json_args>         -> execute script by path (runner groups)
 ///   end                             -> exit
 #[cfg(any(feature = "private", test))]
 pub fn generate_multi_script_wrapper(
@@ -1359,6 +1371,52 @@ for line in sys.stdin:
             sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
             main_args = entry['transform'](preprocessed if preprocessed else {{}})
             res = mod.main(**main_args)
+            typ = type(res)
+            res_json = res_to_json(res, typ)
+            sys.stdout.write("wm_res[success]:" + res_json + "\n")
+        except BaseException as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            tb = traceback.format_tb(exc_traceback)
+            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+        sys.stdout.flush()
+        continue
+
+    if line.startswith('execd_preprocess:'):
+        try:
+            args_json = line[len('execd_preprocess:'):]
+            entry = next(iter(scripts.values()))
+            mod = entry['mod']
+            if not hasattr(mod, 'preprocessor') or not callable(mod.preprocessor):
+                err_json = json.dumps({{"message": "preprocessor function is missing", "name": "Error"}}, separators=(',', ':'), default=str).replace('\n', '')
+                sys.stdout.write("wm_res[error]:" + err_json + "\n")
+                sys.stdout.flush()
+                continue
+            kwargs = json.loads(args_json, strict=False)
+            pre_args = entry['pre_transform'](kwargs)
+            preprocessed = mod.preprocessor(**pre_args)
+            preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
+            main_args = entry['transform'](preprocessed if preprocessed else {{}})
+            res = mod.main(**main_args)
+            typ = type(res)
+            res_json = res_to_json(res, typ)
+            sys.stdout.write("wm_res[success]:" + res_json + "\n")
+        except BaseException as e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            tb = traceback.format_tb(exc_traceback)
+            err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}, separators=(',', ':'), default=str).replace('\n', '')
+            sys.stdout.write("wm_res[error]:" + err_json + "\n")
+        sys.stdout.flush()
+        continue
+
+    if line.startswith('execd:'):
+        try:
+            args_json = line[len('execd:'):]
+            entry = next(iter(scripts.values()))
+            kwargs = json.loads(args_json, strict=False)
+            args = entry['transform'](kwargs)
+            res = entry['mod'].main(**args)
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -1641,12 +1699,10 @@ pub(crate) async fn handle_python_deps(
     create_dependencies_dir(job_dir).await;
 
     let mut additional_python_paths: Vec<String> = WORKER_CONFIG
-        .read()
-        .await
+        .load()
         .additional_python_paths
         .clone()
-        .unwrap_or_else(|| vec![])
-        .clone();
+        .unwrap_or_else(|| vec![]);
 
     let (pyv, resolved_lines) = match requirements_o {
         // Deployed
@@ -2734,6 +2790,7 @@ pub async fn start_worker(
     jobs_rx: tokio::sync::mpsc::Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     client: windmill_common::client::AuthedClient,
+    concurrency_semaphore: Option<std::sync::Arc<tokio::sync::Semaphore>>,
 ) -> error::Result<()> {
     use crate::PyV;
     tracing::info!("script path: {}", script_path);
@@ -2875,6 +2932,8 @@ pub async fn start_worker(
         script_path,
         "python",
         client,
+        false,
+        concurrency_semaphore,
     )
     .await
 }

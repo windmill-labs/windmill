@@ -6,17 +6,16 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use serde_json::{from_value, Value};
-use tokio::sync::RwLock;
 
 use crate::{error, scripts::ScriptLang};
 
 pub use windmill_types::apps::*;
 
 lazy_static::lazy_static! {
-    pub static ref APP_WORKSPACED_ROUTE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref APP_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
 }
 
 /// Traverse FlowValue while invoking provided by caller callback on leafs

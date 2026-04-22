@@ -168,6 +168,9 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			permissionedAs = undefined
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 			originalConfig = undefined
 		} finally {
 			initialConfig = structuredClone($state.snapshot(getSaveCfg()))
@@ -194,8 +197,8 @@
 			retry = cfg?.retry
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			permissionedAs = cfg?.permissioned_as
-			selectedPermissionedAs = undefined
-			preservePermissionedAs = false
+			selectedPermissionedAs = cfg?.permissioned_as
+			preservePermissionedAs = !!cfg?.permissioned_as
 		} catch (error) {
 			sendUserToast(`Could not load SQS trigger config: ${error.body}`, true)
 		}
@@ -371,15 +374,14 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
-		{#if edit}
-			<PermissionedAsLine
-				{permissionedAs}
-				onPermissionedAsChange={(pa, preserve) => {
-					selectedPermissionedAs = pa
-					preservePermissionedAs = preserve
-				}}
-			/>
-		{/if}
+		<PermissionedAsLine
+			{permissionedAs}
+			{path}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
+		/>
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}

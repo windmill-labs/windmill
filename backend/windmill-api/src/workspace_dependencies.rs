@@ -24,9 +24,9 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/create", post(create))
         .route("/list", get(list))
-        .route("/archive/:language", post(archive))
-        .route("/get_latest/:language", get(get_latest))
-        .route("/delete/:language", post(delete))
+        .route("/archive/{language}", post(archive))
+        .route("/get_latest/{language}", get(get_latest))
+        .route("/delete/{language}", post(delete))
 }
 
 #[axum::debug_handler]

@@ -1,12 +1,13 @@
 [package]
 name = "windmill"
-version = "1.664.0"
+version = "1.688.0"
 authors.workspace = true
 edition.workspace = true
 
 [workspace]
 resolver = "2"
 members = [
+    "./windmill-ai",
     "./windmill-object-store",
     "./windmill-api",
     "./windmill-api-scripts",
@@ -66,10 +67,13 @@ members = [
     "./parsers/windmill-parser-nu",
     "./parsers/windmill-parser-java",
     "./parsers/windmill-parser-ruby",
+    "./parsers/windmill-parser-r",
     "./parsers/windmill-parser-bash",
     "./parsers/windmill-parser-py",
     "./parsers/windmill-parser-py-asset",
     "./parsers/windmill-parser-py-imports",
+    # Uncomment to build wasm parsers:
+    # "./parsers/windmill-parser-wasm",
     "./parsers/windmill-parser-wac",
     "./parsers/windmill-parser-sql",
     "./parsers/windmill-parser-sql-asset",
@@ -79,10 +83,10 @@ members = [
     "./windmill-test-utils",
     "./windmill-api-integration-tests",
 ]
-exclude = ["./windmill-duckdb-ffi-internal"]
+exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.664.0"
+version = "1.688.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -105,7 +109,7 @@ strip = "none"
 
 [features]
 default = []
-private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-object-store/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
+private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-dep-map/private", "windmill-object-store/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
 agent_worker_server = ["windmill-api/agent_worker_server", "dep:windmill-api-agent-workers", "windmill-test-utils/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-api-agent-workers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-object-store/enterprise"]
 local_reports = ["windmill-common/local_reports"]
@@ -132,8 +136,8 @@ dind = ["windmill-worker/dind"]
 websocket = ["windmill-api/websocket"]
 http_trigger = ["windmill-api/http_trigger"]
 postgres_trigger = ["windmill-api/postgres_trigger"]
-mcp = ["windmill-api/mcp", "windmill-worker/mcp"]
-bedrock = ["windmill-api/bedrock", "windmill-worker/bedrock", "windmill-common/bedrock"]
+mcp = ["windmill-ai/mcp", "windmill-api/mcp", "windmill-worker/mcp"]
+bedrock = ["windmill-ai/bedrock", "windmill-api/bedrock", "windmill-worker/bedrock"]
 mqtt_trigger = ["windmill-api/mqtt_trigger"]
 native_trigger = ["windmill-api/native_trigger"]
 sqs_trigger = ["windmill-api/sqs_trigger", "windmill-common/aws_auth", "windmill-api/openidconnect"]
@@ -163,7 +167,8 @@ csharp = ["windmill-worker/csharp"]
 nu = ["windmill-worker/nu"]
 java = ["windmill-worker/java"]
 ruby = ["windmill-worker/ruby"]
-all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-kerberos", "bigquery", "csharp", "nu", "php", "java", "ruby"]
+rlang = ["windmill-worker/rlang"]
+all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-kerberos", "bigquery", "csharp", "nu", "php", "java", "ruby", "rlang"]
 # For windows we have another set of languages enabled
 all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-winauth", "bigquery", "csharp", "nu", "php", "java"]
 # Edition meta-features: shared groups
@@ -206,6 +211,7 @@ anyhow.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 dotenv.workspace = true
+windmill-ai = { workspace = true, default-features = false }
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-object-store.workspace = true
@@ -260,7 +266,10 @@ windmill-dep-map.workspace = true
 windmill-test-utils.workspace = true
 windmill-worker-volumes.workspace = true
 windmill-types.workspace = true
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
 windmill-trigger.workspace = true
+serial_test = "3"
 windmill-trigger-websocket.workspace = true
 windmill-trigger-postgres.workspace = true
 windmill-trigger-mqtt.workspace = true
@@ -284,6 +293,7 @@ aws-credential-types.workspace = true
 
 
 [workspace.dependencies]
+windmill-ai = { path = "./windmill-ai", default-features = false }
 windmill-api = { path = "./windmill-api", default-features = false  }
 windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }
@@ -345,6 +355,7 @@ windmill-parser-yaml = { path = "./parsers/windmill-parser-yaml" }
 windmill-parser-csharp = { path = "./parsers/windmill-parser-csharp" }
 windmill-parser-java = { path = "./parsers/windmill-parser-java" }
 windmill-parser-ruby = { path = "./parsers/windmill-parser-ruby" }
+windmill-parser-r = { path = "./parsers/windmill-parser-r" }
 windmill-parser-nu = { path = "./parsers/windmill-parser-nu" }
 windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 windmill-parser-sql = { path = "./parsers/windmill-parser-sql" }
@@ -362,7 +373,7 @@ reqwest-middleware = { version = "^0", features = ["json"] }
 
 bitflags = "2.9.4"
 memchr = "2.7.4"
-axum = { version = "^0.7", features = ["multipart", "macros"] }
+axum = { version = "^0.8", features = ["multipart", "macros"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 hyper-tls = "^0.6"
@@ -371,7 +382,7 @@ tokio = { version = "=1.46.1", features = ["full", "tracing", "time"] }
 tokio-stream = { version = "0.1.17" }
 tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors", "catch-panic"] }
-tower-cookies = "^0.10"
+tower-cookies = "^0.11"
 #stuck because of swc for now
 serde = "=1.0.220"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
@@ -386,7 +397,7 @@ tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
 tracing-appender = "^0"
 prometheus = { version = "^0", default-features = false }
-cookie = { version = "0.17.0" }
+cookie = { version = "0.18.0" }
 phf = { version = "0.11", features = ["macros"] }
 rust-embed = { version = "^6", features = ["interpolate-folder-path"] }
 mime_guess = "^2"
@@ -396,6 +407,7 @@ argon2 = "^0"
 quick_cache = "^0"
 rand = "=0.9.0"
 rand_core = { version = "^0", features = ["std"] }
+arc-swap = "1"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 magic-crypt = "^3"
 git-version = "^0"
@@ -415,6 +427,7 @@ time = "^0"
 serde_urlencoded = "^0"
 astral-tokio-tar = "^0.5.6"
 tempfile = "^3"
+x509-parser = "^0.16"
 tokio-util = { version = "=0.7.17", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0.14.0"
@@ -551,6 +564,7 @@ aws-sdk-bedrock = "1.129.0"
 aws-sdk-bedrockruntime = "=1.122.0"
 aws-credential-types = "^1"
 aws-smithy-types = "^1"
+aws-sdk-secretsmanager = "^1"
 aws-sdk-sqs = "=1.77.0"
 aws-sdk-sts = "=1.79.0"
 aws-sdk-sso = "=1.77.0"
@@ -566,18 +580,18 @@ flate2 = "^1"
 http = "^1"
 async-stream = "^0"
 
-opentelemetry = "0.27.0"
-tracing-opentelemetry = "0.28.0"
-opentelemetry_sdk = { version = "0.27.1", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.27.0", features = ["grpc-tonic", "tls"] }
-opentelemetry-appender-tracing = "0.27.0"
-opentelemetry-semantic-conventions = { version = "0.27.0", features = ["semconv_experimental"] }
-opentelemetry-proto = { version = "0.29.0", features = ["with-serde", "gen-tonic"] }
+opentelemetry = "0.30.0"
+tracing-opentelemetry = "0.31.0"
+opentelemetry_sdk = { version = "0.30.0", features = ["rt-tokio", "testing"] }
+opentelemetry-otlp = { version = "0.30.0", features = ["grpc-tonic", "tls", "http-proto"] }
+opentelemetry-appender-tracing = "0.30.0"
+opentelemetry-semantic-conventions = { version = "0.30.0", features = ["semconv_experimental"] }
+opentelemetry-proto = { version = "0.30.0", features = ["with-serde", "gen-tonic"] }
 prost = "0.13"
 
 bollard = "0.18.1"
 
-tonic = { version = "=0.12.3", features = ["tls-native-roots"] }
+tonic = { version = "^0.13", features = ["tls-native-roots"] }
 byteorder = "1.5.0"
 
 tikv-jemallocator = { version = "0.5" }
@@ -606,10 +620,11 @@ quote = "1.0.36"
 regex-lite = "0.1.6"
 yaml-rust = "0.4.5"
 tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }
-tree-sitter = { version = "0.23.0", features = [] }
-tree-sitter-c-sharp = "0.23.0"
-tree-sitter-java = "0.23.0"
-tree-sitter-ruby = "0.23.0"
+tree-sitter = { version = "=0.23.2", features = [] }
+tree-sitter-c-sharp = "=0.23.1"
+tree-sitter-java = "=0.23.5"
+tree-sitter-ruby = "=0.23.1"
+tree-sitter-r = "=1.2.0"
 oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
 strum = { version = "0.27", features = ["derive"] }

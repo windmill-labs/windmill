@@ -6,11 +6,11 @@ use quick_cache::sync::Cache;
 use windmill_common::error::{self};
 
 #[cfg(feature = "parquet")]
+use async_trait::async_trait;
+#[cfg(feature = "parquet")]
 use aws_config::{default_provider::credentials::DefaultCredentialsChain, Region};
 #[cfg(feature = "parquet")]
 use aws_sdk_sts::config::ProvideCredentials;
-#[cfg(feature = "parquet")]
-use axum::async_trait;
 #[cfg(feature = "parquet")]
 use bytes::Bytes;
 #[cfg(feature = "parquet")]
@@ -65,8 +65,9 @@ pub mod object_store_reexports {
     pub use object_store::memory::InMemory;
     pub use object_store::path::Path;
     pub use object_store::{
-        Attribute, Attributes, Error as ObjectStoreError, GetResult, ObjectStore, PutMultipartOpts,
-        PutPayload, PutResult, Result as ObjectStoreResult, WriteMultipart,
+        Attribute, Attributes, Error as ObjectStoreError, GetOptions, GetRange, GetResult,
+        ObjectStore, PutMultipartOpts, PutPayload, PutResult, Result as ObjectStoreResult,
+        WriteMultipart,
     };
 }
 
@@ -978,25 +979,68 @@ impl Write for ChannelWriter {
 }
 
 #[cfg(not(feature = "parquet"))]
-pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
-    mut _stream: impl futures::TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
+#[derive(Debug, Clone, Copy, Default)]
+pub struct IngestStats {
+    pub rows: u64,
+    pub bytes: u64,
+    pub elapsed: std::time::Duration,
+    pub fetch_wait: std::time::Duration,
+    pub write_time: std::time::Duration,
+    pub first_row_latency: Option<std::time::Duration>,
+}
+
+#[cfg(not(feature = "parquet"))]
+pub async fn convert_json_line_stream<V, E>(
+    mut _stream: impl futures::TryStreamExt<Item = Result<V, E>> + Unpin,
     _output_format: S3ModeFormat,
-) -> anyhow::Result<impl futures::TryStreamExt<Item = anyhow::Result<bytes::Bytes>>> {
-    Ok(async_stream::stream! {
+    _progress: Option<tokio::sync::mpsc::Sender<IngestStats>>,
+) -> anyhow::Result<(
+    futures::stream::BoxStream<'static, anyhow::Result<bytes::Bytes>>,
+    IngestStats,
+)>
+where
+    V: serde::Serialize,
+    E: Into<anyhow::Error>,
+{
+    use futures::StreamExt;
+    let stream = async_stream::stream! {
         yield Err(anyhow::anyhow!("Parquet feature is not enabled. Cannot convert JSON line stream."));
-    })
+    };
+    Ok((stream.boxed(), IngestStats::default()))
 }
 
 #[cfg(feature = "parquet")]
-pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
-    mut stream: impl TryStreamExt<Item = Result<serde_json::Value, E>> + Unpin,
+#[derive(Debug, Clone, Copy)]
+pub struct IngestStats {
+    pub rows: u64,
+    pub bytes: u64,
+    pub elapsed: std::time::Duration,
+    pub fetch_wait: std::time::Duration,
+    pub write_time: std::time::Duration,
+    pub first_row_latency: Option<std::time::Duration>,
+}
+
+#[cfg(feature = "parquet")]
+pub async fn convert_json_line_stream<V, E>(
+    mut stream: impl TryStreamExt<Item = Result<V, E>> + Unpin,
     output_format: S3ModeFormat,
-) -> anyhow::Result<impl TryStreamExt<Item = anyhow::Result<bytes::Bytes>>> {
+    progress: Option<tokio::sync::mpsc::Sender<IngestStats>>,
+) -> anyhow::Result<(
+    futures::stream::BoxStream<'static, anyhow::Result<bytes::Bytes>>,
+    IngestStats,
+)>
+where
+    V: serde::Serialize,
+    E: Into<anyhow::Error>,
+{
     const MAX_MPSC_SIZE: usize = 1000;
+    const WRITE_BUF_CAPACITY: usize = 256 * 1024;
+    const PROGRESS_INTERVAL_SECS: u64 = 10;
 
     use datafusion::{execution::context::SessionContext, prelude::NdJsonReadOptions};
     use futures::StreamExt;
     use std::path::PathBuf;
+    use std::time::{Duration, Instant};
     use tokio::io::AsyncWriteExt;
 
     let mut path = PathBuf::from(std::env::temp_dir());
@@ -1005,25 +1049,77 @@ pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
 
-    let mut file: tokio::fs::File = tokio::fs::File::create(&path).await.map_err(to_anyhow)?;
+    let file: tokio::fs::File = tokio::fs::File::create(&path).await.map_err(to_anyhow)?;
+    let mut file = tokio::io::BufWriter::with_capacity(WRITE_BUF_CAPACITY, file);
 
-    while let Some(chunk) = stream.next().await {
-        match chunk {
-            Ok(chunk) => {
-                let b: bytes::Bytes = serde_json::to_string(&chunk)?.into();
-                file.write_all(&b).await?;
-                file.write_all(b"\n").await?;
+    let ingest_start = Instant::now();
+    let mut first_row_latency: Option<Duration> = None;
+    let mut row_count: u64 = 0;
+    let mut bytes_written: u64 = 0;
+    let mut write_time = Duration::ZERO;
+    let mut progress_timer = tokio::time::interval(Duration::from_secs(PROGRESS_INTERVAL_SECS));
+    progress_timer.tick().await; // drop the immediate tick
+    let build_stats = |row_count: u64,
+                       bytes_written: u64,
+                       write_time: Duration,
+                       first_row_latency: Option<Duration>,
+                       elapsed: Duration|
+     -> IngestStats {
+        IngestStats {
+            rows: row_count,
+            bytes: bytes_written,
+            elapsed,
+            fetch_wait: elapsed.saturating_sub(write_time),
+            write_time,
+            first_row_latency,
+        }
+    };
+
+    let mut done = false;
+    while !done {
+        tokio::select! {
+            chunk = stream.next() => {
+                match chunk {
+                    Some(Ok(chunk)) => {
+                        if first_row_latency.is_none() {
+                            first_row_latency = Some(ingest_start.elapsed());
+                        }
+                        let t_write = Instant::now();
+                        let mut s = serde_json::to_string(&chunk)?;
+                        s.push('\n');
+                        bytes_written += s.len() as u64;
+                        file.write_all(s.as_bytes()).await?;
+                        write_time += t_write.elapsed();
+                        row_count += 1;
+                    }
+                    Some(Err(e)) => {
+                        tokio::fs::remove_file(&path).await?;
+                        return Err(e.into());
+                    }
+                    None => done = true,
+                }
             }
-            Err(e) => {
-                tokio::fs::remove_file(&path).await?;
-                return Err(e.into());
+            _ = progress_timer.tick(), if progress.is_some() => {
+                let stats = build_stats(row_count, bytes_written, write_time, first_row_latency, ingest_start.elapsed());
+                if let Some(tx) = &progress {
+                    let _ = tx.try_send(stats);
+                }
             }
         }
     }
 
     file.flush().await?;
+    let file = file.into_inner();
     file.sync_all().await?;
     drop(file);
+
+    let ingest_stats = build_stats(
+        row_count,
+        bytes_written,
+        write_time,
+        first_row_latency,
+        ingest_start.elapsed(),
+    );
 
     let ctx = SessionContext::new();
     ctx.register_json("my_table", path_str, NdJsonReadOptions::default())
@@ -1082,18 +1178,36 @@ pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
                 Err(e) => tracing::error!("Error in blocking task: {:?}", &e),
             };
         }
-        task::spawn_blocking(move || {
+        let close_result = task::spawn_blocking(move || {
             writer.lock().unwrap().take().unwrap().close()?;
             drop(writer);
             Ok::<_, anyhow::Error>(())
         })
-        .await??;
+        .await;
+        match close_result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                tracing::error!("Error closing S3 stream writer: {:?}", e);
+                let _ = tx.send(Err(e)).await;
+            }
+            Err(e) => {
+                tracing::error!("S3 stream writer close task panicked: {:?}", e);
+                let _ = tx
+                    .send(Err(anyhow::anyhow!("writer close task panicked: {e}")))
+                    .await;
+            }
+        }
         drop(ctx);
-        tokio::fs::remove_file(&path).await?;
+        if let Err(e) = tokio::fs::remove_file(&path).await {
+            tracing::error!("Error removing temp file {}: {:?}", path.display(), e);
+        }
         Ok::<_, anyhow::Error>(())
     });
 
-    Ok(tokio_stream::wrappers::ReceiverStream::new(rx))
+    Ok((
+        tokio_stream::wrappers::ReceiverStream::new(rx).boxed(),
+        ingest_stats,
+    ))
 }
 
 lazy_static::lazy_static! {

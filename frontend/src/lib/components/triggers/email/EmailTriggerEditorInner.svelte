@@ -163,6 +163,9 @@
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			mode = defaultValues?.mode ?? 'enabled'
+			permissionedAs = undefined
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 			originalConfig = undefined
 		} finally {
 			clearTimeout(loader)
@@ -186,8 +189,8 @@
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		mode = cfg?.mode ?? 'enabled'
 		permissionedAs = cfg?.permissioned_as
-		selectedPermissionedAs = undefined
-		preservePermissionedAs = false
+		selectedPermissionedAs = cfg?.permissioned_as
+		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
 	async function loadTrigger(defaultConfig?: Partial<EmailTrigger>): Promise<void> {
@@ -313,15 +316,14 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
-		{#if edit}
-			<PermissionedAsLine
-				{permissionedAs}
-				onPermissionedAsChange={(pa, preserve) => {
-					selectedPermissionedAs = pa
-					preservePermissionedAs = preserve
-				}}
-			/>
-		{/if}
+		<PermissionedAsLine
+			{permissionedAs}
+			{path}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
+		/>
 		<div class="flex flex-col gap-12">
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />

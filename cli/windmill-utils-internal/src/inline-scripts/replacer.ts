@@ -1,4 +1,4 @@
-import { AiAgent, FlowModule, FlowValue, RawScript } from "../gen/types.gen.ts";
+import { AiAgent, FlowModule, FlowValue, RawScript } from "../gen/types.gen";
 
 export type LocalScriptInfo = {
   content: string;
@@ -13,7 +13,8 @@ async function replaceRawscriptInline(
   fileReader: (path: string) => Promise<string>,
   logger: { info: (message: string) => void; error: (message: string) => void },
   separator: string,
-  removeLocks?: string[]
+  removeLocks?: string[],
+  missingFiles?: string[]
 ): Promise<void> {
   if (!rawscript.content || !rawscript.content.startsWith("!inline")) {
     return;
@@ -31,6 +32,7 @@ async function replaceRawscriptInline(
       rawscript.content = await fileReader(newPath);
     } catch {
       logger.error(`Script file ${newPath} not found`);
+      if (missingFiles) missingFiles.push(path);
     }
   }
 
@@ -76,14 +78,14 @@ export async function replaceInlineScripts(
     localPath: string,
     separator: string = "/",
     removeLocks?: string[],
-    // renamer?: (path: string, newPath: string) => void,
-    // deleter?: (path: string) => void
-  ): Promise<void> {
+    missingFiles?: string[],
+  ): Promise<string[]> {
+    const missing = missingFiles ?? [];
     await Promise.all(modules.map(async (module) => {
       if (!module.value) {
         throw new Error(`Module value is undefined for module ${module.id}`);
       }
-  
+
       if (module.value.type === "rawscript") {
         await replaceRawscriptInline(
           module.id,
@@ -91,19 +93,20 @@ export async function replaceInlineScripts(
           fileReader,
           logger,
           separator,
-          removeLocks
+          removeLocks,
+          missing
         );
       } else if (module.value.type === "forloopflow" || module.value.type === "whileloopflow") {
-        await replaceInlineScripts(module.value.modules, fileReader, logger, localPath, separator, removeLocks);
+        await replaceInlineScripts(module.value.modules, fileReader, logger, localPath, separator, removeLocks, missing);
       } else if (module.value.type === "branchall") {
         await Promise.all(module.value.branches.map(async (branch) => {
-          await replaceInlineScripts(branch.modules, fileReader, logger, localPath, separator, removeLocks);
+          await replaceInlineScripts(branch.modules, fileReader, logger, localPath, separator, removeLocks, missing);
         }));
       } else if (module.value.type === "branchone") {
         await Promise.all(module.value.branches.map(async (branch) => {
-          await replaceInlineScripts(branch.modules, fileReader, logger, localPath, separator, removeLocks);
+          await replaceInlineScripts(branch.modules, fileReader, logger, localPath, separator, removeLocks, missing);
         }));
-        await replaceInlineScripts(module.value.default, fileReader, logger, localPath, separator, removeLocks);
+        await replaceInlineScripts(module.value.default, fileReader, logger, localPath, separator, removeLocks, missing);
       } else if (module.value.type === "aiagent") {
         await Promise.all((module.value.tools ?? []).map(async (tool) => {
           const toolValue = tool.value;
@@ -120,11 +123,13 @@ export async function replaceInlineScripts(
             fileReader,
             logger,
             separator,
-            removeLocks
+            removeLocks,
+            missing
           );
         }));
       }
     }));
+    return missing;
   }
 
 /**

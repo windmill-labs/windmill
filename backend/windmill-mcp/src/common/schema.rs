@@ -42,13 +42,39 @@ pub fn extract_resource_types_from_schema(schema: &SchemaType) -> HashSet<String
 
 /// Transform a JSON schema for maximum MCP client compatibility.
 ///
-/// Some MCP clients (e.g., n8n) have limited JSON Schema support:
-/// - `integer` type is not supported (convert to `number`)
-/// - invalid non-array `enum` values are removed
+/// Ensures schemas conform to JSON Schema draft 2020-12 by:
+/// - Converting `integer` type to `number` (some clients don't support integer)
+/// - Removing invalid non-array `enum` values
+/// - Stripping non-standard keywords (`originalType`, `format` with `resource-*` prefix)
+/// - Fixing contradictory schemas (`type: "string"` with `properties` → `type: "object"`)
+/// - Removing `default: null` when the type doesn't include `null`
+/// - Adding `type: "object"` to empty schemas that have no type
 pub fn make_schema_compatible(schema: &mut Value) {
     let Value::Object(obj) = schema else { return };
 
-    // 1. Convert integer to number
+    // 1. Strip non-standard keywords that aren't part of JSON Schema
+    obj.remove("originalType");
+
+    // 2. Strip non-standard format values (resource-* is Windmill-internal)
+    if obj
+        .get("format")
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| s.starts_with("resource-"))
+    {
+        obj.remove("format");
+    }
+
+    // 3. Fix contradictory type: if `properties` is present, type must be "object"
+    if obj.contains_key("properties") {
+        match obj.get("type").and_then(|v| v.as_str()) {
+            Some("object") => {}
+            _ => {
+                obj.insert("type".to_string(), Value::String("object".to_string()));
+            }
+        }
+    }
+
+    // 4. Convert integer to number
     if let Some(type_val) = obj.get_mut("type") {
         match type_val {
             Value::String(s) if s == "integer" => *s = "number".to_string(),
@@ -65,9 +91,26 @@ pub fn make_schema_compatible(schema: &mut Value) {
         }
     }
 
-    // 2. Invalid enum values like `enum: null` are not valid draft 2020-12.
+    // 5. Remove `default: null` when type doesn't include "null"
+    if obj.get("default").is_some_and(|v| v.is_null()) {
+        let type_includes_null = match obj.get("type") {
+            Some(Value::String(s)) => s == "null",
+            Some(Value::Array(arr)) => arr.iter().any(|v| v.as_str() == Some("null")),
+            _ => false,
+        };
+        if !type_includes_null {
+            obj.remove("default");
+        }
+    }
+
+    // 6. Invalid enum values like `enum: null` are not valid draft 2020-12.
     if obj.get("enum").is_some_and(|enum_val| !enum_val.is_array()) {
         obj.remove("enum");
+    }
+
+    // 7. Ensure schemas with no type but with properties get type: "object"
+    if !obj.contains_key("type") && !obj.is_empty() {
+        obj.insert("type".to_string(), Value::String("object".to_string()));
     }
 
     // Recursively process nested schemas
@@ -173,5 +216,156 @@ mod tests {
             schema["properties"]["status"]["enum"],
             json!(["open", "closed"])
         );
+    }
+
+    #[test]
+    fn strips_original_type() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "originalType": "string"
+                },
+                "data": {
+                    "type": "string",
+                    "originalType": "bytes"
+                }
+            }
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert!(schema["properties"]["name"].get("originalType").is_none());
+        assert!(schema["properties"]["data"].get("originalType").is_none());
+        assert_eq!(schema["properties"]["name"]["type"], json!("string"));
+    }
+
+    #[test]
+    fn strips_resource_format() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "db": {
+                    "type": "string",
+                    "format": "resource-postgresql"
+                }
+            }
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert!(schema["properties"]["db"].get("format").is_none());
+        assert_eq!(schema["properties"]["db"]["type"], json!("string"));
+    }
+
+    #[test]
+    fn preserves_standard_format() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "format": "email"
+                }
+            }
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert_eq!(schema["properties"]["email"]["format"], json!("email"));
+    }
+
+    #[test]
+    fn fixes_string_type_with_properties() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "string",
+                    "format": "resource-record",
+                    "properties": {}
+                }
+            }
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert_eq!(schema["properties"]["config"]["type"], json!("object"));
+        assert!(schema["properties"]["config"].get("format").is_none());
+    }
+
+    #[test]
+    fn removes_null_default_on_string_type() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "default": null
+                }
+            }
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert!(schema["properties"]["name"].get("default").is_none());
+    }
+
+    #[test]
+    fn preserves_null_default_when_type_includes_null() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": ["string", "null"],
+                    "default": null
+                }
+            }
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert_eq!(schema["properties"]["name"]["default"], json!(null));
+    }
+
+    #[test]
+    fn preserves_non_null_default() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "default": "hello"
+                }
+            }
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert_eq!(schema["properties"]["name"]["default"], json!("hello"));
+    }
+
+    #[test]
+    fn adds_type_object_to_empty_schema() {
+        let mut schema = json!({});
+
+        make_schema_compatible(&mut schema);
+
+        // Empty schema stays empty (no keys = truly empty)
+        assert_eq!(schema, json!({}));
+    }
+
+    #[test]
+    fn adds_type_to_schema_with_properties_but_no_type() {
+        let mut schema = json!({
+            "properties": {
+                "value": {}
+            }
+        });
+
+        make_schema_compatible(&mut schema);
+
+        assert_eq!(schema["type"], json!("object"));
     }
 }

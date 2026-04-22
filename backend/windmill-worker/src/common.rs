@@ -145,7 +145,7 @@ pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::
 }
 
 lazy_static::lazy_static! {
-    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res|encrypted)\:"#).unwrap();
+    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|jsonvar|res|encrypted)\:"#).unwrap();
 }
 
 pub async fn transform_json<'a>(
@@ -255,6 +255,15 @@ pub async fn transform_json_value(
                     Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
                 })
         }
+        Value::String(y) if y.starts_with("$jsonvar:") => {
+            let path = y.strip_prefix("$jsonvar:").unwrap();
+            let v = client.get_variable_value(path).await.map_err(|e| {
+                Error::NotFound(format!("Variable {path} not found for `{name}`: {e:#}"))
+            })?;
+            serde_json::from_str::<serde_json::Value>(&v).map_err(|e| {
+                Error::internal_err(format!("Failed to parse $jsonvar value as JSON: {e}"))
+            })
+        }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
 
@@ -286,6 +295,18 @@ pub async fn transform_json_value(
                     )
                     .await?;
                     decrypt(&mc, encrypted.to_string()).and_then(|x| {
+                        // Register the raw decrypted string for log masking.
+                        // This covers both string values and their JSON representations
+                        // (numbers, objects, etc.) that could appear in logs.
+                        windmill_common::sensitive_log_masks::register_secret_for_job(job.id, &x);
+                        if let serde_json::Value::String(ref s) =
+                            serde_json::from_str::<serde_json::Value>(&x).unwrap_or_default()
+                        {
+                            // Also register the inner string value (without JSON quotes)
+                            windmill_common::sensitive_log_masks::register_secret_for_job(
+                                job.id, s,
+                            );
+                        }
                         serde_json::from_str(&x).map_err(|e| {
                             Error::internal_err(format!(
                                 "Failed to decrypt '$encrypted:' value: {e}"
@@ -500,7 +521,7 @@ pub async fn build_envs_map(context: Vec<ContextualVariable>) -> HashMap<String,
     let mut r: HashMap<String, String> =
         context.into_iter().map(|rv| (rv.name, rv.value)).collect();
 
-    let envs = WORKER_CONFIG.read().await.clone().env_vars;
+    let envs = (**WORKER_CONFIG.load()).clone().env_vars;
     for env in envs {
         r.insert(env.0.clone(), env.1.clone());
     }
@@ -681,6 +702,120 @@ lazy_static! {
     static ref DISABLE_PROCESS_GROUP: bool = std::env::var("DISABLE_PROCESS_GROUP").is_ok();
 }
 
+/// 2 GB memory limit in bytes for LIMIT_WINDOWS_TO_1CU
+#[cfg(windows)]
+const MEMORY_LIMIT_1CU: usize = 2 * 1024 * 1024 * 1024;
+
+/// Wrapper that holds a Windows Job Object handle alongside the child process.
+/// The job object enforces memory limits and is closed when the child is dropped.
+#[cfg(windows)]
+struct MemoryLimitedChild {
+    inner: Box<dyn TokioChildWrapper>,
+    _job_handle: Win32JobHandle,
+}
+
+#[cfg(windows)]
+impl std::fmt::Debug for MemoryLimitedChild {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryLimitedChild").finish()
+    }
+}
+
+/// RAII wrapper for a raw Win32 HANDLE that closes it on drop.
+#[cfg(windows)]
+struct Win32JobHandle(windows::Win32::Foundation::HANDLE);
+
+// SAFETY: Win32 HANDLEs are plain pointer-sized values with no thread affinity;
+// the kernel ref-counts the underlying object, so sending/sharing the handle is safe.
+#[cfg(windows)]
+unsafe impl Send for Win32JobHandle {}
+#[cfg(windows)]
+unsafe impl Sync for Win32JobHandle {}
+
+#[cfg(windows)]
+impl Drop for Win32JobHandle {
+    fn drop(&mut self) {
+        let _ = unsafe { windows::Win32::Foundation::CloseHandle(self.0) };
+    }
+}
+
+#[cfg(windows)]
+impl process_wrap::tokio::TokioChildWrapper for MemoryLimitedChild {
+    fn inner(&self) -> &tokio::process::Child {
+        self.inner.inner()
+    }
+    fn inner_mut(&mut self) -> &mut tokio::process::Child {
+        self.inner.inner_mut()
+    }
+    fn into_inner(self: Box<Self>) -> tokio::process::Child {
+        self.inner.into_inner()
+    }
+    fn start_kill(&mut self) -> std::io::Result<()> {
+        self.inner.start_kill()
+    }
+    fn wait(
+        &mut self,
+    ) -> Box<dyn std::future::Future<Output = std::io::Result<std::process::ExitStatus>> + Send + '_>
+    {
+        self.inner.wait()
+    }
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.inner.try_wait()
+    }
+}
+
+/// Create a Windows Job Object with a memory limit and assign the process to it.
+#[cfg(windows)]
+fn apply_job_memory_limit(pid: u32, memory_limit: usize) -> Result<Win32JobHandle, std::io::Error> {
+    use windows::Win32::System::JobObjects::*;
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
+
+    unsafe {
+        let job = CreateJobObjectW(None, None).map_err(|e| {
+            std::io::Error::new(std::io::ErrorKind::Other, format!("CreateJobObjectW: {e}"))
+        })?;
+
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_JOB_MEMORY;
+        info.JobMemoryLimit = memory_limit;
+
+        SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as _,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )
+        .map_err(|e| {
+            let _ = windows::Win32::Foundation::CloseHandle(job);
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("SetInformationJobObject: {e}"),
+            )
+        })?;
+
+        let process_handle = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, false, pid)
+            .map_err(|e| {
+                let _ = windows::Win32::Foundation::CloseHandle(job);
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("OpenProcess({pid}): {e}"),
+                )
+            })?;
+
+        let assign_result = AssignProcessToJobObject(job, process_handle);
+        let _ = windows::Win32::Foundation::CloseHandle(process_handle);
+        assign_result.map_err(|e| {
+            let _ = windows::Win32::Foundation::CloseHandle(job);
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("AssignProcessToJobObject: {e}"),
+            )
+        })?;
+
+        Ok(Win32JobHandle(job))
+    }
+}
+
 pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
     use tokio::process::Command;
 
@@ -746,9 +881,31 @@ pub async fn start_child_process(
         }
     }
 
-    return cmd
+    let child: Box<dyn TokioChildWrapper> = cmd
         .spawn()
-        .map_err(|err| tentatively_improve_error(err.into(), executable));
+        .map_err(|err| tentatively_improve_error(err.into(), executable))?;
+
+    #[cfg(windows)]
+    if *windmill_common::worker::LIMIT_WINDOWS_TO_1CU {
+        if let Some(pid) = child.inner().id() {
+            match apply_job_memory_limit(pid, MEMORY_LIMIT_1CU) {
+                Ok(job_handle) => {
+                    tracing::info!(
+                        "Applied 2GB memory limit (LIMIT_WINDOWS_TO_1CU) to child process {pid}"
+                    );
+                    return Ok(Box::new(MemoryLimitedChild {
+                        inner: child,
+                        _job_handle: job_handle,
+                    }));
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to apply memory limit to child process {pid}: {e}");
+                }
+            }
+        }
+    }
+
+    Ok(child)
 }
 
 pub async fn resolve_job_timeout(
@@ -1140,6 +1297,14 @@ pub fn use_flow_root_path(flow_path: &str) -> String {
     }
 }
 
+/// Extract the flow root path by stripping /branchone-N/, /branchall-N/, /forloop-N/, /loop-N/
+/// and everything after. Returns None if no nesting segments are found.
+pub fn extract_flow_root(runnable_path: &str) -> Option<&str> {
+    RE_FLOW_ROOT
+        .captures(runnable_path)
+        .and_then(|c| c.get(1).map(|m| m.as_str()))
+}
+
 pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result<Client> {
     configure_client(
         reqwest::ClientBuilder::new()
@@ -1403,6 +1568,77 @@ impl S3ModeWorkerData {
             ..Default::default()
         }
     }
+}
+
+/// Stream rows to S3 (via `convert_json_line_stream` + `s3.upload`) while appending
+/// periodic progress, ingest-done, and upload-done logs to the job output.
+///
+/// `db_name` is a human-readable prefix for the log lines (e.g. "MSSQL", "PostgreSQL").
+pub async fn s3_stream_and_upload_with_logs<S, V, E>(
+    db_name: &str,
+    rows_stream: S,
+    s3: &S3ModeWorkerData,
+    job_id: Uuid,
+    workspace_id: &str,
+    conn: &Connection,
+) -> anyhow::Result<()>
+where
+    S: futures::TryStreamExt<Item = Result<V, E>> + Unpin,
+    V: serde::Serialize,
+    E: Into<anyhow::Error>,
+{
+    let s3_format = s3.format;
+    let (progress_tx, mut progress_rx) =
+        tokio::sync::mpsc::channel::<windmill_object_store::IngestStats>(8);
+    let progress_conn = conn.clone();
+    let progress_workspace = workspace_id.to_string();
+    let progress_db_name = db_name.to_string();
+    let progress_task = tokio::spawn(async move {
+        while let Some(stats) = progress_rx.recv().await {
+            let logs = format!(
+                "\n{} s3 stream progress: {} rows, {:.1} MB | elapsed {:.1}s (db-fetch {:.1}s, write {:.1}s)",
+                progress_db_name,
+                stats.rows,
+                stats.bytes as f64 / 1_048_576.0,
+                stats.elapsed.as_secs_f64(),
+                stats.fetch_wait.as_secs_f64(),
+                stats.write_time.as_secs_f64(),
+            );
+            windmill_queue::append_logs(&job_id, &progress_workspace, logs, &progress_conn).await;
+        }
+    });
+
+    let (stream, ingest_stats) =
+        windmill_object_store::convert_json_line_stream(rows_stream, s3_format, Some(progress_tx))
+            .await?;
+    let _ = progress_task.await;
+
+    let ingest_log = format!(
+        "\n{} s3 stream ingest done ({:?}): {} rows, {:.1} MB in {:.2}s (db-fetch {:.2}s, write {:.2}s, first row after {:.2}s)",
+        db_name,
+        s3_format,
+        ingest_stats.rows,
+        ingest_stats.bytes as f64 / 1_048_576.0,
+        ingest_stats.elapsed.as_secs_f64(),
+        ingest_stats.fetch_wait.as_secs_f64(),
+        ingest_stats.write_time.as_secs_f64(),
+        ingest_stats.first_row_latency.unwrap_or_default().as_secs_f64(),
+    );
+    windmill_queue::append_logs(&job_id, workspace_id, ingest_log, conn).await;
+
+    let upload_start = std::time::Instant::now();
+    s3.upload(stream).await?;
+    let upload_elapsed = upload_start.elapsed();
+
+    let final_log = format!(
+        "\n{} s3 stream upload+transcode done: {:.2}s | total {:.2}s",
+        db_name,
+        upload_elapsed.as_secs_f64(),
+        (ingest_stats.elapsed + upload_elapsed).as_secs_f64(),
+    );
+    windmill_queue::append_logs(&job_id, workspace_id, final_log, conn).await;
+
+    Ok(())
 }
 
 pub fn s3_mode_args_to_worker_data(

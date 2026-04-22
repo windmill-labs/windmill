@@ -1,4 +1,4 @@
-use crate::ai::query_builder::StreamEventProcessor;
+use crate::ai::query_builder::{StreamEventProcessor, StreamEventSink};
 use crate::ai::types::McpToolSource;
 use crate::ai::types::*;
 use crate::ai::utils::{
@@ -20,7 +20,7 @@ use mappable_rc::Marc;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
-use windmill_common::ai_types::OpenAIToolCall;
+use windmill_ai::ai_types::OpenAIToolCall;
 use windmill_common::jobs::JobPayload;
 
 #[cfg(feature = "mcp")]
@@ -391,6 +391,7 @@ async fn execute_windmill_tool(
                 tool_module,
                 tag,
                 tool_module.delete_after_use.unwrap_or(false),
+                None,
             )
         }
         FlowModuleValue::FlowScript { id, language, concurrency_settings, tag, .. } => {
@@ -407,6 +408,7 @@ async fn execute_windmill_tool(
                 },
                 tag: tag.clone(),
                 delete_after_use: tool_module.delete_after_use.unwrap_or(false),
+                delete_after_secs: None,
                 timeout: None,
                 on_behalf_of: None,
             }
@@ -429,6 +431,7 @@ async fn execute_windmill_tool(
                 payload: JobPayload::AIAgent { path },
                 tag: None,
                 delete_after_use: tool_module.delete_after_use.unwrap_or(false),
+                delete_after_secs: None,
                 timeout: None,
                 on_behalf_of: None,
             }

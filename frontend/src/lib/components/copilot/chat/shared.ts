@@ -19,6 +19,7 @@ import { get } from 'svelte/store'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
+import { findModuleInModules } from '$lib/components/flows/flowTree'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { z } from 'zod'
 import {
@@ -67,6 +68,57 @@ function prettifyCodeArguments(content: string): string {
 	return codeContent
 }
 
+function decodeEscapedToolString(content: string): string {
+	return content
+		.replace(/\\n/g, '\n')
+		.replace(/\\t/g, '\t')
+		.replace(/\\"/g, '"')
+		.replace(/\\\\/g, '\\')
+}
+
+function extractJsonStringProperty(content: string, property: string): string | undefined {
+	const propertyKey = `"${property}"`
+	const propertyIndex = content.indexOf(propertyKey)
+	if (propertyIndex === -1) {
+		return undefined
+	}
+
+	let cursor = propertyIndex + propertyKey.length
+	while (cursor < content.length && /\s/.test(content[cursor] ?? '')) {
+		cursor++
+	}
+	if (content[cursor] !== ':') {
+		return undefined
+	}
+
+	cursor++
+	while (cursor < content.length && /\s/.test(content[cursor] ?? '')) {
+		cursor++
+	}
+	if (content[cursor] !== '"') {
+		return undefined
+	}
+
+	const start = cursor + 1
+	let escaped = false
+	for (let index = start; index < content.length; index++) {
+		const char = content[index]
+		if (escaped) {
+			escaped = false
+			continue
+		}
+		if (char === '\\') {
+			escaped = true
+			continue
+		}
+		if (char === '"') {
+			return content.slice(start, index)
+		}
+	}
+
+	return content.slice(start)
+}
+
 // Prettify function for set_module_code - extracts code from moduleId/code JSON
 function prettifySetModuleCode(content: string): string {
 	let codeContent = content
@@ -78,21 +130,43 @@ function prettifySetModuleCode(content: string): string {
 				codeContent = parsed.code
 			}
 		} catch {
-			// If JSON is incomplete during streaming, try to extract code property manually
-			const codeMatch = content.match(/"code"\s*:\s*"([\s\S]*?)(?:"\s*}?\s*$|$)/)
-			if (codeMatch) {
-				codeContent = codeMatch[1]
+			const extractedCode = extractJsonStringProperty(content, 'code')
+			if (extractedCode !== undefined) {
+				codeContent = extractedCode
 			}
 		}
 	}
 
-	// Convert escape sequences
-	codeContent = codeContent.replace(/\\n/g, '\n')
-	codeContent = codeContent.replace(/\\t/g, '\t')
-	codeContent = codeContent.replace(/\\"/g, '"')
-	codeContent = codeContent.replace(/\\\\/g, '\\')
+	return decodeEscapedToolString(codeContent)
+}
 
-	return codeContent
+function prettifyPatchReplacement(content: string): string {
+	let newString: string | undefined
+
+	if (typeof content === 'string' && content.trim().startsWith('{')) {
+		try {
+			const parsed = JSON.parse(content)
+			if (typeof parsed.new_string === 'string') {
+				newString = parsed.new_string
+			}
+		} catch {
+			newString = extractJsonStringProperty(content, 'new_string')
+		}
+	}
+
+	if (newString === undefined) {
+		return content
+	}
+
+	return decodeEscapedToolString(newString)
+}
+
+function prettifyPatchFlowJson(content: string): string {
+	return prettifyPatchReplacement(content)
+}
+
+function prettifyPatchFile(content: string): string {
+	return prettifyPatchReplacement(content)
 }
 
 // Prettify function for module value JSON - extracts the 'value' property and formats it
@@ -150,6 +224,8 @@ function prettifyModuleValue(content: string): string {
 export const TOOL_PRETTIFY_MAP: Record<string, (content: string) => string> = {
 	edit_code: prettifyCodeArguments,
 	set_module_code: prettifySetModuleCode,
+	patch_flow_json: prettifyPatchFlowJson,
+	patch_file: prettifyPatchFile,
 	add_module: prettifyModuleValue,
 	modify_module: prettifyModuleValue
 }
@@ -181,38 +257,6 @@ export const extractAllModules = (modules: FlowModule[]): FlowModule[] => {
 	})
 }
 
-export const findModuleById = (modules: FlowModule[], moduleId: string): FlowModule | undefined => {
-	for (const module of modules) {
-		if (module.id === moduleId) {
-			return module
-		}
-		if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
-			const found = findModuleById(module.value.modules, moduleId)
-			if (found) {
-				return found
-			}
-		}
-		if (module.value.type === 'branchall') {
-			const allModules = module.value.branches.flatMap((b) => b.modules)
-			const found = findModuleById(allModules, moduleId)
-			if (found) {
-				return found
-			}
-		}
-		if (module.value.type === 'branchone') {
-			const allModules = [
-				...module.value.branches.flatMap((b) => b.modules),
-				...module.value.default
-			]
-			const found = findModuleById(allModules, moduleId)
-			if (found) {
-				return found
-			}
-		}
-	}
-	return undefined
-}
-
 const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext: string) => {
 	let code = codeContext.split('\n')
 	let shiftOffset = 0
@@ -228,7 +272,7 @@ const applyCodePieceToCodeContext = (codePieces: CodePieceElement[], codeContext
 export function applyCodePiecesToFlowModules(
 	codePieces: FlowModuleCodePieceElement[],
 	flowModules: FlowModule[]
-): string {
+): FlowModule[] {
 	const moduleCodePieces = new Map<string, FlowModuleCodePieceElement[]>()
 	for (const codePiece of codePieces) {
 		const moduleId = codePiece.id
@@ -243,7 +287,7 @@ export function applyCodePiecesToFlowModules(
 
 	// Apply code pieces to each module
 	for (const [moduleId, pieces] of moduleCodePieces) {
-		const module = findModuleById(modifiedModules, moduleId)
+		const module = findModuleInModules(modifiedModules, moduleId)
 		if (module && module.value.type === 'rawscript' && module.value.content) {
 			module.value.content = applyCodePieceToCodeContext(
 				pieces as unknown as CodePieceElement[],
@@ -252,7 +296,7 @@ export function applyCodePiecesToFlowModules(
 		}
 	}
 
-	return JSON.stringify(modifiedModules, null, 2)
+	return modifiedModules
 }
 
 export function buildContextString(selectedContext: ContextElement[]): string {
@@ -546,6 +590,7 @@ export function createToolDef(
 	let parameters = z.toJSONSchema(zodSchema)
 	delete parameters.$schema
 	if (!parameters.required) parameters.required = []
+	normalizeToolParameterSchema(parameters)
 
 	return {
 		type: 'function',
@@ -605,9 +650,9 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 })
 
 /**
- * Recursively removes format: null or format: '' from a JSON schema object
+ * Recursively normalizes JSON Schema quirks that specific providers reject.
  */
-function removeNullFormats(schema: Record<string, any> | undefined): void {
+function normalizeToolParameterSchema(schema: Record<string, any> | undefined): void {
 	if (!schema || typeof schema !== 'object') {
 		return
 	}
@@ -620,25 +665,31 @@ function removeNullFormats(schema: Record<string, any> | undefined): void {
 	// Recurse into properties
 	if (schema.properties && typeof schema.properties === 'object') {
 		for (const key of Object.keys(schema.properties)) {
-			removeNullFormats(schema.properties[key])
+			normalizeToolParameterSchema(schema.properties[key])
 		}
 	}
 
 	// Recurse into items (for arrays)
 	if (schema.items) {
-		removeNullFormats(schema.items)
+		if (Array.isArray(schema.items)) {
+			for (const item of schema.items) {
+				normalizeToolParameterSchema(item)
+			}
+		} else {
+			normalizeToolParameterSchema(schema.items)
+		}
 	}
 
 	// Recurse into additionalProperties if it's an object schema
 	if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
-		removeNullFormats(schema.additionalProperties)
+		normalizeToolParameterSchema(schema.additionalProperties)
 	}
 
 	// Recurse into allOf, anyOf, oneOf
 	for (const key of ['allOf', 'anyOf', 'oneOf']) {
 		if (Array.isArray(schema[key])) {
 			for (const subSchema of schema[key]) {
-				removeNullFormats(subSchema)
+				normalizeToolParameterSchema(subSchema)
 			}
 		}
 	}
@@ -662,8 +713,8 @@ export async function buildSchemaForTool(
 
 		toolDef.function.parameters = { ...schema, additionalProperties: false }
 
-		// recursively remove any format: null or format: '' (empty string) from schema
-		removeNullFormats(toolDef.function.parameters)
+		// recursively normalize provider-incompatible schema fragments
+		normalizeToolParameterSchema(toolDef.function.parameters)
 
 		// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
 		const model = getCurrentModel()
@@ -919,8 +970,6 @@ export function formatScriptLintResult(lintResult: ScriptLintResult): string {
 
 	return response
 }
-
-// ============= Workspace Runnables Search =============
 
 export class WorkspaceRunnablesSearch {
 	private uf: uFuzzy

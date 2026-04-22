@@ -18,12 +18,12 @@ import {
   filterWorkspaceDependenciesForScripts,
 } from "../../utils/metadata.ts";
 import { ScriptLanguage } from "../../utils/script_common.ts";
-import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { extractInlineScripts as extractInlineScriptsForFlows, extractCurrentMapping } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { newPathAssigner } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
 import { exts } from "../script/script.ts";
-import { FSFSElement } from "../sync/sync.ts";
+import { FSFSElement, yamlOptions } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { FlowFile } from "./flow.ts";
 import { FlowValue } from "../../../gen/types.gen.ts";
@@ -32,6 +32,7 @@ import { workspaceDependenciesLanguages } from "../../utils/script_common.ts";
 import { extractNameFromFolder, getFolderSuffix, getNonDottedPaths } from "../../utils/resource_folders.ts";
 import { extractRelativeImports } from "../../utils/relative_imports.ts";
 import { DoubleLinkedDependencyTree } from "../../utils/dependency_tree.ts";
+import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 
 const TOP_HASH = "__flow_hash";
 async function generateFlowHash(
@@ -51,7 +52,12 @@ async function generateFlowHash(
       );
     }
   }
-  return { ...hashes, [TOP_HASH]: await generateHash(JSON.stringify(hashes)) };
+  // Sort keys so the top hash is deterministic regardless of filesystem readdir order
+  const sortedHashes: Record<string, string> = {};
+  for (const k of Object.keys(hashes).sort()) {
+    sortedHashes[k] = hashes[k];
+  }
+  return { ...sortedHashes, [TOP_HASH]: await generateHash(JSON.stringify(sortedHashes)) };
 }
 /**
  * Result of generating flow locks, including which scripts were updated
@@ -70,7 +76,6 @@ export async function generateFlowLockInternal(
   },
   justUpdateMetadataLock?: boolean,
   noStaleMessage?: boolean,
-  legacyBehaviour?: boolean,
   tree?: DoubleLinkedDependencyTree
 ): Promise<string | FlowLocksResult | void> {
   if (folder.endsWith(SEP)) {
@@ -96,7 +101,7 @@ export async function generateFlowLockInternal(
   let filteredDeps: Record<string, string> = {};
   const conf = await readLockfile();
 
-  if (!legacyBehaviour && tree) {
+  if (tree) {
     if (dryRun) {
       const inlineScriptPaths: string[] = [];
       for (const script of inlineScriptsForTree) {
@@ -188,9 +193,20 @@ export async function generateFlowLockInternal(
       log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
     }
     const fileReader = async (path: string) => await readFile(folder + SEP + path, "utf-8");
+
+    // Capture existing module-ID-to-file-path mapping before replaceInlineScripts
+    // overwrites the !inline references with actual file content. This preserves
+    // the original filenames when re-extracting inline scripts after lock generation.
+    const currentMapping = extractCurrentMapping(
+      flowValue.value.modules,
+      {},
+      flowValue.value.failure_module,
+      flowValue.value.preprocessor_module,
+    );
+
     // In tree mode, use the tree's staleness info (which includes transitive dependency changes)
     // to determine which scripts need relocking, instead of only content-changed ones.
-    const locksToRemove = (tree && !legacyBehaviour)
+    const locksToRemove = tree
       ? Object.keys(hashes).filter(k => {
           if (k === TOP_HASH) return false;
           const treePath = fileToTreePath.get(k)
@@ -215,6 +231,12 @@ export async function generateFlowLockInternal(
 
     //removeChangedLocks
     const tempScriptRefs = tree?.getTempScriptRefs(folderNormalized);
+
+    // Preserve notes and groups — the backend round-trips through FlowValue
+    // which doesn't include these fields, so they'd be lost (#8641).
+    const savedNotes = flowValue.value.notes;
+    const savedGroups = flowValue.value.groups;
+
     flowValue.value = await updateFlow(
       workspace,
       flowValue.value,
@@ -223,21 +245,25 @@ export async function generateFlowLockInternal(
       tempScriptRefs
     );
 
+    // Restore notes and groups that the backend stripped
+    if (savedNotes !== undefined) flowValue.value.notes = savedNotes;
+    if (savedGroups !== undefined) flowValue.value.groups = savedGroups;
+
     const lockAssigner = newPathAssigner(opts.defaultTs ?? "bun", {
       skipInlineScriptSuffix: getNonDottedPaths(),
     });
     const inlineScripts = extractInlineScriptsForFlows(
       flowValue.value.modules,
-      {},
+      currentMapping,
       SEP,
       opts.defaultTs,
       lockAssigner
     );
     if (flowValue.value.failure_module) {
-      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.failure_module], {}, SEP, opts.defaultTs, lockAssigner));
+      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.failure_module], currentMapping, SEP, opts.defaultTs, lockAssigner));
     }
     if (flowValue.value.preprocessor_module) {
-      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.preprocessor_module], {}, SEP, opts.defaultTs, lockAssigner));
+      inlineScripts.push(...extractInlineScriptsForFlows([flowValue.value.preprocessor_module], currentMapping, SEP, opts.defaultTs, lockAssigner));
     }
     inlineScripts.forEach((s) => {
       writeIfChanged(process.cwd() + SEP + folder + SEP + s.path, s.content);
@@ -246,12 +272,12 @@ export async function generateFlowLockInternal(
     // Overwrite `flow.yaml` with the new lockfile references
     writeIfChanged(
       process.cwd() + SEP + folder + SEP + "flow.yaml",
-      yamlStringify(flowValue as Record<string, any>)
+      yamlStringify(flowValue as Record<string, any>, yamlOptions)
     );
   }
 
-  // Non-legacy mode excludes workspace deps from hash (tracked via tree instead)
-  const depsForHash = (tree && !legacyBehaviour) ? {} : filteredDeps;
+  // In tree mode, workspace deps are tracked via the tree — exclude from hash
+  const depsForHash = tree ? {} : filteredDeps;
   const finalHashes = await generateFlowHash(
     depsForHash,
     folder,
@@ -267,7 +293,7 @@ export async function generateFlowLockInternal(
 
   // Return the list of updated scripts (extract just the filename from the path)
   // In tree mode, use the same staleness-aware list we used for lock removal
-  const relocked = (tree && !legacyBehaviour)
+  const relocked = tree
     ? Object.keys(finalHashes).filter(k => {
         if (k === TOP_HASH) return false;
         const treePath = fileToTreePath.get(k)
@@ -316,84 +342,71 @@ export async function updateFlow(
   rawWorkspaceDependencies: Record<string, string>,
   tempScriptRefs?: Record<string, string>
 ): Promise<FlowValue | undefined> {
-  let rawResponse;
-
-  if (Object.keys(rawWorkspaceDependencies).length > 0) {
+  const useRawWorkspaceDeps = Object.keys(rawWorkspaceDependencies).length > 0;
+  if (useRawWorkspaceDeps) {
     log.info(
       colors.blue("Using raw workspace dependencies for flow dependencies")
     );
-
-    // generate the script lock running a dependency job in Windmill and update it inplace
-    const extraHeaders = getHeaders();
-    rawResponse = await fetch(
-      `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies`,
-      {
-        method: "POST",
-        headers: {
-          Cookie: `token=${workspace.token}`,
-          "Content-Type": "application/json",
-          ...extraHeaders,
-        },
-        body: JSON.stringify({
-          flow_value,
-          path: remotePath,
-          use_local_lockfiles: true,
-          raw_workspace_dependencies: rawWorkspaceDependencies,
-          ...(tempScriptRefs && Object.keys(tempScriptRefs).length > 0
-            ? { temp_script_refs: tempScriptRefs }
-            : {}),
-        }),
-      }
-    );
-  } else {
-    // Standard dependency resolution on the server
-    const extraHeaders = getHeaders();
-    rawResponse = await fetch(
-      `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies`,
-      {
-        method: "POST",
-        headers: {
-          Cookie: `token=${workspace.token}`,
-          "Content-Type": "application/json",
-          ...extraHeaders,
-        },
-        body: JSON.stringify({
-          flow_value,
-          path: remotePath,
-          ...(tempScriptRefs && Object.keys(tempScriptRefs).length > 0
-            ? { temp_script_refs: tempScriptRefs }
-            : {}),
-        }),
-      }
-    );
   }
 
-  let responseText = "reading response failed";
-  try {
-    const res = (await rawResponse.json()) as
-      | { updated_flow_value: any }
-      | { error: { message: string } }
-      | undefined;
-    if (rawResponse.status != 200) {
-      const msg = (res as any)?.["error"]?.["message"];
-      if (msg) {
-        throw new LockfileGenerationError(
-          `Failed to generate lockfile: ${msg}`
-        );
-      }
-      throw new LockfileGenerationError(
-        `Failed to generate lockfile: ${rawResponse.statusText}, ${responseText}`
-      );
+  const body: Record<string, unknown> = {
+    flow_value,
+    path: remotePath,
+  };
+  if (useRawWorkspaceDeps) {
+    body.use_local_lockfiles = true;
+    body.raw_workspace_dependencies = rawWorkspaceDependencies;
+  }
+  if (tempScriptRefs && Object.keys(tempScriptRefs).length > 0) {
+    body.temp_script_refs = tempScriptRefs;
+  }
+
+  const extraHeaders = getHeaders();
+  const queueResponse = await fetch(
+    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies_async`,
+    {
+      method: "POST",
+      headers: {
+        Cookie: `token=${workspace.token}`,
+        "Content-Type": "application/json",
+        ...extraHeaders,
+      },
+      body: JSON.stringify(body),
     }
-    return (res as any).updated_flow_value;
-  } catch (e) {
+  );
+
+  if (!queueResponse.ok) {
+    let bodyText = "";
     try {
-      responseText = await rawResponse.text();
-    } catch {
-      responseText = "";
-    }
-    throw new Error(
-      `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`
+      bodyText = await queueResponse.text();
+    } catch { /* ignore */ }
+    throw new LockfileGenerationError(
+      `Failed to queue flow dependencies job: ${queueResponse.status} ${queueResponse.statusText}, ${bodyText}`
     );
   }
+
+  const jobId = (await queueResponse.text()).trim();
+
+  let completion;
+  try {
+    completion = await pollJobWithQueueLogging(
+      workspace.workspaceId,
+      jobId,
+      { label: `flow deps ${remotePath}` },
+    );
+  } catch (e: any) {
+    throw new LockfileGenerationError(
+      `Failed to poll flow dependencies job ${jobId}: ${e?.message ?? e}`
+    );
+  }
+
+  const result = completion.result as any;
+  if (!completion.success) {
+    const message =
+      result?.error?.message ??
+      (typeof result === "string" ? result : JSON.stringify(result, null, 2));
+    throw new LockfileGenerationError(`Failed to generate lockfile: ${message}`);
+  }
+
+  return result?.updated_flow_value;
 }

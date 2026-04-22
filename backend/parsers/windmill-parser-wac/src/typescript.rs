@@ -51,22 +51,29 @@ fn extract_var_name(pat: &Pat) -> Option<String> {
     }
 }
 
-/// Check if expr is `task(async fn)` or `task("path", async fn)`.
-/// Returns Some(optional_path) if it is a task() call.
+/// Check if expr is `task(async fn)`, `task("path", async fn)`,
+/// `taskScript("path")`, or `taskFlow("path")`.
+/// Returns Some(optional_path) if it is a task/taskScript/taskFlow call.
 fn extract_task_call_info(expr: &Expr) -> Option<Option<String>> {
     if let Expr::Call(call) = expr {
         if let Callee::Expr(callee) = &call.callee {
             if let Expr::Ident(ident) = callee.as_ref() {
-                if ident.sym.as_ref() == "task" {
+                let name = ident.sym.as_ref();
+                if name == "task" {
                     // task("f/path", async fn) or task(async fn)
                     if call.args.len() == 2 {
-                        // task("f/path", async fn)
                         let path = extract_string_lit(&call.args[0].expr);
                         return Some(path);
                     } else if call.args.len() == 1 {
-                        // task(async fn)
                         return Some(None);
                     }
+                } else if name == "taskScript" || name == "taskFlow" {
+                    // taskScript("./helper.ts") or taskFlow("f/my_flow")
+                    if let Some(first_arg) = call.args.first() {
+                        let path = extract_string_lit(&first_arg.expr);
+                        return Some(path);
+                    }
+                    return Some(None);
                 }
             }
         }
@@ -81,8 +88,6 @@ struct TsWacWalker {
     node_counter: usize,
     cm: Lrc<SourceMap>,
     task_functions: TaskFunctions,
-    in_try: bool,
-    in_while: bool,
     in_nested_func: bool,
 }
 
@@ -95,8 +100,6 @@ impl TsWacWalker {
             node_counter: 0,
             cm,
             task_functions,
-            in_try: false,
-            in_while: false,
             in_nested_func: false,
         }
     }
@@ -224,6 +227,9 @@ impl TsWacWalker {
         if self.is_task_call(expr) {
             return true;
         }
+        if Self::is_sdk_call(expr) {
+            return true;
+        }
         match expr {
             Expr::Await(await_expr) => self.expr_contains_step(&await_expr.arg),
             Expr::Call(call) => {
@@ -235,6 +241,19 @@ impl TsWacWalker {
             Expr::Paren(p) => self.expr_contains_step(&p.expr),
             _ => false,
         }
+    }
+
+    /// Check if expr is a call to a known SDK function (step, sleep, waitForApproval)
+    fn is_sdk_call(expr: &Expr) -> bool {
+        if let Expr::Call(call) = expr {
+            if let Callee::Expr(callee) = &call.callee {
+                if let Expr::Ident(ident) = callee.as_ref() {
+                    let name = ident.sym.as_ref();
+                    return name == "step" || name == "sleep" || name == "waitForApproval";
+                }
+            }
+        }
+        false
     }
 
     fn walk_body(&mut self, stmts: &[Stmt]) -> Option<(String, String)> {
@@ -294,11 +313,15 @@ impl TsWacWalker {
     }
 
     fn walk_expr_stmt(&mut self, expr: &Expr) -> Option<(String, String)> {
-        // await task_fn(...)
+        // await task_fn(...) / await step(...) / await sleep(...) / await waitForApproval(...)
         if let Expr::Await(await_expr) = expr {
             if let Expr::Call(call) = await_expr.arg.as_ref() {
                 if self.is_task_call(&Expr::Call(call.clone())) {
                     return self.emit_step(call, expr);
+                }
+                // Check for SDK-level calls: step(), sleep(), waitForApproval()
+                if let Some(result) = self.try_emit_sdk_call(call, expr) {
+                    return Some(result);
                 }
             }
             // await Promise.all([task_fn(...), ...])
@@ -318,17 +341,70 @@ impl TsWacWalker {
         None
     }
 
+    /// Try to emit a node for SDK-level calls: step(), sleep(), waitForApproval()
+    fn try_emit_sdk_call(&mut self, call: &CallExpr, expr: &Expr) -> Option<(String, String)> {
+        let callee_name = match &call.callee {
+            Callee::Expr(callee) => match callee.as_ref() {
+                Expr::Ident(ident) => Some(ident.sym.as_ref().to_string()),
+                _ => None,
+            },
+            _ => None,
+        }?;
+
+        let line = self.span_line(expr.span());
+
+        match callee_name.as_str() {
+            "step" => {
+                // step("name", fn) — extract the name from the first string argument
+                let name = call
+                    .args
+                    .first()
+                    .and_then(|a| extract_string_lit(&a.expr))
+                    .unwrap_or_else(|| "step".to_string());
+                let id = self.next_id();
+                let node_id = self.add_node(DagNode {
+                    id: id.clone(),
+                    node_type: DagNodeType::InlineStep { name: name.clone() },
+                    label: name,
+                    line,
+                });
+                Some((node_id.clone(), node_id))
+            }
+            "sleep" => {
+                // sleep(N) — extract the duration from the first argument
+                let seconds = call
+                    .args
+                    .first()
+                    .map(|a| {
+                        self.cm
+                            .span_to_snippet(a.expr.span())
+                            .unwrap_or_else(|_| "?".to_string())
+                    })
+                    .unwrap_or_else(|| "?".to_string());
+                let id = self.next_id();
+                let node_id = self.add_node(DagNode {
+                    id: id.clone(),
+                    node_type: DagNodeType::Sleep { seconds: seconds.clone() },
+                    label: format!("sleep({seconds})"),
+                    line,
+                });
+                Some((node_id.clone(), node_id))
+            }
+            "waitForApproval" => {
+                let id = self.next_id();
+                let node_id = self.add_node(DagNode {
+                    id: id.clone(),
+                    node_type: DagNodeType::WaitForApproval,
+                    label: "waitForApproval".to_string(),
+                    line,
+                });
+                Some((node_id.clone(), node_id))
+            }
+            _ => None,
+        }
+    }
+
     fn emit_step(&mut self, call: &CallExpr, expr: &Expr) -> Option<(String, String)> {
-        if self.in_try {
-            self.errors
-                .push(validation::error_step_in_catch(self.span_line(expr.span())));
-            return None;
-        }
-        if self.in_while {
-            self.errors
-                .push(validation::error_step_in_while(self.span_line(expr.span())));
-            return None;
-        }
         if self.in_nested_func {
             self.errors.push(validation::error_step_in_nested_function(
                 self.span_line(expr.span()),
@@ -350,17 +426,6 @@ impl TsWacWalker {
     }
 
     fn emit_parallel(&mut self, promise_call: &CallExpr, expr: &Expr) -> Option<(String, String)> {
-        if self.in_try {
-            self.errors
-                .push(validation::error_step_in_catch(self.span_line(expr.span())));
-            return None;
-        }
-        if self.in_while {
-            self.errors
-                .push(validation::error_step_in_while(self.span_line(expr.span())));
-            return None;
-        }
-
         let line = self.span_line(expr.span());
         let start_id = self.next_id();
         let start_node_id = self.add_node(DagNode {
@@ -457,7 +522,16 @@ impl TsWacWalker {
             Some((branch_node_id, last_ids.into_iter().next().unwrap()))
         } else {
             let merge_id = format!("{branch_id}_merge");
-            Some((branch_node_id, merge_id))
+            let merge_node_id = self.add_node(DagNode {
+                id: merge_id,
+                node_type: DagNodeType::Merge,
+                label: "merge".to_string(),
+                line,
+            });
+            for last in last_ids {
+                self.add_edge(&last, &merge_node_id, None);
+            }
+            Some((branch_node_id, merge_node_id))
         }
     }
 
@@ -473,7 +547,7 @@ impl TsWacWalker {
             return None;
         }
         let iter_source = self.expr_to_source(&for_in.right);
-        self.walk_loop_body_with_iter(&for_in.body, for_in.span, &iter_source)
+        self.walk_loop_body_with_iter(&for_in.body, for_in.span, &iter_source, "for")
     }
 
     fn walk_for_of(&mut self, for_of: &ForOfStmt) -> Option<(String, String)> {
@@ -481,7 +555,7 @@ impl TsWacWalker {
             return None;
         }
         let iter_source = self.expr_to_source(&for_of.right);
-        self.walk_loop_body_with_iter(&for_of.body, for_of.span, &iter_source)
+        self.walk_loop_body_with_iter(&for_of.body, for_of.span, &iter_source, "for")
     }
 
     fn walk_loop_body(
@@ -490,7 +564,7 @@ impl TsWacWalker {
         span: swc_common::Span,
         _label: &str,
     ) -> Option<(String, String)> {
-        self.walk_loop_body_with_iter(body, span, "...")
+        self.walk_loop_body_with_iter(body, span, "...", "for")
     }
 
     fn walk_loop_body_with_iter(
@@ -498,13 +572,14 @@ impl TsWacWalker {
         body: &Stmt,
         span: swc_common::Span,
         iter_source: &str,
+        loop_label: &str,
     ) -> Option<(String, String)> {
         let line = self.span_line(span);
         let start_id = self.next_id();
         let start_node_id = self.add_node(DagNode {
             id: start_id.clone(),
             node_type: DagNodeType::LoopStart { iter_source: iter_source.to_string() },
-            label: "for".to_string(),
+            label: loop_label.to_string(),
             line,
         });
 
@@ -526,12 +601,11 @@ impl TsWacWalker {
     }
 
     fn walk_while(&mut self, while_stmt: &WhileStmt) -> Option<(String, String)> {
-        if self.stmt_contains_step(&while_stmt.body) {
-            self.errors.push(validation::error_step_in_while(
-                self.span_line(while_stmt.span),
-            ));
+        if !self.stmt_contains_step(&while_stmt.body) {
+            return None;
         }
-        None
+        let condition = self.expr_to_source(&while_stmt.test);
+        self.walk_loop_body_with_iter(&while_stmt.body, while_stmt.span, &condition, "while")
     }
 
     fn walk_try(&mut self, try_stmt: &TryStmt) -> Option<(String, String)> {
@@ -545,12 +619,62 @@ impl TsWacWalker {
                 .as_ref()
                 .map_or(false, |f| self.body_contains_step(&f.stmts));
 
-        if has_steps {
-            self.errors.push(validation::error_step_in_catch(
-                self.span_line(try_stmt.span),
-            ));
+        if !has_steps {
+            return None;
         }
-        None
+
+        let line = self.span_line(try_stmt.span);
+        let branch_id = self.next_id();
+        let branch_node_id = self.add_node(DagNode {
+            id: branch_id.clone(),
+            node_type: DagNodeType::Branch { condition_source: "try/catch".to_string() },
+            label: "try".to_string(),
+            line,
+        });
+
+        let mut last_ids = Vec::new();
+
+        // Try body
+        if let Some((try_first, try_last)) = self.walk_body(&try_stmt.block.stmts) {
+            self.add_edge(&branch_node_id, &try_first, Some("try".to_string()));
+            last_ids.push(try_last);
+        } else {
+            last_ids.push(branch_node_id.clone());
+        }
+
+        // Catch body
+        if let Some(handler) = &try_stmt.handler {
+            if let Some((catch_first, catch_last)) = self.walk_body(&handler.body.stmts) {
+                self.add_edge(&branch_node_id, &catch_first, Some("catch".to_string()));
+                last_ids.push(catch_last);
+            }
+        }
+
+        // Finally body — sequential after merge
+        let merge_last = if last_ids.len() == 1 {
+            last_ids.into_iter().next().unwrap()
+        } else {
+            let merge_id = format!("{branch_id}_merge");
+            let merge_node_id = self.add_node(DagNode {
+                id: merge_id,
+                node_type: DagNodeType::Merge,
+                label: "merge".to_string(),
+                line,
+            });
+            for last in last_ids {
+                self.add_edge(&last, &merge_node_id, None);
+            }
+            merge_node_id
+        };
+
+        if let Some(finalizer) = &try_stmt.finalizer {
+            if let Some((finally_first, finally_last)) = self.walk_body(&finalizer.stmts) {
+                self.add_edge(&merge_last, &finally_first, None);
+                return Some((branch_node_id, finally_last));
+            }
+        }
+
+        Some((branch_node_id, merge_last))
     }
 
     fn walk_return(&mut self, ret: &ReturnStmt) -> Option<(String, String)> {
@@ -628,6 +752,19 @@ pub fn parse_ts_workflow(code: &str) -> Result<WorkflowDag, Vec<CompileError>> {
                     if let Some(result) = find_workflow_call(init, &cm) {
                         workflow_body = Some(result);
                         break;
+                    }
+                }
+            }
+        }
+        // export const main = workflow(async (...) => { ... })
+        if let ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(export)) = item {
+            if let Decl::Var(var_decl) = &export.decl {
+                for decl in &var_decl.decls {
+                    if let Some(init) = &decl.init {
+                        if let Some(result) = find_workflow_call(init, &cm) {
+                            workflow_body = Some(result);
+                            break;
+                        }
                     }
                 }
             }

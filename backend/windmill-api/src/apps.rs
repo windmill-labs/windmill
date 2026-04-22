@@ -62,7 +62,7 @@ use windmill_common::{
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
-    workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult},
+    workspaces::{check_deploy_rules, RuleCheckResult},
     HUB_BASE_URL,
 };
 #[cfg(feature = "parquet")]
@@ -79,52 +79,64 @@ use windmill_common::{jwt, oauth2::HmacSha256, variables::get_workspace_key};
 #[cfg(feature = "parquet")]
 use windmill_types::s3::{S3Object, S3Permission};
 
-pub fn workspaced_service() -> Router {
+pub fn workspaced_service(raw_app_body_limit: usize) -> Router {
     Router::new()
         .route("/list", get(list_apps))
         .route("/list_search", get(list_search_apps))
-        .route("/get/p/*path", get(get_app))
-        .route("/get/lite/*path", get(get_app_lite))
-        .route("/get/draft/*path", get(get_app_w_draft))
-        .route("/secret_of/*path", get(get_secret_id))
+        .route("/get/p/{*path}", get(get_app))
+        .route("/get/lite/{*path}", get(get_app_lite))
+        .route("/get/draft/{*path}", get(get_app_w_draft))
+        .route("/secret_of/{*path}", get(get_secret_id))
         .route(
-            "/secret_of_latest_version/*path",
+            "/secret_of_latest_version/{*path}",
             get(get_latest_version_secret_id),
         )
-        .route("/get/v/*id", get(get_app_by_id))
-        .route("/get_data/v/*id", get(get_raw_app_data))
-        .route("/exists/*path", get(exists_app))
-        .route("/update/*path", post(update_app))
-        .route("/update_raw/*path", post(update_app_raw))
-        .route("/delete/*path", delete(delete_app))
-        .route("/create", post(create_app))
-        .route("/create_raw", post(create_app_raw))
-        .route("/history/p/*path", get(get_app_history))
-        .route("/get_latest_version/*path", get(get_latest_version))
-        .route("/history_update/a/:id/v/:version", post(update_app_history))
+        .route("/get/v/{*id}", get(get_app_by_id))
+        .route("/get_data/v/{*id}", get(get_raw_app_data))
+        .route("/exists/{*path}", get(exists_app))
+        .route("/update/{*path}", post(update_app))
         .route(
-            "/list_paths_from_workspace_runnable/:runnable_kind/*path",
+            "/update_raw/{*path}",
+            post(update_app_raw).layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
+        )
+        .route("/delete/{*path}", delete(delete_app))
+        .route("/create", post(create_app))
+        .route(
+            "/create_raw",
+            post(create_app_raw).layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
+        )
+        .route("/history/p/{*path}", get(get_app_history))
+        .route("/get_latest_version/{*path}", get(get_latest_version))
+        .route(
+            "/history_update/a/{id}/v/{version}",
+            post(update_app_history),
+        )
+        .route(
+            "/list_paths_from_workspace_runnable/{runnable_kind}/{*path}",
             get(list_paths_from_workspace_runnable),
         )
-        .route("/custom_path_exists/*custom_path", get(custom_path_exists))
+        .route(
+            "/custom_path_exists/{*custom_path}",
+            get(custom_path_exists),
+        )
         .route("/sign_s3_objects", post(sign_s3_objects))
 }
 
 pub fn unauthed_service() -> Router {
     Router::new()
-        .route("/execute_component/*path", post(execute_component))
-        .route("/upload_s3_file/*path", post(upload_s3_file_from_app))
+        .route("/execute_component/{*path}", post(execute_component))
+        .route("/upload_s3_file/{*path}", post(upload_s3_file_from_app))
         .route("/delete_s3_file", delete(delete_s3_file_from_app))
-        .route("/download_s3_file/*path", get(download_s3_file_from_app))
-        .route("/public_app/:secret", get(get_public_app_by_secret))
-        .route("/public_resource/*path", get(get_public_resource))
-        .route("/get_data/v/*id", get(get_raw_app_data))
+        .route("/download_s3_file/{*path}", get(download_s3_file_from_app))
+        .route("/public_app/{secret}", get(get_public_app_by_secret))
+        .route("/public_resource/{*path}", get(get_public_resource))
+        .route("/get_data/v/{*id}", get(get_raw_app_data))
 }
 pub fn global_service() -> Router {
     Router::new()
         .route("/hub/list", get(list_hub_apps))
-        .route("/hub/get/:id", get(get_hub_app_by_id))
-        .route("/hub/get_raw/:id", get(get_hub_raw_app_by_id))
+        .route("/hub/get/{id}", get(get_hub_app_by_id))
+        .route("/hub/get_raw/{id}", get(get_hub_raw_app_by_id))
 }
 
 #[derive(FromRow, Deserialize, Serialize)]
@@ -146,6 +158,8 @@ pub struct ListableApp {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "is_false")]
     pub raw_app: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -178,6 +192,8 @@ pub struct AppWithLastVersion {
     #[sqlx(skip)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bundle_secret: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -276,6 +292,8 @@ pub struct CreateApp {
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -287,6 +305,8 @@ pub struct EditApp {
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -342,6 +362,7 @@ async fn list_apps(
             "draft.path IS NOT NULL as has_draft",
             "draft_only",
             "app_version.raw_app",
+            "app.labels",
         ])
         .left()
         .join("favorite")
@@ -380,6 +401,12 @@ async fn list_apps(
 
     if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
         sqlb.and_where("app.draft_only IS NOT TRUE");
+    }
+
+    if let Some(label) = &lq.label {
+        for l in label.split(',') {
+            sqlb.and_where("app.labels @> ARRAY[?]".bind(&l.trim()));
+        }
     }
 
     if lq.with_deployment_msg.unwrap_or(false) {
@@ -531,8 +558,8 @@ async fn get_app(
     let app_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-            app.extra_perms, app_version.value, 
-            app_version.created_at, app_version.created_by, favorite.path IS NOT NULL as starred, app_version.raw_app
+            app.extra_perms, app_version.value,
+            app_version.created_at, app_version.created_by, favorite.path IS NOT NULL as starred, app_version.raw_app, app.labels
             FROM app
             JOIN app_version
             ON app_version.id = app.versions[array_upper(app.versions, 1)]
@@ -551,8 +578,8 @@ async fn get_app(
     } else {
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-            app.extra_perms, app_version.value, 
-            app_version.created_at, app_version.created_by, NULL as starred, app_version.raw_app
+            app.extra_perms, app_version.value,
+            app_version.created_at, app_version.created_by, NULL as starred, app_version.raw_app, app.labels
             FROM app, app_version
             WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
         )
@@ -578,8 +605,8 @@ async fn get_app_lite(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-        app.extra_perms, coalesce(app_version_lite.value::json, app_version.value) as value, 
-        app_version.created_at, app_version.created_by, NULL as starred, app_version.raw_app
+        app.extra_perms, coalesce(app_version_lite.value::json, app_version.value) as value,
+        app_version.created_at, app_version.created_by, NULL as starred, app_version.raw_app, app.labels
         FROM app, app_version
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
@@ -619,7 +646,8 @@ async fn get_app_w_draft(
             app_version.created_by,
             app.draft_only,
             draft.value AS "draft",
-            app_version.raw_app
+            app_version.raw_app,
+            app.labels
         FROM app
         INNER JOIN app_version 
             ON app_version.id = app.versions[array_upper(app.versions, 1)]
@@ -739,7 +767,7 @@ async fn custom_path_exists(
     Extension(db): Extension<DB>,
     Path((w_id, custom_path)): Path<(String, String)>,
 ) -> JsonResult<bool> {
-    let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
+    let as_workspaced_route = APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
     let exists =
         sqlx::query_scalar!(
@@ -761,9 +789,9 @@ async fn get_app_by_id(
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-        app.extra_perms, app_version.value, 
-        app_version.created_at, app_version.created_by, app_version.raw_app
-        FROM app, app_version 
+        app.extra_perms, app_version.value,
+        app_version.created_at, app_version.created_by, app_version.raw_app, app.labels
+        FROM app, app_version
         WHERE app_version.id = $1 AND app.id = app_version.app_id AND app.workspace_id = $2",
     )
     .bind(&id)
@@ -790,7 +818,7 @@ async fn get_public_app_by_secret(
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
         null as extra_perms, coalesce(app_version_lite.value::json, app_version.value::json) as value,
-        app_version.created_at, app_version.created_by, app_version.raw_app
+        app_version.created_at, app_version.created_by, app_version.raw_app, app.labels
         FROM app, app_version
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]")
@@ -1004,18 +1032,20 @@ macro_rules! process_app_multipart {
             let mut saved_app = None;
             let mut uploaded_js = false;
 
+            let request_size_limit_mb = *crate::REQUEST_SIZE_LIMIT.read().await / (1024 * 1024);
+            let raw_app_limit_mb = request_size_limit_mb * 5;
             let mut multipart = $multipart;
             while let Some(field) = multipart
                 .next_field()
                 .await
-                .map_err(|e| Error::BadRequest(format!("failed to read multipart field: {e}")))?
+                .map_err(|e| Error::BadRequest(format!("failed to read multipart field: {e}. Could be due to the request size limit for raw app bundles which is {raw_app_limit_mb}MB (adjustable in instance settings)")))?
             {
                 let name = field
                     .name()
                     .ok_or_else(|| Error::BadRequest("multipart field missing name".to_string()))?
                     .to_string();
                 let data = field.bytes().await.map_err(|e| {
-                    Error::BadRequest(format!("failed to read multipart stream: {e}"))
+                    Error::BadRequest(format!("failed to read multipart stream: {e}. Could be due to the request size limit for raw app bundles which is {raw_app_limit_mb}MB (adjustable in instance settings)"))
                 })?;
                 if name == "app" {
                     let app = serde_json::from_slice(&data).map_err(to_anyhow)?;
@@ -1078,9 +1108,8 @@ async fn create_app_raw<'a>(
         ));
     }
 
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -1151,9 +1180,8 @@ async fn create_app(
     let path = app.path.clone();
     check_scopes(&authed, || format!("apps:write:{}", &path))?;
 
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -1207,8 +1235,25 @@ async fn create_app_internal<'a>(
         && app.policy.on_behalf_of.is_some();
 
     if !should_preserve {
-        app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
-        app.policy.on_behalf_of_email = Some(authed.email.clone());
+        let folder_default = if windmill_common::can_preserve_on_behalf_of(&authed) {
+            windmill_common::folders::resolve_folder_default_permissioned_as(&db, w_id, &app.path)
+                .await?
+        } else {
+            None
+        };
+        if let Some(default_permissioned_as) = folder_default {
+            let default_email = windmill_common::users::get_email_from_permissioned_as(
+                &default_permissioned_as,
+                w_id,
+                &db,
+            )
+            .await?;
+            app.policy.on_behalf_of = Some(default_permissioned_as);
+            app.policy.on_behalf_of_email = Some(default_email);
+        } else {
+            app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
+            app.policy.on_behalf_of_email = Some(authed.email.clone());
+        }
     }
     let path = app.path.clone();
     if &app.path == "" {
@@ -1230,7 +1275,7 @@ async fn create_app_internal<'a>(
     }
     if let Some(custom_path) = &app.custom_path {
         require_admin(authed.is_admin, &authed.username)?;
-        let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
+        let as_workspaced_route = APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
         let exists = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
@@ -1256,8 +1301,8 @@ async fn create_app_internal<'a>(
     .await?;
     let id = sqlx::query_scalar!(
         "INSERT INTO app
-            (workspace_id, path, summary, policy, versions, draft_only, custom_path)
-            VALUES ($1, $2, $3, $4, '{}', $5, $6) RETURNING id",
+            (workspace_id, path, summary, policy, versions, draft_only, custom_path, labels)
+            VALUES ($1, $2, $3, $4, '{}', $5, $6, $7) RETURNING id",
         w_id,
         app.path,
         app.summary,
@@ -1266,7 +1311,8 @@ async fn create_app_internal<'a>(
         app.custom_path
             .as_ref()
             .map(|s| if s.is_empty() { None } else { Some(s) })
-            .flatten()
+            .flatten(),
+        app.labels.as_deref() as Option<&[String]>
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -1364,7 +1410,7 @@ async fn create_app_internal<'a>(
 async fn list_hub_apps(Extension(db): Extension<DB>) -> impl IntoResponse {
     let (status_code, headers, body) = query_elems_from_hub(
         &HTTP_CLIENT,
-        &format!("{}/searchUiData?approved=true", *HUB_BASE_URL.read().await),
+        &format!("{}/searchUiData?approved=true", **HUB_BASE_URL.load()),
         None,
         &db,
     )
@@ -1378,7 +1424,7 @@ pub async fn get_hub_app_by_id(
 ) -> JsonResult<Box<serde_json::value::RawValue>> {
     let value = http_get_from_hub(
         &HTTP_CLIENT,
-        &format!("{}/apps/{}/json", *HUB_BASE_URL.read().await, id),
+        &format!("{}/apps/{}/json", **HUB_BASE_URL.load(), id),
         false,
         None,
         Some(&db),
@@ -1396,7 +1442,7 @@ pub async fn get_hub_raw_app_by_id(
 ) -> JsonResult<Box<serde_json::value::RawValue>> {
     let value = http_get_from_hub(
         &HTTP_CLIENT,
-        &format!("{}/raw_apps/{}/json", *HUB_BASE_URL.read().await, id),
+        &format!("{}/raw_apps/{}/json", **HUB_BASE_URL.load(), id),
         false,
         None,
         Some(&db),
@@ -1424,9 +1470,8 @@ async fn delete_app(
         ));
     }
 
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -1451,6 +1496,30 @@ async fn delete_app(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    // Capture all related data for trashbin before deleting (CASCADE will remove app_version, etc.)
+    let trash_app: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT to_jsonb(t) FROM app t WHERE path = $1 AND workspace_id = $2")
+            .bind(path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let trash_app_versions: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM app_version t WHERE app_id = (SELECT id FROM app WHERE path = $1 AND workspace_id = $2)",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let trash_drafts: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM draft t WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
     sqlx::query!(
         "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
         path,
@@ -1466,6 +1535,25 @@ async fn delete_app(
     )
     .execute(&mut *tx)
     .await?;
+
+    if let Some(app_data) = trash_app {
+        let mut trash_data = serde_json::json!({"row": app_data});
+        if !trash_app_versions.is_empty() {
+            trash_data["app_versions"] = serde_json::Value::Array(trash_app_versions);
+        }
+        if !trash_drafts.is_empty() {
+            trash_data["drafts"] = serde_json::Value::Array(trash_drafts);
+        }
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "app",
+            path,
+            trash_data,
+            &authed.username,
+        )
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -1543,9 +1631,8 @@ async fn update_app(
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
 
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -1587,9 +1674,8 @@ async fn update_app_raw<'a>(
         ));
     }
 
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -1650,6 +1736,7 @@ async fn update_app_internal<'a>(
         || ns.path.is_some()
         || ns.summary.is_some()
         || ns.custom_path.is_some()
+        || ns.labels.is_some()
     {
         let mut sqlb = SqlBuilder::update_table("app");
         sqlb.and_where_eq("path", "?".bind(&path));
@@ -1685,7 +1772,7 @@ async fn update_app_internal<'a>(
 
         if let Some(ncustom_path) = &ns.custom_path {
             require_admin(authed.is_admin, &authed.username)?;
-            let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
+            let as_workspaced_route = APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
             if ncustom_path.is_empty() {
                 sqlb.set("custom_path", "NULL");
@@ -1737,7 +1824,20 @@ async fn update_app_internal<'a>(
 
         let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
         let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
-        not_found_if_none(npath_o, "App", path)?
+        let npath_val = not_found_if_none(npath_o, "App", path)?;
+
+        if let Some(nlabels) = &ns.labels {
+            sqlx::query!(
+                "UPDATE app SET labels = $1 WHERE path = $2 AND workspace_id = $3",
+                nlabels as &[String],
+                &npath_val,
+                w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        npath_val
     } else {
         path.to_owned()
     };

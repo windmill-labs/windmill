@@ -1,1 +1,1 @@
-export * from "./path-assigner.ts";
+export * from "./path-assigner";

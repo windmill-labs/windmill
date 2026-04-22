@@ -43,6 +43,8 @@ pub struct Flow {
     pub visible_to_runner_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -81,6 +83,8 @@ pub struct ListableFlow {
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -100,6 +104,8 @@ pub struct NewFlow {
     pub on_behalf_of_email: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 
 impl NewFlow {
@@ -178,6 +184,10 @@ pub struct FlowValue {
     pub chat_input_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_env: Option<HashMap<String, Box<RawValue>>>,
+    #[serde(skip_serializing, default)]
+    pub delete_after_use: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delete_after_secs: Option<i32>,
 }
 
 impl FlowValue {
@@ -435,8 +445,10 @@ pub struct FlowModule {
     pub timeout: Option<InputTransform>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing, default)]
     pub delete_after_use: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delete_after_secs: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub continue_on_error: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1093,6 +1105,7 @@ pub struct ListFlowQuery {
     pub include_draft_only: Option<bool>,
     pub with_deployment_msg: Option<bool>,
     pub dedicated_worker: Option<bool>,
+    pub label: Option<String>,
 }
 
 pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
@@ -1115,11 +1128,49 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             timeout: None,
             priority: None,
             delete_after_use: None,
+            delete_after_secs: None,
             continue_on_error: None,
             skip_if: None,
             apply_preprocessor: None,
             pass_flow_input_directly: None,
             debouncing: None,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn flow_value_ignores_notes_and_groups() {
+        // FlowValue should parse successfully even when notes/groups are present —
+        // it just ignores them (they're not its fields).
+        let input = json!({
+            "modules": [],
+            "notes": [{"id": "n1", "text": "hello", "color": "yellow", "type": "free"}],
+            "groups": [{"start_id": "a", "end_id": "b", "summary": "grp"}]
+        });
+        let val: FlowValue = serde_json::from_value(input).unwrap();
+        assert_eq!(val.modules.len(), 0);
+
+        // Round-trip through FlowValue drops notes/groups (by design)
+        let output = serde_json::to_string(&val).unwrap();
+        assert!(!output.contains("notes"));
+        assert!(!output.contains("groups"));
+    }
+
+    #[test]
+    fn flow_value_parses_modules() {
+        let input = json!({
+            "modules": [{
+                "id": "a",
+                "value": {"type": "identity"}
+            }],
+            "notes": [{"id": "n1", "text": "t", "color": "blue", "type": "free"}]
+        });
+        let val: FlowValue = serde_json::from_value(input).unwrap();
+        assert_eq!(val.modules.len(), 1);
     }
 }

@@ -98,6 +98,7 @@
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
 	let filters: { key: string; value: any }[] = $state([])
+	let filterLogic = $state<'and' | 'or'>('and')
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
@@ -190,8 +191,12 @@
 			error_handler_args = nDefaultValues?.error_handler_args ?? {}
 			retry = nDefaultValues?.retry ?? undefined
 			filters = nDefaultValues?.filters ?? []
+			filterLogic = 'and'
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			mode = nDefaultValues?.mode ?? 'enabled'
+			permissionedAs = undefined
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 			originalConfig = undefined
 		} finally {
 			clearTimeout(loadingTimeout)
@@ -219,10 +224,11 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		filters = cfg?.filters ?? []
+		filterLogic = cfg?.filter_logic ?? 'and'
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		permissionedAs = cfg?.permissioned_as
-		selectedPermissionedAs = undefined
-		preservePermissionedAs = false
+		selectedPermissionedAs = cfg?.permissioned_as
+		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -247,6 +253,7 @@
 			group_id: kafkaCfg.group_id,
 			topics: kafkaCfg.topics,
 			filters,
+			filter_logic: filterLogic,
 			auto_offset_reset: autoOffsetReset,
 			auto_commit: autoCommit,
 			mode,
@@ -423,15 +430,14 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
-		{#if edit}
-			<PermissionedAsLine
-				{permissionedAs}
-				onPermissionedAsChange={(pa, preserve) => {
-					selectedPermissionedAs = pa
-					preservePermissionedAs = preserve
-				}}
-			/>
-		{/if}
+		<PermissionedAsLine
+			{permissionedAs}
+			{path}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
+		/>
 		<div class="flex flex-col gap-4">
 			{#if description}
 				{@render description()}
@@ -577,7 +583,7 @@
 						</Label>
 					{/if}
 
-					<TriggerFilters bind:filters disabled={!can_write} />
+					<TriggerFilters bind:filters bind:filterLogic disabled={!can_write} />
 
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>

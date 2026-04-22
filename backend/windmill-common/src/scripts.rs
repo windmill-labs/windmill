@@ -106,6 +106,7 @@ pub async fn prefetch_cached_script(
         cache_ignore_s3_path: script.cache_ignore_s3_path,
         timeout: script.timeout,
         delete_after_use: script.delete_after_use,
+        delete_after_secs: script.delete_after_secs,
         restart_unless_cancelled: script.restart_unless_cancelled,
         visible_to_runner_only: script.visible_to_runner_only,
         auto_kind: script.auto_kind,
@@ -114,6 +115,7 @@ pub async fn prefetch_cached_script(
         on_behalf_of_email: script.on_behalf_of_email,
         assets: script.assets,
         modules: script.modules,
+        labels: script.labels,
         runnable_settings: ScriptRunnableSettingsInline {
             concurrency_settings: concurrency_settings.maybe_fallback(
                 script.runnable_settings.concurrency_key,
@@ -148,7 +150,7 @@ pub async fn get_hub_script_by_path(
         .strip_prefix("hub/")
         .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
 
-    let hub_base_url = HUB_BASE_URL.read().await.clone();
+    let hub_base_url = (**HUB_BASE_URL.load()).clone();
 
     //
     let result = http_get_from_hub(
@@ -240,7 +242,7 @@ async fn get_full_hub_script_by_path_inner(
     http_client: &reqwest::Client,
     db: Option<&DB>,
 ) -> crate::error::Result<HubScript> {
-    let hub_base_url = HUB_BASE_URL.read().await.clone();
+    let hub_base_url = (**HUB_BASE_URL.load()).clone();
 
     let response = (|| async {
         let response = http_get_from_hub(
@@ -345,6 +347,7 @@ pub async fn fetch_script_for_update<'a>(
             cache_ignore_s3_path,
             timeout,
             delete_after_use,
+            delete_after_secs,
             restart_unless_cancelled,
             visible_to_runner_only,
             auto_kind,
@@ -352,7 +355,8 @@ pub async fn fetch_script_for_update<'a>(
             has_preprocessor,
             on_behalf_of_email,
             assets,
-            modules
+            modules,
+            labels
          FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
     )
     .bind(path)
@@ -418,6 +422,7 @@ pub async fn clone_script<'c>(
         priority: s.priority,
         timeout: s.timeout,
         delete_after_use: s.delete_after_use,
+        delete_after_secs: s.delete_after_secs,
         restart_unless_cancelled: s.restart_unless_cancelled,
         deployment_message,
         visible_to_runner_only: s.visible_to_runner_only,
@@ -428,6 +433,8 @@ pub async fn clone_script<'c>(
         preserve_on_behalf_of: None,
         assets: s.assets,
         modules: s.modules,
+        auto_parent: None,
+        labels: s.labels,
     };
 
     let new_hash = hash_script(&ns);
@@ -445,15 +452,15 @@ pub async fn clone_script<'c>(
     created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
     draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-    delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
-    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules)
+    delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
+    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
             content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
             draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-            delete_after_use, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
-            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules
+            delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
+            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels
 
     FROM script WHERE hash = $2 AND workspace_id = $3;
             ", new_hash, s.hash.0, w_id).execute(&mut *tx).await?;

@@ -53,6 +53,8 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 		// Cache of transformed code and offset maps per file version
 		// Structure: fileUri -> {version, originalText, transformed, offsetMap, offsetMapEntries}
 		this._transformedCodeCache = new Map()
+		// When true, getScriptSnapshot returns original code (used during formatting)
+		this._bypassTransform = false
 	}
 
 	/**
@@ -110,6 +112,10 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 	 * This is called by TypeScript when it needs to read source files
 	 */
 	getScriptSnapshot(fileName) {
+		if (this._bypassTransform) {
+			return super.getScriptSnapshot(fileName)
+		}
+
 		const cached = this._getTransformResult(fileName)
 
 		if (!cached) {
@@ -716,6 +722,39 @@ class SqlAwareTypeScriptWorker extends TypeScriptWorker {
 		const mappedDiagnostics = this._mapDiagnostics(diagnostics, fileName)
 		const sqlDiagnostics = this._createSqlErrorDiagnostics(fileName)
 		return [...mappedDiagnostics, ...sqlDiagnostics]
+	}
+
+	/**
+	 * Override formatting methods to operate on original code (without injected SQL types).
+	 * The formatter only cares about syntax/spacing, not types, so the original code is correct.
+	 * Without this, formatting edits use positions from the transformed code, causing
+	 * character offsets to be wrong and truncating SQL strings.
+	 */
+	async getFormattingEditsForDocument(fileName, options) {
+		this._bypassTransform = true
+		try {
+			return await super.getFormattingEditsForDocument(fileName, options)
+		} finally {
+			this._bypassTransform = false
+		}
+	}
+
+	async getFormattingEditsForRange(fileName, start, end, options) {
+		this._bypassTransform = true
+		try {
+			return await super.getFormattingEditsForRange(fileName, start, end, options)
+		} finally {
+			this._bypassTransform = false
+		}
+	}
+
+	async getFormattingEditsAfterKeystroke(fileName, position, ch, options) {
+		this._bypassTransform = true
+		try {
+			return await super.getFormattingEditsAfterKeystroke(fileName, position, ch, options)
+		} finally {
+			this._bypassTransform = false
+		}
 	}
 
 	async getSuggestionDiagnostics(fileName) {

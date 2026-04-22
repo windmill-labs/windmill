@@ -20,7 +20,7 @@
 		schema?: any
 	}
 
-	type TabValue = 'ui' | 'raw' | 'schema' | 'diff'
+	export type TabValue = 'ui' | 'raw' | 'schema' | 'diff'
 
 	interface Props {
 		flow: {
@@ -33,10 +33,16 @@
 		noSide?: boolean
 		noGraph?: boolean
 		initTab?: TabValue
+		selectedTab?: TabValue
+		hideTabs?: boolean
 		noSummary?: boolean
+		noInput?: boolean
+		hideDefaultInputs?: boolean
+		showStepHint?: boolean
 		noGraphDownload?: boolean
 		availableVersions?: Array<{ id: number; deployment_msg?: string }>
 		selectedVersionId?: number
+		graphContent?: import('svelte').Snippet
 	}
 
 	let {
@@ -46,9 +52,15 @@
 		noGraph = false,
 		availableVersions = undefined,
 		initTab = undefined,
+		selectedTab = $bindable(),
+		hideTabs = false,
 		noSummary = false,
+		noInput = false,
+		hideDefaultInputs = false,
+		showStepHint = false,
 		noGraphDownload = false,
-		selectedVersionId = undefined
+		selectedVersionId = undefined,
+		graphContent = undefined
 	}: Props = $props()
 
 	let open: { [id: number]: boolean } = {}
@@ -59,7 +71,10 @@
 
 	let previousVersionId: number | undefined = $state(undefined)
 	let previousFlow: PreviousFlow | undefined = $state(undefined)
-	let tab: TabValue = $state(untrack(() => initTab) ?? 'diff')
+	const tabControlledExternally = selectedTab !== undefined
+	if (!tabControlledExternally) {
+		selectedTab = initTab ?? 'diff'
+	}
 
 	let previousFlowCache: Record<number, PreviousFlow> = {}
 
@@ -90,16 +105,16 @@
 	})
 
 	$effect.pre(() => {
-		if (initTab) {
+		if (initTab || tabControlledExternally) {
 			return
 		}
 		if (availableVersions && availableVersions.length > 0) {
-			tab = 'diff'
+			selectedTab = 'diff'
 		} else {
 			if (noGraph) {
-				tab = 'schema'
+				selectedTab = 'schema'
 			} else {
-				tab = 'ui'
+				selectedTab = 'ui'
 			}
 		}
 	})
@@ -127,7 +142,7 @@
 
 <HighlightTheme />
 
-<Tabs bind:selected={tab}>
+<Tabs bind:selected={selectedTab as string} {hideTabs}>
 	{#if availableVersions && availableVersions.length > 0}
 		<Tab value="diff" label="Diff" />
 	{/if}
@@ -167,23 +182,38 @@
 			</TabContent>
 		{/if}
 		<TabContent value="ui">
-			<div class="flow-root w-full pb-4">
-				{#if !noSummary}
-					<h2 class="my-4">{flow.summary}</h2>
-					<div>{flow.description ?? ''}</div>
-				{/if}
+			{#if graphContent}
+				{@render graphContent()}
+			{:else}
+				<div class="flow-root w-full pb-4">
+					{#if showStepHint}
+						<p class="text-2xs text-tertiary py-1">Click on a step to see its details</p>
+					{/if}
+					{#if !noSummary}
+						<h2 class="my-4">{flow.summary}</h2>
+						<div>{flow.description ?? ''}</div>
+					{/if}
 
-				<p class="font-black text-lg w-full my-4">
-					<span>Flow Input</span>
-				</p>
-				{#if flow.schema && flow.schema.properties && Object.keys(flow.schema.properties).length > 0 && flow.schema}
-					<FlowInputViewer schema={flow.schema} />
-				{:else}
-					<div class="text-secondary text-xs italic mb-4">No inputs</div>
-				{/if}
+					{#if !noInput}
+						<p class="font-black text-lg w-full my-4">
+							<span>Flow Input</span>
+						</p>
+						{#if flow.schema && flow.schema.properties && Object.keys(flow.schema.properties).length > 0 && flow.schema}
+							<FlowInputViewer schema={flow.schema} />
+						{:else}
+							<div class="text-secondary text-xs italic mb-4">No inputs</div>
+						{/if}
+					{/if}
 
-				<FlowGraphViewer download={!noGraphDownload} {noSide} {flow} overflowAuto />
-			</div>
+					<FlowGraphViewer
+						download={!noGraphDownload}
+						{noSide}
+						{hideDefaultInputs}
+						{flow}
+						overflowAuto
+					/>
+				</div>
+			{/if}
 		</TabContent>
 		<TabContent value="raw">
 			<FlowViewerInner {flow} />

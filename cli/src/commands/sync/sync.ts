@@ -47,15 +47,20 @@ import {
 import {
   getEffectiveSettings,
   mergeConfigWithConfigFile,
+  parseSyncBehavior,
   SyncOptions,
   validateBranchConfiguration,
+  findWorkspaceByGitBranch,
+  WorkspaceEntryConfig,
 } from "../../core/conf.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
+import { preCheckPermissionedAs } from "../../core/permissioned_as.ts";
 import {
-  fromBranchSpecificPath,
-  getBranchSpecificPath,
+  fromWorkspaceSpecificPath,
+  getWorkspaceSpecificPath,
   getSpecificItemsForCurrentBranch,
-  isBranchSpecificFile,
-  isCurrentBranchFile,
+  isWorkspaceSpecificFile,
+  isCurrentWorkspaceFile,
   isItemTypeConfigured,
   isSpecificItem,
   SpecificItemsConfig,
@@ -77,7 +82,7 @@ import {
   newRawAppPathAssigner,
   PathAssigner,
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
-import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { extractInlineScripts as extractInlineScriptsForFlows, extractCurrentMapping } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
 import { isExecutionModeAnonymous } from "../app/app.ts";
 import {
@@ -94,6 +99,8 @@ import {
   isAppMetadataFile,
   isRawAppMetadataFile,
   isRawAppFolderMetadataFile,
+  isAppFolderMetadataFile,
+  isFlowFolderMetadataFile,
   getDeleteSuffix,
   transformJsonPathToDir,
   getFolderSuffix,
@@ -103,7 +110,77 @@ import {
   getModuleFolderSuffix,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
+  hasWrongFormatSuffix,
 } from "../../utils/resource_folders.ts";
+
+let branchDeprecationWarned = false;
+
+// Resolve workspace name from a --branch override (git branch → workspace name).
+// Falls back to using the branch value as-is (backward compat: old key = branch name).
+function resolveWsNameFromBranch(opts: SyncOptions, branchName: string): string {
+  const match = findWorkspaceByGitBranch(opts.workspaces, branchName);
+  return match ? match[0] : branchName;
+}
+
+// Warn if --workspace overrides auto-detected branch or if workspace not in config.
+function warnWorkspaceOverride(opts: SyncOptions, wsNameForConfig: string | undefined): void {
+  if (!wsNameForConfig || !opts.workspaces) return;
+
+  // Check if workspace exists in config
+  const wsEntry = (opts.workspaces as any)?.[wsNameForConfig] as WorkspaceEntryConfig | undefined;
+  if (!wsEntry) {
+    const wsNames = Object.keys(opts.workspaces).filter((k) => k !== "commonSpecificItems");
+    if (wsNames.length > 0) {
+      log.warn(
+        `⚠️  Workspace '${wsNameForConfig}' is not defined in the 'workspaces' section of wmill.yaml.\n` +
+        `   No workspace-specific overrides will be applied. Available workspaces: ${wsNames.join(", ")}`
+      );
+    }
+    return;
+  }
+
+  // Check if current git branch maps to a different workspace
+  if (isGitRepository()) {
+    const currentBranch = getCurrentGitBranch();
+    if (currentBranch) {
+      const autoMatch = findWorkspaceByGitBranch(opts.workspaces, currentBranch);
+      if (autoMatch && autoMatch[0] !== wsNameForConfig) {
+        log.info(
+          `Current git branch '${currentBranch}' maps to workspace '${autoMatch[0]}', ` +
+          `but --workspace overrides to '${wsNameForConfig}'.`
+        );
+      }
+    }
+  }
+}
+
+// The workspace name is used as the file suffix for workspace-specific files.
+// This is a pass-through — the workspace name (config key) IS the suffix.
+function resolveWsNameForFiles(_opts: SyncOptions, wsName: string): string {
+  return wsName;
+}
+
+// After resolveWorkspace, infer the workspace config name from the resolved profile
+// by matching baseUrl + workspaceId against the workspaces config entries.
+function inferWsNameFromProfile(opts: SyncOptions, profile: { remote: string; workspaceId: string }): string | undefined {
+  if (!opts.workspaces) return undefined;
+  const wsNames = Object.keys(opts.workspaces).filter((k) => k !== "commonSpecificItems");
+  for (const name of wsNames) {
+    const entry = (opts.workspaces as any)[name] as WorkspaceEntryConfig;
+    if (!entry?.baseUrl) continue;
+    try {
+      const entryUrl = new URL(entry.baseUrl).toString();
+      const profileUrl = new URL(profile.remote).toString();
+      const entryWsId = entry.workspaceId ?? name;
+      if (entryUrl === profileUrl && entryWsId === profile.workspaceId) {
+        return name;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
@@ -113,14 +190,14 @@ function mergeCliWithEffectiveOptions<
   return Object.assign({}, effectiveOpts, cliOpts) as T;
 }
 
-// Resolve effective sync options using branch-based configuration
+// Resolve effective sync options using workspace-based configuration
 async function resolveEffectiveSyncOptions(
   workspace: Workspace,
   localConfig: SyncOptions,
   promotion?: string,
-  branchOverride?: string,
+  workspaceNameOverride?: string,
 ): Promise<SyncOptions> {
-  return await getEffectiveSettings(localConfig, promotion, false, false, branchOverride);
+  return await getEffectiveSettings(localConfig, promotion, false, false, workspaceNameOverride);
 }
 
 type DynFSElement = {
@@ -374,7 +451,7 @@ ${tables.length > 0 ? tables.map(t => `    - ${t}`).join('\n') : '    # Add tabl
 
 ## Quick Reference
 
-**Backend runnable:** Add \`backend/<name>.ts\` (or .py, etc.), then run \`wmill app generate-locks\`
+**Backend runnable:** Add \`backend/<name>.ts\` (or .py, etc.), then run \`wmill generate-metadata\`
 
 **Call from frontend:**
 \`\`\`typescript
@@ -450,7 +527,7 @@ export function extractInlineScriptsForApps(
   }
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
-      if (k == "inlineScript" && typeof v == "object") {
+      if (k == "inlineScript" && v != null && typeof v == "object") {
         rec["type"] = undefined;
         const o: Record<string, any> = v as any;
         const name = toId(key ?? "", rec);
@@ -539,6 +616,7 @@ function ZipFSElement(
   resourceTypeToFormatExtension: Record<string, string>,
   resourceTypeToIsFileset: Record<string, boolean>,
   ignoreCodebaseChanges: boolean,
+  stripOnBehalfOf: boolean,
 ): DynFSElement {
   // Pre-scan: find zip base paths of scripts that have modules.
   // These scripts use the folder layout: {basePath}__mod/script.{ext}
@@ -637,9 +715,16 @@ function ZipFSElement(
             let inlineScripts;
             try {
               const assigner = newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() });
-              inlineScripts = extractInlineScriptsForFlows(
+              // Preserve original !inline filenames from the flow to avoid phantom renames
+              const inlineMapping = extractCurrentMapping(
                 flow.value.modules as any,
                 {},
+                flow.value.failure_module,
+                flow.value.preprocessor_module,
+              );
+              inlineScripts = extractInlineScriptsForFlows(
+                flow.value.modules as any,
+                inlineMapping,
                 SEP,
                 defaultTs,
                 assigner,
@@ -648,7 +733,7 @@ function ZipFSElement(
               if (flow.value.failure_module) {
                 inlineScripts.push(...extractInlineScriptsForFlows(
                   [flow.value.failure_module],
-                  {},
+                  inlineMapping,
                   SEP,
                   defaultTs,
                   assigner,
@@ -658,7 +743,7 @@ function ZipFSElement(
               if (flow.value.preprocessor_module) {
                 inlineScripts.push(...extractInlineScriptsForFlows(
                   [flow.value.preprocessor_module],
-                  {},
+                  inlineMapping,
                   SEP,
                   defaultTs,
                   assigner,
@@ -680,6 +765,11 @@ function ZipFSElement(
                   return s.content;
                 },
               };
+            }
+
+            if (stripOnBehalfOf) {
+              (flow as any).has_on_behalf_of = !!(flow as any).on_behalf_of_email;
+              delete (flow as any).on_behalf_of_email;
             }
 
             yield {
@@ -962,6 +1052,10 @@ function ZipFSElement(
             if (ignoreCodebaseChanges && parsed["codebase"]) {
               parsed["codebase"] = undefined;
             }
+            if (stripOnBehalfOf) {
+              parsed["has_on_behalf_of"] = !!parsed["on_behalf_of_email"];
+              delete parsed["on_behalf_of_email"];
+            }
             // Modules are stored as files in __mod/ folder, not in metadata
             delete parsed["modules"];
             return useYaml
@@ -1000,16 +1094,32 @@ function ZipFSElement(
               : JSON.stringify(parsed, null, 2);
           }
 
-          return useYaml && isJson && kind != "dependencies"
-            ? (() => {
-                try {
-                  return yamlStringify(JSON.parse(content), yamlOptions);
-                } catch (error) {
-                  log.error(`Failed to parse JSON content at path: ${p}`);
-                  throw error;
+          if (isJson && kind != "dependencies") {
+            try {
+              const parsed = JSON.parse(content);
+              if (stripOnBehalfOf) {
+                const isSchedule = p.endsWith(".schedule.json");
+                const isTrigger = p.endsWith("_trigger.json");
+                if (isSchedule) {
+                  parsed["has_permissioned_as"] = !!parsed["permissioned_as"];
+                  delete parsed["permissioned_as"];
+                  delete parsed["email"];
+                  delete parsed["edited_by"];
+                } else if (isTrigger) {
+                  parsed["has_permissioned_as"] = !!parsed["permissioned_as"];
+                  delete parsed["permissioned_as"];
+                  delete parsed["edited_by"];
                 }
-              })()
-            : content;
+              }
+              return useYaml
+                ? yamlStringify(parsed, yamlOptions)
+                : JSON.stringify(parsed, null, 2);
+            } catch (error) {
+              log.error(`Failed to parse JSON content at path: ${p}`);
+              throw error;
+            }
+          }
+          return content;
         },
       },
     ];
@@ -1255,11 +1365,22 @@ export async function elementsToMap(
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
+  const wrongFormatPaths: string[] = [];
   // Cache git branch at the start to avoid repeated execSync calls per file
-  const cachedBranch = branchOverride ?? getCurrentGitBranch() ?? undefined;
+  const cachedWsName = branchOverride ?? getCurrentGitBranch() ?? undefined;
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     // console.log("FOO", entry.path, entry.ignored, entry.isDirectory)
-    if (entry.isDirectory || entry.ignored) {
+    if (entry.isDirectory) {
+      // Check for folder suffix format mismatch (only for local paths)
+      if (!isRemote) {
+        const dirName = entry.path.split(SEP).pop() ?? "";
+        if (hasWrongFormatSuffix(dirName)) {
+          wrongFormatPaths.push(entry.path);
+        }
+      }
+      continue;
+    }
+    if (entry.ignored) {
       continue;
     }
     const path = entry.path;
@@ -1298,6 +1419,7 @@ export async function elementsToMap(
           "nu",
           "java",
           "rb",
+          "r",
           // for related places search: ADD_NEW_LANG
         ].includes(path.split(".").pop() ?? "")
       ) {
@@ -1362,10 +1484,10 @@ export async function elementsToMap(
       // If getTypeStrFromPath can't determine the type, continue processing the file
     }
 
-    // Handle branch-specific files - skip files for other branches
-    if (specificItems && isBranchSpecificFile(path)) {
-      if (!isCurrentBranchFile(path, cachedBranch)) {
-        // Skip branch-specific files for other branches
+    // Handle workspace-specific files - skip files for other branches
+    if (specificItems && isWorkspaceSpecificFile(path)) {
+      if (!isCurrentWorkspaceFile(path, cachedWsName)) {
+        // Skip workspace-specific files for other branches
         continue;
       }
     }
@@ -1398,13 +1520,13 @@ export async function elementsToMap(
       }
     }
 
-    // Handle branch-specific path mapping after all filtering
-    if (cachedBranch && isCurrentBranchFile(path, cachedBranch)) {
-      // This is a branch-specific file for current branch
-      const currentBranch = cachedBranch;
-      const basePath = fromBranchSpecificPath(path, currentBranch);
+    // Handle workspace-specific path mapping after all filtering
+    if (cachedWsName && isCurrentWorkspaceFile(path, cachedWsName)) {
+      // This is a workspace-specific file for current branch
+      const currentBranch = cachedWsName;
+      const basePath = fromWorkspaceSpecificPath(path, currentBranch);
 
-      // Only use branch-specific files if the item type IS configured as branch-specific
+      // Only use workspace-specific files if the item type IS configured as branch-specific
       // AND matches the pattern. Otherwise, skip and use base file instead.
       if (!isItemTypeConfigured(basePath, specificItems)) {
         // Type not configured as branch-specific - skip, use base file instead
@@ -1418,10 +1540,10 @@ export async function elementsToMap(
       // Type configured AND matches - map to base path
       map[basePath] = content;
       processedBasePaths.add(basePath);
-    } else if (!isBranchSpecificFile(path)) {
+    } else if (!isWorkspaceSpecificFile(path)) {
       // This is a regular base file
       if (processedBasePaths.has(path)) {
-        // Skip base file, we already processed branch-specific version
+        // Skip base file, we already processed workspace-specific version
         continue;
       }
       // Skip base file if it's configured as branch-specific (expect branch version)
@@ -1431,8 +1553,22 @@ export async function elementsToMap(
       }
       map[path] = content;
     }
-    // Note: branch-specific files for other branches are already filtered out earlier
+    // Note: workspace-specific files for other branches are already filtered out earlier
   }
+
+  if (wrongFormatPaths.length > 0) {
+    const isNonDotted = getNonDottedPaths();
+    const foundFormat = isNonDotted ? ".flow/.app/.raw_app" : "__flow/__app/__raw_app";
+    const expectedFormat = isNonDotted ? "__flow/__app/__raw_app" : ".flow/.app/.raw_app";
+    const configHint = isNonDotted
+      ? "Either remove 'nonDottedPaths: true' from wmill.yaml, or rename these directories to use __flow/__app/__raw_app format."
+      : "Either add 'nonDottedPaths: true' to wmill.yaml, or rename these directories to use .flow/.app/.raw_app format.";
+    const pathList = wrongFormatPaths.map((p) => `  ${p}`).join("\n");
+    throw new Error(
+      `Found ${wrongFormatPaths.length} directory(ies) using ${foundFormat} format, but wmill.yaml expects ${expectedFormat}:\n${pathList}\n${configHint}`
+    );
+  }
+
   return map;
 }
 
@@ -1517,6 +1653,10 @@ async function compareDynFSElement(
         continue;
       }
       if (k.startsWith("dependencies/")) {
+        if (!workspaceDependenciesPathToLanguageAndFilename(k)) {
+          log.warn(`Skipping unrecognized workspace dependencies file: ${k}`);
+          continue;
+        }
         log.info(`Adding workspace dependencies file: ${k}`);
       }
       changes.push({ name: "added", path: k, content: v });
@@ -1847,7 +1987,7 @@ interface ChangeTracker {
 }
 
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
-  const isScript = exts.some((e) => p.endsWith(e));
+  const isScript = exts.some((e) => p.endsWith(e)) && !isFileResource(p) && !isFilesetResource(p);
   if (isScript) {
     if (isFlowPath(p)) {
       const folder = extractFolderPath(p, "flow")!;
@@ -1986,12 +2126,38 @@ export async function pull(
   opts: GlobalOptions &
     SyncOptions & { repository?: string; promotion?: string; branch?: string },
 ) {
+  if ((opts as any).jsonOutput) log.setSilent(true);
   const originalCliOpts = { ...opts };
   opts = await mergeConfigWithConfigFile(opts);
 
-  // Validate branch configuration early (skipped when --branch is used)
+  // --include-secrets overrides skipSecrets from wmill.yaml
+  if ((originalCliOpts as any).includeSecrets) {
+    opts.skipSecrets = false;
+  }
+
+  // Resolve workspace name for config lookups.
+  // --branch resolves git branch → workspace name (deprecated but still supported).
+  // --workspace (without --base-url) selects a workspace config entry by name.
+  // When --base-url is used with --workspace, --workspace is a profile selector only;
+  // --branch should still drive config lookups.
+  const hasExplicitCredentials = !!opts.baseUrl;
+  let wsNameForConfig: string | undefined;
+
+  if (opts.branch) {
+    if (!hasExplicitCredentials && !branchDeprecationWarned) {
+      log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
+      branchDeprecationWarned = true;
+    }
+    wsNameForConfig = resolveWsNameFromBranch(opts, opts.branch);
+  } else if (opts.workspace && !hasExplicitCredentials) {
+    // --workspace without --base-url: use as workspace config name
+    wsNameForConfig = opts.workspace;
+    warnWorkspaceOverride(opts, wsNameForConfig);
+  }
+
+  // Validate workspace configuration early (skipped when override is used)
   try {
-    await validateBranchConfiguration(opts, opts.branch);
+    await validateBranchConfiguration(opts, wsNameForConfig);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -2004,19 +2170,27 @@ export async function pull(
     await mkdir(path.join(process.cwd(), ".wmill"), { recursive: true });
   }
 
-  const workspace = await resolveWorkspace(opts, opts.branch);
+  const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
 
-  // Resolve effective sync options with branch awareness
+  // If wsNameForConfig wasn't set from flags, infer from the resolved profile
+  if (!wsNameForConfig) {
+    wsNameForConfig = inferWsNameFromProfile(opts, workspace);
+  }
+
+  // Resolve effective sync options with workspace awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
     opts,
     opts.promotion,
-    opts.branch,
+    wsNameForConfig,
   );
 
-  // Extract specific items configuration before merging overwrites gitBranches
-  const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
+  // Extract specific items configuration
+  const specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
+
+  // Compute the workspace name for file naming
+  const wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : undefined;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2066,6 +2240,7 @@ export async function pull(
     resourceTypeToFormatExtension,
     resourceTypeToIsFileset,
     true,
+    parseSyncBehavior(opts.syncBehavior) >= 1,
   );
 
   const local = !opts.stateful
@@ -2082,7 +2257,7 @@ export async function pull(
     codebases,
     true,
     specificItems,
-    opts.branch,
+    wsNameForFiles,
     true, // els1 (remote) is the remote source
   );
 
@@ -2102,11 +2277,11 @@ export async function pull(
           : {}),
         ...(specificItems && isSpecificItem(change.path, specificItems)
           ? {
-              branch_specific: true,
-              branch_specific_path: getBranchSpecificPath(
+              workspace_specific: true,
+              workspace_specific_path: getWorkspaceSpecificPath(
                 change.path,
                 specificItems,
-                opts.branch,
+                wsNameForFiles,
               ),
             }
           : {}),
@@ -2119,7 +2294,7 @@ export async function pull(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems, opts.branch);
+      prettyChanges(changes, specificItems, wsNameForFiles);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2139,16 +2314,16 @@ export async function pull(
 
     log.info(colors.gray(`Applying changes to files ...`));
     for await (const change of changes) {
-      // Determine if this file should be written to a branch-specific path
+      // Determine if this file should be written to a workspace-specific path
       let targetPath = change.path;
       if (specificItems && isSpecificItem(change.path, specificItems)) {
-        const branchSpecificPath = getBranchSpecificPath(
+        const workspaceSpecificPath = getWorkspaceSpecificPath(
           change.path,
           specificItems,
-          opts.branch,
+          wsNameForFiles,
         );
-        if (branchSpecificPath) {
-          targetPath = branchSpecificPath;
+        if (workspaceSpecificPath) {
+          targetPath = workspaceSpecificPath;
         }
       }
 
@@ -2199,7 +2374,7 @@ export async function pull(
           log.info(
             `Editing script content of ${targetPath}${
               targetPath !== change.path
-                ? colors.gray(` (branch-specific override for ${change.path})`)
+                ? colors.gray(` (workspace-specific override for ${change.path})`)
                 : ""
             }`,
           );
@@ -2210,7 +2385,7 @@ export async function pull(
           log.info(
             `Editing ${getTypeStrFromPath(change.path)} ${targetPath}${
               targetPath !== change.path
-                ? colors.gray(` (branch-specific override for ${change.path})`)
+                ? colors.gray(` (workspace-specific override for ${change.path})`)
                 : ""
             }`,
           );
@@ -2228,7 +2403,7 @@ export async function pull(
           log.info(
             `Adding ${getTypeStrFromPath(change.path)} ${targetPath}${
               targetPath !== change.path
-                ? colors.gray(` (branch-specific override for ${change.path})`)
+                ? colors.gray(` (workspace-specific override for ${change.path})`)
                 : ""
             }`,
           );
@@ -2237,7 +2412,7 @@ export async function pull(
         log.info(
           `Writing ${getTypeStrFromPath(change.path)} ${targetPath}${
             targetPath !== change.path
-              ? colors.gray(` (branch-specific override for ${change.path})`)
+              ? colors.gray(` (workspace-specific override for ${change.path})`)
               : ""
           }`,
         );
@@ -2431,11 +2606,11 @@ export async function pull(
             : {}),
           ...(specificItems && isSpecificItem(change.path, specificItems)
             ? {
-                branch_specific: true,
-                branch_specific_path: getBranchSpecificPath(
+                workspace_specific: true,
+                workspace_specific_path: getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
-                  opts.branch,
+                  wsNameForFiles,
                 ),
               }
             : {}),
@@ -2459,40 +2634,51 @@ export async function pull(
       ),
     );
   }
+
 }
 
-function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig, branchOverride?: string) {
+function prettyChanges(
+  changes: Change[],
+  specificItems?: SpecificItemsConfig,
+  branchOverride?: string,
+  folderDefaultAnnotations?: Map<string, string>,
+) {
   for (const change of changes) {
     let displayPath = change.path;
-    let branchNote = "";
+    let wsNote = "";
 
-    // Check if this will be written as a branch-specific file
+    // Check if this will be written as a workspace-specific file
     if (specificItems && isSpecificItem(change.path, specificItems)) {
-      const branchSpecificPath = getBranchSpecificPath(
+      const workspaceSpecificPath = getWorkspaceSpecificPath(
         change.path,
         specificItems,
         branchOverride,
       );
-      if (branchSpecificPath) {
-        displayPath = branchSpecificPath;
-        branchNote = " (branch-specific)";
+      if (workspaceSpecificPath) {
+        displayPath = workspaceSpecificPath;
+        wsNote = " (workspace-specific)";
       }
     }
+
+    const folderNote = folderDefaultAnnotations?.get(change.path);
+    const extraNote = folderNote
+      ? colors.cyan(` (will be permissioned as ${folderNote} via folder default)`)
+      : "";
 
     if (change.name === "added") {
       log.info(
         colors.green(
           `+ ${getTypeStrFromPath(change.path)} ` +
             displayPath +
-            colors.gray(branchNote),
-        ),
+            colors.gray(wsNote),
+        ) + extraNote,
       );
     } else if (change.name === "deleted") {
       log.info(
         colors.red(
           `- ${getTypeStrFromPath(change.path)} ` +
             displayPath +
-            colors.gray(branchNote),
+            colors.gray(wsNote),
         ),
       );
     } else if (change.name === "edited") {
@@ -2500,7 +2686,7 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig, b
         colors.yellow(
           `~ ${getTypeStrFromPath(change.path)} ` +
             displayPath +
-            colors.gray(branchNote) +
+            colors.gray(wsNote) +
             (change.codebase ? ` (codebase changed)` : ""),
         ),
       );
@@ -2555,17 +2741,38 @@ function removeSuffix(str: string, suffix: string) {
 }
 
 export async function push(
-  opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string },
+  opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string; acceptOverridingPermissionedAsWithSelf?: boolean },
 ) {
+  if ((opts as any).jsonOutput) log.setSilent(true);
   // Save original CLI options before merging with config file
   const originalCliOpts = { ...opts };
 
   // Load configuration from wmill.yaml and merge with CLI options
   opts = await mergeConfigWithConfigFile(opts);
 
-  // Validate branch configuration early (skipped when --branch is used)
+  // --include-secrets overrides skipSecrets from wmill.yaml
+  if ((originalCliOpts as any).includeSecrets) {
+    opts.skipSecrets = false;
+  }
+
+  // Resolve workspace name for config lookups (same logic as pull)
+  const hasExplicitCredentials = !!opts.baseUrl;
+  let wsNameForConfig: string | undefined;
+
+  if (opts.branch) {
+    if (!hasExplicitCredentials && !branchDeprecationWarned) {
+      log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
+      branchDeprecationWarned = true;
+    }
+    wsNameForConfig = resolveWsNameFromBranch(opts, opts.branch);
+  } else if (opts.workspace && !hasExplicitCredentials) {
+    wsNameForConfig = opts.workspace;
+    warnWorkspaceOverride(opts, wsNameForConfig);
+  }
+
+  // Validate workspace configuration early (skipped when override is used)
   try {
-    await validateBranchConfiguration(opts, opts.branch);
+    await validateBranchConfiguration(opts, wsNameForConfig);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -2574,19 +2781,27 @@ export async function push(
     throw error;
   }
 
-  const workspace = await resolveWorkspace(opts, opts.branch);
+  const workspace = await resolveWorkspace(opts, wsNameForConfig);
   await requireLogin(opts);
 
-  // Resolve effective sync options with branch awareness
+  // If wsNameForConfig wasn't set from flags, infer from the resolved profile
+  if (!wsNameForConfig) {
+    wsNameForConfig = inferWsNameFromProfile(opts, workspace);
+  }
+
+  // Resolve effective sync options with workspace awareness
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
     opts,
     opts.promotion,
-    opts.branch,
+    wsNameForConfig,
   );
 
-  // Extract specific items configuration BEFORE merging overwrites gitBranches
-  const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
+  // Extract specific items configuration
+  const specificItems = getSpecificItemsForCurrentBranch(opts, wsNameForConfig);
+
+  // Compute the workspace name for file naming
+  const wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : undefined;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2675,6 +2890,7 @@ export async function push(
     resourceTypeToFormatExtension,
     resourceTypeToIsFileset,
     false,
+    parseSyncBehavior(opts.syncBehavior) >= 1,
   );
 
   const local = await FSFSElement(path.join(process.cwd(), ""), codebases, false);
@@ -2688,7 +2904,7 @@ export async function push(
     codebases,
     false,
     specificItems,
-    opts.branch,
+    wsNameForFiles,
     false, // els1 (local) is not the remote source
   );
 
@@ -2696,6 +2912,7 @@ export async function push(
 
   const tracker: ChangeTracker = await buildTracker(changes);
 
+  const autoRegenerate = !!(opts as any).autoMetadata;
   const staleScripts: string[] = [];
   const staleFlows: string[] = [];
   const staleApps: string[] = [];
@@ -2705,7 +2922,7 @@ export async function push(
       change,
       workspace,
       opts,
-      true,
+      !autoRegenerate, // dryRun=false when --auto is set
       true,
       rawWorkspaceDependencies,
       codebases,
@@ -2718,11 +2935,19 @@ export async function push(
 
   if (staleScripts.length > 0) {
     log.info("");
-    log.warn(
-      "Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:",
-    );
+    if (autoRegenerate) {
+      log.info("Auto-regenerated metadata for stale scripts:");
+    } else {
+      log.warn(
+        "Stale scripts metadata found, you may want to update them using 'wmill generate-metadata' before pushing:",
+      );
+    }
     for (const stale of staleScripts) {
-      log.warn(stale);
+      if (autoRegenerate) {
+        log.info(`  ${stale}`);
+      } else {
+        log.warn(stale);
+      }
     }
 
     log.info("");
@@ -2731,7 +2956,7 @@ export async function push(
   for (const change of tracker.flows) {
     const stale = await generateFlowLockInternal(
       change,
-      true,
+      !autoRegenerate, // dryRun=false when --auto is set
       workspace,
       opts,
       false,
@@ -2743,11 +2968,19 @@ export async function push(
   }
 
   if (staleFlows.length > 0) {
-    log.warn(
-      "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:",
-    );
+    if (autoRegenerate) {
+      log.info("Auto-regenerated locks for stale flows:");
+    } else {
+      log.warn(
+        "Stale flows locks found, you may want to update them using 'wmill generate-metadata' before pushing:",
+      );
+    }
     for (const stale of staleFlows) {
-      log.warn(stale);
+      if (autoRegenerate) {
+        log.info(`  ${stale}`);
+      } else {
+        log.warn(stale);
+      }
     }
     log.info("");
   }
@@ -2756,7 +2989,7 @@ export async function push(
     const stale = await generateAppLocksInternal(
       change,
       false,
-      true,
+      !autoRegenerate,
       workspace,
       opts,
       true,
@@ -2771,7 +3004,7 @@ export async function push(
     const stale = await generateAppLocksInternal(
       change,
       true,
-      true,
+      !autoRegenerate,
       workspace,
       opts,
       true,
@@ -2783,13 +3016,44 @@ export async function push(
   }
 
   if (staleApps.length > 0) {
-    log.warn(
-      "Stale apps locks found, you may want to update them using 'wmill app generate-locks' before pushing:",
-    );
+    if (autoRegenerate) {
+      log.info("Auto-regenerated locks for stale apps:");
+    } else {
+      log.warn(
+        "Stale apps locks found, you may want to update them using 'wmill generate-metadata' before pushing:",
+      );
+    }
     for (const stale of staleApps) {
-      log.warn(stale);
+      if (autoRegenerate) {
+        log.info(`  ${stale}`);
+      } else {
+        log.warn(stale);
+      }
     }
     log.info("");
+  }
+
+  // Warn about local files for skipped types. Walks the in-memory DynFSElement tree
+  // (not a fresh disk scan), but does re-traverse it. Acceptable cost for a one-time check.
+  {
+    const skippedWarnings: string[] = [];
+    let scheduleCount = 0;
+    let triggerCount = 0;
+    for await (const entry of readDirRecursiveWithIgnore(() => false, local)) {
+      if (entry.isDirectory) continue;
+      if (!opts.includeSchedules && entry.path.endsWith(".schedule.yaml")) scheduleCount++;
+      if (!opts.includeTriggers && entry.path.endsWith("_trigger.yaml")) triggerCount++;
+    }
+    if (scheduleCount > 0) {
+      skippedWarnings.push(`Skipping ${scheduleCount} schedule file(s). Use --include-schedules or set includeSchedules: true in wmill.yaml`);
+    }
+    if (triggerCount > 0) {
+      skippedWarnings.push(`Skipping ${triggerCount} trigger file(s). Use --include-triggers or set includeTriggers: true in wmill.yaml`);
+    }
+    for (const warning of skippedWarnings) {
+      log.warn(warning);
+    }
+    if (skippedWarnings.length > 0) log.info("");
   }
 
   await fetchRemoteVersion(workspace);
@@ -2808,9 +3072,32 @@ export async function push(
       }
     }
     for (const folderName of folderNames) {
-      try {
-        await stat(path.join("f", folderName, "folder.meta.yaml"));
-      } catch {
+      const basePath = path.join("f", folderName, "folder.meta.yaml");
+      const branchPath = getWorkspaceSpecificPath(
+        `f/${folderName}/folder.meta.yaml`,
+        specificItems,
+        wsNameForFiles,
+      );
+      let found = false;
+      // Check branch-specific variant first (e.g. folder.dev.meta.yaml)
+      if (branchPath) {
+        try {
+          await stat(branchPath);
+          found = true;
+        } catch {
+          // fall through to base path check
+        }
+      }
+      // Then check base path
+      if (!found) {
+        try {
+          await stat(basePath);
+          found = true;
+        } catch {
+          // not found
+        }
+      }
+      if (!found) {
         missingFolders.push(folderName);
       }
     }
@@ -2848,11 +3135,11 @@ export async function push(
           : {}),
         ...(specificItems && isSpecificItem(change.path, specificItems)
           ? {
-              branch_specific: true,
-              branch_specific_path: getBranchSpecificPath(
+              workspace_specific: true,
+              workspace_specific_path: getWorkspaceSpecificPath(
                 change.path,
                 specificItems,
-                opts.branch,
+                wsNameForFiles,
               ),
             }
           : {}),
@@ -2864,14 +3151,72 @@ export async function push(
   }
 
   if (changes.length > 0) {
+    // Compute folder-default annotations for added items (shown in prettyChanges + dry-run)
+    let folderDefaultAnnotations: Map<string, string> | undefined;
+    if (parseSyncBehavior(opts.syncBehavior) >= 1) {
+      folderDefaultAnnotations = new Map();
+      const folderRulesCache = new Map<string, Array<{ path_glob: string; permissioned_as: string }>>();
+      for (const change of changes) {
+        if (change.name !== "added") continue;
+        const match = change.path.match(/^f\/([^/]+)\//);
+        if (!match) continue;
+        const folderName = match[1];
+        if (!folderRulesCache.has(folderName)) {
+          try {
+            const folder = await wmill.getFolder({ workspace: workspace.workspaceId, name: folderName });
+            folderRulesCache.set(folderName, (folder as any).default_permissioned_as ?? []);
+          } catch {
+            folderRulesCache.set(folderName, []);
+          }
+        }
+        const rules = folderRulesCache.get(folderName)!;
+        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|sqs_trigger|gcp_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
+        const relative = remotePath.slice(`f/${folderName}/`.length);
+        if (!relative) continue;
+        for (const rule of rules) {
+          if (minimatch(relative, rule.path_glob)) {
+            folderDefaultAnnotations.set(change.path, rule.permissioned_as);
+            break;
+          }
+        }
+      }
+    }
+
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems, opts.branch);
+      prettyChanges(changes, specificItems, wsNameForFiles, folderDefaultAnnotations);
     }
 
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
       return;
     }
+
+    let permissionedAsContext: PermissionedAsContext | undefined = undefined;
+    if (parseSyncBehavior(opts.syncBehavior) >= 1) {
+      const user = await wmill.whoami({ workspace: workspace.workspaceId });
+      const userIsAdminOrDeployer =
+        user.is_admin || (user.groups ?? []).includes("wm_deployers");
+      log.debug(`permissioned_as: user=${user.email}, is_admin=${user.is_admin}, groups=${JSON.stringify(user.groups)}, isAdminOrDeployer=${userIsAdminOrDeployer}`);
+      permissionedAsContext = {
+        userCache: new Map(),
+        userIsAdminOrDeployer,
+        userEmail: user.email,
+      };
+
+      await preCheckPermissionedAs(
+        changes,
+        user.email,
+        userIsAdminOrDeployer,
+        opts.acceptOverridingPermissionedAsWithSelf ?? false,
+        !!process.stdin.isTTY,
+      );
+    } else if (folderDefaultAnnotations && folderDefaultAnnotations.size > 0) {
+      log.warn(colors.yellow(
+        `This workspace has folder default_permissioned_as rules that affect ${folderDefaultAnnotations.size} item(s) being pushed, ` +
+        `but syncBehavior is not set in wmill.yaml. Add 'syncBehavior: v1' to enable ownership preservation on update and on_behalf_of stripping on pull.`
+      ));
+    }
+
     if (
       !opts.yes &&
       !(await Confirm.prompt({
@@ -2908,11 +3253,21 @@ export async function push(
     if (parallelizationFactor <= 0) {
       parallelizationFactor = 1;
     }
-    const groupedChangesArray = Array.from(groupedChanges.entries());
+    // Partition changes: folder.meta.yaml changes must be applied BEFORE any
+    // item changes under those folders, so a push that updates a folder's
+    // default_permissioned_as rules AND creates new items under it in the same
+    // changeset has the rules in place when the backend resolves defaults for
+    // the new items. Folder changes run sequentially first; everything else
+    // runs through the parallel pool afterwards.
+    const allGrouped = Array.from(groupedChanges.entries());
+    const isFolderMetaGroup = ([basePath]: [string, typeof changes]) =>
+      basePath.endsWith(`${SEP}folder`) || basePath === "folder";
+    const folderMetaGroups = allGrouped.filter(isFolderMetaGroup);
+    const groupedChangesArray = allGrouped.filter((g) => !isFolderMetaGroup(g));
     log.info(
       `found changes for ${
-        groupedChangesArray.length
-      } items with a total of ${groupedChangesArray.reduce(
+        allGrouped.length
+      } items with a total of ${allGrouped.reduce(
         (acc, [_, changes]) => acc + changes.length,
         0,
       )} files to process`,
@@ -2923,14 +3278,25 @@ export async function push(
 
     // Create a pool of workers that processes items as they become available
     const pool = new Set();
-    const queue = [...groupedChangesArray];
+    // Process folder.meta groups first (sequentially), then items in parallel.
+    // This ensures a newly-added default_permissioned_as rule is applied before
+    // any item created under that folder in the same push.
+    const queue = [...folderMetaGroups, ...groupedChangesArray];
+    let folderPhaseRemaining = folderMetaGroups.length;
+    const effectiveParallelism = () =>
+      folderPhaseRemaining > 0 ? 1 : parallelizationFactor;
     // Cache git branch at the start to avoid repeated execSync calls per change
-    const cachedBranchForPush = opts.branch || (isGitRepository() ? getCurrentGitBranch() : null);
+    const cachedWsNameForPush = wsNameForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
 
     while (queue.length > 0 || pool.size > 0) {
-      // Fill the pool until we reach parallelizationFactor
-      while (pool.size < parallelizationFactor && queue.length > 0) {
-        let [_basePath, changes] = queue.shift()!;
+      // Fill the pool until we reach the effective parallelism limit.
+      // During the folder-meta phase this is 1 (sequential) so no item change
+      // starts before all folder.meta updates have been applied to the backend.
+      while (pool.size < effectiveParallelism() && queue.length > 0) {
+        const [groupBasePath, initialChanges] = queue.shift()!;
+        let changes = initialChanges;
+        const isFolderGroup =
+          groupBasePath.endsWith(`${SEP}folder`) || groupBasePath === "folder";
         const promise = (async () => {
           const alreadySynced: string[] = [];
           const deletedVarsResPaths: string[] = [];
@@ -2969,6 +3335,7 @@ export async function push(
                   rawWorkspaceDependencies,
                   codebases,
                   opts,
+                  permissionedAsContext,
                 )
               ) {
                 if (stateTarget) {
@@ -2984,6 +3351,7 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                  permissionedAsContext,
                 )
               ) {
                 if (stateTarget) {
@@ -3024,12 +3392,12 @@ export async function push(
                   );
 
                   // For branch-specific resources, push to the base path on the workspace server
-                  // This ensures branch-specific files are stored with their base names in the workspace
+                  // This ensures workspace-specific files are stored with their base names in the workspace
                   let serverPath = resourceFilePath;
-                  const currentBranch = cachedBranchForPush;
+                  const currentBranch = cachedWsNameForPush;
 
-                  if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
-                    serverPath = fromBranchSpecificPath(
+                  if (currentBranch && isWorkspaceSpecificFile(resourceFilePath)) {
+                    serverPath = fromWorkspaceSpecificPath(
                       resourceFilePath,
                       currentBranch,
                     );
@@ -3059,10 +3427,10 @@ export async function push(
                   );
 
                   let serverPath = resourceFilePath;
-                  const currentBranch = cachedBranchForPush;
+                  const currentBranch = cachedWsNameForPush;
 
-                  if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
-                    serverPath = fromBranchSpecificPath(
+                  if (currentBranch && isWorkspaceSpecificFile(resourceFilePath)) {
+                    serverPath = fromWorkspaceSpecificPath(
                       resourceFilePath,
                       currentBranch,
                     );
@@ -3084,13 +3452,13 @@ export async function push(
               const oldObj = parseFromPath(change.path, change.before);
               const newObj = parseFromPath(change.path, change.after);
 
-              // Check if this is a branch-specific item and get the original branch-specific path
-              let originalBranchSpecificPath: string | undefined;
+              // Check if this is a branch-specific item and get the original workspace-specific path
+              let originalWorkspaceSpecificPath: string | undefined;
               if (specificItems && isSpecificItem(change.path, specificItems)) {
-                originalBranchSpecificPath = getBranchSpecificPath(
+                originalWorkspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
-                  opts.branch,
+                  wsNameForFiles,
                 );
               }
 
@@ -3102,7 +3470,8 @@ export async function push(
                 opts.plainSecrets ?? false,
                 alreadySynced,
                 opts.message,
-                originalBranchSpecificPath,
+                originalWorkspaceSpecificPath,
+                permissionedAsContext,
               );
 
               if (stateTarget) {
@@ -3126,6 +3495,7 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                  permissionedAsContext,
                 )
               ) {
                 continue;
@@ -3150,16 +3520,16 @@ export async function push(
               const obj = parseFromPath(change.path, change.content);
 
               // Determine the actual local file path for this change
-              // For branch-specific items, we read from branch-specific files but push to base server paths
+              // For branch-specific items, we read from workspace-specific files but push to base server paths
               let localFilePath = change.path;
               if (specificItems && isSpecificItem(change.path, specificItems)) {
-                const branchSpecificPath = getBranchSpecificPath(
+                const workspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
-                  opts.branch,
+                  wsNameForFiles,
                 );
-                if (branchSpecificPath) {
-                  localFilePath = branchSpecificPath;
+                if (workspaceSpecificPath) {
+                  localFilePath = workspaceSpecificPath;
                 }
               }
 
@@ -3172,6 +3542,7 @@ export async function push(
                 [],
                 opts.message,
                 localFilePath, // Pass the actual local file path
+                permissionedAsContext,
               );
 
               if (stateTarget) {
@@ -3241,16 +3612,88 @@ export async function push(
                   });
                   break;
                 case "flow":
-                  await wmill.deleteFlowByPath({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, getDeleteSuffix("flow", "json")),
-                  });
+                  if (isFlowFolderMetadataFile(target)) {
+                    // Metadata file deleted — delete the entire flow
+                    await wmill.deleteFlowByPath({
+                      workspace: workspaceId,
+                      path: removeSuffix(target, getDeleteSuffix("flow", "json")),
+                    });
+                  } else {
+                    // Inline script file deleted within flow folder
+                    const flowFolder = extractFolderPath(target, "flow");
+                    let flowFolderExists = false;
+                    if (flowFolder) {
+                      try {
+                        await stat(flowFolder);
+                        flowFolderExists = true;
+                      } catch {
+                        // folder doesn't exist
+                      }
+                    }
+                    if (flowFolderExists) {
+                      // Re-push the entire flow so the backend gets the updated definition
+                      await pushObj(
+                        workspaceId,
+                        target,
+                        undefined,
+                        undefined,
+                        opts.plainSecrets ?? false,
+                        alreadySynced,
+                        opts.message,
+                      );
+                    } else {
+                      // Flow folder doesn't exist locally — delete on server
+                      const remotePath = extractResourceName(target, "flow");
+                      if (remotePath) {
+                        await wmill.deleteFlowByPath({
+                          workspace: workspaceId,
+                          path: remotePath,
+                        });
+                      }
+                    }
+                  }
                   break;
                 case "app":
-                  await wmill.deleteApp({
-                    workspace: workspaceId,
-                    path: removeSuffix(target, getDeleteSuffix("app", "json")),
-                  });
+                  if (isAppFolderMetadataFile(target)) {
+                    // Metadata file deleted — delete the entire app
+                    await wmill.deleteApp({
+                      workspace: workspaceId,
+                      path: removeSuffix(target, getDeleteSuffix("app", "json")),
+                    });
+                  } else {
+                    // Inline script file deleted within app folder
+                    const appFolder = extractFolderPath(target, "app");
+                    let appFolderExists = false;
+                    if (appFolder) {
+                      try {
+                        await stat(appFolder);
+                        appFolderExists = true;
+                      } catch {
+                        // folder doesn't exist
+                      }
+                    }
+                    if (appFolderExists) {
+                      // Re-push the entire app so the backend gets the updated definition
+                      await pushObj(
+                        workspaceId,
+                        target,
+                        undefined,
+                        undefined,
+                        opts.plainSecrets ?? false,
+                        alreadySynced,
+                        opts.message,
+                      );
+                    } else {
+                      // App folder doesn't exist locally — delete on server
+                      const remotePath = extractResourceName(target, "app");
+                      if (remotePath) {
+                        await wmill.deleteApp({
+                          workspace: workspaceId,
+                          path: remotePath,
+                        });
+                      }
+                    }
+                  }
                   break;
                 case "raw_app":
                   if (isRawAppFolderMetadataFile(target)) {
@@ -3454,7 +3897,10 @@ export async function push(
 
         pool.add(promise);
         // Remove from pool when complete
-        promise.then(() => pool.delete(promise));
+        promise.then(() => {
+          pool.delete(promise);
+          if (isFolderGroup) folderPhaseRemaining--;
+        });
       }
 
       // Wait for at least one task to complete before continuing
@@ -3474,11 +3920,11 @@ export async function push(
             : {}),
           ...(specificItems && isSpecificItem(change.path, specificItems)
             ? {
-                branch_specific: true,
-                branch_specific_path: getBranchSpecificPath(
+                workspace_specific: true,
+                workspace_specific_path: getWorkspaceSpecificPath(
                   change.path,
                   specificItems,
-                  opts.branch,
+                  wsNameForFiles,
                 ),
               }
             : {}),
@@ -3529,6 +3975,7 @@ const command = new Command()
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
+  .option("--include-secrets", "Include secrets in sync (overrides skipSecrets in wmill.yaml)")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
   .option("--skip-scripts", "Skip syncing scripts")
@@ -3570,7 +4017,7 @@ const command = new Command()
   )
   .option(
     "--branch, --env <branch:string>",
-    "Override the current git branch/environment (works even outside a git repository)",
+    "[Deprecated: use --workspace] Override the current git branch/environment",
   )
   .action(pull as any)
   .command("push")
@@ -3584,6 +4031,7 @@ const command = new Command()
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
+  .option("--include-secrets", "Include secrets in sync (overrides skipSecrets in wmill.yaml)")
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
   .option("--skip-scripts", "Skip syncing scripts")
@@ -3626,12 +4074,17 @@ const command = new Command()
   )
   .option(
     "--branch, --env <branch:string>",
-    "Override the current git branch/environment (works even outside a git repository)",
+    "[Deprecated: use --workspace] Override the current git branch/environment",
   )
   .option("--lint", "Run lint validation before pushing")
   .option(
     "--locks-required",
     "Fail if scripts or flow inline scripts that need locks have no locks",
+  )
+  .option("--auto-metadata", "Automatically regenerate stale metadata (locks and schemas) before pushing")
+  .option(
+    "--accept-overriding-permissioned-as-with-self",
+    "Accept that items with a different permissioned_as will be updated with your own user",
   )
   .action(push as any);
 

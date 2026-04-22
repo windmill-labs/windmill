@@ -259,7 +259,7 @@ pub async fn get_approval_form_details(
         }
     };
 
-    let flow_value = &flow_data.flow;
+    let flow_value = flow_data.value();
     let flow_step_id = flow_step_id.unwrap_or("");
     let module = flow_value.modules.iter().find(|m| m.id == flow_step_id);
 

@@ -2,7 +2,7 @@
 	import { tick } from 'svelte'
 	import SqsTriggerEditorInner from './SqsTriggerEditorInner.svelte'
 
-	let { onUpdate } = $props()
+	let { onUpdate }: { onUpdate?: (path?: string) => void } = $props()
 
 	let open = $state(false)
 	export async function openEdit(ePath: string, isFlow: boolean) {

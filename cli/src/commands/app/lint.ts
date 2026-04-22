@@ -6,7 +6,7 @@ import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import { GlobalOptions } from "../../types.ts";
-import { createBundle } from "./bundle.ts";
+import { createBundle, detectFrameworks } from "./bundle.ts";
 import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
 import {
@@ -113,7 +113,11 @@ async function validateBuild(
     log.info(colors.blue("🔨 Testing build..."));
 
     // Try to create a bundle - this will validate that all dependencies are in place
+    const frameworks = detectFrameworks(appDir);
+    const entryFile = frameworks.svelte || frameworks.vue ? "index.ts" : "index.tsx";
+    const entryPoint = path.join(appDir, entryFile);
     await createBundle({
+      entryPoint,
       production: true,
       minify: false,
     });

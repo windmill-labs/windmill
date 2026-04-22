@@ -1,0 +1,30 @@
+[
+  {
+    "kind": "wac_seq_2",
+    "jobs": 250
+  },
+  {
+    "kind": "wac_par_2",
+    "jobs": 250
+  },
+  {
+    "kind": "wac_seq_3",
+    "jobs": 200
+  },
+  {
+    "kind": "wac_inline_2",
+    "jobs": 500
+  },
+  {
+    "kind": "flow_seq_2_bun",
+    "jobs": 250
+  },
+  {
+    "kind": "flow_par_2_bun",
+    "jobs": 250
+  },
+  {
+    "kind": "flow_seq_3_bun",
+    "jobs": 200
+  }
+]

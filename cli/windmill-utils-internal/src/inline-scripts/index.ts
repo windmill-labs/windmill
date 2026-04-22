@@ -1,2 +1,2 @@
-export * from "./replacer.ts";
-export * from "./extractor.ts";
+export * from "./replacer";
+export * from "./extractor";

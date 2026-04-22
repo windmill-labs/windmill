@@ -222,7 +222,7 @@ async fn test_plaintext_backward_compat(db: Pool<Postgres>) -> anyhow::Result<()
     // Set MIN_VERSION to one minor below the token hash feature version
     let mut old_version = MIN_VERSION_SUPPORTS_TOKEN_HASH.version().clone();
     old_version.minor -= 1;
-    *MIN_VERSION.write().await = old_version;
+    MIN_VERSION.store(std::sync::Arc::new(old_version));
 
     let resp = authed(client().post(format!("{base}/tokens/create")))
         .json(&json!({"label": "old-worker-compat-token"}))
@@ -274,7 +274,7 @@ async fn test_plaintext_backward_compat(db: Pool<Postgres>) -> anyhow::Result<()
     );
 
     // --- Phase 2: All workers upgraded (version >= 1.650.0) ---
-    *MIN_VERSION.write().await = MIN_VERSION_SUPPORTS_TOKEN_HASH.version().clone();
+    MIN_VERSION.store(std::sync::Arc::new(MIN_VERSION_SUPPORTS_TOKEN_HASH.version().clone()));
 
     let resp = authed(client().post(format!("{base}/tokens/create")))
         .json(&json!({"label": "new-worker-token"}))

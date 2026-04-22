@@ -268,7 +268,16 @@ async fn run<'a>(
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Nu, &job.id, &job.workspace_id, conn).await?)
+            .envs(
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Nu,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
+            )
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -307,7 +316,16 @@ async fn run<'a>(
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Nu, &job.id, &job.workspace_id, conn).await?)
+            .envs(
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Nu,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
+            )
             // TODO(v1):
             // "--plugins",
             // &format!(

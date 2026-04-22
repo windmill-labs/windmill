@@ -136,7 +136,6 @@
 	let hasChanged = $derived(!deepEqual(getRouteConfig(), originalConfig ?? {}))
 	let scopes = $derived(['http_triggers:read:' + path])
 
-	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const routeConfig = $derived.by(getRouteConfig)
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
@@ -278,6 +277,9 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			permissionedAs = undefined
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 			originalConfig = undefined
 		} finally {
 			clearTimeout(loader)
@@ -320,8 +322,8 @@
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		permissionedAs = cfg?.permissioned_as
-		selectedPermissionedAs = undefined
-		preservePermissionedAs = false
+		selectedPermissionedAs = cfg?.permissioned_as
+		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
 	async function loadTrigger(defaultConfig?: Partial<HttpTrigger>): Promise<void> {
@@ -490,15 +492,14 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
-		{#if edit}
-			<PermissionedAsLine
-				{permissionedAs}
-				onPermissionedAsChange={(pa, preserve) => {
-					selectedPermissionedAs = pa
-					preservePermissionedAs = preserve
-				}}
-			/>
-		{/if}
+		<PermissionedAsLine
+			{permissionedAs}
+			{path}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
+		/>
 		<div class="flex flex-col gap-8">
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
@@ -527,7 +528,6 @@
 							checkInitialPathExistence={!edit}
 							namePlaceholder="route"
 							kind="http_trigger"
-							hideUser
 							disableEditing={!can_write}
 						/>
 					</Label>
@@ -955,7 +955,7 @@
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
 			{trigger}
-			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
+			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
 			{allowDraft}
 			{edit}

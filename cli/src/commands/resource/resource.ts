@@ -1,4 +1,4 @@
-import { stat, writeFile, readdir, readFile } from "node:fs/promises";
+import { mkdir, stat, writeFile, readdir, readFile } from "node:fs/promises";
 import { stringify as yamlStringify } from "yaml";
 import nodePath from "node:path";
 
@@ -18,7 +18,7 @@ import { sep as SEP } from "node:path";
 import * as wmill from "../../../gen/services.gen.ts";
 import { Resource } from "../../../gen/types.gen.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
-import { isBranchSpecificFile } from "../../core/specific_items.ts";
+import { isWorkspaceSpecificFile } from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
 
 export interface ResourceFile {
@@ -75,7 +75,7 @@ export async function pushResource(
 
       let pathToRead = basePath;
 
-      if (originalLocalPath && isBranchSpecificFile(originalLocalPath)) {
+      if (originalLocalPath && isWorkspaceSpecificFile(originalLocalPath)) {
         const currentBranch = getCurrentGitBranch();
         if (currentBranch) {
           // Directly construct branch-specific resource file path
@@ -155,6 +155,7 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
 }
 
 async function list(opts: GlobalOptions & { json?: boolean }) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   let page = 0;
@@ -202,6 +203,7 @@ async function newResource(opts: GlobalOptions, path: string) {
     resource_type: "",
     description: "",
   };
+  await mkdir(nodePath.dirname(filePath), { recursive: true });
   await writeFile(filePath, yamlStringify(template as Record<string, any>), {
     flag: "wx",
     encoding: "utf-8",
@@ -210,6 +212,7 @@ async function newResource(opts: GlobalOptions, path: string) {
 }
 
 async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const r = await wmill.getResource({

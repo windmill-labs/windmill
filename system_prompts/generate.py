@@ -347,8 +347,13 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     subcommand_sections = re.split(r'(?=\.command\()', block)
 
     for section in subcommand_sections:
-        cmd_match = re.match(r'\.command\(\s*["\']([^"\']+)["\']\s*(?:,\s*([^)]+))?\s*\)', section)
+        cmd_match = re.match(r'\.command\(\s*["\']([^"\']+)["\']\s*(?:,\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^)]+))?\s*\)', section)
         if not cmd_match:
+            continue
+
+        # Explicit source marker for backwards-compatible CLI commands that
+        # should not be suggested in generated system prompts.
+        if '@deprecated' in section:
             continue
 
         cmd_name = cmd_match.group(1)
@@ -919,7 +924,7 @@ SKILL_DEFINITIONS = [
     },
     {
         'name': 'cli-commands',
-        'description': 'MUST use when using the CLI.',
+        'description': 'MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`.',
         'content_key': 'cli_commands',
     },
 ]
@@ -957,7 +962,7 @@ def generate_skills(
     script_cli_intro = """## CLI Commands
 
 Place scripts in a folder. After writing, tell the user they can run:
-- `wmill script generate-metadata` - Generate .script.yaml and .lock files
+- `wmill generate-metadata` - Generate .script.yaml and .lock files
 - `wmill sync push` - Deploy to Windmill
 
 Do NOT run these commands yourself. Instead, inform the user that they should run them.
@@ -1157,6 +1162,7 @@ def main():
 
     script_base = read_markdown_file(base_dir / "script-base.md")
     flow_base = read_markdown_file(base_dir / "flow-base.md")
+    flow_chat_special_modules = read_markdown_file(base_dir / "flow-chat-special-modules.md")
 
     # Read language files
     languages = {}
@@ -1207,6 +1213,7 @@ def main():
         # Base prompts
         'SCRIPT_BASE': script_base,
         'FLOW_BASE': flow_base,
+        'FLOW_CHAT_SPECIAL_MODULES': flow_chat_special_modules,
 
         # SDKs
         'SDK_TYPESCRIPT': ts_sdk_md,

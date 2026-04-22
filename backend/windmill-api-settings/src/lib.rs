@@ -8,13 +8,17 @@
 
 use std::{collections::HashMap, time::Duration};
 
+#[cfg(feature = "parquet")]
+mod background_task;
 #[cfg(feature = "private")]
 mod ee;
 pub mod ee_oss;
+#[cfg(feature = "parquet")]
+mod log_cleanup;
+#[cfg(feature = "parquet")]
+mod storage_usage;
 
-#[cfg(feature = "enterprise")]
-use windmill_api_auth::require_devops_role;
-use windmill_api_auth::{require_super_admin, ApiAuthed};
+use windmill_api_auth::{require_devops_role, require_super_admin, ApiAuthed};
 use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 use windmill_common::DB;
 
@@ -36,29 +40,67 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 #[cfg(all(feature = "private", feature = "enterprise"))]
-use windmill_common::secret_backend::{SecretMigrationReport, VaultSettings};
+use windmill_common::secret_backend::{
+    AwsSecretsManagerSettings, AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
+};
+use windmill_ai::ai_cache::bump_instance_ai_config_revision;
 use windmill_common::{
-    ai_cache::bump_instance_ai_config_revision,
     email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
     get_database_url,
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
-        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
-        WS_BASE_URL_SETTING,
+        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, RUFF_CONFIG_SETTING, WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
 };
 use windmill_common::{error::to_anyhow, PgDatabase};
 
+/// Unauthenticated settings routes.
+///
+/// Used by the extra container (LSP service) to fetch non-sensitive instance
+/// configuration like the shared ruff.toml content without needing to carry
+/// a credential.
+pub fn unauthed_service() -> Router {
+    Router::new().route("/ruff_config", get(get_ruff_config_unauthed))
+}
+
+/// Public endpoint that returns the instance-level ruff config as plain text
+/// TOML. Returns an empty body when unset.
+///
+/// This is intentionally unauthenticated: ruff config is lint/format policy,
+/// not a credential, and the extra container needs to pull it from any
+/// deployment topology (docker-compose, k8s, local dev) without the extra
+/// burden of shared secrets.
+async fn get_ruff_config_unauthed(Extension(db): Extension<DB>) -> error::Result<Response> {
+    let value = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        RUFF_CONFIG_SETTING
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let body = value
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_default();
+
+    Ok(Response::builder()
+        .status(200)
+        .header("content-type", "text/plain; charset=utf-8")
+        .header("cache-control", "no-store")
+        .body(Body::from(body))
+        .unwrap())
+}
+
 pub fn global_service() -> Router {
     #[warn(unused_mut)]
     let r = Router::new()
         .route("/envs", get(get_local_settings))
         .route(
-            "/global/:key",
+            "/global/{key}",
             post(set_global_setting).get(get_global_setting),
         )
         .route("/list_global", get(list_global_settings))
@@ -80,7 +122,7 @@ pub fn global_service() -> Router {
         .route("/test_critical_channels", post(test_critical_channels))
         .route("/critical_alerts", get(get_critical_alerts))
         .route(
-            "/critical_alerts/:id/acknowledge",
+            "/critical_alerts/{id}/acknowledge",
             post(acknowledge_critical_alert),
         )
         .route(
@@ -92,8 +134,12 @@ pub fn global_service() -> Router {
             post(refresh_custom_instance_user_pwd),
         )
         .route(
-            "/setup_custom_instance_pg_database/:name",
+            "/setup_custom_instance_pg_database/{name}",
             post(setup_custom_instance_pg_database),
+        )
+        .route(
+            "/drop_custom_instance_pg_database/{name}",
+            post(drop_custom_instance_pg_database),
         )
         .route(
             "/critical_alerts/acknowledge_all",
@@ -102,9 +148,13 @@ pub fn global_service() -> Router {
         .route(
             "/sync_cached_resource_types",
             post(sync_cached_resource_types),
+        )
+        .route(
+            "/restart_worker_group/{worker_group}",
+            post(restart_worker_group),
         );
 
-    // Vault integration routes (EE only - requires both private and enterprise features)
+    // Vault/Azure KV integration routes (EE only - requires both private and enterprise features)
     #[cfg(all(feature = "private", feature = "enterprise"))]
     let r = r
         .route("/test_secret_backend", post(test_secret_backend))
@@ -112,11 +162,36 @@ pub fn global_service() -> Router {
         .route(
             "/migrate_secrets_to_database",
             post(migrate_secrets_to_database),
+        )
+        .route("/test_azure_kv_backend", post(test_azure_kv_backend))
+        .route(
+            "/migrate_secrets_to_azure_kv",
+            post(migrate_secrets_to_azure_kv),
+        )
+        .route(
+            "/migrate_secrets_from_azure_kv",
+            post(migrate_secrets_from_azure_kv),
+        )
+        .route("/test_aws_sm_backend", post(test_aws_sm_backend))
+        .route(
+            "/migrate_secrets_to_aws_sm",
+            post(migrate_secrets_to_aws_sm),
+        )
+        .route(
+            "/migrate_secrets_from_aws_sm",
+            post(migrate_secrets_from_aws_sm),
         );
 
     #[cfg(feature = "parquet")]
     {
-        return r.route("/test_object_storage_config", post(test_s3_bucket));
+        return r
+            .route("/test_object_storage_config", post(test_s3_bucket))
+            .route(
+                "/object_storage_usage",
+                get(get_object_storage_usage).post(compute_object_storage_usage),
+            )
+            .route("/run_log_cleanup", post(run_log_cleanup))
+            .route("/log_cleanup_status", get(log_cleanup_status));
     }
 
     #[cfg(not(feature = "parquet"))]
@@ -214,6 +289,46 @@ pub async fn test_s3_bucket(
     Ok("Tested blob storage successfully".to_string())
 }
 
+#[cfg(feature = "parquet")]
+async fn get_object_storage_usage(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::JsonResult<Option<storage_usage::StorageUsageProgress>> {
+    require_super_admin(&db, &authed.email).await?;
+    Ok(Json(storage_usage::get_status(&db).await?))
+}
+
+#[cfg(feature = "parquet")]
+async fn compute_object_storage_usage(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::Result<axum::http::StatusCode> {
+    require_super_admin(&db, &authed.email).await?;
+    storage_usage::try_start(&db).await?;
+    storage_usage::spawn_compute(db.clone());
+    Ok(axum::http::StatusCode::ACCEPTED)
+}
+
+#[cfg(feature = "parquet")]
+async fn run_log_cleanup(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::Result<axum::http::StatusCode> {
+    require_super_admin(&db, &authed.email).await?;
+    log_cleanup::try_start(&db).await?;
+    log_cleanup::spawn_cleanup(db.clone());
+    Ok(axum::http::StatusCode::ACCEPTED)
+}
+
+#[cfg(feature = "parquet")]
+async fn log_cleanup_status(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::JsonResult<Option<log_cleanup::LogCleanupProgress>> {
+    require_super_admin(&db, &authed.email).await?;
+    Ok(Json(log_cleanup::get_status(&db).await?))
+}
+
 #[derive(Deserialize)]
 pub struct TestKey {
     pub license_key: String,
@@ -303,7 +418,7 @@ pub async fn set_global_setting_internal(
             }
             delete_global_setting(db, &key).await?;
         }
-        serde_json::Value::String(x) if x.is_empty() => {
+        serde_json::Value::String(ref x) if x.trim().is_empty() => {
             if instance_config::PROTECTED_SETTINGS.contains(&key.as_str()) {
                 return Err(error::Error::BadRequest(format!(
                     "{key} is a protected setting and cannot be set to empty"
@@ -416,6 +531,74 @@ async fn run_setting_pre_write_hook(
                     let error_response = ErrorResponse {
                         error: "Duplicate custom paths detected".to_string(),
                         details: duplicate_app,
+                    };
+
+                    return Err(error::Error::JsonErr(
+                        serde_json::to_value(error_response).unwrap(),
+                    ));
+                }
+            }
+        }
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING => {
+            let serde_json::Value::Bool(workspaced_route) = value else {
+                return Err(error::Error::BadRequest(format!(
+                    "{} setting expected to be boolean",
+                    HTTP_ROUTE_WORKSPACED_ROUTE_SETTING
+                )));
+            };
+
+            if !*workspaced_route {
+                #[derive(Debug, Deserialize, Serialize)]
+                #[allow(unused)]
+                struct DuplicateRoute {
+                    route_path: String,
+                    workspace_id: String,
+                    http_method: String,
+                }
+                let duplicate_routes = sqlx::query_as!(
+                    DuplicateRoute,
+                    r#"
+                        SELECT
+                            route_path,
+                            workspace_id,
+                            http_method::TEXT AS "http_method!"
+                        FROM
+                            http_trigger
+                        WHERE
+                            workspaced_route IS FALSE
+                            AND route_path_key IN (
+                                SELECT
+                                    route_path_key
+                                FROM
+                                    http_trigger
+                                WHERE
+                                    workspaced_route IS FALSE
+                                GROUP BY
+                                    route_path_key, http_method
+                                HAVING COUNT(*) > 1
+                            )
+                        ORDER BY route_path_key
+                    "#
+                )
+                .fetch_all(db)
+                .await?;
+
+                if !duplicate_routes.is_empty() {
+                    tracing::error!(
+                        "Cannot disable {} setting as duplicate http routes were found: {:?}",
+                        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+                        &duplicate_routes
+                    );
+
+                    #[derive(Serialize)]
+                    struct ErrorResponse {
+                        error: String,
+                        details: Vec<DuplicateRoute>,
+                    }
+
+                    let error_response = ErrorResponse {
+                        error: "Duplicate HTTP route paths detected".to_string(),
+                        details: duplicate_routes,
                     };
 
                     return Err(error::Error::JsonErr(
@@ -541,6 +724,7 @@ pub async fn get_global_setting(
         && key != DISABLE_HUB_SETTING
         && key != EMAIL_DOMAIN_SETTING
         && key != APP_WORKSPACED_ROUTE_SETTING
+        && key != HTTP_ROUTE_WORKSPACED_ROUTE_SETTING
         && key != WS_BASE_URL_SETTING
     {
         require_super_admin(&db, &authed.email).await?;
@@ -591,6 +775,25 @@ pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Resu
     .await?;
 
     Ok("Sent stats".to_string())
+}
+
+async fn restart_worker_group(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Path(worker_group): Path<String>,
+) -> error::Result<String> {
+    require_devops_role(&db, &authed.email).await?;
+
+    sqlx::query!(
+        "INSERT INTO notify_event (channel, payload) VALUES ('restart_worker_group', $1)",
+        worker_group
+    )
+    .execute(&db)
+    .await?;
+
+    Ok(format!(
+        "Restart signal sent to worker group '{worker_group}'"
+    ))
 }
 
 #[derive(serde::Serialize)]
@@ -830,49 +1033,12 @@ async fn list_custom_instance_pg_databases(
     return Ok(Json(result));
 }
 
-pub async fn refresh_custom_instance_user_pwd_inner(db: &DB) -> Result<()> {
-    // 20251208123907_safety_custom_instance_db_user_pwd.up
-    let query = r#"
-    DO $$
-        DECLARE
-            pwd text;
-        BEGIN
-            SELECT gen_random_uuid()::text INTO pwd;
-
-            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user') THEN
-                EXECUTE format('ALTER USER custom_instance_user WITH PASSWORD %L', pwd);
-                RAISE NOTICE 'Updated password for existing user custom_instance_user';
-            ELSE
-                EXECUTE format('CREATE USER custom_instance_user WITH PASSWORD %L', pwd);
-                RAISE NOTICE 'Created new user custom_instance_user';
-            END IF;
-
-            IF NOT EXISTS (SELECT 1 FROM global_settings WHERE name = 'custom_instance_pg_databases') THEN
-                INSERT INTO global_settings (name, value)
-                VALUES ('custom_instance_pg_databases', jsonb_build_object(
-                'user_pwd', pwd::text,
-                'databases', jsonb_build_object()
-                ));
-                RAISE NOTICE 'Inserted new global setting for custom_instance_pg_databases';
-            ELSE
-                UPDATE global_settings
-                SET value = jsonb_set(COALESCE(value, '{}'::jsonb), '{user_pwd}', to_jsonb(pwd::text)::jsonb)
-                WHERE name = 'custom_instance_pg_databases';
-                RAISE NOTICE 'Updated user_pwd in existing global setting for custom_instance_pg_databases';
-            END IF;
-        END
-        $$;
-    "#;
-    sqlx::query(query).execute(db).await?;
-    Ok(())
-}
-
 async fn refresh_custom_instance_user_pwd(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<()> {
     require_super_admin(&db, &authed.email).await?;
-    refresh_custom_instance_user_pwd_inner(&db).await?;
+    windmill_common::utils::refresh_custom_instance_user_pwd(&db).await?;
     Ok(Json(()))
 }
 
@@ -973,7 +1139,7 @@ async fn setup_custom_instance_pg_database_inner(
     }
 
     // We have to connect to the newly created database as admin to grant permissions
-    let (client, connection) = pg_creds.connect().await?;
+    let (client, connection) = pg_creds.connect(Some(db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
     logs.db_connect = "OK".to_string();
@@ -1014,6 +1180,18 @@ async fn setup_custom_instance_pg_database_inner(
         })?;
 
     Ok(())
+}
+
+async fn drop_custom_instance_pg_database(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(dbname): Path<String>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    windmill_common::drop_custom_instance_database(&db, &dbname).await?;
+
+    Ok(format!("Database '{}' dropped successfully", dbname))
 }
 
 // ============================================================================
@@ -1080,6 +1258,93 @@ pub async fn migrate_secrets_to_database(
     Ok(Json(report))
 }
 
+/// Test connection to Azure Key Vault
+///
+/// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn test_azure_kv_backend(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AzureKeyVaultSettings>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    windmill_common::secret_backend::test_azure_kv_connection(&settings).await?;
+
+    Ok("Successfully connected to Azure Key Vault".to_string())
+}
+
+/// Migrate existing secrets from database to Azure Key Vault
+///
+/// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_to_azure_kv(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AzureKeyVaultSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let report =
+        windmill_common::secret_backend::migrate_secrets_to_azure_kv(&db, &settings).await?;
+
+    Ok(Json(report))
+}
+
+/// Migrate secrets from Azure Key Vault back to database
+///
+/// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_from_azure_kv(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AzureKeyVaultSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let report =
+        windmill_common::secret_backend::migrate_secrets_from_azure_kv(&db, &settings).await?;
+
+    Ok(Json(report))
+}
+
+/// Test connection to AWS Secrets Manager
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn test_aws_sm_backend(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AwsSecretsManagerSettings>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+    windmill_common::secret_backend::test_aws_sm_connection(&settings).await?;
+    Ok("Successfully connected to AWS Secrets Manager".to_string())
+}
+
+/// Migrate existing secrets from database to AWS Secrets Manager
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_to_aws_sm(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AwsSecretsManagerSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+    let report = windmill_common::secret_backend::migrate_secrets_to_aws_sm(&db, &settings).await?;
+    Ok(Json(report))
+}
+
+/// Migrate secrets from AWS Secrets Manager back to database
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_from_aws_sm(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<AwsSecretsManagerSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+    let report =
+        windmill_common::secret_backend::migrate_secrets_from_aws_sm(&db, &settings).await?;
+    Ok(Json(report))
+}
+
 // ============================================================================
 // JWKS Endpoint for Vault JWT Authentication
 // ============================================================================
@@ -1090,27 +1355,13 @@ pub struct JwksResponse {
     pub keys: Vec<serde_json::Value>,
 }
 
-/// JWKS endpoint for HashiCorp Vault to validate JWTs
+/// Fallback JWKS endpoint used when OIDC support is not compiled in.
 ///
-/// Vault calls this endpoint to fetch the public keys used to verify
-/// JWTs generated by Windmill for authentication.
-///
-/// In the open-source version, this returns an empty JWKS.
-/// The Enterprise Edition provides the actual key set.
+/// When built with `private` + `enterprise` + `openidconnect`, the route in
+/// `windmill-api` dispatches to `oidc_oss::jwks` (re-exported from
+/// `oidc_ee::jwks`) instead, which serves the actual public keys.
 pub async fn get_jwks() -> JsonResult<JwksResponse> {
-    // Open source version returns empty JWKS
-    // Enterprise Edition will override this with actual public keys
-    #[cfg(not(feature = "enterprise"))]
-    {
-        Ok(Json(JwksResponse { keys: vec![] }))
-    }
-
-    #[cfg(feature = "enterprise")]
-    {
-        // In enterprise mode, the actual keys would be fetched from global settings
-        // For now, return empty - the EE implementation would override this
-        Ok(Json(JwksResponse { keys: vec![] }))
-    }
+    Ok(Json(JwksResponse { keys: vec![] }))
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]

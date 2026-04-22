@@ -3,6 +3,7 @@
 
 	import {
 		HttpTriggerService,
+		SettingService,
 		WorkspaceService,
 		type HttpTrigger,
 		type TriggerMode,
@@ -18,6 +19,7 @@
 		sendUserToast
 	} from '$lib/utils'
 	import { base } from '$app/paths'
+	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
@@ -38,7 +40,7 @@
 		Eye,
 		Pen,
 		Plus,
-		Share,
+		Shield,
 		Trash,
 		FileUp,
 		ClipboardCopy,
@@ -71,6 +73,18 @@
 	let routesGenerator: RoutesGenerator | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
+	let globalHttpWorkspacedRoute = $state(false)
+
+	async function loadGlobalHttpWorkspacedRouteSetting() {
+		try {
+			const setting = await SettingService.getGlobal({ key: 'http_route_workspaced_route' })
+			globalHttpWorkspacedRoute = (setting as boolean) ?? false
+		} catch {
+			globalHttpWorkspacedRoute = false
+		}
+	}
+
+	loadGlobalHttpWorkspacedRouteSetting()
 
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
@@ -97,6 +111,22 @@
 		}
 	})
 	let routeEditor: RouteEditor | undefined = $state()
+
+	let hashHandled = false
+	$effect(() => {
+		if (!hashHandled && triggers.length > 0 && routeEditor) {
+			let hash = $page.url.hash
+			if (hash.length > 1) {
+				let path = hash.slice(1)
+				let trigger = triggers.find((t) => t.path === path)
+				if (trigger) {
+					hashHandled = true
+					routeEditor?.openEdit(path, trigger.is_flow)
+				}
+			}
+		}
+	})
+
 	let filteredItems: (TriggerW & { marked?: any })[] | undefined = $state([])
 	let items: typeof filteredItems | undefined = $state([])
 	let preFilteredItems: typeof filteredItems | undefined = $state([])
@@ -187,12 +217,14 @@
 		setQuery(
 			new URL(window.location.href),
 			TRIGGER_PATH_KIND_FILTER_SETTING,
-			selectedFilterKind
+			selectedFilterKind,
+			window.location.hash || undefined
 		).then(() => {
 			setQuery(
 				new URL(window.location.href),
 				FILTER_USER_FOLDER_SETTING_NAME,
-				String(filterUserFolders)
+				String(filterUserFolders),
+				window.location.hash || undefined
 			)
 		})
 	}
@@ -262,38 +294,36 @@
 			tooltip="Every script and flow already has a canonical HTTP API endpoint/webhook attached to it, this is to create additional parametrizable ones."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing"
 		>
-			{#if $userStore?.is_admin || $userStore?.is_super_admin}
-				<div class="flex flex-row gap-2">
-					<Button
-						unifiedSize="md"
-						variant="default"
-						startIcon={{ icon: Plus }}
-						on:click={() => {
-							routesGenerator?.openDrawer()
-						}}
-					>
-						From OpenAPI spec
-					</Button>
-					<Button
-						unifiedSize="md"
-						variant="default"
-						startIcon={{ icon: Plus }}
-						on:click={() => {
-							openAPISpecGenerator?.openDrawer()
-						}}
-					>
-						To OpenAPI spec
-					</Button>
-					<Button
-						unifiedSize="md"
-						variant="accent"
-						startIcon={{ icon: Plus }}
-						on:click={() => routeEditor?.openNew(false)}
-					>
-						New&nbsp;route
-					</Button>
-				</div>
-			{/if}
+			<div class="flex flex-row gap-2">
+				<Button
+					unifiedSize="md"
+					variant="default"
+					startIcon={{ icon: Plus }}
+					on:click={() => {
+						routesGenerator?.openDrawer()
+					}}
+				>
+					From OpenAPI spec
+				</Button>
+				<Button
+					unifiedSize="md"
+					variant="default"
+					startIcon={{ icon: Plus }}
+					on:click={() => {
+						openAPISpecGenerator?.openDrawer()
+					}}
+				>
+					To OpenAPI spec
+				</Button>
+				<Button
+					unifiedSize="md"
+					variant="accent"
+					startIcon={{ icon: Plus }}
+					on:click={() => routeEditor?.openNew(false)}
+				>
+					New&nbsp;route
+				</Button>
+			</div>
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">
 			<div class="w-full pb-4 pt-6">
@@ -355,7 +385,7 @@
 											{summary}
 										{:else}
 											{http_method.toUpperCase()}
-											/{isCloudHosted() || workspaced_route
+											/{isCloudHosted() || workspaced_route || globalHttpWorkspacedRoute
 												? workspace_id + '/' + route_path
 												: route_path}
 										{/if}
@@ -399,7 +429,12 @@
 									<Button
 										on:click={() =>
 											copyToClipboard(
-												getHttpRoute('r', route_path, workspaced_route ?? false, workspace_id)
+												getHttpRoute(
+													'r',
+													route_path,
+													(workspaced_route ?? false) || globalHttpWorkspacedRoute,
+													workspace_id
+												)
 											)}
 										variant="subtle"
 										unifiedSize="md"
@@ -468,8 +503,8 @@
 												href: `${base}/audit_logs?resource=${path}`
 											},
 											{
-												displayName: canWrite ? 'Share' : 'See Permissions',
-												icon: Share,
+												displayName: 'Permissions',
+												icon: Shield,
 												action: () => {
 													shareModal?.openDrawer(path, 'http_trigger')
 												}
@@ -478,8 +513,7 @@
 												displayName: 'Delete',
 												type: 'delete',
 												icon: Trash,
-												disabled:
-													!canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
+												disabled: !canWrite,
 												action: async () => {
 													try {
 														await HttpTriggerService.deleteHttpTrigger({

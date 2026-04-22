@@ -56,16 +56,17 @@ use windmill_common::{
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
-        NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OTEL_SETTING,
-        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
-        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-        UV_INDEX_STRATEGY_SETTING,
+        DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING, EXPOSE_DEBUG_METRICS_SETTING,
+        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
+        HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+        JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        NUGET_CONFIG_SETTING, OTEL_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
+        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING,
     },
     indexer::load_indexer_config,
     jwt::JWT_SECRET,
@@ -79,8 +80,9 @@ use windmill_common::{
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
         store_suspended_pull_query, Connection, WorkerConfig, DEFAULT_TAGS_PER_WORKSPACE,
-        DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR,
-        WORKER_CONFIG, WORKER_GROUP,
+        DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG,
+        PREVIEW_TAGS_OVERRIDE, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG,
+        WORKER_GROUP,
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB,
@@ -88,7 +90,13 @@ use windmill_common::{
     MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
     SERVICE_LOG_RETENTION_SECS,
 };
-use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
+use windmill_common::{
+    client::AuthedClient,
+    global_settings::{
+        APP_WORKSPACED_ROUTE_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+    },
+};
 #[cfg(feature = "parquet")]
 use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
@@ -163,6 +171,8 @@ lazy_static::lazy_static! {
 
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
     static ref QUEUE_RUNNING_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
+    static ref OTEL_QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
+    static ref OTEL_QUEUE_RUNNING_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
     static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
 
     //legacy typo
@@ -227,11 +237,20 @@ pub async fn initial_load(
         if let Err(e) = load_tag_per_workspace_workspaces(db).await {
             tracing::error!("Error loading default tag per workpsace workspaces: {e:#}");
         }
+
+        if let Err(e) = load_fork_workspace_tag_append_fork_suffix(db).await {
+            tracing::error!("Error loading fork workspace tag append fork suffix: {e:#}");
+        }
+
+        if let Err(e) = load_preview_tags_override(db).await {
+            tracing::error!("Error loading preview tags override: {e:#}");
+        }
     }
 
     if server_mode {
         if let Some(db) = conn.as_sql() {
             load_require_preexisting_user(db).await;
+            load_disable_password_login(db).await;
             if let Err(e) = reload_critical_alerts_on_db_oversize(db).await {
                 tracing::error!(
                     "Error reloading critical alerts on db oversize setting: {:?}",
@@ -251,7 +270,6 @@ pub async fn initial_load(
             }
             Connection::Http(_) => {
                 // TODO: reload worker config from http
-                let mut config = WORKER_CONFIG.write().await;
                 let worker_tags = DECODED_AGENT_TOKEN
                     .as_ref()
                     .map(|x| x.tags.clone())
@@ -259,7 +277,7 @@ pub async fn initial_load(
                 // we only check from env as native_mode is not stored in the token
                 // NATIVE_MODE_RESOLVED is already set in main.rs during startup
                 let native_mode = windmill_common::worker::is_native_mode_from_env();
-                *config = WorkerConfig {
+                WORKER_CONFIG.store(std::sync::Arc::new(WorkerConfig {
                     worker_tags,
                     env_vars: load_env_vars(
                         load_whitelist_env_vars_from_env(),
@@ -275,7 +293,7 @@ pub async fn initial_load(
                     additional_python_paths: None,
                     pip_local_dependencies: None,
                     native_mode,
-                };
+                }));
             }
         }
     }
@@ -295,6 +313,10 @@ pub async fn initial_load(
 
         if let Err(e) = reload_app_workspaced_route_setting(db).await {
             tracing::error!("Error reloading app workspaced route: {:?}", e)
+        }
+
+        if let Err(e) = reload_http_route_workspaced_route_setting(db).await {
+            tracing::error!("Error reloading http route workspaced route: {:?}", e)
         }
     }
 
@@ -475,13 +497,35 @@ pub async fn load_tag_per_workspace_workspaces(db: &DB) -> error::Result<()> {
                 .filter_map(|x| x.as_str())
                 .map(|x| x.to_string())
                 .collect::<Vec<String>>();
-            let mut w = DEFAULT_TAGS_WORKSPACES.write().await;
-            *w = Some(workspaces);
+            DEFAULT_TAGS_WORKSPACES.store(std::sync::Arc::new(Some(workspaces)));
         }
         Ok(None) => {
-            let mut w = DEFAULT_TAGS_WORKSPACES.write().await;
-            *w = None;
+            DEFAULT_TAGS_WORKSPACES.store(std::sync::Arc::new(None));
         }
+        _ => (),
+    };
+    Ok(())
+}
+
+pub async fn load_preview_tags_override(db: &DB) -> error::Result<()> {
+    let value = load_value_from_global_settings(db, PREVIEW_TAGS_OVERRIDE_SETTING).await;
+
+    match value {
+        Ok(Some(serde_json::Value::Bool(t))) => PREVIEW_TAGS_OVERRIDE.store(t, Ordering::Relaxed),
+        _ => (),
+    };
+    Ok(())
+}
+
+pub async fn load_fork_workspace_tag_append_fork_suffix(db: &DB) -> error::Result<()> {
+    let value =
+        load_value_from_global_settings(db, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING).await;
+
+    match value {
+        Ok(Some(serde_json::Value::Bool(t))) => {
+            FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX.store(t, Ordering::Relaxed)
+        }
+        Ok(None) => FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX.store(false, Ordering::Relaxed),
         _ => (),
     };
     Ok(())
@@ -874,6 +918,18 @@ pub async fn load_require_preexisting_user(db: &DB) {
     };
 }
 
+pub async fn load_disable_password_login(db: &DB) {
+    let value = load_value_from_global_settings(db, DISABLE_PASSWORD_LOGIN_SETTING).await;
+    match value {
+        Ok(Some(serde_json::Value::Bool(t))) => DISABLE_PASSWORD_LOGIN.store(t, Ordering::Relaxed),
+        Ok(None) => DISABLE_PASSWORD_LOGIN.store(false, Ordering::Relaxed),
+        Err(e) => {
+            tracing::error!("Error loading disable_password_login setting: {e:#}");
+        }
+        _ => (),
+    };
+}
+
 struct LogFile {
     file_path: String,
     hostname: String,
@@ -1111,7 +1167,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
         ),
     }
 
-    let job_retention_secs = *JOB_RETENTION_SECS.read().await;
+    let job_retention_secs = JOB_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed);
     if job_retention_secs > 0 {
         let batch_size = *JOB_CLEANUP_BATCH_SIZE;
         let max_batches = *JOB_CLEANUP_MAX_BATCHES;
@@ -1167,6 +1223,101 @@ pub async fn delete_expired_items(db: &DB) -> () {
         {
             tracing::error!("Error deleting custom concurrency key: {:?}", e);
         }
+    }
+
+    match windmill_common::trashbin::delete_expired_trash(db).await {
+        Ok(count) => {
+            if count > 0 {
+                tracing::info!("deleted {} expired trash items", count);
+            }
+        }
+        Err(e) => tracing::error!("Error deleting expired trash items: {}", e.to_string()),
+    }
+}
+
+#[cfg(feature = "enterprise")]
+async fn cleanup_scheduled_job_deletions(db: &Pool<Postgres>) {
+    const BATCH_SIZE: i64 = 1000;
+    const MAX_BATCHES: i32 = 10;
+
+    let mut total_deleted = 0u64;
+    for batch_num in 0..MAX_BATCHES {
+        let mut tx = match db.begin().await {
+            Ok(tx) => tx,
+            Err(e) => {
+                tracing::error!("Error starting transaction for scheduled job deletion: {e:?}");
+                break;
+            }
+        };
+
+        let rows = match sqlx::query_scalar!(
+            "DELETE FROM job_delete_schedule
+             WHERE job_id IN (
+                 SELECT job_id FROM job_delete_schedule
+                 WHERE delete_at <= now()
+                 ORDER BY delete_at
+                 LIMIT $1
+                 FOR UPDATE SKIP LOCKED
+             )
+             RETURNING job_id",
+            BATCH_SIZE,
+        )
+        .fetch_all(&mut *tx)
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                tracing::error!("Error in scheduled job deletion batch {batch_num}: {e:?}");
+                break;
+            }
+        };
+
+        if rows.is_empty() {
+            break;
+        }
+
+        let job_ids = rows;
+        let count = job_ids.len() as u64;
+
+        let cleanup_result: Result<(), sqlx::Error> = async {
+            sqlx::query!(
+                "UPDATE v2_job SET args = '{}'::jsonb WHERE id = ANY($1)",
+                &job_ids,
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!(
+                "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
+                &job_ids,
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!(
+                "UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = ANY($1)",
+                &job_ids,
+            )
+            .execute(&mut *tx)
+            .await?;
+            Ok(())
+        }
+        .await;
+
+        if let Err(e) = cleanup_result {
+            // Roll back so schedule rows survive for retry on next cycle
+            tracing::error!("Error cleaning job data in batch {batch_num}, rolling back: {e:?}");
+            break;
+        }
+
+        if let Err(e) = tx.commit().await {
+            tracing::error!("Error committing scheduled job deletion batch {batch_num}: {e:?}");
+            break;
+        }
+
+        total_deleted += count;
+    }
+
+    if total_deleted > 0 {
+        tracing::info!("Scheduled job deletion: cleaned {total_deleted} jobs");
     }
 }
 
@@ -1317,18 +1468,38 @@ async fn delete_log_files_from_disk_and_store(
     tmp_dir: &str,
     _s3_prefix: &str,
 ) {
+    // S3 bulk delete (batched via delete_stream — on S3 this uses the DeleteObjects
+    // API, up to 1000 objects per request).
     #[cfg(feature = "parquet")]
-    let os = windmill_object_store::get_object_store().await;
-    #[cfg(not(feature = "parquet"))]
-    let os: Option<()> = None;
+    {
+        let should_del_from_store =
+            MONITOR_LOGS_ON_OBJECT_STORE.load(std::sync::atomic::Ordering::Relaxed);
+        if should_del_from_store {
+            if let Some(os) = windmill_object_store::get_object_store().await {
+                let s3_paths: Vec<_> = paths_to_delete
+                    .iter()
+                    .map(|p| {
+                        windmill_object_store::object_store_reexports::Path::from(format!(
+                            "{}{}",
+                            _s3_prefix, p
+                        ))
+                    })
+                    .map(Ok)
+                    .collect();
+                let stream = futures::stream::iter(s3_paths).boxed();
+                let mut result = os.delete_stream(stream);
+                while let Some(r) = result.next().await {
+                    if let Err(e) = r {
+                        tracing::error!("Failed to delete from object store: {e}");
+                    }
+                }
+            }
+        }
+    }
 
-    let _should_del_from_store = MONITOR_LOGS_ON_OBJECT_STORE.read().await.clone();
-
+    // Disk delete in parallel.
     let delete_futures = FuturesUnordered::new();
-
     for path in paths_to_delete {
-        let _os2 = &os;
-
         delete_futures.push(async move {
             let disk_path = std::path::Path::new(tmp_dir).join(&path);
             if tokio::fs::metadata(&disk_path).await.is_ok() {
@@ -1337,31 +1508,10 @@ async fn delete_log_files_from_disk_and_store(
                         "Failed to delete from disk {}: {e}",
                         disk_path.to_string_lossy()
                     );
-                } else {
-                    tracing::debug!(
-                        "Succesfully deleted {} from disk",
-                        disk_path.to_string_lossy()
-                    );
-                }
-            }
-
-            #[cfg(feature = "parquet")]
-            if _should_del_from_store {
-                if let Some(os) = _os2 {
-                    let p = windmill_object_store::object_store_reexports::Path::from(format!(
-                        "{}{}",
-                        _s3_prefix, path
-                    ));
-                    if let Err(e) = os.delete(&p).await {
-                        tracing::error!("Failed to delete from object store {}: {e}", p.to_string())
-                    } else {
-                        tracing::debug!("Succesfully deleted {} from object store", p.to_string());
-                    }
                 }
             }
         });
     }
-
     let _: Vec<_> = delete_futures.collect().await;
 }
 
@@ -1372,11 +1522,13 @@ pub async fn reload_instance_events_webhook_setting(db: &DB) {
     let value = load_value_from_global_settings(db, INSTANCE_EVENTS_WEBHOOK_SETTING).await;
     match value {
         Ok(Some(serde_json::Value::String(s))) if !s.is_empty() => {
-            *INSTANCE_EVENTS_WEBHOOK.write().await = Some(s);
+            INSTANCE_EVENTS_WEBHOOK.store(std::sync::Arc::new(Some(s)));
         }
         Ok(None) | Ok(Some(serde_json::Value::Null)) | Ok(Some(serde_json::Value::String(_))) => {
             // Fall back to env var if DB has no value
-            *INSTANCE_EVENTS_WEBHOOK.write().await = std::env::var("INSTANCE_EVENTS_WEBHOOK").ok();
+            INSTANCE_EVENTS_WEBHOOK.store(std::sync::Arc::new(
+                std::env::var("INSTANCE_EVENTS_WEBHOOK").ok(),
+            ));
         }
         Err(e) => {
             tracing::error!("Error loading instance_events_webhook setting: {e:#}");
@@ -1613,57 +1765,55 @@ pub async fn reload_workspace_registries_setting(conn: &Connection) {
 }
 
 pub async fn reload_hub_api_secret_setting(conn: &Connection) {
-    reload_option_setting_with_tracing(
-        conn,
-        HUB_API_SECRET_SETTING,
-        "HUB_API_SECRET",
-        HUB_API_SECRET.clone(),
-    )
-    .await;
+    match load_option_setting_value::<String>(conn, HUB_API_SECRET_SETTING, "HUB_API_SECRET").await
+    {
+        Ok(v) => HUB_API_SECRET.store(std::sync::Arc::new(v)),
+        Err(e) => tracing::error!("Error reloading setting HUB_API_SECRET: {:?}", e),
+    }
 }
 
 pub async fn reload_retention_period_setting(conn: &Connection) {
-    if let Err(e) = reload_setting(
+    match load_setting_value::<i64>(
         conn,
         RETENTION_PERIOD_SECS_SETTING,
         "JOB_RETENTION_SECS",
         60 * 60 * 24 * 30,
-        JOB_RETENTION_SECS.clone(),
         |x| x,
     )
     .await
     {
-        tracing::error!("Error reloading retention period: {:?}", e)
+        Ok(v) => JOB_RETENTION_SECS.store(v, Ordering::Relaxed),
+        Err(e) => tracing::error!("Error reloading retention period: {:?}", e),
     }
 }
 
 pub async fn reload_audit_log_retention_days_setting(conn: &Connection) {
-    if let Err(e) = reload_setting(
+    match load_setting_value::<i64>(
         conn,
         AUDIT_LOG_RETENTION_DAYS_SETTING,
         "AUDIT_LOG_RETENTION_DAYS",
         0, // 0 means use default: 365 for EE, 14 for CE
-        AUDIT_LOG_RETENTION_DAYS.clone(),
         |x| x,
     )
     .await
     {
-        tracing::error!("Error reloading audit log retention days: {:?}", e)
+        Ok(v) => AUDIT_LOG_RETENTION_DAYS.store(v, Ordering::Relaxed),
+        Err(e) => tracing::error!("Error reloading audit log retention days: {:?}", e),
     }
 }
 
 pub async fn reload_delete_logs_periodically_setting(conn: &Connection) {
-    if let Err(e) = reload_setting(
+    match load_setting_value::<bool>(
         conn,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
         "MONITOR_LOGS_ON_OBJECT_STORE",
         false,
-        MONITOR_LOGS_ON_OBJECT_STORE.clone(),
         |x| x,
     )
     .await
     {
-        tracing::error!("Error reloading retention period: {:?}", e)
+        Ok(v) => MONITOR_LOGS_ON_OBJECT_STORE.store(v, Ordering::Relaxed),
+        Err(e) => tracing::error!("Error reloading retention period: {:?}", e),
     }
 }
 
@@ -1797,20 +1947,22 @@ pub async fn load_value_from_global_settings_with_conn(
     }
 }
 
-pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
+/// Load an optional setting value without writing it anywhere.
+///
+/// Extracted from [`reload_option_setting`] so callers that store the value
+/// in something other than `Arc<RwLock<Option<T>>>` (e.g. `ArcSwap<Option<T>>`,
+/// an `AtomicBool`, etc.) can reuse the load pipeline.
+pub async fn load_option_setting_value<T: FromStr + DeserializeOwned>(
     conn: &Connection,
     setting_name: &str,
     std_env_var: &str,
-    lock: Arc<RwLock<Option<T>>>,
-) -> error::Result<()> {
+) -> error::Result<Option<T>> {
     let force_value = std::env::var(format!("FORCE_{}", std_env_var))
         .ok()
         .and_then(|x| x.parse::<T>().ok());
 
     if let Some(force_value) = force_value {
-        let mut l = lock.write().await;
-        *l = Some(force_value);
-        return Ok(());
+        return Ok(Some(force_value));
     }
 
     let q = load_value_from_global_settings_with_conn(conn, setting_name, true).await?;
@@ -1828,14 +1980,24 @@ pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
         }
     };
 
+    if value.is_none() {
+        tracing::info!("Loaded {setting_name} setting to None");
+    }
+
+    Ok(value)
+}
+
+pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
+    conn: &Connection,
+    setting_name: &str,
+    std_env_var: &str,
+    lock: Arc<RwLock<Option<T>>>,
+) -> error::Result<()> {
+    let value = load_option_setting_value::<T>(conn, setting_name, std_env_var).await?;
     {
-        if value.is_none() {
-            tracing::info!("Loaded {setting_name} setting to None");
-        }
         let mut l = lock.write().await;
         *l = value;
     }
-
     Ok(())
 }
 
@@ -1850,12 +2012,16 @@ pub async fn reload_url_list_setting_with_tracing(
     }
 }
 
-pub async fn reload_url_list_setting(
+/// Load an optional URL list setting without writing it anywhere.
+///
+/// Extracted from [`reload_url_list_setting`] so callers that store the
+/// value in something other than `Arc<RwLock<Option<Vec<Url>>>>` (e.g.
+/// `ArcSwap<Option<Vec<Url>>>`) can reuse the parsing pipeline.
+pub async fn load_url_list_setting_value(
     conn: &Connection,
     setting_name: &str,
     std_env_var: &str,
-    lock: Arc<RwLock<Option<Vec<url::Url>>>>,
-) -> error::Result<()> {
+) -> error::Result<Option<Vec<url::Url>>> {
     // Check for force environment variable
     if let Ok(force_value) = std::env::var(format!("FORCE_{}", std_env_var)) {
         let mut urls = Vec::new();
@@ -1870,9 +2036,7 @@ pub async fn reload_url_list_setting(
                 }
             }
         }
-        let mut l = lock.write().await;
-        *l = if urls.is_empty() { None } else { Some(urls) };
-        return Ok(());
+        return Ok(if urls.is_empty() { None } else { Some(urls) });
     }
 
     let q = load_value_from_global_settings_with_conn(conn, setting_name, true).await?;
@@ -1922,25 +2086,39 @@ pub async fn reload_url_list_setting(
         }
     }
 
+    if value.is_none() {
+        tracing::info!("Loaded {} setting to None", setting_name);
+    }
+
+    Ok(value)
+}
+
+pub async fn reload_url_list_setting(
+    conn: &Connection,
+    setting_name: &str,
+    std_env_var: &str,
+    lock: Arc<RwLock<Option<Vec<url::Url>>>>,
+) -> error::Result<()> {
+    let value = load_url_list_setting_value(conn, setting_name, std_env_var).await?;
     {
-        if value.is_none() {
-            tracing::info!("Loaded {} setting to None", setting_name);
-        }
         let mut l = lock.write().await;
         *l = value;
     }
-
     Ok(())
 }
 
-pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
+/// Load a required setting value without writing it anywhere.
+///
+/// Extracted from [`reload_setting`] so callers that store the value in
+/// something other than `Arc<RwLock<T>>` (e.g. `AtomicI64`, `AtomicBool`,
+/// `ArcSwap<T>`) can reuse the load pipeline.
+pub async fn load_setting_value<T: FromStr + DeserializeOwned + Display>(
     conn: &Connection,
     setting_name: &str,
     std_env_var: &str,
     default: T,
-    lock: Arc<RwLock<T>>,
     transformer: fn(T) -> T,
-) -> error::Result<()> {
+) -> error::Result<T> {
     let q = load_value_from_global_settings_with_conn(conn, setting_name, true).await?;
 
     let mut value = std::env::var(std_env_var)
@@ -1957,11 +2135,22 @@ pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
         }
     };
 
+    Ok(value)
+}
+
+pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
+    conn: &Connection,
+    setting_name: &str,
+    std_env_var: &str,
+    default: T,
+    lock: Arc<RwLock<T>>,
+    transformer: fn(T) -> T,
+) -> error::Result<()> {
+    let value = load_setting_value(conn, setting_name, std_env_var, default, transformer).await?;
     {
         let mut l = lock.write().await;
         *l = value;
     }
-
     Ok(())
 }
 
@@ -2295,6 +2484,15 @@ pub async fn monitor_db(
         }
     };
 
+    let cleanup_scheduled_job_deletions_f = async {
+        #[cfg(feature = "enterprise")]
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                cleanup_scheduled_job_deletions(&db).await;
+            }
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -2318,6 +2516,7 @@ pub async fn monitor_db(
         cleanup_notify_events_f,
         check_expiring_tokens_f,
         manage_audit_partitions_f,
+        cleanup_scheduled_job_deletions_f,
     );
 }
 
@@ -2353,8 +2552,20 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             }
         }
 
+        let otel_enabled = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
+
+        if otel_enabled {
+            for q in OTEL_QUEUE_COUNT_TAGS.read().await.iter() {
+                if queue_counts.get(q).is_none() {
+                    otel_set_queue_count(q, 0);
+                }
+            }
+        }
+
         #[allow(unused_mut)]
         let mut tags_to_watch = vec![];
+        #[allow(unused_mut)]
+        let mut otel_tags_to_watch = vec![];
         for q in queue_counts {
             let count = q.1;
             let tag = q.0;
@@ -2366,6 +2577,9 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
                 tags_to_watch.push(tag.to_string());
             }
 
+            if otel_enabled {
+                otel_tags_to_watch.push(tag.to_string());
+            }
             otel_set_queue_count(&tag, count as i64);
 
             // save queue_count and delay metrics per tag
@@ -2400,9 +2614,13 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             let mut w = QUEUE_COUNT_TAGS.write().await;
             *w = tags_to_watch;
         }
+        if otel_enabled {
+            let mut w = OTEL_QUEUE_COUNT_TAGS.write().await;
+            *w = otel_tags_to_watch;
+        }
 
         // Single DB query for running counts, shared by Prometheus and OTel
-        let otel_running = OTEL_METRICS_ENABLED.load(Ordering::Relaxed);
+        let otel_running = otel_enabled;
         #[cfg(feature = "prometheus")]
         let need_running_counts = metrics_enabled || otel_running;
         #[cfg(not(feature = "prometheus"))]
@@ -2420,8 +2638,18 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
                 }
             }
 
+            if otel_running {
+                for q in OTEL_QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
+                    if queue_running_counts.get(q).is_none() {
+                        otel_set_queue_running_count(q, 0);
+                    }
+                }
+            }
+
             #[allow(unused_mut, unused_variables)]
             let mut running_tags_to_watch: Vec<String> = vec![];
+            #[allow(unused_mut, unused_variables)]
+            let mut otel_running_tags_to_watch: Vec<String> = vec![];
             for (tag, count) in &queue_running_counts {
                 #[cfg(feature = "prometheus")]
                 if metrics_enabled {
@@ -2432,6 +2660,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
 
                 if otel_running {
                     otel_set_queue_running_count(tag, *count as i64);
+                    otel_running_tags_to_watch.push(tag.to_string());
                 }
             }
 
@@ -2439,6 +2668,10 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             if metrics_enabled {
                 let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
                 *w = running_tags_to_watch;
+            }
+            if otel_running {
+                let mut w = OTEL_QUEUE_RUNNING_COUNT_TAGS.write().await;
+                *w = otel_running_tags_to_watch;
             }
         }
     }
@@ -2457,9 +2690,8 @@ pub async fn reload_smtp_config(db: &Pool<Postgres>) {
     if let Err(e) = smtp_config {
         tracing::error!("Error reloading smtp config: {:?}", e)
     } else {
-        let mut wc = SMTP_CONFIG.write().await;
         tracing::info!("Reloading smtp config...");
-        *wc = smtp_config.unwrap()
+        SMTP_CONFIG.store(std::sync::Arc::new(smtp_config.unwrap()));
     }
 }
 
@@ -2468,9 +2700,8 @@ pub async fn reload_indexer_config(db: &Pool<Postgres>) {
     if let Err(e) = indexer_config {
         tracing::error!("Error reloading indexer config: {:?}", e)
     } else {
-        let mut wc = INDEXER_CONFIG.write().await;
-        tracing::info!("Reloading smtp config...");
-        *wc = indexer_config.unwrap()
+        tracing::info!("Reloading indexer config...");
+        INDEXER_CONFIG.store(std::sync::Arc::new(indexer_config.unwrap()));
     }
 }
 
@@ -2479,29 +2710,29 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
     if let Err(e) = config {
         tracing::error!("Error reloading worker config: {:?}", e)
     } else {
-        let wc = WORKER_CONFIG.read().await;
+        let wc = WORKER_CONFIG.load();
         let config = config.unwrap();
         let has_dedicated = config.dedicated_worker.is_some()
             || config
                 .dedicated_workers
                 .as_ref()
                 .is_some_and(|dws| !dws.is_empty());
-        if *wc != config || has_dedicated {
+        if **wc != config || has_dedicated {
             if kill_if_change {
                 if has_dedicated
-                    || (*wc).dedicated_worker != config.dedicated_worker
-                    || (*wc).dedicated_workers != config.dedicated_workers
+                    || wc.dedicated_worker != config.dedicated_worker
+                    || wc.dedicated_workers != config.dedicated_workers
                 {
                     tracing::info!("Dedicated worker config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                 }
 
-                if (*wc).init_bash != config.init_bash {
+                if wc.init_bash != config.init_bash {
                     tracing::info!("Init bash config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                 }
 
-                if (*wc).cache_clear != config.cache_clear {
+                if wc.cache_clear != config.cache_clear {
                     tracing::info!("Cache clear changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                     tracing::info!("Waiting 5 seconds to allow others workers to start potential jobs that depend on a potential shared cache volume");
@@ -2511,29 +2742,27 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                     }
                 }
 
-                if (*wc).periodic_script_bash != config.periodic_script_bash {
+                if wc.periodic_script_bash != config.periodic_script_bash {
                     tracing::info!("Periodic script bash config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                 }
 
-                if (*wc).periodic_script_interval_seconds != config.periodic_script_interval_seconds
-                {
+                if wc.periodic_script_interval_seconds != config.periodic_script_interval_seconds {
                     tracing::info!("Periodic script interval config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                 }
 
-                if (*wc).native_mode != config.native_mode {
+                if wc.native_mode != config.native_mode {
                     tracing::info!("Native mode config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();
                 }
             }
             drop(wc);
 
-            let mut wc = WORKER_CONFIG.write().await;
             tracing::info!("Reloading worker config...");
             store_suspended_pull_query(&config).await;
             store_pull_query(&config).await;
-            *wc = config
+            WORKER_CONFIG.store(std::sync::Arc::new(config));
         }
     }
 }
@@ -2562,10 +2791,7 @@ pub async fn load_base_url(conn: &Connection) -> error::Result<String> {
     } else {
         std_base_url
     };
-    {
-        let mut l = BASE_URL.write().await;
-        *l = base_url.clone();
-    }
+    BASE_URL.store(std::sync::Arc::new(base_url.clone()));
     Ok(base_url)
 }
 
@@ -2596,17 +2822,14 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
     #[cfg(feature = "oauth2")]
     {
         if let Some(db) = conn.as_sql() {
-            let mut l = windmill_api::OAUTH_CLIENTS.write().await;
-            *l = windmill_api::oauth2_oss::build_oauth_clients(&base_url, oauths, db).await
-            .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
-            .unwrap();
+            let clients = windmill_api::oauth2_oss::build_oauth_clients(&base_url, oauths, db).await
+                .map_err(|e| tracing::error!("Error building oauth clients (is the oauth.json mounted and in correct format? Use '{}' as minimal oauth.json): {}", "{}", e))
+                .unwrap();
+            windmill_api::OAUTH_CLIENTS.store(std::sync::Arc::new(clients));
         }
     }
 
-    {
-        let mut l = IS_SECURE.write().await;
-        *l = is_secure;
-    }
+    IS_SECURE.store(is_secure, Ordering::Relaxed);
 
     Ok(())
 }
@@ -2735,7 +2958,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
 
         otel_incr_zombie_restart_count(restarted.len() as u64);
 
-        let base_url = BASE_URL.read().await.clone();
+        let base_url = (**BASE_URL.load()).clone();
         for r in restarted {
             let last_ping = if let Some(x) = r.ping {
                 format!("last ping at {x}")
@@ -3146,8 +3369,18 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
         r#"
         SELECT
             j.id AS "id!", j.workspace_id AS "workspace_id!", j.parent_job, j.flow_step_id IS NOT NULL AS "is_flow_step?",
-            COALESCE(s.flow_status, s.workflow_as_code_status) AS "flow_status: Box<str>", r.ping AS last_ping, j.same_worker AS "same_worker?"
+            COALESCE(s.flow_status, s.workflow_as_code_status) AS "flow_status: Box<str>", r.ping AS last_ping, j.same_worker AS "same_worker?",
+            q.worker AS "worker?",
+            wp.ping_at AS "worker_last_ping?",
+            wp.memory_usage AS "worker_memory_usage?",
+            wp.wm_memory_usage AS "worker_wm_memory_usage?",
+            wp.memory AS "worker_memory_total?",
+            wp.worker_group AS "worker_group?",
+            wp.wm_version AS "worker_version?",
+            wp.current_job_id AS "worker_current_job_id?",
+            wp.worker_instance AS "worker_instance?"
         FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
+            LEFT JOIN worker_ping wp ON wp.worker = q.worker
         WHERE q.running = true AND q.suspend = 0 AND q.suspend_until IS null AND q.scheduled_for <= now()
             AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode')
             AND r.ping IS NOT NULL AND r.ping < NOW() - ($1 || ' seconds')::interval
@@ -3212,10 +3445,180 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             let id = flow.id.clone();
             let last_ping = flow.last_ping.clone();
             let now = now_from_db(db).await?;
-            let base_url = BASE_URL.read().await;
+            let base_url = BASE_URL.load();
             let workspace_id = flow.workspace_id.clone();
+
+            let fmt_mb = |b: i64| format!("{:.1} MB", b as f64 / 1024.0 / 1024.0);
+            let worker_ping_stale = flow
+                .worker_last_ping
+                .map(|wp| (now - wp).num_seconds() > 60);
+            // Zombie flows between steps are, in practice, almost always the worker
+            // getting OOM-killed mid state-transition. Score the memory signal at
+            // the worker's last ping as a fraction of the cgroup limit, taking the
+            // larger of the cgroup-wide reading (`worker_memory_usage`) and the
+            // windmill process's jemalloc resident (`worker_wm_memory_usage`) — if
+            // only one is present, that value wins; if both are present, the larger
+            // is the more conservative (higher-signal) choice. If the pod restarted
+            // in-place, a replacement worker process comes up under a new windmill
+            // worker name; this flow's recorded worker name still points at the
+            // dead process whose last ping can be under 60s old, and the memory
+            // signal is what lets us catch that window.
+            let memory_pct: Option<f64> = flow.worker_memory_total.and_then(|total| {
+                if total <= 0 {
+                    return None;
+                }
+                let used = flow.worker_memory_usage.max(flow.worker_wm_memory_usage)?;
+                Some(used as f64 / total as f64)
+            });
+            let oom_strong = memory_pct.is_some_and(|p| p >= 0.85);
+            let oom_moderate = memory_pct.is_some_and(|p| p >= 0.60);
+            let mem_pct_str = memory_pct
+                .map(|p| format!("{:.1}% of container limit", (p * 100.0).min(100.0)))
+                .unwrap_or_else(|| "memory unknown at last ping".to_string());
+            let worker_info = if let Some(worker_name) = flow.worker.as_deref() {
+                let mut s = format!("\nWorker handling the flow: {worker_name}");
+                match (flow.worker_group.as_deref(), flow.worker_version.as_deref()) {
+                    (Some(g), Some(v)) => s.push_str(&format!(" (group: {g}, version: {v})")),
+                    (Some(g), None) => s.push_str(&format!(" (group: {g})")),
+                    (None, Some(v)) => s.push_str(&format!(" (version: {v})")),
+                    (None, None) => {}
+                }
+                if let Some(wp) = flow.worker_last_ping {
+                    let age = (now - wp).num_seconds();
+                    let status: String = match (
+                        worker_ping_stale.unwrap_or(false),
+                        oom_strong,
+                        oom_moderate,
+                    ) {
+                        (true, true, _) => format!(
+                            "OOM-KILLED — {mem_pct_str} at last ping, worker then stopped pinging"
+                        ),
+                        (true, false, true) => format!(
+                            "LIKELY OOM-KILLED — {mem_pct_str} at last ping, worker then stopped pinging"
+                        ),
+                        (true, false, false) => {
+                            "WORKER DIED — most likely OOM-killed (no strong memory evidence captured at last ping); less likely: crash, host failure, or network partition".to_string()
+                        }
+                        (false, true, _) => format!(
+                            "OOM-KILLED — {mem_pct_str} at last ping (a replacement worker process may have started in the same pod under a new windmill worker name; this alert references the dead process's record, which pinged just before being killed)"
+                        ),
+                        (false, false, true) => format!(
+                            "LIKELY OOM-KILLED — {mem_pct_str} at last ping (a replacement worker process may have started in the same pod under a new windmill worker name)"
+                        ),
+                        (false, false, false) => {
+                            "worker still pinging with healthy memory — likely deadlocked or blocking on the state transition".to_string()
+                        }
+                    };
+                    s.push_str(&format!("\nWorker last ping: {wp} ({age}s ago) — {status}"));
+                    if let Some(cjid) = flow.worker_current_job_id {
+                        if cjid != flow.id {
+                            s.push_str(&format!("\nWorker has since moved on to job {cjid}"));
+                        }
+                    }
+                } else {
+                    s.push_str("\nWorker last ping: unknown (no worker_ping record)");
+                }
+                let total_suffix = flow
+                    .worker_memory_total
+                    .map(|t| format!(" (total available: {})", fmt_mb(t)))
+                    .unwrap_or_default();
+                match (flow.worker_memory_usage, flow.worker_wm_memory_usage) {
+                    (Some(host), Some(wm)) => s.push_str(&format!(
+                        "\nWorker memory at last ping: host={}, wm process={}{}",
+                        fmt_mb(host),
+                        fmt_mb(wm),
+                        total_suffix
+                    )),
+                    (Some(host), None) => s.push_str(&format!(
+                        "\nWorker memory at last ping: host={}{}",
+                        fmt_mb(host),
+                        total_suffix
+                    )),
+                    (None, Some(wm)) => s.push_str(&format!(
+                        "\nWorker memory at last ping: wm process={}{}",
+                        fmt_mb(wm),
+                        total_suffix
+                    )),
+                    (None, None) => {
+                        if let Some(total) = flow.worker_memory_total {
+                            s.push_str(&format!("\nWorker total memory: {}", fmt_mb(total)));
+                        }
+                    }
+                }
+                s
+            } else {
+                "\nWorker handling the flow: unknown (no worker recorded on v2_job_queue)"
+                    .to_string()
+            };
+
+            let hint: String = match (worker_ping_stale, oom_moderate) {
+                (Some(_), true) => format!(
+                    "\nThis is almost certainly an OOM-kill: container memory at the worker's last ping was at {mem_pct_str}. Raise the worker memory limit (e.g. k8s `resources.limits.memory`) or reduce per-flow memory usage. Confirm via pod restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`)."
+                ),
+                (Some(true), false) => {
+                    "\nWorker stopped pinging and its last memory snapshot did not look high — in practice the overwhelmingly common cause here is still OOM-kill (memory may have spiked between the last ping and the kill, or never been reported). First check pod restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`). Less likely: host failure, network partition, or a panic — check worker logs / k8s events around the last ping time.".to_string()
+                }
+                (Some(false), false) => {
+                    "\nWorker is still pinging and memory looked healthy at its last ping — most likely a deadlock or blocking call during the state transition. Capture a stack trace (e.g. via SIGQUIT) from the worker process. As a sanity check, also verify pod restart count in case a replacement worker process in the same pod has silently taken over.".to_string()
+                }
+                (None, _) => String::new(),
+            };
+
+            let service_logs_info = match (flow.worker_instance.as_deref(), flow.worker_last_ping) {
+                (Some(host), Some(wlp)) => {
+                    let after = (wlp - chrono::Duration::seconds(90))
+                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+                    let before = (wlp + chrono::Duration::seconds(30))
+                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+                    let log_files_result = sqlx::query!(
+                        "SELECT file_path, log_ts, ok_lines, err_lines
+                         FROM log_file
+                         WHERE hostname = $1
+                           AND log_ts BETWEEN $2::timestamp - interval '90 seconds' AND $2::timestamp + interval '30 seconds'
+                         ORDER BY log_ts DESC
+                         LIMIT 10",
+                        host,
+                        wlp.naive_utc(),
+                    )
+                    .fetch_all(db)
+                    .await;
+                    let log_files = match log_files_result {
+                        Ok(rows) => rows,
+                        Err(e) => {
+                            tracing::warn!(
+                                "failed to query log_file for hanging-flow diagnostics (host={host}): {e:#}"
+                            );
+                            Vec::new()
+                        }
+                    };
+                    if log_files.is_empty() {
+                        format!(
+                            "\nService logs: no log_file rows found for hostname '{host}' between {after} and {before}. If service log collection is enabled (requires S3/parquet), try /api/service_logs/list_files?after={after}&before={before}."
+                        )
+                    } else {
+                        let listed = log_files
+                            .iter()
+                            .map(|f| {
+                                format!(
+                                    "  - {} (log_ts: {}, ok_lines: {}, err_lines: {}) — GET /api/service_logs/get_log_file/{}/{}",
+                                    f.file_path,
+                                    f.log_ts,
+                                    f.ok_lines.unwrap_or(0),
+                                    f.err_lines.unwrap_or(0),
+                                    host,
+                                    f.file_path,
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        format!("\nService logs for worker instance '{host}' around last ping ({after} to {before}) (download URLs require S3/parquet service log collection):\n{listed}")
+                    }
+                }
+                _ => String::new(),
+            };
+
             let reason = format!(
-                "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})",
+                "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now}){worker_info}{hint}{service_logs_info}",
                 if flow.is_flow_step.unwrap_or(false) && flow.parent_job.is_some() {
                     format!("Flow was cancelled because subflow {id} ({base_url}/run/{id}?workspace={workspace_id})")
                 } else {
@@ -3320,11 +3723,11 @@ pub async fn reload_hub_base_url_setting(
         DEFAULT_HUB_BASE_URL.to_string()
     };
 
-    let mut l = HUB_BASE_URL.write().await;
+    let previous = HUB_BASE_URL.load();
     if server_mode {
         #[cfg(feature = "embedding")]
         if let Some(db) = conn.as_sql() {
-            if *l != base_url {
+            if **previous != base_url {
                 let disable_embedding = std::env::var("DISABLE_EMBEDDING")
                     .ok()
                     .map(|x| x.parse::<bool>().unwrap_or(false))
@@ -3338,7 +3741,8 @@ pub async fn reload_hub_base_url_setting(
             }
         }
     }
-    *l = base_url;
+    drop(previous);
+    HUB_BASE_URL.store(std::sync::Arc::new(base_url));
 
     Ok(())
 }
@@ -3361,8 +3765,7 @@ pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<
         vec![]
     };
 
-    let mut l = CRITICAL_ERROR_CHANNELS.write().await;
-    *l = critical_error_channels;
+    CRITICAL_ERROR_CHANNELS.store(std::sync::Arc::new(critical_error_channels));
 
     Ok(())
 }
@@ -3384,9 +3787,35 @@ pub async fn reload_app_workspaced_route_setting(conn: &DB) -> error::Result<()>
         }
     };
 
-    let mut l = APP_WORKSPACED_ROUTE.write().await;
+    APP_WORKSPACED_ROUTE.store(ws_route, Ordering::Relaxed);
+    Ok(())
+}
 
-    *l = ws_route;
+pub async fn reload_http_route_workspaced_route_setting(conn: &DB) -> error::Result<()> {
+    let http_route_workspaced_route =
+        load_value_from_global_settings(conn, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING).await?;
+
+    let ws_route = match http_route_workspaced_route {
+        Some(serde_json::Value::Bool(ws_route)) => ws_route,
+        None => false,
+        _ => {
+            tracing::error!(
+                "Expected {} to be a boolean got: {:?}. Defaulting to false",
+                HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+                http_route_workspaced_route
+            );
+            false
+        }
+    };
+
+    let previous = HTTP_ROUTE_WORKSPACED_ROUTE.swap(ws_route, Ordering::Relaxed);
+    if previous != ws_route {
+        // Bump the HTTP trigger version so the route cache is rebuilt with
+        // the updated workspaced_route behavior on the next request.
+        sqlx::query!("SELECT nextval('http_trigger_version_seq')")
+            .fetch_one(conn)
+            .await?;
+    }
     Ok(())
 }
 
@@ -3417,8 +3846,7 @@ pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<(
         None
     };
 
-    let mut l = CRITICAL_ALERTS_ON_DB_OVERSIZE.write().await;
-    *l = db_oversize;
+    CRITICAL_ALERTS_ON_DB_OVERSIZE.store(std::sync::Arc::new(db_oversize));
 
     Ok(())
 }
@@ -3449,8 +3877,7 @@ pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
         generate_and_save_jwt_secret(db).await?
     };
 
-    let mut l = JWT_SECRET.write().await;
-    *l = jwt_secret;
+    JWT_SECRET.store(std::sync::Arc::new(jwt_secret));
 
     Ok(())
 }
@@ -3572,7 +3999,7 @@ RETURNING job_id
 }
 
 async fn audit_log_retention_days() -> i64 {
-    let v = *AUDIT_LOG_RETENTION_DAYS.read().await;
+    let v = AUDIT_LOG_RETENTION_DAYS.load(std::sync::atomic::Ordering::Relaxed);
     if v > 0 {
         v
     } else if cfg!(feature = "enterprise") {

@@ -166,8 +166,10 @@ export async function createBundle(
   // Dynamically import esbuild
   const esbuild = await import("esbuild");
 
-  // Detect frameworks to determine default entry point
-  const frameworks = detectFrameworks(process.cwd());
+  // Detect frameworks to determine default entry point.
+  // Use the entryPoint's directory if provided, otherwise fall back to cwd.
+  const appDir = options.entryPoint ? path.dirname(options.entryPoint) : process.cwd();
+  const frameworks = detectFrameworks(appDir);
   const defaultEntry = (frameworks.svelte || frameworks.vue) ? "index.ts" : "index.tsx";
 
   const entryPoint = options.entryPoint ?? defaultEntry;
@@ -184,7 +186,6 @@ export async function createBundle(
   }
 
   // Ensure node_modules exists in the app directory
-  const appDir = path.dirname(entryPoint) || process.cwd();
   await ensureNodeModules(appDir);
 
   // Load framework-specific plugins (svelte, vue) based on package.json

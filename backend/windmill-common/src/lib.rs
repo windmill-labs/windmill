@@ -14,7 +14,7 @@ use std::{
     net::SocketAddr,
     str::FromStr,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicI64, Ordering},
         Arc,
     },
 };
@@ -27,12 +27,6 @@ use scripts::ScriptLang;
 use sqlx::{Acquire, Postgres};
 
 pub mod agent_workers;
-#[cfg(feature = "bedrock")]
-pub mod ai_bedrock;
-pub mod ai_cache;
-pub mod ai_google;
-pub mod ai_providers;
-pub mod ai_types;
 pub mod apps;
 pub mod assets;
 pub mod audit;
@@ -43,7 +37,13 @@ pub mod cache;
 pub mod client;
 pub mod db;
 #[cfg(all(feature = "enterprise", feature = "private"))]
+mod db_entra_ee;
+#[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_iam_ee;
+pub mod db_params;
+#[cfg(feature = "private")]
+pub mod deployment_requests_ee;
+pub mod deployment_requests_oss;
 #[cfg(feature = "private")]
 pub mod ee;
 pub mod ee_oss;
@@ -55,10 +55,12 @@ pub mod external_ip;
 pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;
+pub mod folders;
 pub mod global_settings;
 pub mod indexer;
 pub mod instance_config;
 pub mod job_metrics;
+pub mod log_context;
 pub mod min_version;
 pub mod notify_events;
 pub mod runtime_assets;
@@ -69,6 +71,7 @@ pub mod git_sync_ee;
 pub mod git_sync_oss;
 pub mod jobs;
 pub mod jwt;
+pub mod login_rate_limit;
 pub mod more_serde;
 pub mod oauth2;
 #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
@@ -86,6 +89,7 @@ pub mod schedule;
 pub mod schema;
 pub mod scripts;
 pub mod secret_backend;
+pub mod sensitive_log_masks;
 pub mod server;
 pub mod ssrf;
 #[cfg(feature = "private")]
@@ -96,11 +100,13 @@ pub mod stream;
 pub mod teams_ee;
 pub mod teams_oss;
 pub mod tracing_init;
+pub mod trashbin;
 pub mod triggers;
 pub mod usernames;
 pub mod users;
 pub mod utils;
 pub mod variables;
+pub mod wac;
 pub mod webhook;
 pub mod worker;
 pub mod worker_group_job_stats;
@@ -199,18 +205,18 @@ lazy_static::lazy_static! {
     pub static ref CRITICAL_ALERT_MUTE_UI_ENABLED: AtomicBool = AtomicBool::new(false);
     pub static ref CRITICAL_ALERTS_ON_TOKEN_EXPIRY: AtomicBool = AtomicBool::new(false);
 
-    pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
+    pub static ref BASE_URL: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    pub static ref HUB_BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new(DEFAULT_HUB_BASE_URL.to_string()));
+    pub static ref HUB_BASE_URL: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee(DEFAULT_HUB_BASE_URL.to_string());
 
 
-    pub static ref CRITICAL_ERROR_CHANNELS: Arc<RwLock<Vec<CriticalErrorChannel>>> = Arc::new(RwLock::new(vec![]));
-    pub static ref CRITICAL_ALERTS_ON_DB_OVERSIZE: Arc<RwLock<Option<f32>>> = Arc::new(RwLock::new(None));
+    pub static ref CRITICAL_ERROR_CHANNELS: arc_swap::ArcSwap<Vec<CriticalErrorChannel>> = arc_swap::ArcSwap::from_pointee(vec![]);
+    pub static ref CRITICAL_ALERTS_ON_DB_OVERSIZE: arc_swap::ArcSwap<Option<f32>> = arc_swap::ArcSwap::from_pointee(None);
 
-    pub static ref JOB_RETENTION_SECS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
-    pub static ref AUDIT_LOG_RETENTION_DAYS: Arc<RwLock<i64>> = Arc::new(RwLock::new(0));
+    pub static ref JOB_RETENTION_SECS: AtomicI64 = AtomicI64::new(0);
+    pub static ref AUDIT_LOG_RETENTION_DAYS: AtomicI64 = AtomicI64::new(0);
 
-    pub static ref MONITOR_LOGS_ON_OBJECT_STORE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref MONITOR_LOGS_ON_OBJECT_STORE: AtomicBool = AtomicBool::new(false);
 
     pub static ref INSTANCE_NAME: String = rd_string(5);
 
@@ -303,7 +309,6 @@ pub async fn shutdown_signal(
     Ok(())
 }
 
-use tokio::sync::RwLock;
 use utils::rd_string;
 
 #[cfg(feature = "prometheus")]
@@ -395,7 +400,7 @@ pub struct PrepareQueryResult {
     pub error: Option<String>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct PgDatabase {
     pub host: String,
     pub user: Option<String>,
@@ -404,6 +409,8 @@ pub struct PgDatabase {
     pub sslmode: Option<String>,
     pub dbname: String,
     pub root_certificate_pem: Option<String>,
+    pub use_iam_auth: Option<bool>,
+    pub region: Option<String>,
 }
 
 // Wrapper enum to hold either Tls or NoTls connection
@@ -455,6 +462,33 @@ impl PgDatabase {
     }
 
     pub async fn connect(
+        &self,
+        main_db: Option<&DB>,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        match self.connect_inner().await {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("password authentication failed for user")
+                    && err_str.contains("custom_instance_user")
+                {
+                    if let Some(db) = main_db {
+                        tracing::warn!(
+                            "custom_instance_user password auth failed, refreshing and retrying..."
+                        );
+                        crate::utils::refresh_custom_instance_user_pwd(db).await?;
+                        let new_pwd = crate::utils::get_custom_pg_instance_password(db).await?;
+                        let mut retried = self.clone();
+                        retried.password = Some(new_pwd);
+                        return retried.connect_inner().await;
+                    }
+                }
+                Err(e)
+            }
+        }
+    }
+
+    async fn connect_inner(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
         use native_tls::{Certificate, TlsConnector};
@@ -511,6 +545,75 @@ impl PgDatabase {
         }
     }
 
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    pub async fn connect_with_iam(
+        &self,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        use native_tls::TlsConnector;
+        use postgres_native_tls::MakeTlsConnector;
+
+        // Resolve region: resource field takes priority, then env var
+        let region = match self.region.as_deref() {
+            Some(r) => r.to_string(),
+            None => std::env::var("AWS_REGION").map_err(|_| {
+                error::Error::BadConfig(
+                    "Region is required for IAM RDS auth. Set 'region' on the resource or AWS_REGION env var".to_string(),
+                )
+            })?,
+        };
+
+        let port = self.port.unwrap_or(5432);
+        let user = self.user.as_deref().unwrap_or("postgres");
+
+        let token = db_iam_ee::generate_auth_token(&region, &self.host, port as u64, user)
+            .await
+            .map_err(|e| {
+                error::Error::InternalErr(format!("IAM token generation failed: {e:#}"))
+            })?;
+
+        // RDS IAM auth requires SSL
+        let mut connector = TlsConnector::builder();
+        if let Some(root_certificate_pem) = &self.root_certificate_pem {
+            if !root_certificate_pem.is_empty() {
+                connector.add_root_certificate(
+                    native_tls::Certificate::from_pem(root_certificate_pem.as_bytes())
+                        .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e:#}")))?,
+                );
+            } else {
+                connector.danger_accept_invalid_certs(true);
+                connector.danger_accept_invalid_hostnames(true);
+            }
+        } else {
+            tracing::warn!("IAM RDS auth without root certificate: TLS certificate verification is disabled. Consider providing root_certificate_pem for production use.");
+            connector
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true);
+        }
+
+        tracing::info!("Creating new IAM RDS connection to {}", &self.host);
+
+        // Use Config builder directly to pass the IAM token as the password.
+        // This avoids needing to URL-encode the token into a connection string.
+        let mut config = tokio_postgres::Config::new();
+        config
+            .host(&self.host)
+            .port(port as u16)
+            .user(user)
+            .password(&token)
+            .dbname(&self.dbname)
+            .ssl_mode(tokio_postgres::config::SslMode::Require);
+
+        let (client, connection) = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            config.connect(MakeTlsConnector::new(connector.build().map_err(to_anyhow)?)),
+        )
+        .await
+        .map_err(to_anyhow)?
+        .map_err(to_anyhow)?;
+
+        Ok((client, TokioPgConnection::Tls(connection)))
+    }
+
     pub fn parse_uri(url: &str) -> Result<Self, Error> {
         let parsed_url = url::Url::parse(url)
             .map_err(|_| Error::BadConfig("Invalid PostgreSQL URL".to_string()))?;
@@ -549,20 +652,198 @@ impl PgDatabase {
             dbname,
             sslmode,
             root_certificate_pem: None,
+            use_iam_auth: None,
+            region: None,
         })
     }
+}
+
+/// Validate a database name to prevent SQL injection.
+/// Must start with a letter, contain only alphanumeric characters or underscores, and be <= 63 chars.
+pub fn validate_dbname(dbname: &str) -> error::Result<()> {
+    let dbname = dbname.trim();
+    if dbname.is_empty() {
+        return Err(error::Error::BadRequest(
+            "Database name cannot be empty".to_string(),
+        ));
+    }
+    if dbname.len() > 63 {
+        return Err(error::Error::BadRequest(
+            "Database name cannot exceed 63 characters".to_string(),
+        ));
+    }
+    if !dbname
+        .chars()
+        .next()
+        .map_or(false, |c| c.is_ascii_alphabetic())
+    {
+        return Err(error::Error::BadRequest(
+            "Database name must start with a letter".to_string(),
+        ));
+    }
+    if !dbname
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(error::Error::BadRequest(
+            "Database name must contain only alphanumeric characters or underscores".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Drop a custom instance database: validate, terminate connections, DROP DATABASE, remove from global_settings.
+pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Result<()> {
+    let dbname = dbname.trim();
+    validate_dbname(dbname)?;
+
+    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+    if wmill_pg_creds.dbname.trim().eq_ignore_ascii_case(dbname) {
+        return Err(error::Error::BadRequest(
+            "Cannot drop the main Windmill database".to_string(),
+        ));
+    }
+
+    let db_exists = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+        dbname
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    if db_exists {
+        // Terminate active connections
+        if let Err(e) = sqlx::query(&format!(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}' AND pid <> pg_backend_pid()",
+            dbname.replace('\'', "''")
+        ))
+        .execute(db)
+        .await
+        {
+            tracing::warn!("Failed to terminate connections to '{}': {}", dbname, e);
+        }
+
+        // Drop the database
+        sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", dbname))
+            .execute(db)
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!("Failed to drop database '{}': {}", dbname, e))
+            })?;
+
+        tracing::info!("Dropped instance database '{}'", dbname);
+    } else {
+        tracing::info!("Database '{}' does not exist, skipping drop", dbname);
+    }
+
+    // Always remove from global_settings
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
+        dbname
+    )
+    .execute(db)
+    .await?;
+
+    Ok(())
+}
+
+/// Create a custom instance database: CREATE DATABASE, grant permissions, register in global_settings.
+/// The `tag` is stored in global_settings metadata (e.g. "datatable" or "ducklake").
+pub async fn create_custom_instance_database(
+    db: &DB,
+    dbname: &str,
+    tag: &str,
+) -> error::Result<()> {
+    let dbname = dbname.trim();
+    validate_dbname(dbname)?;
+
+    let db_exists = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+        dbname
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    if db_exists {
+        return Err(error::Error::BadRequest(format!(
+            "Database '{}' already exists",
+            dbname
+        )));
+    }
+
+    sqlx::query(&format!("CREATE DATABASE \"{}\"", dbname))
+        .execute(db)
+        .await
+        .map_err(|e| {
+            error::Error::internal_err(format!("Failed to create database '{}': {}", dbname, e))
+        })?;
+
+    // Grant permissions to custom_instance_user
+    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+    let new_pg_creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
+    let (client, connection) = new_pg_creds.connect(Some(db)).await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+
+    if let Err(e) = client
+        .batch_execute(&format!(
+            "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
+             GRANT USAGE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
+        ))
+        .await
+    {
+        tracing::warn!(
+            "Failed to grant permissions on '{}': {}. Continuing.",
+            dbname,
+            e
+        );
+    }
+
+    drop(client);
+    join_handle
+        .await
+        .map_err(|e| error::Error::internal_err(format!("join error: {}", e)))?
+        .map_err(|e| error::Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+
+    // Register in global_settings
+    let status_json = serde_json::json!({
+        "logs": {
+            "created_database": "OK",
+            "db_connect": "OK",
+            "grant_permissions": "OK"
+        },
+        "success": true,
+        "error": null,
+        "tag": tag
+    });
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
+        serde_json::json!({ (dbname): status_json })
+    )
+    .execute(db)
+    .await?;
+
+    tracing::info!("Created custom instance database '{}'", dbname);
+    Ok(())
 }
 
 #[derive(Clone)]
 pub enum DatabaseUrl {
     #[cfg(all(feature = "enterprise", feature = "private"))]
     IamRds(std::sync::Arc<tokio::sync::RwLock<db_iam_ee::IamRdsUrl>>),
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    EntraId(std::sync::Arc<tokio::sync::RwLock<db_entra_ee::EntraIdUrl>>),
     Static(String),
 }
 
 impl DatabaseUrl {
     /// Get the database URL as a string.
-    /// Note: For IAM RDS, this returns the original URL (for metadata extraction).
+    /// For token-based auth, this returns the original URL (for metadata extraction).
     /// For actual database connections, use connect_options() instead.
     pub async fn as_str(&self) -> String {
         match self {
@@ -571,19 +852,29 @@ impl DatabaseUrl {
                 let guard = rds_url.read().await;
                 guard.as_str().to_string()
             }
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            DatabaseUrl::EntraId(entra_url) => {
+                let guard = entra_url.read().await;
+                guard.as_str().to_string()
+            }
             DatabaseUrl::Static(url) => url.clone(),
         }
     }
 
     /// Get PgConnectOptions for this database URL.
-    /// For IAM RDS, this returns options built directly from the token to avoid double-encoding
-    /// issues with temporary credentials (IRSA/Pod Identity).
+    /// For token-based auth (IAM RDS, Entra ID), this returns options built directly from the
+    /// token to avoid double-encoding issues with temporary credentials.
     /// For static URLs, this parses the URL string.
     pub async fn connect_options(&self) -> Result<sqlx::postgres::PgConnectOptions, Error> {
         match self {
             #[cfg(all(feature = "enterprise", feature = "private"))]
             DatabaseUrl::IamRds(rds_url) => {
                 let guard = rds_url.read().await;
+                Ok(guard.connect_options())
+            }
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            DatabaseUrl::EntraId(entra_url) => {
+                let guard = entra_url.read().await;
                 Ok(guard.connect_options())
             }
             DatabaseUrl::Static(url) => sqlx::postgres::PgConnectOptions::from_str(url)
@@ -595,8 +886,30 @@ impl DatabaseUrl {
         match self {
             #[cfg(all(feature = "enterprise", feature = "private"))]
             DatabaseUrl::IamRds(rds_url) => rds_url.write().await.refresh().await,
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            DatabaseUrl::EntraId(entra_url) => entra_url.write().await.refresh().await,
             DatabaseUrl::Static(_) => Ok(()),
         }
+    }
+
+    pub async fn needs_refresh(&self) -> bool {
+        match self {
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            DatabaseUrl::IamRds(rds_url) => rds_url.read().await.needs_refresh(),
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            DatabaseUrl::EntraId(entra_url) => entra_url.read().await.needs_refresh(),
+            DatabaseUrl::Static(_) => false,
+        }
+    }
+
+    /// Double-checked refresh: read-lock to check, then write-lock to refresh if still needed.
+    pub async fn refresh_if_needed(&self) -> Result<(), Error> {
+        if self.needs_refresh().await {
+            self.refresh().await.map_err(|e| {
+                Error::InternalErr(format!("Failed to refresh database token: {}", e))
+            })?;
+        }
+        Ok(())
     }
 }
 
@@ -625,7 +938,9 @@ pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
 
             let parsed_url = url::Url::parse(&url)?;
 
-            if parsed_url.password().is_some_and(|x| x == "iamrds") {
+            let password = parsed_url.password().unwrap_or_default();
+
+            if password == "iamrds" {
                 let region = var("AWS_REGION").map_err(|_| {
                     Error::BadConfig(
                         "AWS_REGION env var is required for IAM RDS authentication".to_string(),
@@ -655,34 +970,68 @@ pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
                         "IAM RDS authentication is not enabled in OSS mode".to_string(),
                     ));
                 }
+            } else if password == "entraid" {
+                let tenant_id = var("AZURE_TENANT_ID").map_err(|_| {
+                    Error::BadConfig(
+                        "AZURE_TENANT_ID env var is required for Entra ID authentication"
+                            .to_string(),
+                    )
+                })?;
+
+                tracing::info!(
+                    "entraid mode detected, generating Entra ID URL for tenant: {tenant_id}"
+                );
+                #[cfg(all(feature = "enterprise", feature = "private"))]
+                {
+                    let client_id = var("AZURE_CLIENT_ID").map_err(|_| {
+                        Error::BadConfig(
+                            "AZURE_CLIENT_ID env var is required for Entra ID authentication"
+                                .to_string(),
+                        )
+                    })?;
+                    let federated_token_file =
+                        var("AZURE_FEDERATED_TOKEN_FILE").map_err(|_| {
+                            Error::BadConfig(
+                                "AZURE_FEDERATED_TOKEN_FILE env var is required for Entra ID authentication".to_string(),
+                            )
+                        })?;
+                    let authority_host = var("AZURE_AUTHORITY_HOST")
+                        .unwrap_or_else(|_| "login.microsoftonline.com".to_string());
+
+                    let entra_url = db_entra_ee::generate_database_url(
+                        &url,
+                        &tenant_id,
+                        &client_id,
+                        &federated_token_file,
+                        &authority_host,
+                    )
+                    .await
+                    .map_err(|e| {
+                        Error::InternalErr(format!(
+                            "Failed to generate Entra ID database URL: {}",
+                            e
+                        ))
+                    })?;
+                    tracing::info!("Entra ID URL generated successfully");
+                    Ok::<DatabaseUrl, Error>(DatabaseUrl::EntraId(std::sync::Arc::new(
+                        tokio::sync::RwLock::new(entra_url),
+                    )))
+                }
+
+                #[cfg(not(all(feature = "enterprise", feature = "private")))]
+                {
+                    return Err(Error::BadConfig(
+                        "Entra ID authentication is not enabled in OSS mode".to_string(),
+                    ));
+                }
             } else {
                 Ok::<DatabaseUrl, Error>(DatabaseUrl::Static(url.to_string()))
             }
         })
         .await?;
 
-    // Check if we need to refresh and do so if necessary
-    #[cfg(all(feature = "enterprise", feature = "private"))]
-    if let DatabaseUrl::IamRds(ref rds_url_lock) = database_url {
-        // Check if refresh is needed
-        let needs_refresh = {
-            let read_guard = rds_url_lock.read().await;
-            read_guard.needs_refresh()
-        };
+    database_url.refresh_if_needed().await?;
 
-        // If refresh is needed, acquire write lock and refresh
-        if needs_refresh {
-            let mut write_guard = rds_url_lock.write().await;
-            // Double-check after acquiring write lock (another task might have refreshed)
-            if write_guard.needs_refresh() {
-                write_guard.refresh().await.map_err(|e| {
-                    Error::InternalErr(format!("Failed to refresh IAM token: {}", e))
-                })?;
-            }
-        }
-    }
-
-    // Return the URL string
     Ok(database_url.clone())
 }
 
@@ -714,10 +1063,12 @@ pub struct ScriptHashInfo<SR> {
     pub dedicated_worker: Option<bool>,
     pub priority: Option<i16>,
     pub delete_after_use: Option<bool>,
+    pub delete_after_secs: Option<i32>,
     pub timeout: Option<i32>,
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
     pub created_by: String,
+    pub labels: Option<Vec<String>>,
     #[sqlx(flatten)]
     pub runnable_settings: SR,
 }
@@ -743,10 +1094,12 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
             dedicated_worker: self.dedicated_worker,
             priority: self.priority,
             delete_after_use: self.delete_after_use,
+            delete_after_secs: self.delete_after_secs,
             timeout: self.timeout,
             has_preprocessor: self.has_preprocessor,
             on_behalf_of_email: self.on_behalf_of_email,
             created_by: self.created_by,
+            labels: self.labels,
             runnable_settings: ScriptRunnableSettingsInline {
                 concurrency_settings: concurrency_settings.maybe_fallback(
                     self.runnable_settings.concurrency_key,
@@ -911,10 +1264,12 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
                 dedicated_worker,
                 priority,
                 delete_after_use,
+                delete_after_secs,
                 timeout,
                 has_preprocessor,
                 on_behalf_of_email,
                 created_by,
+                labels,
                 path
             FROM script WHERE hash = $1 AND workspace_id = $2",
     )
@@ -934,6 +1289,7 @@ pub struct FlowVersionInfo {
     pub on_behalf_of_email: Option<String>,
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
+    pub labels: Option<Vec<String>>,
 }
 
 struct CachedFlowPath(String);
@@ -1061,7 +1417,8 @@ pub fn get_flow_version_info_from_version<
                                     flow.tag,
                                     flow.dedicated_worker,
                                     flow.on_behalf_of_email,
-                                    flow.edited_by
+                                    flow.edited_by,
+                                    flow.labels
                                 FROM
                                     flow_version
                                 INNER JOIN flow
@@ -1142,9 +1499,10 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<String>,
     String,
     Option<i64>,
+    Option<Vec<String>>,
 )> {
     let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by, labels FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
             script_path,
@@ -1173,6 +1531,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         script.on_behalf_of_email,
         script.created_by,
         script.runnable_settings_handle,
+        script.labels,
     ))
 }
 

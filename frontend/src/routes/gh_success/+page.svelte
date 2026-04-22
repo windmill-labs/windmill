@@ -34,7 +34,7 @@
 
 		let workspace_id: string
 		try {
-			const state = JSON.parse(decodeURIComponent(stateParam))
+			const state = JSON.parse(stateParam)
 			workspace_id = state.workspace_id
 		} catch {
 			isLoading = false
@@ -51,30 +51,27 @@
 		}
 
 		try {
-			const response = await fetch(
-				`/api/w/${workspace_id}/github_app/ghes_installation_callback`,
-				{
-					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json'
-					},
-					body: JSON.stringify({
-						installation_id
-					})
-				}
-			)
+			const response = await fetch(`/api/w/${workspace_id}/github_app/ghes_installation_callback`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					installation_id
+				})
+			})
 
 			if (!response.ok) {
 				const errorData = await response.text()
-				throw new Error(errorData || 'Failed to complete GitHub Enterprise app installation')
+				throw new Error(errorData || 'Failed to complete GitHub app installation')
 			}
 
 			isSuccess = true
-			sendUserToast('GitHub Enterprise app installed successfully', false)
+			sendUserToast('GitHub app installed successfully', false)
 		} catch (error) {
-			console.error('Error during GitHub Enterprise app installation:', error)
+			console.error('Error during GitHub app installation:', error)
 			errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-			sendUserToast(`Error installing GitHub Enterprise app: ${errorMessage}`, true)
+			sendUserToast(`Error installing GitHub app: ${errorMessage}`, true)
 		} finally {
 			isLoading = false
 		}
@@ -129,7 +126,9 @@
 	<div class="w-full max-w-3xl p-8 rounded-md border bg-surface shadow-sm">
 		{#if isLoading}
 			<div class="flex flex-col items-center justify-center py-8">
-				<div class="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mb-4"></div>
+				<div
+					class="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mb-4"
+				></div>
 				<p class="text-lg text-secondary">Processing GitHub app installation...</p>
 			</div>
 		{:else if isSuccess}
@@ -139,7 +138,8 @@
 					Windmill GitHub app installation completed successfully
 				</h1>
 				<p class="text-secondary mb-8">
-					The GitHub app has been successfully installed. You can now close this window and return to Windmill to start using the GitHub integration.
+					The GitHub app has been successfully installed. You can now close this window and return
+					to Windmill to start using the GitHub integration.
 				</p>
 				<button
 					onclick={closeWindow}

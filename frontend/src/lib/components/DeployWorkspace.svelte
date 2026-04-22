@@ -262,13 +262,25 @@
 					return getTriggerDependency(additionalInformation.triggers.kind, path, $workspaceStore!)
 				}
 				throw new Error('Missing trigger information')
+			} else if (kind == 'script') {
+				const imports = await WorkspaceService.getImports({
+					workspace: $workspaceStore!,
+					importerPath: path
+				})
+				return imports.map((importedPath) => ({ kind: 'script' as Kind, path: importedPath }))
 			}
 			return []
 		}
 		let toProcess = [{ kind, path }]
+		let processedSet = new Set<string>()
 		let processed: { kind: Kind; path: string }[] = []
 		while (toProcess.length > 0) {
 			const { kind, path } = toProcess.pop()!
+			const key = `${kind}:${path}`
+			if (processedSet.has(key)) {
+				continue
+			}
+			processedSet.add(key)
 			toProcess.push(...(await rec(kind, path)))
 			processed.push({ kind, path })
 		}

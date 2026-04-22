@@ -30,13 +30,8 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
-	import { FolderService, OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
-	import {
-		enterpriseLicense,
-		userStore,
-		workspaceStore,
-		userWorkspaces
-	} from '$lib/stores'
+	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
+	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		canWrite,
@@ -61,7 +56,7 @@
 		Plus,
 		RotateCw,
 		Save,
-		Share,
+		Shield,
 		Trash
 	} from 'lucide-svelte'
 	import { onMount, untrack } from 'svelte'
@@ -87,6 +82,7 @@
 	let allPaths: string[] = $state([])
 	let allResourceTypes: string[] = $state([])
 	let allOwners: string[] = $state([])
+	let allLabels: string[] = $state([])
 
 	let resourceTypeViewer: Drawer | undefined = $state(undefined)
 	let resourceTypeViewerObj = $state({
@@ -121,13 +117,13 @@
 	let appConnect: AppConnect | undefined = $state(undefined)
 	let supabaseConnect: SupabaseConnect | undefined = $state(undefined)
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let deleteIsLinked = $state(false)
 	let loading = $state({
 		resources: true,
 		types: true
 	})
 
 	let showCreateButtons = $state(false)
-	let folders: string[] = $state([])
 
 	// FilterSearchbar setup
 	let userFoldersFilterType = $derived(
@@ -142,16 +138,34 @@
 			paths: allPaths,
 			resourceTypes: allResourceTypes,
 			owners: allOwners,
+			labels: allLabels,
 			showUserFoldersFilter: userFoldersFilterType !== undefined,
 			userFoldersLabel:
 				userFoldersFilterType === 'only f/*' ? 'Only f/*' : `Only u/${$userStore?.username} and f/*`
 		})
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => resourcesFilterSchema))
+	let itemFolders = $derived(
+		Array.from(
+			new Set(
+				(resources ?? [])
+					.map((x) => x.path.split('/').slice(0, 2).join('/'))
+					.filter((x) => x.startsWith('f/'))
+			)
+		)
+			.sort()
+			.map((f) => f.replace(/^f\//, ''))
+	)
 	let folderPresets = $derived([
-		...folders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
+		...itemFolders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
+		...allLabels.map((l) => ({ name: l, value: `label:\\ ${l}` })),
 		...(resourcesFilterSchema.user_folders_only
-			? [{ name: resourcesFilterSchema.user_folders_only.label ?? '?', value: 'user_folders_only:\\ true' }]
+			? [
+					{
+						name: resourcesFilterSchema.user_folders_only.label ?? '?',
+						value: 'user_folders_only:\\ true'
+					}
+				]
 			: [])
 	])
 
@@ -207,6 +221,9 @@
 		if (currentFilters._default_) {
 			apiParams.broadFilter = currentFilters._default_
 		}
+		if (currentFilters.label) {
+			apiParams.label = currentFilters.label
+		}
 
 		const result = (await ResourceService.listResource(apiParams)).map((x) => {
 			return {
@@ -222,6 +239,7 @@
 		allOwners = Array.from(
 			new Set(result.map((x) => x.path.split('/').slice(0, 2).join('/')))
 		).sort()
+		allLabels = Array.from(new Set(result.flatMap((x) => x.labels ?? []))).sort()
 
 		return result
 	}
@@ -545,16 +563,11 @@
 			})
 		}
 	})
-	async function loadFolders() {
-		folders = await FolderService.listFolderNames({ workspace: $workspaceStore! })
-	}
-
 	$effect(() => {
 		if ($workspaceStore && $userStore) {
 			untrack(() => {
 				loadResources()
 				loadResourceTypes()
-				loadFolders()
 			})
 		}
 	})
@@ -577,6 +590,7 @@
 	open={Boolean(deleteConfirmedCallback)}
 	title="Remove resource"
 	confirmationText="Remove"
+	trashbin
 	on:canceled={() => {
 		deleteConfirmedCallback = undefined
 	}}
@@ -589,6 +603,12 @@
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to remove this resource?</span>
+		{#if deleteIsLinked}
+			<Alert type="warning" title="Linked variable">
+				This resource is linked with a variable of the same path. The linked variable will also be
+				deleted.
+			</Alert>
+		{/if}
 		<Alert type="info" title="Bypass confirmation">
 			<div>
 				You can press
@@ -939,18 +959,43 @@
 						</Head>
 						<tbody class="divide-y bg-surface">
 							{#if filteredItems}
-								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed }}
+								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels }}
 									<Row>
 										<Cell first>
 											<SharedBadge {canWrite} extraPerms={extra_perms} />
 										</Cell>
 										<Cell>
-											<a
-												class="break-all"
-												href="#/resource/{path}"
-												onclick={() => resourceEditor?.initEdit?.(path)}
-												>{#if marked}{@html marked}{:else}{path}{/if}</a
-											>
+											<div class="flex items-center gap-2">
+												<a
+													class="break-all"
+													href="#/resource/{path}"
+													onclick={() => resourceEditor?.initEdit?.(path)}
+													>{#if marked}{@html marked}{:else}{path}{/if}</a
+												>
+												{#if labels?.length}
+													<div class="flex items-center gap-0.5">
+														{#each labels as label}
+															<Badge
+																color="blue"
+																small
+																class="px-1"
+																title="Label: {label}"
+																clickable
+																onclick={() => {
+																	const arr = (filters.val.label ?? '').split(',').filter(Boolean)
+																	const idx = arr.indexOf(label)
+																	if (idx >= 0) arr.splice(idx, 1)
+																	else arr.push(label)
+																	const newFilters = { ...filters.val }
+																	if (arr.length) newFilters.label = arr.join(',')
+																	else delete newFilters.label
+																	filters.val = newFilters
+																}}>{label}</Badge
+															>
+														{/each}
+													</div>
+												{/if}
+											</div>
 										</Cell>
 										<Cell>
 											<a
@@ -1076,8 +1121,8 @@
 												class="w-fit"
 												items={[
 													{
-														displayName: !canWrite ? 'View Permissions' : 'Share',
-														icon: Share,
+														displayName: 'Permissions',
+														icon: Shield,
 														action: () => {
 															shareModal?.openDrawer?.(path, 'resource')
 														}
@@ -1112,6 +1157,7 @@
 															if (event?.shiftKey) {
 																deleteResource(path, account)
 															} else {
+																deleteIsLinked = is_linked ?? false
 																deleteConfirmedCallback = () => {
 																	deleteResource(path, account)
 																}

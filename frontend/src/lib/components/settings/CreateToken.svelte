@@ -15,6 +15,9 @@
 	interface Props {
 		showMcpMode?: boolean
 		openWithMcpMode?: boolean
+		mcpOnly?: boolean
+		lockWorkspace?: boolean
+		title?: string
 		newTokenLabel?: string
 		defaultNewTokenWorkspace?: string
 		scopes?: string[]
@@ -24,6 +27,10 @@
 
 	let {
 		showMcpMode = false,
+		openWithMcpMode = false,
+		mcpOnly = false,
+		lockWorkspace = false,
+		title = 'Add a new token',
 		defaultNewTokenWorkspace,
 		scopes,
 		onTokenCreated,
@@ -37,6 +44,8 @@
 	let newTokenWorkspace = $state<string | undefined>(untrack(() => defaultNewTokenWorkspace))
 	let mcpCreationMode = $state(false)
 	let mcpScope = $state('mcp:favorites')
+	let lastRequestedMcpMode = $state<boolean | undefined>(undefined)
+	let mcpLabelAutofilled = $state(false)
 
 	let customScopes = $state<string[]>([])
 	let showCustomScopes = $state(false)
@@ -53,6 +62,31 @@
 			return workspacesList
 		}
 		return [{ id: currentWorkspace, name: currentWorkspace }, ...workspacesList]
+	}
+
+	function enterMcpMode() {
+		mcpCreationMode = true
+		newTokenExpiration = undefined
+		newTokenWorkspace = defaultNewTokenWorkspace ?? $workspaceStore
+		newToken = undefined
+		newMcpToken = undefined
+		if (!newTokenLabel) {
+			newTokenLabel = 'MCP token'
+			mcpLabelAutofilled = true
+		} else {
+			mcpLabelAutofilled = false
+		}
+	}
+
+	function exitMcpMode() {
+		mcpCreationMode = false
+		newTokenExpiration = undefined
+		newTokenWorkspace = defaultNewTokenWorkspace
+		newMcpToken = undefined
+		if (mcpLabelAutofilled) {
+			newTokenLabel = undefined
+		}
+		mcpLabelAutofilled = false
 	}
 
 	async function createToken(mcpMode: boolean = false): Promise<void> {
@@ -79,13 +113,17 @@
 			})
 
 			if (mcpMode) {
+				newToken = undefined
 				newMcpToken = `${createdToken}`
 			} else {
+				newMcpToken = undefined
 				newToken = `${createdToken}`
 			}
 
-			onTokenCreated(newToken ?? newMcpToken ?? '')
-			mcpCreationMode = false
+			onTokenCreated(`${createdToken}`)
+			if (!mcpOnly) {
+				mcpCreationMode = false
+			}
 		} catch (err) {
 			console.error('Failed to create token:', err)
 		}
@@ -93,13 +131,34 @@
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
 	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/mcp?token=`)
+
+	$effect(() => {
+		const requestedMcpMode = mcpOnly || openWithMcpMode
+		if (requestedMcpMode === lastRequestedMcpMode) {
+			return
+		}
+
+		if (requestedMcpMode) {
+			enterMcpMode()
+		} else {
+			exitMcpMode()
+		}
+
+		lastRequestedMcpMode = requestedMcpMode
+	})
+
+	$effect(() => {
+		if (mcpLabelAutofilled && newTokenLabel !== 'MCP token') {
+			mcpLabelAutofilled = false
+		}
+	})
 </script>
 
 <div>
 	<div class="p-4 rounded-md mb-6 min-w-min bg-surface-tertiary">
-		<h3 class="pb-2 font-semibold text-emphasis text-sm">Add a new token</h3>
+		<h3 class="pb-2 font-semibold text-emphasis text-sm">{title}</h3>
 
-		{#if showMcpMode}
+		{#if showMcpMode && !mcpOnly}
 			<div
 				class="mb-4 flex flex-row flex-shrink-0"
 				use:triggerableByAI={{
@@ -109,15 +168,10 @@
 			>
 				<Toggle
 					on:change={(e) => {
-						mcpCreationMode = e.detail
 						if (e.detail) {
-							newTokenLabel = 'MCP token'
-							newTokenExpiration = undefined
-							newTokenWorkspace = $workspaceStore
+							enterMcpMode()
 						} else {
-							newTokenLabel = undefined
-							newTokenExpiration = undefined
-							newTokenWorkspace = defaultNewTokenWorkspace
+							exitMcpMode()
 						}
 					}}
 					checked={mcpCreationMode}
@@ -162,70 +216,76 @@
 		{/if}
 
 		<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-			{#if mcpCreationMode}
-				<div class="col-span-2">
-					<McpScopeSelector
-						workspaceId={newTokenWorkspace || $workspaceStore || ''}
-						bind:scope={mcpScope}
-					/>
-				</div>
+				{#if mcpCreationMode}
+					<div class="col-span-2">
+						<McpScopeSelector
+							workspaceId={newTokenWorkspace || $workspaceStore || ''}
+							bind:scope={mcpScope}
+						/>
+					</div>
 
-				<div>
-					<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
-					<Select
-						bind:value={newTokenWorkspace}
-						items={workspaces.map((w) => ({ label: w.name, value: w.id, subtitle: w.id }))}
-					/>
-				</div>
-			{/if}
+					{#if !lockWorkspace}
+						<div>
+							<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
+							<Select
+								bind:value={newTokenWorkspace}
+								items={workspaces.map((w) => ({ label: w.name, value: w.id, subtitle: w.id }))}
+							/>
+						</div>
+					{/if}
+				{/if}
 
-			<div>
-				<span class="block mb-1 text-emphasis text-xs font-semibold"
-					>Label <span class="text-xs text-primary">(optional)</span></span
-				>
-				<TextInput inputProps={{ type: 'text' }} bind:value={newTokenLabel} class="w-full" />
-			</div>
+				{#if !mcpOnly}
+					<div>
+						<span class="block mb-1 text-emphasis text-xs font-semibold"
+							>Label <span class="text-xs text-primary">(optional)</span></span
+						>
+						<TextInput inputProps={{ type: 'text' }} bind:value={newTokenLabel} class="w-full" />
+					</div>
+				{/if}
 
-			{#if !mcpCreationMode}
-				<div>
-					<span class="block mb-1 text-xs text-emphasis font-semibold"
-						>Expires In <span class="text-xs text-primary">(optional)</span></span
-					>
-					<Select
-						bind:value={newTokenExpiration}
-						placeholder="No expiration"
-						inputClass="w-full"
-						items={[
-							{ label: 'No expiration', value: undefined },
-							{ label: '15 minutes', value: 15 * 60 },
-							{ label: '30 minutes', value: 30 * 60 },
-							{ label: '1 hour', value: 1 * 60 * 60 },
-							{ label: '1 day', value: 1 * 24 * 60 * 60 },
-							{ label: '7 days', value: 7 * 24 * 60 * 60 },
-							{ label: '30 days', value: 30 * 24 * 60 * 60 },
-							{ label: '90 days', value: 90 * 24 * 60 * 60 }
-						]}
-					/>
-				</div>
-			{/if}
+				{#if !mcpCreationMode}
+					<div>
+						<span class="block mb-1 text-xs text-emphasis font-semibold"
+							>Expires In <span class="text-xs text-primary">(optional)</span></span
+						>
+						<Select
+							bind:value={newTokenExpiration}
+							placeholder="No expiration"
+							inputClass="w-full"
+							items={[
+								{ label: 'No expiration', value: undefined },
+								{ label: '15 minutes', value: 15 * 60 },
+								{ label: '30 minutes', value: 30 * 60 },
+								{ label: '1 hour', value: 1 * 60 * 60 },
+								{ label: '1 day', value: 1 * 24 * 60 * 60 },
+								{ label: '7 days', value: 7 * 24 * 60 * 60 },
+								{ label: '30 days', value: 30 * 24 * 60 * 60 },
+								{ label: '90 days', value: 90 * 24 * 60 * 60 }
+							]}
+						/>
+					</div>
+				{/if}
 		</div>
 
 		<div class="mt-4 flex justify-end gap-2 flex-row">
-			<Button
-				on:click={() => {
-					mcpCreationMode = false
-				}}
-				variant="default"
-			>
-				Cancel
-			</Button>
+			{#if !mcpOnly}
+				<Button
+					on:click={() => {
+						exitMcpMode()
+					}}
+					variant="default"
+				>
+					Cancel
+				</Button>
+			{/if}
 			<Button
 				on:click={() => createToken(mcpCreationMode)}
 				disabled={mcpCreationMode &&
 					(newTokenWorkspace == undefined || !mcpScope || mcpScope.trim().length === 0)}
 				variant="accent"
 			>
-				New token
+				{mcpCreationMode ? 'Generate MCP URL' : 'New token'}
 			</Button>
 		</div>
 	</div>

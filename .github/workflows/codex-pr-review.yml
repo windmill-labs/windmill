@@ -1,0 +1,145 @@
+name: Codex Auto Review
+
+on:
+  pull_request:
+    types: [ready_for_review, opened]
+
+concurrency:
+  group: codex-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  codex-review:
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 30
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.fork == false
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Check Codex configuration
+        id: codex_config
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          if [ -n "$CODEX_AUTH_JSON" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "CODEX_AUTH_JSON is not configured; skipping Codex review."
+          fi
+
+      - name: Checkout repository
+        if: steps.codex_config.outputs.enabled == 'true'
+        uses: actions/checkout@v5
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        if: steps.codex_config.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Codex CLI
+        if: steps.codex_config.outputs.enabled == 'true'
+        run: npm install --global @openai/codex@0.117.0
+
+      - name: Configure file-backed Codex auth
+        if: steps.codex_config.outputs.enabled == 'true'
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          CODEX_HOME="$HOME/.codex"
+          echo "CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"
+          mkdir -p "$CODEX_HOME"
+          chmod 700 "$CODEX_HOME"
+          cat > "$CODEX_HOME/config.toml" <<'EOF'
+          cli_auth_credentials_store = "file"
+          EOF
+          printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"
+          chmod 600 "$CODEX_HOME/auth.json"
+          node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$CODEX_HOME/auth.json"
+
+      - name: Pre-fetch base and head refs for the PR
+        if: steps.codex_config.outputs.enabled == 'true'
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git fetch --no-tags origin \
+            "$PR_BASE_REF" \
+            "+refs/pull/$PR_NUMBER/head"
+
+      - name: Write Codex review context
+        if: steps.codex_config.outputs.enabled == 'true'
+        env:
+          PR_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body || '' }}
+        run: |
+          mkdir -p .github/codex
+          node <<'NODE'
+          const fs = require('fs');
+          const lines = [
+            `Repository: ${process.env.PR_REPOSITORY}`,
+            `PR number: ${process.env.PR_NUMBER}`,
+            `Base SHA: ${process.env.PR_BASE_SHA}`,
+            `Head SHA: ${process.env.PR_HEAD_SHA}`,
+            '',
+            'PR title:',
+            process.env.PR_TITLE || '(empty)',
+            '',
+            'PR body:',
+            process.env.PR_BODY || '(empty)',
+            '',
+            'Changed commits command:',
+            `git log --oneline ${process.env.PR_BASE_SHA}...${process.env.PR_HEAD_SHA}`,
+            '',
+            'Changed files command:',
+            `git diff --stat ${process.env.PR_BASE_SHA}...${process.env.PR_HEAD_SHA}`,
+            '',
+            'Full review diff command:',
+            `git diff --unified=0 ${process.env.PR_BASE_SHA}...${process.env.PR_HEAD_SHA}`
+          ];
+          fs.writeFileSync('.github/codex/pr-review-context.md', `${lines.join('\n')}\n`);
+          NODE
+
+      - name: Run Codex review
+        if: steps.codex_config.outputs.enabled == 'true'
+        run: |
+          codex exec \
+            -C "$GITHUB_WORKSPACE" \
+            -m gpt-5.4 \
+            -c 'model_reasoning_effort="xhigh"' \
+            -s read-only \
+            -o codex-final-message.md \
+            - < .github/codex/pr-review.prompt.md
+
+      - name: Post Codex review comment
+        if: steps.codex_config.outputs.enabled == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+            const path = `${process.env.GITHUB_WORKSPACE}/codex-final-message.md`;
+            if (!fs.existsSync(path)) {
+              core.info('Codex did not produce a final message; skipping PR comment.');
+              return;
+            }
+            const body = fs.readFileSync(path, 'utf8').trim();
+            if (!body) {
+              core.info('Codex final message was empty; skipping PR comment.');
+              return;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });

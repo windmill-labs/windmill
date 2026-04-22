@@ -48,6 +48,33 @@ fn resolve_permissioned_as(
     windmill_common::users::username_to_permissioned_as(&authed.username)
 }
 
+/// Create-time variant: applies the folder's `default_permissioned_as` rule when no
+/// explicit preserved value is provided and the caller can preserve (admin / wm_deployers).
+async fn resolve_permissioned_as_for_create(
+    permissioned_as: Option<&String>,
+    preserve_permissioned_as: Option<bool>,
+    path: &str,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+) -> Result<String> {
+    if let Some(pa) = permissioned_as {
+        if preserve_permissioned_as.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
+            return Ok(pa.clone());
+        }
+    }
+    if can_preserve_on_behalf_of(authed) {
+        if let Some(default) =
+            windmill_common::folders::resolve_folder_default_permissioned_as(db, w_id, path).await?
+        {
+            return Ok(default);
+        }
+    }
+    Ok(windmill_common::users::username_to_permissioned_as(
+        &authed.username,
+    ))
+}
+
 fn resolve_edited_by(authed: &ApiAuthed) -> String {
     authed.username.clone()
 }
@@ -56,12 +83,12 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_schedule))
         .route("/list_with_jobs", get(list_schedule_with_jobs))
-        .route("/get/*path", get(get_schedule))
-        .route("/exists/*path", get(exists_schedule))
+        .route("/get/{*path}", get(get_schedule))
+        .route("/exists/{*path}", get(exists_schedule))
         .route("/create", post(create_schedule))
-        .route("/update/*path", post(edit_schedule))
-        .route("/delete/*path", delete(delete_schedule))
-        .route("/setenabled/*path", post(set_enabled))
+        .route("/update/{*path}", post(edit_schedule))
+        .route("/delete/{*path}", delete(delete_schedule))
+        .route("/setenabled/{*path}", post(set_enabled))
         .route("/setdefaulthandler", post(set_default_error_handler))
     // .route("/catchup/*path", post(do_catchup).get(list_catchup))
 }
@@ -99,6 +126,8 @@ pub struct NewSchedule {
     pub dynamic_skip: Option<String>,
     pub permissioned_as: Option<String>,
     pub preserve_permissioned_as: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -225,11 +254,15 @@ async fn create_schedule(
     }
 
     let resolved_edited_by = resolve_edited_by(&authed);
-    let resolved_permissioned_as = resolve_permissioned_as(
+    let resolved_permissioned_as = resolve_permissioned_as_for_create(
         ns.permissioned_as.as_ref(),
         ns.preserve_permissioned_as,
+        &ns.path,
         &authed,
-    );
+        &db,
+        &w_id,
+    )
+    .await?;
     // email is still written for backwards compat with old workers that don't know about permissioned_as
     let resolved_email = windmill_common::users::get_email_from_permissioned_as(
         &resolved_permissioned_as,
@@ -248,7 +281,7 @@ async fn create_schedule(
             on_recovery, on_recovery_times, on_recovery_extra_args,
             on_success, on_success_extra_args,
             ws_error_handler_muted, retry, summary, no_flow_overlap,
-            tag, paused_until, cron_version, description, dynamic_skip
+            tag, paused_until, cron_version, description, dynamic_skip, labels
         ) VALUES (
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10, $11,
@@ -256,7 +289,7 @@ async fn create_schedule(
             $16, $17, $18,
             $19, $20,
             $21, $22, $23, $24,
-            $25, $26, $27, $28, $29
+            $25, $26, $27, $28, $29, $30
         )
         RETURNING
             workspace_id,
@@ -290,7 +323,8 @@ async fn create_schedule(
             tag,
             paused_until,
             cron_version,
-            dynamic_skip
+            dynamic_skip,
+            labels
         "#,
         w_id,
         ns.path,
@@ -324,7 +358,8 @@ async fn create_schedule(
         ns.paused_until,
         ns.cron_version.clone().unwrap_or_else(|| "v2".to_string()),
         ns.description,
-        ns.dynamic_skip
+        ns.dynamic_skip,
+        ns.labels.as_deref() as Option<&[String]>
     )
     .fetch_one(&mut *tx)
     .await
@@ -413,8 +448,6 @@ async fn edit_schedule(
         validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
     }
 
-    clear_schedule(&mut tx, path, &w_id).await?;
-
     let resolved_edited_by = resolve_edited_by(&authed);
 
     let resolved_permissioned_as = resolve_permissioned_as(
@@ -467,7 +500,8 @@ async fn edit_schedule(
             dynamic_skip            = $23,
             email                   = $24,
             edited_by               = $25,
-            permissioned_as         = $26
+            permissioned_as         = $26,
+            labels                  = COALESCE($27, labels)
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -501,7 +535,8 @@ async fn edit_schedule(
             tag,
             paused_until,
             cron_version,
-            dynamic_skip
+            dynamic_skip,
+            labels
         "#,
         es.schedule,
         es.timezone,
@@ -532,11 +567,17 @@ async fn edit_schedule(
         es.dynamic_skip,
         resolved_email,
         resolved_edited_by,
-        resolved_permissioned_as
+        resolved_permissioned_as,
+        es.labels.as_deref() as Option<&[String]>
     )
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("updating schedule in {w_id}: {e:#}")))?;
+
+    // clear_schedule must come AFTER UPDATE schedule to maintain consistent lock ordering
+    // (schedule row first, then v2_job_queue) and avoid deadlocks with concurrent operations
+    // like set_enabled, flow updates, and worker job completions.
+    clear_schedule(&mut tx, path, &w_id).await?;
 
     audit_log(
         &mut *tx,
@@ -608,6 +649,7 @@ pub struct ListScheduleQuery {
     // filter on summary (pattern match)
     pub summary: Option<String>,
     pub broad_filter: Option<String>,
+    pub label: Option<String>,
 }
 
 #[derive(sqlx::FromRow, Serialize, Deserialize, Debug, Clone)]
@@ -623,6 +665,8 @@ pub struct ScheduleLight {
     pub is_flow: bool,
     pub summary: Option<String>,
     pub extra_perms: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 async fn list_schedule(
     authed: ApiAuthed,
@@ -645,6 +689,7 @@ async fn list_schedule(
             "is_flow",
             "summary",
             "extra_perms",
+            "labels",
         ])
         .order_by("edited_at", true)
         .and_where("workspace_id = ?".bind(&w_id))
@@ -658,7 +703,11 @@ async fn list_schedule(
         sqlb.and_where_eq("is_flow", "?".bind(&is_flow));
     }
     if let Some(args) = &lsq.args {
-        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            sqlb.and_where("args @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
     if let Some(path_start) = &lsq.path_start {
         sqlb.and_where_like_left("path", path_start);
@@ -680,6 +729,11 @@ async fn list_schedule(
             "(path ILIKE ? OR script_path ILIKE ? OR description ILIKE ? OR summary ILIKE ? OR schedule ILIKE ?)"
                 .bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat)
         );
+    }
+    if let Some(label) = &lsq.label {
+        for l in label.split(',') {
+            sqlb.and_where("labels @> ARRAY[?]".bind(&l.trim()));
+        }
     }
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let rows = sqlx::query_as::<_, ScheduleLight>(&sql)
@@ -841,7 +895,8 @@ pub async fn set_enabled(
             tag,
             paused_until,
             cron_version,
-            dynamic_skip
+            dynamic_skip,
+            labels
         "#,
         payload.enabled,
         authed.email,
@@ -963,6 +1018,15 @@ async fn delete_schedule(
         )));
     }
 
+    // Capture row for trashbin before deleting
+    let trash_data: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT jsonb_build_object('row', to_jsonb(t)) FROM schedule t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
     let del = sqlx::query_scalar!(
         "DELETE FROM schedule WHERE path = $1 AND workspace_id = $2 RETURNING 1",
         path,
@@ -977,6 +1041,18 @@ async fn delete_schedule(
             "Not authorized to delete schedule {}",
             path
         )));
+    }
+
+    if let Some(data) = trash_data {
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "schedule",
+            path,
+            data,
+            &authed.username,
+        )
+        .await?;
     }
 
     audit_log(
@@ -1196,6 +1272,8 @@ pub struct EditSchedule {
     pub dynamic_skip: Option<String>,
     pub permissioned_as: Option<String>,
     pub preserve_permissioned_as: Option<bool>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
 }
 
 pub use windmill_queue::schedule::clear_schedule;

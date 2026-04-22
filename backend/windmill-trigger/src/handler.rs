@@ -148,6 +148,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "edited_at",
             "extra_perms",
             "mode",
+            "labels",
         ];
 
         if Self::SUPPORTS_SERVER_STATE {
@@ -327,6 +328,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "edited_at",
             "extra_perms",
             "mode",
+            "labels",
         ];
 
         if Self::SUPPORTS_SERVER_STATE {
@@ -357,6 +359,12 @@ pub trait TriggerCrud: Send + Sync + 'static {
                 sqlb.and_where_like_left("path", path_start);
             }
 
+            if let Some(label) = &query.label {
+                for l in label.split(',') {
+                    sqlb.and_where("labels @> ARRAY[?]".bind(&l.trim()));
+                }
+            }
+
             sqlb.offset(offset).limit(per_page);
         }
 
@@ -374,11 +382,11 @@ pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
     let mut router = Router::new()
         .route("/create", post(create_trigger::<T>))
         .route("/list", get(list_triggers::<T>))
-        .route("/get/*path", get(get_trigger::<T>))
-        .route("/update/*path", post(update_trigger::<T>))
-        .route("/delete/*path", delete(delete_trigger::<T>))
-        .route("/exists/*path", get(exists_trigger::<T>))
-        .route("/setmode/*path", post(set_trigger_mode::<T>));
+        .route("/get/{*path}", get(get_trigger::<T>))
+        .route("/update/{*path}", post(update_trigger::<T>))
+        .route("/delete/{*path}", delete(delete_trigger::<T>))
+        .route("/exists/{*path}", get(exists_trigger::<T>))
+        .route("/setmode/{*path}", post(set_trigger_mode::<T>));
 
     if T::SUPPORTS_TEST_CONNECTION {
         router = router.route("/test", post(test_connection::<T>));
@@ -393,7 +401,7 @@ async fn create_trigger<T: TriggerCrud>(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
-    Json(new_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
+    Json(mut new_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || {
         format!(
@@ -417,6 +425,26 @@ async fn create_trigger<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     let new_path = new_trigger.base.path.clone();
+    let labels = new_trigger.base.labels.clone();
+
+    // If the caller did not preserve a value but the user can preserve, fall back
+    // to the folder's default_permissioned_as rule (create-time only).
+    let explicit_preserve = new_trigger.base.permissioned_as.is_some()
+        && new_trigger.base.preserve_permissioned_as.unwrap_or(false)
+        && windmill_common::can_preserve_on_behalf_of(&authed);
+    if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
+        if let Some(default) = windmill_common::folders::resolve_folder_default_permissioned_as(
+            &db,
+            &workspace_id,
+            &new_trigger.base.path,
+        )
+        .await?
+        {
+            new_trigger.base.permissioned_as = Some(default);
+            new_trigger.base.preserve_permissioned_as = Some(true);
+        }
+    }
+
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         new_trigger.base.permissioned_as.as_deref(),
         new_trigger.base.preserve_permissioned_as.unwrap_or(false),
@@ -427,6 +455,18 @@ async fn create_trigger<T: TriggerCrud>(
     handler
         .create_trigger(&db, &mut *tx, &authed, &workspace_id, new_trigger)
         .await?;
+
+    if let Some(ref labels) = labels {
+        sqlx::query(&format!(
+            "UPDATE {} SET labels = $1 WHERE workspace_id = $2 AND path = $3",
+            T::TABLE_NAME
+        ))
+        .bind(labels)
+        .bind(&workspace_id)
+        .bind(&new_path)
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -535,6 +575,7 @@ async fn update_trigger<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     let new_path = edit_trigger.base.path.to_string();
+    let labels = edit_trigger.base.labels.clone();
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         edit_trigger.base.permissioned_as.as_deref(),
         edit_trigger.base.preserve_permissioned_as.unwrap_or(false),
@@ -545,6 +586,18 @@ async fn update_trigger<T: TriggerCrud>(
     handler
         .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)
         .await?;
+
+    if let Some(ref labels) = labels {
+        sqlx::query(&format!(
+            "UPDATE {} SET labels = $1 WHERE workspace_id = $2 AND path = $3",
+            T::TABLE_NAME
+        ))
+        .bind(labels)
+        .bind(&workspace_id)
+        .bind(&new_path)
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -610,6 +663,17 @@ async fn delete_trigger<T: TriggerCrud>(
     })?;
 
     let mut tx = user_db.begin(&authed).await?;
+
+    // Capture trigger data for trashbin before deleting
+    let trash_data: Option<serde_json::Value> = sqlx::query_scalar(&format!(
+        "SELECT jsonb_build_object('row', to_jsonb(t), 'table_name', '{table}') FROM {table} t WHERE path = $1 AND workspace_id = $2",
+        table = T::TABLE_NAME
+    ))
+    .bind(path)
+    .bind(&workspace_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
     let deleted = handler
         .delete_by_path(&mut *tx, &workspace_id, path)
         .await?;
@@ -619,6 +683,19 @@ async fn delete_trigger<T: TriggerCrud>(
             "Trigger not found at path: {}",
             path
         )));
+    }
+
+    if let Some(data) = trash_data {
+        let item_kind = format!("{}_trigger", T::TRIGGER_TYPE);
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &workspace_id,
+            &item_kind,
+            path,
+            data,
+            &authed.username,
+        )
+        .await?;
     }
 
     audit_log(

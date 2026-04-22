@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM draft WHERE path LIKE ('u/' || $1 || '/%') AND workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "84422a0a867b0b104e67d5a39c788aa3bcafbe3ae6ce4869a9faeea7b2f5547f"
+}

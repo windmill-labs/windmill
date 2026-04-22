@@ -308,7 +308,7 @@
 						bind:selectedFilter={selected}
 						resourceType
 					/>
-					{#if !selected}
+					{#if !selected && customUi?.suggestIntegration != false}
 						<div class="pl-2 py-1">
 							<a
 								href={`${$hubBaseUrlStore}?suggest_integration=true`}

@@ -84,8 +84,27 @@ pub async fn composer_install(
 ) -> Result<String> {
     check_executor_binary_exists("php", PHP_PATH.as_str(), "php")?;
 
-    // When a lock file is available the dependency set is fully pinned, so we
-    // can cache the installed vendor/ directory and reuse it across executions.
+    // When no lock is provided (previews), try to reuse a previously resolved
+    // lockfile from the DB so we can hit the same vendor cache as deployed scripts.
+    let lock = if lock.is_none() && !*COMPOSER_VENDOR_CACHE_DISABLED {
+        let req_hash = format!("composer-{}", calculate_hash(&requirements));
+        if let Some(db) = conn.as_sql() {
+            sqlx::query_scalar!(
+                "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
+                req_hash
+            )
+            .fetch_optional(db)
+            .await
+            .ok()
+            .flatten()
+        } else {
+            None
+        }
+    } else {
+        lock
+    };
+
+    // Cache the installed vendor/ directory keyed by requirements + lock content.
     // Set COMPOSER_VENDOR_CACHE_DISABLED=1 to opt out.
     let vendor_cache_hit = if !*COMPOSER_VENDOR_CACHE_DISABLED {
         if let Some(ref lock_content) = lock {
@@ -171,6 +190,9 @@ pub async fn composer_install(
     )
     .await?;
 
+    // lock was `None` means composer resolved deps from scratch (no lock from
+    // caller or DB). This is the only case where we should update the DB cache.
+    let freshly_resolved = lock.is_none();
     let resolved_lock = match lock {
         Some(l) => l,
         None => {
@@ -194,6 +216,27 @@ pub async fn composer_install(
         .await
         {
             tracing::warn!("Could not save composer vendor dir to cache: {e:?}");
+        }
+
+        // Cache the resolved lockfile in the DB so future previews (which lack a
+        // lock file) can look it up by requirements hash and hit the same vendor
+        // cache. TTL of 7 days keeps previews reasonably fresh.
+        // Only write when composer resolved from scratch (no lock from caller or
+        // DB) to avoid endlessly refreshing the TTL on stale resolutions.
+        if freshly_resolved {
+            let req_hash = format!("composer-{}", calculate_hash(&requirements));
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = sqlx::query!(
+                    "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('7 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = EXCLUDED.lockfile, expiration = EXCLUDED.expiration",
+                    req_hash,
+                    &resolved_lock
+                )
+                .execute(db)
+                .await
+                {
+                    tracing::warn!("Could not cache composer lockfile resolution: {e:?}");
+                }
+            }
         }
     }
 

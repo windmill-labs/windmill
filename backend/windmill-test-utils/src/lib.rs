@@ -81,30 +81,38 @@ pub struct ApiServer {
 
 impl ApiServer {
     pub async fn start(db: Pool<Postgres>) -> anyhow::Result<Self> {
-        Self::start_inner(db, false).await
+        Self::start_inner(db, false, false).await
     }
 
     pub async fn start_agent_mode(db: Pool<Postgres>) -> anyhow::Result<Self> {
-        Self::start_inner(db, true).await
+        Self::start_inner(db, true, false).await
     }
 
     /// Start the API server with server_mode=true so trigger listeners are active.
     /// Alias for `start_agent_mode` with a clearer name for trigger e2e tests.
     pub async fn start_with_listeners(db: Pool<Postgres>) -> anyhow::Result<Self> {
-        Self::start_inner(db, true).await
+        Self::start_inner(db, true, false).await
     }
 
-    async fn start_inner(db: Pool<Postgres>, agent_mode: bool) -> anyhow::Result<Self> {
+    /// Start the API server with mcp_mode=true so MCP routes are active.
+    pub async fn start_mcp(db: Pool<Postgres>) -> anyhow::Result<Self> {
+        Self::start_inner(db, false, true).await
+    }
+
+    async fn start_inner(
+        db: Pool<Postgres>,
+        server_mode: bool,
+        mcp_mode: bool,
+    ) -> anyhow::Result<Self> {
         let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
 
-        let sock = tokio::net::TcpListener::bind("127.0.0.1:0")
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .map_err(|e| anyhow::anyhow!("failed to bind TCP listener: {}", e))?;
 
-        let addr = sock
+        let addr = listener
             .local_addr()
             .map_err(|e| anyhow::anyhow!("failed to get local address: {}", e))?;
-        drop(sock);
         let (port_tx, _port_rx) = tokio::sync::oneshot::channel::<String>();
         let name = next_worker_name();
         tracing::info!("starting api server for name={name}");
@@ -112,11 +120,11 @@ impl ApiServer {
             db.clone(),
             None,
             None,
-            addr,
+            listener,
             rx,
             port_tx,
-            agent_mode,
-            false,
+            server_mode,
+            mcp_mode,
             format!("http://localhost:{}", addr.port()),
             Some(name.clone()),
         ));
@@ -152,6 +160,7 @@ pub struct RunJob {
     pub scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     pub email: String,
     pub job_id: Option<Uuid>,
+    pub workspace_id: String,
 }
 
 impl From<JobPayload> for RunJob {
@@ -162,6 +171,7 @@ impl From<JobPayload> for RunJob {
             scheduled_for_o: None,
             email: "test@windmill.dev".to_string(),
             job_id: None,
+            workspace_id: "test-workspace".to_string(),
         }
     }
 }
@@ -190,8 +200,13 @@ impl RunJob {
         self
     }
 
+    pub fn workspace(mut self, workspace_id: impl Into<String>) -> Self {
+        self.workspace_id = workspace_id.into();
+        self
+    }
+
     pub async fn push(self, db: &Pool<Postgres>) -> Uuid {
-        let RunJob { payload, args, scheduled_for_o, email, job_id } = self;
+        let RunJob { payload, args, scheduled_for_o, email, job_id, workspace_id } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
@@ -201,7 +216,7 @@ impl RunJob {
         let (uuid, tx) = windmill_queue::push(
             db,
             tx,
-            "test-workspace",
+            &workspace_id,
             payload,
             windmill_queue::PushArgs::from(&hm_args),
             /* user */ "test-user",
@@ -237,7 +252,7 @@ impl RunJob {
 
     /// Push the job as a specific user (for testing permissions)
     pub async fn push_as(self, db: &Pool<Postgres>, username: &str, email: &str) -> Uuid {
-        let RunJob { payload, args, scheduled_for_o, job_id, .. } = self;
+        let RunJob { payload, args, scheduled_for_o, job_id, workspace_id, .. } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
@@ -247,7 +262,7 @@ impl RunJob {
         let (uuid, tx) = windmill_queue::push(
             db,
             tx,
-            "test-workspace",
+            &workspace_id,
             payload,
             windmill_queue::PushArgs::from(&hm_args),
             username,
@@ -402,7 +417,7 @@ pub fn spawn_test_worker(
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
         {
-            let mut wc = WORKER_CONFIG.write().await;
+            let mut wc = (**WORKER_CONFIG.load()).clone();
             wc.worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
             wc.priority_tags_sorted = vec![windmill_common::worker::PriorityTags {
                 priority: 0,
@@ -410,6 +425,7 @@ pub fn spawn_test_worker(
             }];
             windmill_common::worker::store_suspended_pull_query(&wc).await;
             windmill_common::worker::store_pull_query(&wc).await;
+            WORKER_CONFIG.store(std::sync::Arc::new(wc));
         }
         windmill_worker::run_worker(
             &conn,
@@ -426,6 +442,127 @@ pub fn spawn_test_worker(
     };
 
     (tx, tokio::task::spawn(future))
+}
+
+/// Spawn a test worker configured with dedicated workers.
+/// `dedicated_workers` should be in format `["workspace_id:path", ...]`.
+pub fn spawn_test_worker_dedicated(
+    conn: &Connection,
+    port: u16,
+    dedicated_workers: Vec<windmill_common::worker::WorkspacedPath>,
+) -> (KillpillSender, tokio::task::JoinHandle<()>) {
+    #[cfg(feature = "deno_core")]
+    windmill_runtime_nativets::setup_deno_runtime().expect("V8 init failed");
+
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .create(&*windmill_worker::GO_BIN_CACHE_DIR)
+        .expect("could not create initial worker dir");
+
+    let (tx, rx) = KillpillSender::new(1);
+    let worker_instance: &str = "test worker instance";
+    let worker_name: String = next_worker_name();
+    let ip: &str = Default::default();
+    let conn = conn.to_owned();
+
+    let tx2 = tx.clone();
+    let future = async move {
+        let base_internal_url = format!("http://localhost:{}", port);
+
+        // Insert dedicated worker config into the DB so that load_worker_config
+        // (called by the monitor and at worker startup) picks it up consistently.
+        // This avoids global WORKER_CONFIG races between parallel tests.
+        let dedicated_strs: Vec<String> = dedicated_workers
+            .iter()
+            .map(|dw| format!("{}:{}", dw.workspace_id, dw.path))
+            .collect();
+        let mut all_tags = windmill_common::worker::DEFAULT_TAGS.clone();
+        for dw in &dedicated_workers {
+            all_tags.push(windmill_common::worker::dedicated_worker_tag(
+                &dw.workspace_id,
+                &dw.path,
+            ));
+        }
+        let config_value = serde_json::json!({
+            "dedicated_workers": dedicated_strs,
+            "worker_tags": all_tags,
+        });
+        let db_ref = match &conn {
+            Connection::Sql(db) => db,
+            _ => panic!("dedicated worker tests require SQL connection"),
+        };
+        sqlx::query("INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = $2")
+            .bind(format!("worker__{}", *windmill_common::worker::WORKER_GROUP))
+            .bind(&config_value)
+            .execute(db_ref)
+            .await
+            .expect("insert dedicated worker config");
+
+        // Load the config from DB (same path as the monitor) to set WORKER_CONFIG
+        // consistently. This ensures tags, pull queries, and dedicated_workers are
+        // all set from the same source of truth.
+        {
+            let killpill_tx2 = tx2.clone();
+            let config = windmill_common::worker::load_worker_config(db_ref, killpill_tx2)
+                .await
+                .expect("load worker config");
+            windmill_common::worker::store_suspended_pull_query(&config).await;
+            windmill_common::worker::store_pull_query(&config).await;
+            WORKER_CONFIG.store(std::sync::Arc::new(config));
+        }
+        windmill_worker::run_worker(
+            &conn,
+            worker_instance,
+            worker_name,
+            1,
+            1,
+            ip,
+            rx,
+            tx2,
+            &base_internal_url,
+        )
+        .await
+    };
+
+    (tx, tokio::task::spawn(future))
+}
+
+/// Like `in_test_worker` but with dedicated worker configuration.
+pub async fn in_test_worker_dedicated<Fut: std::future::Future>(
+    conn: impl Into<Connection>,
+    inner: Fut,
+    port: u16,
+    dedicated_workers: Vec<windmill_common::worker::WorkspacedPath>,
+) -> <Fut as std::future::Future>::Output {
+    set_jwt_secret().await;
+    // Reset WORKER_CONFIG to avoid stale state from previous tests' monitor reloads.
+    {
+        let mut wc = (**WORKER_CONFIG.load()).clone();
+        wc.dedicated_worker = None;
+        wc.dedicated_workers = None;
+        WORKER_CONFIG.store(std::sync::Arc::new(wc));
+    }
+    let (quit, worker) = spawn_test_worker_dedicated(&conn.into(), port, dedicated_workers);
+    let worker = tokio::time::timeout(std::time::Duration::from_secs(90), worker);
+    tokio::pin!(worker);
+
+    let res = tokio::select! {
+        biased;
+        res = inner => res,
+        res = &mut worker => match
+            res.expect("worker timed out")
+               .expect("worker panicked") {
+            _ => panic!("worker quit early"),
+        },
+    };
+
+    quit.send();
+
+    let _: () = worker
+        .await
+        .expect("worker timed out")
+        .expect("worker panicked");
+    res
 }
 
 pub async fn listen_for_completed_jobs(db: &Pool<Postgres>) -> impl Stream<Item = Uuid> + Unpin {
@@ -470,7 +607,7 @@ pub async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
          j.flow_step_id IS NOT NULL AS is_flow_step, j.script_lang AS language, c.started_at,
          c.status = 'skipped' AS is_skipped, j.raw_lock, j.permissioned_as_email AS email, j.visible_to_owner,
          c.memory_peak AS mem_peak, j.tag, j.priority, NULL::TEXT AS logs, c.result_columns,
-         j.script_entrypoint_override, j.preprocessed, c.result->'wm_labels' as labels
+         j.script_entrypoint_override, j.preprocessed, j.labels
          FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1",
     )
     .bind(uuid)
@@ -479,7 +616,7 @@ pub async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
     .unwrap()
 }
 
-#[axum::async_trait(?Send)]
+#[async_trait::async_trait(?Send)]
 pub trait StreamFind: futures::Stream + Unpin + Sized {
     async fn find(self, item: &Self::Item) -> Option<Self::Item>
     where
@@ -510,8 +647,7 @@ fn find_module_in_vec(modules: Vec<FlowStatusModule>, id: &str) -> Option<FlowSt
 
 pub async fn set_jwt_secret() {
     let secret = "mytestsecret".to_string();
-    let mut l = JWT_SECRET.write().await;
-    *l = secret;
+    JWT_SECRET.store(std::sync::Arc::new(secret));
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize)]
@@ -572,7 +708,8 @@ pub async fn test_for_versions<F: Future<Output = ()>>(
     test: impl Fn() -> F,
 ) {
     for constraint in constraints {
-        *windmill_common::min_version::MIN_VERSION.write().await = constraint.version().clone();
+        windmill_common::min_version::MIN_VERSION
+            .store(std::sync::Arc::new(constraint.version().clone()));
         test().await;
     }
 }
@@ -617,7 +754,7 @@ pub async fn assert_lockfile(
                 schema: std::collections::HashMap::new(),
                 ws_error_handler_muted: Some(false),
                 priority: None,
-                delete_after_use: None,
+                delete_after_secs: None,
                 timeout: None,
                 restart_unless_cancelled: None,
                 deployment_message: None,
@@ -715,7 +852,7 @@ pub async fn run_deployed_relative_imports(
                 schema: std::collections::HashMap::new(),
                 ws_error_handler_muted: Some(false),
                 priority: None,
-                delete_after_use: None,
+                delete_after_secs: None,
                 timeout: None,
                 restart_unless_cancelled: None,
                 deployment_message: None,
@@ -760,6 +897,7 @@ pub async fn run_deployed_relative_imports(
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
                     windmill_common::runnable_settings::DebouncingSettings::default(),
+                labels: None,
             })
             .push(&db2)
             .await;

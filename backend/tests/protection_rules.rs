@@ -1,7 +1,7 @@
 //! Integration tests for workspace protection rulesets.
 //!
-//! Tests verify that DisableDirectDeployment protection rules correctly
-//! block/allow operations based on user permissions.
+//! Tests verify that DisableDirectDeployment and RestrictDeployToDeployers
+//! protection rules correctly block/allow operations based on user permissions.
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
@@ -301,6 +301,123 @@ async fn test_protection_rules(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(resp.status(), 200);
     let rules: Vec<serde_json::Value> = resp.json().await?;
     assert!(rules.is_empty(), "Should have no rules after deletion");
+
+    Ok(())
+}
+
+/// Test the `RestrictDeployToDeployers` rule.
+///
+/// Admins and members of the `wm_deployers` group can deploy, everyone else
+/// is blocked. Uses a dedicated workspace + token prefixes so it doesn't
+/// race against `test_protection_rules` on the shared PROTECTION_RULES_CACHE
+/// and AUTH_CACHE lazy_statics.
+#[sqlx::test(fixtures("restrict_deploy_to_deployers"))]
+async fn test_restrict_deploy_to_deployers(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    invalidate_protection_rules_cache("rdd-ws");
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/rdd-ws");
+
+    // Admin creates the rule.
+    let resp = authed(
+        client().post(format!("{base}/workspaces/protection_rules")),
+        "RDD_ADMIN_TOKEN",
+    )
+    .json(&json!({
+        "name": "deployers-only",
+        "rules": ["RestrictDeployToDeployers"],
+        "bypass_users": [],
+        "bypass_groups": []
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "Admin should create rule: {}",
+        resp.text().await?
+    );
+
+    // Admin can still deploy.
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "RDD_ADMIN_TOKEN",
+    )
+    .json(&new_script("u/rdd-admin/admin_deploys", "admin"))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "Admin should deploy: {}",
+        resp.text().await?
+    );
+
+    // wm_deployers member can deploy.
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "RDD_DEPLOYER_TOKEN",
+    )
+    .json(&new_script("u/rdd-deployer/deployer_deploys", "deployer"))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "wm_deployers member should deploy: {}",
+        resp.text().await?
+    );
+
+    // Regular non-deployer is blocked.
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "RDD_USER_TOKEN",
+    )
+    .json(&new_script("u/rdd-user/blocked", "blocked"))
+    .send()
+    .await?;
+    assert!(
+        !resp.status().is_success(),
+        "non-deployer should be blocked: {}",
+        resp.status()
+    );
+    let body = resp.text().await?;
+    assert!(
+        body.contains("wm_deployers"),
+        "Error should mention wm_deployers: {}",
+        body
+    );
+
+    // Extend the rule with the user as a bypass_user — they can then deploy.
+    let resp = authed(
+        client().post(format!("{base}/workspaces/protection_rules/deployers-only")),
+        "RDD_ADMIN_TOKEN",
+    )
+    .json(&json!({
+        "rules": ["RestrictDeployToDeployers"],
+        "bypass_users": ["rdd-user"],
+        "bypass_groups": []
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "Should update rule");
+    invalidate_protection_rules_cache("rdd-ws");
+
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "RDD_USER_TOKEN",
+    )
+    .json(&new_script("u/rdd-user/bypassed", "bypassed"))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "bypass_users should allow deploy: {}",
+        resp.text().await?
+    );
 
     Ok(())
 }

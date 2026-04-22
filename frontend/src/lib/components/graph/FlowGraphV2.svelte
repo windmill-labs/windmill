@@ -199,6 +199,7 @@
 		currentInputSchema?: Record<string, any>
 		markRemovedAsShadowed?: boolean
 		controlsPosition?: 'top' | 'bottom'
+		outerDivClass?: string
 	}
 
 	let {
@@ -271,7 +272,8 @@
 		onDuplicateMultiple = undefined,
 		onMoveMultiple = undefined,
 		movingIds = undefined,
-		controlsPosition = 'top'
+		controlsPosition = 'top',
+		outerDivClass = ''
 	}: Props = $props()
 
 	// Initialize note manager with fine-grained reactivity
@@ -700,6 +702,19 @@
 			...aiToolNodesResult.toolNodes
 		]
 
+		// Collect module IDs hidden inside collapsed groups so note cleanup preserves them
+		const collapsedModuleIds = new Set<string>()
+		for (const n of finalNodes) {
+			if (n.type === 'collapsedGroup') {
+				const modules = (n.data as any)?.modules as FlowModule[] | undefined
+				if (modules) {
+					for (const m of modules) {
+						collapsedModuleIds.add(m.id)
+					}
+				}
+			}
+		}
+
 		// Compute note nodes (no position remapping)
 		let noteNodesResult = showNotes
 			? computeNoteNodes(
@@ -717,7 +732,8 @@
 						noteManager.render()
 					},
 					editMode,
-					noteEditorContext
+					noteEditorContext,
+					collapsedModuleIds.size > 0 ? collapsedModuleIds : undefined
 				)
 			: undefined
 
@@ -1048,7 +1064,7 @@
 {/if}
 <div
 	style={`height: ${height}px; max-height: ${maxHeight}px;`}
-	class="overflow-clip relative"
+	class="overflow-clip relative {outerDivClass}"
 	bind:clientWidth={debouncedWidth}
 	bind:this={flowContainer}
 >

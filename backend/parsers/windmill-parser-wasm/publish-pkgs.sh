@@ -39,3 +39,6 @@ popd
 
 pushd "pkg-py-imports" && npm publish ${args}
 popd
+
+pushd "pkg-wac" && npm publish ${args}
+popd

@@ -590,11 +590,16 @@ function registerCleanup() {
   cleanupRegistered = true;
   process.on("exit", () => {
     if (globalBackend) {
-      // Synchronous kill — can't await in exit handler
-      try {
-        (globalBackend as any).backend?.process?.kill();
-      } catch {
-        // Best effort
+      // Synchronous kill — can't await in exit handler.
+      // Kill the direct child (cargo); any orphaned windmill child processes
+      // will be cleaned up by cleanupStaleTestResources() on next startup.
+      const pid = (globalBackend as any).backend?.process?.pid;
+      if (pid) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          // Best effort — process may already be dead
+        }
       }
     }
   });

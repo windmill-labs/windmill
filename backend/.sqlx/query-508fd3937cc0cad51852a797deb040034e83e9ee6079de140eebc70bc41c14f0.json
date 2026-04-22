@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_fork_deployment_request SET source_workspace_id = $1 WHERE source_workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "508fd3937cc0cad51852a797deb040034e83e9ee6079de140eebc70bc41c14f0"
+}

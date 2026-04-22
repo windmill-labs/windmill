@@ -1,7 +1,5 @@
 use crate::error::{self, Error};
 use semver::Version;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 // ============ Feature Definitions ============
 
@@ -48,7 +46,7 @@ const _: () = assert!(
 // ============ Implementation ============
 lazy_static::lazy_static! {
     // Global minimum version across all workers (for feature flags)
-    pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    pub static ref MIN_VERSION: arc_swap::ArcSwap<Version> = arc_swap::ArcSwap::from_pointee(Version::new(0, 0, 0));
 }
 
 /// Creates a VersionConstraint with compile-time assertion that version > MIN_KEEP_ALIVE_VERSION.
@@ -80,16 +78,16 @@ impl VersionConstraint {
     }
 
     pub async fn met(&self) -> bool {
-        let min = MIN_VERSION.read().await;
+        let min = MIN_VERSION.load();
         // If MIN_VERSION is 0.0.0, it hasn't been set yet - assume met
-        if *min == Version::new(0, 0, 0) {
+        if **min == Version::new(0, 0, 0) {
             tracing::warn!(
                 "MIN_VERSION not set yet, assuming feature '{}' is met",
                 self.name
             );
             return true;
         }
-        &self.available_since <= &*min
+        &self.available_since <= &**min
     }
 
     pub async fn assert(&self) -> error::Result<()> {
@@ -154,7 +152,7 @@ pub async fn update_min_version(
             }
             v.pre = semver::Prerelease::EMPTY;
             v.build = semver::BuildMetadata::EMPTY;
-            *MIN_VERSION.write().await = v.clone();
+            MIN_VERSION.store(std::sync::Arc::new(v.clone()));
         }
         Err(e) => tracing::error!("Failed to fetch min version: {:#?}", e),
     }

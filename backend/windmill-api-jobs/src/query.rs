@@ -8,6 +8,7 @@
 
 //! Query builders for filtering job lists (queue and completed).
 
+use serde_json;
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use windmill_common::utils::{escape_ilike_pattern, paginate_without_limits, Pagination};
@@ -200,7 +201,11 @@ pub fn filter_list_queue_query(
     }
 
     if let Some(args) = &lq.args {
-        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            sqlb.and_where("args @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
 
     if lq.scheduled_for_before_now.is_some_and(|x| x) {
@@ -290,34 +295,30 @@ pub fn filter_list_completed_query(
                     let p = v.replace("*", "%");
                     if label.negated {
                         format!(
-                            "NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl LIKE {})", quote(&p)
+                            "NOT EXISTS (SELECT 1 FROM unnest(v2_job.labels) lbl WHERE lbl LIKE {})", quote(&p)
                         )
                     } else {
                         format!(
-                            "EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl LIKE {})", quote(&p)
+                            "EXISTS (SELECT 1 FROM unnest(v2_job.labels) lbl WHERE lbl LIKE {})", quote(&p)
                         )
                     }
                 })
                 .collect();
             let sep = if label.negated { " AND " } else { " OR " };
-            if !label.negated {
-                sqlb.and_where("result ? 'wm_labels'");
-            }
             sqlb.and_where(format!("({})", clauses.join(sep)));
         } else if label.negated {
             let clauses: Vec<_> = label
                 .values
                 .iter()
-                .map(|v| format!("NOT (result->'wm_labels' ? {})", quote(v)))
+                .map(|v| format!("NOT (v2_job.labels @> ARRAY[{}])", quote(v)))
                 .collect();
             sqlb.and_where(format!("({})", clauses.join(" AND ")));
         } else {
             let clauses: Vec<_> = label
                 .values
                 .iter()
-                .map(|v| format!("result->'wm_labels' ? {}", quote(v)))
+                .map(|v| format!("v2_job.labels @> ARRAY[{}]", quote(v)))
                 .collect();
-            sqlb.and_where("result ? 'wm_labels'");
             sqlb.and_where(format!("({})", clauses.join(" OR ")));
         }
     }
@@ -499,11 +500,19 @@ pub fn filter_list_completed_query(
     }
 
     if let Some(args) = &lq.args {
-        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(args) {
+            sqlb.and_where("args @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
 
     if let Some(result) = &lq.result {
-        sqlb.and_where("result @> ?".bind(&result.replace("'", "''")));
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(result) {
+            sqlb.and_where("result @> ?".bind(&v.to_string()));
+        } else {
+            sqlb.and_where("FALSE");
+        }
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
@@ -532,7 +541,7 @@ pub fn filter_list_completed_query(
         let pat = format!("%{}%", escape_ilike_pattern(bf));
         sqlb.and_where(
             "(runnable_path ILIKE ? OR v2_job.tag ILIKE ? OR trigger ILIKE ? OR trigger_kind::text ILIKE ? \
-             OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(result->'wm_labels') lbl WHERE jsonb_typeof(result->'wm_labels') = 'array' AND lbl ILIKE ?))"
+             OR EXISTS (SELECT 1 FROM unnest(v2_job.labels) lbl WHERE lbl ILIKE ?))"
                 .bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat)
         );
     }
@@ -933,7 +942,7 @@ mod tests {
             false,
         );
         let sql = build_sql(sqlb);
-        assert!(sql.contains("wm_labels"));
+        assert!(sql.contains("v2_job.labels"));
     }
 
     #[test]

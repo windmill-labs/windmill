@@ -5,9 +5,8 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
-	import FolderPicker from '$lib/components/FolderPicker.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { FlowService, IntegrationService, ScriptService } from '$lib/gen'
+	import { FlowService, FolderService, IntegrationService, ScriptService } from '$lib/gen'
 	import { mcpEndpointTools } from '$lib/mcpEndpointTools'
 	import InfoIcon from 'lucide-svelte/icons/info'
 	import { SvelteMap } from 'svelte/reactivity'
@@ -20,7 +19,10 @@
 	let { workspaceId, scope = $bindable() }: Props = $props()
 
 	let selectedMode = $state<'favorites' | 'all' | 'folder' | 'custom'>('favorites')
-	let selectedFolder = $state<string>('')
+	let selectedFolders = $state<string[]>([])
+	let allFolders = $state<string[]>([])
+	let loadingFolders = $state(false)
+	let folderNamesCache = new Map<string, string[]>()
 	let selectedScripts = $state<string[]>([])
 	let selectedFlows = $state<string[]>([])
 	let selectedEndpoints = $state<string[]>([])
@@ -70,8 +72,10 @@
 				scopeParts.push(`mcp:endpoints:${selectedEndpoints.join(',')}`)
 			}
 		} else if (selectedMode === 'folder') {
-			const folderPath = `f/${selectedFolder}/*`
-			scopeParts = [`mcp:scripts:${folderPath}`, `mcp:flows:${folderPath}`, `mcp:endpoints:*`]
+			const folderPaths = selectedFolders.map((f) => `f/${f}/*`).join(',')
+			if (selectedFolders.length > 0) {
+				scopeParts = [`mcp:scripts:${folderPaths}`, `mcp:flows:${folderPaths}`, `mcp:endpoints:*`]
+			}
 		} else {
 			scopeParts = [`mcp:${selectedMode}`]
 		}
@@ -91,12 +95,34 @@
 		}
 	})
 
-	// Clear folder when not in folder mode
+	// Clear folders when not in folder mode, load folder names when entering folder mode
 	$effect(() => {
-		if (selectedMode !== 'folder') {
-			selectedFolder = ''
+		if (selectedMode === 'folder' && workspaceId) {
+			loadFolderNames(workspaceId)
+		} else {
+			selectedFolders = []
 		}
 	})
+
+	async function loadFolderNames(workspace: string) {
+		if (folderNamesCache.has(workspace)) {
+			allFolders = folderNamesCache.get(workspace)!
+			return
+		}
+		try {
+			loadingFolders = true
+			const excludedFolders = ['app_groups', 'app_custom', 'app_themes']
+			const names = (
+				await FolderService.listFolderNames({ workspace })
+			).filter((x) => !excludedFolders.includes(x))
+			folderNamesCache.set(workspace, names)
+			allFolders = names
+		} catch {
+			allFolders = []
+		} finally {
+			loadingFolders = false
+		}
+	}
 
 	// Load hub apps on mount
 	async function getAllApps() {
@@ -192,10 +218,41 @@
 	// Load runnables based on mode
 	$effect(() => {
 		if (workspaceId) {
-			const folderParam = selectedFolder.length > 0 ? selectedFolder : undefined
-			getScriptsAndFlows(selectedMode === 'favorites', workspaceId, folderParam)
+			if (selectedMode === 'folder') {
+				if (selectedFolders.length > 0) {
+					loadRunnablesForFolders(workspaceId, selectedFolders)
+				} else {
+					includedRunnables = []
+				}
+			} else {
+				getScriptsAndFlows(selectedMode === 'favorites', workspaceId, undefined)
+			}
 		}
 	})
+
+	async function getCachedRunnables(workspace: string, folder: string): Promise<string[]> {
+		const cacheKey = `${workspace}-false-${folder}`
+		if (runnablesCache.has(cacheKey)) {
+			return runnablesCache.get(cacheKey) || []
+		}
+		const [scripts, flows] = await Promise.all([
+			getScripts(false, workspace, folder),
+			getFlows(false, workspace, folder)
+		])
+		const combined = [...scripts, ...flows]
+		runnablesCache.set(cacheKey, combined)
+		return combined
+	}
+
+	async function loadRunnablesForFolders(workspace: string, folders: string[]) {
+		try {
+			loadingRunnables = true
+			const results = await Promise.all(folders.map((f) => getCachedRunnables(workspace, f)))
+			includedRunnables = [...new Set(results.flat())]
+		} finally {
+			loadingRunnables = false
+		}
+	}
 
 	// Load all scripts/flows for custom mode
 	$effect(() => {
@@ -209,7 +266,7 @@
 			? 'Create your first scripts or flows to make them available via MCP.'
 			: selectedMode === 'favorites'
 				? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.`
-				: `You do not have any scripts or flows in the selected folder.`
+				: `You do not have any scripts or flows in the selected folder(s).`
 	)
 
 	function selectAllScripts() {
@@ -252,8 +309,8 @@
 				<ToggleButton
 					{item}
 					value="folder"
-					label="Folder"
-					tooltip="Make all scripts and flows in the selected folder available as tools"
+					label="Folders"
+					tooltip="Make all scripts and flows in the selected folders available as tools"
 				/>
 				<ToggleButton
 					{item}
@@ -267,8 +324,16 @@
 
 	{#if selectedMode === 'folder'}
 		<div>
-			<span class="block mb-1 text-emphasis text-xs font-semibold">Select Folder</span>
-			<FolderPicker bind:folderName={selectedFolder} />
+			<span class="block mb-1 text-emphasis text-xs font-semibold">Select Folders</span>
+			{#if loadingFolders}
+				<div class="text-xs text-primary">Loading folders...</div>
+			{:else}
+				<MultiSelect
+					items={safeSelectItems(allFolders)}
+					placeholder="Select folders"
+					bind:value={selectedFolders}
+				/>
+			{/if}
 		</div>
 	{/if}
 
@@ -389,7 +454,7 @@
 				</div>
 			</div>
 		{/if}
-	{:else if selectedMode !== 'folder' || selectedFolder.length > 0}
+	{:else if selectedMode !== 'folder' || selectedFolders.length > 0}
 		{#if loadingRunnables}
 			<div class="flex flex-col gap-2">
 				<span class="block text-xs text-primary"

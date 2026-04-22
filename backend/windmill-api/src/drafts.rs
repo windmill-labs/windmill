@@ -23,7 +23,7 @@ use windmill_common::{db::UserDB, error::Result, utils::StripPath};
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/create", post(create_draft))
-        .route("/delete/:kind/*path", delete(delete_draft))
+        .route("/delete/{kind}/{*path}", delete(delete_draft))
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]

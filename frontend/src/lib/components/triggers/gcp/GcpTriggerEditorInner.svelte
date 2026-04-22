@@ -165,6 +165,9 @@
 			auto_acknowledge_msg = defaultValues?.auto_acknowledge_msg ?? true
 			ack_deadline = defaultValues?.ack_deadline
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			permissionedAs = undefined
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 			originalConfig = undefined
 		} finally {
 			drawerLoading = false
@@ -207,8 +210,8 @@
 		ack_deadline = cfg?.ack_deadline
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		permissionedAs = cfg?.permissioned_as
-		selectedPermissionedAs = undefined
-		preservePermissionedAs = false
+		selectedPermissionedAs = cfg?.permissioned_as
+		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
 	async function updateTrigger(): Promise<void> {
@@ -378,15 +381,14 @@
 			<p>Loading...</p>
 		</div>
 	{:else}
-		{#if edit}
-			<PermissionedAsLine
-				{permissionedAs}
-				onPermissionedAsChange={(pa, preserve) => {
-					selectedPermissionedAs = pa
-					preservePermissionedAs = preserve
-				}}
-			/>
-		{/if}
+		<PermissionedAsLine
+			{permissionedAs}
+			{path}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
+		/>
 		<div class="flex flex-col gap-5">
 			{#if mode === 'suspended'}
 				<TriggerSuspendedJobsAlert {suspendedJobsModal} />

@@ -106,7 +106,7 @@ async function docs(
 
 const command = new Command()
   .name("docs")
-  .description("Search Windmill documentation. Requires Enterprise Edition.")
+  .description("Search Windmill documentation.")
   .arguments("<query:string>")
   .option("--json", "Output results as JSON.")
   .action(docs as any);

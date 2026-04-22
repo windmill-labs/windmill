@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE workspace_fork_deployment_request\n            SET closed_at = now(),\n                closed_reason = 'merged'\n            WHERE source_workspace_id = $1\n              AND fork_workspace_id = $2\n              AND closed_at IS NULL\n            RETURNING id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e7947f973f5542775026edcc03e742043a39726dedfcfdda5aab1629264aab8c"
+}

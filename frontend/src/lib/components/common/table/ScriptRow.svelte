@@ -32,7 +32,7 @@
 		GitFork,
 		List,
 		Pen,
-		Share,
+		Shield,
 		Trash,
 		History,
 		Globe2,
@@ -151,6 +151,14 @@
 				<Badge small color="indigo" baseClass="border border-indigo-200">wac</Badge>
 			</Popover>
 		{/if}
+		{#if script.auto_kind === 'test'}
+			<Popover notClickable>
+				{#snippet text()}
+					CI test script
+				{/snippet}
+				<Badge small color="yellow" baseClass="border">CI test</Badge>
+			</Popover>
+		{/if}
 		{#if script.kind !== 'script'}
 			<Badge color="blue" baseClass="border"
 				>{script.kind === 'failure' ? 'Error handler' : capitalize(script.kind)}</Badge
@@ -158,6 +166,24 @@
 		{/if}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
 		<DraftBadge has_draft={script.has_draft} draft_only={script.draft_only} />
+		{#if script.labels?.length}
+			<div class="flex items-center gap-0.5">
+				{#each script.labels.slice(0, 3) as label}
+					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+				{/each}
+				{#if script.labels.length > 3}
+					<Badge
+						color="blue"
+						small
+						class="px-1"
+						title={script.labels
+							.slice(3)
+							.map((l) => 'Label: ' + l)
+							.join('\n')}>+{script.labels.length - 3}</Badge
+					>
+				{/if}
+			</div>
+		{/if}
 		<div class="w-8 center-center">
 			<LanguageIcon lang={script.language} width={16} height={16} />
 		</div>
@@ -324,8 +350,8 @@
 						hide: $userStore?.operator
 					},
 					{
-						displayName: owner ? 'Share' : 'See Permissions',
-						icon: Share,
+						displayName: 'Permissions',
+						icon: Shield,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(script.path, 'script')
 						},

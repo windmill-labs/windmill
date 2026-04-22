@@ -101,7 +101,8 @@ lazy_static::lazy_static! {
     static ref RUSTUP_HOME_DEFAULT: String = format!("{}/.rustup", HOME_ENV.as_str());
 }
 
-const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
+const RUST_OBJECT_STORE_PREFIX: &str =
+    const_format::concatcp!(crate::global_cache::TARGET, "_rustbin/");
 
 #[cfg(not(windows))]
 lazy_static::lazy_static! {
@@ -476,6 +477,7 @@ pub async fn build_rust_crate(
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", &*RUST_CACHE_DIR)
                 .replace("{CARGO_HOME}", CARGO_HOME.as_str())
+                .replace("{RUSTUP_HOME}", RUSTUP_HOME.as_str())
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{BUILD}", &build_dir),
@@ -708,8 +710,14 @@ pub async fn handle_rust_job(
             .envs(envs)
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::Rust, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Rust,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
@@ -727,8 +735,14 @@ pub async fn handle_rust_job(
             .envs(envs)
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::Rust, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Rust,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())

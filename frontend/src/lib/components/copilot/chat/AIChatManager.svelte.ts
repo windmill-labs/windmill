@@ -227,6 +227,7 @@ class AIChatManager {
 		pendingPrompt?: string,
 		options?: {
 			closeScriptSettings?: boolean
+			lang?: ScriptLang | 'bunnative'
 		}
 	) {
 		if (mode === AIMode.SCRIPT && !tryGetCurrentModel()) return
@@ -235,7 +236,7 @@ class AIChatManager {
 		if (mode === AIMode.SCRIPT) {
 			const currentModel = getCurrentModel()
 			const customPrompt = getCombinedCustomPrompt(mode)
-			const lang = this.scriptEditorOptions?.lang ?? 'bun'
+			const lang = options?.lang ?? this.scriptEditorOptions?.lang ?? 'bun'
 			const context = this.contextManager.getSelectedContext()
 			this.systemMessage = prepareScriptSystemMessage(currentModel, lang, {}, customPrompt)
 			this.systemMessage.content = this.systemMessage.content
@@ -445,14 +446,13 @@ class AIChatManager {
 					if (!pendingPrompt) return undefined
 					this.pendingPrompt = ''
 					if (this.mode === AIMode.SCRIPT) {
-						return prepareScriptUserMessage(
-							pendingPrompt,
-							this.contextManager.getSelectedContext()
-						)
+						return prepareScriptUserMessage(pendingPrompt, this.contextManager.getSelectedContext())
 					} else if (this.mode === AIMode.FLOW) {
 						return prepareFlowUserMessage(
 							pendingPrompt,
-							this.flowAiChatHelpers!.getFlowAndSelectedId()
+							this.flowAiChatHelpers!.getFlowAndSelectedId(),
+							[],
+							this.flowAiChatHelpers!.inlineScriptSession
 						)
 					} else if (this.mode === AIMode.NAVIGATOR) {
 						return prepareNavigatorUserMessage(pendingPrompt)
@@ -574,9 +574,9 @@ class AIChatManager {
 		} = {}
 	) => {
 		if (options.mode) {
-			this.changeMode(options.mode)
+			this.changeMode(options.mode, undefined, { lang: options.lang })
 		} else {
-			this.changeMode(this.mode)
+			this.changeMode(this.mode, undefined, { lang: options.lang })
 		}
 		if (options.instructions) {
 			this.instructions = options.instructions
@@ -650,7 +650,8 @@ class AIChatManager {
 					userMessage = prepareFlowUserMessage(
 						oldInstructions,
 						this.flowAiChatHelpers!.getFlowAndSelectedId(),
-						oldSelectedContext
+						oldSelectedContext,
+						this.flowAiChatHelpers!.inlineScriptSession
 					)
 					break
 				case AIMode.NAVIGATOR:

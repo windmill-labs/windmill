@@ -110,7 +110,7 @@ pub async fn do_duckdb(
             m
         };
 
-        let query_block_list = parse_sql_blocks(&query);
+        let query_block_list = parse_sql_blocks(&query, true);
 
         // Replace custom ATTACH statements with the real instructions
         let query_block_list = {
@@ -649,6 +649,11 @@ async fn transform_attach_ducklake(
         .unwrap_or(DEFAULT_STORAGE);
     let data_path = ducklake.storage.path;
 
+    let extra_args = if let Some(default_extra_args) = ducklake.extra_args {
+        format!("{},{}", extra_args, default_extra_args)
+    } else {
+        extra_args
+    };
     // Ducklake 0.3 only requires DATA_PATH at creation and then stores it internally in the catalog
     // But it will fail if DATA_PATH changes afterwards which is annoying for us
     // So we always enable override
@@ -657,11 +662,11 @@ async fn transform_attach_ducklake(
     } else {
         format!(", OVERRIDE_DATA_PATH TRUE{extra_args}")
     };
-    let extra_args = if let Some(default_extra_args) = ducklake.extra_args {
-        // premise : extra_args is always non empty (and doesn't end with a comma given it's valid)
-        format!("{},{}", extra_args, default_extra_args)
-    } else {
+    // Automatically migrate ducklake
+    let extra_args = if extra_args.contains("AUTOMATIC_MIGRATION") {
         extra_args
+    } else {
+        format!(", AUTOMATIC_MIGRATION TRUE{extra_args}")
     };
 
     let attach_str = format!(

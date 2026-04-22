@@ -8,7 +8,7 @@
 
 use windmill_api_auth::{check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed};
 use windmill_common::db::DB;
-use windmill_common::workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult};
+use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
 use crate::secret_backend_ext::{
     delete_secret_from_backend, get_secret_value, is_vault_stored_value, rename_vault_secret,
@@ -54,11 +54,11 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_variables))
         .route("/list_contextual", get(list_contextual_variables))
-        .route("/get/*path", get(get_variable))
-        .route("/get_value/*path", get(get_value))
-        .route("/exists/*path", get(exists_variable))
-        .route("/update/*path", post(update_variable))
-        .route("/delete/*path", delete(delete_variable))
+        .route("/get/{*path}", get(get_variable))
+        .route("/get_value/{*path}", get(get_value))
+        .route("/exists/{*path}", get(exists_variable))
+        .route("/update/{*path}", post(update_variable))
+        .route("/delete/{*path}", delete(delete_variable))
         .route("/delete_bulk", delete(delete_variables_bulk))
         .route("/create", post(create_variable))
         .route("/encrypt", post(encrypt_value))
@@ -102,6 +102,7 @@ struct ListVariableQuery {
     // filter by matching the non-encrypted value (for non-secrets only)
     pub value: Option<String>,
     pub broad_filter: Option<String>,
+    pub label: Option<String>,
 }
 
 async fn list_variables(
@@ -130,6 +131,7 @@ async fn list_variables(
             "resource.path IS NOT NULL as is_linked",
             "account.refresh_token != '' as is_refreshed",
             "variable.expires_at",
+            "variable.labels",
         ])
         .left()
         .join("account")
@@ -169,6 +171,12 @@ async fn list_variables(
             "(variable.path ILIKE ? OR variable.description ILIKE ? OR (is_secret = FALSE AND variable.value ILIKE ?))"
                 .bind(&pat).bind(&pat).bind(&pat)
         );
+    }
+
+    if let Some(label) = &lq.label {
+        for l in label.split(',') {
+            sqlb.and_where("variable.labels @> ARRAY[?]".bind(&l.trim()));
+        }
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
@@ -383,9 +391,8 @@ async fn create_variable(
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("variables:write:{}", variable.path))?;
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -424,8 +431,8 @@ async fn create_variable(
 
     sqlx::query!(
         "INSERT INTO variable
-            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at, labels)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         &w_id,
         variable.path,
         value,
@@ -433,7 +440,8 @@ async fn create_variable(
         variable.description,
         variable.account,
         variable.is_oauth.unwrap_or(false),
-        variable.expires_at
+        variable.expires_at,
+        variable.labels.as_deref() as Option<&[String]>
     )
     .execute(&mut *tx)
     .await?;
@@ -495,9 +503,8 @@ async fn delete_variable(
     let path = path.to_path();
 
     check_scopes(&authed, || format!("variables:write:{}", path))?;
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -520,6 +527,23 @@ async fn delete_variable(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    // Capture data for trashbin before deleting
+    let trash_var: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM variable t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let trash_linked_resource: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
     sqlx::query!(
         "DELETE FROM variable WHERE path = $1 AND workspace_id = $2",
         path,
@@ -534,6 +558,23 @@ async fn delete_variable(
     )
     .fetch_optional(&mut *tx)
     .await?;
+
+    if let Some(var_data) = trash_var {
+        let mut trash_data = serde_json::json!({"row": var_data});
+        if let Some(linked) = trash_linked_resource {
+            trash_data["linked_resource"] = linked;
+        }
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "variable",
+            path,
+            trash_data,
+            &authed.username,
+        )
+        .await?;
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -609,9 +650,8 @@ async fn delete_variables_bulk(
         check_scopes(&authed, || format!("variables:write:{}", path))?;
     }
 
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -632,6 +672,41 @@ async fn delete_variables_bulk(
     .await?;
 
     let mut tx = user_db.begin(&authed).await?;
+
+    // Capture variables for trashbin per path before bulk delete
+    for path in &request.paths {
+        let trash_var: Option<serde_json::Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(t) FROM variable t WHERE path = $1 AND workspace_id = $2",
+        )
+        .bind(path)
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(var_data) = trash_var {
+            let trash_linked: Option<serde_json::Value> = sqlx::query_scalar(
+                "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
+            )
+            .bind(path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            let mut trash_data = serde_json::json!({"row": var_data});
+            if let Some(linked) = trash_linked {
+                trash_data["linked_resource"] = linked;
+            }
+            windmill_common::trashbin::move_to_trash(
+                &mut *tx,
+                &w_id,
+                "variable",
+                path,
+                trash_data,
+                &authed.username,
+            )
+            .await?;
+        }
+    }
 
     let deleted_paths = sqlx::query_scalar!(
         "DELETE FROM variable WHERE path = ANY($1) AND workspace_id = $2 RETURNING path",
@@ -702,6 +777,7 @@ struct EditVariable {
     is_secret: Option<bool>,
     description: Option<String>,
     account: Option<i32>,
+    labels: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -720,9 +796,8 @@ async fn update_variable(
 ) -> Result<String> {
     use sql_builder::prelude::*;
 
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
-        &ProtectionRuleKind::DisableDirectDeployment,
         AuditAuthorable::username(&authed),
         &authed.groups,
         authed.is_admin,
@@ -889,6 +964,17 @@ async fn update_variable(
 
     let npath = not_found_if_none(npath_o, "Variable", path)?;
 
+    if let Some(nlabels) = &ns.labels {
+        sqlx::query!(
+            "UPDATE variable SET labels = $1 WHERE path = $2 AND workspace_id = $3",
+            nlabels as &[String],
+            &npath,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1045,6 +1131,10 @@ pub async fn get_value_internal<'a>(
     } else {
         variable.value
     };
+
+    if variable.is_secret && !r.is_empty() {
+        windmill_common::sensitive_log_masks::register_secret_for_all_running_jobs(&r);
+    }
 
     // Cache the result when explicitly allowed and caching appropriate
     if allow_cache {

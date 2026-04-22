@@ -12,6 +12,7 @@ import {
 } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
+import { generateTsconfigForIde } from "./tsconfig.ts";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Table } from "@cliffy/table";
@@ -88,6 +89,7 @@ async function push(opts: PushOptions, filePath: string, name: string) {
 }
 
 async function list(opts: GlobalOptions & { schema?: boolean; json?: boolean }) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const res = await wmill.listResourceType({
@@ -96,6 +98,10 @@ async function list(opts: GlobalOptions & { schema?: boolean; json?: boolean }) 
 
   if (opts.json) {
     console.log(JSON.stringify(res));
+  } else if (res.length === 0) {
+    log.info("No custom resource types found in this workspace.");
+    log.info("Built-in types like 'postgresql', 'slack', 'mysql', etc. are available from the Windmill Hub.");
+    return;
   } else if (opts.schema) {
     new Table()
       .header(["Workspace", "Name", "Schema"])
@@ -184,6 +190,8 @@ export async function generateRTNamespace(opts: GlobalOptions) {
       "Created rt.d.ts with resource types namespace (RT) for TypeScript."
     )
   );
+
+  await generateTsconfigForIde();
 }
 
 const command = new Command()

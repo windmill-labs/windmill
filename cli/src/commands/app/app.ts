@@ -5,6 +5,7 @@ import { Table } from "@cliffy/table";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
+import { stat } from "node:fs/promises";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
@@ -17,6 +18,7 @@ import lintCommand from "./lint.ts";
 import newCommand from "./new.ts";
 import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 
 export interface AppFile {
   value: any;
@@ -104,7 +106,8 @@ export async function pushApp(
   workspace: string,
   remotePath: string,
   localPath: string,
-  message?: string
+  message?: string,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -121,6 +124,14 @@ export async function pushApp(
   } catch {
     //ignore
   }
+
+  let remoteOnBehalfOf: string | undefined;
+  let remoteOnBehalfOfEmail: string | undefined;
+  if (app?.policy) {
+    remoteOnBehalfOf = app.policy.on_behalf_of;
+    remoteOnBehalfOfEmail = app.policy.on_behalf_of_email;
+  }
+
   if (isExecutionModeAnonymous(app)) {
     app.public = true;
   }
@@ -142,6 +153,20 @@ export async function pushApp(
     localApp?.["public"] ??
       localApp?.["policy"]?.["execution_mode"] == "anonymous"
   );
+
+  const preserveFields: { preserve_on_behalf_of?: boolean } = {};
+  if (permissionedAsContext?.userIsAdminOrDeployer) {
+    if (app) {
+      if (localApp.policy && remoteOnBehalfOf) {
+        (localApp.policy as any).on_behalf_of = remoteOnBehalfOf;
+        (localApp.policy as any).on_behalf_of_email = remoteOnBehalfOfEmail;
+        preserveFields.preserve_on_behalf_of = true;
+        log.info(`Preserving ${remoteOnBehalfOfEmail ?? remoteOnBehalfOf} as permissioned_as for app ${remotePath}`);
+      }
+    }
+    // On create: backend applies folder defaults
+  }
+
   if (app) {
     if (isSuperset(localApp, app)) {
       log.info(colors.green(`App ${remotePath} is up to date`));
@@ -154,6 +179,7 @@ export async function pushApp(
       requestBody: {
         deployment_message: message,
         ...localApp,
+        ...preserveFields,
       },
     });
   } else {
@@ -165,6 +191,7 @@ export async function pushApp(
         path: remotePath,
         deployment_message: message,
         ...localApp,
+        ...preserveFields,
       },
     });
   }
@@ -241,8 +268,26 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  await pushApp(workspace.workspaceId, remotePath, filePath);
-  log.info(colors.bold.underline.green("App pushed"));
+  // Detect raw apps by checking for raw_app.yaml or __raw_app/.raw_app suffix
+  const normalizedPath = filePath.endsWith(SEP) ? filePath.slice(0, -1) : filePath;
+  const isRawApp = normalizedPath.endsWith("__raw_app") || normalizedPath.endsWith(".raw_app");
+  let hasRawAppYaml = false;
+  if (!isRawApp) {
+    try {
+      const rawAppPath = (filePath.endsWith(SEP) ? filePath : filePath + SEP) + "raw_app.yaml";
+      await stat(rawAppPath);
+      hasRawAppYaml = true;
+    } catch { /* not a raw app */ }
+  }
+
+  if (isRawApp || hasRawAppYaml) {
+    const { pushRawApp } = await import("./raw_apps.ts");
+    await pushRawApp(workspace.workspaceId, remotePath, filePath);
+    log.info(colors.bold.underline.green("Raw app pushed"));
+  } else {
+    await pushApp(workspace.workspaceId, remotePath, filePath);
+    log.info(colors.bold.underline.green("App pushed"));
+  }
 }
 
 const command = new Command()
@@ -265,8 +310,11 @@ const command = new Command()
   .command("generate-agents", generateAgentsCommand)
   .command(
     "generate-locks",
-    "re-generate the lockfiles for app runnables inline scripts that have changed"
+    'DEPRECATED: re-generate app lockfiles. Use "wmill generate-metadata" instead.'
   )
+  // Deprecated compatibility command. Keep it working for older repos, but
+  // exclude it from generated system prompt docs.
+  // @deprecated use `wmill generate-metadata`
   .arguments("[app_folder:string]")
   .option("--yes", "Skip confirmation prompt")
   .option("--dry-run", "Perform a dry run without making changes")
@@ -280,6 +328,42 @@ const command = new Command()
     );
     const { generateLocksCommand } = await import("./app_metadata.ts");
     await generateLocksCommand(opts, appFolder);
-  });
+  })
+  .command(
+    "set-permissioned-as",
+    "Set the on_behalf_of_email for an app (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action((async (opts: any, appPath: string, email: string) => {
+    const workspace = await resolveWorkspace(opts);
+    await requireLogin(opts);
+
+    const { lookupUsernameByEmail } = await import("../../core/permissioned_as.ts");
+    const cache = new Map<string, { username: string; email: string }>();
+    const username = await lookupUsernameByEmail(workspace.workspaceId, email, cache);
+
+    const remote = await wmill.getAppByPath({
+      workspace: workspace.workspaceId,
+      path: appPath,
+    });
+    if (!remote) throw new Error(`App ${appPath} not found`);
+
+    // Only spread remote.policy — spreading the full remote object would include
+    // `value` and trigger a new app version on every call. EditApp has all-Option
+    // fields, so a minimal body only updates the policy column.
+    await wmill.updateApp({
+      workspace: workspace.workspaceId,
+      path: appPath,
+      requestBody: {
+        policy: {
+          ...(remote.policy as any),
+          on_behalf_of: `u/${username}`,
+          on_behalf_of_email: email,
+        } as any,
+        preserve_on_behalf_of: true,
+      },
+    });
+    log.info(colors.green(`Updated permissioned_as for app ${appPath} to ${email}`));
+  }) as any);
 
 export default command;

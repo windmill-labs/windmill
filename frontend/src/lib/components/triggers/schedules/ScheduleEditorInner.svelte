@@ -5,6 +5,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import CronInput from '$lib/components/CronInput.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
@@ -105,6 +106,7 @@
 	let enabled: boolean = $state(false)
 	let pathError = $state('')
 	let summary = $state('')
+	let labels: string[] | undefined = $state(undefined)
 	let description = $state('')
 	let no_flow_overlap = $state(false)
 	let tag: string | undefined = $state(undefined)
@@ -296,6 +298,7 @@
 			paused_until = s?.paused_until ?? undefined
 			showPauseUntil = paused_until !== undefined
 			summary = s?.summary ?? ''
+			labels = s?.labels ?? undefined
 			description = s?.description ?? ''
 			script_path = s?.script_path ?? initialScriptPath
 			args = s?.args ?? {}
@@ -308,6 +311,9 @@
 			retry = s?.retry ?? undefined
 
 			await setScheduleHandler(s)
+			permissionedAs = undefined
+			selectedPermissionedAs = undefined
+			preservePermissionedAs = false
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -456,6 +462,7 @@
 		paused_until = cfg.paused_until
 		showPauseUntil = paused_until !== undefined
 		summary = cfg.summary ?? ''
+		labels = cfg.labels ?? undefined
 		description = cfg.description ?? ''
 		script_path = cfg.script_path ?? ''
 		await loadScript(script_path)
@@ -512,8 +519,8 @@
 		can_write = canWrite(cfg.path, cfg.extra_perms, $userStore)
 		tag = cfg.tag
 		permissionedAs = cfg.permissioned_as
-		selectedPermissionedAs = undefined
-		preservePermissionedAs = false
+		selectedPermissionedAs = cfg.permissioned_as
+		preservePermissionedAs = !!cfg.permissioned_as
 
 		loading = false
 	}
@@ -606,6 +613,7 @@
 			ws_error_handler_muted: wsErrorHandlerMuted,
 			retry: retry,
 			summary: summary != '' ? summary : undefined,
+			labels: labels,
 			description: description,
 			no_flow_overlap: no_flow_overlap,
 			tag: tag,
@@ -691,15 +699,14 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
-		{#if edit}
-			<PermissionedAsLine
-				{permissionedAs}
-				onPermissionedAsChange={(pa, preserve) => {
-					selectedPermissionedAs = pa
-					preservePermissionedAs = preserve
-				}}
-			/>
-		{/if}
+		<PermissionedAsLine
+			{permissionedAs}
+			{path}
+			onPermissionedAsChange={(pa, preserve) => {
+				selectedPermissionedAs = pa
+				preservePermissionedAs = preserve
+			}}
+		/>
 		<div class="flex flex-col gap-8">
 			<Section label="Metadata">
 				<div class="flex flex-col gap-6">
@@ -727,6 +734,7 @@
 							bind:value={summary}
 						/>
 					</label>
+					<LabelsInput bind:labels />
 
 					<div class="flex flex-col gap-1">
 						<label for="path" class="text-xs font-semibold text-emphasis">Path</label>

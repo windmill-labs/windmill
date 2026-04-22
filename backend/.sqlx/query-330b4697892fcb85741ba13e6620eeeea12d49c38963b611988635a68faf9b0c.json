@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT EXISTS(\n                SELECT 1\n                FROM usr u\n                WHERE u.workspace_id = $1\n                  AND u.email = $2\n                  AND u.disabled = false\n                  AND (\n                      u.is_admin = true\n                      OR EXISTS (\n                          SELECT 1 FROM usr_to_group g\n                          WHERE g.workspace_id = $1\n                            AND g.group_ = $3\n                            AND g.usr = u.username\n                      )\n                  )\n            ) as \"exists!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "330b4697892fcb85741ba13e6620eeeea12d49c38963b611988635a68faf9b0c"
+}

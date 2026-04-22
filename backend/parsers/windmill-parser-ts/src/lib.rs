@@ -462,6 +462,7 @@ pub fn parse_deno_signature(
         },
         auto_kind,
         has_preprocessor: Some(has_preprocessor),
+        ..Default::default()
     };
     Ok(r)
 }

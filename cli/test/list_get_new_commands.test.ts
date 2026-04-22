@@ -438,6 +438,38 @@ describe("new command", () => {
     });
   });
 
+  test("flow new respects nonDottedPaths: true", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        `defaultTs: bun\nnonDottedPaths: true\nincludes:\n  - "**"\nexcludes: []\n`,
+        "utf-8"
+      );
+      await mkdir(join(tempDir, "f", "test"), { recursive: true });
+
+      const result = await backend.runCLICommand(
+        ["flow", "new", "f/test/nondot_flow", "--summary", "Non-dotted flow"],
+        tempDir
+      );
+
+      expect(result.code).toEqual(0);
+
+      // Should use __flow suffix, not .flow
+      const flowYamlStat = await stat(
+        join(tempDir, "f/test/nondot_flow__flow/flow.yaml")
+      );
+      expect(flowYamlStat.isFile()).toBe(true);
+
+      const flowContent = await readFile(
+        join(tempDir, "f/test/nondot_flow__flow/flow.yaml"),
+        "utf-8"
+      );
+      expect(flowContent).toContain("Non-dotted flow");
+    });
+  });
+
   test("flow bootstrap still works as alias", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);

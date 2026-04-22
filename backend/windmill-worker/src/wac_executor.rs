@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Value;
 use uuid::Uuid;
@@ -6,35 +6,13 @@ use uuid::Uuid;
 use windmill_common::error::{self, Error};
 use windmill_common::DB;
 
-/// Checkpoint state persisted across workflow invocations.
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-pub struct WacCheckpoint {
-    #[serde(default)]
-    pub source_hash: String,
-    #[serde(default)]
-    pub completed_steps: serde_json::Map<String, Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pending_steps: Option<WacPendingSteps>,
-    #[serde(default)]
-    pub input_args: serde_json::Map<String, Value>,
-    /// Accumulated map of step_key → child job UUID across all dispatch rounds.
-    /// Unlike `pending_steps.job_ids` (cleared after completion), this persists
-    /// so the frontend can always resolve step keys to child job names.
-    #[serde(default)]
-    pub job_ids: serde_json::Map<String, Value>,
-    /// When set on a child job's checkpoint, indicates which step this child
-    /// should execute directly (instead of dispatching).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub _executing_key: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct WacPendingSteps {
-    pub mode: String,
-    pub keys: Vec<String>,
-    pub job_ids: serde_json::Map<String, Value>,
-}
+// Checkpoint model + persistence primitives live in windmill-common so the
+// API server can use them without pulling in the full worker crate. Re-export
+// here for historical call sites inside windmill-worker.
+pub use windmill_common::wac::{
+    load_checkpoint, persist_inline_checkpoint_delta, save_checkpoint, WacCheckpoint,
+    WacPendingSteps,
+};
 
 /// Output from a single WAC invocation (parsed from result.json).
 #[derive(Debug, Deserialize)]
@@ -106,63 +84,6 @@ fn default_dispatch_type() -> String {
     "inline".to_string()
 }
 
-/// Load the WAC checkpoint from `v2_job_status.workflow_as_code_status._checkpoint`.
-pub async fn load_checkpoint(db: &DB, job_id: &Uuid) -> error::Result<WacCheckpoint> {
-    let row: Option<Option<Value>> = sqlx::query_scalar(
-        "SELECT workflow_as_code_status->'_checkpoint' FROM v2_job_status WHERE id = $1",
-    )
-    .bind(job_id)
-    .fetch_optional(db)
-    .await?;
-
-    match row {
-        Some(Some(status)) => {
-            let checkpoint: WacCheckpoint = match serde_json::from_value(status) {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::warn!(
-                        job_id = %job_id,
-                        error = %e,
-                        "Failed to deserialize WAC checkpoint, resetting to empty"
-                    );
-                    WacCheckpoint::default()
-                }
-            };
-            Ok(checkpoint)
-        }
-        _ => Ok(WacCheckpoint::default()),
-    }
-}
-
-/// Save the WAC checkpoint to `v2_job_status.workflow_as_code_status._checkpoint`.
-/// The top level of workflow_as_code_status is reserved for per-child-job timeline data.
-pub async fn save_checkpoint(
-    db: &DB,
-    job_id: &Uuid,
-    checkpoint: &WacCheckpoint,
-) -> error::Result<()> {
-    let status_json = serde_json::to_value(checkpoint)
-        .map_err(|e| Error::InternalErr(format!("Failed to serialize checkpoint: {e}")))?;
-
-    sqlx::query(
-        "INSERT INTO v2_job_status (id, workflow_as_code_status)
-         VALUES ($1, jsonb_build_object('_checkpoint', $2::jsonb))
-         ON CONFLICT (id) DO UPDATE SET
-            workflow_as_code_status = jsonb_set(
-                COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
-                '{_checkpoint}',
-                $2::jsonb
-            )",
-    )
-    .bind(job_id)
-    .bind(&status_json)
-    .execute(db)
-    .await
-    .map_err(|e| Error::InternalErr(format!("Failed to save WAC checkpoint: {e}")))?;
-
-    Ok(())
-}
-
 /// Parse the WAC result from result.json content.
 pub fn parse_wac_output(result: &RawValue) -> error::Result<WacOutput> {
     serde_json::from_str(result.get())
@@ -190,23 +111,6 @@ pub fn update_checkpoint_for_dispatch(
         job_ids: ids_map,
     };
     checkpoint.pending_steps = Some(pending);
-}
-
-/// Process a completed child job result: add to checkpoint's completed_steps.
-pub fn add_completed_step(checkpoint: &mut WacCheckpoint, step_key: &str, result: Value) {
-    checkpoint
-        .completed_steps
-        .insert(step_key.to_string(), result);
-    // If all pending steps are complete, clear pending
-    if let Some(ref pending) = checkpoint.pending_steps {
-        let all_done = pending
-            .keys
-            .iter()
-            .all(|k| checkpoint.completed_steps.contains_key(k));
-        if all_done {
-            checkpoint.pending_steps = None;
-        }
-    }
 }
 
 /// Check if all pending parallel steps are complete.
@@ -364,13 +268,31 @@ pub fn is_wac_v2_ts(code: &str) -> bool {
     has_wac_import && has_workflow
 }
 
+/// Inject the variable name as the first argument to `task()` calls in WAC v2 scripts.
+/// `const double = task(async ...` → `const double = task("double", async ...`
+/// Skips calls that already have a string argument.
+pub fn inject_wac_task_names(content: &str) -> String {
+    use regex::Regex;
+    use std::borrow::Cow;
+    lazy_static::lazy_static! {
+        static ref TASK_RE: Regex =
+            Regex::new(r#"(?m)((?:export\s+)?(?:const|let|var)\s+)(\w+)(\s*=\s*task\s*(?:<[^>]*>)?\s*\(\s*)(async\b)"#).unwrap();
+    }
+    let replaced = TASK_RE.replace_all(content, r#"${1}${2}${3}"${2}", ${4}"#);
+    match replaced {
+        Cow::Borrowed(_) => content.to_string(),
+        Cow::Owned(s) => s,
+    }
+}
+
 /// Detect WAC v2 patterns in Python code.
-/// Checks for `@workflow` decorator and `@task` decorator with wmill import,
-/// skipping comment lines.
+/// Checks for a wmill import plus a `@workflow` decorator, skipping comment
+/// lines. `@task` is optional: a workflow that only uses inline `step()` calls
+/// (no child-job `@task`) is still WAC v2 and must go through the WAC runner
+/// so its coroutine gets awaited.
 pub fn is_wac_v2_py(code: &str) -> bool {
     let mut has_wmill_import = false;
     let mut has_workflow_decorator = false;
-    let mut has_task_decorator = false;
     for line in code.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('#') {
@@ -382,9 +304,6 @@ pub fn is_wac_v2_py(code: &str) -> bool {
         if trimmed == "@workflow" || trimmed.starts_with("@workflow(") {
             has_workflow_decorator = true;
         }
-        if trimmed == "@task" || trimmed.starts_with("@task(") {
-            has_task_decorator = true;
-        }
     }
-    has_wmill_import && has_workflow_decorator && has_task_decorator
+    has_wmill_import && has_workflow_decorator
 }

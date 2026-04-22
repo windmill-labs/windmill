@@ -19,7 +19,7 @@ use crate::db::ApiAuthed;
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_audit))
-        .route("/get/:id", get(get_audit))
+        .route("/get/{id}", get(get_audit))
 }
 
 async fn get_audit(

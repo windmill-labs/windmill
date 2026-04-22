@@ -22,7 +22,7 @@ async fn list_hub_integrations(
 
     let (status_code, headers, response) = query_elems_from_hub(
         &HTTP_CLIENT,
-        &format!("{}/integrations/list", *HUB_BASE_URL.read().await),
+        &format!("{}/integrations/list", **HUB_BASE_URL.load()),
         Some(query_params),
         &db,
     )

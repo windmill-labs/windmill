@@ -6,10 +6,15 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::s3_log_batching::{record_s3_log, S3ProxyRequest};
 use ::tracing::{field, Span};
+use axum::extract::Request;
+use axum::middleware::Next;
+use axum::response::Response as AxumResponse;
 use hyper::Response;
 use tower_http::trace::{MakeSpan, OnFailure, OnResponse};
 use uuid::Uuid;
+use windmill_common::log_context::{with_log_context, LogContext};
 
 lazy_static::lazy_static! {
     static ref LOG_REQUESTS: bool = std::env::var("LOG_REQUESTS")
@@ -29,6 +34,15 @@ impl<B> OnResponse<B> for MyOnResponse {
         _span: &tracing::Span,
     ) {
         if *LOG_REQUESTS {
+            if let Some(s3req) = response.extensions().get::<S3ProxyRequest>() {
+                let status = response.status().as_u16();
+                if response.status().is_success() || response.status().is_redirection() {
+                    record_s3_log(&s3req.uri, &s3req.method, status, latency.as_millis());
+                    return;
+                }
+                // 4xx/5xx errors are rare and shouldn't be batched
+            }
+
             let latency = latency.as_millis();
             let status = response.status().as_u16();
             if response.status().is_success() || response.status().is_redirection() {
@@ -75,4 +89,30 @@ impl<B> MakeSpan<B> for MyMakeSpan {
             email = field::Empty,
         )
     }
+}
+
+/// Axum middleware that seeds a per-request `LogContext` with method/uri/
+/// traceId and wraps the downstream chain in a task-local scope. Auth and
+/// workspace-resolution code later mutate this context (via
+/// `update_log_context`) as email/username/workspace_id become known.
+///
+/// Registered at the top of the router layer stack in `windmill-api/src/lib.rs`
+/// so every route — and critically, the `MyOnResponse::on_response` callback
+/// that TraceLayer invokes on the way out — runs inside the scope and thus
+/// flows through to exported OTEL LogRecords via the EE LogContextBridge.
+pub async fn log_context_middleware(request: Request, next: Next) -> AxumResponse {
+    let trace_id = request
+        .headers()
+        .get(TRACING_HEADER.as_str())
+        .and_then(|x| x.to_str().ok())
+        .map(|s| s.to_string());
+
+    let ctx = LogContext {
+        method: Some(request.method().to_string()),
+        uri: Some(request.uri().to_string()),
+        trace_id,
+        ..Default::default()
+    };
+
+    with_log_context(ctx, next.run(request)).await
 }

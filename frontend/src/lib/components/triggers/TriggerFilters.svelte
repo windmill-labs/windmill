@@ -1,23 +1,45 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import Section from '$lib/components/Section.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 	import { Plus, X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 
 	interface Props {
 		filters: { key: string; value: any }[]
+		filterLogic: 'and' | 'or'
 		disabled?: boolean
 	}
 
-	let { filters = $bindable([]), disabled = false }: Props = $props()
+	let {
+		filters = $bindable([]),
+		filterLogic = $bindable(),
+		disabled = false
+	}: Props = $props()
+
+	const filterLogicItems = [
+		{ label: 'all criteria (AND)', value: 'and' as const },
+		{ label: 'any criterion (OR)', value: 'or' as const }
+	]
+
+	let description = $derived(
+		filterLogic === 'or'
+			? 'Filters will limit the execution of the trigger to only messages that match any criterion.'
+			: 'Filters will limit the execution of the trigger to only messages that match all criteria.'
+	)
 </script>
 
 <Section label="Filters">
 	<p class="text-xs mb-1 text-primary">
-		Filters will limit the execution of the trigger to only messages that match all criteria.<br />
+		{description}<br />
 		The JSON filter checks if the value at the key is equal or a superset of the filter value.
 	</p>
+	{#if filters.length > 0}
+		<div class="mt-2 mb-1 max-w-xs">
+			<Select items={filterLogicItems} bind:value={filterLogic} {disabled} size="sm" />
+		</div>
+	{/if}
 	<div class="flex flex-col gap-4 mt-1">
 		{#each filters as v, i (i)}
 			<div class="flex w-full gap-2 items-center">
@@ -26,11 +48,10 @@
 						<div class="text-secondary text-sm mb-2">Key</div>
 						<input type="text" bind:value={v.key} {disabled} />
 					</label>
-					<!-- svelte-ignore a11y_label_has_associated_control -->
-					<label class="flex flex-col w-full">
+					<div class="flex flex-col w-full">
 						<div class="text-secondary text-sm mb-2">Value</div>
 						<JsonEditor bind:value={v.value} code={JSON.stringify(v.value)} {disabled} />
-					</label>
+					</div>
 					{#if v.key}
 						{@const isObject = v.value !== null && typeof v.value === 'object'}
 						<div class="text-xs text-tertiary font-mono mt-2 p-2 bg-surface-secondary rounded">

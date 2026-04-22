@@ -2,6 +2,7 @@
 	import { run } from 'svelte/legacy'
 
 	import { userStore, workspaceStore } from '$lib/stores'
+	import LabelsInput from './LabelsInput.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
 		OauthService,
@@ -109,6 +110,7 @@
 	let responseExtra: Record<string, string> = $state({})
 	let path: string = $state('')
 	let description = $state('')
+	let labels: string[] | undefined = $state(undefined)
 
 	/**
 	 * Client credentials OAuth flow support
@@ -144,6 +146,7 @@
 		step = 1 //express && !manual ? 3 : 1
 		value = ''
 		description = ''
+		labels = undefined
 		resourceType = rt ?? ''
 		valueToken = undefined
 
@@ -475,6 +478,11 @@
 					grant_type: valueToken.grant_type || 'authorization_code'
 				}
 
+				// Store scopes so token refresh uses the same scopes
+				if (scopes.length > 0) {
+					accountData.scopes = scopes
+				}
+
 				// Add client credentials if using client_credentials flow
 				if (useClientCredentials) {
 					accountData.cc_client_id = clientId.trim()
@@ -563,7 +571,8 @@
 					resource_type: resourceType,
 					path,
 					value: resourceValue,
-					description
+					description,
+					labels
 				}
 			})
 			dispatch('refresh', path)
@@ -729,6 +738,7 @@
 				namePlaceholder={resourceType}
 				kind="resource"
 			/>
+			<LabelsInput bind:labels class="-mt-5" />
 
 			{#if apiTokenApps[resourceType]}
 				<h2 class="mt-4 mb-2">Instructions</h2>
@@ -820,6 +830,12 @@
 						>Create a resource backed by an OAuth connection, whose token is fetched from the
 						external services and refreshed automatically if needed before expiration.</div
 					>
+					<button
+						onclick={() => (manual = true)}
+						class="text-xs font-normal text-accent w-fit mt-2"
+					>
+						Create resource manually instead
+					</button>
 				</div>
 
 				{#if resourceTypeInfo?.description}
@@ -830,6 +846,8 @@
 						</div>
 					</div>
 				{/if}
+
+				<LabelsInput bind:labels class="-mt-5" />
 
 				{#if supportsClientCredentials}
 					<div>
@@ -927,6 +945,7 @@
 			bind:path
 			kind="resource"
 		/>
+		<LabelsInput bind:labels class="-mt-5" />
 		{#if apiTokenApps[resourceType] || !manual}
 			<ul class="mt-6">
 				<li class="text-xs text-primary font-normal">

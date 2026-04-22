@@ -15,17 +15,7 @@ clone_newnet: false
 clone_newuser: {CLONE_NEWUSER}
 clone_newcgroup: false
 
-uidmap {
-    inside_id: "1000"
-    outside_id: ""
-    count: 1
-}
-
-gidmap {
-    inside_id: "1000"
-    outside_id: ""
-    count: 1
-}
+{UIDGIDMAP}
 
 skip_setsid: true
 keep_caps: false

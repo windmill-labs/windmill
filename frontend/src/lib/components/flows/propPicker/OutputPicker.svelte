@@ -65,7 +65,7 @@
 	export function toggleOpen(forceOpen: boolean = false) {
 		if (popover?.isOpened() && !forceOpen) {
 			popover?.close()
-		} else {
+		} else if (!popover?.isOpened()) {
 			popover?.open()
 		}
 	}
@@ -193,6 +193,7 @@
 					flip: false
 				}}
 				usePointerDownOutside
+				excludeSelectors={`[data-run-button="${id}"]`}
 				closeOnOutsideClick={false}
 				on:click={(e) => {
 					e.preventDefault()

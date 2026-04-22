@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT parent_id, author_email FROM workspace_fork_deployment_request_comment WHERE id = $1 AND request_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "parent_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "author_email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "35cb70e555469fea3a65e199f72b2ffbd6b7330dff606c2f6910951baed551ef"
+}

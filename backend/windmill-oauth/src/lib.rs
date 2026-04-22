@@ -16,7 +16,6 @@
 
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::sync::Arc;
 
 use anyhow::anyhow;
 use base64::Engine;
@@ -24,7 +23,6 @@ use hmac::Mac;
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
-use tokio::sync::RwLock;
 use tower_cookies::{Cookie, Cookies};
 use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::more_serde::maybe_number_opt;
@@ -54,11 +52,11 @@ lazy_static::lazy_static! {
         .build()
         .expect("Failed to create OAuth HTTP client");
 
-    pub static ref OAUTH_CLIENTS: Arc<RwLock<AllClients>> = Arc::new(RwLock::new(AllClients {
+    pub static ref OAUTH_CLIENTS: arc_swap::ArcSwap<AllClients> = arc_swap::ArcSwap::from_pointee(AllClients {
         logins: HashMap::new(),
         connects: HashMap::new(),
         slack: None
-    }));
+    });
 }
 
 /// OAuth client with associated scopes and configuration
@@ -149,15 +147,10 @@ pub struct AllClients {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SlackTokenResponse {
     pub access_token: AccessToken,
-    pub team_id: String,
-    pub team_name: String,
-    #[serde(rename = "scope")]
-    #[serde(deserialize_with = "helpers::deserialize_space_delimited_vec")]
-    #[serde(serialize_with = "helpers::serialize_space_delimited_vec")]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Optional because Enterprise Grid installs can omit `team`. Callers should surface
+    // a clear error if this is None rather than unwrapping.
     #[serde(default)]
-    pub scopes: Option<Vec<Scope>>,
-    pub bot: SlackBotToken,
+    pub team: Option<SlackTeam>,
 }
 
 /// Standard OAuth token response
@@ -174,10 +167,11 @@ pub struct TokenResponse {
     pub scope: Option<Vec<Scope>>,
 }
 
-/// Slack bot token from OAuth response
+/// Slack team info from OAuth v2 response
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct SlackBotToken {
-    pub bot_access_token: String,
+pub struct SlackTeam {
+    pub id: String,
+    pub name: String,
 }
 
 /// OAuth callback parameters
@@ -334,8 +328,8 @@ pub async fn build_oauth_clients(
             build_basic_client(
                 "slack".to_string(),
                 OAuthConfig {
-                    auth_url: "https://slack.com/oauth/authorize".to_string(),
-                    token_url: "https://slack.com/api/oauth.access".to_string(),
+                    auth_url: "https://slack.com/oauth/v2/authorize".to_string(),
+                    token_url: "https://slack.com/api/oauth.v2.access".to_string(),
                     userinfo_url: None,
                     scopes: None,
                     extra_params: None,
@@ -402,12 +396,12 @@ pub async fn build_slack_client(
     client_secret: &str,
     _workspace_id: &str,
 ) -> error::Result<OClient> {
-    let auth_url = Url::parse("https://slack.com/oauth/authorize")
+    let auth_url = Url::parse("https://slack.com/oauth/v2/authorize")
         .map_err(|e| anyhow!("Invalid Slack authorization URL: {e}"))?;
-    let token_url = Url::parse("https://slack.com/api/oauth.access")
+    let token_url = Url::parse("https://slack.com/api/oauth.v2.access")
         .map_err(|e| anyhow!("Invalid Slack token URL: {e}"))?;
 
-    let base_url = BASE_URL.read().await.clone();
+    let base_url = (**BASE_URL.load()).clone();
     let redirect_url = format!("{}/oauth/callback_slack", base_url);
 
     let mut client = OClient::new(client_id.to_string(), auth_url, token_url);
@@ -488,7 +482,7 @@ pub async fn build_client_credentials_oauth_client(
         tenant: oauth_client_config.tenant.clone(),
     };
 
-    let base_url = BASE_URL.read().await.clone();
+    let base_url = (**BASE_URL.load()).clone();
     let (_, client) = build_basic_client(
         client_name.to_string(),
         connect_config,
@@ -516,7 +510,7 @@ pub async fn exchange_code<T: DeserializeOwned>(
     };
     let csrf_state = cookies
         .get(name)
-        .map(|x| x.value().to_string())
+        .map(|x| x.value_trimmed().to_string())
         .unwrap_or("".to_string());
     if callback.state != csrf_state {
         return Err(error::Error::BadRequest("csrf did not match".to_string()));
@@ -544,14 +538,22 @@ pub async fn exchange_token(
     grant_type: &str,
     oauth_client_info: Option<&ClientWithScopes>,
     http_client: &reqwest::Client,
+    scopes: Option<&[String]>,
 ) -> Result<TokenResponse, Error> {
     let token_json = match grant_type {
-        "authorization_code" => client
-            .exchange_refresh_token(&RefreshToken::from(refresh_token))
-            .with_client(http_client)
-            .execute::<serde_json::Value>()
-            .await
-            .map_err(to_anyhow)?,
+        "authorization_code" | "" => {
+            let mut request = client.exchange_refresh_token(&RefreshToken::from(refresh_token));
+            if let Some(scopes) = scopes {
+                if !scopes.is_empty() {
+                    request = request.param("scope", scopes.join(" "));
+                }
+            }
+            request
+                .with_client(http_client)
+                .execute::<serde_json::Value>()
+                .await
+                .map_err(to_anyhow)?
+        }
         "client_credentials" => {
             let mut token_request = client.exchange_client_credentials();
 
@@ -569,12 +571,6 @@ pub async fn exchange_token(
                 .await
                 .map_err(to_anyhow)?
         }
-        "" | _ if grant_type.is_empty() => client
-            .exchange_refresh_token(&RefreshToken::from(refresh_token))
-            .with_client(http_client)
-            .execute::<serde_json::Value>()
-            .await
-            .map_err(to_anyhow)?,
         _ => {
             return Err(Error::BadRequest(format!(
                 "Unsupported grant type: {}",
@@ -599,6 +595,7 @@ pub struct OAuthAccountInfo {
     pub cc_client_id: Option<String>,
     pub cc_client_secret: Option<String>,
     pub cc_token_url: Option<String>,
+    pub scopes: Option<Vec<String>>,
 }
 
 /// Refresh an OAuth token and update the database.
@@ -615,7 +612,7 @@ pub async fn refresh_token<'c>(
 ) -> error::Result<String> {
     let account = sqlx::query_as!(
         OAuthAccountInfo,
-        "SELECT client, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url FROM account WHERE workspace_id = $1 AND id = $2",
+        "SELECT client, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url, scopes FROM account WHERE workspace_id = $1 AND id = $2",
         w_id,
         id,
     )
@@ -679,8 +676,15 @@ pub async fn refresh_token_for_account<'c>(
         oauth_client_info.client.to_owned()
     };
 
+    // Account-level scopes override instance-level scopes
+    let effective_scopes = account
+        .scopes
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&oauth_client_info.scopes);
+
     if account.grant_type == "client_credentials" {
-        for scope in oauth_client_info.scopes.iter() {
+        for scope in effective_scopes.iter() {
             client.add_scope(scope);
         }
     }
@@ -699,6 +703,7 @@ pub async fn refresh_token_for_account<'c>(
         &account.grant_type,
         Some(&oauth_client_info),
         http_client,
+        Some(effective_scopes),
     )
     .await;
 

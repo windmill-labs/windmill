@@ -14,6 +14,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
+import { getDefaultChatTemperature } from './modelConfig'
 import { formatResourceTypes } from './utils'
 import { z } from 'zod'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
@@ -25,6 +26,11 @@ import { convertOpenAIToAnthropicMessages } from './chat/anthropic'
 import type { Stream } from 'openai/core/streaming.mjs'
 import { generateRandomString } from '$lib/utils'
 import { copilotInfo, getCurrentModel } from '$lib/aiStore'
+import {
+	emptyChatTokenUsage,
+	openAICompletionsUsageToChatTokenUsage,
+	type ChatTokenUsage
+} from './chat/tokenUsage'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -303,6 +309,7 @@ function getModelSpecificConfig(
 		// copilotInfo store may not be initialized in vitest
 	}
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
+	const defaultTemperature = getDefaultChatTemperature(modelProvider)
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
 		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))
@@ -324,7 +331,7 @@ function getModelSpecificConfig(
 					}
 				: {
 						model: modelProvider.model,
-						temperature: 0
+						...(defaultTemperature !== undefined ? { temperature: defaultTemperature } : {})
 					}),
 			...(tools && tools.length > 0 ? { tools } : {}),
 			max_tokens: maxTokens
@@ -387,7 +394,7 @@ export function createOpenAIProxyClient(baseURL: string): OpenAI {
 		baseURL,
 		apiKey: 'fake-key',
 		defaultHeaders: {
-			Authorization: '' // a non empty string will be unable to access Windmill backend proxy
+			Authorization: OpenAPI.TOKEN ? `Bearer ${OpenAPI.TOKEN}` : ''
 		},
 		dangerouslyAllowBrowser: true
 	})
@@ -397,7 +404,8 @@ export function createAnthropicProxyClient(baseURL: string): Anthropic {
 	return new Anthropic({
 		baseURL,
 		apiKey: 'fake-key',
-		dangerouslyAllowBrowser: true
+		dangerouslyAllowBrowser: true,
+		defaultHeaders: OpenAPI.TOKEN ? { Authorization: `Bearer ${OpenAPI.TOKEN}` } : undefined
 	})
 }
 
@@ -904,7 +912,18 @@ export async function getCompletion(
 
 	// Use Completions API for other providers
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
-	const completion = client.chat.completions.create(config, {
+	const completionConfig =
+		(provider === 'openai' || provider === 'azure_openai' || provider === 'googleai') &&
+		config.stream
+			? {
+					...config,
+					stream_options: {
+						...(config.stream_options ?? {}),
+						include_usage: true
+					}
+				}
+			: config
+	const completion = client.chat.completions.create(completionConfig, {
 		signal: abortController.signal,
 		headers: {
 			'X-Provider': provider
@@ -935,12 +954,16 @@ export async function parseOpenAICompletion(
 	helpers: any,
 	_abortController?: AbortController, // unused, for signature compatibility with parseAnthropicCompletion
 	options?: { workspace?: string }
-): Promise<boolean> {
+): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 	let malformedFunctionCallError = false
+	let tokenUsage = emptyChatTokenUsage()
 
 	let answer = ''
 	for await (const chunk of completion) {
+		if ('usage' in chunk && chunk.usage) {
+			tokenUsage = openAICompletionsUsageToChatTokenUsage(chunk.usage)
+		}
 		if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
 			continue
 		}
@@ -1117,9 +1140,9 @@ export async function parseOpenAICompletion(
 		messages.push(toolResponse)
 		addedMessages.push(toolResponse)
 	} else {
-		return false
+		return { shouldContinue: false, tokenUsage }
 	}
-	return true
+	return { shouldContinue: true, tokenUsage }
 }
 
 export function getResponseFromEvent(part: OpenAI.Chat.Completions.ChatCompletionChunk): string {

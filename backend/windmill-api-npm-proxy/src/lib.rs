@@ -119,10 +119,10 @@ struct FileEntry {
 pub fn workspaced_service() -> Router {
     Router::new()
         // Use wildcards for package names to support scoped packages like @scope/package
-        .route("/metadata/*package", get(get_package_metadata))
-        .route("/resolve/*package", get(resolve_package_version))
-        .route("/filetree/*package_version", get(get_package_filetree))
-        .route("/file/*package_version_filepath", get(get_package_file))
+        .route("/metadata/{*package}", get(get_package_metadata))
+        .route("/resolve/{*package}", get(resolve_package_version))
+        .route("/filetree/{*package_version}", get(get_package_filetree))
+        .route("/file/{*package_version_filepath}", get(get_package_file))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)

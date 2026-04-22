@@ -17,6 +17,7 @@
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from '$lib/components/flows/content/FlowEditorPanel.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { findModuleInFlow } from '$lib/components/flows/flowDiff'
 	import { page } from '$app/state'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
@@ -54,6 +55,8 @@
 	let darkModeToggle: DarkModeToggle | undefined = $state()
 	let darkMode: boolean = $state(document.documentElement.classList.contains('dark'))
 	let modeInitialized = $state(false)
+	let paneWidth = $state(0)
+	let compactPreview = $derived(paneWidth < 800)
 	function initializeMode() {
 		modeInitialized = true
 		darkModeToggle?.toggle()
@@ -224,8 +227,15 @@
 	let editor: SimpleEditor | undefined = $state()
 
 	function updateCode(editor: SimpleEditor | undefined, flow: OpenFlow) {
-		if (editor && !deepEqual(flow, JSON.parse(editor.getCode()))) {
-			editor.setCode(JSON.stringify(flow, null, 4))
+		if (!editor) return
+		const code = editor.getCode()
+		if (!code) return
+		try {
+			if (!deepEqual(flow, JSON.parse(code))) {
+				editor.setCode(JSON.stringify(flow, null, 4))
+			}
+		} catch (e) {
+			// editor not ready yet
 		}
 	}
 
@@ -238,6 +248,13 @@
 			console.error('issue parsing new change:', code, e)
 		}
 	}
+
+	const selectedId = $derived(selectionManager.getSelectedId())
+	const selectedModule = $derived(
+		selectedId && flowStore.val?.value
+			? findModuleInFlow(flowStore.val.value, selectedId) ?? undefined
+			: undefined
+	)
 
 	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
 	$effect(() => {
@@ -265,7 +282,8 @@
 				updateFromCode(e.detail.code)
 			}}
 		/>
-		<div class="flex flex-col max-h-screen h-full relative">
+		<div class="flex flex-col max-h-screen h-full relative" bind:clientWidth={paneWidth}>
+			<div id="flow-editor"></div>
 			<div class="absolute top-0 left-2">
 				<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
 				{#if $userStore}
@@ -275,10 +293,10 @@
 				{/if}
 			</div>
 
-			<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
+			<div class="flex justify-center pt-1 z-50 absolute gap-2 {compactPreview ? 'left-1/2 -translate-x-1/2 top-14' : 'right-2 top-2'}">
 				<FlowPreviewButtons bind:this={flowPreviewButtons} {suspendStatus} />
 			</div>
-			<Splitpanes horizontal class="h-full max-h-screen grow">
+			<Splitpanes horizontal class="max-h-screen grow min-h-0">
 				<Pane size={33}>
 					{#if flowStore.val?.value?.modules}
 						<FlowModuleSchemaMap
@@ -306,6 +324,17 @@
 					/>
 				</Pane>
 			</Splitpanes>
+			{#if selectedModule}
+				<div class="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-surface shrink-0">
+					<span class="text-xs text-secondary shrink-0">{selectedModule.id} summary</span>
+					<input
+						type="text"
+						class="text-xs w-full bg-transparent border border-border rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+						placeholder="Summary"
+						bind:value={selectedModule.summary}
+					/>
+				</div>
+			{/if}
 		</div>
 	</div>
 </main>

@@ -686,6 +686,7 @@
 								bind:schema={flowStore.val.schema}
 								hiddenArgs={['user_message']}
 								isFlowInput
+								showSensitiveToggle
 								editTab={chatInputsEditTab ? 'inputEditor' : undefined}
 								showDynOpt
 								bind:dynCode
@@ -741,6 +742,7 @@
 						bind:this={editableSchemaForm}
 						bind:schema={flowStore.val.schema}
 						isFlowInput
+						showSensitiveToggle
 						on:delete={(e) => {
 							addPropertyV2?.handleDeleteArgument([e.detail])
 						}}

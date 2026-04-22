@@ -62,12 +62,8 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(feature = "csharp")]
-const CSHARP_OBJECT_STORE_PREFIX: &str = const_format::concatcp!(
-    std::env::consts::OS,
-    "_",
-    std::env::consts::ARCH,
-    "_csharpbin/"
-);
+const CSHARP_OBJECT_STORE_PREFIX: &str =
+    const_format::concatcp!(crate::global_cache::TARGET, "_csharpbin/");
 
 #[cfg(feature = "csharp")]
 pub async fn generate_nuget_lockfile(
@@ -616,8 +612,14 @@ pub async fn handle_csharp_job(
             .envs(envs)
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::CSharp, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::CSharp,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
@@ -652,8 +654,14 @@ pub async fn handle_csharp_job(
             .envs(envs)
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(&ScriptLang::CSharp, &job.id, &job.workspace_id, conn)
-                    .await?,
+                get_proxy_envs_for_lang(
+                    &ScriptLang::CSharp,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
             )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())

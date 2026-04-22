@@ -11,9 +11,7 @@ pub use crate::scim_ee::*;
  */
 
 #[cfg(not(feature = "private"))]
-use axum::{middleware::Next, response::Response, routing::get, Router};
-#[cfg(not(feature = "private"))]
-use hyper::Request;
+use axum::{extract::Request, middleware::Next, response::Response, routing::get, Router};
 
 #[cfg(not(feature = "private"))]
 pub fn global_service() -> Router {
@@ -26,7 +24,7 @@ pub async fn ee() -> String {
 }
 
 #[cfg(not(feature = "private"))]
-pub async fn has_scim_token<B>(_request: Request<B>, _next: Next) -> Response {
+pub async fn has_scim_token(_request: Request, _next: Next) -> Response {
     //Not implemented in open-source version
     todo!()
 }

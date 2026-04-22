@@ -48,7 +48,7 @@ let _nonDottedPathsLogged = false;
  */
 export function setNonDottedPaths(value: boolean): void {
   if (value && !_nonDottedPathsLogged) {
-    log.info("Using non-dotted paths (__flow, __app, __raw_app)");
+    log.debug("Using non-dotted paths (__flow, __app, __raw_app)");
     _nonDottedPathsLogged = true;
   }
   _nonDottedPaths = value;
@@ -155,6 +155,24 @@ export function getMetadataPathSuffix(
 // ============================================================================
 // Path Detection Functions
 // ============================================================================
+
+/**
+ * Check if a directory name uses the *wrong* folder suffix format for the
+ * current nonDottedPaths setting. Returns the resource type if mismatched,
+ * null if the name is fine (or not a resource folder at all).
+ *
+ * - nonDottedPaths=false (dotted mode): flags __flow, __app, __raw_app
+ * - nonDottedPaths=true  (non-dotted):  flags .flow, .app, .raw_app
+ */
+export function hasWrongFormatSuffix(dirName: string): FolderResourceType | null {
+  const wrongSuffixes = _nonDottedPaths ? DOTTED_SUFFIXES : NON_DOTTED_SUFFIXES;
+  for (const [type, suffix] of Object.entries(wrongSuffixes)) {
+    if (dirName.endsWith(suffix)) {
+      return type as FolderResourceType;
+    }
+  }
+  return null;
+}
 
 /** Normalize path separators to forward slash for cross-platform matching */
 function normalizeSep(p: string): string {
@@ -450,6 +468,28 @@ export function isRawAppFolderMetadataFile(p: string): boolean {
   return (
     p.endsWith(getMetadataPathSuffix("raw_app", "yaml")) ||
     p.endsWith(getMetadataPathSuffix("raw_app", "json"))
+  );
+}
+
+/**
+ * Check if a path ends with a specific app metadata file
+ * (inside the folder, e.g., ".app/app.yaml" or "__app/app.yaml")
+ */
+export function isAppFolderMetadataFile(p: string): boolean {
+  return (
+    p.endsWith(getMetadataPathSuffix("app", "yaml")) ||
+    p.endsWith(getMetadataPathSuffix("app", "json"))
+  );
+}
+
+/**
+ * Check if a path ends with a specific flow metadata file
+ * (inside the folder, e.g., ".flow/flow.yaml" or "__flow/flow.yaml")
+ */
+export function isFlowFolderMetadataFile(p: string): boolean {
+  return (
+    p.endsWith(getMetadataPathSuffix("flow", "yaml")) ||
+    p.endsWith(getMetadataPathSuffix("flow", "json"))
   );
 }
 

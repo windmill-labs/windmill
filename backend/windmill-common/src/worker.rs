@@ -17,12 +17,12 @@ use std::{
     panic::Location,
     path::{Component, Path, PathBuf},
     str::FromStr,
-    sync::{atomic::AtomicBool, Arc},
+    sync::atomic::AtomicBool,
     time::Duration,
 };
 #[cfg(windows)]
 use sysinfo::System;
-use tokio::{sync::RwLock, time::timeout};
+use tokio::time::timeout;
 use uuid::Uuid;
 use windmill_macros::annotations;
 
@@ -157,6 +157,8 @@ lazy_static::lazy_static! {
 
     pub static ref NATIVE_MODE: bool = std::env::var("NATIVE_MODE").ok().is_some_and(|x| x == "1" || x == "true");
 
+    pub static ref LIMIT_WINDOWS_TO_1CU: bool = std::env::var("LIMIT_WINDOWS_TO_1CU").ok().is_some_and(|x| x == "1" || x == "true");
+
     pub static ref CGROUP_V2_PATH_RE: Regex = Regex::new(r#"(?m)^0::(/.*)$"#).unwrap();
     pub static ref CGROUP_V2_CPU_RE: Regex = Regex::new(r#"(?m)^(\d+) \S+$"#).unwrap();
     pub static ref CGROUP_V1_INACTIVE_FILE_RE: Regex = Regex::new(r#"(?m)^total_inactive_file (\d+)$"#).unwrap();
@@ -184,6 +186,7 @@ lazy_static::lazy_static! {
         "nu".to_string(),
         "java".to_string(),
         "ruby".to_string(),
+        "rlang".to_string(),
         "duckdb".to_string(),
         // for related places search: ADD_NEW_LANG
         "dependency".to_string(),
@@ -204,7 +207,9 @@ lazy_static::lazy_static! {
     ];
 
     pub static ref DEFAULT_TAGS_PER_WORKSPACE: AtomicBool = AtomicBool::new(false);
-    pub static ref DEFAULT_TAGS_WORKSPACES: Arc<RwLock<Option<Vec<String>>>> = Arc::new(RwLock::new(None));
+    pub static ref DEFAULT_TAGS_WORKSPACES: arc_swap::ArcSwap<Option<Vec<String>>> = arc_swap::ArcSwap::from_pointee(None);
+    pub static ref FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX: AtomicBool = AtomicBool::new(false);
+    pub static ref PREVIEW_TAGS_OVERRIDE: AtomicBool = AtomicBool::new(false);
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()
@@ -216,7 +221,7 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or(*MAX_TIMEOUT);
 
-    pub static ref WORKER_CONFIG: Arc<RwLock<WorkerConfig>> = Arc::new(RwLock::new(WorkerConfig {
+    pub static ref WORKER_CONFIG: arc_swap::ArcSwap<WorkerConfig> = arc_swap::ArcSwap::from_pointee(WorkerConfig {
         worker_tags: Default::default(),
         priority_tags_sorted: Default::default(),
         dedicated_worker: Default::default(),
@@ -229,14 +234,14 @@ lazy_static::lazy_static! {
         pip_local_dependencies: Default::default(),
         env_vars: Default::default(),
         native_mode: false,
-    }));
+    });
 
-    pub static ref WORKER_PULL_QUERIES: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(vec![]));
-    pub static ref WORKER_SUSPENDED_PULL_QUERY: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
+    pub static ref WORKER_PULL_QUERIES: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
+    pub static ref WORKER_SUSPENDED_PULL_QUERY: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
 
 
-    pub static ref SMTP_CONFIG: Arc<RwLock<Option<Smtp>>> = Arc::new(RwLock::new(None));
-    pub static ref INDEXER_CONFIG: Arc<RwLock<TantivyIndexerSettings>> = Arc::new(RwLock::new(TantivyIndexerSettings::default()));
+    pub static ref SMTP_CONFIG: arc_swap::ArcSwap<Option<Smtp>> = arc_swap::ArcSwap::from_pointee(None);
+    pub static ref INDEXER_CONFIG: arc_swap::ArcSwap<TantivyIndexerSettings> = arc_swap::ArcSwap::from_pointee(TantivyIndexerSettings::default());
 
 
     pub static ref CLOUD_HOSTED: bool = std::env::var("CLOUD_HOSTED").is_ok();
@@ -246,9 +251,9 @@ lazy_static::lazy_static! {
         .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>()).unwrap_or_default();
 
 
-    pub static ref CUSTOM_TAGS_PER_WORKSPACE: Arc<RwLock<CustomTags>> = Arc::new(RwLock::new(CustomTags::default()));
+    pub static ref CUSTOM_TAGS_PER_WORKSPACE: arc_swap::ArcSwap<CustomTags> = arc_swap::ArcSwap::from_pointee(CustomTags::default());
 
-    pub static ref ALL_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(vec![]));
+    pub static ref ALL_TAGS: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
 
 
 
@@ -499,8 +504,7 @@ pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
         return;
     }
     let query = make_suspended_pull_query(&wc.worker_tags);
-    let mut l = WORKER_SUSPENDED_PULL_QUERY.write().await;
-    *l = query;
+    WORKER_SUSPENDED_PULL_QUERY.store(std::sync::Arc::new(query));
 }
 
 pub fn make_pull_query(tags: &[String]) -> String {
@@ -526,8 +530,7 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
         let query = make_pull_query(&tags.tags);
         queries.push(query);
     }
-    let mut l = WORKER_PULL_QUERIES.write().await;
-    *l = queries;
+    WORKER_PULL_QUERIES.store(std::sync::Arc::new(queries));
 }
 
 lazy_static::lazy_static! {
@@ -687,13 +690,9 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
         custom_tags.specific,
     );
 
-    {
-        let mut l = CUSTOM_TAGS_PER_WORKSPACE.write().await;
-        *l = custom_tags.clone()
-    }
-    {
-        let mut l = ALL_TAGS.write().await;
-        *l = [
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(custom_tags.clone()));
+    ALL_TAGS.store(std::sync::Arc::new(
+        [
             custom_tags.global.clone(),
             custom_tags
                 .specific
@@ -701,8 +700,8 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
                 .map(|x| x.to_string())
                 .collect_vec(),
         ]
-        .concat();
-    }
+        .concat(),
+    ));
     Ok(())
 }
 
@@ -725,6 +724,13 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
 #[annotations("#")]
 pub struct RubyAnnotations {
     pub verbose: bool,
+}
+
+#[annotations("#")]
+pub struct RlangAnnotations {
+    pub renv_verbose: bool,
+    pub renv_install_verbose: bool,
+    pub sandbox: bool,
 }
 
 #[annotations("#")]
@@ -1043,6 +1049,9 @@ pub fn get_vcpus() -> Option<i64> {
 
 #[cfg(windows)]
 pub fn get_vcpus() -> Option<i64> {
+    if *LIMIT_WINDOWS_TO_1CU {
+        return Some(100000); // 1 vCPU
+    }
     let mut sys = System::new();
     sys.refresh_cpu_all();
     (sys.cpus().len() * 100000).try_into().ok()
@@ -1092,6 +1101,9 @@ pub fn get_memory() -> Option<i64> {
 
 #[cfg(windows)]
 pub fn get_memory() -> Option<i64> {
+    if *LIMIT_WINDOWS_TO_1CU {
+        return Some(2 * 1024 * 1024 * 1024); // 2 GB
+    }
     let mut sys = System::new();
     sys.refresh_memory();
     Some(sys.total_memory() as i64)

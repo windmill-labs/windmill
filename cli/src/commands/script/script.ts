@@ -1,6 +1,7 @@
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import { readFile, writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { colors } from "@cliffy/ansi/colors";
@@ -23,10 +24,14 @@ import {
 
 import { Workspace } from "../workspace/workspace.ts";
 import {
+  checkifMetadataUptodate,
+  generateScriptHash,
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   parseMetadataFile,
+  readLockfile,
 } from "../../utils/metadata.ts";
+import { validateRequiredArgs } from "../../utils/utils.ts";
 import {
   WorkspaceDependenciesLanguage,
   ScriptLanguage,
@@ -48,6 +53,7 @@ import {
   readConfigFile,
 } from "../../core/conf.ts";
 import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
+import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 import fs from "node:fs";
 import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
 
@@ -101,7 +107,17 @@ export function isFlowInlineScriptPath(filePath: string): boolean {
   return isFlowInlineScriptPathInternal(filePath);
 }
 
-type PushOptions = GlobalOptions;
+type PushOptions = GlobalOptions & { message?: string };
+export async function computePushMetadataHash(
+  filePath: string,
+  content: string
+): Promise<string> {
+  const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
+  const metadataWithType = await parseMetadataFile(remotePath, undefined);
+  const metadataContent = await readFile(metadataWithType.path, "utf-8");
+  return await generateScriptHash({}, content, metadataContent);
+}
+
 async function push(opts: PushOptions, filePath: string) {
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
@@ -122,13 +138,35 @@ async function push(opts: PushOptions, filePath: string) {
   }
 
   await requireLogin(opts);
+
+  // Warn about metadata state before pushing
+  try {
+    const content = await readFile(filePath, "utf-8");
+    const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
+    const contentHash = await computePushMetadataHash(filePath, content);
+    const conf = await readLockfile();
+    const hasLockEntry = conf.locks && (conf.locks[remotePath] !== undefined || conf.locks[`${remotePath}.ts`] !== undefined);
+    if (!hasLockEntry) {
+      log.warn(colors.yellow(
+        `No metadata generated yet for ${filePath}. Run 'wmill generate-metadata' to generate schema and lock.`
+      ));
+    } else if (!(await checkifMetadataUptodate(remotePath, contentHash, conf))) {
+      log.warn(colors.yellow(
+        `Metadata for ${filePath} appears stale (content changed since last 'wmill generate-metadata').\n` +
+        `The schema and lock may not match the current code. Consider running 'wmill generate-metadata' first.`
+      ));
+    }
+  } catch {
+    // Don't block push if check fails
+  }
+
   const codebases = await listSyncCodebases(opts as SyncOptions);
 
   await handleFile(
     filePath,
     workspace,
     [],
-    undefined,
+    opts.message,
     opts,
     await getRawWorkspaceDependencies(true),
     codebases
@@ -149,11 +187,11 @@ export async function findResourceFile(path: string) {
 
   if (currentBranch) {
     // Add branch-specific candidates at the beginning (higher priority)
-    const branchSpecificJSON = specificItems.toBranchSpecificPath(
+    const branchSpecificJSON = specificItems.toWorkspaceSpecificPath(
       contentBasePathJSON,
       currentBranch
     );
-    const branchSpecificYAML = specificItems.toBranchSpecificPath(
+    const branchSpecificYAML = specificItems.toWorkspaceSpecificPath(
       contentBasePathYAML,
       currentBranch
     );
@@ -193,7 +231,8 @@ export async function handleScriptMetadata(
   message: string | undefined,
   rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[],
-  opts: GlobalOptions
+  opts: GlobalOptions,
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<boolean> {
   // Flat layout: my_script.script.yaml
   const isFlatMeta = path.endsWith(".script.json") ||
@@ -214,7 +253,8 @@ export async function handleScriptMetadata(
       message,
       opts,
       rawWorkspaceDependencies,
-      codebases
+      codebases,
+      permissionedAsContext
     );
   } else {
     return false;
@@ -236,7 +276,8 @@ export async function handleFile(
   message: string | undefined,
   opts: (GlobalOptions & { defaultTs?: "bun" | "deno" } & Skips) | undefined,
   rawWorkspaceDependencies: Record<string, string>,
-  codebases: SyncCodebase[]
+  codebases: SyncCodebase[],
+  permissionedAsContext?: PermissionedAsContext
 ): Promise<boolean> {
   // Detect module entry point: e.g., my_script__mod/script.ts
   const moduleEntryPoint = isModuleEntryPoint(path);
@@ -442,11 +483,21 @@ export async function handleFile(
       on_behalf_of_email: typed?.on_behalf_of_email,
       envs: typed?.envs,
       modules: modules,
+      labels: typed?.labels,
     };
 
-    // console.log(requestBodyCommon.codebase);
-    // log.info(JSON.stringify(requestBodyCommon, null, 2))
-    // log.info(JSON.stringify(opts, null, 2))
+    const hasOnBehalfOf = (typed as any)?.has_on_behalf_of ?? !!typed?.on_behalf_of_email;
+    delete (typed as any)?.has_on_behalf_of;
+
+    if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
+      if (remote && remote.on_behalf_of_email) {
+        requestBodyCommon.on_behalf_of_email = remote.on_behalf_of_email;
+        (requestBodyCommon as any).preserve_on_behalf_of = true;
+        log.info(`Preserving ${remote.on_behalf_of_email} as on_behalf_of for script ${remotePath}`);
+      }
+      // On create: backend applies folder defaults — no client-side resolution needed
+    }
+
     if (remote) {
       if (content === remote.content) {
         if (
@@ -481,7 +532,7 @@ export async function handleFile(
             typed.debounce_key == remote["debounce_key"] &&
             typed.debounce_delay_s == remote["debounce_delay_s"] &&
             typed.codebase == remote.codebase &&
-            typed.on_behalf_of_email == remote.on_behalf_of_email &&
+            (hasOnBehalfOf ? true : typed.on_behalf_of_email == remote.on_behalf_of_email) &&
             deepEqual(typed.envs, remote.envs) &&
             deepEqual(modules ?? null, remote.modules ?? null))
         ) {
@@ -494,6 +545,7 @@ export async function handleFile(
       const body = {
         ...requestBodyCommon,
         parent_hash: remote.hash,
+        auto_parent: true,
       };
       const execTime = await createScript(
         bundleContent,
@@ -806,6 +858,8 @@ export function filePathExtensionFromContentType(
     return ".java";
   } else if (language === "ruby") {
     return ".rb";
+  } else if (language === "rlang") {
+    return ".r";
     // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);
@@ -837,6 +891,7 @@ export const exts = [
   ".playbook.yml",
   ".java",
   ".rb",
+  ".r",
   // for related places search: ADD_NEW_LANG
 ];
 
@@ -857,6 +912,7 @@ async function list(
     json?: boolean;
   }
 ) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -919,40 +975,92 @@ async function run(
   },
   path: string
 ) {
+  if (opts.silent) {
+    log.setSilent(true);
+  }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
   const input = opts.data ? await resolve(opts.data) : {};
-  const id = await wmill.runScriptByPath({
-    workspace: workspace.workspaceId,
-    path,
-    requestBody: input,
-  });
+
+  // Validate required args against schema when no data provided
+  if (!opts.data) {
+    try {
+      const script = await wmill.getScriptByPath({
+        workspace: workspace.workspaceId,
+        path,
+      });
+      validateRequiredArgs(script.schema as Record<string, unknown>);
+    } catch (e: any) {
+      if (e.message?.startsWith("Missing required")) throw e;
+      log.warn(`Could not fetch schema to validate args: ${e.message}`);
+    }
+  }
+
+  let id: string;
+  try {
+    id = await wmill.runScriptByPath({
+      workspace: workspace.workspaceId,
+      path,
+      requestBody: input,
+    });
+  } catch (e: any) {
+    if (e?.status === 404) {
+      // Script might exist but have a lock/deployment error — check before giving up
+      try {
+        const script = await wmill.getScriptByPath({
+          workspace: workspace.workspaceId,
+          path,
+        });
+        if (script.lock_error_logs) {
+          throw new Error(
+            `Script '${path}' has a deployment error and cannot be run:\n${script.lock_error_logs}`
+          );
+        }
+      } catch (lookupErr: any) {
+        if (lookupErr?.message?.includes("deployment error")) throw lookupErr;
+        // Re-throw non-404 lookup errors (e.g. auth/network issues)
+        if (lookupErr?.status && lookupErr.status !== 404) throw lookupErr;
+      }
+      throw new Error(
+        `Script '${path}' not found. Run 'wmill script list' to see available scripts.`
+      );
+    }
+    throw e;
+  }
 
   if (!opts.silent) {
     await track_job(workspace.workspaceId, id);
   }
 
-  while (true) {
+  const MAX_RETRIES = 600; // ~60 seconds at 100ms intervals
+  let retries = 0;
+  while (retries < MAX_RETRIES) {
     try {
-      const result =
-        (
-          await wmill.getCompletedJob({
-            workspace: workspace.workspaceId,
-            id,
-          })
-        ).result ?? {};
+      const completedJob = await wmill.getCompletedJob({
+        workspace: workspace.workspaceId,
+        id,
+      });
 
+      if (completedJob.success === false) {
+        process.exitCode = 1;
+      }
+
+      const result = completedJob.result ?? {};
       if (opts.silent) {
-        console.log(result);
+        console.log(JSON.stringify(result));
       } else {
         log.info(JSON.stringify(result, null, 2));
       }
 
       break;
     } catch {
+      retries++;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+  }
+  if (retries >= MAX_RETRIES) {
+    throw new Error(`Timed out waiting for job ${id} to complete`);
   }
 }
 
@@ -1036,6 +1144,13 @@ export async function track_job(workspace: string, id: string) {
   }
 }
 
+export async function pollForJobResult(
+  workspace: string,
+  jobId: string,
+): Promise<{ result: unknown; success: boolean }> {
+  return await pollJobWithQueueLogging(workspace, jobId);
+}
+
 async function show(opts: GlobalOptions, path: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -1050,6 +1165,7 @@ async function show(opts: GlobalOptions, path: string) {
 }
 
 async function get(opts: GlobalOptions & { json?: boolean }, path: string) {
+  if (opts.json) log.setSilent(true);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const s = await wmill.getScriptByPath({
@@ -1086,7 +1202,10 @@ async function bootstrap(
 
   const scriptInitialCode = scriptBootstrapCode[resolvedLanguage];
   if (scriptInitialCode === undefined) {
-    throw new Error("Language unknown");
+    const validLanguages = Object.keys(scriptBootstrapCode).sort().join(", ");
+    throw new Error(
+      `Unknown language '${language}'. Valid languages: ${validLanguages}`
+    );
   }
 
   const config = await readConfigFile();
@@ -1156,7 +1275,7 @@ export async function generateMetadata(
     colors.yellow('This command is deprecated. Use "wmill generate-metadata" instead.')
   );
   log.info(
-    "This command only works for workspace scripts, for flows inline scripts use `wmill flow generate-locks`"
+    "This command only works for workspace scripts. For flows or apps, run `wmill generate-metadata` from the affected folder."
   );
   if (scriptPath == "") {
     scriptPath = undefined;
@@ -1261,6 +1380,9 @@ async function preview(
   } & SyncOptions,
   filePath: string
 ) {
+  if (opts.silent) {
+    log.setSilent(true);
+  }
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -1443,8 +1565,8 @@ async function preview(
       }
     }
   } else {
-    // For regular scripts, use the standard preview API
-    const result = await wmill.runScriptPreviewAndWaitResult({
+    // For regular scripts, start the preview job then poll for completion
+    const jobId = await wmill.runScriptPreview({
       workspace: workspace.workspaceId,
       requestBody: {
         content,
@@ -1455,8 +1577,21 @@ async function preview(
       },
     });
 
+    const { result, success } = await pollForJobResult(workspace.workspaceId, jobId);
+
+    if (!success) {
+      if (opts.silent) {
+        console.log(JSON.stringify(result));
+      } else {
+        log.info(colors.red.bold("Preview failed"));
+        log.info(JSON.stringify(result, null, 2));
+      }
+      process.exitCode = 1;
+      return;
+    }
+
     if (opts.silent) {
-      console.log(JSON.stringify(result, null, 2));
+      console.log(JSON.stringify(result));
     } else {
       log.info(colors.bold.underline.green("Preview completed"));
       log.info(JSON.stringify(result, null, 2));
@@ -1464,13 +1599,77 @@ async function preview(
   }
 }
 
+async function history(
+  opts: GlobalOptions & { json?: boolean },
+  scriptPath: string
+) {
+  if (opts.json) log.setSilent(true);
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const versions = await wmill.getScriptHistoryByPath({
+    workspace: workspace.workspaceId,
+    path: scriptPath,
+  });
+
+  if (opts.json) {
+    console.log(JSON.stringify(versions));
+  } else {
+    if (versions.length === 0) {
+      log.info("No version history found for " + scriptPath);
+      return;
+    }
+    new Table()
+      .header(["#", "Hash", "Created At", "Deployment Message"])
+      .padding(2)
+      .border(true)
+      .body(
+        versions.map((v, i) => [
+          String(versions.length - i),
+          v.script_hash,
+          v.created_at ? new Date(v.created_at).toLocaleString() : "-",
+          v.deployment_msg ?? "-",
+        ])
+      )
+      .render();
+  }
+}
+
+async function setPermissionedAs(
+  opts: GlobalOptions,
+  scriptPath: string,
+  email: string,
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  const remote = await wmill.getScriptByPath({
+    workspace: workspace.workspaceId,
+    path: scriptPath,
+  });
+  if (!remote) throw new Error(`Script ${scriptPath} not found`);
+
+  await wmill.createScript({
+    workspace: workspace.workspaceId,
+    requestBody: {
+      ...(remote as any),
+      lock: Array.isArray(remote.lock) ? remote.lock.join("\n") : remote.lock ?? undefined,
+      parent_hash: remote.hash,
+      on_behalf_of_email: email,
+      preserve_on_behalf_of: true,
+    },
+  });
+  log.info(colors.green(`Updated permissioned_as for script ${scriptPath} to ${email}`));
+}
+
 const command = new Command()
   .description("script related commands")
-  .option("--show-archived", "Enable archived scripts in output")
+  .option("--show-archived", "Show archived scripts instead of active ones")
   .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
   .command("list", "list all scripts")
-  .option("--show-archived", "Enable archived scripts in output")
+  .option("--show-archived", "Show archived scripts instead of active ones")
   .option("--json", "Output as JSON (for piping to jq)")
   .action(list as any)
   .command(
@@ -1478,6 +1677,7 @@ const command = new Command()
     "push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh)"
   )
   .arguments("<path:file>")
+  .option("--message <message:string>", "Deployment message")
   .action(push as any)
   .command("get", "get a script's details")
   .arguments("<path:file>")
@@ -1523,8 +1723,11 @@ const command = new Command()
   .action(bootstrap as any)
   .command(
     "generate-metadata",
-    "re-generate the metadata file updating the lock and the script schema (for flows, use `wmill flow generate-locks`)"
+    'DEPRECATED: re-generate script metadata. Use top-level "wmill generate-metadata" instead.'
   )
+  // Deprecated compatibility command. Keep it working for older repos, but
+  // exclude it from generated system prompt docs.
+  // @deprecated use `wmill generate-metadata`
   .arguments("[script:file]")
   .option("--yes", "Skip confirmation prompt")
   .option("--dry-run", "Perform a dry run without making changes")
@@ -1538,6 +1741,19 @@ const command = new Command()
     "-e --excludes <patterns:file[]>",
     "Comma separated patterns to specify which file to NOT take into account."
   )
-  .action(generateMetadata as any);
+  .action(generateMetadata as any)
+  .command(
+    "set-permissioned-as",
+    "Set the on_behalf_of_email for a script (requires admin or wm_deployers group)"
+  )
+  .arguments("<path:string> <email:string>")
+  .action(setPermissionedAs as any)
+  .command(
+    "history",
+    "show version history for a script"
+  )
+  .arguments("<path:string>")
+  .option("--json", "Output as JSON (for piping to jq)")
+  .action(history as any);
 
 export default command;

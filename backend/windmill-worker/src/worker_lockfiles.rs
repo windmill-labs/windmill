@@ -61,6 +61,8 @@ use crate::csharp_executor::generate_nuget_lockfile;
 #[cfg(feature = "java")]
 use crate::java_executor;
 
+#[cfg(feature = "rlang")]
+use crate::r_executor;
 #[cfg(feature = "ruby")]
 use crate::ruby_executor;
 
@@ -301,6 +303,33 @@ pub async fn handle_dependency_job(
             )
             .await?;
 
+            // Trigger CI tests for items that reference this script
+            tracing::debug!(
+                "CI test trigger: checking for tests referencing script {}",
+                script_path
+            );
+            {
+                let db2 = db.clone();
+                let w_id2 = w_id.to_string();
+                let script_path2 = script_path.to_string();
+                let email2 = job.permissioned_as_email.clone();
+                let username2 = job.created_by.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                        &db2,
+                        &w_id2,
+                        &script_path2,
+                        "script",
+                        &email2,
+                        &username2,
+                    )
+                    .await
+                    {
+                        tracing::error!(%e, "error triggering CI tests after script lock generation");
+                    }
+                });
+            }
+
             Ok(to_raw_value_owned(
                 json!({ "status": "Successful lock file generation", "lock": content }),
             ))
@@ -427,7 +456,7 @@ pub async fn handle_flow_dependency_job(
     // `JobKind::FlowDependencies` job store either:
     // - A saved flow version `id` in the `script_hash` column.
     // - Preview raw flow in the `queue` or `job` table.
-    let (mut flow, extras) = match job.runnable_id {
+    let (mut flow, mut extras) = match job.runnable_id {
         Some(ScriptHash(id)) => {
             let flow = cache::flow::fetch_version(db, id).await?;
             (flow.value().clone(), flow.extras())
@@ -436,6 +465,51 @@ pub async fn handle_flow_dependency_job(
             Some(RawData::Flow(data)) => (data.value().clone(), data.extras()),
             _ => return Err(Error::internal_err("expected script hash")),
         },
+    };
+
+    // When triggered by a relative import (e.g. a dependent script was updated),
+    // the version captured at job creation time may be stale if the flow was
+    // updated between job creation and execution. Re-query the latest version
+    // and read the current flow value from the flow table to avoid overwriting
+    // a newer flow definition with a stale one.
+    let version = if triggered_by_relative_import && !skip_flow_update {
+        let latest_version = sqlx::query_scalar!(
+            "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+            job_path,
+            job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?;
+
+        if let Some(latest_version) = latest_version {
+            if version != Some(latest_version) {
+                tracing::info!(
+                    "Flow version changed since dependency job was queued ({:?} -> {}), using latest",
+                    version,
+                    latest_version
+                );
+            }
+            // Read the current flow value from the flow table (not version cache).
+            // This ensures we have the latest committed state, including any locks
+            // computed by a concurrent FlowDependencies job from a direct flow update.
+            let raw_flow_value = sqlx::query_scalar!(
+                "SELECT value AS \"value!: Json<Box<RawValue>>\" FROM flow WHERE path = $1 AND workspace_id = $2",
+                job_path,
+                job.workspace_id
+            )
+            .fetch_one(db)
+            .await?;
+
+            let flow_data = cache::FlowData::from_raw(raw_flow_value.0)?;
+            flow = flow_data.value().clone();
+            extras = flow_data.extras();
+
+            Some(latest_version)
+        } else {
+            version
+        }
+    } else {
+        version
     };
 
     let mut tx = db.begin().await?;
@@ -573,6 +647,33 @@ pub async fn handle_flow_dependency_job(
 
         tx = dependency_map.dissolve(tx).await;
 
+        // When triggered by a relative import, re-check that our version is still
+        // the latest before writing. Between reading the flow value and now (module
+        // locking can take significant time), another job may have created a newer
+        // version. If so, skip the update — the newer version's dep job will handle it.
+        if triggered_by_relative_import {
+            let current_latest = sqlx::query_scalar!(
+                "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+                job_path,
+                job.workspace_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            if current_latest != Some(version) {
+                tracing::info!(
+                    "Flow version changed during dependency locking ({} -> {:?}), skipping update to avoid overwriting newer version",
+                    version,
+                    current_latest
+                );
+                tx.commit().await?;
+                return Ok(to_raw_value_owned(json!({
+                    "status": "Skipped: newer flow version exists",
+                    "modified_ids": modified_ids,
+                })));
+            }
+        }
+
         sqlx::query!(
             "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
             &new_flow_value as &Json<Box<RawValue>>,
@@ -602,11 +703,19 @@ pub async fn handle_flow_dependency_job(
         )
         .await?;
 
+        let value_lite_with_extras = Json(
+            serde_json::value::to_raw_value(&FlowValueWithExtras {
+                value: &value_lite,
+                notes: extras.as_ref().and_then(|e| e.notes.clone()),
+                groups: extras.as_ref().and_then(|e| e.groups.clone()),
+            })
+            .map_err(to_anyhow)?,
+        );
         sqlx::query!(
             "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
              ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
             version,
-            Json(value_lite) as Json<FlowValue>,
+            &value_lite_with_extras as &Json<Box<RawValue>>,
         )
         .execute(&mut *tx)
         .await?;
@@ -617,7 +726,9 @@ pub async fn handle_flow_dependency_job(
             // Making new version viewable as the current one.
             // This will also trigger `flow_versions_append_trigger` (check _flow_versions_update_notify.up.sql)
             // which will invalidate cache for the latest flow versions for all workers.
-            sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
+            // Only append if this version isn't already the last element in the array.
+            // This prevents duplicates when update_flow already appended this version.
+            sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3 AND (versions[array_upper(versions, 1)] IS DISTINCT FROM $1)",
                 version,
                 &job_path,
                 &job.workspace_id,
@@ -2752,6 +2863,21 @@ async fn capture_dependency_job(
                 &Connection::Sql(db.clone()),
                 worker_name,
                 w_id,
+            )
+            .await?
+        }
+        #[cfg(feature = "rlang")]
+        ScriptLang::Rlang => {
+            r_executor::resolve(
+                job_id,
+                job_raw_code,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                &Connection::Sql(db.clone()),
+                worker_name,
+                w_id,
+                false,
             )
             .await?
         }

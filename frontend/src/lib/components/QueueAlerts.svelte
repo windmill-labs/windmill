@@ -8,15 +8,13 @@
 	import { Plus, Edit3, Save, X, Trash, ExternalLink } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { twMerge } from 'tailwind-merge'
-	import { ConfigService, type Alert } from '$lib/gen'
+	import { ConfigService, SettingService, type Alert } from '$lib/gen'
 	import Tooltip from './Tooltip.svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 
 	let queueAlertConfig = $state<Alert[]>([])
 	let availableTags = $state<string[]>([])
-	let configName = 'alert__job_queue_waiting'
-
 	let editingRowIndex = $state<number>(-1)
 	let editForm = $state<{
 		tags_to_monitor: string[]
@@ -50,8 +48,8 @@
 
 	async function fetchConfig() {
 		try {
-			const response = await ConfigService.getConfig({ name: configName })
-			queueAlertConfig = response?.alerts || []
+			const response = await SettingService.getGlobal({ key: 'alert_job_queue_waiting' })
+			queueAlertConfig = (response as any)?.alerts || []
 			expandedTagRows = []
 		} catch (error) {
 			console.error('Failed to fetch config:', error)
@@ -60,12 +58,13 @@
 
 	async function fetchWorkerTags(): Promise<string[]> {
 		try {
-			const response = await ConfigService.listConfigs()
+			const response = await ConfigService.listWorkerGroups()
 			const workerTagsSet = new Set<string>()
 
-			response.forEach((config) => {
-				if (config.name.startsWith('worker__') && Array.isArray(config.config?.worker_tags)) {
-					config?.config?.worker_tags.forEach((tag) => workerTagsSet.add(tag))
+			response.forEach((wg) => {
+				const config = wg.config as any
+				if (Array.isArray(config?.worker_tags)) {
+					config.worker_tags.forEach((tag: string) => workerTagsSet.add(tag))
 				}
 			})
 
@@ -190,9 +189,9 @@
 	}
 
 	async function saveQueueAlertConfig() {
-		await ConfigService.updateConfig({
-			name: configName,
-			requestBody: { alerts: queueAlertConfig }
+		await SettingService.setGlobal({
+			key: 'alert_job_queue_waiting',
+			requestBody: { value: { alerts: queueAlertConfig } }
 		})
 	}
 

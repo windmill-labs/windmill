@@ -21,7 +21,7 @@ use windmill_common::{error::JsonResult, utils::StripPath, DB};
 /// that depends on windmill-api internals.
 pub fn workspaced_service() -> Router {
     windmill_api_scripts::scripts::workspaced_service()
-        .route("/get_triggers_count/*path", get(get_triggers_count))
+        .route("/get_triggers_count/{*path}", get(get_triggers_count))
 }
 
 async fn get_triggers_count(

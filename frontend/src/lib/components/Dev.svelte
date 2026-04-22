@@ -28,6 +28,7 @@
 	import FlowModuleSchemaMap from './flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from './flows/content/FlowEditorPanel.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { findModuleInFlow } from './flows/flowDiff'
 	import { writable } from 'svelte/store'
 	import type { FlowState } from './flows/flowState'
 	import { initHistory } from '$lib/history.svelte'
@@ -115,6 +116,8 @@
 	let flowContainerHeight = $state(0)
 	let flowHorizontalSplit = $derived(flowContainerWidth < flowContainerHeight)
 	let modeInitialized = $state(false)
+	let paneWidth = $state(0)
+	let compactPreview = $derived(paneWidth < 800)
 	function initializeMode() {
 		modeInitialized = true
 		darkModeToggle?.toggle()
@@ -723,6 +726,12 @@
 	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 
 	const selectedId = $derived(selectionManager.getSelectedId())
+
+	const selectedModule = $derived(
+		selectedId && flowStore.val?.value
+			? (findModuleInFlow(flowStore.val.value, selectedId) ?? undefined)
+			: undefined
+	)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -878,7 +887,7 @@
 			bind:clientWidth={flowContainerWidth}
 			bind:clientHeight={flowContainerHeight}
 		>
-			<div class="flex flex-col max-h-screen h-full relative">
+			<div class="flex flex-col max-h-screen h-full relative" bind:clientWidth={paneWidth}>
 				<div class="absolute top-0 left-2">
 					<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
 					{#if $userStore}
@@ -893,7 +902,11 @@
 						<div class="relative h-full w-full">
 							{#if flowStore.val?.value?.modules}
 								<div id="flow-editor"></div>
-								<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
+								<div
+									class="flex justify-center pt-1 z-50 absolute gap-2 {compactPreview
+										? 'left-1/2 -translate-x-1/2 top-14'
+										: 'right-2 top-2'}"
+								>
 									<FlowPreviewButtons
 										{suspendStatus}
 										bind:this={flowPreviewButtons}
@@ -957,6 +970,19 @@
 						{/key}
 					</Pane>
 				</Splitpanes>
+				{#if selectedModule}
+					<div
+						class="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-surface shrink-0"
+					>
+						<span class="text-xs text-secondary shrink-0">{selectedModule.id} summary</span>
+						<input
+							type="text"
+							class="text-xs w-full bg-transparent border border-border rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+							placeholder="Summary"
+							bind:value={selectedModule.summary}
+						/>
+					</div>
+				{/if}
 			</div>
 		</div>
 	{/if}

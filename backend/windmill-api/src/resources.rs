@@ -10,7 +10,7 @@ pub fn workspaced_service() -> Router {
     #[cfg(feature = "mcp")]
     use crate::mcp_tools::get_mcp_tools;
     #[cfg(feature = "mcp")]
-    let router = router.route("/mcp_tools/*path", get(get_mcp_tools));
+    let router = router.route("/mcp_tools/{*path}", get(get_mcp_tools));
 
     router
 }

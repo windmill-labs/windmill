@@ -4,7 +4,7 @@ import { DenoLandProvider } from "https://deno.land/x/cliffy@v0.25.7/command/upg
 
 import { main as runBenchmark } from "./benchmark_oneoff.ts";
 
-import { VERSION } from "./lib.ts";
+import { VERSION, loadJsonConfig } from "./lib.ts";
 
 type Config = {
   kind: string;
@@ -50,21 +50,12 @@ async function main({
   workers: number;
   factor?: number;
 }) {
-  async function getConfig(configPath: string): Promise<Config> {
-    if (configPath.startsWith("http")) {
-      const response = await fetch(configPath);
-      return await response.json();
-    } else {
-      return JSON.parse(await Deno.readTextFile(configPath));
-    }
-  }
-
   if (!Deno.args.includes("--no-warm-up")) {
     await warmUp(host, email, password, token, workspace);
   }
 
   try {
-    const config = await getConfig(configPath);
+    const config = await loadJsonConfig<Config>(configPath);
     for (const benchmark of config) {
       try {
         console.log(

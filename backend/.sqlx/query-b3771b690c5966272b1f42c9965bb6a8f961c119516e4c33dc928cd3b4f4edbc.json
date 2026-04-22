@@ -123,7 +123,8 @@
                 "nu",
                 "java",
                 "duckdb",
-                "ruby"
+                "ruby",
+                "rlang"
               ]
             }
           }
@@ -161,7 +162,9 @@
                 "gcp",
                 "mqtt",
                 "nextcloud",
-                "google"
+                "google",
+                "ci_test",
+                "github"
               ]
             }
           }

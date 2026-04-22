@@ -520,6 +520,7 @@ export class Triggers {
 			this.fetchMqttTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchNativeTriggers(triggersCountStore, 'nextcloud', workspaceId, path, isFlow, user),
 			this.fetchNativeTriggers(triggersCountStore, 'google', workspaceId, path, isFlow, user),
+			this.fetchNativeTriggers(triggersCountStore, 'github', workspaceId, path, isFlow, user),
 			...(get(enterpriseLicense)
 				? [
 						this.fetchKafkaTriggers(triggersCountStore, workspaceId, path, isFlow, user),

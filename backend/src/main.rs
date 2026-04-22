@@ -34,27 +34,29 @@ use windmill_common::ee_oss::{
     maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICENSE_KEY_VALID,
 };
 
+use windmill_ai::ai_cache::bump_instance_ai_config_revision;
 use windmill_common::{
     agent_workers::AgentConfig,
-    ai_cache::bump_instance_ai_config_revision,
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING,
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
         CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING,
+        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
+        INDEXER_SETTING, INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
         OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
-        RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING, WORKSPACE_REGISTRIES_SETTING,
+        POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
+        SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        UV_INDEX_STRATEGY_SETTING, WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -67,7 +69,7 @@ use windmill_common::{
         is_native_mode_from_env, reload_custom_tags_setting, Connection, HUB_CACHE_DIR,
         HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR, WINDMILL_DIR, WORKER_GROUP,
     },
-    KillpillSender, DEFAULT_HUB_BASE_URL, METRICS_ENABLED,
+    KillpillSender, DEFAULT_HUB_BASE_URL, INSTANCE_NAME, METRICS_ENABLED,
 };
 
 #[cfg(feature = "enterprise")]
@@ -94,16 +96,18 @@ use windmill_worker::{
     BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS,
     DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, JAVA_CACHE_DIR, NU_CACHE_DIR,
     POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
-    RUBY_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
+    RUBY_CACHE_DIR, RUST_CACHE_DIR, R_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
-    initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_require_preexisting_user,
-    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db,
-    reload_app_workspaced_route_setting, reload_audit_log_retention_days_setting,
-    reload_base_url_setting, reload_bunfig_install_scopes_setting,
-    reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
-    reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
+    initial_load, load_disable_password_login, load_fork_workspace_tag_append_fork_suffix,
+    load_keep_job_dir, load_metrics_debug_enabled, load_preview_tags_override,
+    load_require_preexisting_user, load_tag_per_workspace_enabled,
+    load_tag_per_workspace_workspaces, monitor_db, reload_app_workspaced_route_setting,
+    reload_audit_log_retention_days_setting, reload_base_url_setting,
+    reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
+    reload_critical_alerts_on_token_expiry_setting, reload_critical_error_channels_setting,
+    reload_extra_pip_index_url_setting, reload_http_route_workspaced_route_setting,
     reload_hub_api_secret_setting, reload_hub_base_url_setting,
     reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
     reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
@@ -531,51 +535,6 @@ fn print_help() {
     println!("- At startup, Windmill logs currently set configuration keys for visibility.");
 }
 
-async fn resync_custom_instance_user_pwd_if_needed(db: &Pool<Postgres>) {
-    use windmill_common::utils::get_custom_pg_instance_password;
-    use windmill_common::{get_database_url, PgDatabase};
-
-    let user_pwd = match get_custom_pg_instance_password(db).await {
-        Ok(pwd) => pwd,
-        Err(_) => {
-            // Setting doesn't exist yet (fresh install or pre-migration), skip check
-            return;
-        }
-    };
-
-    let mut pg_creds = match get_database_url().await {
-        Ok(url) => match PgDatabase::parse_uri(&url.as_str().await) {
-            Ok(creds) => creds,
-            Err(e) => {
-                tracing::warn!("Failed to parse database URL for custom_instance_user check: {e}");
-                return;
-            }
-        },
-        Err(e) => {
-            tracing::warn!("Failed to get database URL for custom_instance_user check: {e}");
-            return;
-        }
-    };
-
-    pg_creds.user = Some("custom_instance_user".to_string());
-    pg_creds.password = Some(user_pwd);
-
-    match pg_creds.connect().await {
-        Ok(_) => {
-            tracing::info!("custom_instance_user password is in sync");
-        }
-        Err(e) => {
-            tracing::warn!("custom_instance_user password is out of sync ({e}), refreshing...");
-            if let Err(e) = windmill_api_settings::refresh_custom_instance_user_pwd_inner(db).await
-            {
-                tracing::error!("Failed to refresh custom_instance_user password: {e}");
-            } else {
-                tracing::info!("Successfully refreshed custom_instance_user password");
-            }
-        }
-    }
-}
-
 async fn windmill_main() -> anyhow::Result<()> {
     let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
@@ -971,11 +930,6 @@ async fn windmill_main() -> anyhow::Result<()> {
 
         // NOTE: Variable/resource cache initialization moved to API server in windmill-api
 
-        // Check if custom_instance_user password is in sync
-        if server_mode {
-            resync_custom_instance_user_pwd_if_needed(&db).await;
-        }
-
         Connection::Sql(db)
     };
 
@@ -1012,7 +966,7 @@ Windmill Community Edition {GIT_VERSION}
                 std::process::exit(1);
             }
         }
-        let valid_key = *LICENSE_KEY_VALID.read().await;
+        let valid_key = LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed);
         if !valid_key && !server_mode {
             tracing::error!("Invalid license key, workers require a valid license key");
         }
@@ -1022,7 +976,7 @@ Windmill Community Edition {GIT_VERSION}
                 let renewed_now = maybe_renew_license_key_on_start(
                     &HTTP_CLIENT,
                     &db,
-                    !valid_key && !LICENSE_KEY_ID.read().await.is_empty(),
+                    !valid_key && !LICENSE_KEY_ID.load().is_empty(),
                 )
                 .await;
                 if renewed_now {
@@ -1099,6 +1053,9 @@ Windmill Community Edition {GIT_VERSION}
         }
 
         let addr = SocketAddr::from((server_bind_address, port));
+        let listener = tokio::net::TcpListener::bind(addr)
+            .await
+            .context("binding main windmill server")?;
 
         let (base_internal_tx, base_internal_rx) = tokio::sync::oneshot::channel::<String>();
 
@@ -1232,7 +1189,7 @@ Windmill Community Edition {GIT_VERSION}
                         db.clone(),
                         index_reader,
                         log_index_reader,
-                        addr,
+                        listener,
                         server_killpill_rx,
                         base_internal_tx,
                         server_mode,
@@ -1592,6 +1549,12 @@ async fn process_notify_event(
                 tracing::debug!("config changed but did not target this server/worker");
             }
         }
+        "restart_worker_group" => {
+            if worker_mode && payload == *WORKER_GROUP {
+                tracing::info!("Restart requested for worker group '{payload}'");
+                spawn_graceful_killpill(tx, db, 30, "worker group restart requested").await;
+            }
+        }
         "notify_webhook_change" => {
             tracing::info!(
                 "Webhook change detected, invalidating webhook cache: {}",
@@ -1738,6 +1701,18 @@ async fn process_notify_event(
                         );
                     }
                 }
+                FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING => {
+                    if let Err(e) = load_fork_workspace_tag_append_fork_suffix(db).await {
+                        tracing::error!(
+                            "Error loading fork workspace tag append fork suffix: {e:#}"
+                        );
+                    }
+                }
+                PREVIEW_TAGS_OVERRIDE_SETTING => {
+                    if let Err(e) = load_preview_tags_override(db).await {
+                        tracing::error!("Error loading preview tags override: {e:#}");
+                    }
+                }
                 SMTP_SETTING => {
                     reload_smtp_config(db).await;
                 }
@@ -1788,20 +1763,24 @@ async fn process_notify_event(
                     reload_otel_tracing_proxy_setting(conn).await;
                     if worker_mode {
                         tracing::info!("OTEL tracing proxy setting changed, restarting worker");
-                        send_delayed_killpill(tx, 4, "OTEL tracing proxy setting change").await;
+                        spawn_graceful_killpill(tx, db, 30, "OTEL tracing proxy setting change")
+                            .await;
                     }
                 }
                 REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
                     load_require_preexisting_user(db).await;
                 }
+                DISABLE_PASSWORD_LOGIN_SETTING => {
+                    load_disable_password_login(db).await;
+                }
                 EXPOSE_METRICS_SETTING => {
                     tracing::info!("Metrics setting changed, restarting");
-                    send_delayed_killpill(tx, 40, "metrics setting change").await;
+                    spawn_graceful_killpill(tx, db, 30, "metrics setting change").await;
                 }
                 EMAIL_DOMAIN_SETTING => {
                     tracing::info!("Email domain setting changed");
                     if server_mode {
-                        send_delayed_killpill(tx, 4, "email domain setting change").await;
+                        spawn_graceful_killpill(tx, db, 30, "email domain setting change").await;
                     }
                 }
                 EXPOSE_DEBUG_METRICS_SETTING => {
@@ -1814,25 +1793,42 @@ async fn process_notify_event(
                         tracing::error!(error = %e, "Could not reload app workspaced route setting");
                     }
                 }
+                HTTP_ROUTE_WORKSPACED_ROUTE_SETTING => {
+                    if let Err(e) = reload_http_route_workspaced_route_setting(db).await {
+                        tracing::error!(error = %e, "Could not reload http route workspaced route setting");
+                    }
+                    #[cfg(feature = "http_trigger")]
+                    match windmill_api::triggers::http::refresh_routers(db).await {
+                        Ok((true, _)) => {
+                            tracing::info!(
+                                "Refreshed HTTP routers (http workspaced route setting change)"
+                            );
+                        }
+                        Err(err) => {
+                            tracing::error!("Error refreshing HTTP routers (http workspaced route setting change): {err:#}");
+                        }
+                        _ => {}
+                    }
+                }
                 AI_CONFIG_SETTING => {
                     tracing::info!("AI config setting changed, bumping instance AI cache revision");
                     bump_instance_ai_config_revision();
                 }
                 OTEL_SETTING => {
                     tracing::info!("OTEL setting changed, restarting");
-                    send_delayed_killpill(tx, 4, "OTEL setting change").await;
+                    spawn_graceful_killpill(tx, db, 30, "OTEL setting change").await;
                 }
                 REQUEST_SIZE_LIMIT_SETTING => {
                     if server_mode {
                         tracing::info!("Request limit size change detected, killing server expecting to be restarted");
-                        send_delayed_killpill(tx, 4, "request size limit change").await;
+                        spawn_graceful_killpill(tx, db, 30, "request size limit change").await;
                     }
                 }
                 SAML_METADATA_SETTING => {
                     tracing::info!(
                         "SAML metadata change detected, killing server expecting to be restarted"
                     );
-                    send_delayed_killpill(tx, 0, "SAML metadata change").await;
+                    spawn_graceful_killpill(tx, db, 30, "SAML metadata change").await;
                 }
                 HUB_BASE_URL_SETTING => {
                     if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
@@ -1880,6 +1876,24 @@ async fn process_notify_event(
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                     tracing::info!("Workspace telemetry setting changed: enabled={}", enabled);
+                }
+                RESTART_COORDINATION_SETTING => {
+                    // Internal coordination key for staggered restarts, no action needed
+                }
+                "plain_emails_telemetry" => {
+                    let enabled = sqlx::query_scalar!(
+                        "SELECT value FROM global_settings WHERE name = 'plain_emails_telemetry'"
+                    )
+                    .fetch_optional(db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                    tracing::info!(
+                        "Plain emails telemetry setting changed: enabled={}",
+                        enabled
+                    );
                 }
                 _ => {
                     tracing::info!("Unrecognized Global Setting Change Payload: {:?}", payload);
@@ -1965,6 +1979,7 @@ pub async fn run_workers(
         &*POWERSHELL_CACHE_DIR,
         &*JAVA_CACHE_DIR,
         &*RUBY_CACHE_DIR,
+        &*R_CACHE_DIR,
         &*TAR_JAVA_CACHE_DIR, // for related places search: ADD_NEW_LANG
     ] {
         DirBuilder::new()
@@ -2022,14 +2037,188 @@ pub async fn run_workers(
     Ok(())
 }
 
-async fn send_delayed_killpill(tx: &KillpillSender, mut max_delay_secs: u64, context: &str) {
-    if max_delay_secs == 0 {
-        max_delay_secs = 1;
-    }
-    // Random delay to avoid all servers/workers shutting down simultaneously
-    let rd_delay = rand::rng().random_range(0..max_delay_secs);
-    tracing::info!("Scheduling {context} shutdown in {rd_delay}s");
-    tokio::time::sleep(Duration::from_secs(rd_delay)).await;
+/// Schedule a graceful restart with DB-coordinated staggering.
+///
+/// Uses a PostgreSQL advisory lock to serialize restart scheduling across server instances.
+/// Each instance records its planned restart time in the `_restart_coordination` global setting;
+/// subsequent instances read existing schedules and shift their restart to maintain at least
+/// `safety_margin_secs` between consecutive restarts (must exceed the server startup time).
+///
+/// Every server waits at least `DRAIN_DELAY_SECS` to let in-flight requests complete.
+/// Each subsequent server waits an additional `safety_margin_secs` after the previous one,
+/// guaranteeing zero downtime overlap.
+///
+/// The DB coordination is done synchronously (fast, ~ms) to reserve our restart slot,
+/// then the sleep+kill is spawned in the background so the notification handler is not blocked.
+///
+/// Falls back to drain-only delay if DB coordination fails.
+async fn spawn_graceful_killpill(
+    tx: &KillpillSender,
+    db: &Pool<Postgres>,
+    safety_margin_secs: u64,
+    context: &str,
+) {
+    // Minimum delay before any restart to let in-flight requests drain
+    const DRAIN_DELAY_SECS: u64 = 3;
 
-    tx.send();
+    let (delay, is_first) =
+        match coordinate_restart_delay(db, safety_margin_secs, DRAIN_DELAY_SECS).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to coordinate restart for {context}: {e:#}, \
+                     falling back to drain delay of {DRAIN_DELAY_SECS}s"
+                );
+                (DRAIN_DELAY_SECS, true)
+            }
+        };
+
+    tracing::info!(
+        "Scheduling {context} graceful shutdown in {delay}s (first_to_restart={is_first})"
+    );
+    let tx = tx.clone();
+    let db = db.clone();
+    let context = context.to_string();
+    // Capture the current time so the health check only considers heartbeats
+    // written *after* this restart was initiated (not stale pre-restart ones).
+    let not_before = chrono::Utc::now();
+    tokio::spawn(async move {
+        if !is_first {
+            // Non-first instance: wait for another server to announce itself as
+            // started (via the coordination record) before shutting down, ensuring
+            // zero-downtime. Falls back to the computed delay as a maximum timeout.
+            let started_waiting = tokio::time::Instant::now();
+            let max_wait = Duration::from_secs(delay.max(safety_margin_secs).max(120));
+            loop {
+                if windmill_api::check_any_server_started(&db, not_before).await {
+                    tracing::info!(
+                        "{context}: healthy peer detected after {:.1}s, proceeding with shutdown",
+                        started_waiting.elapsed().as_secs_f64()
+                    );
+                    break;
+                }
+                if started_waiting.elapsed() >= max_wait {
+                    tracing::warn!(
+                        "{context}: no healthy peer detected after {:.1}s, proceeding with shutdown anyway",
+                        started_waiting.elapsed().as_secs_f64()
+                    );
+                    break;
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        } else {
+            tokio::time::sleep(Duration::from_secs(delay)).await;
+        }
+        tx.send();
+    });
+}
+
+/// Coordinate a restart delay with other instances via the DB.
+///
+/// Returns `(delay_secs, is_first)`:
+/// - `delay_secs`: how long to wait before restarting
+/// - `is_first`: whether this instance is the first to schedule a restart
+///
+/// The first server restarts immediately (0 delay) to maximize its head-start.
+/// Subsequent servers use a safety margin after the latest scheduled restart as a
+/// fallback timeout, but primarily wait for a health-check (see `spawn_graceful_killpill`).
+async fn coordinate_restart_delay(
+    db: &Pool<Postgres>,
+    safety_margin_secs: u64,
+    drain_delay_secs: u64,
+) -> anyhow::Result<(u64, bool)> {
+    const RESTART_LOCK_ID: i64 = 737_483_920;
+    // Stale threshold: ignore coordination entries older than this
+    const STALE_THRESHOLD_SECS: i64 = 120;
+
+    let now = chrono::Utc::now();
+
+    let mut tx = db.begin().await.context("begin restart coordination tx")?;
+
+    // Serialize access across all instances
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(RESTART_LOCK_ID)
+        .execute(&mut *tx)
+        .await
+        .context("acquire restart coordination lock")?;
+
+    // Read existing coordination record
+    let existing: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT value FROM global_settings WHERE name = $1")
+            .bind(RESTART_COORDINATION_SETTING)
+            .fetch_optional(&mut *tx)
+            .await
+            .context("read restart coordination")?;
+
+    // Parse existing scheduled restarts, filtering out stale entries
+    // Each entry is (instance_name, restart_at)
+    let mut scheduled: Vec<(String, chrono::DateTime<chrono::Utc>)> = Vec::new();
+    if let Some(val) = &existing {
+        if let Some(arr) = val.get("restarts").and_then(|v| v.as_array()) {
+            for entry in arr {
+                let instance = entry
+                    .get("instance")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                if let Some(ts_str) = entry.get("restart_at").and_then(|v| v.as_str()) {
+                    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts_str) {
+                        let dt = dt.with_timezone(&chrono::Utc);
+                        let stale_cutoff = now - chrono::Duration::seconds(STALE_THRESHOLD_SECS);
+                        if dt > stale_cutoff {
+                            scheduled.push((instance, dt));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Find the latest scheduled restart
+    let latest = scheduled.iter().map(|(_, dt)| *dt).max();
+    let is_first = latest.is_none();
+    let earliest_allowed = now + chrono::Duration::seconds(drain_delay_secs as i64);
+
+    // Our restart time:
+    // - First instance (no prior scheduled restarts): brief 1s delay to let in-flight
+    //   requests (like the settings save) complete, then restart quickly to maximize
+    //   head-start before subsequent instances shut down.
+    // - Subsequent instances: safety_margin after the latest scheduled restart (used as
+    //   a fallback timeout; the actual shutdown is gated by a health-check in the caller).
+    let our_restart = match latest {
+        Some(last) => {
+            let after_last = last + chrono::Duration::seconds(safety_margin_secs as i64);
+            // Use whichever is later: drain delay or staggered position
+            earliest_allowed.max(after_last)
+        }
+        None => now + chrono::Duration::seconds(1),
+    };
+
+    // Record our restart time (deduplicate: remove any prior entry for this instance)
+    scheduled.retain(|(inst, _)| inst != &*INSTANCE_NAME);
+    scheduled.push((INSTANCE_NAME.clone(), our_restart));
+    let new_value = serde_json::json!({
+        "restarts": scheduled.iter().map(|(inst, dt)| {
+            serde_json::json!({
+                "instance": inst,
+                "restart_at": dt.to_rfc3339()
+            })
+        }).collect::<Vec<_>>()
+    });
+
+    sqlx::query(
+        "INSERT INTO global_settings (name, value, updated_at) \
+         VALUES ($1, $2, now()) \
+         ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
+    )
+    .bind(RESTART_COORDINATION_SETTING)
+    .bind(&new_value)
+    .execute(&mut *tx)
+    .await
+    .context("write restart coordination")?;
+
+    tx.commit().await.context("commit restart coordination")?;
+
+    let delay = (our_restart - now).num_seconds().max(0) as u64;
+    Ok((delay, is_first))
 }

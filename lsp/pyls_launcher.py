@@ -2,6 +2,8 @@ import logging
 import subprocess
 import threading
 import os
+import urllib.request
+import urllib.error
 
 from tornado import ioloop, process, web, websocket
 
@@ -14,6 +16,65 @@ except Exception:  # pylint: disable=broad-except
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
+
+
+# Path where ruff (spawned with workspace rooted at /tmp/monaco) will discover
+# a ruff.toml. Ruff walks up from the file being linted looking for a
+# ruff.toml / .ruff.toml / pyproject.toml, so dropping it here covers every
+# python editor session.
+RUFF_CONFIG_PATH = "/tmp/monaco/ruff.toml"
+# How often to re-fetch the instance ruff config from the backend. Existing
+# ruff server processes won't pick up the change mid-session, but the next
+# editor reload / WebSocket reconnect will.
+RUFF_CONFIG_POLL_INTERVAL_SECS = int(os.environ.get("RUFF_CONFIG_POLL_INTERVAL_SECS", "60"))
+
+
+def _sync_ruff_config_once():
+    """Fetch the instance ruff config from the windmill backend and write it
+    to disk. No-op when WINDMILL_BASE_URL is unset (e.g., running the LSP
+    standalone for local development)."""
+    base_url = os.environ.get("WINDMILL_BASE_URL") or os.environ.get("BASE_INTERNAL_URL")
+    if not base_url:
+        return
+    url = base_url.rstrip("/") + "/api/settings_u/ruff_config"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            body = resp.read().decode("utf-8")
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        log.warning("Could not fetch instance ruff config from %s: %s", url, e)
+        return
+
+    try:
+        existing = ""
+        if os.path.exists(RUFF_CONFIG_PATH):
+            with open(RUFF_CONFIG_PATH, "r") as f:
+                existing = f.read()
+        if existing == body:
+            return
+        if body:
+            os.makedirs(os.path.dirname(RUFF_CONFIG_PATH), exist_ok=True)
+            with open(RUFF_CONFIG_PATH, "w") as f:
+                f.write(body)
+            log.info("Wrote instance ruff config to %s (%d bytes)", RUFF_CONFIG_PATH, len(body))
+        elif os.path.exists(RUFF_CONFIG_PATH):
+            os.remove(RUFF_CONFIG_PATH)
+            log.info("Removed %s (instance ruff config is empty)", RUFF_CONFIG_PATH)
+    except OSError as e:
+        log.warning("Could not write ruff config to %s: %s", RUFF_CONFIG_PATH, e)
+
+
+def start_ruff_config_poller():
+    """Fetch the ruff config once synchronously, then poll in the background."""
+    _sync_ruff_config_once()
+
+    def loop():
+        import time
+        while True:
+            time.sleep(RUFF_CONFIG_POLL_INTERVAL_SECS)
+            _sync_ruff_config_once()
+
+    t = threading.Thread(target=loop, name="ruff-config-poller", daemon=True)
+    t.start()
 
 
 class LanguageServerWebSocketHandler(websocket.WebSocketHandler):
@@ -121,6 +182,11 @@ if __name__ == "__main__":
         f = open(go_mod_path, "w")
         f.write("module mymod\ngo 1.26")
         f.close()
+
+    # Sync instance-level ruff config into /tmp/monaco/ruff.toml so every
+    # spawned `ruff server` picks it up.
+    start_ruff_config_poller()
+
     port = int(os.environ.get("PORT", "3001"))
     app = web.Application(
         [

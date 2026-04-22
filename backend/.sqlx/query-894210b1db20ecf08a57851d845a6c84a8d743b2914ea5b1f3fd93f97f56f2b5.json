@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT source_workspace_id, requested_by, requested_by_email, closed_at FROM workspace_fork_deployment_request WHERE id = $1 AND fork_workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "source_workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "requested_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "requested_by_email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "closed_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "894210b1db20ecf08a57851d845a6c84a8d743b2914ea5b1f3fd93f97f56f2b5"
+}

@@ -1,1 +1,1 @@
-export * from "./parse-schema.ts";
+export * from "./parse-schema";

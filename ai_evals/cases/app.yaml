@@ -1,0 +1,151 @@
+- id: app-test1-counter-create
+  prompt: |-
+    Create a simple counter app with increment and decrement buttons.
+  judgeChecklist:
+    - shows the current count in the UI
+    - includes an increment button
+    - includes a decrement button
+    - clicking the buttons updates the count correctly
+
+- id: app-test2-counter-reset
+  prompt: |-
+    Add a reset button that sets the counter back to 0
+  initial: ai_evals/fixtures/frontend/app/initial/test1_counter_app
+  judgeChecklist:
+    - adds a reset control to the existing counter app
+    - clicking reset sets the count back to 0
+    - keeps the existing increment and decrement behavior working
+
+- id: app-test3-shopping-cart-quantity
+  prompt: |-
+    Add a quantity selector (+ and - buttons) to each cart item so users can adjust quantities without removing and re-adding items
+  initial: ai_evals/fixtures/frontend/app/initial/shopping_cart
+  judgeChecklist:
+    - each cart item has visible plus and minus quantity controls
+    - users can increase quantity without re-adding the product
+    - users can decrease quantity from the cart UI
+    - cart totals stay in sync with quantity changes
+
+- id: app-test4-shopping-cart-discount
+  prompt: |-
+    Add a discount code input field in the cart.
+    When the code "SAVE10" is entered, apply a 10% discount to the total
+  initial: ai_evals/fixtures/frontend/app/initial/shopping_cart
+  judgeChecklist:
+    - adds a discount code input to the cart
+    - recognizes the code SAVE10
+    - applies a 10 percent discount to the displayed total
+    - keeps the rest of the cart behavior intact
+
+- id: app-test5-file-manager-search
+  prompt: |-
+    Add a search bar in the toolbar that filters files and folders by name as the user types
+  initial: ai_evals/fixtures/frontend/app/initial/file_manager
+  judgeChecklist:
+    - adds a search input in the toolbar
+    - filters files and folders by name as the user types
+    - updates the visible file list from the search query
+    - keeps the rest of the file manager usable
+
+- id: app-test6-file-manager-inline-rename
+  prompt: |-
+    Let users rename files and folders directly from the file list without leaving the page.
+  initial: ai_evals/fixtures/frontend/app/initial/file_manager
+  judgeChecklist:
+    - adds a visible rename action or inline edit mode in the file list
+    - lets users edit an item's name directly from the list
+    - saves the renamed item through the app's existing rename behavior
+    - refreshes the displayed name after a successful rename
+
+- id: app-test7-file-manager-select-all
+  prompt: |-
+    Add a "Select All" checkbox in the file list header and individual checkboxes for each file.
+    Add a "Delete Selected" button that appears when items are selected
+  initial: ai_evals/fixtures/frontend/app/initial/file_manager
+  judgeChecklist:
+    - adds a select-all control in the file list header
+    - adds per-item selection controls
+    - shows a delete-selected action only when there is a selection
+    - deleting selected items updates the visible list
+
+- id: app-test8-inventory-tracker-search-delete
+  prompt: |-
+    Update this inventory tracker app so users can search items by name or sku and delete existing items.
+    Keep the existing add-item flow and datatable-backed persistence working.
+  initial: ai_evals/fixtures/frontend/app/initial/inventory_tracker
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    requiredBackendRunnableKeys:
+      - listInventory
+      - addInventory
+      - deleteInventory
+    requiredBackendRunnableTypes:
+      - key: listInventory
+        type: inline
+      - key: addInventory
+        type: inline
+      - key: deleteInventory
+        type: inline
+    requiredDatatables:
+      - datatableName: main
+        schema: public
+        table: inventory_items
+  judgeChecklist:
+    - keeps the existing add-item form working
+    - adds a search input that filters inventory by name or sku
+    - adds a delete action for existing inventory items
+    - deleting an inventory item updates the visible list
+    - keeps inventory persistence working through the existing datatable-backed app setup
+
+- id: app-test9-recipe-book-search-delete
+  prompt: |-
+    Update this recipe book app so users can search recipes by name and delete existing recipes.
+    Keep the existing add-recipe flow and datatable-backed persistence working.
+  initial: ai_evals/fixtures/frontend/app/initial/recipe_book
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    requiredBackendRunnableKeys:
+      - listRecipes
+      - addRecipe
+      - deleteRecipe
+    requiredBackendRunnableTypes:
+      - key: listRecipes
+        type: inline
+      - key: addRecipe
+        type: inline
+      - key: deleteRecipe
+        type: inline
+    requiredDatatables:
+      - datatableName: main
+        schema: public
+        table: recipes
+  judgeChecklist:
+    - keeps the existing add-recipe form working
+    - adds a search input that filters recipes by name
+    - adds a delete action for existing recipes
+    - deleting a recipe updates the visible list
+    - keeps recipe persistence working through the existing datatable-backed app setup
+
+- id: app-test10-session-id-no-crypto
+  prompt: |-
+    Update `generateSessionId` so it no longer uses `crypto.randomUUID()`.
+    Make it return a handmade string id built from the current time and random characters.
+    Keep the existing sessionStorage-based chat session behavior unchanged.
+  initial: ai_evals/fixtures/frontend/app/initial/session_id_chat
+  runtime:
+    maxTurns: 4
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    requiredBackendRunnableKeys:
+      - a
+    requiredBackendRunnableTypes:
+      - key: a
+        type: inline
+  judgeChecklist:
+    - generateSessionId no longer calls crypto.randomUUID
+    - generateSessionId returns a handmade string id without using crypto
+    - getSessionId still stores and reuses chat_session_id in sessionStorage
+    - the existing new chat and send message session behavior remains wired up

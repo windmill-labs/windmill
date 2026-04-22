@@ -361,12 +361,10 @@ async fn handle_ansible_python_deps(
     create_dependencies_dir(job_dir).await;
 
     let mut additional_python_paths: Vec<String> = WORKER_CONFIG
-        .read()
-        .await
+        .load()
         .additional_python_paths
         .clone()
-        .unwrap_or_else(|| vec![])
-        .clone();
+        .unwrap_or_else(|| vec![]);
 
     let mut requirements;
     let requirements = match requirements_o {

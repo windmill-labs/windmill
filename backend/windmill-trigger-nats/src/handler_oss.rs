@@ -8,7 +8,7 @@ use windmill_trigger::TriggerData;
 #[cfg(not(feature = "private"))]
 use {
     super::NatsTrigger,
-    axum::async_trait,
+    async_trait::async_trait,
     sqlx::PgConnection,
     windmill_api_auth::ApiAuthed,
     windmill_common::{

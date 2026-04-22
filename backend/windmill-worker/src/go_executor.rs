@@ -82,7 +82,8 @@ lazy_static::lazy_static! {
     static ref GO_PATH: String = std::env::var("GO_PATH").unwrap_or_else(|_| "/usr/bin/go".to_string());
 }
 
-pub const GO_OBJECT_STORE_PREFIX: &str = "gobin/";
+pub const GO_OBJECT_STORE_PREFIX: &str =
+    const_format::concatcp!(crate::global_cache::TARGET, "_gobin/");
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_go_job(
     mem_peak: &mut i32,
@@ -358,7 +359,16 @@ func Run(req Req) (interface{{}}, error){{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Go, &job.id, &job.workspace_id, conn).await?)
+            .envs(
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Go,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -379,7 +389,16 @@ func Run(req Req) (interface{{}}, error){{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Go, &job.id, &job.workspace_id, conn).await?)
+            .envs(
+                get_proxy_envs_for_lang(
+                    &ScriptLang::Go,
+                    job.kind,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?,
+            )
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)

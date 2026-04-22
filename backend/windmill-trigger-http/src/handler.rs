@@ -2,16 +2,17 @@ use super::{
     validate_authentication_method, HttpConfig, HttpConfigRequest, HttpMethod, HttpTrigger,
     RouteExists, ROUTE_PATH_KEY_RE, VALID_ROUTE_PATH_RE,
 };
-use axum::{async_trait, extract::Path, routing::post, Extension, Json, Router};
+use async_trait::async_trait;
+use axum::{extract::Path, routing::post, Extension, Json, Router};
 use http::StatusCode;
 use sqlx::PgConnection;
 use std::collections::HashSet;
 use windmill_api_auth::ApiAuthed;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    utils::require_admin,
     worker::CLOUD_HOSTED,
     DB,
 };
@@ -61,11 +62,12 @@ pub async fn route_path_key_exists(
         .await?
         .unwrap_or(false)
     } else {
-        let route_path_key = match workspaced_route {
-            Some(true) => {
-                std::borrow::Cow::Owned(format!("{}/{}", w_id, route_path_key.trim_matches('/')))
-            }
-            _ => std::borrow::Cow::Borrowed(route_path_key),
+        let http_route_workspaced = HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+        let effective_workspaced = workspaced_route.unwrap_or(false) || http_route_workspaced;
+        let route_path_key = if effective_workspaced {
+            std::borrow::Cow::Owned(format!("{}/{}", w_id, route_path_key.trim_matches('/')))
+        } else {
+            std::borrow::Cow::Borrowed(route_path_key)
         };
 
         sqlx::query_scalar!(
@@ -136,6 +138,23 @@ fn check_no_duplicates(
     Ok(())
 }
 
+/// Checks that non-admin users are only creating/editing workspaced HTTP triggers.
+/// Returns the effective workspaced value (combining per-trigger flag and global setting).
+/// Admins can create both workspaced and instance-wide routes.
+async fn require_admin_for_instance_wide_route(
+    is_admin: bool,
+    workspaced_route: Option<bool>,
+) -> Result<bool> {
+    let http_route_workspaced = HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+    let effective_workspaced = workspaced_route.unwrap_or(false) || http_route_workspaced;
+    if !is_admin && !effective_workspaced {
+        return Err(Error::NotAuthorized(
+            "Non-admin users can only create workspaced HTTP triggers. Enable the workspace prefix for this route.".to_string(),
+        ));
+    }
+    Ok(effective_workspaced)
+}
+
 pub async fn insert_new_trigger_into_db(
     authed: &ApiAuthed,
     _db: &DB,
@@ -144,7 +163,9 @@ pub async fn insert_new_trigger_into_db(
     trigger: &TriggerData<HttpConfigRequest>,
     route_path_key: &str,
 ) -> Result<()> {
-    require_admin(authed.is_admin, &authed.username)?;
+    let effective_workspaced =
+        require_admin_for_instance_wide_route(authed.is_admin, trigger.config.workspaced_route)
+            .await?;
 
     let request_type = trigger.config.request_type;
     let resolved_edited_by = trigger.base.resolve_edited_by(authed);
@@ -186,7 +207,7 @@ pub async fn insert_new_trigger_into_db(
             trigger.base.path,
             trigger.config.route_path,
             route_path_key,
-            trigger.config.workspaced_route.unwrap_or(false),
+            effective_workspaced,
             trigger.config.authentication_resource_path,
             trigger.config.wrap_body.unwrap_or(false),
             trigger.config.raw_string.unwrap_or(false),
@@ -218,7 +239,7 @@ pub async fn create_many_http_triggers(
     Path(w_id): Path<String>,
     Json(new_http_triggers): Json<Vec<TriggerData<HttpConfigRequest>>>,
 ) -> Result<(StatusCode, String)> {
-    require_admin(authed.is_admin, &authed.username)?;
+    // Admin check for instance-wide routes is done per-trigger in insert_new_trigger_into_db
 
     let handler = HttpTrigger;
 
@@ -260,6 +281,18 @@ pub async fn create_many_http_triggers(
         )
         .await
         .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
+
+        if let Some(labels) = &new_http_trigger.base.labels {
+            sqlx::query!(
+                "UPDATE http_trigger SET labels = $1 WHERE workspace_id = $2 AND path = $3",
+                labels as &[String],
+                &w_id,
+                &new_http_trigger.base.path
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err.into()))?;
+        }
 
         audit_log(
             &mut *tx,
@@ -432,7 +465,11 @@ impl TriggerCrud for HttpTrigger {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
 
-        if authed.is_admin {
+        let http_route_workspaced = HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+        let effective_workspaced =
+            trigger.config.workspaced_route.unwrap_or(false) || http_route_workspaced;
+
+        if authed.is_admin || effective_workspaced {
             if trigger.config.route_path.is_empty() {
                 return Err(Error::BadRequest("route_path is required".to_string()));
             };
@@ -481,7 +518,7 @@ impl TriggerCrud for HttpTrigger {
             "#,
                 route_path,
                 &route_path_key,
-                trigger.config.workspaced_route,
+                Some(effective_workspaced),
                 trigger.config.wrap_body,
                 trigger.config.raw_string,
                 trigger.config.authentication_resource_path,

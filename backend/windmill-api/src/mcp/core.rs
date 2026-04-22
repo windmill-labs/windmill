@@ -436,7 +436,7 @@ pub async fn add_www_authenticate_header(
 
     // Only add header to 401 Unauthorized responses
     if response.status() == StatusCode::UNAUTHORIZED {
-        let base_url = BASE_URL.read().await;
+        let base_url = BASE_URL.load();
 
         // RFC 9728: The resource parameter contains the protected resource URL.
         // Clients derive the metadata URL by inserting /.well-known/oauth-protected-resource
@@ -507,7 +507,7 @@ pub async fn add_www_authenticate_header_gateway(
     let response = next.run(request).await;
 
     if response.status() == StatusCode::UNAUTHORIZED {
-        let base_url = BASE_URL.read().await;
+        let base_url = BASE_URL.load();
         let resource_url = format!("{}/api/mcp/gateway", base_url);
         let www_authenticate = format!("Bearer resource=\"{}\"", resource_url);
 
@@ -546,7 +546,7 @@ pub async fn setup_mcp_server(
     let service =
         StreamableHttpService::new(move || Ok(runner.clone()), session_manager, service_config);
 
-    let router = Router::new().nest_service("/", service);
+    let router = Router::new().route_service("/", service);
     Ok((router, cancellation_token))
 }
 

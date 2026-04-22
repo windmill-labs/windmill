@@ -28,10 +28,8 @@ use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
 use std::borrow::Cow;
 use std::fmt::Display;
-use std::sync::Arc;
 use std::{fs::DirBuilder as SyncDirBuilder, str::FromStr};
 use tokio::fs::DirBuilder as AsyncDirBuilder;
-use tokio::sync::RwLock;
 use url::Url;
 
 pub const MAX_PER_PAGE: usize = 10000;
@@ -46,13 +44,13 @@ pub const AGENT_WORKER_NAME_PREFIX: &str = "ag";
 
 use crate::CRITICAL_ALERT_MUTE_UI_ENABLED;
 use std::panic::{self, AssertUnwindSafe, Location};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::worker::CLOUD_HOSTED;
 
 lazy_static::lazy_static! {
     pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
-    pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref IS_SECURE: AtomicBool = AtomicBool::new(false);
 
     pub static ref FORCE_IPV4: bool = std::env::var("FORCE_IPV4")
         .map(|v| v.to_lowercase() == "true" || v == "1")
@@ -66,6 +64,19 @@ lazy_static::lazy_static! {
 
         if *FORCE_IPV4 {
             tracing::info!("FORCE_IPV4 is enabled - HTTP client will only use IPv4");
+            builder = builder.local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+        }
+
+        builder.build().unwrap()
+    };
+    /// HTTP client for streaming uploads (no total request timeout, only connect timeout).
+    /// Used for S3 file uploads where the body is streamed and total time depends on data size.
+    pub static ref HTTP_CLIENT_STREAMING: Client = {
+        let mut builder = reqwest::ClientBuilder::new()
+            .user_agent("windmill/beta")
+            .connect_timeout(std::time::Duration::from_secs(10));
+
+        if *FORCE_IPV4 {
             builder = builder.local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
         }
 
@@ -164,7 +175,7 @@ lazy_static::lazy_static! {
         }
     };
 
-    pub static ref HUB_API_SECRET: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref HUB_API_SECRET: arc_swap::ArcSwap<Option<String>> = arc_swap::ArcSwap::from_pointee(None);
 }
 
 #[derive(Clone)]
@@ -392,7 +403,7 @@ pub async fn http_get_from_hub(
         request = request.header("X-uid", uid);
     }
 
-    if let Some(hub_api_secret) = HUB_API_SECRET.read().await.clone() {
+    if let Some(hub_api_secret) = (**HUB_API_SECRET.load()).clone() {
         request = request.header("X-api-secret", hub_api_secret);
     }
 
@@ -427,7 +438,7 @@ pub fn calculate_hash(s: &str) -> String {
 pub async fn get_license_id_or_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     db: E,
 ) -> Result<String> {
-    let license_id = LICENSE_KEY_ID.read().await.clone();
+    let license_id = (**LICENSE_KEY_ID.load()).clone();
 
     if license_id.is_empty() {
         get_instance_uid(db).await
@@ -452,7 +463,7 @@ async fn get_instance_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(db: E)
 pub async fn get_telemetry_ids<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     db: E,
 ) -> Result<(String, String)> {
-    let license_id = LICENSE_KEY_ID.read().await.clone();
+    let license_id = (**LICENSE_KEY_ID.load()).clone();
     let instance_uid = get_instance_uid(db).await?;
     if license_id.is_empty() {
         Ok((instance_uid.clone(), instance_uid))
@@ -984,6 +995,38 @@ impl<T> ExpiringCacheEntry<T> {
     pub fn is_expired(&self) -> bool {
         self.expiry < std::time::Instant::now()
     }
+}
+
+pub async fn refresh_custom_instance_user_pwd(db: &DB) -> Result<()> {
+    let query = r#"
+    DO $$
+        DECLARE
+            pwd text;
+        BEGIN
+            SELECT gen_random_uuid()::text INTO pwd;
+
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user') THEN
+                EXECUTE format('ALTER USER custom_instance_user WITH PASSWORD %L', pwd);
+            ELSE
+                EXECUTE format('CREATE USER custom_instance_user WITH PASSWORD %L', pwd);
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM global_settings WHERE name = 'custom_instance_pg_databases') THEN
+                INSERT INTO global_settings (name, value)
+                VALUES ('custom_instance_pg_databases', jsonb_build_object(
+                'user_pwd', pwd::text,
+                'databases', jsonb_build_object()
+                ));
+            ELSE
+                UPDATE global_settings
+                SET value = jsonb_set(COALESCE(value, '{}'::jsonb), '{user_pwd}', to_jsonb(pwd::text)::jsonb)
+                WHERE name = 'custom_instance_pg_databases';
+            END IF;
+        END
+        $$;
+    "#;
+    sqlx::query(query).execute(db).await?;
+    Ok(())
 }
 
 pub async fn get_custom_pg_instance_password(db: &DB) -> Result<String> {

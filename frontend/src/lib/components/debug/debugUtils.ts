@@ -9,9 +9,7 @@ import { VariableService, UserService } from '$lib/gen'
  * Fetch contextual variables (WM_WORKSPACE, WM_TOKEN, etc.) for the debugger.
  * Creates a fresh short-lived token for the debug session.
  */
-export async function fetchContextualVariables(
-	workspace: string
-): Promise<Record<string, string>> {
+export async function fetchContextualVariables(workspace: string): Promise<Record<string, string>> {
 	if (!workspace) {
 		return {}
 	}
@@ -75,6 +73,30 @@ export async function signDebugRequest(
 	}
 
 	return await response.json()
+}
+
+/**
+ * Sign a multiplayer session request. Returns a JWT token that the
+ * multiplayer server will verify before accepting the WebSocket connection.
+ */
+export async function signMultiplayerRequest(workspace: string): Promise<string> {
+	if (!workspace) {
+		throw new Error('No workspace selected')
+	}
+
+	const response = await fetch(`/api/w/${workspace}/debug/sign_multiplayer`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({})
+	})
+
+	if (!response.ok) {
+		const errorText = await response.text()
+		throw new Error(errorText || 'Failed to sign multiplayer session')
+	}
+
+	const data: { token: string } = await response.json()
+	return data.token
 }
 
 /**

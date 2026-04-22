@@ -17,6 +17,8 @@
 		copyToClipboard,
 		emptyString,
 		encodeState,
+		getHubFlowIdFromPath,
+		isHubFlowPath,
 		isFlowPreview,
 		isNotFlow,
 		isScriptPreview
@@ -295,6 +297,17 @@
 
 	function forkPreview() {
 		if (isFlowPreview(job?.job_kind)) {
+			if (isHubFlowPath(job?.script_path)) {
+				const hubFlowId = getHubFlowIdFromPath(job?.script_path)
+				if (hubFlowId === undefined) {
+					sendUserToast('Could not determine the hub flow to fork', true)
+					return
+				}
+				$initialArgsStore = job?.args
+				window.open(`/flows/add?hub=${hubFlowId}`)
+				return
+			}
+
 			const state = {
 				flow: { value: job?.raw_flow },
 				path: job?.script_path + '_fork',
@@ -494,6 +507,7 @@
 		{/snippet}
 		{#snippet right()}
 			{@const isScript = job?.job_kind === 'script'}
+			{@const isHubFlowPreview = isFlowPreview(job?.job_kind) && isHubFlowPath(job?.script_path)}
 			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
 			{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
 				<Dropdown
@@ -554,7 +568,9 @@
 					startIcon={{ icon: GitBranch }}
 					on:click={forkPreview}
 				>
-					Fork {isFlowPreview(job?.job_kind) ? 'flow' : 'code'} preview
+					{isHubFlowPreview
+						? 'Fork flow into workspace'
+						: `Fork ${isFlowPreview(job?.job_kind) ? 'flow' : 'code'} preview`}
 				</Button>
 			{/if}
 			{#if persistentScriptDefinition !== undefined}
@@ -696,7 +712,7 @@
 			{/if}
 		{/snippet}
 	</ActionRow>
-	<div class="w-full pb-8">
+	<div class="w-full">
 		<!-- Flow Detail Header Card -->
 		<div class="max-w-7xl mx-auto px-4 py-0">
 			<Skeleton loading={!job} layout={[[24]]} />

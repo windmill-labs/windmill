@@ -38,6 +38,10 @@ pub enum JobTriggerKind {
     Gcp,
     Nextcloud,
     Google,
+    Github,
+    #[serde(rename = "ci_test")]
+    #[sqlx(rename = "ci_test")]
+    CiTest,
 }
 
 impl std::fmt::Display for JobTriggerKind {
@@ -56,6 +60,8 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::Gcp => "gcp",
             JobTriggerKind::Nextcloud => "nextcloud",
             JobTriggerKind::Google => "google",
+            JobTriggerKind::Github => "github",
+            JobTriggerKind::CiTest => "ci_test",
         };
         write!(f, "{}", kind)
     }
@@ -105,6 +111,30 @@ pub enum JobStatus {
 }
 
 impl JobKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            JobKind::Script => "script",
+            JobKind::Script_Hub => "script_hub",
+            JobKind::Preview => "preview",
+            JobKind::Dependencies => "dependencies",
+            JobKind::Flow => "flow",
+            JobKind::FlowPreview => "flowpreview",
+            JobKind::SingleStepFlow => "singlestepflow",
+            JobKind::Identity => "identity",
+            JobKind::FlowDependencies => "flowdependencies",
+            JobKind::AppDependencies => "appdependencies",
+            JobKind::Noop => "noop",
+            JobKind::DeploymentCallback => "deploymentcallback",
+            JobKind::FlowScript => "flowscript",
+            JobKind::FlowNode => "flownode",
+            JobKind::AppScript => "appscript",
+            JobKind::AIAgent => "aiagent",
+            JobKind::UnassignedScript => "unassigned_script",
+            JobKind::UnassignedFlow => "unassigned_flow",
+            JobKind::UnassignedSinglestepFlow => "unassigned_singlestepflow",
+        }
+    }
+
     pub fn is_flow(&self) -> bool {
         matches!(
             self,
@@ -117,6 +147,10 @@ impl JobKind {
             self,
             JobKind::FlowDependencies | JobKind::AppDependencies | JobKind::Dependencies
         )
+    }
+
+    pub fn is_preview(&self) -> bool {
+        matches!(self, JobKind::Preview | JobKind::FlowPreview)
     }
 }
 
@@ -190,6 +224,8 @@ pub struct QueuedJob {
     pub preprocessed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runnable_settings_handle: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 impl QueuedJob {
@@ -264,6 +300,7 @@ impl Default for QueuedJob {
             priority: None,
             preprocessed: None,
             runnable_settings_handle: None,
+            labels: None,
         }
     }
 }
@@ -316,7 +353,7 @@ pub struct CompletedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<serde_json::Value>,
+    pub labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
 }
@@ -353,6 +390,7 @@ pub enum JobPayload {
         apply_preprocessor: bool,
         concurrency_settings: ConcurrencySettings,
         debouncing_settings: DebouncingSettings,
+        labels: Option<Vec<String>>,
     },
     FlowNode {
         id: FlowNodeId,
@@ -406,6 +444,7 @@ pub enum JobPayload {
         dedicated_worker: Option<bool>,
         apply_preprocessor: bool,
         version: i64,
+        labels: Option<Vec<String>>,
     },
     RestartedFlow {
         completed_job_id: Uuid,
@@ -439,6 +478,10 @@ pub enum JobPayload {
     DeploymentCallback {
         path: String,
         debouncing_settings: DebouncingSettings,
+        // Per-invocation suffix appended to the `{workspace_id}:git_sync` concurrency key.
+        // Used in promotion mode so sync jobs targeting different branches run in parallel
+        // instead of serializing through a single workspace-wide key.
+        concurrency_key_append: Option<String>,
     },
     Identity,
     Noop,

@@ -48,7 +48,7 @@
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
 	import { datatypeHasLength } from './apps/components/display/dbtable/utils'
-	import { DB_TYPES } from '$lib/consts'
+	import { DB_TYPES, NEW_COLUMN_ONLY_TYPES } from '$lib/consts'
 	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -63,6 +63,7 @@
 	import { Debounced } from 'runed'
 	import {
 		type TableEditorValues,
+		type TableEditorValuesColumn,
 		datatypeDefaultLength
 	} from './apps/components/display/dbtable/tableEditor'
 	import Alert from './common/alert/Alert.svelte'
@@ -94,6 +95,12 @@
 	}: Props = $props()
 
 	const columnTypes = DB_TYPES[untrack(() => dbType)]
+	function columnTypesFor(column: TableEditorValuesColumn): string[] {
+		if (column.initialName) {
+			return columnTypes.filter((t) => !NEW_COLUMN_ONLY_TYPES.includes(t))
+		}
+		return columnTypes
+	}
 	const defaultColumnType = (
 		{
 			postgresql: 'BIGSERIAL',
@@ -212,7 +219,7 @@
 											}
 										}
 									}
-									items={safeSelectItems(columnTypes)}
+									items={safeSelectItems(columnTypesFor(column))}
 									class="w-48"
 								/>
 								{#if column.initialName && column.name !== column.initialName}
@@ -490,7 +497,9 @@
 			</Alert>
 		{/if}
 		{#if askingForConfirmation?.codeContent}
-			<div class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative group">
+			<div
+				class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative group"
+			>
 				<button
 					class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-surface-hover"
 					onclick={() => copyToClipboard(askingForConfirmation?.codeContent)}
@@ -498,7 +507,9 @@
 				>
 					<ClipboardCopy size={14} />
 				</button>
-				<pre class="whitespace-pre-wrap text-sm"><code>{askingForConfirmation.codeContent}</code></pre>
+				<pre class="whitespace-pre-wrap text-sm"
+					><code>{askingForConfirmation.codeContent}</code></pre
+				>
 			</div>
 		{/if}
 	</ConfirmationModal>

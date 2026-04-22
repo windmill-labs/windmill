@@ -41,6 +41,8 @@ export const WORKER_S3_BUCKET_SYNC_SETTING = 'worker_s3_bucket_sync'
 export const CUSTOM_TAGS_SETTING = 'custom_tags'
 export const DEFAULT_TAGS_PER_WORKSPACE_SETTING = 'default_tags_per_workspace'
 export const DEFAULT_TAGS_WORKSPACES_SETTING = 'default_tags_workspaces'
+export const FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING = 'fork_workspace_tag_append_fork_suffix'
+export const PREVIEW_TAGS_OVERRIDE_SETTING = 'preview_tags_override'
 
 export const WORKSPACE_SLACK_BOT_TOKEN_PATH = 'f/slack_bot/bot_token'
 
@@ -252,6 +254,16 @@ export const DUCKDB_TYPES = [
 	'BPCHAR',
 	'TEXT',
 	'STRING'
+]
+
+/** Types that are only valid for new columns (CREATE TABLE / ADD COLUMN), not for altering existing ones. */
+export const NEW_COLUMN_ONLY_TYPES: string[] = [
+	'SMALLSERIAL',
+	'SMALLSERIAL[]',
+	'SERIAL',
+	'SERIAL[]',
+	'BIGSERIAL',
+	'BIGSERIAL[]'
 ]
 
 export const DB_TYPES: Record<DbType, string[]> = {

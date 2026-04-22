@@ -135,5 +135,10 @@ def main a, b, c
   puts a, b, c
 end
 `,
+  rlang: `
+main <- function(x, name = "default") {
+    return(list(result = x, name = name))
+}
+`,
   // for related places search: ADD_NEW_LANG
 };

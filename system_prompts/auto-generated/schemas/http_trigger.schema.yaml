@@ -9,6 +9,10 @@ properties:
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
   route_path:
     type: string
     description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint').
