@@ -1,4 +1,4 @@
-import type { FlowModule, OpenFlow, RawScript } from '$lib/gen'
+import type { FlowModule, FlowValue, OpenFlow, RawScript } from '$lib/gen'
 import { forEachFlowModule } from '$lib/components/flows/dfs'
 import { findModuleInFlow } from '$lib/components/flows/flowTree'
 import type { InlineScriptSession } from './inlineScriptsUtils'
@@ -7,11 +7,14 @@ type FlowLike = Pick<OpenFlow, 'value'> & {
 	schema?: Record<string, any>
 }
 
+export type FlowGroup = NonNullable<FlowValue['groups']>[number]
+
 export interface FlowJsonUpdate {
 	modules?: FlowModule[]
 	schema?: Record<string, any> | null
 	preprocessorModule?: FlowModule | null
 	failureModule?: FlowModule | null
+	groups?: FlowGroup[] | null
 }
 
 export interface FlowJsonUpdateResult {
@@ -36,7 +39,7 @@ export function updateRawScriptModuleContent(
 export function applyFlowJsonUpdate(
 	flow: FlowLike,
 	inlineScriptSession: InlineScriptSession,
-	{ modules, schema, preprocessorModule, failureModule }: FlowJsonUpdate
+	{ modules, schema, preprocessorModule, failureModule, groups }: FlowJsonUpdate
 ): FlowJsonUpdateResult {
 	const emptyInlineScriptModuleIds = new Set<string>()
 
@@ -64,6 +67,10 @@ export function applyFlowJsonUpdate(
 			failureModule === null
 				? undefined
 				: restoreFlowModule(failureModule, inlineScriptSession, emptyInlineScriptModuleIds)
+	}
+
+	if (groups !== undefined) {
+		flow.value.groups = groups === null ? undefined : groups
 	}
 
 	return {

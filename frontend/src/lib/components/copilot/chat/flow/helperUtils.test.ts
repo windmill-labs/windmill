@@ -63,7 +63,9 @@ describe('applyFlowJsonUpdate', () => {
 				makeRawScriptModule('validate_data', 'inline_script.validate_data')
 			]
 		})
-		const [processDataModule, validateDataModule] = flow.value.modules as Array<FlowModule & { value: any }>
+		const [processDataModule, validateDataModule] = flow.value.modules as Array<
+			FlowModule & { value: any }
+		>
 
 		expect(result.emptyInlineScriptModuleIds).toEqual(['validate_data'])
 		expect(inlineScriptSession.has('validate_data')).toBe(false)
@@ -85,7 +87,7 @@ describe('applyFlowJsonUpdate', () => {
 			applyFlowJsonUpdate(flow as any, inlineScriptSession, {
 				modules: [makeRawScriptModule('validate_data', 'inline_script.other_module')]
 			})
-			).toThrow('Unresolved inline script references: other_module')
+		).toThrow('Unresolved inline script references: other_module')
 	})
 
 	it('keeps the inline script session unchanged after a failed update so retries still warn', () => {
@@ -122,6 +124,78 @@ describe('applyFlowJsonUpdate', () => {
 
 		expect(result.emptyInlineScriptModuleIds).toEqual(['validate_data'])
 		expect(inlineScriptSession.has('validate_data')).toBe(false)
+	})
+
+	it('persists groups passed in the flow json update', () => {
+		const flow = {
+			value: {
+				modules: [
+					makeRawScriptModule('fetch_data', 'existing code'),
+					makeRawScriptModule('process_data', 'existing code')
+				]
+			}
+		}
+		const inlineScriptSession = createInlineScriptSession()
+		inlineScriptSession.set('fetch_data', 'existing code')
+		inlineScriptSession.set('process_data', 'existing code')
+
+		applyFlowJsonUpdate(flow as any, inlineScriptSession, {
+			groups: [
+				{
+					summary: 'Data Ingestion',
+					note: 'Fetches and processes data',
+					start_id: 'fetch_data',
+					end_id: 'process_data'
+				}
+			]
+		})
+
+		expect((flow.value as any).groups).toEqual([
+			{
+				summary: 'Data Ingestion',
+				note: 'Fetches and processes data',
+				start_id: 'fetch_data',
+				end_id: 'process_data'
+			}
+		])
+	})
+
+	it('clears groups when null is passed', () => {
+		const flow = {
+			value: {
+				modules: [],
+				groups: [
+					{
+						summary: 'existing',
+						start_id: 'a',
+						end_id: 'b'
+					}
+				]
+			}
+		}
+		const inlineScriptSession = createInlineScriptSession()
+
+		applyFlowJsonUpdate(flow as any, inlineScriptSession, { groups: null })
+
+		expect((flow.value as any).groups).toBeUndefined()
+	})
+
+	it('leaves groups untouched when not provided in the update', () => {
+		const existingGroups = [{ summary: 'existing', start_id: 'a', end_id: 'b' }]
+		const flow = {
+			value: {
+				modules: [makeRawScriptModule('a', 'existing code')],
+				groups: existingGroups
+			}
+		}
+		const inlineScriptSession = createInlineScriptSession()
+		inlineScriptSession.set('a', 'existing code')
+
+		applyFlowJsonUpdate(flow as any, inlineScriptSession, {
+			modules: [makeRawScriptModule('a', 'inline_script.a')]
+		})
+
+		expect((flow.value as any).groups).toEqual(existingGroups)
 	})
 
 	it('updates ai agent rawscript tools in place when changing module code', () => {
