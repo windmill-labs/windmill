@@ -35,7 +35,7 @@ import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
 import { createInlineScriptSession, type InlineScriptSession } from './inlineScriptsUtils'
-import type { FlowGroup, FlowJsonUpdateResult } from './helperUtils'
+import { validateFlowGroups, type FlowGroup, type FlowJsonUpdateResult } from './helperUtils'
 import { flowModuleSchema, flowModulesSchema } from './openFlowZod'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
 import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
@@ -361,30 +361,6 @@ function validateFlowSchema(rawSchema: unknown): Record<string, any> | null {
 	return rawSchema as Record<string, any>
 }
 
-function validateFlowGroups(rawGroups: unknown): FlowGroup[] | null {
-	if (rawGroups == null) {
-		return null
-	}
-
-	if (!Array.isArray(rawGroups)) {
-		throw new Error('Flow groups must be an array')
-	}
-
-	return rawGroups.map((group, index) => {
-		if (!group || typeof group !== 'object' || Array.isArray(group)) {
-			throw new Error(`Invalid group at index ${index}: must be an object`)
-		}
-		const g = group as Record<string, unknown>
-		if (typeof g.start_id !== 'string' || !g.start_id) {
-			throw new Error(`Invalid group at index ${index}: start_id must be a non-empty string`)
-		}
-		if (typeof g.end_id !== 'string' || !g.end_id) {
-			throw new Error(`Invalid group at index ${index}: end_id must be a non-empty string`)
-		}
-		return g as unknown as FlowGroup
-	})
-}
-
 function validateOptionalFlowModule(rawModule: unknown, fieldName: string): FlowModule | null {
 	if (rawModule == null) {
 		return null
@@ -412,7 +388,8 @@ function validateEditableFlowJson(rawFlow: unknown): EditableFlowJson {
 		'preprocessor_module'
 	)
 	const failureModule = validateOptionalFlowModule(flow.failure_module, 'failure_module')
-	const groups = validateFlowGroups(flow.groups)
+	const groupModuleIds = new Set(collectAllFlowModuleIdsFromModules(modules))
+	const groups = validateFlowGroups(flow.groups, groupModuleIds)
 
 	if (preprocessorModule) {
 		if (preprocessorModule.id !== SPECIAL_MODULE_IDS.PREPROCESSOR) {
@@ -1219,7 +1196,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			parsedFailureModule = validateSpecialFlowModule(parsedFailureModule, 'failure_module')
 
 			if (parsedGroups !== undefined) {
-				parsedGroups = validateFlowGroups(parsedGroups)
+				const effectiveModules =
+					parsedModules ?? helpers.getFlowAndSelectedId().flow.value.modules ?? []
+				const moduleIdsForGroups = new Set(collectAllFlowModuleIdsFromModules(effectiveModules))
+				parsedGroups = validateFlowGroups(parsedGroups, moduleIdsForGroups)
 			}
 
 			const ids = [
@@ -1370,7 +1350,7 @@ Use the \`set_flow_json\` tool to set the entire flow structure at once. Provide
 - \`schema\`: Flow input schema in JSON Schema format (optional)
 - \`preprocessor_module\`: Special module that runs before \`modules\` (optional, separate from \`modules\`)
 - \`failure_module\`: Special module that runs on failure (optional, separate from \`modules\`)
-- \`groups\`: Array of semantic groups for organizing modules in the editor (optional). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
+- \`groups\`: Array of semantic groups for organizing modules in the editor (optional). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. \`start_id\` and \`end_id\` must reference existing module IDs in the flow (not \`preprocessor\` or \`failure\`). Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
 
 **Example - Simple flow:**
 \`\`\`javascript

@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import { applyFlowJsonUpdate, updateRawScriptModuleContent } from './helperUtils'
+import {
+	applyFlowJsonUpdate,
+	updateRawScriptModuleContent,
+	validateFlowGroups
+} from './helperUtils'
 import { createInlineScriptSession } from './inlineScriptsUtils'
 
 vi.mock('../shared', () => ({
@@ -160,6 +164,26 @@ describe('applyFlowJsonUpdate', () => {
 		])
 	})
 
+	it('clears groups when an empty array is passed', () => {
+		const flow = {
+			value: {
+				modules: [],
+				groups: [
+					{
+						summary: 'existing',
+						start_id: 'a',
+						end_id: 'b'
+					}
+				]
+			}
+		}
+		const inlineScriptSession = createInlineScriptSession()
+
+		applyFlowJsonUpdate(flow as any, inlineScriptSession, { groups: [] })
+
+		expect((flow.value as any).groups).toBeUndefined()
+	})
+
 	it('clears groups when null is passed', () => {
 		const flow = {
 			value: {
@@ -217,5 +241,62 @@ describe('applyFlowJsonUpdate', () => {
 		expect((flow.value.modules[0] as any).value.tools[0].value.content).toBe(
 			'export async function main(numbers: number[]) { return 0 }'
 		)
+	})
+})
+
+describe('validateFlowGroups', () => {
+	it('returns null for null input', () => {
+		expect(validateFlowGroups(null)).toBeNull()
+		expect(validateFlowGroups(undefined)).toBeNull()
+	})
+
+	it('rejects non-array input', () => {
+		expect(() => validateFlowGroups({})).toThrow('Flow groups must be an array')
+		expect(() => validateFlowGroups('not an array')).toThrow('Flow groups must be an array')
+	})
+
+	it('rejects a group that is not an object', () => {
+		expect(() => validateFlowGroups(['nope'])).toThrow(
+			'Invalid group at index 0: must be an object'
+		)
+	})
+
+	it('rejects a group with a missing or non-string start_id', () => {
+		expect(() => validateFlowGroups([{ end_id: 'b' }])).toThrow(
+			'Invalid group at index 0: start_id must be a non-empty string'
+		)
+		expect(() => validateFlowGroups([{ start_id: '', end_id: 'b' }])).toThrow(
+			'Invalid group at index 0: start_id must be a non-empty string'
+		)
+		expect(() => validateFlowGroups([{ start_id: 42, end_id: 'b' }])).toThrow(
+			'Invalid group at index 0: start_id must be a non-empty string'
+		)
+	})
+
+	it('rejects a group with a missing end_id', () => {
+		expect(() => validateFlowGroups([{ start_id: 'a' }])).toThrow(
+			'Invalid group at index 0: end_id must be a non-empty string'
+		)
+	})
+
+	it('accepts a valid group with no moduleIds set', () => {
+		const result = validateFlowGroups([{ summary: 'G', start_id: 'a', end_id: 'b' }])
+		expect(result).toEqual([{ summary: 'G', start_id: 'a', end_id: 'b' }])
+	})
+
+	it('rejects start_id or end_id that are not in the moduleIds set', () => {
+		const moduleIds = new Set(['a', 'b'])
+		expect(() => validateFlowGroups([{ start_id: 'missing', end_id: 'b' }], moduleIds)).toThrow(
+			'Invalid group at index 0: start_id "missing" does not match any flow module'
+		)
+		expect(() => validateFlowGroups([{ start_id: 'a', end_id: 'missing' }], moduleIds)).toThrow(
+			'Invalid group at index 0: end_id "missing" does not match any flow module'
+		)
+	})
+
+	it('accepts groups whose ids are all in the moduleIds set', () => {
+		const moduleIds = new Set(['a', 'b', 'c'])
+		const result = validateFlowGroups([{ start_id: 'a', end_id: 'c', summary: 'G' }], moduleIds)
+		expect(result).toEqual([{ start_id: 'a', end_id: 'c', summary: 'G' }])
 	})
 })

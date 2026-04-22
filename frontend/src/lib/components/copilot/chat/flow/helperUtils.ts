@@ -36,6 +36,45 @@ export function updateRawScriptModuleContent(
 	return rawScriptModule
 }
 
+export function validateFlowGroups(
+	rawGroups: unknown,
+	moduleIds?: Set<string>
+): FlowGroup[] | null {
+	if (rawGroups == null) {
+		return null
+	}
+
+	if (!Array.isArray(rawGroups)) {
+		throw new Error('Flow groups must be an array')
+	}
+
+	return rawGroups.map((group, index) => {
+		if (!group || typeof group !== 'object' || Array.isArray(group)) {
+			throw new Error(`Invalid group at index ${index}: must be an object`)
+		}
+		const g = group as Record<string, unknown>
+		if (typeof g.start_id !== 'string' || !g.start_id) {
+			throw new Error(`Invalid group at index ${index}: start_id must be a non-empty string`)
+		}
+		if (typeof g.end_id !== 'string' || !g.end_id) {
+			throw new Error(`Invalid group at index ${index}: end_id must be a non-empty string`)
+		}
+		if (moduleIds) {
+			if (!moduleIds.has(g.start_id)) {
+				throw new Error(
+					`Invalid group at index ${index}: start_id "${g.start_id}" does not match any flow module`
+				)
+			}
+			if (!moduleIds.has(g.end_id)) {
+				throw new Error(
+					`Invalid group at index ${index}: end_id "${g.end_id}" does not match any flow module`
+				)
+			}
+		}
+		return g as unknown as FlowGroup
+	})
+}
+
 export function applyFlowJsonUpdate(
 	flow: FlowLike,
 	inlineScriptSession: InlineScriptSession,
@@ -70,7 +109,7 @@ export function applyFlowJsonUpdate(
 	}
 
 	if (groups !== undefined) {
-		flow.value.groups = groups === null ? undefined : groups
+		flow.value.groups = groups == null || groups.length === 0 ? undefined : groups
 	}
 
 	return {
