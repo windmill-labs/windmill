@@ -1,5 +1,5 @@
 import type { FlowConversation, FlowConversationMessage } from '$lib/gen/types.gen'
-import { FlowConversationService, JobService } from '$lib/gen'
+import { FlowConversationsService, JobService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
 import { tick } from 'svelte'
@@ -167,7 +167,7 @@ export class FlowChatManager {
 	private async deleteConversation(conversationId: string) {
 		try {
 			this.deletingConversationId = conversationId
-			await FlowConversationService.deleteFlowConversation({
+			await FlowConversationsService.deleteFlowConversation({
 				workspace: get(workspaceStore)!,
 				conversationId
 			})
@@ -217,7 +217,7 @@ export class FlowChatManager {
 		if (!get(workspaceStore) || !this.#path) return []
 
 		try {
-			const response = await FlowConversationService.listFlowConversations({
+			const response = await FlowConversationsService.listFlowConversations({
 				workspace: get(workspaceStore)!,
 				flowPath: this.#path,
 				page: page,
@@ -252,7 +252,7 @@ export class FlowChatManager {
 		try {
 			const previousScrollHeight = this.messagesContainer?.scrollHeight || 0
 
-			const response = await FlowConversationService.listConversationMessages({
+			const response = await FlowConversationsService.listConversationMessages({
 				workspace: get(workspaceStore)!,
 				conversationId: conversationIdToUse,
 				page: pageToFetch,
@@ -339,7 +339,7 @@ export class FlowChatManager {
 
 		try {
 			const lastId = this.messages[this.messages.length - 1].id
-			const response = await FlowConversationService.listConversationMessages({
+			const response = await FlowConversationsService.listConversationMessages({
 				workspace: get(workspaceStore)!,
 				conversationId: conversationId,
 				page: 1,

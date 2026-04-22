@@ -5,7 +5,6 @@ import * as path from "node:path";
 import { sep as SEP } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseContent } from "./utils/yaml.ts";
-import { readFileSync } from "node:fs";
 import { pushApp } from "./commands/app/app.ts";
 import { pushFolder } from "./commands/folder/folder.ts";
 import { pushFlow } from "./commands/flow/flow.ts";
@@ -14,7 +13,7 @@ import { pushResourceType } from "./commands/resource-type/resource-type.ts";
 import { pushVariable } from "./commands/variable/variable.ts";
 import { yamlOptions } from "./commands/sync/sync.ts";
 import { showDiffs } from "./core/conf.ts";
-import { deepEqual, isFileResource, isFilesetResource, isWorkspaceDependencies } from "./utils/utils.ts";
+import { deepEqual, isFileResource, isFilesetResource, isWorkspaceDependencies, readTextFileSync } from "./utils/utils.ts";
 import { pushSchedule } from "./commands/schedule/schedule.ts";
 import { pushWorkspaceUser } from "./commands/user/user.ts";
 import { pushGroup } from "./commands/user/user.ts";
@@ -237,9 +236,9 @@ export function parseFromPath(p: string, content: string): any {
 }
 export function parseFromFile(p: string): any {
   if (p.endsWith(".json")) {
-    return JSON.parse(readFileSync(p, "utf-8"));
+    return JSON.parse(readTextFileSync(p));
   } else if (p.endsWith(".yaml") || p.endsWith(".yml")) {
-    return yamlParseContent(p, readFileSync(p, "utf-8"));
+    return yamlParseContent(p, readTextFileSync(p));
   } else {
     throw new Error("Could not read file " + p);
   }

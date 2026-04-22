@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import * as log from "../../core/log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as windmillUtils from "@windmill-labs/shared-utils";
+import { readTextFile, readTextFileSync } from "../../utils/utils.ts";
 export interface BundleOptions {
   entryPoint?: string;
   outDir?: string;
@@ -41,7 +42,7 @@ export function detectFrameworks(appDir: string): { svelte: boolean; vue: boolea
   }
 
   try {
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+    const packageJson = JSON.parse(readTextFileSync(packageJsonPath));
     const allDeps = {
       ...packageJson.dependencies,
       ...packageJson.devDependencies,
@@ -69,7 +70,7 @@ function createSveltePlugin(appDir: string): any {
         const svelte = await import("svelte/compiler");
 
         // Load the file from the file system
-        const source = await fs.promises.readFile(args.path, "utf8");
+        const source = await readTextFile(args.path);
         const filename = path.relative(process.cwd(), args.path);
 
         // This converts a message in Svelte's format to esbuild's format
@@ -269,9 +270,9 @@ export async function createBundle(
       throw new Error(`Expected JS bundle at ${jsPath} but file not found`);
     }
 
-    const jsContent = fs.readFileSync(jsPath, "utf-8");
+    const jsContent = readTextFileSync(jsPath);
     const cssContent = fs.existsSync(cssPath)
-      ? fs.readFileSync(cssPath, "utf-8")
+      ? readTextFileSync(cssPath)
       : "";
 
     try {

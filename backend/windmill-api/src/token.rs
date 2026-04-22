@@ -65,6 +65,12 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
             "Access to automation scripts and workflows",
             true,
         ),
+        (
+            "flow_conversations",
+            "Flow Conversations",
+            "Flow conversation management",
+            false,
+        ),
         ("apps", "Apps", "App management", true),
         ("raw_apps", "RawApps", "Raw app management", true),
         ("resources", "Resources", "Resource management", true),

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readFile, mkdir, readdir } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
@@ -23,7 +23,7 @@ import {
   ScriptLanguage,
   workspaceDependenciesLanguages,
 } from "../../utils/script_common.ts";
-import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
+import { generateHash, getHeaders, readTextFile, writeIfChanged } from "../../utils/utils.ts";
 import { exts } from "../script/script.ts";
 import { FSFSElement, yamlOptions } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
@@ -178,7 +178,7 @@ export async function generateAppLocksInternal(
         if (typeof content === "string" && content.startsWith("!inline ")) {
           const filePath = appFolder + SEP + content.replace("!inline ", "");
           try {
-            content = await readFile(filePath, "utf-8");
+            content = await readTextFile(filePath);
           } catch {
             return inlineScript;
           }
@@ -893,7 +893,7 @@ export async function inferRunnableSchemaFromFile(
   );
   let content: string;
   try {
-    content = await readFile(fullFilePath, "utf-8");
+    content = await readTextFile(fullFilePath);
   } catch {
     log.warn(colors.yellow(`Could not read file: ${fullFilePath}`));
     return undefined;

@@ -1,4 +1,5 @@
-import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { readTextFile } from "../utils/utils.ts";
 import { join } from "node:path";
 import { generateAgentsMdContent } from "./core.ts";
 import {
@@ -47,7 +48,7 @@ export async function writeAiGuidanceFiles(
     overwrite: options.overwriteProjectGuidance ?? false,
     content:
       options.agentsSourcePath != null
-        ? await readFile(options.agentsSourcePath, "utf8")
+        ? await readTextFile(options.agentsSourcePath)
         : generateAgentsMdContent(buildSkillsReference(skillMetadata)),
   });
 
@@ -56,7 +57,7 @@ export async function writeAiGuidanceFiles(
     overwrite: options.overwriteProjectGuidance ?? false,
     content:
       options.claudeSourcePath != null
-        ? await readFile(options.claudeSourcePath, "utf8")
+        ? await readTextFile(options.claudeSourcePath)
         : CLAUDE_MD_DEFAULT,
   });
 
@@ -202,7 +203,7 @@ async function readSkillMetadataFromDirectory(skillsDir: string): Promise<Resolv
       continue;
     }
 
-    const content = await readFile(skillPath, "utf8");
+    const content = await readTextFile(skillPath);
     skills.push(parseSkillMetadata(content, entry.name));
   }
 

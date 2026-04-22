@@ -4,7 +4,6 @@ import * as path from "node:path";
 import { sep as SEP } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
-import { readFile } from "node:fs/promises";
 import { GlobalOptions } from "../../types.ts";
 import {
   readLockfile,
@@ -21,7 +20,7 @@ import { ScriptLanguage } from "../../utils/script_common.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows, extractCurrentMapping } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { newPathAssigner } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
-import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
+import { generateHash, getHeaders, readTextFile, writeIfChanged } from "../../utils/utils.ts";
 import { exts } from "../script/script.ts";
 import { FSFSElement, yamlOptions } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
@@ -109,7 +108,7 @@ export async function generateFlowLockInternal(
         if (content.startsWith("!inline ")) {
           const filePath = folder + SEP + content.replace("!inline ", "");
           try {
-            content = await readFile(filePath, "utf-8");
+            content = await readTextFile(filePath);
           } catch {
             continue;
           }
@@ -192,7 +191,7 @@ export async function generateFlowLockInternal(
     if (!noStaleMessage) {
       log.info(`Recomputing locks of ${changedScripts.join(", ")} in ${folder}`);
     }
-    const fileReader = async (path: string) => await readFile(folder + SEP + path, "utf-8");
+    const fileReader = async (path: string) => await readTextFile(folder + SEP + path);
 
     // Capture existing module-ID-to-file-path mapping before replaceInlineScripts
     // overwrites the !inline references with actual file content. This preserves

@@ -7,9 +7,8 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
-import { validateRequiredArgs } from "../../utils/utils.ts";
+import { readTextFile, validateRequiredArgs } from "../../utils/utils.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { readFile } from "node:fs/promises";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { buildFolderPath, getMetadataFileName, loadNonDottedPathsSetting } from "../../utils/resource_folders.ts";
 
@@ -157,7 +156,7 @@ export async function pushFlow(
   }
   const localFlow = (await yamlParseFile(localPath + "flow.yaml")) as FlowFile;
 
-  const fileReader = async (path: string) => await readFile(localPath + path, "utf-8");
+  const fileReader = async (path: string) => await readTextFile(localPath + path);
   const missingFiles: string[] = [];
   await replaceInlineScripts(
     localFlow.value.modules,
@@ -545,7 +544,7 @@ async function preview(
   const localFlow = (await yamlParseFile(flowPath + "flow.yaml")) as FlowFile;
 
   // Replace inline scripts with their actual content
-  const fileReader = async (path: string) => await readFile(flowPath + path, "utf-8");
+  const fileReader = async (path: string) => await readTextFile(flowPath + path);
   await replaceInlineScripts(
     localFlow.value.modules,
     fileReader,

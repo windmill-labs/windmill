@@ -13,7 +13,7 @@ import * as path from "node:path";
 import process from "node:process";
 import { Buffer } from "node:buffer";
 import { writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readTextFile } from "../../utils/utils.ts";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   createFrameworkPlugins,
@@ -800,7 +800,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
     const fileName = path.basename(filePath);
 
     try {
-      const sqlContent = await readFile(filePath, "utf-8");
+      const sqlContent = await readTextFile(filePath);
 
       if (!sqlContent.trim()) {
         log.info(colors.gray(`Skipping empty file: ${fileName}`));
@@ -856,7 +856,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
     // If there's a current SQL file being shown, send it to the new client
     if (currentSqlFile && fs.existsSync(currentSqlFile)) {
       try {
-        const sqlContent = await readFile(currentSqlFile, "utf-8");
+        const sqlContent = await readTextFile(currentSqlFile);
         const datatable = await getDatatableConfig();
         const fileName = path.basename(currentSqlFile);
 

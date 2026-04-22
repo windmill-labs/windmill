@@ -1,6 +1,6 @@
 import { requireLogin } from "../../core/auth.ts";
 import { fetchVersion, resolveWorkspace } from "../../core/context.ts";
-import { readFile, writeFile, readdir, stat, rm, copyFile, mkdir } from "node:fs/promises";
+import { writeFile, readdir, stat, rm, copyFile, mkdir } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
@@ -42,6 +42,7 @@ import {
   isFilesetResource,
   isRawAppFile,
   isWorkspaceDependencies,
+  readTextFile,
 } from "../../utils/utils.ts";
 import {
   getEffectiveSettings,
@@ -325,7 +326,7 @@ export async function FSFSElement(
         }
       },
       async getContentText(): Promise<string> {
-        const content = await readFile(localP, "utf-8");
+        const content = await readTextFile(localP);
         const itemPath = localP.substring(p.length + 1);
         const r = await addCodebaseDigestIfRelevant(
           itemPath,
@@ -2331,7 +2332,7 @@ export async function pull(
       if (change.name === "edited") {
         if (opts.stateful) {
           try {
-            const currentLocal = await readFile(target, "utf-8");
+            const currentLocal = await readTextFile(target);
             if (
               currentLocal !== change.before &&
               currentLocal !== change.after
@@ -3307,7 +3308,7 @@ export async function push(
 
                   const newObj = parseFromPath(
                     resourceFilePath,
-                    await readFile(resourceFilePath, "utf-8"),
+                    await readTextFile(resourceFilePath),
                   );
 
                   // For branch-specific resources, push to the base path on the workspace server
@@ -3342,7 +3343,7 @@ export async function push(
 
                   const newObj = parseFromPath(
                     resourceFilePath,
-                    await readFile(resourceFilePath, "utf-8"),
+                    await readTextFile(resourceFilePath),
                   );
 
                   let serverPath = resourceFilePath;
@@ -3397,12 +3398,48 @@ export async function push(
                 await writeFile(stateTarget, change.after, "utf-8");
               }
             } else if (change.name === "added") {
+              if (isFilesetResource(change.path)) {
+                // Re-push the parent resource so the new fileset file is included.
+                // If the parent is also being added here, its own push covers all children.
+                let resourceFilePath: string | undefined;
+                try {
+                  resourceFilePath = await findFilesetResourceFile(change.path);
+                } catch {
+                  continue;
+                }
+                if (alreadySynced.includes(resourceFilePath)) {
+                  continue;
+                }
+                alreadySynced.push(resourceFilePath);
+
+                const newObj = parseFromPath(
+                  resourceFilePath,
+                  await readFile(resourceFilePath, "utf-8"),
+                );
+
+                let serverPath = resourceFilePath;
+                const currentBranch = cachedWsNameForPush;
+                if (currentBranch && isWorkspaceSpecificFile(resourceFilePath)) {
+                  serverPath = fromWorkspaceSpecificPath(
+                    resourceFilePath,
+                    currentBranch,
+                  );
+                }
+
+                await pushResource(
+                  workspace.workspaceId,
+                  serverPath,
+                  undefined,
+                  newObj,
+                  resourceFilePath,
+                );
+                continue;
+              }
               if (
                 change.path.endsWith(".script.json") ||
                 change.path.endsWith(".script.yaml") ||
                 change.path.endsWith(".lock") ||
-                isFileResource(change.path) ||
-                isFilesetResource(change.path)
+                isFileResource(change.path)
               ) {
                 continue;
               } else if (
@@ -3481,6 +3518,44 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                );
+                continue;
+              }
+              if (isFilesetResource(change.path)) {
+                // Re-push the parent resource with the updated fileset contents.
+                // If the parent is also being deleted, its own "deleted" change
+                // removes the whole resource, so skip this child.
+                let resourceFilePath: string | undefined;
+                try {
+                  resourceFilePath = await findFilesetResourceFile(change.path);
+                } catch {
+                  continue;
+                }
+                if (alreadySynced.includes(resourceFilePath)) {
+                  continue;
+                }
+                alreadySynced.push(resourceFilePath);
+
+                const newObj = parseFromPath(
+                  resourceFilePath,
+                  await readFile(resourceFilePath, "utf-8"),
+                );
+
+                let serverPath = resourceFilePath;
+                const currentBranch = cachedWsNameForPush;
+                if (currentBranch && isWorkspaceSpecificFile(resourceFilePath)) {
+                  serverPath = fromWorkspaceSpecificPath(
+                    resourceFilePath,
+                    currentBranch,
+                  );
+                }
+
+                await pushResource(
+                  workspace.workspaceId,
+                  serverPath,
+                  undefined,
+                  newObj,
+                  resourceFilePath,
                 );
                 continue;
               }
