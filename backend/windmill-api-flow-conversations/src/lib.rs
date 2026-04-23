@@ -13,7 +13,7 @@ use windmill_api_auth::ApiAuthed;
 pub use windmill_common::flow_conversations::FlowConversation;
 use windmill_common::{
     db::{UserDB, DB},
-    error::{JsonResult, Result},
+    error::{Error, JsonResult, Result},
     flow_conversations::MessageType,
     utils::{not_found_if_none, paginate, Pagination},
 };
@@ -40,6 +40,11 @@ pub struct FlowConversationMessage {
 #[derive(Deserialize)]
 pub struct ListConversationsQuery {
     pub flow_path: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ListMessagesQuery {
+    pub after_id: Option<Uuid>,
 }
 
 async fn list_conversations(
@@ -147,6 +152,7 @@ async fn list_messages(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, conversation_id)): Path<(String, Uuid)>,
     Query(pagination): Query<Pagination>,
+    Query(query): Query<ListMessagesQuery>,
 ) -> JsonResult<Vec<FlowConversationMessage>> {
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -168,25 +174,67 @@ async fn list_messages(
         )));
     }
 
-    // Fetch messages for this conversation, oldest first, but reverse the order of the messages for easy rendering on the frontend
-    let messages = sqlx::query_as!(
-        FlowConversationMessage,
-        r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, step_name, success
-         FROM (
-            SELECT id, conversation_id, message_type, content, job_id, created_at, step_name, success
-            FROM flow_conversation_message
-            WHERE conversation_id = $1
-            ORDER BY created_at DESC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END
-            LIMIT $2 OFFSET $3
-         ) AS messages
-         ORDER BY created_at ASC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END
-         "#,
-        conversation_id,
-        per_page as i64,
-        offset as i64
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    let messages = if let Some(after_id) = query.after_id {
+        let after_message = sqlx::query!(
+            r#"SELECT created_at, message_type as "message_type: MessageType"
+             FROM flow_conversation_message
+             WHERE conversation_id = $1 AND id = $2"#,
+            conversation_id,
+            after_id,
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("Message not found: {}", after_id)))?;
+
+        let after_message_order = if after_message.message_type == MessageType::User {
+            0
+        } else {
+            1
+        };
+
+        sqlx::query_as!(
+            FlowConversationMessage,
+            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, step_name, success
+             FROM flow_conversation_message
+             WHERE conversation_id = $1
+               AND (
+                 created_at > $2
+                 OR (created_at = $2 AND CASE WHEN message_type = 'user' THEN 0 ELSE 1 END > $3)
+                 OR (created_at = $2 AND CASE WHEN message_type = 'user' THEN 0 ELSE 1 END = $3 AND id > $4)
+               )
+             ORDER BY created_at ASC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END, id ASC
+             LIMIT $5 OFFSET $6
+             "#,
+            conversation_id,
+            after_message.created_at,
+            after_message_order,
+            after_id,
+            per_page as i64,
+            offset as i64
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    } else {
+        // Fetch messages for this conversation, oldest first, but reverse the order of the messages for easy rendering on the frontend
+        sqlx::query_as!(
+            FlowConversationMessage,
+            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, step_name, success
+             FROM (
+                SELECT id, conversation_id, message_type, content, job_id, created_at, step_name, success
+                FROM flow_conversation_message
+                WHERE conversation_id = $1
+                ORDER BY created_at DESC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END
+                LIMIT $2 OFFSET $3
+             ) AS messages
+             ORDER BY created_at ASC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END
+             "#,
+            conversation_id,
+            per_page as i64,
+            offset as i64
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    };
 
     tx.commit().await?;
     Ok(Json(messages))
