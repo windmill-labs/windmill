@@ -1610,20 +1610,22 @@ pub async fn update_flow_status_after_job_completion_internal(
              current_module_id = %current_module.map(|x| x.id.clone()).unwrap_or_default(),
             continue_on_error = %continue_on_error, should_continue_flow = %should_continue_flow, "computed if flow should continue");
 
+        let is_ai_agent_step = current_module.is_some_and(|m| m.is_ai_agent());
+        let omit_output_from_conversation = match (is_ai_agent_step, current_module) {
+            (true, Some(module)) => match module.get_value()? {
+                FlowModuleValue::AIAgent { omit_output_from_conversation, .. } => {
+                    omit_output_from_conversation
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+
         let chat_ai_info = ChatAiInfo {
             chat_input_enabled: old_status.chat_input_enabled.unwrap_or(false),
             conversation_id: old_status.memory_id,
-            is_ai_agent_step: current_module.is_some_and(|m| m.is_ai_agent()),
-            omit_output_from_conversation: if let Some(module) = current_module {
-                match module.get_value()? {
-                    FlowModuleValue::AIAgent { omit_output_from_conversation, .. } => {
-                        omit_output_from_conversation
-                    }
-                    _ => false,
-                }
-            } else {
-                false
-            },
+            is_ai_agent_step,
+            omit_output_from_conversation,
         };
         (
             should_continue_flow,

@@ -161,6 +161,7 @@
 			Boolean(flowStore.val.value?.chat_input_enabled) &&
 			flowModule.value.type === 'aiagent'
 	)
+	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
 	let advancedSelected = $state('retries')
 	let advancedRuntimeSelected = $state('concurrency')
 	let s3Kind = $state('s3_client')
@@ -1038,7 +1039,13 @@
 							<Splitpanes>
 								<Pane minSize={36} bind:size={leftPanelSize}>
 									<div class="flex flex-col relative h-[99.99%]">
-										<Tabs bind:selected wrapperClass="shrink-0">
+										<Tabs
+											selected={visibleSelected}
+											on:selected={(event) => {
+												selected = event.detail
+											}}
+											wrapperClass="shrink-0"
+										>
 											{#if !preprocessorModule}
 												<Tab value="inputs" label="Step Input" />
 											{/if}
@@ -1054,7 +1061,7 @@
 												<Tab value="advanced" label="Advanced" />
 											{/if}
 										</Tabs>
-										{#if (selected === 'inputs' || (selected === 'chat' && !canShowChatTab)) && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
+										{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
 											<div class="flex-1 overflow-auto" id="flow-editor-step-input">
 												<PropPickerWrapper
 													pickableProperties={stepPropPicker.pickableProperties}
@@ -1099,7 +1106,7 @@
 													/>
 												</PropPickerWrapper>
 											</div>
-										{:else if selected === 'test'}
+										{:else if visibleSelected === 'test'}
 											{#if debugMode && isDebuggableScript}
 												<div transition:slide={{ duration: 200 }}>
 													<DebugToolbar
@@ -1132,7 +1139,7 @@
 												{onJobDone}
 												hideRunButton={debugMode && isDebuggableScript}
 											/>
-										{:else if selected === 'chat' && canShowChatTab && flowModule.value.type === 'aiagent'}
+										{:else if visibleSelected === 'chat' && canShowChatTab && flowModule.value.type === 'aiagent'}
 											<div class="flex-1 overflow-auto p-4">
 												<Section label="Conversation output">
 													<Toggle
@@ -1149,7 +1156,7 @@
 													/>
 												</Section>
 											</div>
-										{:else if selected === 'advanced'}
+										{:else if visibleSelected === 'advanced'}
 											<Tabs bind:selected={advancedSelected} wrapperClass="shrink-0">
 												<Tab
 													value="retries"
