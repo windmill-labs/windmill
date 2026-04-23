@@ -75,6 +75,7 @@ pub struct ToolExecutionContext<'a> {
     // Optional streaming & chat
     pub stream_event_processor: Option<&'a StreamEventProcessor>,
     pub flow_context: &'a mut FlowContext,
+    pub omit_output_from_conversation: bool,
     pub previous_result: &'a Option<Box<RawValue>>,
     pub id_context: &'a Option<crate::js_eval::IdContext>,
 
@@ -780,6 +781,10 @@ async fn add_tool_message_to_chat(
     content: &str,
     success: bool,
 ) {
+    if ctx.omit_output_from_conversation {
+        return;
+    }
+
     let chat_enabled = ctx
         .flow_context
         .flow_status

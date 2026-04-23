@@ -156,6 +156,12 @@
 	})
 
 	let selected = $state(untrack(() => preprocessorModule) ? 'test' : 'inputs')
+	let canShowChatTab = $derived(
+		!preprocessorModule &&
+			Boolean(flowStore.val.value?.chat_input_enabled) &&
+			flowModule.value.type === 'aiagent'
+	)
+	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
 	let advancedSelected = $state('retries')
 	let advancedRuntimeSelected = $state('concurrency')
 	let s3Kind = $state('s3_client')
@@ -237,6 +243,18 @@
 	function selectAdvanced(subtab: string) {
 		selected = 'advanced'
 		advancedSelected = subtab
+	}
+
+	function setOmitOutputFromConversation(omit: boolean) {
+		if (flowModule.value.type !== 'aiagent') {
+			return
+		}
+
+		if (omit) {
+			flowModule.value.omit_output_from_conversation = true
+		} else {
+			delete flowModule.value.omit_output_from_conversation
+		}
 	}
 
 	let forceReload = $state(0)
@@ -1021,16 +1039,29 @@
 							<Splitpanes>
 								<Pane minSize={36} bind:size={leftPanelSize}>
 									<div class="flex flex-col relative h-[99.99%]">
-										<Tabs bind:selected wrapperClass="shrink-0">
+										<Tabs
+											selected={visibleSelected}
+											on:selected={(event) => {
+												selected = event.detail
+											}}
+											wrapperClass="shrink-0"
+										>
 											{#if !preprocessorModule}
 												<Tab value="inputs" label="Step Input" />
 											{/if}
 											<Tab value="test" label="Test this step" />
+											{#if canShowChatTab && flowModule.value.type === 'aiagent'}
+												<Tab
+													value="chat"
+													active={Boolean(flowModule.value.omit_output_from_conversation)}
+													label="Chat"
+												/>
+											{/if}
 											{#if !preprocessorModule && !isAgentTool}
 												<Tab value="advanced" label="Advanced" />
 											{/if}
 										</Tabs>
-										{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
+										{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
 											<div class="flex-1 overflow-auto" id="flow-editor-step-input">
 												<PropPickerWrapper
 													pickableProperties={stepPropPicker.pickableProperties}
@@ -1075,7 +1106,7 @@
 													/>
 												</PropPickerWrapper>
 											</div>
-										{:else if selected === 'test'}
+										{:else if visibleSelected === 'test'}
 											{#if debugMode && isDebuggableScript}
 												<div transition:slide={{ duration: 200 }}>
 													<DebugToolbar
@@ -1108,7 +1139,24 @@
 												{onJobDone}
 												hideRunButton={debugMode && isDebuggableScript}
 											/>
-										{:else if selected === 'advanced'}
+										{:else if visibleSelected === 'chat' && canShowChatTab && flowModule.value.type === 'aiagent'}
+											<div class="flex-1 overflow-auto p-4">
+												<Section label="Conversation output">
+													<Toggle
+														size="xs"
+														checked={Boolean(flowModule.value.omit_output_from_conversation)}
+														on:change={(event) => {
+															setOmitOutputFromConversation(event.detail)
+														}}
+														options={{
+															right: 'Omit assistant and tool messages from the flow conversation',
+															rightTooltip:
+																'When enabled, this AI agent still runs normally, but its assistant response and tool-use messages are not stored in chat-mode conversation history.'
+														}}
+													/>
+												</Section>
+											</div>
+										{:else if visibleSelected === 'advanced'}
 											<Tabs bind:selected={advancedSelected} wrapperClass="shrink-0">
 												<Tab
 													value="retries"

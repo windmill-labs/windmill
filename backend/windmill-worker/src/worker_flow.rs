@@ -405,6 +405,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         chat_input_enabled: bool,
         conversation_id: Option<Uuid>,
         is_ai_agent_step: bool,
+        omit_output_from_conversation: bool,
     }
     let (
         should_continue_flow,
@@ -1609,10 +1610,22 @@ pub async fn update_flow_status_after_job_completion_internal(
              current_module_id = %current_module.map(|x| x.id.clone()).unwrap_or_default(),
             continue_on_error = %continue_on_error, should_continue_flow = %should_continue_flow, "computed if flow should continue");
 
+        let is_ai_agent_step = current_module.is_some_and(|m| m.is_ai_agent());
+        let omit_output_from_conversation = match (is_ai_agent_step, current_module) {
+            (true, Some(module)) => match module.get_value()? {
+                FlowModuleValue::AIAgent { omit_output_from_conversation, .. } => {
+                    omit_output_from_conversation
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+
         let chat_ai_info = ChatAiInfo {
             chat_input_enabled: old_status.chat_input_enabled.unwrap_or(false),
             conversation_id: old_status.memory_id,
-            is_ai_agent_step: current_module.is_some_and(|m| m.is_ai_agent()),
+            is_ai_agent_step,
+            omit_output_from_conversation,
         };
         (
             should_continue_flow,
@@ -1843,6 +1856,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 success,
                 skipped,
                 chat_ai_info.is_ai_agent_step,
+                chat_ai_info.omit_output_from_conversation,
                 &nresult,
                 chat_ai_info.chat_input_enabled,
                 chat_ai_info.conversation_id,
@@ -2035,10 +2049,15 @@ async fn add_tool_message_to_conversation(
     success: bool,
     skipped: bool,
     is_ai_agent_step: bool,
+    omit_output_from_conversation: bool,
     result: &Box<RawValue>,
     chat_input_enabled: bool,
     conversation_id: Option<Uuid>,
 ) -> error::Result<()> {
+    if is_ai_agent_step && omit_output_from_conversation {
+        return Ok(());
+    }
+
     // Create assistant message if it's a flow and it's done, but only if last module is not an AI agent
     if !skipped && chat_input_enabled {
         // Get conversation_id from flow_status.memory_id
