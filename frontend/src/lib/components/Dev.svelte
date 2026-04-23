@@ -596,16 +596,23 @@
 		if (lockChanges) {
 			return
 		}
-		if (!deepEqual(flow, lastSent)) {
-			lastSent = $state.snapshot(flow)
-			if (isInIframe) {
-				// VS Code extension: round-trip via postMessage
-				window?.parent.postMessage({ type: 'flow', flow: lastSent, uriPath: lastUriPath }, '*')
-			} else if (socket && socket.readyState === WebSocket.OPEN) {
-				// CLI dev mode: round-trip via WebSocket
-				socket.send(JSON.stringify({ type: 'flow', flow: lastSent, uriPath: lastUriPath }))
-			}
+		if (deepEqual(flow, lastSent)) {
+			return
 		}
+		const snapshot = $state.snapshot(flow)
+		// Prefer the WebSocket whenever a `wmill dev` session is connected — this covers
+		// both standalone browser tabs and Claude Code's iframe preview. The VS Code
+		// extension never opens this socket (its iframe URL omits `local=true`), so it
+		// falls through to the postMessage path it has always used.
+		if (socket && socket.readyState === WebSocket.OPEN) {
+			socket.send(JSON.stringify({ type: 'flow', flow: snapshot, uriPath: lastUriPath }))
+			lastSent = snapshot
+		} else if (isInIframe) {
+			window?.parent.postMessage({ type: 'flow', flow: snapshot, uriPath: lastUriPath }, '*')
+			lastSent = snapshot
+		}
+		// Else: no channel available yet (WS still connecting, not in an iframe).
+		// Don't mark `lastSent` so the next change will retry instead of being silently swallowed.
 	}
 
 	let reload = $state(0)
