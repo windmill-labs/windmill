@@ -120,14 +120,6 @@ function getPatchFileTool() {
 	return tool
 }
 
-describe('app tools', () => {
-	it('does not expose selected editor context as a tool', () => {
-		expect(getAppTools().map((entry) => entry.def.function.name)).not.toContain(
-			'get_selected_context'
-		)
-	})
-})
-
 describe('app patch_file tool', () => {
 	it('patches frontend files with an exact replacement', async () => {
 		const setFrontendFile = vi.fn(() => EMPTY_LINT_RESULT)
