@@ -675,6 +675,75 @@ gitBranches:
         )
 
     # ──────────────────────────────────────────────────
+    # wmill.yaml workspaces key drives filename suffix (default git-sync flow)
+    # ──────────────────────────────────────────────────
+
+    def test_workspace_specific_items_use_config_key_suffix(self):
+        """Default git-sync flow invokes the CLI as
+        `wmill sync pull --workspace <workspace_id> --base-url <internal_url> ...`.
+
+        The internal URL passed as --base-url does not match the public
+        `baseUrl` in wmill.yaml, so `inferWsNameFromProfile` cannot match
+        entries by URL. Prior to the fix, `wsNameForConfig` stayed undefined
+        and workspace-specific filenames fell back to the git branch name.
+
+        With the fix, the CLI matches --workspace against the `workspaces:`
+        keys directly and uses the config key as the filename suffix.
+        """
+        repo_name, _ = self._create_test_repo()
+        resource_path = self._setup_git_sync_resource(repo_name)
+
+        # Workspace config key equals the workspace_id ("integration-tests"),
+        # with a mismatching baseUrl that simulates the public/internal URL
+        # split seen in real Windmill git-sync deployments.
+        wmill_yaml_content = f"""\
+includes:
+  - "**"
+workspaces:
+  {self._client._workspace}:
+    gitBranch: main
+    baseUrl: 'https://public.example.test'
+    specificItems:
+      variables:
+        - "**"
+"""
+        self._gitea.create_file(repo_name, "wmill.yaml", wmill_yaml_content)
+
+        self._configure_single_repo_sync(
+            resource_path,
+            include_type=["variable"],
+        )
+
+        initial_count = self._client.count_deployment_callback_jobs()
+        var_path = f"u/admin/{unique_name('env_var')}"
+        self._client.create_variable(
+            path=var_path,
+            value="some_value",
+        )
+        self._client.wait_for_sync_jobs(initial_count, min_new=1)
+        time.sleep(3)
+
+        repo_dir = self._clone_repo(repo_name)
+        files = self._list_repo_files(repo_dir)
+
+        var_name = var_path.split("/")[-1]
+        ws_key = self._client._workspace
+
+        # File should have the workspace config key as suffix, NOT the branch name
+        key_suffixed = [f for f in files if var_name in f and f".{ws_key}." in f]
+        branch_suffixed = [f for f in files if var_name in f and ".main." in f]
+        self.assertTrue(
+            len(key_suffixed) > 0,
+            f"Expected variable file with '.{ws_key}.' suffix (workspace config key). "
+            f"Got files: {files}",
+        )
+        self.assertEqual(
+            len(branch_suffixed), 0,
+            f"Unexpected variable file with '.main.' suffix (git branch name fallback). "
+            f"Got files: {files}",
+        )
+
+    # ──────────────────────────────────────────────────
     # Exclude path filtering
     # ──────────────────────────────────────────────────
 
