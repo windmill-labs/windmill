@@ -7,6 +7,8 @@ import { stringify as yamlStringify } from "yaml";
 
 import { resolveWsNameForGitBranch } from "../src/core/specific_items.ts";
 import { findResourceFile } from "../src/commands/script/script.ts";
+import { resolveWsNameForConfigFromFlags } from "../src/commands/sync/sync.ts";
+import type { SyncOptions } from "../src/core/conf.ts";
 
 // Integration tests covering the bug where workspace-specific filenames used
 // the raw git branch name instead of the wmill.yaml workspace config key.
@@ -87,6 +89,58 @@ describe("resolveWsNameForGitBranch", () => {
         expect(wsName).toEqual("feature-x");
       },
     );
+  });
+});
+
+describe("resolveWsNameForConfigFromFlags", () => {
+  test("--workspace matching a config key resolves, even with --base-url", () => {
+    const opts: SyncOptions & { branch?: string; workspace?: string } = {
+      workspace: "test",
+      baseUrl: "http://127.0.0.1:8080/",
+      workspaces: {
+        test: { gitBranch: "main" },
+        prod: { gitBranch: "main" },
+      },
+    } as any;
+    expect(resolveWsNameForConfigFromFlags(opts)).toEqual("test");
+  });
+
+  test("--workspace not in config with --base-url returns undefined (treat as ad-hoc credential)", () => {
+    const opts: SyncOptions & { branch?: string; workspace?: string } = {
+      workspace: "adhocWorkspaceId",
+      baseUrl: "https://other.windmill.dev/",
+      workspaces: {
+        test: { gitBranch: "main" },
+      },
+    } as any;
+    expect(resolveWsNameForConfigFromFlags(opts)).toBeUndefined();
+  });
+
+  test("--workspace matching config key resolves even without --base-url", () => {
+    const opts: SyncOptions & { branch?: string; workspace?: string } = {
+      workspace: "prod",
+      workspaces: { test: {}, prod: {} },
+    } as any;
+    expect(resolveWsNameForConfigFromFlags(opts)).toEqual("prod");
+  });
+
+  test("--branch takes precedence and looks up by gitBranch", () => {
+    const opts: SyncOptions & { branch?: string; workspace?: string } = {
+      branch: "main",
+      workspace: "someOtherKey",
+      workspaces: {
+        test: { gitBranch: "main" },
+        prod: { gitBranch: "release" },
+      },
+    } as any;
+    expect(resolveWsNameForConfigFromFlags(opts)).toEqual("test");
+  });
+
+  test("no flags returns undefined", () => {
+    const opts: SyncOptions & { branch?: string; workspace?: string } = {
+      workspaces: { test: {} },
+    } as any;
+    expect(resolveWsNameForConfigFromFlags(opts)).toBeUndefined();
   });
 });
 

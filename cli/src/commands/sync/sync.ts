@@ -121,6 +121,25 @@ function resolveWsNameFromBranch(opts: SyncOptions, branchName: string): string 
   return match ? match[0] : branchName;
 }
 
+// Resolve wsNameForConfig from CLI flags. Prefers --branch → matching config key,
+// then --workspace → matching config key (incl. when --base-url is set). Returns
+// undefined when no flag-based resolution applies; callers then fall back to
+// inferWsNameFromProfile on the resolved workspace profile.
+export function resolveWsNameForConfigFromFlags(
+  opts: SyncOptions & { branch?: string },
+): string | undefined {
+  if (opts.branch) {
+    return resolveWsNameFromBranch(opts, opts.branch);
+  }
+  if (opts.workspace) {
+    const isConfigKey = !!(opts.workspaces as any)?.[opts.workspace];
+    if (isConfigKey) {
+      return opts.workspace;
+    }
+  }
+  return undefined;
+}
+
 // Warn if --workspace overrides auto-detected branch or if workspace not in config.
 function warnWorkspaceOverride(opts: SyncOptions, wsNameForConfig: string | undefined): void {
   if (!wsNameForConfig || !opts.workspaces) return;
@@ -2142,16 +2161,16 @@ export async function pull(
   const hasExplicitCredentials = !!opts.baseUrl;
   let wsNameForConfig: string | undefined;
 
-  if (opts.branch) {
-    if (!hasExplicitCredentials && !branchDeprecationWarned) {
-      log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
-      branchDeprecationWarned = true;
-    }
-    wsNameForConfig = resolveWsNameFromBranch(opts, opts.branch);
-  } else if (opts.workspace && !hasExplicitCredentials) {
-    // --workspace without --base-url: use as workspace config name
-    wsNameForConfig = opts.workspace;
-    warnWorkspaceOverride(opts, wsNameForConfig);
+  if (opts.branch && !hasExplicitCredentials && !branchDeprecationWarned) {
+    log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
+    branchDeprecationWarned = true;
+  }
+
+  wsNameForConfig = resolveWsNameForConfigFromFlags(opts);
+
+  if (!opts.branch && opts.workspace && !hasExplicitCredentials) {
+    // Warn if override doesn't match a config key, or mismatches the auto-detected branch
+    warnWorkspaceOverride(opts, opts.workspace);
   }
 
   // Validate workspace configuration early (skipped when override is used)
@@ -2678,15 +2697,16 @@ export async function push(
   const hasExplicitCredentials = !!opts.baseUrl;
   let wsNameForConfig: string | undefined;
 
-  if (opts.branch) {
-    if (!hasExplicitCredentials && !branchDeprecationWarned) {
-      log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
-      branchDeprecationWarned = true;
-    }
-    wsNameForConfig = resolveWsNameFromBranch(opts, opts.branch);
-  } else if (opts.workspace && !hasExplicitCredentials) {
-    wsNameForConfig = opts.workspace;
-    warnWorkspaceOverride(opts, wsNameForConfig);
+  if (opts.branch && !hasExplicitCredentials && !branchDeprecationWarned) {
+    log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
+    branchDeprecationWarned = true;
+  }
+
+  wsNameForConfig = resolveWsNameForConfigFromFlags(opts);
+
+  if (!opts.branch && opts.workspace && !hasExplicitCredentials) {
+    // Warn if override doesn't match a config key, or mismatches the auto-detected branch
+    warnWorkspaceOverride(opts, opts.workspace);
   }
 
   // Validate workspace configuration early (skipped when override is used)
