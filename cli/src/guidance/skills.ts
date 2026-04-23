@@ -5909,15 +5909,6 @@ properties:
     type: array
     items:
       type: string
-  delivery_config:
-    type: object
-    properties:
-      secret_hash:
-        type: string
-        description: sha256 hex digest of the shared secret Azure attaches as X-Windmill-Secret
-          on each delivery. Read-only.
-    description: Server-managed secret used to authenticate inbound push deliveries.
-      Generated on trigger save; only the hash is persisted.
   error_handler_path:
     type: string
   error_handler_args:
