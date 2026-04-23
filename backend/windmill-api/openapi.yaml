@@ -7406,6 +7406,9 @@ paths:
   /w/{workspace}/scripts/create:
     post:
       summary: create script
+      description: |
+        Creates a new script when the path does not already exist.
+        Creates a new version of an existing script when called with the same path and the current `parent_hash`.
       operationId: createScript
       x-mcp-tool: true
       x-mcp-instructions: "To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed."
