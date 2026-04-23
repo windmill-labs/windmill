@@ -186,7 +186,7 @@ async function listWorkspacePaths(): Promise<WmPathItem[]> {
 export interface DevOpts {
   proxyPort?: number;
   path?: string;
-  noBrowser?: boolean;
+  browser?: boolean;
 }
 
 export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
@@ -614,7 +614,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
   }
 
   function maybeOpenBrowser(url: string) {
-    if (opts.noBrowser) return;
+    if (opts.browser === false) return;
     try {
       open.default(url).catch((error) => {
         console.error(
