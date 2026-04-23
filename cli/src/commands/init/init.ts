@@ -282,7 +282,7 @@ async function initAction(opts: InitOptions) {
       configurations: [{
         name: "windmill",
         runtimeExecutable: "bash",
-        runtimeArgs: ["-c", "wmill dev --proxy-port ${PORT:-4000} --no-browser"],
+        runtimeArgs: ["-c", "wmill dev --proxy-port ${PORT:-4000} --no-open"],
         port: 4000,
         autoPort: true,
       }],

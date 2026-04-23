@@ -77,7 +77,7 @@ Launch a dev server that watches for local file changes and auto-pushes them to 
 - `--includes <pattern...:string>` - Filter paths givena glob pattern or path
 - `--proxy-port <port:number>` - Port for a localhost reverse proxy to the remote Windmill server
 - `--path <path:string>` - Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)
-- `--no-browser` - Do not open the browser automatically
+- `--no-open` - Do not open the browser automatically
 
 ### docs
 

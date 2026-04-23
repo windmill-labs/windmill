@@ -2489,7 +2489,7 @@ export async function pull(
         configurations: [{
           name: "windmill",
           runtimeExecutable: "bash",
-          runtimeArgs: ["-c", "wmill dev --proxy-port ${PORT:-4000}"],
+          runtimeArgs: ["-c", "wmill dev --proxy-port ${PORT:-4000} --no-open"],
           port: 4000,
           autoPort: true,
         }],

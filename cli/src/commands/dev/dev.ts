@@ -186,7 +186,7 @@ async function listWorkspacePaths(): Promise<WmPathItem[]> {
 export interface DevOpts {
   proxyPort?: number;
   path?: string;
-  browser?: boolean;
+  open?: boolean;
 }
 
 export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
@@ -614,7 +614,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
   }
 
   function maybeOpenBrowser(url: string) {
-    if (opts.browser === false) return;
+    if (opts.open === false) return;
     try {
       open.default(url).catch((error) => {
         console.error(
@@ -807,7 +807,7 @@ const command = new Command()
     "Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)"
   )
   .option(
-    "--no-browser",
+    "--no-open",
     "Do not open the browser automatically"
   )
   .action(dev as any);
