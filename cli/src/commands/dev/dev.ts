@@ -108,6 +108,7 @@ function restorePathScripts(flowValue: any) {
 export interface DevOpts {
   proxyPort?: number;
   path?: string;
+  noBrowser?: boolean;
 }
 
 export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
@@ -146,7 +147,6 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
         } else {
           opts.path = relPath;
         }
-        opts.proxyPort = opts.proxyPort ?? 3100;
         log.info(`Detected flow folder, path: ${opts.path}`);
         process.chdir(workspaceRoot);
       }
@@ -515,6 +515,22 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     });
   }
 
+  function maybeOpenBrowser(url: string) {
+    if (opts.noBrowser) return;
+    try {
+      open.default(url).catch((error) => {
+        console.error(
+          `Failed to open browser, please navigate to ${url}, error: ${error}`
+        );
+      });
+      console.log(`Opened browser at ${url}`);
+    } catch (error) {
+      console.error(
+        `Failed to open browser, please navigate to ${url}, ${error}`
+      );
+    }
+  }
+
   // --- Reverse proxy (when --proxy-port is set) ---
 
   async function startProxyServer(proxyPort: number) {
@@ -629,6 +645,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     return new Promise<void>((resolve) => {
       proxyServer.listen(proxyPort, () => {
         console.log(`Dev proxy listening on http://localhost:${proxyPort}`);
+        maybeOpenBrowser(`http://localhost:${proxyPort}/`);
         resolve();
       });
     });
@@ -651,18 +668,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
       (opts.path ? `&path=${opts.path}` : "");
 
     console.log(`Go to ${url}`);
-    try {
-      open.default(url).catch((error) => {
-        console.error(
-          `Failed to open browser, please navigate to ${url}, error: ${error}`
-        );
-      });
-      console.log("Opened browser for you");
-    } catch (error) {
-      console.error(
-        `Failed to open browser, please navigate to ${url}, ${error}`
-      );
-    }
+    maybeOpenBrowser(url);
 
     console.log(
       "Dev server will automatically point to the last script edited locally"
@@ -701,6 +707,10 @@ const command = new Command()
   .option(
     "--path <path:string>",
     "Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)"
+  )
+  .option(
+    "--no-browser",
+    "Do not open the browser automatically"
   )
   .action(dev as any);
 
