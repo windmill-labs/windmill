@@ -951,12 +951,20 @@ async fn get_job(
         .flatten();
 
     // A valid approval token on the same (workspace, flow) grants read access
-    // so the approval page can render job metadata without login.
+    // so the approval page can render job metadata without login. The approval
+    // URL usually carries the flow id directly — try that first and only
+    // resolve the parent flow if the direct check fails.
     let has_valid_approval_token = if let Some(ref token) = approval_token {
-        let flow_id = get_flow_id_for_job(&db, id).await.unwrap_or(id);
-        validate_approval_token(&db, token, flow_id, &w_id)
-            .await
-            .is_ok()
+        if validate_approval_token(&db, token, id, &w_id).await.is_ok() {
+            true
+        } else if let Ok(flow_id) = get_flow_id_for_job(&db, id).await {
+            flow_id != id
+                && validate_approval_token(&db, token, flow_id, &w_id)
+                    .await
+                    .is_ok()
+        } else {
+            false
+        }
     } else {
         false
     };

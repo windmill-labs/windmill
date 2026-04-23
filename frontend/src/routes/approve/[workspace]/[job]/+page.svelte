@@ -80,7 +80,9 @@
 			job = (await JobService.getJob({
 				workspace: page.params.workspace ?? '',
 				id: page.params.job ?? '',
-				approvalToken: token
+				approvalToken: token,
+				noCode: true,
+				noLogs: true
 			})) as Job
 			completed = job?.type === 'CompletedJob'
 			if (completed) {
