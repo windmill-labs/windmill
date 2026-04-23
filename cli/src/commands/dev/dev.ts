@@ -237,6 +237,15 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
           }
         }
         if (!localPath) return;
+        // Strip whichever flow suffix is present (dotted or non-dotted)
+        let wmFlowPath = localPath.replace(/\/$/, "");
+        if (wmFlowPath.endsWith(".flow")) {
+          wmFlowPath = wmFlowPath.slice(0, -".flow".length);
+        } else if (wmFlowPath.endsWith("__flow")) {
+          wmFlowPath = wmFlowPath.slice(0, -"__flow".length);
+        }
+        // Skip work entirely when --path is set and this change is for a different path
+        if (opts.path && wmFlowPath !== opts.path) return;
         const localFlow = (await yamlParseFile(
           localPath + "flow.yaml"
         )) as FlowFile;
@@ -257,13 +266,6 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
         });
         await replaceAllPathScriptsWithLocal(localFlow.value, localScriptReader, log);
         tagReplacedPathScripts(localFlow);
-        // Strip whichever flow suffix is present (dotted or non-dotted)
-        let wmFlowPath = localPath.replace(/\/$/, "");
-        if (wmFlowPath.endsWith(".flow")) {
-          wmFlowPath = wmFlowPath.slice(0, -".flow".length);
-        } else if (wmFlowPath.endsWith("__flow")) {
-          wmFlowPath = wmFlowPath.slice(0, -"__flow".length);
-        }
         currentLastEdit = {
           type: "flow",
           flow: localFlow,
@@ -273,9 +275,11 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
         log.info("Updated " + wmFlowPath);
         broadcastChanges(currentLastEdit);
       } else if (typ == "script") {
-        const content = await readFile(cpath, "utf-8");
         const splitted = cpath.split(".");
         const wmPath = splitted[0];
+        // Skip work entirely when --path is set and this change is for a different path
+        if (opts.path && wmPath !== opts.path) return;
+        const content = await readFile(cpath, "utf-8");
         const lang = inferContentTypeFromFilePath(cpath, opts.defaultTs);
         const typed =
           (await parseMetadataFile(
@@ -470,8 +474,13 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
 
   const connectedClients: Set<WebSocket> = new Set();
 
-  // Function to send a message to all connected clients
+  // Function to send a message to all connected clients.
+  // When --path (or auto-detected flow path) is set, drop edits for any other
+  // path so the dev page stays locked to the requested resource.
   function broadcastChanges(lastEdit: LastEditScript | LastEditFlow) {
+    if (opts.path && lastEdit.path !== opts.path) {
+      return;
+    }
     for (const client of connectedClients.values()) {
       client.send(JSON.stringify(lastEdit));
     }
@@ -481,6 +490,16 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     wss.on("connection", (ws: WebSocket) => {
       connectedClients.add(ws);
       console.log("New dev client connected");
+
+      // Push the currently loaded edit so the page renders immediately on
+      // page load, without waiting for a file change to trigger a broadcast.
+      if (currentLastEdit) {
+        try {
+          ws.send(JSON.stringify(currentLastEdit));
+        } catch (e) {
+          console.error("Failed to push initial state to new client:", e);
+        }
+      }
 
       ws.on("close", () => {
         connectedClients.delete(ws);
