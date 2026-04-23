@@ -141,7 +141,7 @@
 								<div class="text-center text-primary text-xs">No history</div>
 							{:else}
 								<div class="flex flex-col">
-									{#each pastChats as chat}
+									{#each pastChats as chat (chat.id)}
 										<button
 											class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1"
 											onclick={() => {
@@ -204,7 +204,7 @@
 			}}
 		>
 			<div class="flex flex-col" bind:clientHeight={height}>
-				{#each messages as message, messageIndex}
+				{#each messages as message, messageIndex (messageIndex)}
 					<AIChatMessage
 						{message}
 						{messageIndex}
@@ -341,7 +341,7 @@
 		{#if (aiChatManager.mode === AIMode.NAVIGATOR || aiChatManager.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
 			<div class="px-2 mt-4">
 				<div class="flex flex-col gap-2">
-					{#each suggestions as suggestion}
+					{#each suggestions as suggestion (suggestion)}
 						<Button
 							on:click={() => submitSuggestion(suggestion)}
 							size="xs2"

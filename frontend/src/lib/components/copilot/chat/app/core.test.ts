@@ -93,7 +93,7 @@ function createHelpers(overrides: Partial<AppAIChatHelpers> = {}): AppAIChatHelp
 		setBackendRunnable: async () => EMPTY_LINT_RESULT,
 		deleteBackendRunnable: () => undefined,
 		getFiles: () => ({ frontend: {}, backend: {} }),
-		getSelectedContext: () => ({ type: 'none' }),
+		getSelectedContext: () => ({}),
 		snapshot: () => 1,
 		revertToSnapshot: () => undefined,
 		lint: () => EMPTY_LINT_RESULT,
@@ -236,7 +236,7 @@ describe('prepareAppUserMessage app context', () => {
 		const message = prepareAppUserMessage('Update the layout', {
 			type: 'frontend',
 			frontendPath: '/index.tsx'
-		})
+		} as unknown as SelectedContext)
 
 		const content = message.content as string
 		expect(content).toBe('## INSTRUCTIONS:\nUpdate the layout')
@@ -247,7 +247,7 @@ describe('prepareAppUserMessage app context', () => {
 		const selectedContext: SelectedContext = {
 			type: 'backend',
 			backendKey: 'loadUsers'
-		}
+		} as unknown as SelectedContext
 
 		const message = prepareAppUserMessage('Use the existing runnable', selectedContext)
 
@@ -281,7 +281,7 @@ describe('prepareAppUserMessage app context', () => {
 				startColumn: 1,
 				endColumn: 25
 			}
-		}
+		} as unknown as SelectedContext
 
 		const message = prepareAppUserMessage('Change this selected area', selectedContext)
 

@@ -416,31 +416,13 @@
 				}
 			},
 			getSelectedContext: () => {
-				const baseContext = {
+				return {
 					inspectorElement: inspectorElement,
 					clearInspector: clearInspectorSelection,
 					codeSelection: codeSelection,
 					clearCodeSelection: () => {
 						codeSelection = undefined
 					}
-				}
-				if (selectedRunnable) {
-					return {
-						type: 'backend' as const,
-						backendKey: selectedRunnable,
-						...baseContext
-					}
-				}
-				if (selectedDocument) {
-					return {
-						type: 'frontend' as const,
-						frontendPath: selectedDocument,
-						...baseContext
-					}
-				}
-				return {
-					type: 'none' as const,
-					...baseContext
 				}
 			},
 			snapshot: () => {

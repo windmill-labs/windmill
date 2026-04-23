@@ -80,14 +80,8 @@ export interface InspectorElementInfo {
 	styles: Record<string, string>
 }
 
-/** Context about the currently selected file or runnable in the app editor */
+/** App editor context that is implicitly attached to app-mode AI messages. */
 export interface SelectedContext {
-	/** Type of selection: 'frontend' for frontend files, 'backend' for backend runnables, or 'none' if nothing is selected */
-	type: 'frontend' | 'backend' | 'none'
-	/** The path of the selected frontend file (when type is 'frontend') */
-	frontendPath?: string
-	/** The key of the selected backend runnable (when type is 'backend') */
-	backendKey?: string
 	/** Inspector-selected element info (when user has used the inspector tool) */
 	inspectorElement?: InspectorElementInfo
 	/** Function to clear the inspector selection */
