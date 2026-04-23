@@ -176,7 +176,7 @@ async fn list_messages(
 
     let messages = if let Some(after_id) = query.after_id {
         let after_message = sqlx::query!(
-            r#"SELECT created_at, message_type as "message_type: MessageType"
+            r#"SELECT created_at
              FROM flow_conversation_message
              WHERE conversation_id = $1 AND id = $2"#,
             conversation_id,
@@ -186,12 +186,6 @@ async fn list_messages(
         .await?
         .ok_or_else(|| Error::NotFound(format!("Message not found: {}", after_id)))?;
 
-        let after_message_order = if after_message.message_type == MessageType::User {
-            0
-        } else {
-            1
-        };
-
         sqlx::query_as!(
             FlowConversationMessage,
             r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, step_name, success
@@ -199,15 +193,13 @@ async fn list_messages(
              WHERE conversation_id = $1
                AND (
                  created_at > $2
-                 OR (created_at = $2 AND CASE WHEN message_type = 'user' THEN 0 ELSE 1 END > $3)
-                 OR (created_at = $2 AND CASE WHEN message_type = 'user' THEN 0 ELSE 1 END = $3 AND id > $4)
+                 OR (created_at = $2 AND id > $3)
                )
-             ORDER BY created_at ASC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END, id ASC
-             LIMIT $5 OFFSET $6
+             ORDER BY created_at ASC, id ASC
+             LIMIT $4 OFFSET $5
              "#,
             conversation_id,
             after_message.created_at,
-            after_message_order,
             after_id,
             per_page as i64,
             offset as i64
@@ -223,10 +215,10 @@ async fn list_messages(
                 SELECT id, conversation_id, message_type, content, job_id, created_at, step_name, success
                 FROM flow_conversation_message
                 WHERE conversation_id = $1
-                ORDER BY created_at DESC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END
+                ORDER BY created_at DESC, id DESC
                 LIMIT $2 OFFSET $3
              ) AS messages
-             ORDER BY created_at ASC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END
+             ORDER BY created_at ASC, id ASC
              "#,
             conversation_id,
             per_page as i64,
