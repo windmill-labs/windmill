@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, conversation_id, message_type as \"message_type: MessageType\", content, job_id, created_at, step_name, success\n         FROM (\n            SELECT id, conversation_id, message_type, content, job_id, created_at, step_name, success\n            FROM flow_conversation_message\n            WHERE conversation_id = $1\n            ORDER BY created_at DESC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END\n            LIMIT $2 OFFSET $3\n         ) AS messages\n         ORDER BY created_at ASC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END\n         ",
+  "query": "WITH after_message AS (\n                SELECT id, created_at\n                FROM flow_conversation_message\n                WHERE conversation_id = $1 AND id = $2\n             )\n             SELECT m.id, m.conversation_id, m.message_type as \"message_type: MessageType\", m.content, m.job_id, m.created_at, m.step_name, m.success\n             FROM flow_conversation_message m\n             JOIN after_message a ON true\n             WHERE m.conversation_id = $1\n               AND (\n                 m.created_at > a.created_at\n                 OR (m.created_at = a.created_at AND m.id > a.id)\n               )\n             ORDER BY m.created_at ASC, m.id ASC\n             LIMIT $3 OFFSET $4\n             ",
   "describe": {
     "columns": [
       {
@@ -58,6 +58,7 @@
     "parameters": {
       "Left": [
         "Uuid",
+        "Uuid",
         "Int8",
         "Int8"
       ]
@@ -73,5 +74,5 @@
       false
     ]
   },
-  "hash": "a739af2f72e117acc58374f6ed44f8223efa4826d6c10639f98e624474b247a3"
+  "hash": "41935d8ab7dd40cb12d0b59b29712e5a8172c992f61fca78f204ed7095ebeae8"
 }
