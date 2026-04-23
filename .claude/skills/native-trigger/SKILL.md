@@ -607,7 +607,18 @@ In `frontend/src/lib/components/triggers/TriggersEditor.svelte`:
 
 Add your service to the `nativeTriggerServices` map in `deleteDeployedTrigger()`. Native triggers use `NativeTriggerService.deleteNativeTrigger({ workspace, serviceName, externalId })` instead of the standard `path`-based delete.
 
-### Step 17: Update OpenAPI Spec and Regenerate Types
+### Step 17: Update `getUsedTriggers` for Sidebar Visibility
+
+The sidebar (`frontend/src/lib/components/sidebar/SidebarContent.svelte`) shows native-trigger links only if `$usedTriggerKinds` includes the service — without this, your trigger page will never appear in the nav bar even when triggers exist.
+
+1. **Backend** — add `{service}_used: bool` to the `UsedTriggers` struct and SELECT in `backend/windmill-api-workspaces/src/workspaces.rs::get_used_triggers()`:
+   ```rust
+   EXISTS(SELECT 1 FROM native_trigger WHERE workspace_id = $1 AND service_name = '{service}'::native_trigger_service) AS "{service}_used!"
+   ```
+2. **OpenAPI** — add `{service}_used: boolean` to the response schema for `GET /w/{workspace}/workspaces/used_triggers` (under both `properties` and `required`).
+3. **Layout** — in `frontend/src/routes/(root)/(logged)/+layout.svelte::loadUsedTriggerKinds()`, destructure `{service}_used` and push `'{service}'` to `usedKinds`.
+
+### Step 18: Update OpenAPI Spec and Regenerate Types
 
 Add to `JobTriggerKind` enum in `backend/windmill-api/openapi.yaml`, then:
 

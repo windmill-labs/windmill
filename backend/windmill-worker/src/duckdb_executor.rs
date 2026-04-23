@@ -110,7 +110,7 @@ pub async fn do_duckdb(
             m
         };
 
-        let query_block_list = parse_sql_blocks(&query);
+        let query_block_list = parse_sql_blocks(&query, true);
 
         // Replace custom ATTACH statements with the real instructions
         let query_block_list = {
@@ -649,7 +649,6 @@ async fn transform_attach_ducklake(
         .unwrap_or(DEFAULT_STORAGE);
     let data_path = ducklake.storage.path;
 
-
     let extra_args = if let Some(default_extra_args) = ducklake.extra_args {
         format!("{},{}", extra_args, default_extra_args)
     } else {
@@ -669,7 +668,6 @@ async fn transform_attach_ducklake(
     } else {
         format!(", AUTOMATIC_MIGRATION TRUE{extra_args}")
     };
-    
 
     let attach_str = format!(
         "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH 's3://{storage}/{data_path}'{extra_args});",

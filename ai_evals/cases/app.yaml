@@ -68,26 +68,84 @@
     - shows a delete-selected action only when there is a selection
     - deleting selected items updates the visible list
 
-- id: app-test8-inventory-tracker-create
+- id: app-test8-inventory-tracker-search-delete
   prompt: |-
-    Create an inventory tracker app for a small store.
-    Users should be able to add items with a name, sku, quantity, and price, search items by name or sku, and delete items.
-    The inventory should persist between sessions.
+    Update this inventory tracker app so users can search items by name or sku and delete existing items.
+    Keep the existing add-item flow and datatable-backed persistence working.
+  initial: ai_evals/fixtures/frontend/app/initial/inventory_tracker
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    requiredBackendRunnableKeys:
+      - listInventory
+      - addInventory
+      - deleteInventory
+    requiredBackendRunnableTypes:
+      - key: listInventory
+        type: inline
+      - key: addInventory
+        type: inline
+      - key: deleteInventory
+        type: inline
+    requiredDatatables:
+      - datatableName: main
+        schema: public
+        table: inventory_items
   judgeChecklist:
-    - includes a form to add inventory items with name, sku, quantity, and price
-    - shows a list or table of saved inventory items
-    - supports searching or filtering by name or sku
-    - lets users delete existing inventory items
-    - persists the inventory data appropriately for a raw Windmill app
+    - keeps the existing add-item form working
+    - adds a search input that filters inventory by name or sku
+    - adds a delete action for existing inventory items
+    - deleting an inventory item updates the visible list
+    - keeps inventory persistence working through the existing datatable-backed app setup
 
-- id: app-test9-recipe-book-create
+- id: app-test9-recipe-book-search-delete
   prompt: |-
-    Create a recipe book app where users can add recipes with a name, ingredients list, and instructions.
-    Include a search bar to filter recipes by name and the ability to delete recipes.
-    Recipes should persist between sessions.
+    Update this recipe book app so users can search recipes by name and delete existing recipes.
+    Keep the existing add-recipe flow and datatable-backed persistence working.
+  initial: ai_evals/fixtures/frontend/app/initial/recipe_book
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    requiredBackendRunnableKeys:
+      - listRecipes
+      - addRecipe
+      - deleteRecipe
+    requiredBackendRunnableTypes:
+      - key: listRecipes
+        type: inline
+      - key: addRecipe
+        type: inline
+      - key: deleteRecipe
+        type: inline
+    requiredDatatables:
+      - datatableName: main
+        schema: public
+        table: recipes
   judgeChecklist:
-    - includes a form to add recipes with name, ingredients, and instructions
-    - shows saved recipes in the app
-    - supports searching recipes by name
-    - lets users delete recipes
-    - persists recipes appropriately for a raw Windmill app
+    - keeps the existing add-recipe form working
+    - adds a search input that filters recipes by name
+    - adds a delete action for existing recipes
+    - deleting a recipe updates the visible list
+    - keeps recipe persistence working through the existing datatable-backed app setup
+
+- id: app-test10-session-id-no-crypto
+  prompt: |-
+    Update `generateSessionId` so it no longer uses `crypto.randomUUID()`.
+    Make it return a handmade string id built from the current time and random characters.
+    Keep the existing sessionStorage-based chat session behavior unchanged.
+  initial: ai_evals/fixtures/frontend/app/initial/session_id_chat
+  runtime:
+    maxTurns: 4
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    requiredBackendRunnableKeys:
+      - a
+    requiredBackendRunnableTypes:
+      - key: a
+        type: inline
+  judgeChecklist:
+    - generateSessionId no longer calls crypto.randomUUID
+    - generateSessionId returns a handmade string id without using crypto
+    - getSessionId still stores and reuses chat_session_id in sessionStorage
+    - the existing new chat and send message session behavior remains wired up

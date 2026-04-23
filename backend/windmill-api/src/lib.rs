@@ -216,6 +216,8 @@ pub use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 
 pub use windmill_common::utils::{COOKIE_DOMAIN, IS_SECURE};
 
+pub use windmill_api_debug::reload_debug_signing_key;
+
 #[cfg(feature = "oauth2")]
 pub use windmill_oauth::OAUTH_CLIENTS;
 
@@ -225,6 +227,11 @@ lazy_static::lazy_static! {
         .ok()
         .map(|x| SlackVerifier::new(x).unwrap());
 
+    // Comma-separated Slack v2 OAuth bot scopes requested when connecting a workspace.
+    // Must be a subset of the bot scopes declared in the Slack app manifest. Default matches
+    // Windmill's recommended manifest at docs.windmill.dev/docs/misc/setup_oauth.
+    pub static ref SLACK_OAUTH_SCOPES: String = std::env::var("SLACK_OAUTH_SCOPES")
+        .unwrap_or_else(|_| "commands,chat:write,chat:write.public,channels:join,files:write,app_mentions:read,im:history,im:read".to_string());
 }
 
 // Compliance with cloud events spec.
@@ -974,10 +981,20 @@ pub async fn run_server(
             }
         })
         // JWKS endpoint for HashiCorp Vault JWT authentication (must be outside /api prefix)
-        .route(
-            "/.well-known/jwks.json",
-            get(windmill_api_settings::get_jwks),
-        )
+        .route("/.well-known/jwks.json", {
+            #[cfg(all(feature = "private", feature = "enterprise", feature = "openidconnect"))]
+            {
+                get(crate::oidc_oss::jwks)
+            }
+            #[cfg(not(all(
+                feature = "private",
+                feature = "enterprise",
+                feature = "openidconnect"
+            )))]
+            {
+                get(windmill_api_settings::get_jwks)
+            }
+        })
         .fallback(static_assets::static_handler)
         .layer(middleware_stack);
 

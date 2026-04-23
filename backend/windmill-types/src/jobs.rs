@@ -39,6 +39,7 @@ pub enum JobTriggerKind {
     Azure,
     Nextcloud,
     Google,
+    Github,
     #[serde(rename = "ci_test")]
     #[sqlx(rename = "ci_test")]
     CiTest,
@@ -61,6 +62,7 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::Azure => "azure",
             JobTriggerKind::Nextcloud => "nextcloud",
             JobTriggerKind::Google => "google",
+            JobTriggerKind::Github => "github",
             JobTriggerKind::CiTest => "ci_test",
         };
         write!(f, "{}", kind)

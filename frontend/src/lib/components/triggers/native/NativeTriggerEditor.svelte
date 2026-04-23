@@ -20,6 +20,7 @@
 	import Required from '$lib/components/Required.svelte'
 	import NextcloudTriggerForm from './services/nextcloud/NextcloudTriggerForm.svelte'
 	import GoogleTriggerForm from './services/google/GoogleTriggerForm.svelte'
+	import GitHubTriggerForm from './services/github/GitHubTriggerForm.svelte'
 	import TriggerEditorToolbar from '$lib/components/triggers/TriggerEditorToolbar.svelte'
 	import { handleConfigChange, type Trigger } from '$lib/components/triggers/utils'
 	import { deepEqual } from 'fast-equals'
@@ -75,6 +76,8 @@
 				return NextcloudTriggerForm
 			case 'google':
 				return GoogleTriggerForm
+			case 'github':
+				return GitHubTriggerForm
 			default:
 				return null
 		}

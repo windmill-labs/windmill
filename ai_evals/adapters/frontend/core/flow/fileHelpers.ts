@@ -4,13 +4,11 @@ import type { FlowModule, InputTransform } from '../../../../../frontend/src/lib
 import type { ExtendedOpenFlow } from '../../../../../frontend/src/lib/components/flows/types'
 import type { FlowAIChatHelpers } from '../../../../../frontend/src/lib/components/copilot/chat/flow/core'
 import type { ScriptLintResult } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
-import { getSubModules } from '../../../../../frontend/src/lib/components/flows/flowExplorer'
 import {
 	createInlineScriptSession
 } from '../../../../../frontend/src/lib/components/copilot/chat/flow/inlineScriptsUtils'
 import {
 	applyFlowJsonUpdate,
-	getFlowModuleById,
 	updateRawScriptModuleContent
 } from '../../../../../frontend/src/lib/components/copilot/chat/flow/helperUtils'
 import {
@@ -89,22 +87,19 @@ export async function createFlowFileHelpers(
 		preprocessorModule,
 		failureModule
 	}) => {
-		applyFlowJsonUpdate(flow, inlineScriptSession, {
+		const result = applyFlowJsonUpdate(flow, inlineScriptSession, {
 			modules,
 			schema,
 			preprocessorModule,
 			failureModule
 		})
 		await persistFlow()
+		return result
 	}
 
 	const helpers: FlowAIChatHelpers = {
 		getFlowAndSelectedId: () => ({ flow, selectedId: '' }),
-		getModules: (id?: string) => {
-			if (!id) return flow.value.modules
-			const module = getFlowModuleById(flow, id)
-			return module ? getSubModules(module).flat() : []
-		},
+		getRootModules: () => flow.value.modules,
 		inlineScriptSession,
 		setSnapshot: () => {},
 		revertToSnapshot: () => {},

@@ -170,6 +170,57 @@ const memo = <T>(factory: () => T): (() => T) => {
 	return () => (cached ??= factory())
 }
 
+function countExactMatches(content: string, search: string): number {
+	if (search.length === 0) {
+		return 0
+	}
+
+	let count = 0
+	let index = 0
+
+	while ((index = content.indexOf(search, index)) !== -1) {
+		count += 1
+		index += search.length
+	}
+
+	return count
+}
+
+function replaceFirstExactMatch(content: string, search: string, replace: string): string {
+	const index = content.indexOf(search)
+	if (index === -1) {
+		return content
+	}
+
+	return content.slice(0, index) + replace + content.slice(index + search.length)
+}
+
+type AppPatchTarget =
+	| { type: 'frontend'; path: string }
+	| { type: 'backend'; path: string; key: string; extension: 'ts' | 'py' }
+
+function resolveAppPatchTarget(rawPath: string): AppPatchTarget {
+	const trimmedPath = rawPath.trim()
+	const backendMatch = trimmedPath.match(/^\/?backend\/([^/]+)\/main\.(ts|py)$/)
+	if (backendMatch) {
+		return {
+			type: 'backend',
+			path: trimmedPath.startsWith('/') ? trimmedPath.slice(1) : trimmedPath,
+			key: backendMatch[1],
+			extension: backendMatch[2] as 'ts' | 'py'
+		}
+	}
+
+	return {
+		type: 'frontend',
+		path: trimmedPath.startsWith('/') ? trimmedPath : `/${trimmedPath}`
+	}
+}
+
+function getBackendInlineScriptExtension(runnable: BackendRunnable): 'ts' | 'py' {
+	return runnable.inlineScript?.language === 'python3' ? 'py' : 'ts'
+}
+
 // ============= Frontend File Tools =============
 
 const getGetFrontendFileSchema = memo(() =>
@@ -202,6 +253,32 @@ const getSetFrontendFileToolDef = memo(() =>
 		getSetFrontendFileSchema(),
 		'set_frontend_file',
 		'Create or update a frontend file in the raw app. Returns lint diagnostics (errors and warnings).'
+	)
+)
+
+const getPatchFileSchema = memo(() =>
+	z.object({
+		path: z
+			.string()
+			.describe(
+				'Path of the file to patch. Use frontend paths like /index.tsx or inline backend paths like backend/listRecipes/main.ts.'
+			),
+		old_string: z.string().min(1).describe('Exact text to find in the current file content'),
+		new_string: z.string().describe('Replacement text'),
+		replace_all: z
+			.boolean()
+			.optional()
+			.default(false)
+			.describe(
+				'When true, replace every exact match. When false, old_string must match exactly once.'
+			)
+	})
+)
+const getPatchFileToolDef = memo(() =>
+	createToolDef(
+		getPatchFileSchema(),
+		'patch_file',
+		'Make a quick exact text edit in an existing frontend file or inline backend file. Prefer this for small localized changes instead of rewriting the whole file.'
 	)
 )
 
@@ -544,6 +621,86 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 		showFade: true
 	},
 	{
+		def: getPatchFileToolDef(),
+		streamArguments: true,
+		showDetails: true,
+		showFade: true,
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = getPatchFileSchema().parse(args)
+			const { old_string: oldString, new_string: newString, replace_all: replaceAll } = parsedArgs
+			const target = resolveAppPatchTarget(parsedArgs.path)
+			let currentContent = ''
+			let backendRunnable: BackendRunnable | undefined
+
+			if (target.type === 'frontend') {
+				if (target.path === '/wmill.d.ts') {
+					throw new Error("'/wmill.d.ts' is generated automatically. Edit backend runnables instead.")
+				}
+
+				const frontendContent = helpers.getFrontendFile(target.path)
+				if (frontendContent === undefined) {
+					throw new Error(`Frontend file '${target.path}' not found.`)
+				}
+				currentContent = frontendContent
+			} else {
+				backendRunnable = helpers.getBackendRunnable(target.key)
+				if (!backendRunnable) {
+					throw new Error(`Backend runnable '${target.key}' not found.`)
+				}
+				if (backendRunnable.type !== 'inline' || !backendRunnable.inlineScript) {
+					throw new Error(
+						`'${target.path}' points to backend runnable '${target.key}', but only inline runnables can be patched as files.`
+					)
+				}
+
+				const expectedExtension = getBackendInlineScriptExtension(backendRunnable)
+				if (target.extension !== expectedExtension) {
+					throw new Error(
+						`'${target.path}' does not match runnable '${target.key}' language. Use backend/${target.key}/main.${expectedExtension}.`
+					)
+				}
+
+				currentContent = backendRunnable.inlineScript.content ?? ''
+			}
+
+			const matchCount = countExactMatches(currentContent, oldString)
+			if (matchCount === 0) {
+				throw new Error('old_string was not found in the current file content.')
+			}
+			if (!replaceAll && matchCount !== 1) {
+				throw new Error(
+					`old_string matched ${matchCount} locations. Make it more specific or set replace_all to true.`
+				)
+			}
+
+			const updatedContent = replaceAll
+				? currentContent.split(oldString).join(newString)
+				: replaceFirstExactMatch(currentContent, oldString, newString)
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Patching '${target.path}'...`
+			})
+			const lintResult =
+				target.type === 'frontend'
+					? helpers.setFrontendFile(target.path, updatedContent)
+					: await helpers.setBackendRunnable(target.key, {
+							...backendRunnable!,
+							inlineScript: {
+								...backendRunnable!.inlineScript!,
+								content: updatedContent
+							}
+						})
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Patched '${target.path}'`,
+				result: 'Success'
+			})
+			return formatLintResultResponse(`Patched '${target.path}' successfully.`, lintResult)
+		},
+		preAction: ({ toolCallbacks, toolId }) => {
+			toolCallbacks.setToolStatus(toolId, { content: 'Patching file...' })
+		}
+	},
+	{
 		def: getDeleteFrontendFileToolDef(),
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = getDeleteFrontendFileSchema().parse(args)
@@ -796,6 +953,7 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 ### File Management
 - \`get_files()\`: Get an overview of all files (content may be truncated for large files)
 - \`get_frontend_file(path)\`: Get full content of a specific frontend file
+- \`patch_file(path, old_string, new_string, replace_all?)\`: Make a quick exact text edit to an existing file. Use frontend paths like \`/index.tsx\` and inline backend paths like \`backend/listRecipes/main.ts\`.
 - \`set_frontend_file(path, content)\`: Create or update a frontend file. Returns lint diagnostics.
 - \`delete_frontend_file(path)\`: Delete a frontend file
 - \`get_backend_runnable(key)\`: Get full configuration of a specific backend runnable
@@ -804,6 +962,15 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 
 ### Linting
 - \`lint()\`: Lint all files. Returns errors/warnings grouped by frontend/backend. Use this to check for issues after making changes.
+
+## Quick Edits with patch_file
+
+Use \`patch_file\` for small, localized edits when you can copy an exact snippet from the current file contents.
+
+- \`old_string\` must be copied exactly from the current file contents
+- Leave \`replace_all\` as false unless you intentionally want to update every exact match
+- Never patch \`/wmill.d.ts\`; it is generated automatically from backend runnables
+- Use \`set_frontend_file\` or \`set_backend_runnable\` instead for large rewrites, new files, or new runnables
 
 ### Discovery
 - \`search_workspace(query, type)\`: Search workspace scripts and flows
@@ -943,7 +1110,7 @@ When you are using the windmill-client, do not forget that as id for variables o
 
 1. Start with \`get_files()\` to get an overview of all frontend files and backend runnables (content may be truncated for large files)
 2. Use \`get_frontend_file(path)\` or \`get_backend_runnable(key)\` to get full content of specific files when needed
-3. Make changes using \`set_frontend_file\` and \`set_backend_runnable\`. These return lint diagnostics.
+3. For small localized edits, prefer \`patch_file\`. Use \`set_frontend_file\` and \`set_backend_runnable\` for larger rewrites, new files, or new runnables. These return lint diagnostics.
 4. Use \`lint()\` at the end to check for and fix any remaining errors
 
 When creating a new app, use \`search_workspace\` or \`search_hub_scripts\` to find existing scripts/flows to reuse.

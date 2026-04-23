@@ -75,9 +75,19 @@ Each case is intentionally small:
 - optional `initial`
 - optional `expected`
 - optional `validate`
+- optional `cliExpect`
 
 `validate` is mainly used for stronger deterministic checks where exact fixture
 matching would be too strict, especially for `flow` creation cases.
+
+`cliExpect` is used by CLI-mode cases to assert agent behavior deterministically,
+including:
+
+- required or forbidden skills
+- skills invoked before the first file mutation
+- ordered `wmill` command proposals in the assistant response
+- forbidden attempted `wmill` executions
+- read-only guidance cases where the workspace must stay unchanged
 
 Examples of current deterministic checks:
 
@@ -85,6 +95,7 @@ Examples of current deterministic checks:
 - `results.*` references resolve
 - required code/input characteristics exist in some module
 - expected workspace files are created in `cli` mode
+- expected CLI skills and proposed `wmill` commands are observed in `cli` mode
 
 ## Model Selection
 

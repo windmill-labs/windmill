@@ -31,6 +31,7 @@ import { emptyString } from '$lib/utils'
 import { saveEmailTriggerFromCfg } from './email/utils'
 import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
 import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
+import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
 import { saveNativeTriggerFromCfg } from './native/utils'
 
 export const CLOUD_DISABLED_TRIGGER_TYPES = [
@@ -63,6 +64,7 @@ export type TriggerType =
 	| 'cli'
 	| 'nextcloud'
 	| 'google'
+	| 'github'
 
 export const jobTriggerKinds: JobTriggerKind[] = [
 	'webhook',
@@ -78,7 +80,8 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'schedule',
 	'gcp',
 	'azure',
-	'google'
+	'google',
+	'github'
 ]
 
 export type Trigger = {
@@ -113,7 +116,8 @@ export const triggerIconMap = {
 	poll: SchedulePollIcon,
 	cli: Terminal,
 	nextcloud: NextcloudIcon,
-	google: GoogleIcon
+	google: GoogleIcon,
+	github: GithubIcon
 }
 
 export const triggerDisplayNamesMap = {
@@ -133,7 +137,8 @@ export const triggerDisplayNamesMap = {
 	default_email: 'Default Email',
 	cli: 'CLI',
 	nextcloud: 'Nextcloud',
-	google: 'Google'
+	google: 'Google',
+	github: 'GitHub'
 } as const satisfies Record<TriggerType, string>
 
 /**
@@ -191,7 +196,8 @@ export function updateTriggersCount(
 		poll: undefined,
 		cli: undefined,
 		nextcloud: 'nextcloud_count',
-		google: 'google_count'
+		google: 'google_count',
+		github: 'github_count'
 	}
 
 	const countProperty = countPropertyMap[type]
@@ -258,6 +264,8 @@ export function triggerKindToTriggerType(kind: TriggerKind): TriggerType | undef
 			return 'sqs'
 		case 'gcp':
 			return 'gcp'
+		case 'azure':
+			return 'azure'
 		case 'scheduledPoll':
 			return 'poll'
 		default:
@@ -399,6 +407,15 @@ export async function deployTriggers(
 				!trigger.isDraft,
 				workspaceId,
 				usedTriggerKinds
+			),
+		github: (trigger: Trigger) =>
+			saveNativeTriggerFromCfg(
+				'github',
+				trigger.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
 			)
 	}
 
@@ -500,8 +517,7 @@ export function getLightConfig(
 			azure_resource_path: trigger.azure_resource_path,
 			azure_mode: trigger.azure_mode,
 			scope_resource_id: trigger.scope_resource_id,
-			topic_name: trigger.topic_name,
-			subscription_name: trigger.subscription_name
+			topic_name: trigger.topic_name
 		}
 	} else if (triggerType === 'email') {
 		return { local_part: trigger.local_part }
@@ -514,6 +530,13 @@ export function getLightConfig(
 			resource_name: trigger.service_config?.resourceName ?? trigger.resource_name,
 			calendar_id: trigger.service_config?.calendarId ?? trigger.calendar_id,
 			calendar_name: trigger.service_config?.calendarName ?? trigger.calendar_name,
+			summary: trigger.summary
+		}
+	} else if (triggerType === 'github') {
+		return {
+			owner: trigger.service_config?.owner ?? trigger.owner,
+			repo: trigger.service_config?.repo ?? trigger.repo,
+			events: trigger.service_config?.events ?? trigger.events,
 			summary: trigger.summary
 		}
 	} else {
@@ -565,6 +588,10 @@ export function getTriggerLabel(trigger: Trigger): string {
 			const name = config?.resource_name ?? ''
 			return name ? `Drive: ${name}` : config?.resource_id ? `Drive: ${path}` : `Drive: All changes`
 		}
+	} else if (type === 'github' && config?.summary) {
+		return `${config.summary}`
+	} else if (type === 'github' && config?.owner && config?.repo) {
+		return `${config.owner}/${config.repo}`
 	} else if (isDraft && draftConfig?.path) {
 		return `${draftConfig?.path}`
 	} else if (isDraft) {
@@ -592,7 +619,8 @@ export function sortTriggers(triggers: Trigger[]): Trigger[] {
 		'azure',
 		'email',
 		'nextcloud',
-		'google'
+		'google',
+		'github'
 	]
 
 	return triggers.sort((a, b) => {

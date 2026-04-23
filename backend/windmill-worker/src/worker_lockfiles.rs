@@ -2881,6 +2881,7 @@ async fn capture_dependency_job(
             )
             .await?
         }
+        ScriptLang::Powershell => workspace_dependencies.get_powershell()?.unwrap_or_default(),
         // for related places search: ADD_NEW_LANG
         _ => "".to_owned(),
     };

@@ -31,7 +31,8 @@
                 "default_email",
                 "nextcloud",
                 "google",
-                "azure"
+                "azure",
+                "github"
               ]
             }
           }

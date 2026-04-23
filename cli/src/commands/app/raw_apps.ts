@@ -9,10 +9,10 @@ import { stringify as yamlStringify } from "yaml";
 import * as wmill from "../../../gen/services.gen.ts";
 import { Policy } from "../../../gen/types.gen.ts";
 import path from "node:path";
-import { readFile, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
-import { deepEqual } from "../../utils/utils.ts";
+import { deepEqual, readTextFile } from "../../utils/utils.ts";
 
 import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
@@ -65,8 +65,8 @@ async function findRunnableContentFile(
     // Check if this is a recognized extension
     if (EXTENSION_TO_LANGUAGE[ext]) {
       try {
-        const content = await readFile(
-          path.join(backendPath, fileName), "utf-8",
+        const content = await readTextFile(
+          path.join(backendPath, fileName),
         );
         return { ext, content };
       } catch {
@@ -164,9 +164,8 @@ export async function loadRunnablesFromBackend(
           // Try to load lock file
           let lock: string | undefined;
           try {
-            lock = await readFile(
+            lock = await readTextFile(
               path.join(backendPath, `${runnableId}.lock`),
-              "utf-8",
             );
           } catch {
             // No lock file, that's fine
@@ -226,8 +225,8 @@ export async function loadRunnablesFromBackend(
         // Try to load lock file
         let lock: string | undefined;
         try {
-          lock = await readFile(
-            path.join(backendPath, `${runnableId}.lock`), "utf-8",
+          lock = await readTextFile(
+            path.join(backendPath, `${runnableId}.lock`),
           );
         } catch {
           // No lock file, that's fine
@@ -319,7 +318,7 @@ async function collectAppFiles(
         ) {
           continue;
         }
-        const content = await readFile(fullPath, "utf-8");
+        const content = await readTextFile(fullPath);
         files[relativePath] = content;
       }
     }

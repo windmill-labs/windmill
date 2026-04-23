@@ -8,15 +8,7 @@ import type {
 	LintResult,
 	SelectedContext
 } from '../../../../../frontend/src/lib/components/copilot/chat/app/core'
-
-function createEmptyLintResult(): LintResult {
-	return {
-		errorCount: 0,
-		warningCount: 0,
-		errors: { frontend: {}, backend: {} },
-		warnings: { frontend: {}, backend: {} }
-	}
-}
+import { buildAppWmillTypes, collectAppDiagnostics } from '../../../../core/appDiagnostics'
 
 async function writeFrontendFile(
 	workspaceRoot: string | undefined,
@@ -97,12 +89,19 @@ async function persistDatatables(
 export async function createAppFileHelpers(
 	initialFrontend: Record<string, string> = {},
 	initialBackend: Record<string, BackendRunnable> = {},
+	initialDatatables: DataTableSchema[] = [],
 	workspaceRoot?: string
 ): Promise<{
 	helpers: AppAIChatHelpers
 	getFiles: () => AppFiles
+	getEvalState: () => {
+		frontend: Record<string, string>
+		backend: Record<string, BackendRunnable>
+		datatables: DataTableSchema[]
+	}
 	getFrontend: () => Record<string, string>
 	getBackend: () => Record<string, BackendRunnable>
+	getDatatables: () => DataTableSchema[]
 	cleanup: () => Promise<void>
 	workspaceDir: string | null
 }> {
@@ -111,9 +110,24 @@ export async function createAppFileHelpers(
 	let snapshotId = 0
 	const snapshots = new Map<
 		number,
-		{ frontend: Record<string, string>; backend: Record<string, BackendRunnable> }
+		{
+			frontend: Record<string, string>
+			backend: Record<string, BackendRunnable>
+			datatables: DataTableSchema[]
+		}
 	>()
-	const datatables: DataTableSchema[] = []
+	const datatables: DataTableSchema[] = structuredClone(initialDatatables)
+
+	function lint(): LintResult {
+		return collectAppDiagnostics({
+			frontend,
+			backend
+		}).lintResult
+	}
+
+	function getGeneratedWmillTypes(): string {
+		return buildAppWmillTypes(backend)
+	}
 
 	for (const [path, content] of Object.entries(frontend)) {
 		await writeFrontendFile(workspaceRoot, path, content)
@@ -123,102 +137,38 @@ export async function createAppFileHelpers(
 	}
 	await persistDatatables(workspaceRoot, datatables)
 
-	const setFrontendFile: AppAIChatHelpers['setFrontendFile'] = (path, content) => {
-		frontend[path] = content
-		void writeFrontendFile(workspaceRoot, path, content)
-		return createEmptyLintResult()
-	}
-
-	const deleteFrontendFile: AppAIChatHelpers['deleteFrontendFile'] = (path) => {
-		delete frontend[path]
-		void removeFrontendFile(workspaceRoot, path)
-	}
-
-	const setBackendRunnable: AppAIChatHelpers['setBackendRunnable'] = async (key, runnable) => {
-		backend[key] = runnable
-		await writeBackendRunnable(workspaceRoot, key, runnable)
-		return createEmptyLintResult()
-	}
-
-	const deleteBackendRunnable: AppAIChatHelpers['deleteBackendRunnable'] = (key) => {
-		delete backend[key]
-		void removeBackendRunnable(workspaceRoot, key)
-	}
-
-	const snapshot: AppAIChatHelpers['snapshot'] = () => {
-		const id = ++snapshotId
-		snapshots.set(id, {
-			frontend: { ...frontend },
-			backend: { ...backend }
-		})
-		return id
-	}
-
-	const revertToSnapshot: AppAIChatHelpers['revertToSnapshot'] = (id) => {
-		const snapshot = snapshots.get(id)
-		if (!snapshot) {
-			return
-		}
-		frontend = { ...snapshot.frontend }
-		backend = { ...snapshot.backend }
-		void syncWorkspace()
-	}
-
-	const execDatatableSql: AppAIChatHelpers['execDatatableSql'] = async (
-		datatableName,
-		sql,
-		newTable
-	) => {
-		if (newTable) {
-			datatables.push({
-				datatable_name: datatableName,
-				schemas: {
-					[newTable.schema]: {
-						[newTable.name]: {}
-					}
-				}
-			})
-			await persistDatatables(workspaceRoot, datatables)
-		}
-		return {
-			success: true,
-			result: [
-				{
-					datatableName,
-					sql
-				}
-			]
-		}
-	}
-
-	const addTableToWhitelist: AppAIChatHelpers['addTableToWhitelist'] = (
-		datatableName,
-		schemaName,
-		tableName
-	) => {
-		const existing = datatables.find((entry) => entry.datatable_name === datatableName)
-		if (existing) {
-			existing.schemas[schemaName] ??= {}
-			existing.schemas[schemaName][tableName] ??= {}
-		} else {
-			datatables.push({
-				datatable_name: datatableName,
-				schemas: {
-					[schemaName]: {
-						[tableName]: {}
-					}
-				}
-			})
-		}
-		void persistDatatables(workspaceRoot, datatables)
-	}
-
 	const helpers: AppAIChatHelpers = {
-		listFrontendFiles: () => Object.keys(frontend),
-		getFrontendFile: (path: string) => frontend[path],
-		getFrontendFiles: () => ({ ...frontend }),
-		setFrontendFile,
-		deleteFrontendFile,
+		listFrontendFiles: () => [
+			...Object.keys(frontend).filter((path) => path !== '/wmill.d.ts'),
+			'/wmill.d.ts'
+		],
+		getFrontendFile: (path: string) => {
+			if (path === '/wmill.d.ts') {
+				return getGeneratedWmillTypes()
+			}
+			return frontend[path]
+		},
+		getFrontendFiles: () => ({
+			...Object.fromEntries(
+				Object.entries(frontend).filter(([path]) => path !== '/wmill.d.ts')
+			),
+			'/wmill.d.ts': getGeneratedWmillTypes()
+		}),
+		setFrontendFile: (path: string, content: string) => {
+			if (path === '/wmill.d.ts') {
+				return lint()
+			}
+			frontend[path] = content
+			void writeFrontendFile(workspaceRoot, path, content)
+			return lint()
+		},
+		deleteFrontendFile: (path: string) => {
+			if (path === '/wmill.d.ts') {
+				return
+			}
+			delete frontend[path]
+			void removeFrontendFile(workspaceRoot, path)
+		},
 		listBackendRunnables: () =>
 			Object.entries(backend).map(([key, runnable]) => ({
 				key,
@@ -226,20 +176,85 @@ export async function createAppFileHelpers(
 			})),
 		getBackendRunnable: (key: string) => backend[key],
 		getBackendRunnables: () => ({ ...backend }),
-		setBackendRunnable,
-		deleteBackendRunnable,
+		setBackendRunnable: async (key: string, runnable: BackendRunnable) => {
+			backend[key] = runnable
+			await writeBackendRunnable(workspaceRoot, key, runnable)
+			return lint()
+		},
+		deleteBackendRunnable: (key: string) => {
+			delete backend[key]
+			void removeBackendRunnable(workspaceRoot, key)
+		},
 		getFiles: (): AppFiles => ({
 			frontend: { ...frontend },
 			backend: { ...backend }
 		}),
 		getSelectedContext: (): SelectedContext => ({ type: 'none' }),
-		snapshot,
-		revertToSnapshot,
-		lint: () => createEmptyLintResult(),
+		snapshot: () => {
+			const id = ++snapshotId
+			snapshots.set(id, {
+				frontend: { ...frontend },
+				backend: { ...backend },
+				datatables: structuredClone(datatables)
+			})
+			return id
+		},
+		revertToSnapshot: (id: number) => {
+			const snapshot = snapshots.get(id)
+			if (!snapshot) {
+				return
+			}
+			frontend = { ...snapshot.frontend }
+			backend = { ...snapshot.backend }
+			datatables.splice(0, datatables.length, ...structuredClone(snapshot.datatables))
+			void syncWorkspace()
+		},
+		lint,
 		getDatatables: async () => structuredClone(datatables),
 		getAvailableDatatableNames: () => datatables.map((datatable) => datatable.datatable_name),
-		execDatatableSql,
-		addTableToWhitelist
+		execDatatableSql: async (
+			datatableName: string,
+			sql: string,
+			newTable?: { schema: string; name: string }
+		) => {
+			if (newTable) {
+				datatables.push({
+					datatable_name: datatableName,
+					schemas: {
+						[newTable.schema]: {
+							[newTable.name]: {}
+						}
+					}
+				})
+				await persistDatatables(workspaceRoot, datatables)
+			}
+			return {
+				success: true,
+				result: [
+					{
+						datatableName,
+						sql
+					}
+				]
+			}
+		},
+		addTableToWhitelist: (datatableName: string, schemaName: string, tableName: string) => {
+			const existing = datatables.find((entry) => entry.datatable_name === datatableName)
+			if (existing) {
+				existing.schemas[schemaName] ??= {}
+				existing.schemas[schemaName][tableName] ??= {}
+			} else {
+				datatables.push({
+					datatable_name: datatableName,
+					schemas: {
+						[schemaName]: {
+							[tableName]: {}
+						}
+					}
+				})
+			}
+			void persistDatatables(workspaceRoot, datatables)
+		}
 	}
 
 	async function syncWorkspace(): Promise<void> {
@@ -263,8 +278,14 @@ export async function createAppFileHelpers(
 			frontend: { ...frontend },
 			backend: { ...backend }
 		}),
+		getEvalState: () => ({
+			frontend: { ...frontend },
+			backend: { ...backend },
+			datatables: structuredClone(datatables)
+		}),
 		getFrontend: () => ({ ...frontend }),
 		getBackend: () => ({ ...backend }),
+		getDatatables: () => structuredClone(datatables),
 		cleanup: async () => {
 			if (workspaceRoot) {
 				await rm(workspaceRoot, { recursive: true, force: true })

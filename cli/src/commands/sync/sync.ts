@@ -1,6 +1,6 @@
 import { requireLogin } from "../../core/auth.ts";
 import { fetchVersion, resolveWorkspace } from "../../core/context.ts";
-import { readFile, writeFile, readdir, stat, rm, copyFile, mkdir } from "node:fs/promises";
+import { writeFile, readdir, stat, rm, copyFile, mkdir } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
@@ -42,6 +42,7 @@ import {
   isFilesetResource,
   isRawAppFile,
   isWorkspaceDependencies,
+  readTextFile,
 } from "../../utils/utils.ts";
 import {
   getEffectiveSettings,
@@ -325,7 +326,7 @@ export async function FSFSElement(
         }
       },
       async getContentText(): Promise<string> {
-        const content = await readFile(localP, "utf-8");
+        const content = await readTextFile(localP);
         const itemPath = localP.substring(p.length + 1);
         const r = await addCodebaseDigestIfRelevant(
           itemPath,
@@ -526,7 +527,7 @@ export function extractInlineScriptsForApps(
   }
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
-      if (k == "inlineScript" && typeof v == "object") {
+      if (k == "inlineScript" && v != null && typeof v == "object") {
         rec["type"] = undefined;
         const o: Record<string, any> = v as any;
         const name = toId(key ?? "", rec);
@@ -606,6 +607,48 @@ async function findFilesetResourceFile(changePath: string): Promise<string> {
     }
   }
   throw new Error(`No resource metadata file found for fileset resource: ${changePath}`);
+}
+
+type FilesetPushResult =
+  | { status: "pushed"; resourceFilePath: string }
+  | { status: "already-synced"; resourceFilePath: string }
+  | { status: "parent-missing" };
+
+async function pushFilesetParentResource(
+  childPath: string,
+  workspaceId: string,
+  alreadySynced: string[],
+  cachedWsName: string | null,
+): Promise<FilesetPushResult> {
+  let resourceFilePath: string;
+  try {
+    resourceFilePath = await findFilesetResourceFile(childPath);
+  } catch {
+    return { status: "parent-missing" };
+  }
+  if (alreadySynced.includes(resourceFilePath)) {
+    return { status: "already-synced", resourceFilePath };
+  }
+  alreadySynced.push(resourceFilePath);
+
+  const newObj = parseFromPath(
+    resourceFilePath,
+    await readTextFile(resourceFilePath),
+  );
+
+  let serverPath = resourceFilePath;
+  if (cachedWsName && isWorkspaceSpecificFile(resourceFilePath)) {
+    serverPath = fromWorkspaceSpecificPath(resourceFilePath, cachedWsName);
+  }
+
+  await pushResource(
+    workspaceId,
+    serverPath,
+    undefined,
+    newObj,
+    resourceFilePath,
+  );
+  return { status: "pushed", resourceFilePath };
 }
 
 function ZipFSElement(
@@ -2333,7 +2376,7 @@ export async function pull(
       if (change.name === "edited") {
         if (opts.stateful) {
           try {
-            const currentLocal = await readFile(target, "utf-8");
+            const currentLocal = await readTextFile(target);
             if (
               currentLocal !== change.before &&
               currentLocal !== change.after
@@ -3309,7 +3352,7 @@ export async function push(
 
                   const newObj = parseFromPath(
                     resourceFilePath,
-                    await readFile(resourceFilePath, "utf-8"),
+                    await readTextFile(resourceFilePath),
                   );
 
                   // For branch-specific resources, push to the base path on the workspace server
@@ -3338,37 +3381,24 @@ export async function push(
                 }
               }
               if (isFilesetResource(change.path)) {
-                const resourceFilePath = await findFilesetResourceFile(change.path);
-                if (!alreadySynced.includes(resourceFilePath)) {
-                  alreadySynced.push(resourceFilePath);
-
-                  const newObj = parseFromPath(
-                    resourceFilePath,
-                    await readFile(resourceFilePath, "utf-8"),
+                const result = await pushFilesetParentResource(
+                  change.path,
+                  workspace.workspaceId,
+                  alreadySynced,
+                  cachedWsNameForPush,
+                );
+                if (result.status === "parent-missing") {
+                  throw new Error(
+                    `No resource metadata file found for fileset resource: ${change.path}`,
                   );
-
-                  let serverPath = resourceFilePath;
-                  const currentBranch = cachedWsNameForPush;
-
-                  if (currentBranch && isWorkspaceSpecificFile(resourceFilePath)) {
-                    serverPath = fromWorkspaceSpecificPath(
-                      resourceFilePath,
-                      currentBranch,
-                    );
-                  }
-
-                  await pushResource(
-                    workspace.workspaceId,
-                    serverPath,
-                    undefined,
-                    newObj,
-                    resourceFilePath,
-                  );
+                }
+                if (result.status === "pushed") {
                   if (stateTarget) {
                     await writeFile(stateTarget, change.after, "utf-8");
                   }
                   continue;
                 }
+                // "already-synced": fall through (pre-existing behavior).
               }
               const oldObj = parseFromPath(change.path, change.before);
               const newObj = parseFromPath(change.path, change.after);
@@ -3399,12 +3429,23 @@ export async function push(
                 await writeFile(stateTarget, change.after, "utf-8");
               }
             } else if (change.name === "added") {
+              if (isFilesetResource(change.path)) {
+                // Re-push the parent resource (guarded by alreadySynced).
+                // Parent-missing means the parent itself is also being added and
+                // its own change will push the full fileset — safe to skip.
+                await pushFilesetParentResource(
+                  change.path,
+                  workspace.workspaceId,
+                  alreadySynced,
+                  cachedWsNameForPush,
+                );
+                continue;
+              }
               if (
                 change.path.endsWith(".script.json") ||
                 change.path.endsWith(".script.yaml") ||
                 change.path.endsWith(".lock") ||
-                isFileResource(change.path) ||
-                isFilesetResource(change.path)
+                isFileResource(change.path)
               ) {
                 continue;
               } else if (
@@ -3483,6 +3524,18 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                );
+                continue;
+              }
+              if (isFilesetResource(change.path)) {
+                // Re-push the parent resource (guarded by alreadySynced).
+                // Parent-missing means the parent itself is also being deleted
+                // and its own "deleted" change removes the whole resource.
+                await pushFilesetParentResource(
+                  change.path,
+                  workspace.workspaceId,
+                  alreadySynced,
+                  cachedWsNameForPush,
                 );
                 continue;
               }

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.685.0
+  version: 1.689.0
   title: Windmill API
 
   contact:
@@ -298,6 +298,21 @@ paths:
       responses:
         "200":
           description: returns true if SMTP is configured
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /auth/is_password_login_disabled:
+    get:
+      security: []
+      summary: check if password login is disabled instance-wide
+      operationId: isPasswordLoginDisabled
+      tags:
+        - user
+      responses:
+        "200":
+          description: returns true if password login is disabled
           content:
             application/json:
               schema:
@@ -2447,6 +2462,9 @@ paths:
                     type: string
                   client_id:
                     type: string
+                  app_owner:
+                    type: string
+                    nullable: true
                 required:
                   - base_url
                   - app_slug
@@ -4567,6 +4585,8 @@ paths:
                     type: boolean
                   google_used:
                     type: boolean
+                  github_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
@@ -4580,6 +4600,7 @@ paths:
                   - email_used
                   - nextcloud_used
                   - google_used
+                  - github_used
   /w/{workspace}/users/list:
     get:
       summary: list users
@@ -9373,7 +9394,7 @@ paths:
       summary: list flow conversations
       operationId: listFlowConversations
       tags:
-        - flow_conversation
+        - flow_conversations
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Page"
@@ -9398,7 +9419,7 @@ paths:
       summary: delete flow conversation
       operationId: deleteFlowConversation
       tags:
-        - flow_conversation
+        - flow_conversations
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: conversation_id
@@ -9421,7 +9442,7 @@ paths:
       summary: list conversation messages
       operationId: listConversationMessages
       tags:
-        - flow_conversation
+        - flow_conversations
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Page"
@@ -10786,6 +10807,74 @@ paths:
                 required:
                   - lock
 
+  /w/{workspace}/jobs/run/dependencies_async:
+    post:
+      summary: queue a one-off dependencies job and return the job uuid
+      operationId: runRawScriptDependenciesAsync
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      requestBody:
+        description: raw script content
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                raw_scripts:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/RawScriptForDependencies"
+                entrypoint:
+                  type: string
+              required:
+                - entrypoint
+                - raw_scripts
+      responses:
+        "201":
+          description: dependency job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
+  /w/{workspace}/jobs/run/flow_dependencies_async:
+    post:
+      summary: queue a one-off flow dependencies job and return the job uuid
+      operationId: runFlowDependenciesAsync
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      requestBody:
+        description: flow value and path
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                flow_value:
+                  $ref: "#/components/schemas/FlowValue"
+              required:
+                - path
+                - flow_value
+      responses:
+        "201":
+          description: flow dependencies job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
   /w/{workspace}/jobs/run/preview_flow:
     post:
       summary: run flow preview
@@ -11147,6 +11236,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: force_cancel
+          in: query
+          schema:
+            type: boolean
+        - name: all_workspaces
           in: query
           schema:
             type: boolean
@@ -14596,6 +14689,28 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/SharedDriveEntry"
+
+  /w/{workspace}/native_triggers/github/repos:
+    get:
+      summary: list GitHub repositories accessible to the user
+      operationId: listGithubRepos
+      tags:
+        - native_trigger
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: list of GitHub repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GithubRepoEntry"
 
   /native_triggers/{service_name}/w/{workspace_id}/webhook/{internal_id}:
     post:
@@ -23070,6 +23185,7 @@ components:
         - gcp
         - azure
         - google
+        - github
 
     TriggerMode:
       description: job trigger mode
@@ -23562,6 +23678,8 @@ components:
         nextcloud_count:
           type: number
         google_count:
+          type: number
+        github_count:
           type: number
 
     WebsocketHeartbeat:
@@ -26078,20 +26196,18 @@ components:
       properties:
         access_token:
           type: string
-        team_id:
-          type: string
-        team_name:
-          type: string
-        bot:
+        team:
           type: object
           properties:
-            bot_access_token:
+            id:
               type: string
+            name:
+              type: string
+          required:
+            - id
+            - name
       required:
         - access_token
-        - team_id
-        - team_name
-        - bot
 
     TokenResponse:
       type: object
@@ -27240,6 +27356,7 @@ components:
       enum:
         - nextcloud
         - google
+        - github
 
     NativeTrigger:
       type: object
@@ -27513,3 +27630,20 @@ components:
       required:
         - id
         - name
+
+    GithubRepoEntry:
+      type: object
+      properties:
+        full_name:
+          type: string
+        name:
+          type: string
+        owner:
+          type: string
+        private:
+          type: boolean
+      required:
+        - full_name
+        - name
+        - owner
+        - private

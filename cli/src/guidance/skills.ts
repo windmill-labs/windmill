@@ -32,7 +32,7 @@ export const SKILLS: SkillMetadata[] = [
   { name: "triggers", description: "MUST use when configuring triggers." },
   { name: "schedules", description: "MUST use when configuring schedules." },
   { name: "resources", description: "MUST use when managing resources." },
-  { name: "cli-commands", description: "MUST use when using the CLI." },
+  { name: "cli-commands", description: "MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`." },
 ];
 
 // Skill content for each skill (loaded inline for bundling)
@@ -5253,7 +5253,7 @@ wmill sync push
 `,
   "cli-commands": `---
 name: cli-commands
-description: MUST use when using the CLI.
+description: MUST use when using the CLI, including debugging job failures and inspecting run history via \`wmill job\`.
 ---
 
 # Windmill CLI Commands

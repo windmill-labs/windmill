@@ -38,4 +38,81 @@ describe("loadCases", () => {
       "ai_evals/fixtures/frontend/flow/expected/test13_prefer_existing_workspace_flow.json"
     );
   });
+
+  it("loads app validation config for datatable-backed persistence cases", async () => {
+    const appCases = await loadCases("app");
+    const caseEntry = appCases.find(
+      (entry) => entry.id === "app-test8-inventory-tracker-search-delete"
+    );
+
+    expect(caseEntry?.initialPath).toContain("ai_evals/fixtures/frontend/app/initial/inventory_tracker");
+    expect(caseEntry?.validate).toEqual({
+      requiredFrontendPaths: ["/index.tsx"],
+      requiredBackendRunnableKeys: ["listInventory", "addInventory", "deleteInventory"],
+      requiredBackendRunnableTypes: [
+        { key: "listInventory", type: "inline" },
+        { key: "addInventory", type: "inline" },
+        { key: "deleteInventory", type: "inline" },
+      ],
+      requiredDatatables: [
+        {
+          datatableName: "main",
+          schema: "public",
+          table: "inventory_items",
+        },
+      ],
+    });
+  });
+
+  it("loads the seeded recipe-book app modification case", async () => {
+    const appCases = await loadCases("app");
+    const caseEntry = appCases.find((entry) => entry.id === "app-test9-recipe-book-search-delete");
+
+    expect(caseEntry?.initialPath).toContain("ai_evals/fixtures/frontend/app/initial/recipe_book");
+    expect(caseEntry?.validate).toEqual({
+      requiredFrontendPaths: ["/index.tsx"],
+      requiredBackendRunnableKeys: ["listRecipes", "addRecipe", "deleteRecipe"],
+      requiredBackendRunnableTypes: [
+        { key: "listRecipes", type: "inline" },
+        { key: "addRecipe", type: "inline" },
+        { key: "deleteRecipe", type: "inline" },
+      ],
+      requiredDatatables: [
+        {
+          datatableName: "main",
+          schema: "public",
+          table: "recipes",
+        },
+      ],
+    });
+  });
+
+  it("loads the session id micro-edit app case", async () => {
+    const appCases = await loadCases("app");
+    const caseEntry = appCases.find((entry) => entry.id === "app-test10-session-id-no-crypto");
+
+    expect(caseEntry?.initialPath).toContain("ai_evals/fixtures/frontend/app/initial/session_id_chat");
+    expect(caseEntry?.runtime).toEqual({
+      maxTurns: 4,
+    });
+    expect(caseEntry?.validate).toEqual({
+      requiredFrontendPaths: ["/index.tsx"],
+      requiredBackendRunnableKeys: ["a"],
+      requiredBackendRunnableTypes: [{ key: "a", type: "inline" }],
+    });
+  });
+
+  it("loads CLI behavior expectations for deploy-guidance cases", async () => {
+    const cliCases = await loadCases("cli");
+    const caseEntry = cliCases.find((entry) => entry.id === "bun-hello-script");
+
+    expect(caseEntry?.cliExpect).toEqual({
+      requiredSkills: ["write-script-bun"],
+      requiredSkillsBeforeFirstMutation: ["write-script-bun"],
+      forbiddenSkills: ["write-script-python3", "write-flow"],
+      orderedAssistantMentions: ["wmill generate-metadata", "wmill sync push"],
+      orderedProposedCommands: ["wmill generate-metadata", "wmill sync push"],
+      forbiddenExecutedCommands: ["^wmill generate-metadata", "^wmill sync push"],
+    });
+  });
 });

@@ -238,6 +238,13 @@ where
             if !preserve_extra_perms && obj.contains_key("extra_perms") {
                 obj.remove("extra_perms");
             }
+            if obj
+                .get("default_permissioned_as")
+                .and_then(|v| v.as_array())
+                .is_some_and(|a| a.is_empty())
+            {
+                obj.remove("default_permissioned_as");
+            }
 
             serde_json::to_string_pretty(&obj).ok()
         })

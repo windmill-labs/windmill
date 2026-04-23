@@ -189,6 +189,8 @@
     If validation passes, let the save continue normally.
     Update `save_results` so it uses the validation outcome instead of bypassing it.
   initial: ai_evals/fixtures/frontend/flow/initial/test5_initial.json
+  runtime:
+    maxTurns: 8
   validate:
     topLevelStepIds:
       - fetch_data

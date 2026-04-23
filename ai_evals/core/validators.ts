@@ -1,6 +1,12 @@
 import path from "node:path";
 import ts from "typescript";
-import type { BenchmarkCheck, FlowValidationSpec } from "./types";
+import type {
+  AppValidationSpec,
+  BenchmarkCheck,
+  CliTrace,
+  CliValidationSpec,
+  FlowValidationSpec,
+} from "./types";
 
 export interface ScriptState {
   path: string;
@@ -23,6 +29,7 @@ export interface FlowState {
 export interface AppFilesState {
   frontend: Record<string, string>;
   backend: Record<string, AppRunnableState>;
+  datatables: AppDatatableState[];
 }
 
 export interface AppRunnableState {
@@ -33,6 +40,12 @@ export interface AppRunnableState {
     language?: string;
     content?: string;
   };
+}
+
+export interface AppDatatableState {
+  datatable_name: string;
+  schemas: Record<string, Record<string, Record<string, string>>>;
+  error?: string;
 }
 
 const TS_LIKE_LANGUAGES = new Set(["bun", "deno", "nativets", "bunnative", "ts", "typescript"]);
@@ -120,6 +133,7 @@ export function validateAppState(input: {
   actual: AppFilesState;
   initial?: AppFilesState;
   expected?: AppFilesState;
+  validate?: AppValidationSpec;
 }): BenchmarkCheck[] {
   const checks: BenchmarkCheck[] = [];
   const frontendEntries = Object.entries(input.actual.frontend ?? {});
@@ -197,6 +211,41 @@ export function validateAppState(input: {
         );
       }
     }
+
+    for (const expectedDatatable of input.expected.datatables ?? []) {
+      const expectedSchemas = Object.entries(expectedDatatable.schemas ?? {});
+      if (expectedSchemas.length === 0) {
+        checks.push(
+          check(
+            `datatable ${expectedDatatable.datatable_name} exists`,
+            (input.actual.datatables ?? []).some(
+              (datatable) => datatable.datatable_name === expectedDatatable.datatable_name
+            )
+          )
+        );
+        continue;
+      }
+
+      for (const [schemaName, tables] of expectedSchemas) {
+        const tableNames = Object.keys(tables ?? {});
+        for (const tableName of tableNames) {
+          checks.push(
+            check(
+              `datatable table ${expectedDatatable.datatable_name}/${schemaName}.${tableName} exists`,
+              hasDatatableTable(input.actual.datatables ?? [], {
+                datatableName: expectedDatatable.datatable_name,
+                schema: schemaName,
+                table: tableName,
+              })
+            )
+          );
+        }
+      }
+    }
+  }
+
+  if (input.validate) {
+    checks.push(...validateAppRequirements(input.actual, input.validate));
   }
 
   return checks;
@@ -206,6 +255,9 @@ export function validateCliWorkspace(input: {
   actualFiles: Record<string, string>;
   expectedFiles?: Record<string, string>;
   initialFiles?: Record<string, string>;
+  assistantOutput?: string;
+  trace?: CliTrace;
+  cliExpect?: CliValidationSpec;
 }): BenchmarkCheck[] {
   const checks: BenchmarkCheck[] = [];
 
@@ -234,8 +286,23 @@ export function validateCliWorkspace(input: {
     );
   }
 
-  if (input.initialFiles) {
+  if (input.cliExpect?.workspaceUnchanged) {
+    const baselineFiles = input.initialFiles ?? {};
+    checks.push(
+      check(
+        "workspace remains unchanged",
+        fileMapsEqual(input.actualFiles, baselineFiles),
+        summarizeWorkspaceDiff(input.actualFiles, baselineFiles)
+      )
+    );
+  } else if (input.initialFiles) {
     checks.push(check("workspace differs from initial", !fileMapsEqual(input.actualFiles, input.initialFiles)));
+  }
+
+  if (input.cliExpect) {
+    checks.push(
+      ...validateCliExpectations(input.assistantOutput ?? "", input.trace, input.cliExpect)
+    );
   }
 
   return checks;
@@ -279,6 +346,197 @@ function summarizeProblems(problems: string[], limit = 5): string | undefined {
   }
 
   return `${problems.slice(0, limit).join("; ")}; ...and ${problems.length - limit} more`;
+}
+
+function validateCliExpectations(
+  assistantOutput: string,
+  trace: CliTrace | undefined,
+  cliExpect: CliValidationSpec
+): BenchmarkCheck[] {
+  const checks: BenchmarkCheck[] = [];
+
+  if (!trace) {
+    checks.push(check("cli trace is available", false));
+    return checks;
+  }
+
+  for (const skillName of cliExpect.requiredSkills ?? []) {
+    checks.push(
+      check(
+        `invokes skill ${skillName}`,
+        cliSkillWasInvoked(trace, skillName),
+        `skills=${trace.skillsInvoked.join(", ") || "(none)"}`
+      )
+    );
+  }
+
+  for (const skillName of cliExpect.forbiddenSkills ?? []) {
+    checks.push(
+      check(
+        `does not invoke skill ${skillName}`,
+        !cliSkillWasInvoked(trace, skillName),
+        `skills=${trace.skillsInvoked.join(", ") || "(none)"}`
+      )
+    );
+  }
+
+  for (const skillName of cliExpect.requiredSkillsBeforeFirstMutation ?? []) {
+    const firstSkillIndex = getFirstSkillToolIndex(trace, skillName);
+    const firstMutationIndex = trace.firstMutationToolIndex;
+    checks.push(
+      check(
+        `invokes skill ${skillName} before first mutation`,
+        firstSkillIndex !== null &&
+          firstMutationIndex !== null &&
+          firstSkillIndex < firstMutationIndex,
+        `firstSkillIndex=${firstSkillIndex ?? "none"}; firstMutationIndex=${firstMutationIndex ?? "none"}`
+      )
+    );
+  }
+
+  for (const phrase of cliExpect.requiredAssistantMentions ?? []) {
+    checks.push(
+      check(
+        `assistant mentions ${phrase}`,
+        assistantMentions(assistantOutput, phrase)
+      )
+    );
+  }
+
+  for (const phrase of cliExpect.forbiddenAssistantMentions ?? []) {
+    checks.push(
+      check(
+        `assistant does not mention ${phrase}`,
+        !assistantMentions(assistantOutput, phrase)
+      )
+    );
+  }
+
+  if ((cliExpect.orderedAssistantMentions?.length ?? 0) > 0) {
+    checks.push(
+      check(
+        "assistant mentions expected items in order",
+        stringsAppearInOrder(assistantOutput, cliExpect.orderedAssistantMentions!),
+        `ordered=${cliExpect.orderedAssistantMentions!.join(" -> ")}`
+      )
+    );
+  }
+
+  for (const command of cliExpect.requiredProposedCommands ?? []) {
+    checks.push(
+      check(
+        `assistant proposes ${command}`,
+        commandListContains(trace.proposedCommands, command),
+        `proposed=${trace.proposedCommands.join("; ") || "(none)"}`
+      )
+    );
+  }
+
+  for (const command of cliExpect.forbiddenProposedCommands ?? []) {
+    checks.push(
+      check(
+        `assistant does not propose ${command}`,
+        !commandListContains(trace.proposedCommands, command),
+        `proposed=${trace.proposedCommands.join("; ") || "(none)"}`
+      )
+    );
+  }
+
+  if ((cliExpect.orderedProposedCommands?.length ?? 0) > 0) {
+    checks.push(
+      check(
+        "assistant proposes expected commands in order",
+        stringsAppearInOrder(trace.proposedCommands.join("\n"), cliExpect.orderedProposedCommands!),
+        `ordered=${cliExpect.orderedProposedCommands!.join(" -> ")}; proposed=${trace.proposedCommands.join("; ") || "(none)"}`
+      )
+    );
+  }
+
+  for (const pattern of cliExpect.forbiddenExecutedCommands ?? []) {
+    checks.push(
+      check(
+        `does not execute ${pattern}`,
+        !trace.executedWmillCommands.some((command) => matchesCommandPattern(command, pattern)),
+        `executed=${trace.executedWmillCommands.join("; ") || "(none)"}`
+      )
+    );
+  }
+
+  return checks;
+}
+
+function cliSkillWasInvoked(trace: CliTrace, skillName: string): boolean {
+  return trace.skillsInvoked.some((skill) => skill === skillName);
+}
+
+function getFirstSkillToolIndex(trace: CliTrace, skillName: string): number | null {
+  for (const [index, tool] of trace.toolsUsed.entries()) {
+    if (tool.tool !== "Skill") {
+      continue;
+    }
+
+    const inputSkill = typeof tool.input.skill === "string" ? tool.input.skill : null;
+    if (inputSkill === skillName) {
+      return index;
+    }
+  }
+
+  return null;
+}
+
+function assistantMentions(output: string, phrase: string): boolean {
+  return output.toLowerCase().includes(phrase.toLowerCase());
+}
+
+function stringsAppearInOrder(output: string, phrases: string[]): boolean {
+  const normalizedOutput = output.toLowerCase();
+  let startIndex = 0;
+
+  for (const phrase of phrases) {
+    const index = normalizedOutput.indexOf(phrase.toLowerCase(), startIndex);
+    if (index === -1) {
+      return false;
+    }
+    startIndex = index + phrase.length;
+  }
+
+  return true;
+}
+
+function commandListContains(commands: string[], command: string): boolean {
+  const normalizedNeedle = command.toLowerCase();
+  return commands.some((entry) => entry.toLowerCase().includes(normalizedNeedle));
+}
+
+function matchesCommandPattern(command: string, pattern: string): boolean {
+  try {
+    return new RegExp(pattern, "i").test(command);
+  } catch {
+    return command.toLowerCase().includes(pattern.toLowerCase());
+  }
+}
+
+function summarizeWorkspaceDiff(
+  actualFiles: Record<string, string>,
+  baselineFiles: Record<string, string>
+): string | undefined {
+  const changes: string[] = [];
+
+  for (const filePath of Object.keys(actualFiles)) {
+    if (!(filePath in baselineFiles)) {
+      changes.push(`added ${filePath}`);
+    } else if (actualFiles[filePath] !== baselineFiles[filePath]) {
+      changes.push(`changed ${filePath}`);
+    }
+  }
+
+  for (const filePath of Object.keys(baselineFiles)) {
+    if (!(filePath in actualFiles)) {
+      changes.push(`removed ${filePath}`);
+    }
+  }
+
+  return summarizeProblems(changes);
 }
 
 function hasSupportedEntrypoint(code: string): boolean {
@@ -1257,7 +1515,12 @@ function getSuspendResumeStringFields(module: Record<string, unknown>): string[]
 }
 
 function appStatesEqual(left: AppFilesState, right: AppFilesState): boolean {
-  return fileMapsEqual(left.frontend, right.frontend) && fileMapsEqual(stringifyBackend(left.backend), stringifyBackend(right.backend));
+  return (
+    fileMapsEqual(left.frontend, right.frontend) &&
+    fileMapsEqual(stringifyBackend(left.backend), stringifyBackend(right.backend)) &&
+    normalizeJson(canonicalizeDatatables(left.datatables ?? [])) ===
+      normalizeJson(canonicalizeDatatables(right.datatables ?? []))
+  );
 }
 
 function stringifyBackend(backend: Record<string, AppRunnableState>): Record<string, string> {
@@ -1278,4 +1541,144 @@ function fileMapsEqual(left: Record<string, string>, right: Record<string, strin
     const [otherKey, otherValue] = rightEntries[index];
     return key === otherKey && normalizeText(value) === normalizeText(otherValue);
   });
+}
+
+function validateAppRequirements(
+  app: AppFilesState,
+  validate: AppValidationSpec
+): BenchmarkCheck[] {
+  const checks: BenchmarkCheck[] = [];
+  const frontendPaths = Object.keys(app.frontend ?? {});
+  const backendKeys = Object.keys(app.backend ?? {});
+  const datatables = app.datatables ?? [];
+
+  if (validate.requiredFrontendPaths && validate.requiredFrontendPaths.length > 0) {
+    checks.push(
+      check(
+        "app includes required frontend paths",
+        validate.requiredFrontendPaths.every((filePath) => frontendPaths.includes(filePath)),
+        `required paths: ${validate.requiredFrontendPaths.join(", ")}; actual paths: ${frontendPaths.join(", ")}`
+      )
+    );
+  }
+
+  if (validate.requiredBackendRunnableKeys && validate.requiredBackendRunnableKeys.length > 0) {
+    checks.push(
+      check(
+        "app includes required backend runnables",
+        validate.requiredBackendRunnableKeys.every((key) => backendKeys.includes(key)),
+        `required runnables: ${validate.requiredBackendRunnableKeys.join(", ")}; actual runnables: ${backendKeys.join(", ")}`
+      )
+    );
+  }
+
+  if (typeof validate.backendRunnableCountAtLeast === "number") {
+    checks.push(
+      check(
+        `app includes at least ${validate.backendRunnableCountAtLeast} backend runnable${validate.backendRunnableCountAtLeast === 1 ? "" : "s"}`,
+        backendKeys.length >= validate.backendRunnableCountAtLeast,
+        `expected at least ${validate.backendRunnableCountAtLeast}, got ${backendKeys.length}`
+      )
+    );
+  }
+
+  for (const runnableRequirement of validate.requiredBackendRunnableTypes ?? []) {
+    const runnable = app.backend?.[runnableRequirement.key];
+    checks.push(check(`${runnableRequirement.key} backend runnable exists`, Boolean(runnable)));
+    if (!runnable) {
+      continue;
+    }
+
+    checks.push(
+      check(
+        `${runnableRequirement.key} backend runnable type matches required`,
+        runnable.type === runnableRequirement.type,
+        `expected ${runnableRequirement.type}, got ${runnable.type ?? "(missing)"}`
+      )
+    );
+  }
+
+  if (typeof validate.datatableCountAtLeast === "number") {
+    checks.push(
+      check(
+        `app includes at least ${validate.datatableCountAtLeast} datatable${validate.datatableCountAtLeast === 1 ? "" : "s"}`,
+        datatables.length >= validate.datatableCountAtLeast,
+        `expected at least ${validate.datatableCountAtLeast}, got ${datatables.length}`
+      )
+    );
+  }
+
+  if (typeof validate.datatableTableCountAtLeast === "number") {
+    const actualTableCount = countDatatableTables(datatables);
+    checks.push(
+      check(
+        `app includes at least ${validate.datatableTableCountAtLeast} datatable table${validate.datatableTableCountAtLeast === 1 ? "" : "s"}`,
+        actualTableCount >= validate.datatableTableCountAtLeast,
+        `expected at least ${validate.datatableTableCountAtLeast}, got ${actualTableCount}`
+      )
+    );
+  }
+
+  for (const datatableRequirement of validate.requiredDatatables ?? []) {
+    const label = datatableRequirement.datatableName
+      ? `${datatableRequirement.datatableName}/${datatableRequirement.schema}.${datatableRequirement.table}`
+      : `${datatableRequirement.schema}.${datatableRequirement.table}`;
+    checks.push(
+      check(
+        `datatable table ${label} exists`,
+        hasDatatableTable(datatables, datatableRequirement)
+      )
+    );
+  }
+
+  return checks;
+}
+
+function countDatatableTables(datatables: AppDatatableState[]): number {
+  return datatables.reduce((count, datatable) => {
+    return (
+      count +
+      Object.values(datatable.schemas ?? {}).reduce((schemaCount, tables) => {
+        return schemaCount + Object.keys(tables ?? {}).length;
+      }, 0)
+    );
+  }, 0);
+}
+
+function hasDatatableTable(
+  datatables: AppDatatableState[],
+  input: { schema: string; table: string; datatableName?: string }
+): boolean {
+  return datatables.some((datatable) => {
+    if (input.datatableName && datatable.datatable_name !== input.datatableName) {
+      return false;
+    }
+    return Boolean(datatable.schemas?.[input.schema]?.[input.table]);
+  });
+}
+
+function canonicalizeDatatables(datatables: AppDatatableState[]): AppDatatableState[] {
+  return [...datatables]
+    .map((datatable) => ({
+      datatable_name: datatable.datatable_name,
+      error: datatable.error,
+      schemas: Object.fromEntries(
+        Object.entries(datatable.schemas ?? {})
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([schemaName, tables]) => [
+            schemaName,
+            Object.fromEntries(
+              Object.entries(tables ?? {})
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([tableName, columns]) => [
+                  tableName,
+                  Object.fromEntries(
+                    Object.entries(columns ?? {}).sort(([left], [right]) => left.localeCompare(right))
+                  ),
+                ])
+            ),
+          ])
+      ),
+    }))
+    .sort((left, right) => left.datatable_name.localeCompare(right.datatable_name));
 }
