@@ -312,8 +312,10 @@
 			>
 				<TextInput
 					bind:value={subscription_name}
-					placeholder="leave empty to auto-generate"
-					disabled={!can_write}
+					inputProps={{
+						placeholder: 'leave empty to auto-generate',
+						disabled: !can_write
+					}}
 					error={subscriptionNameError}
 				/>
 				{#if subscriptionNameError}
