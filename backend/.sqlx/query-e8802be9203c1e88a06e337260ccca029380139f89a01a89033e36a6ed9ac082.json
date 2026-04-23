@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, conversation_id, message_type as \"message_type: MessageType\", content, job_id, created_at, created_seq, step_name, success\n             FROM flow_conversation_message\n             WHERE conversation_id = $1\n               AND created_seq > $2\n             ORDER BY created_seq ASC\n             LIMIT $3 OFFSET $4\n             ",
+  "query": "SELECT id, conversation_id, message_type as \"message_type: MessageType\", content, job_id, created_at, created_seq, step_name, success\n             FROM flow_conversation_message\n             WHERE conversation_id = $1\n               AND created_seq > $2\n             ORDER BY created_seq ASC\n             LIMIT $3\n             ",
   "describe": {
     "columns": [
       {
@@ -64,7 +64,6 @@
       "Left": [
         "Uuid",
         "Int8",
-        "Int8",
         "Int8"
       ]
     },
@@ -80,5 +79,5 @@
       false
     ]
   },
-  "hash": "06c2404010433d466596ead47a331e15698876192e0621db7db812ba56d0eb96"
+  "hash": "e8802be9203c1e88a06e337260ccca029380139f89a01a89033e36a6ed9ac082"
 }
