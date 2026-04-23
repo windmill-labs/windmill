@@ -334,14 +334,17 @@
 				label="Event type filters"
 				tooltip="Optional. One per line (or comma-separated). Forwarded as includedEventTypes."
 			>
-				<textarea
+				<TextInput
 					value={filterText}
-					oninput={(e) => setFilterText(e.currentTarget.value)}
-					disabled={!can_write}
-					rows="3"
-					class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary font-mono"
-					placeholder="Microsoft.Storage.BlobCreated"
-				></textarea>
+					underlyingInputEl="textarea"
+					class="font-mono"
+					inputProps={{
+						placeholder: 'Microsoft.Storage.BlobCreated',
+						disabled: !can_write,
+						rows: 3,
+						oninput: (e) => setFilterText(e.currentTarget.value)
+					}}
+				/>
 			</Subsection>
 		{/if}
 	</div>
