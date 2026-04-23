@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.690.0](https://github.com/windmill-labs/windmill/compare/v1.689.0...v1.690.0) (2026-04-23)
+
+
+### Features
+
+* add ai agent conversation output control ([#8915](https://github.com/windmill-labs/windmill/issues/8915)) ([9a60ff2](https://github.com/windmill-labs/windmill/commit/9a60ff2e77f197786f523755c3a9286a178a245c))
+* add Azure Event Grid triggers ([#8888](https://github.com/windmill-labs/windmill/issues/8888)) ([d6c642b](https://github.com/windmill-labs/windmill/commit/d6c642b170b9547fe1d8db190affa35b305c9c8a))
+* add OTEL_HOST_NAME env override for host.name attribute ([#8923](https://github.com/windmill-labs/windmill/issues/8923)) ([f429cb5](https://github.com/windmill-labs/windmill/commit/f429cb5e486aa5d2bd37f84c1fb30b9d350909e4))
+
+
+### Bug Fixes
+
+* **cli:** use wmill.yaml key consistently for workspace-specific items ([#8900](https://github.com/windmill-labs/windmill/issues/8900)) ([1722a7a](https://github.com/windmill-labs/windmill/commit/1722a7a2af5e00beeae204b78e588cd74a3ceb39))
+* correct flow conversation pagination ([#8919](https://github.com/windmill-labs/windmill/issues/8919)) ([7fa924e](https://github.com/windmill-labs/windmill/commit/7fa924e67e212458726a839dbe366798b2709cd6))
+* ensure schema is inferred on script/flow module load ([#8927](https://github.com/windmill-labs/windmill/issues/8927)) ([664d0f8](https://github.com/windmill-labs/windmill/commit/664d0f838d168978d7c27e88d2bb9019531e7ea1))
+* include endpoint descriptions in mcp tools ([#8925](https://github.com/windmill-labs/windmill/issues/8925)) ([07951e8](https://github.com/windmill-labs/windmill/commit/07951e81ae9a1c26e8fe63bcd7a760b80500ca4c))
+* load job metadata on approval page via approval token ([#8924](https://github.com/windmill-labs/windmill/issues/8924)) ([dac29e7](https://github.com/windmill-labs/windmill/commit/dac29e7d23d6e980c2b6fc4dd3a05a0d2e0170b3))
+* slim app ai chat context ([#8922](https://github.com/windmill-labs/windmill/issues/8922)) ([132d8a6](https://github.com/windmill-labs/windmill/commit/132d8a61f9c109b2b447fab1a39565f52864b746))
+
 ## [1.689.0](https://github.com/windmill-labs/windmill/compare/v1.688.0...v1.689.0) (2026-04-22)
 
 
