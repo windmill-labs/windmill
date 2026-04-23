@@ -38,7 +38,7 @@
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'
-	import { CornerDownLeft, Play } from 'lucide-svelte'
+	import { CornerDownLeft, Play, Workflow, Code, Layout } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import type { FlowCopilotContext } from './copilot/flow'
@@ -164,6 +164,17 @@
 	const indexQ = href.indexOf('?')
 	const searchParams = indexQ > -1 ? new URLSearchParams(href.substring(indexQ)) : undefined
 	let relativePaths: any[] = $state([])
+
+	type WmPathItem = { path: string; kind: 'flow' | 'script' | 'raw_app' }
+	function parseWatchPath(): string | undefined {
+		const i = window.location.href.indexOf('?')
+		if (i < 0) return undefined
+		return new URLSearchParams(window.location.href.substring(i)).get('path') ?? undefined
+	}
+	const PATH_SUFFIX_RE = /(\.(flow|app|raw_app)|__(flow|app|raw_app))\/?$/
+	let watchPath = $state(parseWatchPath()?.replace(PATH_SUFFIX_RE, ''))
+	let pickerItems: WmPathItem[] = $state([])
+	const pickerMode = $derived(!watchPath)
 
 	if (searchParams?.has('local')) {
 		connectWs()
@@ -331,12 +342,39 @@
 		)
 		loadingCodebaseButton = false
 	}
+	const onPopState = () => {
+		watchPath = parseWatchPath()?.replace(PATH_SUFFIX_RE, '')
+		if (watchPath && socket && socket.readyState === WebSocket.OPEN) {
+			socket.send(JSON.stringify({ type: 'loadWmPath', path: watchPath }))
+		}
+	}
+
+	onMount(() => {
+		window.addEventListener('popstate', onPopState)
+	})
+
 	onDestroy(() => {
 		window.removeEventListener('message', el)
+		window.removeEventListener('popstate', onPopState)
 		if (socket && socket.readyState === WebSocket.OPEN) {
 			socket?.close()
 		}
 	})
+
+	function pickPath(item: WmPathItem) {
+		if (item.kind === 'raw_app') {
+			sendUserToast(
+				`raw_apps aren't previewable here. Run \`wmill app dev\` from inside the app folder.`,
+				false
+			)
+			return
+		}
+		const url = new URL(window.location.href)
+		url.searchParams.set('path', item.path)
+		window.history.pushState({}, '', url.toString())
+		watchPath = item.path
+		socket?.send(JSON.stringify({ type: 'loadWmPath', path: item.path }))
+	}
 
 	function connectWs() {
 		try {
@@ -350,11 +388,13 @@
 		try {
 			socket = new WebSocket(`ws://localhost:${port}/ws`)
 
-			// On connect, request a specific path if one is specified
+			// On connect, request the watched path if any, otherwise ask for a list to render the picker
 			socket.addEventListener('open', () => {
-				const watchPath = searchParams?.get('path')
-				if (watchPath && socket) {
+				if (!socket) return
+				if (watchPath) {
 					socket.send(JSON.stringify({ type: 'loadWmPath', path: watchPath }))
+				} else {
+					socket.send(JSON.stringify({ type: 'listPaths' }))
 				}
 			})
 
@@ -371,13 +411,16 @@
 					console.log('Received invalid JSON: ' + msg)
 					return
 				}
-				// Client-side filtering: only accept messages matching the watched path
+				if (data.type === 'paths') {
+					pickerItems = data.items ?? []
+					return
+				}
+				// Picker mode (URL has no path) — ignore live broadcasts so a random
+				// file change doesn't yank the page out of the picker.
+				if (!watchPath) return
 				// Normalize by stripping common folder suffixes so "f/foo__flow" matches "f/foo"
-				const watchPath = searchParams
-					?.get('path')
-					?.replace(/(\.(flow|app|raw_app)|__(flow|app|raw_app))\/?$/, '')
-				const dataPath = data.path?.replace(/(\.(flow|app|raw_app)|__(flow|app|raw_app))\/?$/, '')
-				if (watchPath && dataPath && dataPath !== watchPath) {
+				const dataPath = data.path?.replace(PATH_SUFFIX_RE, '')
+				if (dataPath && dataPath !== watchPath) {
 					return
 				}
 				if (data.type == 'script') {
@@ -746,7 +789,90 @@
 <JobLoader noCode={true} bind:this={jobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 
 <main class="h-screen w-full">
-	{#if mode == 'script'}
+	{#if pickerMode}
+		<div class="h-full w-full overflow-auto p-6">
+			<div class="absolute top-2 left-2">
+				<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
+			</div>
+			<div class="absolute top-2 right-2 text-xs text-secondary">
+				{#if $userStore}
+					{$userStore?.username} on {$workspaceStore}
+				{:else}
+					<span class="text-red-600">Unable to login on {$workspaceStore}</span>
+				{/if}
+			</div>
+			<div class="max-w-3xl mx-auto pt-8">
+				<h1 class="text-2xl font-semibold text-primary mb-1">Pick a file to preview</h1>
+				<p class="text-sm text-secondary mb-6">
+					Click a flow or script to load it in the dev editor. The URL will update so you can
+					bookmark or share it.
+				</p>
+				{#if pickerItems.length === 0}
+					<div class="text-sm text-secondary"
+						>No flows, scripts, or apps detected in this workspace.</div
+					>
+				{:else}
+					{@const flows = pickerItems.filter((i) => i.kind === 'flow')}
+					{@const scripts = pickerItems.filter((i) => i.kind === 'script')}
+					{@const apps = pickerItems.filter((i) => i.kind === 'raw_app')}
+					{#if flows.length > 0}
+						<h2 class="text-sm font-semibold text-primary mt-4 mb-2 flex items-center gap-2">
+							<Workflow size={14} /> Flows
+						</h2>
+						<div class="flex flex-col gap-1">
+							{#each flows as item (item.path)}
+								<Button
+									variant="default"
+									size="xs"
+									btnClasses="!justify-start"
+									on:click={() => pickPath(item)}
+								>
+									{item.path}
+								</Button>
+							{/each}
+						</div>
+					{/if}
+					{#if scripts.length > 0}
+						<h2 class="text-sm font-semibold text-primary mt-6 mb-2 flex items-center gap-2">
+							<Code size={14} /> Scripts
+						</h2>
+						<div class="flex flex-col gap-1">
+							{#each scripts as item (item.path)}
+								<Button
+									variant="default"
+									size="xs"
+									btnClasses="!justify-start"
+									on:click={() => pickPath(item)}
+								>
+									{item.path}
+								</Button>
+							{/each}
+						</div>
+					{/if}
+					{#if apps.length > 0}
+						<h2 class="text-sm font-semibold text-primary mt-6 mb-2 flex items-center gap-2">
+							<Layout size={14} /> Apps
+							<span class="text-xs font-normal text-secondary"
+								>(use <code>wmill app dev</code>)</span
+							>
+						</h2>
+						<div class="flex flex-col gap-1">
+							{#each apps as item (item.path)}
+								<Button
+									variant="subtle"
+									size="xs"
+									btnClasses="!justify-start"
+									on:click={() => pickPath(item)}
+								>
+									{item.path}
+								</Button>
+							{/each}
+						</div>
+					{/if}
+				{/if}
+			</div>
+		</div>
+	{:else if mode == 'script'}
 		<div class="flex flex-col min-h-full min-h-screen overflow-auto">
 			<div class="absolute top-0 left-2">
 				<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />

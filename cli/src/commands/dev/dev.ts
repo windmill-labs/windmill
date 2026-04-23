@@ -105,6 +105,59 @@ function restorePathScripts(flowValue: any) {
   });
 }
 
+type WmPathItem = {
+  path: string;
+  kind: "flow" | "script" | "raw_app";
+};
+
+const FLOW_SUFFIXES = [".flow", "__flow"] as const;
+const APP_SUFFIXES = [".app", "__app", ".raw_app", "__raw_app"] as const;
+
+function stripFolderSuffix(rel: string, suffixes: readonly string[]): string {
+  for (const s of suffixes) {
+    if (rel.endsWith(s)) return rel.slice(0, -s.length);
+  }
+  return rel;
+}
+
+async function listWorkspacePaths(): Promise<WmPathItem[]> {
+  const items: WmPathItem[] = [];
+  async function walk(dir: string, rel: string) {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (FLOW_SUFFIXES.some((s) => entry.name.endsWith(s))) {
+          items.push({ path: stripFolderSuffix(childRel, FLOW_SUFFIXES), kind: "flow" });
+          continue;
+        }
+        if (APP_SUFFIXES.some((s) => entry.name.endsWith(s))) {
+          items.push({ path: stripFolderSuffix(childRel, APP_SUFFIXES), kind: "raw_app" });
+          continue;
+        }
+        await walk(path.join(dir, entry.name), childRel);
+      } else if (entry.isFile()) {
+        const matchedExt = exts.find((ext) => entry.name.endsWith(ext));
+        if (matchedExt) {
+          items.push({
+            path: childRel.slice(0, -matchedExt.length),
+            kind: "script",
+          });
+        }
+      }
+    }
+  }
+  await walk(process.cwd(), "");
+  items.sort((a, b) => a.path.localeCompare(b.path));
+  return items;
+}
+
 export interface DevOpts {
   proxyPort?: number;
   path?: string;
@@ -244,8 +297,6 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
         } else if (wmFlowPath.endsWith("__flow")) {
           wmFlowPath = wmFlowPath.slice(0, -"__flow".length);
         }
-        // Skip work entirely when --path is set and this change is for a different path
-        if (opts.path && wmFlowPath !== opts.path) return;
         const localFlow = (await yamlParseFile(
           localPath + "flow.yaml"
         )) as FlowFile;
@@ -277,8 +328,6 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
       } else if (typ == "script") {
         const splitted = cpath.split(".");
         const wmPath = splitted[0];
-        // Skip work entirely when --path is set and this change is for a different path
-        if (opts.path && wmPath !== opts.path) return;
         const content = await readFile(cpath, "utf-8");
         const lang = inferContentTypeFromFilePath(cpath, opts.defaultTs);
         const typed =
@@ -475,12 +524,9 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
   const connectedClients: Set<WebSocket> = new Set();
 
   // Function to send a message to all connected clients.
-  // When --path (or auto-detected flow path) is set, drop edits for any other
-  // path so the dev page stays locked to the requested resource.
+  // The dev page filters by URL path on its end, so the server stays a dumb broadcaster
+  // and multiple tabs can each watch their own path.
   function broadcastChanges(lastEdit: LastEditScript | LastEditFlow) {
-    if (opts.path && lastEdit.path !== opts.path) {
-      return;
-    }
     for (const client of connectedClients.values()) {
       client.send(JSON.stringify(lastEdit));
     }
@@ -528,6 +574,14 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
             }
           }).catch((err) => {
             log.error(`Failed to load path ${data.path}: ${err}`);
+          });
+        } else if (data.type === "listPaths") {
+          listWorkspacePaths().then((items) => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "paths", items }));
+            }
+          }).catch((err) => {
+            log.error(`Failed to list paths: ${err}`);
           });
         }
       });
