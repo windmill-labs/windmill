@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM asset_trigger WHERE workspace_id = $1 AND owner_script_path = $2 AND is_implicit = true",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "94e3820c19701da35d8f8c3441ffb0b696dee5eb77f74a9635852221528169aa"
+}

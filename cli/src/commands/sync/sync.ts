@@ -1500,6 +1500,11 @@ export async function elementsToMap(
     ) {
       continue;
     }
+    // Asset triggers are implicit: source-of-truth is `#trigger: asset` in
+    // script annotations, never editable via CLI. Skip unconditionally.
+    if (path.endsWith(".asset_trigger" + ext)) {
+      continue;
+    }
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
     if (!skips.includeGroups && path.endsWith(".group" + ext)) continue;
     if (!skips.includeSettings && path === "settings" + ext) continue;

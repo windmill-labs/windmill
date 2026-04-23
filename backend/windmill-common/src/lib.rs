@@ -28,6 +28,7 @@ use sqlx::{Acquire, Postgres};
 
 pub mod agent_workers;
 pub mod apps;
+pub mod asset_dispatcher;
 pub mod assets;
 pub mod audit;
 pub mod auth;
@@ -57,6 +58,7 @@ pub mod flow_status;
 pub mod flows;
 pub mod folders;
 pub mod global_settings;
+pub mod implicit_triggers;
 pub mod indexer;
 pub mod instance_config;
 pub mod job_metrics;
@@ -64,6 +66,7 @@ pub mod log_context;
 pub mod min_version;
 pub mod notify_events;
 pub mod runtime_assets;
+pub mod trigger_annotations;
 pub mod workspace_dependencies;
 
 #[cfg(feature = "private")]

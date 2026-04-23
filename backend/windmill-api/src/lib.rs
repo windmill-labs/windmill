@@ -68,6 +68,7 @@ use windmill_common::error::AppError;
 mod ai;
 mod apps;
 pub mod args;
+mod asset_triggers;
 mod audit;
 pub mod auth;
 #[cfg(all(feature = "private", feature = "parquet"))]
@@ -548,6 +549,7 @@ pub async fn run_server(
                         .nest("/acls", granular_acls::workspaced_service())
                         .nest("/apps", apps::workspaced_service(request_size_limit * 5))
                         .nest("/assets", windmill_api_assets::workspaced_service())
+                        .nest("/asset_triggers", asset_triggers::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
                         .nest(

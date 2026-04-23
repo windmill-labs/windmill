@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE asset_trigger SET owner_script_path = $1, script_path = $1, path = $2, server_id = NULL WHERE workspace_id = $3 AND owner_script_path = $4 AND is_implicit = true",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f5f544a5b75cc46ad1f418b24859c4a04ef4c74a6df1c5b49c6e0b9a3665060a"
+}

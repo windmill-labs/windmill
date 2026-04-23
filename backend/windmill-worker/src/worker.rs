@@ -3313,6 +3313,8 @@ async fn detect_and_store_runtime_assets_from_job_args(
             access_type: None,
             created_at: None,
             columns: None,
+            partition_key: None,
+            script_hash: None,
         };
         register_runtime_asset(asset);
     }

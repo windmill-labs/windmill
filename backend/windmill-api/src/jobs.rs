@@ -5717,6 +5717,8 @@ fn register_potential_assets_on_inline_execution(
                     job_id,
                     workspace_id: w_id.to_string(),
                     created_at: None,
+                    partition_key: None,
+                    script_hash: None,
                 });
             }
         }
