@@ -68,6 +68,7 @@
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Row from '$lib/components/common/table/Row.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
 	import Toggle from './Toggle.svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
@@ -209,6 +210,7 @@
 	let watchPath = $state(parseWatchPath()?.replace(PATH_SUFFIX_RE, ''))
 	let pickerItems: WmPathItem[] = $state([])
 	const pickerMode = $derived(!watchPath)
+	let wsState: 'connecting' | 'open' | 'closed' = $state('connecting')
 	let pickerFilter = $state('')
 	let pickerKind: 'all' | 'flow' | 'script' | 'raw_app' = $state('all')
 	// Shape pickerItems into the homepage's ItemType so we can reuse `groupItems`
@@ -444,16 +446,26 @@
 		}
 		const port = searchParams?.get('port') || '3001'
 		try {
+			wsState = 'connecting'
 			socket = new WebSocket(`ws://localhost:${port}/ws`)
 
 			// On connect, request the watched path if any, otherwise ask for a list to render the picker
 			socket.addEventListener('open', () => {
 				if (!socket) return
+				wsState = 'open'
 				if (watchPath) {
 					socket.send(JSON.stringify({ type: 'loadWmPath', path: watchPath }))
 				} else {
 					socket.send(JSON.stringify({ type: 'listPaths' }))
 				}
+			})
+
+			socket.addEventListener('error', () => {
+				wsState = 'closed'
+			})
+
+			socket.addEventListener('close', () => {
+				wsState = 'closed'
 			})
 
 			// Listen for messages
@@ -959,48 +971,56 @@
 					bind:filteredItems={pickerFilteredItems}
 				/>
 
-				<div class="flex flex-row gap-2 items-center mb-3 w-full">
-					<ToggleButtonGroup bind:selected={pickerKind} class="w-fit">
-						{#snippet children({ item })}
-							<ToggleButton value="all" label="All" size="md" {item} />
-							<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
-							<ToggleButton
-								value="flow"
-								label="Flows"
-								icon={FlowIcon}
-								selectedColor="#14b8a6"
-								size="md"
-								{item}
-							/>
-							<ToggleButton
-								value="raw_app"
-								label="Apps"
-								icon={LayoutDashboard}
-								selectedColor="#fb923c"
-								size="md"
-								{item}
-							/>
-						{/snippet}
-					</ToggleButtonGroup>
+				{#if wsState !== 'closed'}
+					<div class="flex flex-row gap-2 items-center mb-3 w-full">
+						<ToggleButtonGroup bind:selected={pickerKind} class="w-fit">
+							{#snippet children({ item })}
+								<ToggleButton value="all" label="All" size="md" {item} />
+								<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
+								<ToggleButton
+									value="flow"
+									label="Flows"
+									icon={FlowIcon}
+									selectedColor="#14b8a6"
+									size="md"
+									{item}
+								/>
+								<ToggleButton
+									value="raw_app"
+									label="Apps"
+									icon={LayoutDashboard}
+									selectedColor="#fb923c"
+									size="md"
+									{item}
+								/>
+							{/snippet}
+						</ToggleButtonGroup>
 
-					<div class="relative text-primary flex-1 min-w-[100px]">
-						<!-- svelte-ignore a11y_autofocus -->
-						<TextInput
-							inputProps={{
-								autofocus: true,
-								placeholder: HOME_SEARCH_PLACEHOLDER
-							}}
-							size="md"
-							bind:value={pickerFilter}
-							class="!pr-10"
-						/>
-						<div class="absolute right-0 top-0 mt-2 mr-4 text-secondary" aria-hidden="true">
-							<Search size={16} />
+						<div class="relative text-primary flex-1 min-w-[100px]">
+							<!-- svelte-ignore a11y_autofocus -->
+							<TextInput
+								inputProps={{
+									autofocus: true,
+									placeholder: HOME_SEARCH_PLACEHOLDER
+								}}
+								size="md"
+								bind:value={pickerFilter}
+								class="!pr-10"
+							/>
+							<div class="absolute right-0 top-0 mt-2 mr-4 text-secondary" aria-hidden="true">
+								<Search size={16} />
+							</div>
 						</div>
 					</div>
-				</div>
+				{/if}
 
-				{#if pickerItems.length === 0}
+				{#if wsState === 'closed'}
+					<Alert type="warning" title="Dev server is not running">
+						Start it from your workspace root with
+						<code class="text-xs px-1 py-0.5 rounded bg-surface-secondary">wmill dev</code>
+						to preview your flows, scripts, and apps.
+					</Alert>
+				{:else if pickerItems.length === 0}
 					<div class="text-sm text-secondary"
 						>No flows, scripts, or apps detected in this workspace.</div
 					>
