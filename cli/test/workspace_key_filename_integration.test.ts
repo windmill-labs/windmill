@@ -142,6 +142,17 @@ describe("resolveWsNameForConfigFromFlags", () => {
     } as any;
     expect(resolveWsNameForConfigFromFlags(opts)).toBeUndefined();
   });
+
+  test("reserved key 'commonSpecificItems' is not accepted as a config key", () => {
+    const opts: SyncOptions & { branch?: string; workspace?: string } = {
+      workspace: "commonSpecificItems",
+      workspaces: {
+        test: {},
+        commonSpecificItems: { variables: ["f/**"] } as any,
+      },
+    } as any;
+    expect(resolveWsNameForConfigFromFlags(opts)).toBeUndefined();
+  });
 });
 
 describe("findResourceFile picks the wsName-named file, not the branch-named file", () => {

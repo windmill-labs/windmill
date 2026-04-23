@@ -45,6 +45,7 @@ import {
 } from "../../utils/utils.ts";
 import {
   getEffectiveSettings,
+  getWorkspaceNames,
   mergeConfigWithConfigFile,
   parseSyncBehavior,
   SyncOptions,
@@ -126,14 +127,16 @@ function resolveWsNameFromBranch(opts: SyncOptions, branchName: string): string 
 // undefined when no flag-based resolution applies; callers then fall back to
 // inferWsNameFromProfile on the resolved workspace profile.
 export function resolveWsNameForConfigFromFlags(
-  opts: SyncOptions & { branch?: string },
+  opts: SyncOptions & { branch?: string; workspace?: string },
 ): string | undefined {
   if (opts.branch) {
     return resolveWsNameFromBranch(opts, opts.branch);
   }
   if (opts.workspace) {
-    const isConfigKey = !!(opts.workspaces as any)?.[opts.workspace];
-    if (isConfigKey) {
+    // Use getWorkspaceNames so reserved keys (e.g. commonSpecificItems) are filtered out,
+    // matching the behavior of findWorkspaceByGitBranch / inferWsNameFromProfile.
+    const validKeys = getWorkspaceNames(opts.workspaces);
+    if (validKeys.includes(opts.workspace)) {
       return opts.workspace;
     }
   }
@@ -2155,9 +2158,9 @@ export async function pull(
 
   // Resolve workspace name for config lookups.
   // --branch resolves git branch → workspace name (deprecated but still supported).
-  // --workspace (without --base-url) selects a workspace config entry by name.
-  // When --base-url is used with --workspace, --workspace is a profile selector only;
-  // --branch should still drive config lookups.
+  // --workspace selects a workspace config entry by name when it matches one,
+  // regardless of --base-url. If it doesn't match any entry it's treated as a
+  // profile/credential selector only.
   const hasExplicitCredentials = !!opts.baseUrl;
   let wsNameForConfig: string | undefined;
 
@@ -2173,9 +2176,11 @@ export async function pull(
     warnWorkspaceOverride(opts, opts.workspace);
   }
 
-  // Validate workspace configuration early (skipped when override is used)
+  // Validate workspace configuration early. Skip when ANY explicit flag is set
+  // (even a --workspace value that doesn't match a config key — the user opted
+  // out of branch-based auto-detection).
   try {
-    await validateBranchConfiguration(opts, wsNameForConfig);
+    await validateBranchConfiguration(opts, wsNameForConfig ?? opts.workspace);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -2709,9 +2714,11 @@ export async function push(
     warnWorkspaceOverride(opts, opts.workspace);
   }
 
-  // Validate workspace configuration early (skipped when override is used)
+  // Validate workspace configuration early. Skip when ANY explicit flag is set
+  // (even a --workspace value that doesn't match a config key — the user opted
+  // out of branch-based auto-detection).
   try {
-    await validateBranchConfiguration(opts, wsNameForConfig);
+    await validateBranchConfiguration(opts, wsNameForConfig ?? opts.workspace);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
