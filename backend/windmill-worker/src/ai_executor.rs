@@ -1065,7 +1065,7 @@ pub async fn run_agent(
                         agent_action: Some(AgentAction::WebSearch {}),
                         ..Default::default()
                     });
-                    if chat_enabled {
+                    if store_output_in_conversation && chat_enabled {
                         if let Some(memory_id) = memory_id {
                             let agent_job_id = job.id;
                             let db_clone = db.clone();
@@ -1200,6 +1200,7 @@ pub async fn run_agent(
                     killpill_rx,
                     stream_event_processor: stream_event_processor.as_ref(),
                     flow_context: &mut flow_context,
+                    store_output_in_conversation,
                     previous_result: &previous_result,
                     id_context: &id_context,
                     tool_abort_handles: tool_abort_handles.clone(),
