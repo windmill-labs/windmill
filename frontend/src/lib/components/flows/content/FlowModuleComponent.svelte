@@ -156,6 +156,11 @@
 	})
 
 	let selected = $state(untrack(() => preprocessorModule) ? 'test' : 'inputs')
+	let canShowChatTab = $derived(
+		!preprocessorModule &&
+			Boolean(flowStore.val.value?.chat_input_enabled) &&
+			flowModule.value.type === 'aiagent'
+	)
 	let advancedSelected = $state('retries')
 	let advancedRuntimeSelected = $state('concurrency')
 	let s3Kind = $state('s3_client')
@@ -1038,7 +1043,7 @@
 												<Tab value="inputs" label="Step Input" />
 											{/if}
 											<Tab value="test" label="Test this step" />
-											{#if !preprocessorModule && flowModule.value.type === 'aiagent'}
+											{#if canShowChatTab && flowModule.value.type === 'aiagent'}
 												<Tab
 													value="chat"
 													active={Boolean(flowModule.value.omit_output_from_conversation)}
@@ -1049,7 +1054,7 @@
 												<Tab value="advanced" label="Advanced" />
 											{/if}
 										</Tabs>
-										{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
+										{#if (selected === 'inputs' || (selected === 'chat' && !canShowChatTab)) && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
 											<div class="flex-1 overflow-auto" id="flow-editor-step-input">
 												<PropPickerWrapper
 													pickableProperties={stepPropPicker.pickableProperties}
@@ -1127,15 +1132,9 @@
 												{onJobDone}
 												hideRunButton={debugMode && isDebuggableScript}
 											/>
-										{:else if selected === 'chat' && flowModule.value.type === 'aiagent'}
+										{:else if selected === 'chat' && canShowChatTab && flowModule.value.type === 'aiagent'}
 											<div class="flex-1 overflow-auto p-4">
 												<Section label="Conversation output">
-													{#snippet header()}
-														<Tooltip>
-															Control whether this AI agent persists its assistant and tool
-															messages in the flow conversation when chat mode is enabled.
-														</Tooltip>
-													{/snippet}
 													<Toggle
 														size="xs"
 														checked={Boolean(flowModule.value.omit_output_from_conversation)}
@@ -1148,15 +1147,6 @@
 																'When enabled, this AI agent still runs normally, but its assistant response and tool-use messages are not stored in chat-mode conversation history.'
 														}}
 													/>
-													<Alert
-														type="info"
-														title="Runtime context is unchanged"
-														size="xs"
-														class="mt-4"
-													>
-														This only controls persisted flow conversation messages. It does not
-														remove messages from the agent context while the step is running.
-													</Alert>
 												</Section>
 											</div>
 										{:else if selected === 'advanced'}
