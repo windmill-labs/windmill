@@ -63,8 +63,15 @@ import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 import { type AssetWithAccessType } from './components/assets/lib.js'
 
-const loadSchemaLastRun =
-	writable<[string | undefined, MainArgSignature | undefined, string | undefined]>(undefined)
+const loadSchemaLastRun = writable<
+	| [
+			string | undefined,
+			MainArgSignature | undefined,
+			string | undefined,
+			SupportedLanguage | 'bunnative' | undefined
+	  ]
+	| undefined
+>(undefined)
 
 let initializeTsPromise: Promise<any> | undefined = undefined
 export async function initWasmTs() {
@@ -307,7 +314,13 @@ export async function inferArgs(
 } | null> {
 	const lastRun = get(loadSchemaLastRun)
 	let inferedSchema: MainArgSignature
-	if (lastRun && code == lastRun[0] && lastRun[1] && lastRun[2] == mainOverride) {
+	if (
+		lastRun &&
+		code == lastRun[0] &&
+		lastRun[1] &&
+		lastRun[2] == mainOverride &&
+		lastRun[3] === language
+	) {
 		inferedSchema = lastRun[1]
 	} else {
 		if (code == '') {
@@ -439,7 +452,7 @@ export async function inferArgs(
 		if (inferedSchema.type == 'Invalid') {
 			throw new Error(inferedSchema.error)
 		}
-		loadSchemaLastRun.set([code, inferedSchema, mainOverride])
+		loadSchemaLastRun.set([code, inferedSchema, mainOverride, language])
 	}
 
 	schema.required = []

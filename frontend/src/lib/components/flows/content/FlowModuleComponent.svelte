@@ -793,7 +793,7 @@
 						const [module, state] = await createScriptFromInlineScript(
 							flowModule,
 							selectedId,
-							flowStateStore.val[flowModule.id].schema,
+							flowStateStore.val[flowModule.id]?.schema,
 							$pathStore
 						)
 						if (flowModule.value.type == 'rawscript') {
@@ -1209,7 +1209,9 @@
 													<Section label="Continue on error">
 														{#snippet header()}
 															<Tooltip>
-																When enabled, the flow will continue to the next step even if this step fails (after exhausting all retries, if any). This enables to process the error in a branch one for instance.
+																When enabled, the flow will continue to the next step even if this
+																step fails (after exhausting all retries, if any). This enables to
+																process the error in a branch one for instance.
 															</Tooltip>
 														{/snippet}
 														<Toggle
