@@ -183,12 +183,11 @@ async fn list_messages(
              WHERE conversation_id = $1
                AND created_seq > $2
              ORDER BY created_seq ASC
-             LIMIT $3 OFFSET $4
+             LIMIT $3
              "#,
             conversation_id,
             after_seq,
-            per_page as i64,
-            offset as i64
+            per_page as i64
         )
         .fetch_all(&mut *tx)
         .await?

@@ -6,3 +6,5 @@ ALTER TABLE flow_conversation_message
 
 CREATE INDEX idx_conversation_message_conversation_created_seq
     ON flow_conversation_message(conversation_id, created_seq);
+
+DROP INDEX IF EXISTS idx_conversation_message_conversation_time;
