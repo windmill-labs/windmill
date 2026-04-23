@@ -123,7 +123,7 @@ Several files keep **hardcoded arrays** of trigger kind strings. Miss one and AC
 - **`backend/windmill-api/src/trash.rs`** — `valid_tables` for the trash / restore API.
 - **`backend/windmill-git-sync/src/lib.rs`** — add a test assertion for `DeployedObject::{Kind}Trigger.get_kind() == "{kind}_trigger"` (the `get_kind` match arm itself lives in the enum impl — already required by the Rust compiler).
 - **`backend/windmill-api-auth/src/scopes.rs`** — add the `{Kind}Triggers` variant to `ScopeDomain` enum + `as_str` match + `from_str` match. Required for the OAuth/token system to recognise `{kind}_triggers:read|write` scopes.
-- **`backend/windmill-api/src/token.rs`** (`build_trigger_scope_domains` → `TRIGGER_DOMAINS`) — add `("{kind}_triggers", "{Kind display name}")` so the scope selector UI (`/tokens/list/scopes`) surfaces the `read` / `write` toggles. **Silent UX regression** if you skip this: tokens can technically scope to the domain, but users can't select it through the settings UI.
+- **`backend/windmill-api/src/token.rs`** (`build_trigger_scope_domains` → `TRIGGER_DOMAINS`) — add `("{kind}_triggers", "{Kind display name}")`. This is what `/tokens/list/scopes` returns, which drives the scope-selector checkboxes in the CreateToken UI. Skip this and the backend still *accepts* `{kind}_triggers:read|write` in token scopes (scopes.rs) and enforces them — but users can't tick a box for it in settings. So: scope works via API/CLI, invisible in UI.
 
 **OpenAPI enums** to extend (do NOT forget — generated client will allow it but server rejects as 400):
 - `CaptureTriggerKind` enum
