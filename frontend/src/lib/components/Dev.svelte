@@ -18,7 +18,13 @@
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema, readFieldsRecursively, sendUserToast, type StateStore } from '$lib/utils'
+	import {
+		emptySchema,
+		pluralize,
+		readFieldsRecursively,
+		sendUserToast,
+		type StateStore
+	} from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
@@ -38,7 +44,31 @@
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'
-	import { CornerDownLeft, Play, Workflow, Code, Layout } from 'lucide-svelte'
+	import {
+		CornerDownLeft,
+		Play,
+		Folder,
+		FolderTree,
+		User,
+		Search,
+		ChevronDown,
+		ChevronUp,
+		Code2,
+		LayoutDashboard
+	} from 'lucide-svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import FlowIcon from '$lib/components/home/FlowIcon.svelte'
+	import {
+		groupItems,
+		type ItemType,
+		type FolderItem,
+		type UserItem
+	} from '$lib/components/home/treeViewUtils'
+	import SearchItems from '$lib/components/SearchItems.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import Row from '$lib/components/common/table/Row.svelte'
+	import { HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
 	import Toggle from './Toggle.svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import type { FlowCopilotContext } from './copilot/flow'
@@ -165,7 +195,11 @@
 	const searchParams = indexQ > -1 ? new URLSearchParams(href.substring(indexQ)) : undefined
 	let relativePaths: any[] = $state([])
 
-	type WmPathItem = { path: string; kind: 'flow' | 'script' | 'raw_app' }
+	type WmPathItem = {
+		path: string
+		kind: 'flow' | 'script' | 'raw_app'
+		summary?: string
+	}
 	function parseWatchPath(): string | undefined {
 		const i = window.location.href.indexOf('?')
 		if (i < 0) return undefined
@@ -175,6 +209,30 @@
 	let watchPath = $state(parseWatchPath()?.replace(PATH_SUFFIX_RE, ''))
 	let pickerItems: WmPathItem[] = $state([])
 	const pickerMode = $derived(!watchPath)
+	let pickerFilter = $state('')
+	let pickerKind: 'all' | 'flow' | 'script' | 'raw_app' = $state('all')
+	// Shape pickerItems into the homepage's ItemType so we can reuse `groupItems`
+	// for the folder/user tree structure. `kind` ('script'|'flow'|'raw_app') maps 1:1
+	// onto ItemType['type']; missing fields (canWrite, edited_at, etc.) default to safe values.
+	const pickerTreeItems = $derived(
+		pickerItems.map(
+			(item) =>
+				({
+					path: item.path,
+					summary: item.summary ?? '',
+					type: item.kind,
+					canWrite: true,
+					extra_perms: {},
+					starred: false,
+					edited_at: ''
+				}) as unknown as ItemType
+		)
+	)
+	const pickerKindFilteredItems = $derived(
+		pickerKind === 'all' ? pickerTreeItems : pickerTreeItems.filter((i) => i.type === pickerKind)
+	)
+	let pickerFilteredItems: (ItemType & { marked?: string })[] | undefined = $state(undefined)
+	const pickerGroups = $derived(groupItems(pickerFilteredItems ?? pickerKindFilteredItems))
 
 	if (searchParams?.has('local')) {
 		connectWs()
@@ -789,6 +847,92 @@
 <JobLoader noCode={true} bind:this={jobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 
 <main class="h-screen w-full">
+	{#snippet itemRow(item: ItemType & { marked?: string }, depth: number)}
+		{@const wmItem = pickerItems.find((p) => p.path === item.path)}
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div onclick={() => wmItem && pickPath(wmItem)} class="cursor-pointer border-b last:border-b-0">
+			<Row
+				marked={item.marked}
+				path={item.path}
+				summary={item.summary}
+				kind={item.type}
+				{depth}
+				workspaceId={$workspaceStore ?? ''}
+				canFavorite={false}
+			/>
+		</div>
+	{/snippet}
+	{#snippet treeNode(node: ItemType | FolderItem | UserItem, depth: number)}
+		{#if 'folderName' in node}
+			<details open class="group border-b last:border-b-0">
+				<summary
+					class="px-4 py-2 w-full flex flex-row items-center justify-between cursor-pointer list-none group-open:border-b"
+				>
+					<div
+						class="flex flex-row items-center gap-4 text-sm font-semibold"
+						style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
+					>
+						<div class="flex justify-center items-center">
+							{#if depth === 0}
+								<Folder size={16} class="text-secondary" />
+							{:else}
+								<FolderTree size={16} class="text-secondary" />
+							{/if}
+						</div>
+						<div>
+							<span class="whitespace-nowrap text-xs text-emphasis font-semibold"
+								>{#if depth === 0}f/{/if}{node.folderName}</span
+							>
+							<div class="text-2xs font-normal text-secondary whitespace-nowrap">
+								({pluralize(node.items.length, ' item')})
+							</div>
+						</div>
+					</div>
+					<div class="w-full flex flex-row-reverse">
+						<ChevronUp size={16} class="hidden group-open:block" />
+						<ChevronDown size={16} class="block group-open:hidden" />
+					</div>
+				</summary>
+				{#each node.items as child ('folderName' in child ? `f__${child.folderName}` : 'username' in child ? `u__${child.username}` : `i__${child.type}__${child.path}`)}
+					{@render treeNode(child, depth + 1)}
+				{/each}
+			</details>
+		{:else if 'username' in node}
+			<details open class="group border-b last:border-b-0">
+				<summary
+					class="px-4 py-2 w-full flex flex-row items-center justify-between cursor-pointer list-none group-open:border-b"
+				>
+					<div
+						class="flex flex-row items-center gap-4 text-sm font-semibold"
+						style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
+					>
+						<div class="flex justify-center items-center">
+							<User size={16} class="text-secondary" />
+						</div>
+						<div>
+							<span class="whitespace-nowrap text-xs text-emphasis font-semibold"
+								>u/{node.username}</span
+							>
+							<div class="text-2xs font-normal text-secondary whitespace-nowrap">
+								({pluralize(node.items.length, ' item')})
+							</div>
+						</div>
+					</div>
+					<div class="w-full flex flex-row-reverse">
+						<ChevronUp size={16} class="hidden group-open:block" />
+						<ChevronDown size={16} class="block group-open:hidden" />
+					</div>
+				</summary>
+				{#each node.items as child ('folderName' in child ? `f__${child.folderName}` : 'username' in child ? `u__${child.username}` : `i__${child.type}__${child.path}`)}
+					{@render treeNode(child, depth + 1)}
+				{/each}
+			</details>
+		{:else}
+			{@render itemRow(node as ItemType & { marked?: string }, depth)}
+		{/if}
+	{/snippet}
+
 	{#if pickerMode}
 		<div class="h-full w-full overflow-auto p-6">
 			<div class="absolute top-2 left-2">
@@ -802,73 +946,72 @@
 				{/if}
 			</div>
 			<div class="max-w-3xl mx-auto pt-8">
-				<h1 class="text-2xl font-semibold text-primary mb-1">Pick a file to preview</h1>
-				<p class="text-sm text-secondary mb-6">
-					Click a flow or script to load it in the dev editor. The URL will update so you can
-					bookmark or share it.
-				</p>
+				<h1 class="text-2xl font-semibold text-primary mb-1">
+					{$workspaceStore}
+					<span class="font-normal text-secondary">(local)</span>
+				</h1>
+				<p class="text-sm text-secondary mb-4"> Click a flow or a script to preview it. </p>
+
+				<SearchItems
+					filter={pickerFilter}
+					items={pickerKindFilteredItems}
+					f={(item: ItemType) => `${item.path} ${item.summary ?? ''}`}
+					bind:filteredItems={pickerFilteredItems}
+				/>
+
+				<div class="flex flex-row gap-2 items-center mb-3 w-full">
+					<ToggleButtonGroup bind:selected={pickerKind} class="w-fit">
+						{#snippet children({ item })}
+							<ToggleButton value="all" label="All" size="md" {item} />
+							<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
+							<ToggleButton
+								value="flow"
+								label="Flows"
+								icon={FlowIcon}
+								selectedColor="#14b8a6"
+								size="md"
+								{item}
+							/>
+							<ToggleButton
+								value="raw_app"
+								label="Apps"
+								icon={LayoutDashboard}
+								selectedColor="#fb923c"
+								size="md"
+								{item}
+							/>
+						{/snippet}
+					</ToggleButtonGroup>
+
+					<div class="relative text-primary flex-1 min-w-[100px]">
+						<!-- svelte-ignore a11y_autofocus -->
+						<TextInput
+							inputProps={{
+								autofocus: true,
+								placeholder: HOME_SEARCH_PLACEHOLDER
+							}}
+							size="md"
+							bind:value={pickerFilter}
+							class="!pr-10"
+						/>
+						<div class="absolute right-0 top-0 mt-2 mr-4 text-secondary" aria-hidden="true">
+							<Search size={16} />
+						</div>
+					</div>
+				</div>
+
 				{#if pickerItems.length === 0}
 					<div class="text-sm text-secondary"
 						>No flows, scripts, or apps detected in this workspace.</div
 					>
+				{:else if pickerGroups.length === 0}
+					<div class="text-sm text-secondary">No items match the search.</div>
 				{:else}
-					{@const flows = pickerItems.filter((i) => i.kind === 'flow')}
-					{@const scripts = pickerItems.filter((i) => i.kind === 'script')}
-					{@const apps = pickerItems.filter((i) => i.kind === 'raw_app')}
-					{#if flows.length > 0}
-						<h2 class="text-sm font-semibold text-primary mt-4 mb-2 flex items-center gap-2">
-							<Workflow size={14} /> Flows
-						</h2>
-						<div class="flex flex-col gap-1">
-							{#each flows as item (item.path)}
-								<Button
-									variant="default"
-									size="xs"
-									btnClasses="!justify-start"
-									on:click={() => pickPath(item)}
-								>
-									{item.path}
-								</Button>
-							{/each}
-						</div>
-					{/if}
-					{#if scripts.length > 0}
-						<h2 class="text-sm font-semibold text-primary mt-6 mb-2 flex items-center gap-2">
-							<Code size={14} /> Scripts
-						</h2>
-						<div class="flex flex-col gap-1">
-							{#each scripts as item (item.path)}
-								<Button
-									variant="default"
-									size="xs"
-									btnClasses="!justify-start"
-									on:click={() => pickPath(item)}
-								>
-									{item.path}
-								</Button>
-							{/each}
-						</div>
-					{/if}
-					{#if apps.length > 0}
-						<h2 class="text-sm font-semibold text-primary mt-6 mb-2 flex items-center gap-2">
-							<Layout size={14} /> Apps
-							<span class="text-xs font-normal text-secondary"
-								>(use <code>wmill app dev</code>)</span
-							>
-						</h2>
-						<div class="flex flex-col gap-1">
-							{#each apps as item (item.path)}
-								<Button
-									variant="subtle"
-									size="xs"
-									btnClasses="!justify-start"
-									on:click={() => pickPath(item)}
-								>
-									{item.path}
-								</Button>
-							{/each}
-						</div>
-					{/if}
+					<div class="border rounded-md bg-surface-tertiary overflow-hidden">
+						{#each pickerGroups as group ('folderName' in group ? `f__${group.folderName}` : 'username' in group ? `u__${group.username}` : `i__${group.type}__${group.path}`)}
+							{@render treeNode(group, 0)}
+						{/each}
+					</div>
 				{/if}
 			</div>
 		</div>

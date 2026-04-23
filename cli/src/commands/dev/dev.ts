@@ -108,6 +108,7 @@ function restorePathScripts(flowValue: any) {
 type WmPathItem = {
   path: string;
   kind: "flow" | "script" | "raw_app";
+  summary?: string;
 };
 
 const FLOW_SUFFIXES = [".flow", "__flow"] as const;
@@ -121,7 +122,9 @@ function stripFolderSuffix(rel: string, suffixes: readonly string[]): string {
 }
 
 async function listWorkspacePaths(): Promise<WmPathItem[]> {
-  const items: WmPathItem[] = [];
+  // Walk first, capturing each item's metadata file path. Then read summaries in
+  // parallel — one tree pass plus N file reads is faster than a serialized walk.
+  const items: (WmPathItem & { _metaPath?: string })[] = [];
   async function walk(dir: string, rel: string) {
     let entries;
     try {
@@ -132,30 +135,52 @@ async function listWorkspacePaths(): Promise<WmPathItem[]> {
     for (const entry of entries) {
       if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
       const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+      const childAbs = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         if (FLOW_SUFFIXES.some((s) => entry.name.endsWith(s))) {
-          items.push({ path: stripFolderSuffix(childRel, FLOW_SUFFIXES), kind: "flow" });
+          items.push({
+            path: stripFolderSuffix(childRel, FLOW_SUFFIXES),
+            kind: "flow",
+            _metaPath: path.join(childAbs, "flow.yaml"),
+          });
           continue;
         }
         if (APP_SUFFIXES.some((s) => entry.name.endsWith(s))) {
           items.push({ path: stripFolderSuffix(childRel, APP_SUFFIXES), kind: "raw_app" });
           continue;
         }
-        await walk(path.join(dir, entry.name), childRel);
+        await walk(childAbs, childRel);
       } else if (entry.isFile()) {
         const matchedExt = exts.find((ext) => entry.name.endsWith(ext));
         if (matchedExt) {
+          const noExtAbs = childAbs.slice(0, -matchedExt.length);
           items.push({
             path: childRel.slice(0, -matchedExt.length),
             kind: "script",
+            _metaPath: noExtAbs + ".script.yaml",
           });
         }
       }
     }
   }
   await walk(process.cwd(), "");
+
+  await Promise.all(
+    items.map(async (item) => {
+      if (!item._metaPath) return;
+      try {
+        const meta: any = await yamlParseFile(item._metaPath);
+        if (typeof meta?.summary === "string" && meta.summary.length > 0) {
+          item.summary = meta.summary;
+        }
+      } catch {
+        // No metadata file or unparseable — leave summary undefined
+      }
+    })
+  );
+
   items.sort((a, b) => a.path.localeCompare(b.path));
-  return items;
+  return items.map(({ _metaPath, ...item }) => item);
 }
 
 export interface DevOpts {
