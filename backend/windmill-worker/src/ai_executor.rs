@@ -275,7 +275,7 @@ pub async fn handle_ai_agent_job(
 
     let summary = module.summary.clone();
 
-    let FlowModuleValue::AIAgent { tools, store_output_in_conversation, .. } =
+    let FlowModuleValue::AIAgent { tools, omit_output_from_conversation, .. } =
         module.get_value()?
     else {
         return Err(Error::internal_err(
@@ -506,7 +506,7 @@ pub async fn handle_ai_agent_job(
             killpill_rx,
             has_stream,
             has_websearch,
-            store_output_in_conversation,
+            omit_output_from_conversation,
             cancel_rx,
             tool_abort_handles.clone(),
         );
@@ -603,7 +603,7 @@ pub async fn run_agent(
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
     has_websearch: bool,
-    store_output_in_conversation: bool,
+    omit_output_from_conversation: bool,
 
     // cancellation signal from parent
     cancel_rx: tokio::sync::watch::Receiver<bool>,
@@ -864,6 +864,7 @@ pub async fn run_agent(
         .as_ref()
         .and_then(|fs| fs.chat_input_enabled)
         .unwrap_or(false);
+    let persist_output_to_conversation = chat_enabled && !omit_output_from_conversation;
 
     let step_name = get_step_name_from_flow(summary.as_deref(), effective_flow_step_id);
 
@@ -1065,7 +1066,7 @@ pub async fn run_agent(
                         agent_action: Some(AgentAction::WebSearch {}),
                         ..Default::default()
                     });
-                    if store_output_in_conversation && chat_enabled {
+                    if persist_output_to_conversation {
                         if let Some(memory_id) = memory_id {
                             let agent_job_id = job.id;
                             let db_clone = db.clone();
@@ -1117,8 +1118,7 @@ pub async fn run_agent(
                     content = Some(OpenAIContent::Text(response_content.clone()));
 
                     // Add assistant message to conversation if chat_input_enabled
-                    if store_output_in_conversation && chat_enabled && !response_content.is_empty()
-                    {
+                    if persist_output_to_conversation && !response_content.is_empty() {
                         if let Some(memory_id) = memory_id {
                             let agent_job_id = job.id;
                             let db_clone = db.clone();
@@ -1200,7 +1200,7 @@ pub async fn run_agent(
                     killpill_rx,
                     stream_event_processor: stream_event_processor.as_ref(),
                     flow_context: &mut flow_context,
-                    store_output_in_conversation,
+                    omit_output_from_conversation,
                     previous_result: &previous_result,
                     id_context: &id_context,
                     tool_abort_handles: tool_abort_handles.clone(),
@@ -1236,7 +1236,7 @@ pub async fn run_agent(
                 let content = to_raw_value(&s3_object);
 
                 // Add assistant message to conversation if chat_input_enabled
-                if store_output_in_conversation && chat_enabled {
+                if persist_output_to_conversation {
                     if let Some(memory_id) = memory_id {
                         let agent_job_id = job.id;
                         let db_clone = db.clone();

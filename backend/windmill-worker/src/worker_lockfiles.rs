@@ -1187,7 +1187,7 @@ async fn lock_modules<'c>(
                 FlowModuleValue::AIAgent {
                     input_transforms,
                     mut tools,
-                    store_output_in_conversation,
+                    omit_output_from_conversation,
                 } => {
                     // Extract FlowModules from tools and track their original indices
                     // MCP tools don't need locking, so we filter them out
@@ -1239,7 +1239,7 @@ async fn lock_modules<'c>(
                     e.value = FlowModuleValue::AIAgent {
                         input_transforms,
                         tools,
-                        store_output_in_conversation,
+                        omit_output_from_conversation,
                     }
                     .into();
                 }

@@ -1066,10 +1066,10 @@ components:
           type: string
           enum:
             - aiagent
-        store_output_in_conversation:
+        omit_output_from_conversation:
           type: boolean
-          default: true
-          description: If true, this AI agent step stores its assistant messages in the flow conversation when chat mode is enabled. If false, assistant replies from this step are not persisted to conversation history.
+          default: false
+          description: If true, this AI agent step does not persist its assistant or tool messages to the flow conversation when chat mode is enabled.
         parallel:
           type: boolean
           description: If true, the agent can execute multiple tool calls in parallel
