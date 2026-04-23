@@ -14,8 +14,6 @@ import { getDatatableSdkReference } from '$system_prompts'
 import { aiChatManager } from '../AIChatManager.svelte'
 import type {
 	ContextElement,
-	AppFrontendFileElement,
-	AppBackendRunnableElement,
 	AppCodeSelectionElement,
 	AppDatatableElement
 } from '../context'
@@ -82,28 +80,12 @@ export interface InspectorElementInfo {
 	styles: Record<string, string>
 }
 
-/** Context about the currently selected file or runnable in the app editor */
+/** App editor context that is implicitly attached to app-mode AI messages. */
 export interface SelectedContext {
-	/** Type of selection: 'frontend' for frontend files, 'backend' for backend runnables, or 'none' if nothing is selected */
-	type: 'frontend' | 'backend' | 'none'
-	/** The path of the selected frontend file (when type is 'frontend') */
-	frontendPath?: string
-	/** The content of the selected frontend file */
-	frontendContent?: string
-	/** The key of the selected backend runnable (when type is 'backend') */
-	backendKey?: string
-	/** The configuration of the selected backend runnable */
-	backendRunnable?: BackendRunnable
 	/** Inspector-selected element info (when user has used the inspector tool) */
 	inspectorElement?: InspectorElementInfo
-	/** Whether the file/runnable selection is excluded from being sent to the AI prompt */
-	selectionExcluded?: boolean
-	/** Function to toggle whether the selection is excluded from the prompt */
-	toggleSelectionExcluded?: () => void
 	/** Function to clear the inspector selection */
 	clearInspector?: () => void
-	/** Function to clear the runnable selection (go back to frontend view) */
-	clearRunnable?: () => void
 	/** Code selection from the editor (either frontend or backend) */
 	codeSelection?: AppCodeSelectionElement
 	/** Function to clear the code selection */
@@ -436,17 +418,6 @@ const getExecDatatableSqlToolDef = memo(() =>
 	)
 )
 
-// ============= Selected Context Tool =============
-
-const getGetSelectedContextSchema = memo(() => z.object({}))
-const getGetSelectedContextToolDef = memo(() =>
-	createToolDef(
-		getGetSelectedContextSchema(),
-		'get_selected_context',
-		'Get information about what is currently selected in the app editor. Returns the type of selection (frontend file or backend runnable) and the path/key of the selected item.'
-	)
-)
-
 // ============= Lint Result Formatting =============
 
 function formatLintMessages(messages: Record<string, string[]>): string {
@@ -558,22 +529,6 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 			}
 
 			return result
-		}
-	},
-	// Selected context tool
-	{
-		def: getGetSelectedContextToolDef(),
-		fn: async ({ helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Getting selected context...' })
-			const context = helpers.getSelectedContext()
-			const statusMsg =
-				context.type === 'frontend'
-					? `Frontend file selected: ${context.frontendPath}`
-					: context.type === 'backend'
-						? `Backend runnable selected: ${context.backendKey}`
-						: 'No selection'
-			toolCallbacks.setToolStatus(toolId, { content: statusMsg })
-			return JSON.stringify(context, null, 2)
 		}
 	},
 	// Frontend tools
@@ -1114,6 +1069,7 @@ When you are using the windmill-client, do not forget that as id for variables o
 4. Use \`lint()\` at the end to check for and fix any remaining errors
 
 When creating a new app, use \`search_workspace\` or \`search_hub_scripts\` to find existing scripts/flows to reuse.
+When the user mentions frontend files or backend runnables in context, only their identifiers are included. Use \`get_frontend_file\` or \`get_backend_runnable\` to inspect their contents before editing them or relying on implementation details.
 
 `
 
@@ -1158,59 +1114,11 @@ export function prepareAppUserMessage(
 
 	// Check if we have any context to add
 	const hasSelectedContext =
-		selectedContext && (selectedContext.type !== 'none' || selectedContext.inspectorElement)
+		selectedContext && (selectedContext.inspectorElement || selectedContext.codeSelection)
 	const hasAdditionalContext = additionalContext && additionalContext.length > 0
 
 	if (hasSelectedContext || hasAdditionalContext) {
 		content += `## SELECTED CONTEXT:\n`
-
-		// Add frontend file context with content (unless excluded)
-		if (
-			selectedContext &&
-			selectedContext.type === 'frontend' &&
-			selectedContext.frontendPath &&
-			!selectedContext.selectionExcluded
-		) {
-			content += `The user is currently viewing the frontend file: **${selectedContext.frontendPath}**\n`
-			if (selectedContext.frontendContent) {
-				const truncatedContent =
-					selectedContext.frontendContent.length > MAX_CONTEXT_CONTENT_LENGTH
-						? selectedContext.frontendContent.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
-							'\n... [TRUNCATED]'
-						: selectedContext.frontendContent
-				content += `\n\`\`\`\n${truncatedContent}\n\`\`\`\n`
-			}
-		}
-
-		// Add backend runnable context with content (unless excluded)
-		if (
-			selectedContext &&
-			selectedContext.type === 'backend' &&
-			selectedContext.backendKey &&
-			!selectedContext.selectionExcluded
-		) {
-			content += `The user is currently viewing the backend runnable: **${selectedContext.backendKey}**\n`
-			if (selectedContext.backendRunnable) {
-				const runnable = selectedContext.backendRunnable
-				content += `- **Name**: ${runnable.name}\n`
-				content += `- **Type**: ${runnable.type}\n`
-				if (runnable.path) {
-					content += `- **Path**: ${runnable.path}\n`
-				}
-				if (runnable.inlineScript) {
-					const truncatedCode =
-						runnable.inlineScript.content.length > MAX_CONTEXT_CONTENT_LENGTH
-							? runnable.inlineScript.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
-								'\n... [TRUNCATED]'
-							: runnable.inlineScript.content
-					content += `- **Language**: ${runnable.inlineScript.language}\n`
-					content += `- **Code**:\n\`\`\`${runnable.inlineScript.language === 'bun' ? 'typescript' : 'python'}\n${truncatedCode}\n\`\`\`\n`
-				}
-				if (runnable.staticInputs && Object.keys(runnable.staticInputs).length > 0) {
-					content += `- **Static inputs**: ${JSON.stringify(runnable.staticInputs)}\n`
-				}
-			}
-		}
 
 		// Add inspector element context if available
 		if (selectedContext?.inspectorElement) {
@@ -1249,34 +1157,9 @@ export function prepareAppUserMessage(
 
 			for (const ctx of additionalContext) {
 				if (ctx.type === 'app_frontend_file') {
-					const fileCtx = ctx as AppFrontendFileElement
-					content += `\n**Frontend File: ${fileCtx.path}**\n`
-					const truncatedContent =
-						fileCtx.content.length > MAX_CONTEXT_CONTENT_LENGTH
-							? fileCtx.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + '\n... [TRUNCATED]'
-							: fileCtx.content
-					content += `\`\`\`\n${truncatedContent}\n\`\`\`\n`
+					content += `\n- Frontend file: ${ctx.path}\n`
 				} else if (ctx.type === 'app_backend_runnable') {
-					const runnableCtx = ctx as AppBackendRunnableElement
-					const runnable = runnableCtx.runnable
-					content += `\n**Backend Runnable: ${runnableCtx.key}**\n`
-					content += `- **Name**: ${runnable.name}\n`
-					content += `- **Type**: ${runnable.type}\n`
-					if (runnable.path) {
-						content += `- **Path**: ${runnable.path}\n`
-					}
-					if (runnable.inlineScript) {
-						const truncatedCode =
-							runnable.inlineScript.content.length > MAX_CONTEXT_CONTENT_LENGTH
-								? runnable.inlineScript.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
-									'\n... [TRUNCATED]'
-								: runnable.inlineScript.content
-						content += `- **Language**: ${runnable.inlineScript.language}\n`
-						content += `- **Code**:\n\`\`\`${runnable.inlineScript.language === 'bun' ? 'typescript' : 'python'}\n${truncatedCode}\n\`\`\`\n`
-					}
-					if (runnable.staticInputs && Object.keys(runnable.staticInputs).length > 0) {
-						content += `- **Static inputs**: ${JSON.stringify(runnable.staticInputs)}\n`
-					}
+					content += `\n- Backend runnable: ${ctx.key}\n`
 				} else if (ctx.type === 'app_datatable') {
 					const datatableCtx = ctx as AppDatatableElement
 					const tableRef =

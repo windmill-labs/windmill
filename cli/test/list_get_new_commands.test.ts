@@ -668,4 +668,32 @@ describe("new command", () => {
       expect(content).toContain("topics");
     });
   });
+
+  test("trigger new --kind azure creates azure trigger yaml template", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      await mkdir(join(tempDir, "f", "test"), { recursive: true });
+
+      const result = await backend.runCLICommand(
+        ["trigger", "new", "f/test/azure_trigger", "--kind", "azure"],
+        tempDir
+      );
+
+      expect(result.code).toEqual(0);
+
+      const filePath = join(
+        tempDir,
+        "f/test/azure_trigger.azure_trigger.yaml"
+      );
+      const fileStat = await stat(filePath);
+      expect(fileStat.isFile()).toBe(true);
+
+      const content = await readFile(filePath, "utf-8");
+      expect(content).toContain("azure_resource_path");
+      expect(content).toContain("azure_mode");
+      expect(content).toContain("scope_resource_id");
+      expect(content).toContain("subscription_name");
+    });
+  });
 });

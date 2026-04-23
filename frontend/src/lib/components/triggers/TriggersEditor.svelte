@@ -28,6 +28,7 @@
 		MqttTriggerService,
 		HttpTriggerService,
 		GcpTriggerService,
+		AzureTriggerService,
 		SqsTriggerService,
 		EmailTriggerService,
 		NativeTriggerService,
@@ -112,6 +113,7 @@
 			kafka: () => KafkaTriggerService.deleteKafkaTrigger,
 			nats: () => NatsTriggerService.deleteNatsTrigger,
 			gcp: () => GcpTriggerService.deleteGcpTrigger,
+			azure: () => AzureTriggerService.deleteAzureTrigger,
 			sqs: () => SqsTriggerService.deleteSqsTrigger,
 			mqtt: () => MqttTriggerService.deleteMqttTrigger,
 			http: () => HttpTriggerService.deleteHttpTrigger,
@@ -223,6 +225,14 @@
 			)
 		} else if (triggerType === 'gcp') {
 			await triggersState.fetchGcpTriggers(
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
+		} else if (triggerType === 'azure') {
+			await triggersState.fetchAzureTriggers(
 				triggersCount,
 				$workspaceStore,
 				currentPath,

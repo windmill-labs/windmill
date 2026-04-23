@@ -8,6 +8,7 @@ import {
 	WebsocketTriggerService,
 	NativeTriggerService,
 	type GcpTrigger,
+	type AzureTrigger,
 	type KafkaTrigger,
 	type PostgresTrigger,
 	type Schedule,
@@ -15,6 +16,7 @@ import {
 	type HttpTrigger,
 	HttpTriggerService,
 	GcpTriggerService,
+	AzureTriggerService,
 	type EmailTrigger,
 	EmailTriggerService,
 	type NativeTrigger,
@@ -412,6 +414,32 @@ export class Triggers {
 		}
 	}
 
+	async fetchAzureTriggers(
+		triggersCountStore: Writable<TriggersCount | undefined>,
+		workspaceId: string | undefined,
+		path: string,
+		isFlow: boolean,
+		user: UserExt | undefined = undefined
+	): Promise<void> {
+		if (!workspaceId) return
+		try {
+			const azureTriggers: AzureTrigger[] = await AzureTriggerService.listAzureTriggers({
+				workspace: workspaceId,
+				path,
+				isFlow
+			})
+			const azureCount = this.updateTriggers(azureTriggers, 'azure', user)
+			triggersCountStore.update((triggersCount) => {
+				return {
+					...(triggersCount ?? {}),
+					azure_count: azureCount
+				}
+			})
+		} catch (error) {
+			console.error('Failed to fetch Azure triggers:', error)
+		}
+	}
+
 	async fetchHttpTriggers(
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
@@ -526,6 +554,7 @@ export class Triggers {
 						this.fetchKafkaTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 						this.fetchSqsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 						this.fetchGcpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+						this.fetchAzureTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 						this.fetchEmailTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 						this.fetchNatsTriggers(triggersCountStore, workspaceId, path, isFlow, user)
 					]

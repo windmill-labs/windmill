@@ -2,7 +2,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
-import { readFile, writeFile, stat, mkdir } from "node:fs/promises";
+import { writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
@@ -12,7 +12,7 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import * as path from "node:path";
 import { stringify as yamlStringify } from "yaml";
-import { deepEqual } from "../../utils/utils.ts";
+import { deepEqual, readTextFile, readTextFileSync } from "../../utils/utils.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import * as specificItems from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
@@ -53,6 +53,7 @@ import {
   readConfigFile,
 } from "../../core/conf.ts";
 import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
+import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 import fs from "node:fs";
 import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
 
@@ -113,7 +114,7 @@ export async function computePushMetadataHash(
 ): Promise<string> {
   const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
   const metadataWithType = await parseMetadataFile(remotePath, undefined);
-  const metadataContent = await readFile(metadataWithType.path, "utf-8");
+  const metadataContent = await readTextFile(metadataWithType.path);
   return await generateScriptHash({}, content, metadataContent);
 }
 
@@ -140,7 +141,7 @@ async function push(opts: PushOptions, filePath: string) {
 
   // Warn about metadata state before pushing
   try {
-    const content = await readFile(filePath, "utf-8");
+    const content = await readTextFile(filePath);
     const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
     const contentHash = await computePushMetadataHash(filePath, content);
     const conf = await readLockfile();
@@ -179,20 +180,25 @@ export async function findResourceFile(path: string) {
   let contentBasePathJSON = splitPath[0] + "." + splitPath[1] + ".json";
   let contentBasePathYAML = splitPath[0] + "." + splitPath[1] + ".yaml";
 
-  // Check for branch-specific metadata files first
+  // Check for workspace-specific metadata files first, using the wmill.yaml
+  // config key for the current git branch as the filename suffix (falls back
+  // to the branch name when no matching workspace entry exists).
   const currentBranch = getCurrentGitBranch();
+  const wsName = currentBranch
+    ? await specificItems.resolveWsNameForGitBranch(currentBranch)
+    : null;
 
   const candidates = [contentBasePathJSON, contentBasePathYAML];
 
-  if (currentBranch) {
-    // Add branch-specific candidates at the beginning (higher priority)
+  if (wsName) {
+    // Add workspace-specific candidates at the beginning (higher priority)
     const branchSpecificJSON = specificItems.toWorkspaceSpecificPath(
       contentBasePathJSON,
-      currentBranch
+      wsName
     );
     const branchSpecificYAML = specificItems.toWorkspaceSpecificPath(
       contentBasePathYAML,
-      currentBranch
+      wsName
     );
     candidates.unshift(branchSpecificJSON, branchSpecificYAML);
   }
@@ -431,7 +437,7 @@ export async function handleFile(
     } catch {
       log.debug(`Script ${remotePath} does not exist on remote`);
     }
-    const content = await readFile(path, "utf-8");
+    const content = await readTextFile(path);
 
     if (opts?.skipScriptsMetadata) {
       // if (codebase) {
@@ -618,7 +624,7 @@ export async function readModulesFromDisk(
       } else if (entry.isFile() && !entry.name.endsWith(".lock") && !isEntryPointFile(entry.name, isTopLevel)) {
         // Skip lock files — they're handled as the `lock` field on ScriptModule
         if (exts.some((ext) => entry.name.endsWith(ext))) {
-          const content = fs.readFileSync(fullPath, "utf-8");
+          const content = readTextFileSync(fullPath);
           const language = inferContentTypeFromFilePath(entry.name, defaultTs);
 
           // Check for an accompanying lock file (helper.lock)
@@ -626,7 +632,7 @@ export async function readModulesFromDisk(
           const lockPath = path.join(dirPath, baseName + ".lock");
           let lock: string | undefined;
           if (fs.existsSync(lockPath)) {
-            lock = fs.readFileSync(lockPath, "utf-8");
+            lock = readTextFileSync(lockPath);
           }
 
           modules[relPath] = {
@@ -957,7 +963,7 @@ export async function resolve(input: string): Promise<Record<string, any>> {
     input = new TextDecoder().decode(Buffer.concat(chunks));
   }
   if (input[0] == "@") {
-    input = await readFile(input.substring(1), "utf-8");
+    input = await readTextFile(input.substring(1));
   }
   try {
     return JSON.parse(input);
@@ -1143,25 +1149,11 @@ export async function track_job(workspace: string, id: string) {
   }
 }
 
-const POLL_INTERVAL_MS = 2000;
-
 export async function pollForJobResult(
   workspace: string,
   jobId: string,
 ): Promise<{ result: unknown; success: boolean }> {
-  while (true) {
-    const maybeResult = await wmill.getCompletedJobResultMaybe({
-      workspace,
-      id: jobId,
-      getStarted: false,
-    });
-
-    if (maybeResult.completed) {
-      return { result: maybeResult.result, success: maybeResult.success ?? false };
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-  }
+  return await pollJobWithQueueLogging(workspace, jobId);
 }
 
 async function show(opts: GlobalOptions, path: string) {
@@ -1417,7 +1409,7 @@ async function preview(
 
   const codebases = await listSyncCodebases(opts);
   const language = inferContentTypeFromFilePath(filePath, opts?.defaultTs);
-  const content = await readFile(filePath, "utf-8");
+  const content = await readTextFile(filePath);
   const input = opts.data ? await resolve(opts.data) : {};
 
   // Read modules from __mod/ folder if present

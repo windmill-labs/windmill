@@ -4,7 +4,10 @@
  */
 
 import { expect, test, describe } from "bun:test";
-import { deepEqual, isFileResource, isFilesetResource, toCamel, capitalize, validateRequiredArgs } from "../src/utils/utils.ts";
+import { deepEqual, isFileResource, isFilesetResource, toCamel, capitalize, validateRequiredArgs, stripBom, readTextFile, readTextFileSync } from "../src/utils/utils.ts";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   getTypeStrFromPath,
   removeType,
@@ -631,6 +634,71 @@ describe("validateRequiredArgs", () => {
     } catch (e: any) {
       expect(e.message).toContain('-d \'{"name":');
     }
+  });
+});
+
+// =============================================================================
+// BOM handling
+// =============================================================================
+
+describe("stripBom", () => {
+  test("strips UTF-8 BOM", () => {
+    expect(stripBom("﻿hello")).toBe("hello");
+  });
+
+  test("returns input unchanged when no BOM", () => {
+    expect(stripBom("hello")).toBe("hello");
+    expect(stripBom("")).toBe("");
+  });
+});
+
+describe("readTextFile / readTextFileSync", () => {
+  const tmp = mkdtempSync(join(tmpdir(), "wmill-bom-"));
+
+  test("reads plain UTF-8 file", async () => {
+    const f = join(tmp, "plain.txt");
+    writeFileSync(f, Buffer.from("hello world", "utf-8"));
+    expect(await readTextFile(f)).toBe("hello world");
+    expect(readTextFileSync(f)).toBe("hello world");
+  });
+
+  test("strips UTF-8 BOM", async () => {
+    const f = join(tmp, "bom.txt");
+    writeFileSync(f, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("hello", "utf-8")]));
+    expect(await readTextFile(f)).toBe("hello");
+    expect(readTextFileSync(f)).toBe("hello");
+  });
+
+  test("throws on UTF-16 LE BOM", async () => {
+    const f = join(tmp, "utf16le.txt");
+    writeFileSync(f, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("hello", "utf16le")]));
+    await expect(readTextFile(f)).rejects.toThrow(/UTF-16 LE/);
+    expect(() => readTextFileSync(f)).toThrow(/UTF-16 LE/);
+  });
+
+  test("throws on UTF-16 BE BOM", async () => {
+    const f = join(tmp, "utf16be.txt");
+    writeFileSync(f, Buffer.from([0xfe, 0xff, 0x00, 0x68]));
+    await expect(readTextFile(f)).rejects.toThrow(/UTF-16 BE/);
+    expect(() => readTextFileSync(f)).toThrow(/UTF-16 BE/);
+  });
+
+  test("throws on UTF-32 LE BOM", async () => {
+    const f = join(tmp, "utf32le.txt");
+    writeFileSync(f, Buffer.from([0xff, 0xfe, 0x00, 0x00, 0x68, 0x00, 0x00, 0x00]));
+    await expect(readTextFile(f)).rejects.toThrow(/UTF-32 LE/);
+  });
+
+  test("empty file reads as empty string", async () => {
+    const f = join(tmp, "empty.txt");
+    writeFileSync(f, Buffer.alloc(0));
+    expect(await readTextFile(f)).toBe("");
+    expect(readTextFileSync(f)).toBe("");
+  });
+
+  // cleanup
+  test("cleanup", () => {
+    rmSync(tmp, { recursive: true, force: true });
   });
 });
 

@@ -1,4 +1,4 @@
-import { readFile, writeFile, readdir, mkdir, rm, stat } from "node:fs/promises";
+import { writeFile, readdir, mkdir, rm, stat } from "node:fs/promises";
 import { appendFile } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
@@ -39,7 +39,7 @@ import {
   pushInstanceSettings,
   type SimplifiedSettings,
 } from "../../core/settings.ts";
-import { deepEqual } from "../../utils/utils.ts";
+import { deepEqual, readTextFile } from "../../utils/utils.ts";
 import { getActiveWorkspace } from "../workspace/workspace.ts";
 
 export interface Instance {
@@ -52,7 +52,7 @@ export interface Instance {
 export async function allInstances(): Promise<Instance[]> {
   try {
     const file = await getInstancesConfigFilePath();
-    const txt = await readFile(file, "utf-8");
+    const txt = await readTextFile(file);
     return txt
       .split("\n")
       .map((line) => {
@@ -658,7 +658,7 @@ export async function getActiveInstance(opts: {
     return opts.instance;
   }
   try {
-    return await readFile(await getActiveInstanceFilePath(), "utf-8");
+    return await readTextFile(await getActiveInstanceFilePath());
   } catch {
     return undefined;
   }

@@ -7,7 +7,14 @@ const BACKEND_ROOT = "/__ai_evals__/backend";
 const FRONTEND_REACT_SHIM_PATH = `${FRONTEND_ROOT}/__react_shim__.d.ts`;
 const FRONTEND_WMILL_TYPES_PATH = `${FRONTEND_ROOT}/wmill.d.ts`;
 const BACKEND_WINDMILL_CLIENT_SHIM_PATH = `${BACKEND_ROOT}/__windmill_client__.d.ts`;
-const TS_LIKE_LANGUAGES = new Set(["bun", "deno", "nativets", "bunnative", "ts", "typescript"]);
+const TS_LIKE_LANGUAGES = new Set([
+  "bun",
+  "deno",
+  "nativets",
+  "bunnative",
+  "ts",
+  "typescript",
+]);
 const JS_LIKE_LANGUAGES = new Set(["javascript", "js", "nodejs"]);
 const SAFE_TYPE_REFERENCE_NAMES = new Set([
   "Array",
@@ -121,20 +128,26 @@ export interface AppDiagnosticsResult {
 }
 
 export function buildAppWmillTypes(
-  backend: Record<string, AppDiagnosticRunnable> = {}
+  backend: Record<string, AppDiagnosticRunnable> = {},
 ): string {
   return `// THIS FILE IS READ-ONLY
 // AND GENERATED AUTOMATICALLY FROM YOUR RUNNABLES
 
 export declare const backend: {
 ${Object.entries(backend)
-  .map(([key, runnable]) => `  ${JSON.stringify(key)}: ${getRunnableSignature(runnable, false)};`)
+  .map(
+    ([key, runnable]) =>
+      `  ${JSON.stringify(key)}: ${getRunnableSignature(runnable, false)};`,
+  )
   .join("\n")}
 };
 
 export declare const backendAsync: {
 ${Object.entries(backend)
-  .map(([key, runnable]) => `  ${JSON.stringify(key)}: ${getRunnableSignature(runnable, true)};`)
+  .map(
+    ([key, runnable]) =>
+      `  ${JSON.stringify(key)}: ${getRunnableSignature(runnable, true)};`,
+  )
   .join("\n")}
 };
 
@@ -165,16 +178,26 @@ export function collectAppDiagnostics(input: {
   frontend: Record<string, string>;
   backend: Record<string, AppDiagnosticRunnable>;
 }): AppDiagnosticsResult {
-  const frontendDiagnostics = collectFrontendDiagnostics(input.frontend, input.backend);
+  const frontendDiagnostics = collectFrontendDiagnostics(
+    input.frontend,
+    input.backend,
+  );
   const backendDiagnostics = collectBackendDiagnostics(input.backend);
-  const diagnostics = dedupeDiagnostics([...frontendDiagnostics, ...backendDiagnostics]).sort(compareDiagnostics);
+  const diagnostics = dedupeDiagnostics([
+    ...frontendDiagnostics,
+    ...backendDiagnostics,
+  ]).sort(compareDiagnostics);
 
   return {
     diagnostics,
     lintResult: {
       errors: {
-        frontend: groupMessages(diagnostics.filter((diagnostic) => diagnostic.source === "frontend")),
-        backend: groupMessages(diagnostics.filter((diagnostic) => diagnostic.source === "backend")),
+        frontend: groupMessages(
+          diagnostics.filter((diagnostic) => diagnostic.source === "frontend"),
+        ),
+        backend: groupMessages(
+          diagnostics.filter((diagnostic) => diagnostic.source === "backend"),
+        ),
       },
       warnings: {
         frontend: {},
@@ -188,20 +211,26 @@ export function collectAppDiagnostics(input: {
 
 function collectFrontendDiagnostics(
   frontend: Record<string, string>,
-  backend: Record<string, AppDiagnosticRunnable>
+  backend: Record<string, AppDiagnosticRunnable>,
 ): AppStaticDiagnostic[] {
   const frontendFiles = Object.entries(frontend)
     .filter(([filePath]) => isFrontendCodeFile(filePath))
-    .map(([filePath, content]) => [toFrontendVirtualPath(filePath), content] as const);
+    .map(
+      ([filePath, content]) =>
+        [toFrontendVirtualPath(filePath), content] as const,
+    );
 
   const virtualFiles = new Map<string, string>([
     [FRONTEND_REACT_SHIM_PATH, FRONTEND_REACT_SHIM],
-    [FRONTEND_WMILL_TYPES_PATH, wrapModuleDeclaration("wmill", buildAppWmillTypes(backend))],
+    [
+      FRONTEND_WMILL_TYPES_PATH,
+      wrapModuleDeclaration("wmill", buildAppWmillTypes(backend)),
+    ],
     ...frontendFiles,
   ]);
   const host = createVirtualCompilerHost(
     virtualFiles,
-    getFrontendCompilerOptions()
+    getFrontendCompilerOptions(),
   );
   const rootNames = [...virtualFiles.keys()];
   const program = ts.createProgram({
@@ -210,9 +239,8 @@ function collectFrontendDiagnostics(
     host,
   });
 
-  return ts
-    .getPreEmitDiagnostics(program)
-    .flatMap((diagnostic) => mapTypeScriptDiagnostic({
+  return ts.getPreEmitDiagnostics(program).flatMap((diagnostic) =>
+    mapTypeScriptDiagnostic({
       diagnostic,
       source: "frontend",
       toTarget(fileName) {
@@ -228,18 +256,22 @@ function collectFrontendDiagnostics(
         }
         return normalized.slice(FRONTEND_ROOT.length);
       },
-    }));
+    }),
+  );
 }
 
 function collectBackendDiagnostics(
-  backend: Record<string, AppDiagnosticRunnable>
+  backend: Record<string, AppDiagnosticRunnable>,
 ): AppStaticDiagnostic[] {
   const backendFiles = Object.entries(backend)
     .filter(([, runnable]) => isTypeCheckableBackendRunnable(runnable))
-    .map(([key, runnable]) => [
-      `${BACKEND_ROOT}/${key}/main.${getBackendFileExtension(runnable.inlineScript?.language)}`,
-      runnable.inlineScript?.content ?? "",
-    ] as const);
+    .map(
+      ([key, runnable]) =>
+        [
+          `${BACKEND_ROOT}/${key}/main.${getBackendFileExtension(runnable.inlineScript?.language)}`,
+          runnable.inlineScript?.content ?? "",
+        ] as const,
+    );
 
   if (backendFiles.length === 0) {
     return [];
@@ -251,7 +283,7 @@ function collectBackendDiagnostics(
   ]);
   const host = createVirtualCompilerHost(
     virtualFiles,
-    getBackendCompilerOptions()
+    getBackendCompilerOptions(),
   );
   const rootNames = [...virtualFiles.keys()];
   const program = ts.createProgram({
@@ -260,9 +292,8 @@ function collectBackendDiagnostics(
     host,
   });
 
-  return ts
-    .getPreEmitDiagnostics(program)
-    .flatMap((diagnostic) => mapTypeScriptDiagnostic({
+  return ts.getPreEmitDiagnostics(program).flatMap((diagnostic) =>
+    mapTypeScriptDiagnostic({
       diagnostic,
       source: "backend",
       toTarget(fileName) {
@@ -277,7 +308,8 @@ function collectBackendDiagnostics(
         const runnableKey = relativePath.split("/")[0];
         return runnableKey || null;
       },
-    }));
+    }),
+  );
 }
 
 function getFrontendCompilerOptions(): ts.CompilerOptions {
@@ -317,25 +349,37 @@ function getBackendCompilerOptions(): ts.CompilerOptions {
 
 function createVirtualCompilerHost(
   files: Map<string, string>,
-  options: ts.CompilerOptions
+  options: ts.CompilerOptions,
 ): ts.CompilerHost {
   const originalHost = ts.createCompilerHost(options, true);
   const originalGetSourceFile = originalHost.getSourceFile.bind(originalHost);
   const originalReadFile = originalHost.readFile.bind(originalHost);
   const originalFileExists = originalHost.fileExists.bind(originalHost);
-  const originalDirectoryExists = originalHost.directoryExists?.bind(originalHost);
-  const originalGetDirectories = originalHost.getDirectories?.bind(originalHost);
+  const originalDirectoryExists =
+    originalHost.directoryExists?.bind(originalHost);
+  const originalGetDirectories =
+    originalHost.getDirectories?.bind(originalHost);
 
   return {
     ...originalHost,
     getCurrentDirectory: () => "/",
-    getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile) {
+    getSourceFile(
+      fileName,
+      languageVersion,
+      onError,
+      shouldCreateNewSourceFile,
+    ) {
       const normalized = normalizeFileName(fileName);
       const content = files.get(normalized);
       if (content !== undefined) {
         return ts.createSourceFile(fileName, content, languageVersion, true);
       }
-      return originalGetSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+      return originalGetSourceFile(
+        fileName,
+        languageVersion,
+        onError,
+        shouldCreateNewSourceFile,
+      );
     },
     readFile(fileName) {
       const normalized = normalizeFileName(fileName);
@@ -347,7 +391,11 @@ function createVirtualCompilerHost(
     },
     directoryExists(dirName) {
       const normalized = normalizeFileName(dirName);
-      return hasVirtualDirectory(files, normalized) || originalDirectoryExists?.(dirName) || false;
+      return (
+        hasVirtualDirectory(files, normalized) ||
+        originalDirectoryExists?.(dirName) ||
+        false
+      );
     },
     getDirectories(dirName) {
       const normalized = normalizeFileName(dirName);
@@ -386,7 +434,9 @@ function mapTypeScriptDiagnostic(input: {
     {
       source,
       target,
-      message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n").trim(),
+      message: ts
+        .flattenDiagnosticMessageText(diagnostic.messageText, "\n")
+        .trim(),
       line: position ? position.line + 1 : undefined,
       column: position ? position.character + 1 : undefined,
       code: diagnostic.code,
@@ -395,7 +445,7 @@ function mapTypeScriptDiagnostic(input: {
 }
 
 function groupMessages(
-  diagnostics: AppStaticDiagnostic[]
+  diagnostics: AppStaticDiagnostic[],
 ): Record<string, string[]> {
   const grouped: Record<string, string[]> = {};
 
@@ -414,7 +464,9 @@ function formatLintMessage(diagnostic: AppStaticDiagnostic): string {
   return diagnostic.message;
 }
 
-function dedupeDiagnostics(diagnostics: AppStaticDiagnostic[]): AppStaticDiagnostic[] {
+function dedupeDiagnostics(
+  diagnostics: AppStaticDiagnostic[],
+): AppStaticDiagnostic[] {
   const uniqueDiagnostics = new Map<string, AppStaticDiagnostic>();
 
   for (const diagnostic of diagnostics) {
@@ -434,7 +486,10 @@ function dedupeDiagnostics(diagnostics: AppStaticDiagnostic[]): AppStaticDiagnos
   return [...uniqueDiagnostics.values()];
 }
 
-function compareDiagnostics(a: AppStaticDiagnostic, b: AppStaticDiagnostic): number {
+function compareDiagnostics(
+  a: AppStaticDiagnostic,
+  b: AppStaticDiagnostic,
+): number {
   if (a.source !== b.source) {
     return a.source.localeCompare(b.source);
   }
@@ -464,7 +519,10 @@ function normalizeFileName(fileName: string): string {
   return path.posix.normalize(fileName.replace(/\\/g, "/"));
 }
 
-function hasVirtualDirectory(files: Map<string, string>, dirName: string): boolean {
+function hasVirtualDirectory(
+  files: Map<string, string>,
+  dirName: string,
+): boolean {
   const normalizedDirectory = dirName.endsWith("/") ? dirName : `${dirName}/`;
   for (const fileName of files.keys()) {
     if (fileName === dirName || fileName.startsWith(normalizedDirectory)) {
@@ -474,7 +532,10 @@ function hasVirtualDirectory(files: Map<string, string>, dirName: string): boole
   return false;
 }
 
-function listVirtualDirectories(files: Map<string, string>, dirName: string): string[] {
+function listVirtualDirectories(
+  files: Map<string, string>,
+  dirName: string,
+): string[] {
   const normalizedDirectory = dirName.endsWith("/") ? dirName : `${dirName}/`;
   const directories = new Set<string>();
 
@@ -504,14 +565,16 @@ function wrapModuleDeclaration(moduleName: string, content: string): string {
 
 function getRunnableSignature(
   runnable: AppDiagnosticRunnable | undefined,
-  asyncMode: boolean
+  asyncMode: boolean,
 ): string {
   const returnType = asyncMode ? "Promise<string>" : "Promise<any>";
   const parameter = getRunnableParameterSignature(runnable);
   return `${parameter} => ${returnType}`;
 }
 
-function getRunnableParameterSignature(runnable: AppDiagnosticRunnable | undefined): string {
+function getRunnableParameterSignature(
+  runnable: AppDiagnosticRunnable | undefined,
+): string {
   const parameterInfo = getRunnableParameterInfo(runnable);
   if (!parameterInfo) {
     return "()";
@@ -525,9 +588,12 @@ function getRunnableParameterSignature(runnable: AppDiagnosticRunnable | undefin
 }
 
 function getRunnableParameterInfo(
-  runnable: AppDiagnosticRunnable | undefined
+  runnable: AppDiagnosticRunnable | undefined,
 ): { typeText?: string; optional: boolean } | null {
-  if (!runnable?.inlineScript?.content || !isTypeCheckableBackendRunnable(runnable)) {
+  if (
+    !runnable?.inlineScript?.content ||
+    !isTypeCheckableBackendRunnable(runnable)
+  ) {
     return { typeText: "any", optional: true };
   }
 
@@ -536,7 +602,7 @@ function getRunnableParameterInfo(
     runnable.inlineScript.content,
     ts.ScriptTarget.Latest,
     true,
-    getScriptKindForLanguage(runnable.inlineScript.language)
+    getScriptKindForLanguage(runnable.inlineScript.language),
   );
   const mainDeclaration = findExportedMainDeclaration(sourceFile);
 
@@ -545,7 +611,8 @@ function getRunnableParameterInfo(
   }
 
   const [parameter] = mainDeclaration.parameters;
-  const optional = Boolean(parameter.questionToken) || Boolean(parameter.initializer);
+  const optional =
+    Boolean(parameter.questionToken) || Boolean(parameter.initializer);
 
   if (!parameter.type || !isPortableTypeNode(parameter.type)) {
     return { typeText: "any", optional: true };
@@ -558,10 +625,14 @@ function getRunnableParameterInfo(
 }
 
 function findExportedMainDeclaration(
-  sourceFile: ts.SourceFile
+  sourceFile: ts.SourceFile,
 ): ts.SignatureDeclarationBase | null {
   for (const statement of sourceFile.statements) {
-    if (ts.isFunctionDeclaration(statement) && statement.name?.text === "main" && hasExportModifier(statement)) {
+    if (
+      ts.isFunctionDeclaration(statement) &&
+      statement.name?.text === "main" &&
+      hasExportModifier(statement)
+    ) {
       return statement;
     }
 
@@ -570,11 +641,18 @@ function findExportedMainDeclaration(
     }
 
     for (const declaration of statement.declarationList.declarations) {
-      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== "main") {
+      if (
+        !ts.isIdentifier(declaration.name) ||
+        declaration.name.text !== "main"
+      ) {
         continue;
       }
       const initializer = declaration.initializer;
-      if (initializer && (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer))) {
+      if (
+        initializer &&
+        (ts.isArrowFunction(initializer) ||
+          ts.isFunctionExpression(initializer))
+      ) {
         return initializer;
       }
     }
@@ -584,7 +662,14 @@ function findExportedMainDeclaration(
 }
 
 function hasExportModifier(node: ts.Node): boolean {
-  return Boolean(node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword));
+  const modifiers = ts.canHaveModifiers(node)
+    ? ts.getModifiers(node)
+    : undefined;
+  return Boolean(
+    modifiers?.some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+    ),
+  );
 }
 
 function isPortableTypeNode(node: ts.TypeNode): boolean {
@@ -607,10 +692,15 @@ function isPortableTypeNode(node: ts.TypeNode): boolean {
   }
 
   if (ts.isTypeReferenceNode(node)) {
-    if (!ts.isIdentifier(node.typeName) || !SAFE_TYPE_REFERENCE_NAMES.has(node.typeName.text)) {
+    if (
+      !ts.isIdentifier(node.typeName) ||
+      !SAFE_TYPE_REFERENCE_NAMES.has(node.typeName.text)
+    ) {
       return false;
     }
-    return (node.typeArguments ?? []).every((typeArgument) => isPortableTypeNode(typeArgument));
+    return (node.typeArguments ?? []).every((typeArgument) =>
+      isPortableTypeNode(typeArgument),
+    );
   }
 
   return false;
@@ -637,10 +727,17 @@ function isKeywordTypeNode(node: ts.TypeNode): boolean {
 
 function isFrontendCodeFile(filePath: string): boolean {
   const extension = path.posix.extname(filePath).toLowerCase();
-  return extension === ".js" || extension === ".jsx" || extension === ".ts" || extension === ".tsx";
+  return (
+    extension === ".js" ||
+    extension === ".jsx" ||
+    extension === ".ts" ||
+    extension === ".tsx"
+  );
 }
 
-function isTypeCheckableBackendRunnable(runnable: AppDiagnosticRunnable | undefined): boolean {
+function isTypeCheckableBackendRunnable(
+  runnable: AppDiagnosticRunnable | undefined,
+): boolean {
   if (!runnable || runnable.type !== "inline") {
     return false;
   }
@@ -655,5 +752,7 @@ function getBackendFileExtension(language: string | undefined): string {
 
 function getScriptKindForLanguage(language: string | undefined): ts.ScriptKind {
   const normalizedLanguage = language?.toLowerCase() ?? "";
-  return JS_LIKE_LANGUAGES.has(normalizedLanguage) ? ts.ScriptKind.JS : ts.ScriptKind.TS;
+  return JS_LIKE_LANGUAGES.has(normalizedLanguage)
+    ? ts.ScriptKind.JS
+    : ts.ScriptKind.TS;
 }

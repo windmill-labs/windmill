@@ -157,7 +157,7 @@ pub enum ObjectType {
     WorkspaceDependencies,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28191/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28213/sync-script-to-git-repo-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.

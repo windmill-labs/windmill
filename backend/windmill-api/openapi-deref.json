@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "version": "1.685.0",
+    "version": "1.689.0",
     "title": "Windmill API",
     "contact": {
       "name": "Windmill Team",
@@ -435,6 +435,28 @@
         "responses": {
           "200": {
             "description": "returns true if SMTP is configured",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/is_password_login_disabled": {
+      "get": {
+        "security": [],
+        "summary": "check if password login is disabled instance-wide",
+        "operationId": "isPasswordLoginDisabled",
+        "tags": [
+          "user"
+        ],
+        "responses": {
+          "200": {
+            "description": "returns true if password login is disabled",
             "content": {
               "application/json": {
                 "schema": {
@@ -3693,6 +3715,10 @@
                     },
                     "client_id": {
                       "type": "string"
+                    },
+                    "app_owner": {
+                      "type": "string",
+                      "nullable": true
                     }
                   },
                   "required": [
@@ -7050,6 +7076,9 @@
                     "gcp_used": {
                       "type": "boolean"
                     },
+                    "azure_used": {
+                      "type": "boolean"
+                    },
                     "sqs_used": {
                       "type": "boolean"
                     },
@@ -7061,6 +7090,9 @@
                     },
                     "google_used": {
                       "type": "boolean"
+                    },
+                    "github_used": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -7071,10 +7103,12 @@
                     "postgres_used",
                     "mqtt_used",
                     "gcp_used",
+                    "azure_used",
                     "sqs_used",
                     "email_used",
                     "nextcloud_used",
-                    "google_used"
+                    "google_used",
+                    "github_used"
                   ]
                 }
               }
@@ -14707,7 +14741,7 @@
         "summary": "list flow conversations",
         "operationId": "listFlowConversations",
         "tags": [
-          "flow_conversation"
+          "flow_conversations"
         ],
         "parameters": [
           {
@@ -14750,7 +14784,7 @@
         "summary": "delete flow conversation",
         "operationId": "deleteFlowConversation",
         "tags": [
-          "flow_conversation"
+          "flow_conversations"
         ],
         "parameters": [
           {
@@ -14786,7 +14820,7 @@
         "summary": "list conversation messages",
         "operationId": "listConversationMessages",
         "tags": [
-          "flow_conversation"
+          "flow_conversations"
         ],
         "parameters": [
           {
@@ -16971,6 +17005,109 @@
         }
       }
     },
+    "/w/{workspace}/jobs/run/dependencies_async": {
+      "post": {
+        "summary": "queue a one-off dependencies job and return the job uuid",
+        "operationId": "runRawScriptDependenciesAsync",
+        "tags": [
+          "job"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "description": "raw script content",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "raw_scripts": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/RawScriptForDependencies"
+                    }
+                  },
+                  "entrypoint": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "entrypoint",
+                  "raw_scripts"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "dependency job created",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/jobs/run/flow_dependencies_async": {
+      "post": {
+        "summary": "queue a one-off flow dependencies job and return the job uuid",
+        "operationId": "runFlowDependenciesAsync",
+        "tags": [
+          "job"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "description": "flow value and path",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "flow_value": {
+                    "$ref": "#/components/schemas/FlowValue"
+                  }
+                },
+                "required": [
+                  "path",
+                  "flow_value"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "flow dependencies job created",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/w/{workspace}/jobs/run/preview_flow": {
       "post": {
         "summary": "run flow preview",
@@ -17640,6 +17777,13 @@
           },
           {
             "name": "force_cancel",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "all_workspaces",
             "in": "query",
             "schema": {
               "type": "boolean"
@@ -23289,6 +23433,40 @@
         }
       }
     },
+    "/w/{workspace}/native_triggers/github/repos": {
+      "get": {
+        "summary": "list GitHub repositories accessible to the user",
+        "operationId": "listGithubRepos",
+        "tags": [
+          "native_trigger"
+        ],
+        "parameters": [
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "list of GitHub repositories",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GithubRepoEntry"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/native_triggers/{service_name}/w/{workspace_id}/webhook/{internal_id}": {
       "post": {
         "summary": "receive webhook from external native trigger service",
@@ -24110,6 +24288,495 @@
                   "type": "array",
                   "items": {
                     "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/azure_triggers/create": {
+      "post": {
+        "summary": "create an Azure Event Grid trigger",
+        "operationId": "createAzureTrigger",
+        "tags": [
+          "azure_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AzureTriggerData"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "azure trigger created",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/azure_triggers/update/{path}": {
+      "post": {
+        "summary": "update an Azure Event Grid trigger",
+        "operationId": "updateAzureTrigger",
+        "tags": [
+          "azure_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AzureTriggerData"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "azure trigger updated",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/azure_triggers/delete/{path}": {
+      "delete": {
+        "summary": "delete an Azure Event Grid trigger",
+        "operationId": "deleteAzureTrigger",
+        "tags": [
+          "azure_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "azure trigger deleted",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/azure_triggers/get/{path}": {
+      "get": {
+        "summary": "get an Azure Event Grid trigger",
+        "operationId": "getAzureTrigger",
+        "tags": [
+          "azure_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "azure trigger",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AzureTrigger"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/azure_triggers/list": {
+      "get": {
+        "summary": "list azure triggers",
+        "operationId": "listAzureTriggers",
+        "tags": [
+          "azure_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Page"
+          },
+          {
+            "$ref": "#/components/parameters/PerPage"
+          },
+          {
+            "name": "path",
+            "description": "filter by exact path",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "is_flow",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "path_start",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "azure trigger list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AzureTrigger"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/azure_triggers/exists/{path}": {
+      "get": {
+        "summary": "check whether an azure trigger exists",
+        "operationId": "existsAzureTrigger",
+        "tags": [
+          "azure_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "true/false",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/azure_triggers/setmode/{path}": {
+      "post": {
+        "summary": "set azure trigger mode",
+        "operationId": "setAzureTriggerMode",
+        "tags": [
+          "azure_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "$ref": "#/components/schemas/TriggerMode"
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "trigger mode updated",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/azure_triggers/test": {
+      "post": {
+        "summary": "test Azure service principal connection",
+        "operationId": "testAzureConnection",
+        "tags": [
+          "azure_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestAzureConnection"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "connection successful",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/azure_triggers/namespaces/topics/list/{path}": {
+      "post": {
+        "summary": "list topics under an Event Grid Namespace",
+        "operationId": "listAzureNamespaceTopics",
+        "tags": [
+          "azure_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AzureListTopics"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "topic list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/azure_triggers/namespaces/subscriptions/list/{path}": {
+      "post": {
+        "summary": "list subscriptions under a Namespace topic",
+        "operationId": "listAzureNamespaceSubscriptions",
+        "tags": [
+          "azure_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AzureListSubscriptions"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "subscription list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/azure_triggers/subscriptions/delete/{path}": {
+      "delete": {
+        "summary": "delete an Event Grid subscription on Azure",
+        "operationId": "deleteAzureSubscription",
+        "tags": [
+          "azure_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AzureDeleteSubscription"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "subscription deleted",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/azure_triggers/namespaces/list/{path}": {
+      "post": {
+        "summary": "list Event Grid Namespaces the service principal can access",
+        "operationId": "listAzureNamespaces",
+        "tags": [
+          "azure_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "namespace list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AzureArmResource"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/azure_triggers/basic/topics/list/{path}": {
+      "post": {
+        "summary": "list Basic Event Grid topics + system topics the service principal can access",
+        "operationId": "listAzureBasicTopics",
+        "tags": [
+          "azure_trigger"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/Path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "topic list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AzureArmResource"
                   }
                 }
               }
@@ -27140,6 +27807,7 @@
                 "postgres_trigger",
                 "mqtt_trigger",
                 "gcp_trigger",
+                "azure_trigger",
                 "sqs_trigger",
                 "email_trigger",
                 "volume"
@@ -27201,6 +27869,7 @@
                 "postgres_trigger",
                 "mqtt_trigger",
                 "gcp_trigger",
+                "azure_trigger",
                 "sqs_trigger",
                 "email_trigger",
                 "volume"
@@ -27281,6 +27950,7 @@
                 "postgres_trigger",
                 "mqtt_trigger",
                 "gcp_trigger",
+                "azure_trigger",
                 "sqs_trigger",
                 "email_trigger",
                 "volume"
@@ -36900,7 +37570,9 @@
           "mqtt",
           "sqs",
           "gcp",
-          "google"
+          "azure",
+          "google",
+          "github"
         ]
       },
       "TriggerMode": {
@@ -37541,6 +38213,9 @@
           "gcp_count": {
             "type": "number"
           },
+          "azure_count": {
+            "type": "number"
+          },
           "sqs_count": {
             "type": "number"
           },
@@ -37548,6 +38223,9 @@
             "type": "number"
           },
           "google_count": {
+            "type": "number"
+          },
+          "github_count": {
             "type": "number"
           }
         }
@@ -38434,6 +39112,233 @@
         },
         "required": [
           "subscription_id"
+        ]
+      },
+      "AzureMode": {
+        "type": "string",
+        "enum": [
+          "basic_push",
+          "namespace_push",
+          "namespace_pull"
+        ],
+        "description": "Azure Event Grid trigger mode."
+      },
+      "AzureArmResource": {
+        "type": "object",
+        "description": "An ARM resource the service principal can see.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type"
+        ]
+      },
+      "AzureDeleteSubscription": {
+        "type": "object",
+        "properties": {
+          "azure_mode": {
+            "$ref": "#/components/schemas/AzureMode"
+          },
+          "scope_resource_id": {
+            "type": "string"
+          },
+          "topic_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "subscription_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "azure_mode",
+          "scope_resource_id",
+          "subscription_name"
+        ]
+      },
+      "AzureTrigger": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TriggerExtraProperty"
+          }
+        ],
+        "type": "object",
+        "description": "An Azure Event Grid trigger that executes a script or flow when events arrive.",
+        "properties": {
+          "azure_resource_path": {
+            "type": "string"
+          },
+          "azure_mode": {
+            "$ref": "#/components/schemas/AzureMode"
+          },
+          "scope_resource_id": {
+            "type": "string",
+            "description": "ARM resource ID of the topic (basic) or namespace (namespace modes)."
+          },
+          "topic_name": {
+            "type": "string",
+            "nullable": true,
+            "description": "Topic name within the namespace (namespace modes only)."
+          },
+          "subscription_name": {
+            "type": "string"
+          },
+          "event_type_filters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "server_id": {
+            "type": "string"
+          },
+          "last_server_ping": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error": {
+            "type": "string"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
+          }
+        },
+        "required": [
+          "azure_resource_path",
+          "azure_mode",
+          "scope_resource_id",
+          "subscription_name"
+        ]
+      },
+      "AzureTriggerData": {
+        "type": "object",
+        "description": "Data for creating or updating an Azure Event Grid trigger.",
+        "properties": {
+          "azure_resource_path": {
+            "type": "string"
+          },
+          "azure_mode": {
+            "$ref": "#/components/schemas/AzureMode"
+          },
+          "scope_resource_id": {
+            "type": "string"
+          },
+          "topic_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "subscription_name": {
+            "type": "string"
+          },
+          "base_endpoint": {
+            "type": "string",
+            "description": "Base URL for push delivery endpoints (push modes only)."
+          },
+          "event_type_filters": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "path": {
+            "type": "string"
+          },
+          "script_path": {
+            "type": "string"
+          },
+          "is_flow": {
+            "type": "boolean"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/TriggerMode"
+          },
+          "error_handler_path": {
+            "type": "string"
+          },
+          "error_handler_args": {
+            "$ref": "#/components/schemas/ScriptArgs"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/Retry"
+          },
+          "permissioned_as": {
+            "type": "string"
+          },
+          "preserve_permissioned_as": {
+            "type": "boolean"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "path",
+          "script_path",
+          "is_flow",
+          "azure_resource_path",
+          "azure_mode",
+          "scope_resource_id",
+          "subscription_name"
+        ]
+      },
+      "TestAzureConnection": {
+        "type": "object",
+        "properties": {
+          "azure_resource_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "azure_resource_path"
+        ]
+      },
+      "AzureListTopics": {
+        "type": "object",
+        "properties": {
+          "scope_resource_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope_resource_id"
+        ]
+      },
+      "AzureListSubscriptions": {
+        "type": "object",
+        "properties": {
+          "scope_resource_id": {
+            "type": "string"
+          },
+          "topic_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope_resource_id",
+          "topic_name"
         ]
       },
       "AwsAuthResourceType": {
@@ -41604,6 +42509,7 @@
           "sqs",
           "mqtt",
           "gcp",
+          "azure",
           "email"
         ]
       },
@@ -42327,7 +43233,8 @@
         "type": "string",
         "enum": [
           "nextcloud",
-          "google"
+          "google",
+          "github"
         ]
       },
       "NativeTrigger": {
@@ -42687,6 +43594,29 @@
         "required": [
           "id",
           "name"
+        ]
+      },
+      "GithubRepoEntry": {
+        "type": "object",
+        "properties": {
+          "full_name": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "private": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "full_name",
+          "name",
+          "owner",
+          "private"
         ]
       },
       "schemas-StaticTransform": {

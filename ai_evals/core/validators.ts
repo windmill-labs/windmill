@@ -1,6 +1,12 @@
 import path from "node:path";
 import ts from "typescript";
-import type { AppValidationSpec, BenchmarkCheck, FlowValidationSpec } from "./types";
+import type {
+  AppValidationSpec,
+  BenchmarkCheck,
+  CliTrace,
+  CliValidationSpec,
+  FlowValidationSpec,
+} from "./types";
 
 export interface ScriptState {
   path: string;
@@ -249,6 +255,9 @@ export function validateCliWorkspace(input: {
   actualFiles: Record<string, string>;
   expectedFiles?: Record<string, string>;
   initialFiles?: Record<string, string>;
+  assistantOutput?: string;
+  trace?: CliTrace;
+  cliExpect?: CliValidationSpec;
 }): BenchmarkCheck[] {
   const checks: BenchmarkCheck[] = [];
 
@@ -277,8 +286,23 @@ export function validateCliWorkspace(input: {
     );
   }
 
-  if (input.initialFiles) {
+  if (input.cliExpect?.workspaceUnchanged) {
+    const baselineFiles = input.initialFiles ?? {};
+    checks.push(
+      check(
+        "workspace remains unchanged",
+        fileMapsEqual(input.actualFiles, baselineFiles),
+        summarizeWorkspaceDiff(input.actualFiles, baselineFiles)
+      )
+    );
+  } else if (input.initialFiles) {
     checks.push(check("workspace differs from initial", !fileMapsEqual(input.actualFiles, input.initialFiles)));
+  }
+
+  if (input.cliExpect) {
+    checks.push(
+      ...validateCliExpectations(input.assistantOutput ?? "", input.trace, input.cliExpect)
+    );
   }
 
   return checks;
@@ -322,6 +346,197 @@ function summarizeProblems(problems: string[], limit = 5): string | undefined {
   }
 
   return `${problems.slice(0, limit).join("; ")}; ...and ${problems.length - limit} more`;
+}
+
+function validateCliExpectations(
+  assistantOutput: string,
+  trace: CliTrace | undefined,
+  cliExpect: CliValidationSpec
+): BenchmarkCheck[] {
+  const checks: BenchmarkCheck[] = [];
+
+  if (!trace) {
+    checks.push(check("cli trace is available", false));
+    return checks;
+  }
+
+  for (const skillName of cliExpect.requiredSkills ?? []) {
+    checks.push(
+      check(
+        `invokes skill ${skillName}`,
+        cliSkillWasInvoked(trace, skillName),
+        `skills=${trace.skillsInvoked.join(", ") || "(none)"}`
+      )
+    );
+  }
+
+  for (const skillName of cliExpect.forbiddenSkills ?? []) {
+    checks.push(
+      check(
+        `does not invoke skill ${skillName}`,
+        !cliSkillWasInvoked(trace, skillName),
+        `skills=${trace.skillsInvoked.join(", ") || "(none)"}`
+      )
+    );
+  }
+
+  for (const skillName of cliExpect.requiredSkillsBeforeFirstMutation ?? []) {
+    const firstSkillIndex = getFirstSkillToolIndex(trace, skillName);
+    const firstMutationIndex = trace.firstMutationToolIndex;
+    checks.push(
+      check(
+        `invokes skill ${skillName} before first mutation`,
+        firstSkillIndex !== null &&
+          firstMutationIndex !== null &&
+          firstSkillIndex < firstMutationIndex,
+        `firstSkillIndex=${firstSkillIndex ?? "none"}; firstMutationIndex=${firstMutationIndex ?? "none"}`
+      )
+    );
+  }
+
+  for (const phrase of cliExpect.requiredAssistantMentions ?? []) {
+    checks.push(
+      check(
+        `assistant mentions ${phrase}`,
+        assistantMentions(assistantOutput, phrase)
+      )
+    );
+  }
+
+  for (const phrase of cliExpect.forbiddenAssistantMentions ?? []) {
+    checks.push(
+      check(
+        `assistant does not mention ${phrase}`,
+        !assistantMentions(assistantOutput, phrase)
+      )
+    );
+  }
+
+  if ((cliExpect.orderedAssistantMentions?.length ?? 0) > 0) {
+    checks.push(
+      check(
+        "assistant mentions expected items in order",
+        stringsAppearInOrder(assistantOutput, cliExpect.orderedAssistantMentions!),
+        `ordered=${cliExpect.orderedAssistantMentions!.join(" -> ")}`
+      )
+    );
+  }
+
+  for (const command of cliExpect.requiredProposedCommands ?? []) {
+    checks.push(
+      check(
+        `assistant proposes ${command}`,
+        commandListContains(trace.proposedCommands, command),
+        `proposed=${trace.proposedCommands.join("; ") || "(none)"}`
+      )
+    );
+  }
+
+  for (const command of cliExpect.forbiddenProposedCommands ?? []) {
+    checks.push(
+      check(
+        `assistant does not propose ${command}`,
+        !commandListContains(trace.proposedCommands, command),
+        `proposed=${trace.proposedCommands.join("; ") || "(none)"}`
+      )
+    );
+  }
+
+  if ((cliExpect.orderedProposedCommands?.length ?? 0) > 0) {
+    checks.push(
+      check(
+        "assistant proposes expected commands in order",
+        stringsAppearInOrder(trace.proposedCommands.join("\n"), cliExpect.orderedProposedCommands!),
+        `ordered=${cliExpect.orderedProposedCommands!.join(" -> ")}; proposed=${trace.proposedCommands.join("; ") || "(none)"}`
+      )
+    );
+  }
+
+  for (const pattern of cliExpect.forbiddenExecutedCommands ?? []) {
+    checks.push(
+      check(
+        `does not execute ${pattern}`,
+        !trace.executedWmillCommands.some((command) => matchesCommandPattern(command, pattern)),
+        `executed=${trace.executedWmillCommands.join("; ") || "(none)"}`
+      )
+    );
+  }
+
+  return checks;
+}
+
+function cliSkillWasInvoked(trace: CliTrace, skillName: string): boolean {
+  return trace.skillsInvoked.some((skill) => skill === skillName);
+}
+
+function getFirstSkillToolIndex(trace: CliTrace, skillName: string): number | null {
+  for (const [index, tool] of trace.toolsUsed.entries()) {
+    if (tool.tool !== "Skill") {
+      continue;
+    }
+
+    const inputSkill = typeof tool.input.skill === "string" ? tool.input.skill : null;
+    if (inputSkill === skillName) {
+      return index;
+    }
+  }
+
+  return null;
+}
+
+function assistantMentions(output: string, phrase: string): boolean {
+  return output.toLowerCase().includes(phrase.toLowerCase());
+}
+
+function stringsAppearInOrder(output: string, phrases: string[]): boolean {
+  const normalizedOutput = output.toLowerCase();
+  let startIndex = 0;
+
+  for (const phrase of phrases) {
+    const index = normalizedOutput.indexOf(phrase.toLowerCase(), startIndex);
+    if (index === -1) {
+      return false;
+    }
+    startIndex = index + phrase.length;
+  }
+
+  return true;
+}
+
+function commandListContains(commands: string[], command: string): boolean {
+  const normalizedNeedle = command.toLowerCase();
+  return commands.some((entry) => entry.toLowerCase().includes(normalizedNeedle));
+}
+
+function matchesCommandPattern(command: string, pattern: string): boolean {
+  try {
+    return new RegExp(pattern, "i").test(command);
+  } catch {
+    return command.toLowerCase().includes(pattern.toLowerCase());
+  }
+}
+
+function summarizeWorkspaceDiff(
+  actualFiles: Record<string, string>,
+  baselineFiles: Record<string, string>
+): string | undefined {
+  const changes: string[] = [];
+
+  for (const filePath of Object.keys(actualFiles)) {
+    if (!(filePath in baselineFiles)) {
+      changes.push(`added ${filePath}`);
+    } else if (actualFiles[filePath] !== baselineFiles[filePath]) {
+      changes.push(`changed ${filePath}`);
+    }
+  }
+
+  for (const filePath of Object.keys(baselineFiles)) {
+    if (!(filePath in actualFiles)) {
+      changes.push(`removed ${filePath}`);
+    }
+  }
+
+  return summarizeProblems(changes);
 }
 
 function hasSupportedEntrypoint(code: string): boolean {

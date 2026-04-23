@@ -216,8 +216,8 @@ describe("folder default_permissioned_as", () => {
       // Step 3: Locally edit folder.meta.yaml to add default_permissioned_as rules
       const metaPath = join(tempDir, "f", folderName, "folder.meta.yaml");
       const metaContent = await readFile(metaPath, "utf-8");
-      // Backend always emits the field; initially it's an empty array
-      expect(metaContent).toContain("default_permissioned_as: []");
+      // Backend omits the field when the rule list is empty
+      expect(metaContent).not.toContain("default_permissioned_as:");
 
       const newMeta = `display_name: ${folderName}
 owners:

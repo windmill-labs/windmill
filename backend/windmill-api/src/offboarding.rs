@@ -189,6 +189,7 @@ async fn get_offboard_preview(
         "nats_trigger",
         "sqs_trigger",
         "gcp_trigger",
+        "azure_trigger",
         "email_trigger",
     ];
     let mut triggers = HashMap::new();
@@ -748,6 +749,7 @@ async fn check_path_conflicts(
         "nats_trigger",
         "sqs_trigger",
         "gcp_trigger",
+        "azure_trigger",
         "email_trigger",
     ];
 
@@ -1020,6 +1022,7 @@ async fn offboard_user_from_workspace<'c>(
         "nats_trigger",
         "sqs_trigger",
         "gcp_trigger",
+        "azure_trigger",
         "email_trigger",
     ];
 

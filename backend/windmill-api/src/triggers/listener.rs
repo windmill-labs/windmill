@@ -67,6 +67,14 @@ pub fn start_all_listeners(db: DB, killpill_rx: &tokio::sync::broadcast::Receive
         listen_to(GcpTrigger, db.clone(), gcp_killpill_rx);
     }
 
+    #[cfg(all(feature = "azure_trigger", feature = "enterprise", feature = "private"))]
+    {
+        let azure_killpill_rx = killpill_rx.resubscribe();
+        use crate::triggers::azure::AzureTrigger;
+
+        listen_to(AzureTrigger, db.clone(), azure_killpill_rx);
+    }
+
     #[cfg(all(feature = "sqs_trigger", feature = "enterprise", feature = "private"))]
     {
         let gcp_killpill_rx = killpill_rx.resubscribe();
