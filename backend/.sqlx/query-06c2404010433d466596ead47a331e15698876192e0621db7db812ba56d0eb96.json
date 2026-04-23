@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH after_message AS (\n                SELECT id, created_at\n                FROM flow_conversation_message\n                WHERE conversation_id = $1 AND id = $2\n             )\n             SELECT m.id, m.conversation_id, m.message_type as \"message_type: MessageType\", m.content, m.job_id, m.created_at, m.step_name, m.success\n             FROM flow_conversation_message m\n             JOIN after_message a ON true\n             WHERE m.conversation_id = $1\n               AND (\n                 m.created_at > a.created_at\n                 OR (m.created_at = a.created_at AND m.id > a.id)\n               )\n             ORDER BY m.created_at ASC, m.id ASC\n             LIMIT $3 OFFSET $4\n             ",
+  "query": "SELECT id, conversation_id, message_type as \"message_type: MessageType\", content, job_id, created_at, created_seq, step_name, success\n             FROM flow_conversation_message\n             WHERE conversation_id = $1\n               AND created_seq > $2\n             ORDER BY created_seq ASC\n             LIMIT $3 OFFSET $4\n             ",
   "describe": {
     "columns": [
       {
@@ -46,11 +46,16 @@
       },
       {
         "ordinal": 6,
+        "name": "created_seq",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
         "name": "step_name",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "success",
         "type_info": "Bool"
       }
@@ -58,7 +63,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
+        "Int8",
         "Int8",
         "Int8"
       ]
@@ -70,9 +75,10 @@
       false,
       true,
       false,
+      false,
       true,
       false
     ]
   },
-  "hash": "41935d8ab7dd40cb12d0b59b29712e5a8172c992f61fca78f204ed7095ebeae8"
+  "hash": "06c2404010433d466596ead47a331e15698876192e0621db7db812ba56d0eb96"
 }
