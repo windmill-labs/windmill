@@ -232,28 +232,20 @@ describe('app patch_file tool', () => {
 })
 
 describe('prepareAppUserMessage app context', () => {
-	it('does not serialize the current frontend file automatically', () => {
-		const message = prepareAppUserMessage('Update the layout', {
+	it('does not serialize implicit selected frontend or backend files', () => {
+		const frontendMessage = prepareAppUserMessage('Update the layout', {
 			type: 'frontend',
 			frontendPath: '/index.tsx'
 		} as unknown as SelectedContext)
-
-		const content = message.content as string
-		expect(content).toBe('## INSTRUCTIONS:\nUpdate the layout')
-		expect(content).not.toContain('/index.tsx')
-	})
-
-	it('does not serialize the current backend runnable automatically', () => {
-		const selectedContext: SelectedContext = {
+		const backendMessage = prepareAppUserMessage('Use the existing runnable', {
 			type: 'backend',
 			backendKey: 'loadUsers'
-		} as unknown as SelectedContext
+		} as unknown as SelectedContext)
 
-		const message = prepareAppUserMessage('Use the existing runnable', selectedContext)
-
-		const content = message.content as string
-		expect(content).toBe('## INSTRUCTIONS:\nUse the existing runnable')
-		expect(content).not.toContain('loadUsers')
+		expect(frontendMessage.content).toBe('## INSTRUCTIONS:\nUpdate the layout')
+		expect(frontendMessage.content).not.toContain('/index.tsx')
+		expect(backendMessage.content).toBe('## INSTRUCTIONS:\nUse the existing runnable')
+		expect(backendMessage.content).not.toContain('loadUsers')
 	})
 
 	it('still serializes inspector and code selections', () => {
@@ -292,7 +284,7 @@ describe('prepareAppUserMessage app context', () => {
 		expect(content).toContain('const selectedCode = true')
 	})
 
-	it('serializes mentioned frontend files and backend runnables as identifiers only', () => {
+	it('serializes explicit mentions with lightweight file context', () => {
 		const additionalContext: ContextElement[] = [
 			{
 				type: 'app_frontend_file',
@@ -313,22 +305,7 @@ describe('prepareAppUserMessage app context', () => {
 						content: 'export async function main() { return "secret" }'
 					}
 				}
-			}
-		]
-
-		const message = prepareAppUserMessage('Wire these together', undefined, additionalContext)
-
-		const content = message.content as string
-		expect(content).toContain('- Frontend file: /index.tsx')
-		expect(content).toContain('- Backend runnable: loadUsers')
-		expect(content).not.toContain('fullFrontendContent')
-		expect(content).not.toContain('export async function main')
-		expect(content).not.toContain('Static inputs')
-		expect(content).not.toContain('Load users')
-	})
-
-	it('keeps mentioned datatable schema context', () => {
-		const additionalContext: ContextElement[] = [
+			},
 			{
 				type: 'app_datatable',
 				datatableName: 'main',
@@ -342,9 +319,15 @@ describe('prepareAppUserMessage app context', () => {
 			}
 		]
 
-		const message = prepareAppUserMessage('Query users', undefined, additionalContext)
+		const message = prepareAppUserMessage('Wire these together', undefined, additionalContext)
 
 		const content = message.content as string
+		expect(content).toContain('- Frontend file: /index.tsx')
+		expect(content).toContain('- Backend runnable: loadUsers')
+		expect(content).not.toContain('fullFrontendContent')
+		expect(content).not.toContain('export async function main')
+		expect(content).not.toContain('Static inputs')
+		expect(content).not.toContain('Load users')
 		expect(content).toContain('**Table: main/users**')
 		expect(content).toContain('"id": "int4"')
 		expect(content).toContain('"email": "text"')
