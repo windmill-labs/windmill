@@ -239,6 +239,18 @@
 		advancedSelected = subtab
 	}
 
+	function setOmitOutputFromConversation(omit: boolean) {
+		if (flowModule.value.type !== 'aiagent') {
+			return
+		}
+
+		if (omit) {
+			flowModule.value.omit_output_from_conversation = true
+		} else {
+			delete flowModule.value.omit_output_from_conversation
+		}
+	}
+
 	let forceReload = $state(0)
 	let editorPanelSize = $state(
 		untrack(() => noEditor) ? 0 : flowModule.value.type == 'script' ? 30 : 50
@@ -1026,6 +1038,13 @@
 												<Tab value="inputs" label="Step Input" />
 											{/if}
 											<Tab value="test" label="Test this step" />
+											{#if !preprocessorModule && flowModule.value.type === 'aiagent'}
+												<Tab
+													value="chat"
+													active={Boolean(flowModule.value.omit_output_from_conversation)}
+													label="Chat"
+												/>
+											{/if}
 											{#if !preprocessorModule && !isAgentTool}
 												<Tab value="advanced" label="Advanced" />
 											{/if}
@@ -1108,6 +1127,38 @@
 												{onJobDone}
 												hideRunButton={debugMode && isDebuggableScript}
 											/>
+										{:else if selected === 'chat' && flowModule.value.type === 'aiagent'}
+											<div class="flex-1 overflow-auto p-4">
+												<Section label="Conversation output">
+													{#snippet header()}
+														<Tooltip>
+															Control whether this AI agent persists its assistant and tool
+															messages in the flow conversation when chat mode is enabled.
+														</Tooltip>
+													{/snippet}
+													<Toggle
+														size="xs"
+														checked={Boolean(flowModule.value.omit_output_from_conversation)}
+														on:change={(event) => {
+															setOmitOutputFromConversation(event.detail)
+														}}
+														options={{
+															right: 'Omit assistant and tool messages from the flow conversation',
+															rightTooltip:
+																'When enabled, this AI agent still runs normally, but its assistant response and tool-use messages are not stored in chat-mode conversation history.'
+														}}
+													/>
+													<Alert
+														type="info"
+														title="Runtime context is unchanged"
+														size="xs"
+														class="mt-4"
+													>
+														This only controls persisted flow conversation messages. It does not
+														remove messages from the agent context while the step is running.
+													</Alert>
+												</Section>
+											</div>
 										{:else if selected === 'advanced'}
 											<Tabs bind:selected={advancedSelected} wrapperClass="shrink-0">
 												<Tab
