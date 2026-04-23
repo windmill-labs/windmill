@@ -33,6 +33,7 @@ pub struct FlowConversationMessage {
     pub content: String,
     pub job_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
+    pub created_seq: i64,
     pub step_name: Option<String>,
     pub success: bool,
 }
@@ -44,7 +45,7 @@ pub struct ListConversationsQuery {
 
 #[derive(Deserialize)]
 pub struct ListMessagesQuery {
-    pub after_id: Option<Uuid>,
+    pub after_seq: Option<i64>,
 }
 
 async fn list_conversations(
@@ -174,27 +175,18 @@ async fn list_messages(
         )));
     }
 
-    let messages = if let Some(after_id) = query.after_id {
+    let messages = if let Some(after_seq) = query.after_seq {
         sqlx::query_as!(
             FlowConversationMessage,
-            r#"WITH after_message AS (
-                SELECT id, created_at
-                FROM flow_conversation_message
-                WHERE conversation_id = $1 AND id = $2
-             )
-             SELECT m.id, m.conversation_id, m.message_type as "message_type: MessageType", m.content, m.job_id, m.created_at, m.step_name, m.success
-             FROM flow_conversation_message m
-             JOIN after_message a ON true
-             WHERE m.conversation_id = $1
-               AND (
-                 m.created_at > a.created_at
-                 OR (m.created_at = a.created_at AND m.id > a.id)
-               )
-             ORDER BY m.created_at ASC, m.id ASC
+            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, created_seq, step_name, success
+             FROM flow_conversation_message
+             WHERE conversation_id = $1
+               AND created_seq > $2
+             ORDER BY created_seq ASC
              LIMIT $3 OFFSET $4
              "#,
             conversation_id,
-            after_id,
+            after_seq,
             per_page as i64,
             offset as i64
         )
@@ -204,15 +196,15 @@ async fn list_messages(
         // Fetch messages for this conversation, oldest first, but reverse the order of the messages for easy rendering on the frontend
         sqlx::query_as!(
             FlowConversationMessage,
-            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, step_name, success
+            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, created_seq, step_name, success
              FROM (
-                SELECT id, conversation_id, message_type, content, job_id, created_at, step_name, success
+                SELECT id, conversation_id, message_type, content, job_id, created_at, created_seq, step_name, success
                 FROM flow_conversation_message
                 WHERE conversation_id = $1
-                ORDER BY created_at DESC, id DESC
+                ORDER BY created_seq DESC
                 LIMIT $2 OFFSET $3
              ) AS messages
-             ORDER BY created_at ASC, id ASC
+             ORDER BY created_seq ASC
              "#,
             conversation_id,
             per_page as i64,

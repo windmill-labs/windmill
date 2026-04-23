@@ -9451,13 +9451,13 @@ paths:
           schema:
             type: string
             format: uuid
-        - name: after_id
-          description: id to fetch only the messages after that id
+        - name: after_seq
+          description: Message sequence cursor to fetch only the messages after that cursor
           in: query
           required: false
           schema:
-            type: string
-            format: uuid
+            type: integer
+            format: int64
       responses:
         "200":
           description: conversation messages
@@ -20341,7 +20341,7 @@ components:
 
     FlowConversationMessage:
       type: object
-      required: [id, conversation_id, message_type, content, created_at]
+      required: [id, conversation_id, message_type, content, created_at, created_seq]
       properties:
         id:
           type: string
@@ -20367,6 +20367,10 @@ components:
           type: string
           format: date-time
           description: When the message was created
+        created_seq:
+          type: integer
+          format: int64
+          description: Monotonic cursor assigned when the message is inserted
         step_name:
           type: string
           description: The step name that produced that message

@@ -312,11 +312,11 @@ export class FlowChatManager {
 		}
 	}
 
-	private getLastPersistedMessageId() {
+	private getLastPersistedMessageSeq() {
 		for (let i = this.messages.length - 1; i >= 0; i--) {
 			const message = this.messages[i]
 			if (!message.id.startsWith('temp-')) {
-				return message.id
+				return message.created_seq
 			}
 		}
 
@@ -349,13 +349,13 @@ export class FlowChatManager {
 		if (!get(workspaceStore)) return
 
 		try {
-			const lastId = this.getLastPersistedMessageId()
+			const lastSeq = this.getLastPersistedMessageSeq()
 			const response = await FlowConversationsService.listConversationMessages({
 				workspace: get(workspaceStore)!,
 				conversationId: conversationId,
 				page: 1,
 				perPage: 50,
-				afterId: lastId
+				afterSeq: lastSeq
 			})
 
 			if (options?.isNewConversation) {
@@ -429,6 +429,7 @@ export class FlowChatManager {
 			id: `temp-${randomUUID()}`,
 			content: this.inputMessage.trim(),
 			created_at: new Date().toISOString(),
+			created_seq: 0,
 			message_type: 'user',
 			conversation_id: currentConversationId
 		}
@@ -581,6 +582,7 @@ export class FlowChatManager {
 										id: 'temp-' + randomUUID(),
 										content: newContent,
 										created_at: new Date().toISOString(),
+										created_seq: 0,
 										message_type: 'tool',
 										conversation_id: currentConversationId,
 										job_id: '',
@@ -607,6 +609,7 @@ export class FlowChatManager {
 										id: assistantMessageId,
 										content: accumulatedContent,
 										created_at: new Date().toISOString(),
+										created_seq: 0,
 										message_type: 'assistant',
 										conversation_id: currentConversationId,
 										job_id: '',
