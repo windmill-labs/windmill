@@ -11687,6 +11687,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: approval_token
+          in: query
+          description: Approval token granting read access to the job when not logged in. Valid tokens are the ones issued for this job (or its parent flow).
+          schema:
+            type: string
       responses:
         "200":
           description: job details
