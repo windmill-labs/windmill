@@ -13,7 +13,7 @@ use windmill_api_auth::ApiAuthed;
 pub use windmill_common::flow_conversations::FlowConversation;
 use windmill_common::{
     db::{UserDB, DB},
-    error::{Error, JsonResult, Result},
+    error::{JsonResult, Result},
     flow_conversations::MessageType,
     utils::{not_found_if_none, paginate, Pagination},
 };
@@ -175,31 +175,25 @@ async fn list_messages(
     }
 
     let messages = if let Some(after_id) = query.after_id {
-        let after_message = sqlx::query!(
-            r#"SELECT created_at
-             FROM flow_conversation_message
-             WHERE conversation_id = $1 AND id = $2"#,
-            conversation_id,
-            after_id,
-        )
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| Error::NotFound(format!("Message not found: {}", after_id)))?;
-
         sqlx::query_as!(
             FlowConversationMessage,
-            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, step_name, success
-             FROM flow_conversation_message
-             WHERE conversation_id = $1
+            r#"WITH after_message AS (
+                SELECT id, created_at
+                FROM flow_conversation_message
+                WHERE conversation_id = $1 AND id = $2
+             )
+             SELECT m.id, m.conversation_id, m.message_type as "message_type: MessageType", m.content, m.job_id, m.created_at, m.step_name, m.success
+             FROM flow_conversation_message m
+             JOIN after_message a ON true
+             WHERE m.conversation_id = $1
                AND (
-                 created_at > $2
-                 OR (created_at = $2 AND id > $3)
+                 m.created_at > a.created_at
+                 OR (m.created_at = a.created_at AND m.id > a.id)
                )
-             ORDER BY created_at ASC, id ASC
-             LIMIT $4 OFFSET $5
+             ORDER BY m.created_at ASC, m.id ASC
+             LIMIT $3 OFFSET $4
              "#,
             conversation_id,
-            after_message.created_at,
             after_id,
             per_page as i64,
             offset as i64
