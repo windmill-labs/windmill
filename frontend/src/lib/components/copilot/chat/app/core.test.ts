@@ -235,29 +235,18 @@ describe('prepareAppUserMessage app context', () => {
 	it('does not serialize the current frontend file automatically', () => {
 		const message = prepareAppUserMessage('Update the layout', {
 			type: 'frontend',
-			frontendPath: '/index.tsx',
-			frontendContent: 'const hiddenImplementationDetail = true'
+			frontendPath: '/index.tsx'
 		})
 
 		const content = message.content as string
 		expect(content).toBe('## INSTRUCTIONS:\nUpdate the layout')
 		expect(content).not.toContain('/index.tsx')
-		expect(content).not.toContain('hiddenImplementationDetail')
 	})
 
 	it('does not serialize the current backend runnable automatically', () => {
 		const selectedContext: SelectedContext = {
 			type: 'backend',
-			backendKey: 'loadUsers',
-			backendRunnable: {
-				name: 'Load users',
-				type: 'inline',
-				staticInputs: { admin: true },
-				inlineScript: {
-					language: 'bun',
-					content: 'export async function main() { return "secret" }'
-				}
-			}
+			backendKey: 'loadUsers'
 		}
 
 		const message = prepareAppUserMessage('Use the existing runnable', selectedContext)
@@ -265,15 +254,12 @@ describe('prepareAppUserMessage app context', () => {
 		const content = message.content as string
 		expect(content).toBe('## INSTRUCTIONS:\nUse the existing runnable')
 		expect(content).not.toContain('loadUsers')
-		expect(content).not.toContain('export async function main')
-		expect(content).not.toContain('admin')
 	})
 
 	it('still serializes inspector and code selections', () => {
 		const selectedContext: SelectedContext = {
 			type: 'frontend',
 			frontendPath: '/index.tsx',
-			frontendContent: 'const wholeFileShouldNotBeSent = true',
 			inspectorElement: {
 				path: 'body > button.primary',
 				tagName: 'button',
@@ -304,7 +290,6 @@ describe('prepareAppUserMessage app context', () => {
 		expect(content).toContain('body > button.primary')
 		expect(content).toContain('### CODE SELECTION:')
 		expect(content).toContain('const selectedCode = true')
-		expect(content).not.toContain('wholeFileShouldNotBeSent')
 	})
 
 	it('serializes mentioned frontend files and backend runnables as identifiers only', () => {

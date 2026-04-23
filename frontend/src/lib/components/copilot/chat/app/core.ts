@@ -86,22 +86,12 @@ export interface SelectedContext {
 	type: 'frontend' | 'backend' | 'none'
 	/** The path of the selected frontend file (when type is 'frontend') */
 	frontendPath?: string
-	/** The content of the selected frontend file */
-	frontendContent?: string
 	/** The key of the selected backend runnable (when type is 'backend') */
 	backendKey?: string
-	/** The configuration of the selected backend runnable */
-	backendRunnable?: BackendRunnable
 	/** Inspector-selected element info (when user has used the inspector tool) */
 	inspectorElement?: InspectorElementInfo
-	/** Whether the file/runnable selection is excluded from being sent to the AI prompt */
-	selectionExcluded?: boolean
-	/** Function to toggle whether the selection is excluded from the prompt */
-	toggleSelectionExcluded?: () => void
 	/** Function to clear the inspector selection */
 	clearInspector?: () => void
-	/** Function to clear the runnable selection (go back to frontend view) */
-	clearRunnable?: () => void
 	/** Code selection from the editor (either frontend or backend) */
 	codeSelection?: AppCodeSelectionElement
 	/** Function to clear the code selection */
