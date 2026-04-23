@@ -4557,6 +4557,8 @@ paths:
                     type: boolean
                   gcp_used:
                     type: boolean
+                  azure_used:
+                    type: boolean
                   sqs_used:
                     type: boolean
                   email_used:
@@ -4573,6 +4575,7 @@ paths:
                   - postgres_used
                   - mqtt_used
                   - gcp_used
+                  - azure_used
                   - sqs_used
                   - email_used
                   - nextcloud_used
@@ -15275,25 +15278,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/azure_triggers/basic/topics/list/{path}:
-    get:
-      summary: list all Event Grid basic topics for the configured subscription
-      operationId: listAzureBasicTopics
-      tags:
-        - azure_trigger
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: topic list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-
   /w/{workspace}/azure_triggers/namespaces/topics/list/{path}:
     post:
       summary: list topics under an Event Grid Namespace
@@ -15343,6 +15327,67 @@ paths:
                 type: array
                 items:
                   type: object
+
+  /w/{workspace}/azure_triggers/subscriptions/delete/{path}:
+    delete:
+      summary: delete an Event Grid subscription on Azure
+      operationId: deleteAzureSubscription
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AzureDeleteSubscription"
+      responses:
+        "200":
+          description: subscription deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/azure_triggers/namespaces/list/{path}:
+    post:
+      summary: list Event Grid Namespaces the service principal can access
+      operationId: listAzureNamespaces
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: namespace list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AzureArmResource"
+
+  /w/{workspace}/azure_triggers/basic/topics/list/{path}:
+    post:
+      summary: list Basic Event Grid topics + system topics the service principal can access
+      operationId: listAzureBasicTopics
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: topic list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AzureArmResource"
 
   /w/{workspace}/postgres_triggers/postgres/version/{path}:
     get:
@@ -17224,6 +17269,7 @@ paths:
                 postgres_trigger,
                 mqtt_trigger,
                 gcp_trigger,
+                azure_trigger,
                 sqs_trigger,
                 email_trigger,
                 volume,
@@ -17270,6 +17316,7 @@ paths:
                 postgres_trigger,
                 mqtt_trigger,
                 gcp_trigger,
+                azure_trigger,
                 sqs_trigger,
                 email_trigger,
                 volume,
@@ -17327,6 +17374,7 @@ paths:
                 postgres_trigger,
                 mqtt_trigger,
                 gcp_trigger,
+                azure_trigger,
                 sqs_trigger,
                 email_trigger,
                 volume,
@@ -24189,24 +24237,39 @@ components:
         - namespace_pull
       description: "Azure Event Grid trigger mode."
 
-    AzureSubscriptionMode:
-      type: string
-      enum:
-        - existing
-        - create_update
-      description: "Whether to use an existing Azure Event Grid subscription or create/update one via ARM."
+    AzureArmResource:
+      type: object
+      description: "An ARM resource the service principal can see."
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        location:
+          type: string
+        type:
+          type: string
+      required:
+        - id
+        - name
+        - type
 
-    AzureDeliveryConfig:
+    AzureDeleteSubscription:
       type: object
       properties:
-        audience:
+        azure_mode:
+          $ref: "#/components/schemas/AzureMode"
+        scope_resource_id:
           type: string
-          description: "Expected token audience for inbound push JWT validation."
-        authenticate:
-          type: boolean
-          description: "If true, validate inbound JWT bearer tokens on push delivery."
+        topic_name:
+          type: string
+          nullable: true
+        subscription_name:
+          type: string
       required:
-        - authenticate
+        - azure_mode
+        - scope_resource_id
+        - subscription_name
 
     AzureTrigger:
       allOf:
@@ -24227,28 +24290,10 @@ components:
           description: "Topic name within the namespace (namespace modes only)."
         subscription_name:
           type: string
-        subscription_mode:
-          $ref: "#/components/schemas/AzureSubscriptionMode"
         event_type_filters:
           type: array
           items:
             type: string
-          nullable: true
-        advanced_filter:
-          nullable: true
-        delivery_config:
-          $ref: "#/components/schemas/AzureDeliveryConfig"
-          nullable: true
-        max_events:
-          type: integer
-          format: int32
-          nullable: true
-        max_wait_time_sec:
-          type: integer
-          format: int32
-          nullable: true
-        auto_acknowledge_msg:
-          type: boolean
           nullable: true
         server_id:
           type: string
@@ -24268,7 +24313,6 @@ components:
         - azure_mode
         - scope_resource_id
         - subscription_name
-        - subscription_mode
 
     AzureTriggerData:
       type: object
@@ -24285,8 +24329,6 @@ components:
           nullable: true
         subscription_name:
           type: string
-        subscription_mode:
-          $ref: "#/components/schemas/AzureSubscriptionMode"
         base_endpoint:
           type: string
           description: "Base URL for push delivery endpoints (push modes only)."
@@ -24294,19 +24336,6 @@ components:
           type: array
           items:
             type: string
-        advanced_filter:
-          description: "Optional advanced filter (forwarded verbatim to Azure)."
-        delivery_config:
-          $ref: "#/components/schemas/AzureDeliveryConfig"
-          nullable: true
-        max_events:
-          type: integer
-          format: int32
-        max_wait_time_sec:
-          type: integer
-          format: int32
-        auto_acknowledge_msg:
-          type: boolean
         path:
           type: string
         script_path:
@@ -24337,7 +24366,6 @@ components:
         - azure_mode
         - scope_resource_id
         - subscription_name
-        - subscription_mode
 
     TestAzureConnection:
       type: object
@@ -26669,6 +26697,7 @@ components:
           sqs,
           mqtt,
           gcp,
+          azure,
           email,
         ]
 

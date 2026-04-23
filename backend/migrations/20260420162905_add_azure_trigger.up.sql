@@ -4,7 +4,6 @@ ALTER TYPE TRIGGER_KIND ADD VALUE IF NOT EXISTS 'azure';
 ALTER TYPE JOB_TRIGGER_KIND ADD VALUE IF NOT EXISTS 'azure';
 
 CREATE TYPE AZURE_TRIGGER_MODE AS ENUM ('basic_push', 'namespace_push', 'namespace_pull');
-CREATE TYPE AZURE_SUBSCRIPTION_MODE AS ENUM ('existing', 'create_update');
 
 CREATE TABLE azure_trigger (
     azure_resource_path   VARCHAR(255) NOT NULL,
@@ -12,13 +11,8 @@ CREATE TABLE azure_trigger (
     scope_resource_id     TEXT NOT NULL,
     topic_name            VARCHAR(255),
     subscription_name     VARCHAR(255) NOT NULL,
-    subscription_mode     AZURE_SUBSCRIPTION_MODE NOT NULL,
     event_type_filters    JSONB,
-    advanced_filter       JSONB,
-    delivery_config       JSONB,
-    max_events            INTEGER,
-    max_wait_time_sec     INTEGER,
-    auto_acknowledge_msg  BOOLEAN,
+    push_auth_config      JSONB,
     path                  VARCHAR(255) NOT NULL,
     script_path           VARCHAR(255) NOT NULL,
     is_flow               BOOLEAN NOT NULL,
@@ -30,7 +24,6 @@ CREATE TABLE azure_trigger (
     server_id             VARCHAR(50),
     last_server_ping      TIMESTAMPTZ,
     error                 TEXT,
-    enabled               BOOLEAN NOT NULL,
     mode                  TRIGGER_MODE NOT NULL DEFAULT 'enabled',
     permissioned_as       VARCHAR(255) NOT NULL,
     error_handler_path    VARCHAR(255),
@@ -42,21 +35,16 @@ CREATE TABLE azure_trigger (
         (azure_mode = 'basic_push' AND topic_name IS NULL) OR
         (azure_mode IN ('namespace_push', 'namespace_pull') AND topic_name IS NOT NULL)
     ),
-    CONSTRAINT azure_delivery_config_matches_mode CHECK (
-        (azure_mode IN ('basic_push', 'namespace_push') AND delivery_config IS NOT NULL) OR
-        (azure_mode = 'namespace_pull' AND delivery_config IS NULL)
-    ),
-    CONSTRAINT azure_pull_fields_only_on_pull CHECK (
-        azure_mode = 'namespace_pull' OR (
-            max_events IS NULL
-            AND max_wait_time_sec IS NULL
-            AND auto_acknowledge_msg IS NULL
-        )
+    CONSTRAINT azure_push_auth_config_matches_mode CHECK (
+        (azure_mode IN ('basic_push', 'namespace_push') AND push_auth_config IS NOT NULL) OR
+        (azure_mode = 'namespace_pull' AND push_auth_config IS NULL)
     )
 );
 
 CREATE UNIQUE INDEX unique_subscription_per_azure_scope
 ON azure_trigger (subscription_name, scope_resource_id, workspace_id);
+
+CREATE INDEX idx_azure_trigger_labels ON azure_trigger USING GIN (labels) WHERE labels IS NOT NULL;
 
 GRANT ALL ON azure_trigger TO windmill_user;
 GRANT ALL ON azure_trigger TO windmill_admin;

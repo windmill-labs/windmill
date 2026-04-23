@@ -1686,6 +1686,7 @@ pub async fn delete_workspace_user_internal(
         "nats_trigger",
         "sqs_trigger",
         "gcp_trigger",
+        "azure_trigger",
         "email_trigger",
     ];
     for table in &extra_perms_tables {

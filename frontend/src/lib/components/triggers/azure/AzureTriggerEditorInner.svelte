@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -10,8 +10,6 @@
 	import {
 		AzureTriggerService,
 		type AzureMode,
-		type AzureSubscriptionMode,
-		type AzureDeliveryConfig,
 		type Retry,
 		type ErrorHandler,
 		type TriggerMode
@@ -20,7 +18,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import AzureTriggerEditorConfigSection from './AzureTriggerEditorConfigSection.svelte'
-	import { type Snippet } from 'svelte'
+	import { type Snippet, untrack } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveAzureTriggerFromCfg } from './utils'
@@ -49,16 +47,11 @@
 	let drawerLoading = $state(true)
 
 	let azure_resource_path: string = $state('')
-	let azure_mode: AzureMode = $state('basic_push')
+	let azure_mode: AzureMode = $state('namespace_pull')
 	let scope_resource_id: string = $state('')
 	let topic_name: string | undefined = $state(undefined)
 	let subscription_name: string = $state('')
-	let subscription_mode: AzureSubscriptionMode = $state('create_update')
-	let delivery_config: AzureDeliveryConfig | undefined = $state(undefined)
 	let event_type_filters: string[] | undefined = $state(undefined)
-	let max_events: number | undefined = $state(undefined)
-	let max_wait_time_sec: number | undefined = $state(undefined)
-	let auto_acknowledge_msg: boolean = $state(true)
 
 	let isValid = $state(false)
 	let initialConfig: Record<string, any> | undefined = undefined
@@ -81,11 +74,13 @@
 		description = undefined,
 		hideTarget = false,
 		hideTooltips = false,
+		isEditor = false,
 		allowDraft = false,
 		trigger = undefined,
 		isDeployed = false,
 		customLabel = undefined,
 		onConfigChange = undefined,
+		onCaptureConfigChange = undefined,
 		onUpdate = undefined,
 		onDelete = undefined,
 		onReset = undefined,
@@ -95,11 +90,13 @@
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		hideTooltips?: boolean
+		isEditor?: boolean
 		allowDraft?: boolean
 		trigger?: Trigger
 		isDeployed?: boolean
 		customLabel?: Snippet
 		onConfigChange?: (cfg: Record<string, any>, saveDisabled: boolean, updated: boolean) => void
+		onCaptureConfigChange?: (cfg: Record<string, any>, isValid: boolean) => void
 		onUpdate?: (path?: string) => void
 		onDelete?: () => void
 		onReset?: () => void
@@ -111,6 +108,7 @@
 	const saveDisabled = $derived(
 		pathError != '' || emptyString(script_path) || !isValid || !can_write || !hasChanged
 	)
+	const captureConfig = $derived.by(untrack(() => isEditor) ? getAzureCaptureConfig : () => ({}))
 
 	export async function openEdit(
 		ePath: string,
@@ -149,16 +147,11 @@
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
 			azure_resource_path = defaultValues?.azure_resource_path ?? ''
-			azure_mode = defaultValues?.azure_mode ?? 'basic_push'
+			azure_mode = defaultValues?.azure_mode ?? 'namespace_pull'
 			scope_resource_id = defaultValues?.scope_resource_id ?? ''
 			topic_name = defaultValues?.topic_name ?? undefined
 			subscription_name = defaultValues?.subscription_name ?? ''
-			subscription_mode = defaultValues?.subscription_mode ?? 'create_update'
-			delivery_config = defaultValues?.delivery_config ?? undefined
 			event_type_filters = defaultValues?.event_type_filters ?? undefined
-			max_events = defaultValues?.max_events ?? undefined
-			max_wait_time_sec = defaultValues?.max_wait_time_sec ?? undefined
-			auto_acknowledge_msg = defaultValues?.auto_acknowledge_msg ?? true
 			path = defaultValues?.path ?? ''
 			initialPath = ''
 			edit = false
@@ -201,12 +194,7 @@
 		scope_resource_id = cfg?.scope_resource_id
 		topic_name = cfg?.topic_name ?? undefined
 		subscription_name = cfg?.subscription_name
-		subscription_mode = cfg?.subscription_mode
-		delivery_config = cfg?.delivery_config
 		event_type_filters = cfg?.event_type_filters
-		max_events = cfg?.max_events
-		max_wait_time_sec = cfg?.max_wait_time_sec
-		auto_acknowledge_msg = cfg?.auto_acknowledge_msg ?? true
 		path = cfg?.path
 		mode = cfg?.mode ?? 'enabled'
 		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
@@ -247,12 +235,7 @@
 			scope_resource_id,
 			topic_name,
 			subscription_name,
-			subscription_mode,
-			delivery_config,
 			event_type_filters,
-			max_events,
-			max_wait_time_sec,
-			auto_acknowledge_msg,
 			base_endpoint,
 			path,
 			script_path,
@@ -263,6 +246,19 @@
 			retry,
 			permissioned_as: selectedPermissionedAs,
 			preserve_permissioned_as: preservePermissionedAs || undefined
+		}
+	}
+
+	function getAzureCaptureConfig() {
+		return {
+			azure_resource_path,
+			azure_mode,
+			scope_resource_id,
+			topic_name,
+			subscription_name,
+			event_type_filters,
+			base_endpoint,
+			path
 		}
 	}
 
@@ -284,6 +280,11 @@
 		if (!drawerLoading) {
 			handleConfigChange(azureConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
+	})
+
+	$effect(() => {
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 </script>
 
@@ -424,6 +425,16 @@
 							allowEdit={!$userStore?.operator}
 							clearable
 						/>
+						{#if emptyString(script_path)}
+							<Button
+								btnClasses="ml-4"
+								variant="default"
+								unifiedSize="md"
+								disabled={!can_write}
+								href={itemKind === 'flow' ? '/flows/add?hub=81' : '/scripts/add?hub=hub%2F28214'}
+								target="_blank">Create from template</Button
+							>
+						{/if}
 					</div>
 				</Section>
 			{/if}
@@ -435,12 +446,7 @@
 				bind:scope_resource_id
 				bind:topic_name
 				bind:subscription_name
-				bind:subscription_mode
-				bind:delivery_config
 				bind:event_type_filters
-				bind:max_events
-				bind:max_wait_time_sec
-				bind:auto_acknowledge_msg
 				{path}
 				{can_write}
 				headless={true}

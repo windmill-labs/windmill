@@ -374,6 +374,10 @@ mod tests {
             "gcp_trigger"
         );
         assert_eq!(
+            DeployedObject::AzureTrigger { path: "t".to_string(), parent_path: None }.get_kind(),
+            "azure_trigger"
+        );
+        assert_eq!(
             DeployedObject::EmailTrigger { path: "t".to_string(), parent_path: None }.get_kind(),
             "email_trigger"
         );

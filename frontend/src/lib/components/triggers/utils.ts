@@ -546,10 +546,6 @@ export function getTriggerLabel(trigger: Trigger): string {
 		return `${config?.queue_url}`
 	} else if (type === 'gcp' && config?.gcp_resource_path && config?.topic) {
 		return `${config?.gcp_resource_path} - ${config?.topic}`
-	} else if (type === 'azure' && config?.scope_resource_id) {
-		const mode = config?.azure_mode ? `[${config.azure_mode}] ` : ''
-		const topic = config?.topic_name ? ` / ${config.topic_name}` : ''
-		return `${mode}${config.scope_resource_id}${topic}`
 	} else if (type === 'websocket' && config?.url) {
 		return `${config?.url}`
 	} else if (type === 'email' && config?.local_part) {
@@ -593,6 +589,7 @@ export function sortTriggers(triggers: Trigger[]): Trigger[] {
 		'mqtt',
 		'sqs',
 		'gcp',
+		'azure',
 		'email',
 		'nextcloud',
 		'google'

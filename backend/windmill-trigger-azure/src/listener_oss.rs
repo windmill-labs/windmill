@@ -5,7 +5,7 @@ pub use super::listener_ee::*;
 #[cfg(not(feature = "private"))]
 use {
     super::AzureTrigger,
-    serde_json::value::RawValue,
+    serde_json::{value::RawValue, Value},
     std::{collections::HashMap, sync::Arc},
     tokio::sync::RwLock,
     windmill_common::{error::Result, jobs::JobTriggerKind, triggers::TriggerKind, DB},
@@ -14,7 +14,7 @@ use {
 
 #[cfg(not(feature = "private"))]
 impl TriggerJobArgs for AzureTrigger {
-    type Payload = String;
+    type Payload = Value;
     const TRIGGER_KIND: TriggerKind = TriggerKind::Azure;
     fn v1_payload_fn(_payload: &Self::Payload) -> HashMap<String, Box<RawValue>> {
         HashMap::new()

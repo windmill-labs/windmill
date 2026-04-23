@@ -5760,12 +5760,12 @@ trigger related commands
   - \`--json\` - Output as JSON (for piping to jq)
 - \`trigger get <path:string>\` - get a trigger's details
   - \`--json\` - Output as JSON (for piping to jq)
-  - \`--kind <kind:string>\` - Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email). Recommended for faster lookup
+  - \`--kind <kind:string>\` - Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email). Recommended for faster lookup
 - \`trigger new <path:string>\` - create a new trigger locally
-  - \`--kind <kind:string>\` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)
+  - \`--kind <kind:string>\` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)
 - \`trigger push <file_path:string> <remote_path:string>\` - push a local trigger spec. This overrides any remote versions.
 - \`trigger set-permissioned-as <path:string> <email:string>\` - Set the email (run-as user) for a trigger (requires admin or wm_deployers group)
-  - \`--kind <kind:string>\` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)
+  - \`--kind <kind:string>\` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)
 
 ### user
 
@@ -5873,6 +5873,100 @@ workspace related commands
 
 // YAML schema content for triggers and schedules
 export const SCHEMAS: Record<string, string> = {
+  "azure_trigger": `type: object
+properties:
+  script_path:
+    type: string
+    description: Path to the script or flow to execute when triggered
+  permissioned_as:
+    type: string
+    description: The user or group this trigger runs as (permissioned_as)
+  is_flow:
+    type: boolean
+    description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
+  azure_resource_path:
+    type: string
+  azure_mode:
+    type: string
+    enum:
+    - basic_push
+    - namespace_push
+    - namespace_pull
+    description: Azure Event Grid trigger mode.
+  scope_resource_id:
+    type: string
+    description: ARM resource ID of the topic (basic) or namespace (namespace modes).
+  topic_name:
+    type: string
+    description: Topic name within the namespace (namespace modes only).
+  subscription_name:
+    type: string
+  event_type_filters:
+    type: array
+    items:
+      type: string
+  delivery_config:
+    type: object
+    properties:
+      secret_hash:
+        type: string
+        description: sha256 hex digest of the shared secret Azure attaches as X-Windmill-Secret
+          on each delivery. Read-only.
+    description: Server-managed secret used to authenticate inbound push deliveries.
+      Generated on trigger save; only the hash is persisted.
+  error_handler_path:
+    type: string
+  error_handler_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  retry:
+    type: object
+    properties:
+      constant:
+        type: object
+        description: Retry with constant delay between attempts
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          seconds:
+            type: integer
+            description: Seconds to wait between retries
+      exponential:
+        type: object
+        description: Retry with exponential backoff (delay doubles each time)
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          multiplier:
+            type: integer
+            description: Multiplier for exponential backoff
+          seconds:
+            type: integer
+            minimum: 1
+            description: Initial delay in seconds
+          random_factor:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: Random jitter percentage (0-100) to avoid thundering herd
+      retry_if:
+        $ref: '#/components/schemas/RetryIf'
+    description: Retry configuration for failed module executions
+required:
+- script_path
+- permissioned_as
+- is_flow
+- azure_resource_path
+- azure_mode
+- scope_resource_id
+- subscription_name
+`,
   "gcp_trigger": `type: object
 properties:
   script_path:
@@ -6807,6 +6901,7 @@ export const SCHEMA_MAPPINGS: Record<string, SchemaMapping[]> = {
     { name: "MqttTrigger", schemaKey: "mqtt_trigger", filePattern: "*.mqtt_trigger.yaml" },
     { name: "SqsTrigger", schemaKey: "sqs_trigger", filePattern: "*.sqs_trigger.yaml" },
     { name: "GcpTrigger", schemaKey: "gcp_trigger", filePattern: "*.gcp_trigger.yaml" },
+    { name: "AzureTrigger", schemaKey: "azure_trigger", filePattern: "*.azure_trigger.yaml" },
   ],
   "schedules": [
     { name: "Schedule", schemaKey: "schedule", filePattern: "*.schedule.yaml" },

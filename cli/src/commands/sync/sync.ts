@@ -1452,6 +1452,7 @@ export async function elementsToMap(
         path.endsWith(".mqtt_trigger" + ext) ||
         path.endsWith(".sqs_trigger" + ext) ||
         path.endsWith(".gcp_trigger" + ext) ||
+        path.endsWith(".azure_trigger" + ext) ||
         path.endsWith(".email_trigger" + ext) ||
         path.endsWith("_native_trigger" + ext))
     ) {
@@ -1830,6 +1831,7 @@ function getOrderFromPath(p: string) {
     typ == "mqtt_trigger" ||
     typ == "sqs_trigger" ||
     typ == "gcp_trigger" ||
+    typ == "azure_trigger" ||
     typ == "email_trigger" ||
     typ == "native_trigger"
   ) {
@@ -3089,7 +3091,7 @@ export async function push(
           }
         }
         const rules = folderRulesCache.get(folderName)!;
-        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|sqs_trigger|gcp_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
+        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|sqs_trigger|gcp_trigger|azure_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
         const relative = remotePath.slice(`f/${folderName}/`.length);
         if (!relative) continue;
         for (const rule of rules) {
@@ -3710,6 +3712,12 @@ export async function push(
                   await wmill.deleteGcpTrigger({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".gcp_trigger.json"),
+                  });
+                  break;
+                case "azure_trigger":
+                  await wmill.deleteAzureTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".azure_trigger.json"),
                   });
                   break;
                 case "email_trigger":

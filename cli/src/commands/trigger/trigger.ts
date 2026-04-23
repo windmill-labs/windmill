@@ -5,6 +5,7 @@ import { stringify as yamlStringify } from "yaml";
 import * as wmill from "../../../gen/services.gen.ts";
 import {
   GcpTrigger,
+  AzureTrigger,
   HttpTrigger,
   KafkaTrigger,
   MqttTrigger,
@@ -48,6 +49,7 @@ type Trigger = {
   mqtt: MqttTrigger;
   sqs: SqsTrigger;
   gcp: GcpTrigger;
+  azure: AzureTrigger;
   email: EmailTrigger;
 };
 
@@ -83,6 +85,7 @@ async function getTrigger<K extends TriggerType>(
     mqtt: wmill.getMqttTrigger,
     sqs: wmill.getSqsTrigger,
     gcp: wmill.getGcpTrigger,
+    azure: wmill.getAzureTrigger,
     email: wmill.getEmailTrigger,
   };
   const triggerFunction = triggerFunctions[triggerType];
@@ -112,6 +115,7 @@ async function updateTrigger<K extends TriggerType>(
     mqtt: wmill.updateMqttTrigger,
     sqs: wmill.updateSqsTrigger,
     gcp: wmill.updateGcpTrigger,
+    azure: wmill.updateAzureTrigger,
     email: wmill.updateEmailTrigger,
   };
   const triggerFunction = triggerFunctions[triggerType];
@@ -139,6 +143,7 @@ async function createTrigger<K extends TriggerType>(
     mqtt: wmill.createMqttTrigger,
     sqs: wmill.createSqsTrigger,
     gcp: wmill.createGcpTrigger,
+    azure: wmill.createAzureTrigger,
     email: wmill.createEmailTrigger,
   };
   const triggerFunction = triggerFunctions[triggerType];
@@ -393,6 +398,15 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     subscription_mode: "create_update",
     enabled: false,
   },
+  azure: {
+    script_path: "",
+    is_flow: false,
+    azure_resource_path: "",
+    azure_mode: "namespace_pull",
+    scope_resource_id: "",
+    subscription_name: "",
+    enabled: false,
+  },
   email: {
     script_path: "",
     is_flow: false,
@@ -523,6 +537,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     mqttTriggers,
     sqsTriggers,
     gcpTriggers,
+    azureTriggers,
     emailTriggers,
   ] = await Promise.all([
     listOrEmpty(() => wmill.listHttpTriggers({ workspace: ws })),
@@ -533,6 +548,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     listOrEmpty(() => wmill.listMqttTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listSqsTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listGcpTriggers({ workspace: ws })),
+    listOrEmpty(() => wmill.listAzureTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listEmailTriggers({ workspace: ws })),
   ]);
   const triggers = [
@@ -544,6 +560,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     ...mqttTriggers.map((x) => ({ path: x.path, kind: "mqtt" })),
     ...sqsTriggers.map((x) => ({ path: x.path, kind: "sqs" })),
     ...gcpTriggers.map((x) => ({ path: x.path, kind: "gcp" })),
+    ...azureTriggers.map((x) => ({ path: x.path, kind: "azure" })),
     ...emailTriggers.map((x) => ({ path: x.path, kind: "email" })),
   ];
 
@@ -622,11 +639,11 @@ const command = new Command()
   .command("get", "get a trigger's details")
   .arguments("<path:string>")
   .option("--json", "Output as JSON (for piping to jq)")
-  .option("--kind <kind:string>", "Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email). Recommended for faster lookup")
+  .option("--kind <kind:string>", "Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email). Recommended for faster lookup")
   .action(get as any)
   .command("new", "create a new trigger locally")
   .arguments("<path:string>")
-  .option("--kind <kind:string>", "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)")
+  .option("--kind <kind:string>", "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)")
   .action(newTrigger as any)
   .command(
     "push",
@@ -641,7 +658,7 @@ const command = new Command()
   .arguments("<path:string> <email:string>")
   .option(
     "--kind <kind:string>",
-    "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)"
+    "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)"
   )
   .action((async (opts: any, triggerPath: string, email: string) => {
     const workspace = await resolveWorkspace(opts);
