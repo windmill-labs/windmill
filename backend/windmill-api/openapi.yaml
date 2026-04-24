@@ -3566,6 +3566,37 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/connect_slack:
+    post:
+      summary: connect slack (non-interactive; pre-minted bot token)
+      operationId: connectSlack
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: connect slack with a pre-minted bot token
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - bot_token
+                - team_id
+                - team_name
+              properties:
+                bot_token:
+                  type: string
+                  description: xoxb-... bot token obtained at api.slack.com/apps
+                team_id:
+                  type: string
+                team_name:
+                  type: string
+      responses:
+        "200":
+          description: status
+
   /w/{workspace}/workspaces/run_slack_message_test_job:
     post:
       summary: run a job that sends a message to Slack
@@ -5726,6 +5757,35 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /oauth/connect_slack_instance:
+    post:
+      summary: connect slack instance (non-interactive; pre-minted bot token)
+      operationId: connectSlackInstance
+      tags:
+        - oauth
+      requestBody:
+        description: connect slack at the instance level with a pre-minted bot token
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - bot_token
+                - team_id
+                - team_name
+              properties:
+                bot_token:
+                  type: string
+                  description: xoxb-... bot token obtained at api.slack.com/apps
+                team_id:
+                  type: string
+                team_name:
+                  type: string
+      responses:
+        "200":
+          description: status
 
   /oauth/connect_callback/{client_name}:
     post:
