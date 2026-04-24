@@ -216,6 +216,8 @@ pub use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 
 pub use windmill_common::utils::{COOKIE_DOMAIN, IS_SECURE};
 
+pub use windmill_api_debug::reload_debug_signing_key;
+
 #[cfg(feature = "oauth2")]
 pub use windmill_oauth::OAUTH_CLIENTS;
 
@@ -892,6 +894,24 @@ pub async fn run_server(
                     #[cfg(not(all(
                         feature = "enterprise",
                         feature = "gcp_trigger",
+                        feature = "private"
+                    )))]
+                    {
+                        Router::new()
+                    }
+                })
+                .nest("/azure/w/{workspace_id}", {
+                    #[cfg(all(
+                        feature = "enterprise",
+                        feature = "azure_trigger",
+                        feature = "private"
+                    ))]
+                    {
+                        triggers::azure::handler_oss::azure_push_route_handler()
+                    }
+                    #[cfg(not(all(
+                        feature = "enterprise",
+                        feature = "azure_trigger",
                         feature = "private"
                     )))]
                     {

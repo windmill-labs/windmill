@@ -23,6 +23,7 @@ use crate::{apps::AppWithLastVersion, db::DB, folders::Folder};
             feature = "kafka",
             feature = "sqs_trigger",
             feature = "gcp_trigger",
+            feature = "azure_trigger",
             feature = "nats",
             feature = "smtp",
         ),
@@ -763,6 +764,23 @@ pub(crate) async fn tarball_workspace(
                     .write_to_archive(
                         &trigger_str,
                         &format!("{}.gcp_trigger.json", trigger.base.path),
+                    )
+                    .await?;
+            }
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "azure_trigger", feature = "private"))]
+        {
+            use crate::triggers::azure::AzureTrigger;
+            let handler = AzureTrigger;
+            let azure_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+
+            for trigger in azure_triggers {
+                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.azure_trigger.json", trigger.base.path),
                     )
                     .await?;
             }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, worker_group, event_type::text, desired_workers, reason, applied_at FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT $2 OFFSET $3",
+  "query": "SELECT id, worker_group, event_type::text, desired_workers, reason, (applied_at AT TIME ZONE 'UTC') AS \"applied_at!: chrono::DateTime<chrono::Utc>\" FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -30,8 +30,8 @@
       },
       {
         "ordinal": 5,
-        "name": "applied_at",
-        "type_info": "Timestamp"
+        "name": "applied_at!: chrono::DateTime<chrono::Utc>",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -47,8 +47,8 @@
       null,
       false,
       true,
-      false
+      null
     ]
   },
-  "hash": "a38df5d7dc4577c715d9acdaf87c38535ad388b1948a95efafd71135cfe5e3a6"
+  "hash": "5d26d8145464131740172082584b4e2f32987b67a125981e7122ae5b7b88fa46"
 }

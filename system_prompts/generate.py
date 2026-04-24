@@ -912,6 +912,7 @@ SKILL_DEFINITIONS = [
             ('MqttTrigger', 'mqtt_trigger'),
             ('SqsTrigger', 'sqs_trigger'),
             ('GcpTrigger', 'gcp_trigger'),
+            ('AzureTrigger', 'azure_trigger'),
         ],
     },
     {
@@ -1307,6 +1308,7 @@ def main():
             'MqttTrigger', 'NewMqttTrigger',
             'SqsTrigger', 'NewSqsTrigger',
             'GcpTrigger',
+            'AzureTrigger',
         ]
         for schema_name in schema_names:
             if schema_name in backend_schemas:

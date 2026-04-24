@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.688.0"
+version = "1.690.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -27,6 +27,7 @@ members = [
     "./windmill-trigger-nats",
     "./windmill-trigger-sqs",
     "./windmill-trigger-gcp",
+    "./windmill-trigger-azure",
     "./windmill-trigger-http",
     "./windmill-native-triggers",
     "./windmill-alerting",
@@ -86,7 +87,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.688.0"
+version = "1.690.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -142,6 +143,7 @@ mqtt_trigger = ["windmill-api/mqtt_trigger"]
 native_trigger = ["windmill-api/native_trigger"]
 sqs_trigger = ["windmill-api/sqs_trigger", "windmill-common/aws_auth", "windmill-api/openidconnect"]
 gcp_trigger = ["windmill-api/gcp_trigger"]
+azure_trigger = ["windmill-api/azure_trigger"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp", "windmill-queue/smtp"]
 license = ["windmill-api/license", "windmill-api-settings/license"]
 oauth2 = ["windmill-api/oauth2"]
@@ -183,7 +185,7 @@ oss_core = [
 ce_core = ["oss_core", "private", "operator"]
 ee_core = [
     "enterprise", "stripe", "prometheus", "cloud",
-    "kafka", "sqs_trigger", "nats", "gcp_trigger",
+    "kafka", "sqs_trigger", "nats", "gcp_trigger", "azure_trigger",
     "jemalloc", "otel", "operator"
 ]
 ee_server = ["enterprise_saml", "tantivy", "agent_worker_server", "local_reports"]
@@ -197,7 +199,7 @@ ee_rhel = ["ce_core", "ee_core", "kafka-gssapi", "all_languages"]
 ee_windows = ["ce_core", "ee_core", "all_languages_windows"]
 all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embedding", "parquet", "prometheus", "flow_testing",
  "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "kafka-gssapi", "nats", "otel", "dind", "websocket", "http_trigger",
-  "postgres_trigger", "mcp", "mqtt_trigger", "sqs_trigger", "gcp_trigger", "smtp", "stripe",
+  "postgres_trigger", "mcp", "mqtt_trigger", "sqs_trigger", "gcp_trigger", "azure_trigger", "smtp", "stripe",
    "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server", "bedrock", "native_trigger", "quickjs",
    "windmill-git-sync/all_sqlx_features"]
 
@@ -277,6 +279,7 @@ windmill-trigger-kafka.workspace = true
 windmill-trigger-nats.workspace = true
 windmill-trigger-sqs.workspace = true
 windmill-trigger-gcp.workspace = true
+windmill-trigger-azure.workspace = true
 windmill-api-auth.workspace = true
 axum.workspace = true
 serde.workspace = true
@@ -327,6 +330,7 @@ windmill-trigger-email = { path = "./windmill-trigger-email" }
 windmill-trigger-nats = { path = "./windmill-trigger-nats" }
 windmill-trigger-sqs = { path = "./windmill-trigger-sqs" }
 windmill-trigger-gcp = { path = "./windmill-trigger-gcp" }
+windmill-trigger-azure = { path = "./windmill-trigger-azure" }
 windmill-trigger-http = { path = "./windmill-trigger-http" }
 windmill-native-triggers = { path = "./windmill-native-triggers" }
 windmill-alerting = { path = "./windmill-alerting" }

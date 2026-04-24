@@ -254,6 +254,7 @@
 			sqs_used,
 			mqtt_used,
 			gcp_used,
+			azure_used,
 			email_used,
 			nextcloud_used,
 			google_used,
@@ -284,6 +285,9 @@
 		}
 		if (gcp_used) {
 			usedKinds.push('gcp')
+		}
+		if (azure_used) {
+			usedKinds.push('azure')
 		}
 		if (email_used) {
 			usedKinds.push('email')
