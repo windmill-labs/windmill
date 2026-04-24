@@ -53,7 +53,7 @@ use windmill_common::runnable_settings::{
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
-use windmill_common::worker::{to_raw_value, Connection};
+use windmill_common::worker::{error_to_value, to_raw_value, Connection};
 use windmill_common::{
     add_time, get_latest_flow_version_info_for_path, get_script_info_for_hash, FlowVersionInfo,
     ScriptHashInfo, DB,
@@ -405,6 +405,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         chat_input_enabled: bool,
         conversation_id: Option<Uuid>,
         is_ai_agent_step: bool,
+        omit_output_from_conversation: bool,
     }
     let (
         should_continue_flow,
@@ -1609,10 +1610,22 @@ pub async fn update_flow_status_after_job_completion_internal(
              current_module_id = %current_module.map(|x| x.id.clone()).unwrap_or_default(),
             continue_on_error = %continue_on_error, should_continue_flow = %should_continue_flow, "computed if flow should continue");
 
+        let is_ai_agent_step = current_module.is_some_and(|m| m.is_ai_agent());
+        let omit_output_from_conversation = match (is_ai_agent_step, current_module) {
+            (true, Some(module)) => match module.get_value()? {
+                FlowModuleValue::AIAgent { omit_output_from_conversation, .. } => {
+                    omit_output_from_conversation
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+
         let chat_ai_info = ChatAiInfo {
             chat_input_enabled: old_status.chat_input_enabled.unwrap_or(false),
             conversation_id: old_status.memory_id,
-            is_ai_agent_step: current_module.is_some_and(|m| m.is_ai_agent()),
+            is_ai_agent_step,
+            omit_output_from_conversation,
         };
         (
             should_continue_flow,
@@ -1843,6 +1856,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 success,
                 skipped,
                 chat_ai_info.is_ai_agent_step,
+                chat_ai_info.omit_output_from_conversation,
                 &nresult,
                 chat_ai_info.chat_input_enabled,
                 chat_ai_info.conversation_id,
@@ -1990,16 +2004,60 @@ fn find_flow_job_index(flow_jobs: &Vec<Uuid>, job_id_for_status: &Uuid) -> Optio
     flow_jobs.iter().position(|x| x == job_id_for_status)
 }
 
+fn format_chat_message_value(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(_) | Value::Number(_) => value.to_string(),
+        Value::String(text) => text.clone(),
+        Value::Array(_) | Value::Object(_) => serde_json::to_string_pretty(value)
+            .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+    }
+}
+
+/// Selects the assistant message persisted for the final non-AI step in a chat-enabled flow.
+/// `windmill_chat_answer` is the explicit override contract:
+/// - `null` suppresses the assistant message
+/// - any other JSON value is rendered as the chat message
+fn extract_chat_message_from_flow_result(result: &RawValue) -> error::Result<Option<String>> {
+    let value: Value = serde_json::from_str(result.get())
+        .map_err(|e| Error::internal_err(format!("Failed to parse flow result: {e}")))?;
+
+    match value {
+        Value::Object(map) => {
+            match map.get("windmill_chat_answer") {
+                Some(Value::Null) => return Ok(None),
+                Some(answer) => return Ok(Some(format_chat_message_value(answer))),
+                _ => {}
+            }
+
+            Ok(Some(
+                serde_json::to_string_pretty(&Value::Object(map))
+                    .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+            ))
+        }
+        Value::String(content) => Ok(Some(content)),
+        value => Ok(Some(
+            serde_json::to_string_pretty(&value)
+                .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+        )),
+    }
+}
+
 async fn add_tool_message_to_conversation(
     db: &DB,
     job_id: &Uuid,
     success: bool,
     skipped: bool,
     is_ai_agent_step: bool,
+    omit_output_from_conversation: bool,
     result: &Box<RawValue>,
     chat_input_enabled: bool,
     conversation_id: Option<Uuid>,
 ) -> error::Result<()> {
+    if is_ai_agent_step && omit_output_from_conversation {
+        return Ok(());
+    }
+
     // Create assistant message if it's a flow and it's done, but only if last module is not an AI agent
     if !skipped && chat_input_enabled {
         // Get conversation_id from flow_status.memory_id
@@ -2007,28 +2065,8 @@ async fn add_tool_message_to_conversation(
         if let Some(conversation_id) = conversation_id {
             // Only create assistant message if last module is NOT an AI agent, or there was an error
             if !is_ai_agent_step || success == false {
-                let value = serde_json::to_value(result.get())
-                    .map_err(|e| Error::internal_err(format!("Failed to serialize result: {e}")))?;
-
-                let content = match value {
-                    // If it's an Object with "output" key AND the output is a String, return it
-                    serde_json::Value::Object(mut map)
-                        if map.contains_key("output")
-                            && matches!(map.get("output"), Some(serde_json::Value::String(_))) =>
-                    {
-                        if let Some(serde_json::Value::String(s)) = map.remove("output") {
-                            s
-                        } else {
-                            // prettify the whole result
-                            serde_json::to_string_pretty(&map)
-                                .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
-                        }
-                    }
-                    // Otherwise, if the whole value is a String, return it
-                    serde_json::Value::String(s) => s,
-                    // Otherwise, prettify the whole result
-                    v => serde_json::to_string_pretty(&v)
-                        .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+                let Some(content) = extract_chat_message_from_flow_result(result.as_ref())? else {
+                    return Ok(());
                 };
 
                 // Insert new assistant message
@@ -3540,6 +3578,32 @@ async fn push_next_flow_job(
                 ));
             }
         }
+        NextFlowTransform::StepFailure { error } => {
+            let result = Arc::new(to_raw_value(&WrappedError { error }));
+            update_flow_status_after_job_completion(
+                db,
+                client,
+                flow_job.id,
+                &Uuid::nil(),
+                &flow_job.workspace_id,
+                false,
+                None,
+                result,
+                None,
+                false,
+                same_worker_tx,
+                worker_dir,
+                None,
+                worker_name,
+                job_completed_tx,
+                flow_runners,
+                killpill_rx,
+                #[cfg(feature = "benchmark")]
+                &mut BenchmarkIter::new(),
+            )
+            .await?;
+            return Ok(PushNextFlowJob::Done(None));
+        }
     };
 
     // only start runners if we're not already in a squash for loop
@@ -4396,6 +4460,10 @@ enum ContinuePayload {
 enum NextFlowTransform {
     EmptyInnerFlows { branch_chosen: Option<BranchChosen> },
     Continue(ContinuePayload, NextStatus),
+    // The current module failed in-place (e.g. a BranchOne predicate threw).
+    // The error is reported as the step's result so the normal flow machinery
+    // (including `failure_module` and surrounding `skip_failures`) applies.
+    StepFailure { error: serde_json::Value },
 }
 
 fn insert_iter_arg(
@@ -4793,6 +4861,7 @@ async fn compute_next_flow_transform(
                 | FlowStatusModule::WaitingForExecutor { .. } => {
                     let mut branch_chosen = BranchChosen::Default;
                     let idcontext = get_transform_context(&flow_job, previous_id, &status);
+                    let mut predicate_err: Option<Error> = None;
                     for (i, b) in branches.iter().enumerate() {
                         let pred_res = compute_bool_from_expr(
                             &b.expr,
@@ -4818,12 +4887,21 @@ async fn compute_next_flow_transform(
                             )
                             .await;
                         }
-                        let pred = pred_res?;
+                        let pred = match pred_res {
+                            Ok(p) => p,
+                            Err(e) => {
+                                predicate_err = Some(e);
+                                break;
+                            }
+                        };
 
                         if pred {
                             branch_chosen = BranchChosen::Branch { branch: i };
                             break;
                         }
+                    }
+                    if let Some(e) = predicate_err {
+                        return Ok(NextFlowTransform::StepFailure { error: error_to_value(&e) });
                     }
                     branch_chosen
                 }
@@ -5572,5 +5650,86 @@ pub async fn get_previous_job_result(
             .0,
         )),
         _ => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_chat_message_from_flow_result;
+    use serde_json::{json, value::to_raw_value};
+
+    #[test]
+    fn pretty_prints_full_result_when_no_override_is_present() {
+        let value = json!({
+            "output": "final answer",
+            "metadata": { "foo": "bar" }
+        });
+        let result = to_raw_value(&value).unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(message, Some(serde_json::to_string_pretty(&value).unwrap()));
+    }
+
+    #[test]
+    fn uses_windmill_chat_answer_when_it_is_a_string() {
+        let result = to_raw_value(&json!({
+            "windmill_chat_answer": "chat-visible answer",
+            "output": "ignored output",
+            "metadata": { "foo": "bar" }
+        }))
+        .unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(message, Some("chat-visible answer".to_string()));
+    }
+
+    #[test]
+    fn skips_persisting_when_windmill_chat_answer_is_null() {
+        let result = to_raw_value(&json!({
+            "windmill_chat_answer": null,
+            "output": "should not be stored"
+        }))
+        .unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(message, None);
+    }
+
+    #[test]
+    fn coerces_scalar_windmill_chat_answer_to_a_string() {
+        let result = to_raw_value(&json!({
+            "windmill_chat_answer": 42,
+            "output": "ignored output",
+            "metadata": { "foo": "bar" }
+        }))
+        .unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(message, Some("42".to_string()));
+    }
+
+    #[test]
+    fn pretty_prints_structured_windmill_chat_answer_only() {
+        let override_value = json!({
+            "text": "chat-visible answer",
+            "meta": ["a", "b"]
+        });
+        let result = to_raw_value(&json!({
+            "windmill_chat_answer": override_value,
+            "output": "ignored output",
+            "metadata": { "foo": "bar" }
+        }))
+        .unwrap();
+
+        let message = extract_chat_message_from_flow_result(result.as_ref()).unwrap();
+
+        assert_eq!(
+            message,
+            Some(serde_json::to_string_pretty(&override_value).unwrap())
+        );
     }
 }

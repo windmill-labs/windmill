@@ -13,9 +13,16 @@ import {
 } from "../adapters/cli/runtime";
 import { copyDirectory, readDirectoryFiles } from "../core/files";
 import { validateCliWorkspace } from "../core/validators";
-import type { BenchmarkArtifactFile, ModeRunner } from "../core/types";
+import type { BenchmarkArtifactFile, CliTrace, ModeRunner } from "../core/types";
 
-const IGNORE_WORKSPACE_FILES = new Set([".claude", "AGENTS.md", "CLAUDE.md", "rt.d.ts"]);
+const IGNORE_WORKSPACE_FILES = new Set([
+  ".claude",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "rt.d.ts",
+  ".wmill-benchmark-bin",
+  ".wmill-benchmark-wmill-invocations.log",
+]);
 
 interface CliWorkspaceFixture {
   sourceDir: string;
@@ -25,6 +32,7 @@ interface CliWorkspaceFixture {
 interface CliRunActual {
   assistantOutput: string;
   workspaceFiles: Record<string, string>;
+  trace: CliTrace;
 }
 
 const CLAUDE_PROJECT_PREAMBLE = [
@@ -62,7 +70,7 @@ export function createCliModeRunner(
           }
         : undefined;
     },
-    async run(prompt, initial, _context) {
+    async run(prompt, initial, context) {
       const workspaceDir = await mkdtemp(join(tmpdir(), "wmill-cli-benchmark-"));
 
       try {
@@ -78,7 +86,12 @@ export function createCliModeRunner(
         await writeFile(join(workspaceDir, "rt.d.ts"), "export namespace RT {}\n", "utf8");
 
         const renderedPrompt = await renderPrompt(prompt, workspaceDir);
-        const run = await runPromptAndCapture(renderedPrompt, workspaceDir, 6, modelConfig);
+        const run = await runPromptAndCapture(
+          renderedPrompt,
+          workspaceDir,
+          context.evalCase?.runtime?.maxTurns ?? 6,
+          modelConfig
+        );
         const workspaceFiles = await readDirectoryFiles(workspaceDir, { ignore: IGNORE_WORKSPACE_FILES });
 
         return {
@@ -86,11 +99,12 @@ export function createCliModeRunner(
           actual: {
             assistantOutput: run.output,
             workspaceFiles,
+            trace: run.trace,
           },
-          assistantMessageCount: run.assistantMessageCount,
-          toolCallCount: run.toolsUsed.length,
-          toolsUsed: run.toolsUsed.map((entry) => entry.tool),
-          skillsInvoked: run.skillsInvoked,
+          assistantMessageCount: run.trace.assistantMessageCount,
+          toolCallCount: run.trace.toolsUsed.length,
+          toolsUsed: run.trace.toolsUsed.map((entry) => entry.tool),
+          skillsInvoked: run.trace.skillsInvoked,
           tokenUsage: run.tokenUsage ?? null,
         };
       } catch (error) {
@@ -100,6 +114,7 @@ export function createCliModeRunner(
           actual: {
             assistantOutput: "",
             workspaceFiles: {},
+            trace: emptyCliTrace(),
           },
           error: message,
           assistantMessageCount: 0,
@@ -112,11 +127,14 @@ export function createCliModeRunner(
         await rm(workspaceDir, { recursive: true, force: true });
       }
     },
-    validate({ actual, initial, expected }) {
+    validate({ evalCase, actual, initial, expected }) {
       return validateCliWorkspace({
         actualFiles: actual.workspaceFiles,
         expectedFiles: expected?.files,
         initialFiles: initial?.files,
+        assistantOutput: actual.assistantOutput,
+        trace: actual.trace,
+        cliExpect: evalCase.cliExpect,
       });
     },
     buildArtifacts(actual): BenchmarkArtifactFile[] {
@@ -124,6 +142,17 @@ export function createCliModeRunner(
         {
           path: "assistant-output.txt",
           content: `${actual.assistantOutput}\n`,
+        },
+        {
+          path: "trace.json",
+          content: JSON.stringify(actual.trace, null, 2) + "\n",
+        },
+        {
+          path: "wmill-invocations.jsonl",
+          content:
+            actual.trace.wmillInvocations
+              .map((entry) => JSON.stringify(entry))
+              .join("\n") + (actual.trace.wmillInvocations.length > 0 ? "\n" : ""),
         },
       ];
 
@@ -136,6 +165,19 @@ export function createCliModeRunner(
 
       return artifacts;
     },
+  };
+}
+
+function emptyCliTrace(): CliTrace {
+  return {
+    toolsUsed: [],
+    skillsInvoked: [],
+    assistantMessageCount: 0,
+    bashCommands: [],
+    proposedCommands: [],
+    executedWmillCommands: [],
+    wmillInvocations: [],
+    firstMutationToolIndex: null,
   };
 }
 

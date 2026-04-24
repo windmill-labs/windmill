@@ -766,6 +766,8 @@
 				{appPath}
 				{computeS3ForceViewerPolicies}
 				bottom={innerBottomSnippet}
+				hideCatalogPicker={extra?.['hideCatalogPicker'] ?? false}
+				hideRawInput={extra?.['hideRawInput'] ?? false}
 			/>
 		{:else if inputCat == 'object' && format == 'json-schema'}
 			{#await import('$lib/components/EditableSchemaForm.svelte')}

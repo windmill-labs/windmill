@@ -101,4 +101,18 @@ describe("loadCases", () => {
       requiredBackendRunnableTypes: [{ key: "a", type: "inline" }],
     });
   });
+
+  it("loads CLI behavior expectations for deploy-guidance cases", async () => {
+    const cliCases = await loadCases("cli");
+    const caseEntry = cliCases.find((entry) => entry.id === "bun-hello-script");
+
+    expect(caseEntry?.cliExpect).toEqual({
+      requiredSkills: ["write-script-bun"],
+      requiredSkillsBeforeFirstMutation: ["write-script-bun"],
+      forbiddenSkills: ["write-script-python3", "write-flow"],
+      orderedAssistantMentions: ["wmill generate-metadata", "wmill sync push"],
+      orderedProposedCommands: ["wmill generate-metadata", "wmill sync push"],
+      forbiddenExecutedCommands: ["^wmill generate-metadata", "^wmill sync push"],
+    });
+  });
 });

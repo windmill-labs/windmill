@@ -6,7 +6,9 @@ use sqlx::types::Json;
 use tokio::process::Command;
 use windmill_common::client::AuthedClient;
 use windmill_common::error::Error;
+use windmill_common::scripts::ScriptLang;
 use windmill_common::worker::{to_raw_value, write_file, Connection};
+use windmill_common::workspace_dependencies::clean_lock_from_annotations;
 use windmill_queue::{
     append_logs, CanceledBy, MiniPulledJob, INIT_SCRIPT_PATH_PREFIX, PERIODIC_SCRIPT_PATH_PREFIX,
 };
@@ -417,10 +419,16 @@ pub async fn handle_powershell_job(
     // Resolve modules from workspace dependencies and/or script imports
     let all_modules = match &maybe_lock {
         MaybeLock::Resolved { lock } if !lock.is_empty() => {
-            // Deployed script with lock: parse workspace deps from lock, merge with script imports
-            let ws_modules = parse_modules_json(lock)?;
+            // Deployed script with lock: strip workspace-dependencies annotation header,
+            // parse the modules.json body, and merge with script imports.
+            let cleaned = clean_lock_from_annotations(lock, ScriptLang::Powershell);
             let script_modules = parse_script_imports(content);
-            merge_module_requests(ws_modules, script_modules)
+            if cleaned.trim().is_empty() {
+                script_modules
+            } else {
+                let ws_modules = parse_modules_json(&cleaned)?;
+                merge_module_requests(ws_modules, script_modules)
+            }
         }
         MaybeLock::Unresolved { workspace_dependencies } => {
             let script_modules = parse_script_imports(content);
@@ -1068,6 +1076,19 @@ mod tests {
     #[test]
     fn test_parse_modules_json_invalid_json() {
         assert!(parse_modules_json("not json").is_err());
+    }
+
+    #[test]
+    fn test_parse_modules_json_after_cleaning_header() {
+        // Simulates the deployed-script lock: workspace-dependencies header
+        // prepended to the modules.json content. `clean_lock_from_annotations`
+        // strips header lines so the remaining body can be JSON-parsed.
+        let lock = "# workspace-dependencies-mode: manual\n# workspace-dependencies: default:abc123\n{\"modules\": {\"PSWriteColor\": \"1.0.0\"}}";
+        let cleaned = clean_lock_from_annotations(lock, ScriptLang::Powershell);
+        let modules = parse_modules_json(&cleaned).unwrap();
+        assert_eq!(modules.len(), 1);
+        assert_eq!(modules[0].name, "PSWriteColor");
+        assert_eq!(modules[0].version, Some("1.0.0".to_string()));
     }
 
     // --- parse_script_imports tests ---

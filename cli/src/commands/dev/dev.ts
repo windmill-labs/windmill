@@ -7,7 +7,8 @@ import { WebSocket, WebSocketServer } from "ws";
 import * as getPort from "get-port";
 import * as http from "node:http";
 import * as open from "open";
-import { readFile, realpath } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
+import { readTextFile } from "../../utils/utils.ts";
 import { watch } from "node:fs";
 import { getTypeStrFromPath, GlobalOptions } from "../../types.ts";
 import { ignoreF } from "../sync/sync.ts";
@@ -93,7 +94,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
         )) as FlowFile;
         await replaceInlineScripts(
           localFlow.value.modules,
-          async (path: string) => await readFile(localPath + path, "utf-8"),
+          async (path: string) => await readTextFile(localPath + path),
           log,
           localPath,
           SEP,
@@ -114,7 +115,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
         log.info("Updated " + localPath);
         broadcastChanges(currentLastEdit);
       } else if (typ == "script") {
-        const content = await readFile(cpath, "utf-8");
+        const content = await readTextFile(cpath);
         const splitted = cpath.split(".");
         const wmPath = splitted[0];
         const lang = inferContentTypeFromFilePath(cpath, opts.defaultTs);

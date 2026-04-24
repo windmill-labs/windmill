@@ -24,7 +24,7 @@ use windmill_common::{
     utils::{not_found_if_none, StripPath},
 };
 
-const KINDS: [&str; 19] = [
+const KINDS: [&str; 20] = [
     "script",
     "group_",
     "resource",
@@ -41,6 +41,7 @@ const KINDS: [&str; 19] = [
     "postgres_trigger",
     "mqtt_trigger",
     "gcp_trigger",
+    "azure_trigger",
     "sqs_trigger",
     "email_trigger",
     "volume",

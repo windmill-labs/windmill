@@ -26,6 +26,7 @@ fn build_trigger_scope_domains() -> Vec<ScopeDomain> {
         ("mqtt_triggers", "MQTT"),
         ("sqs_triggers", "AWS SQS"),
         ("gcp_triggers", "GCP Pub/Sub"),
+        ("azure_triggers", "Azure Event Grid"),
         ("postgres_triggers", "PostgreSQL"),
         ("email_triggers", "Email"),
     ];
@@ -64,6 +65,12 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
             "Flows",
             "Access to automation scripts and workflows",
             true,
+        ),
+        (
+            "flow_conversations",
+            "Flow Conversations",
+            "Flow conversation management",
+            false,
         ),
         ("apps", "Apps", "App management", true),
         ("raw_apps", "RawApps", "Raw app management", true),

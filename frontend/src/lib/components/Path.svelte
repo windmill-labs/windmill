@@ -22,6 +22,7 @@
 		MqttTriggerService,
 		SqsTriggerService,
 		GcpTriggerService,
+		AzureTriggerService,
 		EmailTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
@@ -55,6 +56,7 @@
 		| 'mqtt_trigger'
 		| 'sqs_trigger'
 		| 'gcp_trigger'
+		| 'azure_trigger'
 		| 'email_trigger'
 	let meta: Meta | undefined = $state(undefined)
 	interface Props {
@@ -297,6 +299,11 @@
 			})
 		} else if (kind === 'gcp_trigger') {
 			return await GcpTriggerService.existsGcpTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind === 'azure_trigger') {
+			return await AzureTriggerService.existsAzureTrigger({
 				workspace: $workspaceStore!,
 				path: path
 			})

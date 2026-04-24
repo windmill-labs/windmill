@@ -202,12 +202,18 @@
 	let testPanelSchema: Schema = $state(emptySchema())
 	// editorCode is what the editor shows; code always holds the main script content
 	let editorCode: string = $state(code)
-	// Sync editorCode when code changes externally (template reset, copilot, etc.)
+	// Sync editorCode when code changes externally (template reset, copilot,
+	// new-script template init, etc.). We also re-run schema inference in that
+	// case — otherwise if the code prop is set after ScriptEditor's onMount (as
+	// happens on /scripts/add when initContent sets script.content after the
+	// editor has already mounted with an empty string), the schema would stay
+	// empty until the user typed into the editor.
 	let lastSyncedCode = code
 	$effect.pre(() => {
 		if (activeModuleTab === null && code !== lastSyncedCode) {
 			editorCode = code
 			lastSyncedCode = code
+			untrack(() => inferSchema(code))
 		}
 	})
 
@@ -1111,8 +1117,14 @@
 		}
 	})
 
-	onMount(() => {
-		inferSchema(code, { applyInitialArgs: true })
+	onMount(async () => {
+		await inferSchema(code, { applyInitialArgs: true })
+		// Retry once if the initial inference failed silently (e.g. transient WASM
+		// init race). Without this, users had to modify the code to trigger a
+		// second on:change-driven inference.
+		if (!validCode && code && lang) {
+			await inferSchema(code, { applyInitialArgs: true })
+		}
 		loadPastTests()
 		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.SCRIPT)

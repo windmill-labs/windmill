@@ -469,6 +469,7 @@ async fn restore_trigger(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) 
         "mqtt_trigger",
         "sqs_trigger",
         "gcp_trigger",
+        "azure_trigger",
         "email_trigger",
     ];
 

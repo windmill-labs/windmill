@@ -34,9 +34,9 @@ use windmill_common::ee_oss::{
     maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICENSE_KEY_VALID,
 };
 
+use windmill_ai::ai_cache::bump_instance_ai_config_revision;
 use windmill_common::{
     agent_workers::AgentConfig,
-    ai_cache::bump_instance_ai_config_revision,
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING,
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,

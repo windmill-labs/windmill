@@ -388,6 +388,15 @@ export const settings: Record<string, Setting[]> = {
 			key: 'disable_password_login',
 			fieldType: 'boolean',
 			storage: 'setting'
+		},
+		{
+			label: 'Auto-login SSO provider',
+			description:
+				'If set, the login page redirects automatically to this provider. Use the OAuth provider key (e.g. "okta", "google") or "saml". The provider must be configured; otherwise the setting is ignored. Visit /user/login?no_sso=1 to bypass the redirect and fall back to the normal login form.',
+			key: 'auto_login_provider',
+			fieldType: 'text',
+			placeholder: 'okta',
+			storage: 'setting'
 		}
 	],
 	'DB Health': [],
