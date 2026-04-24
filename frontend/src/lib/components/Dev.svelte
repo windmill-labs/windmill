@@ -486,13 +486,9 @@
 					return
 				}
 				// Picker mode (URL has no path) — ignore live broadcasts so a random
-				// file change doesn't yank the page out of the picker.
+				// file change doesn't yank the page out of the picker. (When watchPath
+				// IS set the server gates broadcasts itself, so no further filter here.)
 				if (!watchPath) return
-				// Normalize by stripping common folder suffixes so "f/foo__flow" matches "f/foo"
-				const dataPath = data.path?.replace(PATH_SUFFIX_RE, '')
-				if (dataPath && dataPath !== watchPath) {
-					return
-				}
 				if (data.type == 'script' || data.type == 'flow') {
 					// Guard against the $effect on flowStore.val (re)serializing the
 					// just-received payload back over the same WS to handleFlowRoundTrip

@@ -549,10 +549,12 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
 
   const connectedClients: Set<WebSocket> = new Set();
 
-  // Function to send a message to all connected clients.
-  // The dev page filters by URL path on its end, so the server stays a dumb broadcaster
-  // and multiple tabs can each watch their own path.
+  // Send a message to all connected clients, gated by --path when set so we
+  // don't spam clients (or risk yanking their view) with edits to unrelated files.
   function broadcastChanges(lastEdit: LastEditScript | LastEditFlow) {
+    if (opts.path && normalizeWmPath(lastEdit.path) !== opts.path) {
+      return;
+    }
     for (const client of connectedClients.values()) {
       client.send(JSON.stringify(lastEdit));
     }
@@ -830,7 +832,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
 }
 
 const command = new Command()
-  .description("Launch a dev server that watches for local file changes and auto-pushes them to the remote workspace. Provides live reload for scripts and flows during development.")
+  .description("Watch local file changes and live-reload the dev page for preview. Does NOT deploy to the remote workspace — use 'wmill sync push' for that.")
   .option(
     "--includes <pattern...:string>",
     "Filter paths givena glob pattern or path"
