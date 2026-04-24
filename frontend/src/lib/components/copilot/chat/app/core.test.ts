@@ -112,6 +112,14 @@ function createToolCallbacks() {
 	}
 }
 
+function getListFilesTool() {
+	const tool = getAppTools().find((entry) => entry.def.function.name === 'list_files')
+	if (!tool) {
+		throw new Error('list_files tool not found')
+	}
+	return tool
+}
+
 function getPatchFileTool() {
 	const tool = getAppTools().find((entry) => entry.def.function.name === 'patch_file')
 	if (!tool) {
@@ -119,6 +127,69 @@ function getPatchFileTool() {
 	}
 	return tool
 }
+
+describe('app list_files tool', () => {
+	it('returns lightweight metadata without file or runnable contents', async () => {
+		const tool = getListFilesTool()
+
+		const result = await tool.fn({
+			args: {},
+			workspace: 'test-workspace',
+			helpers: createHelpers({
+				getFiles: () => ({
+					frontend: {
+						'/index.tsx': 'const secretFrontendContent = true',
+						'/styles.css': '.secret-class { color: red; }'
+					},
+					backend: {
+						loadUsers: {
+							name: 'Load users',
+							type: 'inline',
+							staticInputs: { admin: true },
+							inlineScript: {
+								language: 'bun',
+								content: 'export async function main() { return "secretBackendContent" }'
+							}
+						},
+						workspaceFlow: {
+							name: 'Workspace flow',
+							type: 'flow',
+							path: 'f/flows/workspace_flow'
+						}
+					}
+				})
+			}),
+			toolCallbacks: createToolCallbacks(),
+			toolId: 'tool-list-files'
+		})
+
+		const parsed = JSON.parse(result)
+		expect(parsed).toEqual({
+			frontend: [
+				{ path: '/index.tsx', size: 34, kind: 'tsx' },
+				{ path: '/styles.css', size: 29, kind: 'css' }
+			],
+			backend: [
+				{
+					key: 'loadUsers',
+					name: 'Load users',
+					type: 'inline',
+					language: 'bun',
+					contentSize: 62,
+					staticInputKeys: ['admin']
+				},
+				{
+					key: 'workspaceFlow',
+					name: 'Workspace flow',
+					type: 'flow',
+					path: 'f/flows/workspace_flow'
+				}
+			]
+		})
+		expect(result).not.toContain('secretFrontendContent')
+		expect(result).not.toContain('secretBackendContent')
+	})
+})
 
 describe('app patch_file tool', () => {
 	it('patches frontend files with an exact replacement', async () => {

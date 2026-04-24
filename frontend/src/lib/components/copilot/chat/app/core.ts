@@ -144,9 +144,6 @@ export interface AppAIChatHelpers {
 
 // ============= Utility =============
 
-/** Maximum characters per file in get_files tool */
-const BATCH_FILE_SIZE_LIMIT = 2500
-
 /** Memoize a factory function - the factory is only called once, on first access */
 const memo = <T>(factory: () => T): (() => T) => {
 	let cached: T | undefined
@@ -202,6 +199,17 @@ function resolveAppPatchTarget(rawPath: string): AppPatchTarget {
 
 function getBackendInlineScriptExtension(runnable: BackendRunnable): 'ts' | 'py' {
 	return runnable.inlineScript?.language === 'python3' ? 'py' : 'ts'
+}
+
+function getFileKind(path: string): string {
+	const filename = path.split('/').pop() ?? path
+	const extension = filename.includes('.') ? filename.split('.').pop() : undefined
+	return extension || 'unknown'
+}
+
+function getStaticInputKeys(runnable: BackendRunnable): string[] | undefined {
+	const keys = runnable.staticInputs ? Object.keys(runnable.staticInputs) : []
+	return keys.length > 0 ? keys : undefined
 }
 
 // ============= Frontend File Tools =============
@@ -365,14 +373,35 @@ const getLintToolDef = memo(() =>
 	)
 )
 
-// ============= Combined Files Tool =============
+// ============= File Listing Tool =============
 
-const getGetFilesSchema = memo(() => z.object({}))
-const getGetFilesToolDef = memo(() =>
+interface AppFrontendFileMetadata {
+	path: string
+	size: number
+	kind: string
+}
+
+interface AppBackendRunnableMetadata {
+	key: string
+	name: string
+	type: BackendRunnableType
+	path?: string
+	language?: InlineScript['language']
+	contentSize?: number
+	staticInputKeys?: string[]
+}
+
+interface AppFilesMetadata {
+	frontend: AppFrontendFileMetadata[]
+	backend: AppBackendRunnableMetadata[]
+}
+
+const getListFilesSchema = memo(() => z.object({}))
+const getListFilesToolDef = memo(() =>
 	createToolDef(
-		getGetFilesSchema(),
-		'get_files',
-		'Get an overview of all files in the app. Content may be truncated for large apps - use get_frontend_file or get_backend_runnable for full content of specific files.'
+		getListFilesSchema(),
+		'list_files',
+		'List lightweight metadata for frontend files and backend runnables in the app. Does not include file or runnable content. Use get_frontend_file(path) or get_backend_runnable(key) to inspect specific content.'
 	)
 )
 
@@ -478,58 +507,39 @@ function formatLintResultResponse(message: string, lintResult: LintResult): stri
 // ============= Tools Array =============
 
 export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
-	// Combined files tool (with per-file truncation for large apps)
+	// Lightweight file/runnable metadata tool (no source contents)
 	{
-		def: getGetFilesToolDef(),
+		def: getListFilesToolDef(),
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Getting all files...' })
+			toolCallbacks.setToolStatus(toolId, { content: 'Listing files...' })
 			const files = helpers.getFiles()
-			const frontendCount = Object.keys(files.frontend).length
-			const backendCount = Object.keys(files.backend).length
-
-			// Truncate each file individually to BATCH_FILE_SIZE_LIMIT
-			let anyTruncated = false
-			const truncatedFiles: AppFiles = {
-				frontend: {},
-				backend: {}
-			}
-
-			for (const [path, content] of Object.entries(files.frontend)) {
-				if (content.length > BATCH_FILE_SIZE_LIMIT) {
-					truncatedFiles.frontend[path] =
-						content.slice(0, BATCH_FILE_SIZE_LIMIT) + '\n... [TRUNCATED]'
-					anyTruncated = true
-				} else {
-					truncatedFiles.frontend[path] = content
-				}
-			}
-
-			for (const [key, runnable] of Object.entries(files.backend)) {
-				const runnableCopy = { ...runnable }
-				if (runnableCopy.inlineScript?.content) {
-					const content = runnableCopy.inlineScript.content
-					if (content.length > BATCH_FILE_SIZE_LIMIT) {
-						runnableCopy.inlineScript = {
-							...runnableCopy.inlineScript,
-							content: content.slice(0, BATCH_FILE_SIZE_LIMIT) + '\n... [TRUNCATED]'
-						}
-						anyTruncated = true
+			const metadata: AppFilesMetadata = {
+				frontend: Object.entries(files.frontend).map(([path, content]) => ({
+					path,
+					size: content.length,
+					kind: getFileKind(path)
+				})),
+				backend: Object.entries(files.backend).map(([key, runnable]) => {
+					const staticInputKeys = getStaticInputKeys(runnable)
+					return {
+						key,
+						name: runnable.name,
+						type: runnable.type,
+						...(runnable.path && { path: runnable.path }),
+						...(runnable.inlineScript && {
+							language: runnable.inlineScript.language,
+							contentSize: runnable.inlineScript.content.length
+						}),
+						...(staticInputKeys && { staticInputKeys })
 					}
-				}
-				truncatedFiles.backend[key] = runnableCopy
+				})
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Retrieved ${frontendCount} frontend files and ${backendCount} backend runnables${anyTruncated ? ' (some truncated)' : ''}`
+				content: `Listed ${metadata.frontend.length} frontend files and ${metadata.backend.length} backend runnables`
 			})
 
-			let result = JSON.stringify(truncatedFiles, null, 2)
-			if (anyTruncated) {
-				result +=
-					'\n\nNote: Some file contents were truncated. Use get_frontend_file(path) or get_backend_runnable(key) to get full content.'
-			}
-
-			return result
+			return JSON.stringify(metadata, null, 2)
 		}
 	},
 	// Frontend tools
@@ -907,7 +917,7 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 ## Available Tools
 
 ### File Management
-- \`get_files()\`: Get an overview of all files (content may be truncated for large files)
+- \`list_files()\`: List lightweight metadata for frontend files and backend runnables. It does not include file or runnable content.
 - \`get_frontend_file(path)\`: Get full content of a specific frontend file
 - \`patch_file(path, old_string, new_string, replace_all?)\`: Make a quick exact text edit to an existing file. Use frontend paths like \`/index.tsx\` and inline backend paths like \`backend/listRecipes/main.ts\`.
 - \`set_frontend_file(path, content)\`: Create or update a frontend file. Returns lint diagnostics.
@@ -1064,8 +1074,8 @@ When you are using the windmill-client, do not forget that as id for variables o
 
 ## Instructions
 
-1. Start with \`get_files()\` to get an overview of all frontend files and backend runnables (content may be truncated for large files)
-2. Use \`get_frontend_file(path)\` or \`get_backend_runnable(key)\` to get full content of specific files when needed
+1. Use the smallest context needed. If the target file or runnable is clear, inspect only that item with \`get_frontend_file(path)\` or \`get_backend_runnable(key)\`.
+2. Use \`list_files()\` only when the target is unclear or the request needs a broad app overview. \`list_files()\` returns metadata only, never file contents.
 3. For small localized edits, prefer \`patch_file\`. Use \`set_frontend_file\` and \`set_backend_runnable\` for larger rewrites, new files, or new runnables. These return lint diagnostics.
 4. Use \`lint()\` at the end to check for and fix any remaining errors
 

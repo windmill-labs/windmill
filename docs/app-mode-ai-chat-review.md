@@ -14,7 +14,7 @@ The app-mode AI chat has a solid foundation: mode-specific helpers, explicit `@`
 
 However, it is not yet optimal for minimal context and user-safe automation:
 
-1. **Context is still too large by default**, especially the app system prompt, mandatory `get_files()` guidance, full datatable schemas, and persistent `@` context.
+1. **Context is still too large by default**, especially the app system prompt, broad file-discovery guidance, full datatable schemas, and persistent `@` context. (`get_files()` has since been replaced by metadata-only `list_files()`.)
 2. **Important app/datatable actions are not consistently confirmed**. The confirmation infrastructure exists, but app tools mostly bypass it.
 3. **Datatables UX is promising but has rough edges**: stale cached table context, weak SQL safety, policy persistence issues, and too-heavy full-schema fetching.
 
@@ -104,7 +104,7 @@ When the user sends a message, `prepareAppUserMessage(...)` builds the user prom
 
 These are generally safe without confirmation:
 
-- `get_files`
+- `list_files`
 - `get_frontend_file`
 - `get_backend_runnable`
 - `get_selected_context`
@@ -144,7 +144,7 @@ The app system prompt is useful but heavier than ideal.
 
 1. It always includes broad app-building instructions, even for small localized edits.
 2. It includes the datatable SDK reference for both TypeScript and Python every time.
-3. It tells the model to start with `get_files()`, which encourages loading all files even when selected context is sufficient.
+3. The previous prompt told the model to start with `get_files()`, which encouraged loading all files even when selected context was sufficient. This is now improved by `list_files()`, but the prompt still needs to stay demand-driven.
 4. It relies heavily on prompt instructions for datatable safety instead of enforcing safety in tools.
 5. Custom workspace/user prompts are appended as `USER GIVEN INSTRUCTIONS`, which is flexible but can further increase context.
 
@@ -152,7 +152,7 @@ The app system prompt is useful but heavier than ideal.
 
 The base app prompt should be shorter and more demand-driven:
 
-- Replace “Start with `get_files()`” with: “Use selected and explicitly provided context first. Call `get_files()` only when a broader overview is needed.”
+- Keep file discovery demand-driven: use selected and explicitly provided context first; call `list_files()` only when a broader metadata overview is needed.
 - Move SDK details behind an on-demand tool such as `get_datatable_sdk_reference(language)`.
 - Keep only minimal datatable rules in the base prompt:
   - use datatables for persistence;
@@ -208,7 +208,7 @@ App mode should use the same infrastructure for important actions.
 
 #### No confirmation required
 
-- `get_files`, if it remains a small overview or metadata-only response;
+- `list_files`, as a metadata-only response;
 - `get_frontend_file`;
 - `get_backend_runnable`;
 - `get_selected_context`;
@@ -322,7 +322,7 @@ Instead of one broad schema tool and one unrestricted SQL tool, prefer smaller t
    - consider confirming `SELECT` row reads too.
 
 3. **Reduce default prompt/tool context**
-   - stop instructing the AI to always call `get_files()`;
+   - keep `list_files()` metadata-only and demand-driven;
    - use selected context first;
    - move SDK reference to an on-demand tool;
    - split datatable tools into smaller schema/table lookups.
