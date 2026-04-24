@@ -5519,6 +5519,11 @@ sync local with a remote instance or the opposite (push or pull)
   - \`-o, --output-file <file:string>\` - Write YAML to a file instead of stdout
   - \`--show-secrets\` - Include sensitive fields (license key, JWT secret) without prompting
   - \`--instance <instance:string>\` - Name of the instance, override the active instance
+- \`instance connect-slack\`
+  - \`--bot-token <bot_token:string>\` - Slack bot token (xoxb-...)
+  - \`--team-id <team_id:string>\` - Slack team id
+  - \`--team-name <team_name:string>\` - Slack team name
+  - \`--instance <instance:string>\` - Instance profile to connect against (defaults to the active instance)
 
 ### job
 
@@ -5867,6 +5872,11 @@ workspace related commands
   - \`--exclude <items:string>\` - Comma-separated kind:path items to exclude
   - \`--preserve-on-behalf-of\` - Preserve original on_behalf_of/permissioned_as values
   - \`-y --yes\` - Non-interactive mode (deploy without prompts)
+- \`workspace connect-slack\` - Non-interactively connect Slack to the active workspace using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: workspace_settings fields, g/slack group, f/slack_bot folder, and the encrypted bot token variable + resource at f/slack_bot/bot_token.
+  - \`--bot-token <bot_token:string>\` - Slack bot token (xoxb-...)
+  - \`--team-id <team_id:string>\` - Slack team id
+  - \`--team-name <team_name:string>\` - Slack team name
+- \`workspace disconnect-slack\`
 
 `,
 };
