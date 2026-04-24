@@ -31,7 +31,7 @@ You MUST use the \`write-flow\` skill to create or modify flows.
 ## Raw App Development
 
 You MUST use the \`raw-app\` skill to create or modify raw apps.
-Whenever a new app needs to be created you MUST ask the user to run \`wmill app new\` in its terminal first.
+When a new app needs to be created, YOU run \`wmill app new\` yourself with \`--summary\`, \`--path\`, and \`--framework\` flags (and any other relevant flags). Do NOT ask the user to run it. If you don't have the values for those flags, ask the user via \`AskUserQuestion\` (one call, all missing fields) — never invent them. See the \`raw-app\` skill for the full procedure.
 
 ## Triggers
 

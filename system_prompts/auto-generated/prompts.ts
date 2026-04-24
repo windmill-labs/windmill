@@ -1816,6 +1816,13 @@ app related commands
 - \`app lint [app_folder:string]\` - Lint a raw app folder to validate structure and buildability
   - \`--fix\` - Attempt to fix common issues (not implemented yet)
 - \`app new\` - create a new raw app from a template
+  - \`--summary <summary:string>\` - App summary (short description). Skips the prompt when provided. Triggers non-interactive mode.
+  - \`--path <path:string>\` - App path (e.g., f/folder/my_app or u/username/my_app). Skips the prompt when provided. Triggers non-interactive mode.
+  - \`--framework <framework:string>\` - Framework template: react19 | react18 | svelte5 | vue. Skips the prompt when provided. Triggers non-interactive mode.
+  - \`--datatable <datatable:string>\` - Datatable to wire up. Without this flag in non-interactive mode, no datatable is configured.
+  - \`--schema <schema:string>\` - Schema to use with --datatable. Created (CREATE SCHEMA IF NOT EXISTS) if it doesn't already exist.
+  - \`--overwrite\` - Overwrite the target directory if it already exists, without prompting.
+  - \`--no-open-in-desktop\` - Do not prompt to open the new app in Claude Desktop.
 - \`app generate-agents [app_folder:string]\` - regenerate AGENTS.md and DATATABLES.md from remote workspace
 - \`app set-permissioned-as <path:string> <email:string>\` - Set the on_behalf_of_email for an app (requires admin or wm_deployers group)
 

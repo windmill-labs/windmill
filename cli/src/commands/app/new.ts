@@ -251,7 +251,26 @@ interface DataConfig {
   schema?: string;
 }
 
-async function newApp(opts: GlobalOptions) {
+type FrameworkKey = "react19" | "react18" | "svelte5" | "vue";
+
+interface NewAppOptions extends GlobalOptions {
+  /** App summary (short description). Skips the prompt when provided. */
+  summary?: string;
+  /** App path (e.g., `f/folder/my_app`). Skips the prompt when provided. */
+  path?: string;
+  /** Framework template. Skips the prompt when provided. */
+  framework?: FrameworkKey;
+  /** Datatable name to wire up. Skip the datatable wizard entirely if not provided. */
+  datatable?: string;
+  /** Schema to create when --datatable is set. If omitted, no schema is created. */
+  schema?: string;
+  /** Overwrite the target directory if it already exists, without prompting. */
+  overwrite?: boolean;
+  /** Suppress the "Open in Claude Desktop?" prompt. */
+  openInDesktop?: boolean;
+}
+
+async function newApp(opts: NewAppOptions) {
   log.info(colors.bold.cyan("Create a new Windmill Raw App"));
   log.info("");
 
@@ -296,17 +315,26 @@ async function newApp(opts: GlobalOptions) {
     );
   }
 
-  // Ask for summary
-  const summary = await Input.prompt({
-    message: "App summary (short description):",
-    minLength: 1,
-    validate: (value: string) => {
-      if (value.trim().length === 0) {
-        return "Summary cannot be empty";
-      }
-      return true;
-    },
-  });
+  // Ask for summary (skipped if --summary is provided)
+  let summary: string;
+  if (opts.summary !== undefined) {
+    if (opts.summary.trim().length === 0) {
+      log.error(colors.red("--summary cannot be empty"));
+      return;
+    }
+    summary = opts.summary;
+  } else {
+    summary = await Input.prompt({
+      message: "App summary (short description):",
+      minLength: 1,
+      validate: (value: string) => {
+        if (value.trim().length === 0) {
+          return "Summary cannot be empty";
+        }
+        return true;
+      },
+    });
+  }
 
   // Build suggestions for path autocompletion
   const buildPathSuggestions = (input: string): string[] => {
@@ -330,32 +358,55 @@ async function newApp(opts: GlobalOptions) {
     return suggestions;
   };
 
-  // Ask for path with validation
+  // Ask for path with validation (skipped if --path is provided)
   let appPath: string;
-  while (true) {
-    appPath = await Input.prompt({
-      message: "App path (e.g., f/my_folder/my_app or u/username/my_app):",
-      minLength: 1,
-      suggestions: buildPathSuggestions,
-    });
-
-    const validation = validateAppPath(appPath);
-    if (validation.valid) {
-      break;
+  if (opts.path !== undefined) {
+    const validation = validateAppPath(opts.path);
+    if (!validation.valid) {
+      log.error(colors.red(`Invalid --path: ${validation.error}`));
+      return;
     }
-    log.error(colors.red(`Invalid path: ${validation.error}`));
+    appPath = opts.path;
+  } else {
+    while (true) {
+      appPath = await Input.prompt({
+        message: "App path (e.g., f/my_folder/my_app or u/username/my_app):",
+        minLength: 1,
+        suggestions: buildPathSuggestions,
+      });
+
+      const validation = validateAppPath(appPath);
+      if (validation.valid) {
+        break;
+      }
+      log.error(colors.red(`Invalid path: ${validation.error}`));
+    }
   }
 
-  // Ask for framework
-  const framework = await Select.prompt({
-    message: "Select a framework:",
-    options: [
-      { name: "React 19 (Recommended)", value: "react19" },
-      { name: "React 18", value: "react18" },
-      { name: "Svelte 5", value: "svelte5" },
-      { name: "Vue 3", value: "vue" },
-    ],
-  });
+  // Ask for framework (skipped if --framework is provided)
+  const VALID_FRAMEWORKS: FrameworkKey[] = ["react19", "react18", "svelte5", "vue"];
+  let framework: string;
+  if (opts.framework !== undefined) {
+    if (!VALID_FRAMEWORKS.includes(opts.framework)) {
+      log.error(
+        colors.red(
+          `Invalid --framework: ${opts.framework}. Must be one of: ${VALID_FRAMEWORKS.join(", ")}`
+        )
+      );
+      return;
+    }
+    framework = opts.framework;
+  } else {
+    framework = await Select.prompt({
+      message: "Select a framework:",
+      options: [
+        { name: "React 19 (Recommended)", value: "react19" },
+        { name: "React 18", value: "react18" },
+        { name: "Svelte 5", value: "svelte5" },
+        { name: "Vue 3", value: "vue" },
+      ],
+    });
+  }
 
   const template = templates[framework];
   if (!template) {
@@ -368,7 +419,48 @@ async function newApp(opts: GlobalOptions) {
   let createSchemaSQL: string | undefined;
   let schemaName: string | undefined;
 
-  if (datatables.length > 0) {
+  // Treat the run as non-interactive once any required-for-non-interactive flag is set.
+  // In that mode, skip all datatable/overwrite/desktop prompts unless the user opted in
+  // via the corresponding flag.
+  const nonInteractive =
+    opts.summary !== undefined ||
+    opts.path !== undefined ||
+    opts.framework !== undefined;
+
+  if (opts.datatable !== undefined) {
+    // Non-interactive datatable + (optional) schema configuration
+    if (datatables.length > 0 && !datatables.includes(opts.datatable)) {
+      log.warn(
+        colors.yellow(
+          `--datatable '${opts.datatable}' is not in the workspace's datatable list (${datatables.join(", ")}). Continuing anyway.`
+        )
+      );
+    }
+    dataConfig.datatable = opts.datatable;
+    if (opts.schema !== undefined) {
+      if (!/^[a-z_][a-z0-9_]*$/.test(opts.schema)) {
+        log.error(
+          colors.red(
+            `--schema must start with a letter or underscore and contain only lowercase letters, numbers, and underscores: ${opts.schema}`
+          )
+        );
+        return;
+      }
+      schemaName = opts.schema;
+      dataConfig.schema = schemaName;
+      const existingSchemas = datatableSchemas.get(opts.datatable) ?? [];
+      if (!existingSchemas.includes(schemaName)) {
+        // Emit creation SQL only if the schema doesn't already exist
+        createSchemaSQL = `-- Create schema for ${summary}
+-- This will be executed when you run 'wmill app dev' and confirm in the modal
+CREATE SCHEMA IF NOT EXISTS ${schemaName};
+`;
+      }
+    }
+    dataConfig.tables = [];
+  } else if (nonInteractive) {
+    // Non-interactive run with no --datatable → skip datatable config silently
+  } else if (datatables.length > 0) {
     log.info("");
     log.info(colors.bold.cyan("Data Configuration"));
     log.info(
@@ -495,13 +587,24 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
   // Check if directory already exists
   try {
     await stat(appDir);
-    const overwrite = await Confirm.prompt({
-      message: `Directory '${folderName}' already exists. Overwrite?`,
-      default: false,
-    });
-    if (!overwrite) {
-      log.info(colors.yellow("Aborted."));
+    if (opts.overwrite) {
+      log.warn(colors.yellow(`Overwriting existing '${folderName}' (--overwrite)`));
+    } else if (nonInteractive) {
+      log.error(
+        colors.red(
+          `Directory '${folderName}' already exists. Pass --overwrite to replace it.`
+        )
+      );
       return;
+    } else {
+      const overwrite = await Confirm.prompt({
+        message: `Directory '${folderName}' already exists. Overwrite?`,
+        default: false,
+      });
+      if (!overwrite) {
+        log.info(colors.yellow("Aborted."));
+        return;
+      }
     }
   } catch {
     // Directory doesn't exist, which is good
@@ -684,7 +787,7 @@ This folder is for SQL migration files that will be applied to datatables during
     // Claude Desktop not installed
   }
 
-  if (hasClaudeDesktop) {
+  if (hasClaudeDesktop && !nonInteractive && opts.openInDesktop !== false) {
     log.info("");
     const openInDesktop = await Confirm.prompt({
       message: "Open in Claude Desktop?",
@@ -739,6 +842,34 @@ This folder is for SQL migration files that will be applied to datatables during
 
 const command = new Command()
   .description("create a new raw app from a template")
+  .option(
+    "--summary <summary:string>",
+    "App summary (short description). Skips the prompt when provided. Triggers non-interactive mode."
+  )
+  .option(
+    "--path <path:string>",
+    "App path (e.g., f/folder/my_app or u/username/my_app). Skips the prompt when provided. Triggers non-interactive mode."
+  )
+  .option(
+    "--framework <framework:string>",
+    "Framework template: react19 | react18 | svelte5 | vue. Skips the prompt when provided. Triggers non-interactive mode."
+  )
+  .option(
+    "--datatable <datatable:string>",
+    "Datatable to wire up. Without this flag in non-interactive mode, no datatable is configured."
+  )
+  .option(
+    "--schema <schema:string>",
+    "Schema to use with --datatable. Created (CREATE SCHEMA IF NOT EXISTS) if it doesn't already exist."
+  )
+  .option(
+    "--overwrite",
+    "Overwrite the target directory if it already exists, without prompting."
+  )
+  .option(
+    "--no-open-in-desktop",
+    "Do not prompt to open the new app in Claude Desktop."
+  )
   .action(newApp as any);
 
 export default command;

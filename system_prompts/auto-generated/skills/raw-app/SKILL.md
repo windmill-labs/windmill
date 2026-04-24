@@ -9,11 +9,66 @@ Raw apps let you build custom frontends with React, Svelte, or Vue that connect 
 
 ## Creating a Raw App
 
+**You — the AI agent — create the app yourself by running `wmill app new` with the right flags. Do NOT tell the user to "run `wmill app new` and follow the prompts" or wait for them to do it.** The bare `wmill app new` is an interactive wizard that hangs waiting for stdin in any non-TTY context (which includes you). Always pass flags.
+
+### Step 1 — Gather the three required values via `AskUserQuestion`
+
+You need three things to run the command:
+
+1. **summary** — a short description of the app
+2. **path** — the windmill path, e.g. `f/folder/my_app` or `u/username/my_app`
+3. **framework** — one of `react19` (recommended), `react18`, `svelte5`, `vue`
+
+If the user's request did not supply *every* one of these explicitly, **call the `AskUserQuestion` tool**. Do not guess values, do not invent paths, do not pick a framework on the user's behalf, do not "just use react19 because it's the default" — ask.
+
+Group all missing fields into a **single** `AskUserQuestion` call so the user answers them in one round-trip:
+
+- For `framework` — multiple-choice with the four allowed values; mark `react19` as `(Recommended)` and put it first.
+- For `summary` and `path` — provide one or two example values as multiple-choice options (the user can pick "Other" to type a free-form answer).
+
+Only proceed once you have concrete values for all three. If the user replies with something ambiguous, call `AskUserQuestion` again rather than guessing.
+
+If `AskUserQuestion` is genuinely unavailable in your runtime (you'd see no tool by that name), then ask in chat in one message — still requesting all three at once, still refusing to invent values.
+
+### Step 2 — Run the command yourself
+
+Once you have summary + path + framework, run it:
+
+```bash
+wmill app new \
+  --summary "Customer dashboard" \
+  --path f/sales/dashboard \
+  --framework react19
+```
+
+That's the minimum. The datatable wizard and the "Open in Claude Desktop?" prompt are skipped silently because passing any of `--summary`/`--path`/`--framework` puts the command in non-interactive mode.
+
+### Optional flags
+
+Layer these in only when the user asked for them:
+
+| Flag | When to add it |
+|---|---|
+| `--datatable <name>` | The user wants this app wired to a specific Windmill datatable. Without it, the app is created with no datatable. |
+| `--schema <name>` | Together with `--datatable`. Creates the schema with `CREATE SCHEMA IF NOT EXISTS` if it doesn't already exist. |
+| `--overwrite` | The target directory already exists and the user said it's OK to replace. Without it, non-interactive mode aborts with an error so you don't clobber existing work. |
+| `--no-open-in-desktop` | Already implied in non-interactive mode; only needed if you're somehow running interactively. |
+
+### Anti-patterns to avoid
+
+- ❌ Running `wmill app new` with no flags (the prompt will hang).
+- ❌ Telling the user to "run `wmill app new` and follow the prompts" — that's a step backwards from what you can do directly.
+- ❌ Skipping `AskUserQuestion` and inventing a path/summary/framework yourself.
+- ❌ Defaulting to `react19` because the user didn't say — even sensible defaults must be confirmed via `AskUserQuestion`.
+- ❌ Passing `--overwrite` automatically when the directory exists — confirm with the user first.
+
+### Interactive (only when a human is at the terminal)
+
 ```bash
 wmill app new
 ```
 
-This interactive command creates a complete app structure with your choice of frontend framework (React, Svelte, or Vue).
+This is the wizard. It only works when run by a human in a real terminal. Don't call it this way from an agent.
 
 ## App Structure
 
@@ -241,7 +296,7 @@ Tell the user they can run these commands (do NOT run them yourself):
 
 | Command | Description |
 |---------|-------------|
-| `wmill app new` | Create a new raw app interactively |
+| `wmill app new` | Create a new raw app. Pass `--summary`, `--path`, `--framework` (and optional `--datatable`/`--schema`/`--overwrite`) to skip the wizard — required when invoked from an AI/script. |
 | `wmill app dev` | Start dev server with live reload |
 | `wmill app generate-agents` | Refresh AGENTS.md and DATATABLES.md |
 | `wmill generate-metadata` | Generate lock files for backend runnables |
