@@ -35,10 +35,11 @@ export interface SuccessHandlerConfig {
 }
 
 export interface SimplifiedSettings {
-  // Grouped format (current)
+  // Grouped format (current). Explicit `null` on error_handler / success_handler
+  // signals "clear the remote value"; `undefined` means "not managed by git".
   auto_invite?: AutoInviteConfig;
-  error_handler?: ErrorHandlerConfig;
-  success_handler?: SuccessHandlerConfig;
+  error_handler?: ErrorHandlerConfig | null;
+  success_handler?: SuccessHandlerConfig | null;
 
   // Other fields
   webhook?: string;
@@ -117,8 +118,12 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
     };
   }
 
-  // Handle error_handler: check if already grouped or needs migration
-  if (settings.error_handler && typeof settings.error_handler === "object") {
+  // Handle error_handler: check if already grouped or needs migration.
+  // Preserve explicit null as a signal to clear the remote handler (distinct
+  // from absent = "not managed by git, leave remote alone").
+  if (settings.error_handler === null) {
+    result.error_handler = null;
+  } else if (settings.error_handler && typeof settings.error_handler === "object") {
     result.error_handler = settings.error_handler;
   } else if (typeof settings.error_handler === "string") {
     // Legacy format (error_handler was a string path)
@@ -129,8 +134,10 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
     };
   }
 
-  // Handle success_handler: check if already grouped or needs migration
-  if (settings.success_handler && typeof settings.success_handler === "object") {
+  // Handle success_handler: same semantics.
+  if (settings.success_handler === null) {
+    result.success_handler = null;
+  } else if (settings.success_handler && typeof settings.success_handler === "object") {
     result.success_handler = settings.success_handler;
   } else if (typeof settings.success_handler === "string") {
     // Legacy format (success_handler was a string path)
@@ -268,8 +275,13 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  // Handle error_handler using grouped format
-  if (!deepEqual(localSettings.error_handler, settings.error_handler)) {
+  // Handle error_handler using grouped format.
+  // Absent from YAML (undefined) means "not managed by git" — leave remote alone.
+  // Explicit null clears remote. Present object upserts.
+  if (
+    localSettings.error_handler !== undefined &&
+    !deepEqual(localSettings.error_handler, settings.error_handler)
+  ) {
     log.debug(`Updating error handler...`);
     const localErrorHandler = localSettings.error_handler;
     await wmill.editErrorHandler({
@@ -283,8 +295,11 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  // Handle success_handler using grouped format
-  if (!deepEqual(localSettings.success_handler, settings.success_handler)) {
+  // Handle success_handler using grouped format. Same semantics as error_handler.
+  if (
+    localSettings.success_handler !== undefined &&
+    !deepEqual(localSettings.success_handler, settings.success_handler)
+  ) {
     log.debug(`Updating success handler...`);
     const localSuccessHandler = localSettings.success_handler;
     await wmill.editSuccessHandler({
