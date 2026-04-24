@@ -5966,6 +5966,9 @@ paths:
                         - type
                   saml:
                     type: string
+                  auto_login:
+                    type: string
+                    description: provider type to auto-redirect to on login (oauth key or "saml")
                 required:
                   - oauth
 

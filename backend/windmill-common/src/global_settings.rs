@@ -50,6 +50,7 @@ pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
 pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
+pub const AUTO_LOGIN_PROVIDER_SETTING: &str = "auto_login_provider";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
 pub const HUB_ACCESSIBLE_URL_SETTING: &str = "hub_accessible_url";
 pub const DISABLE_HUB_SETTING: &str = "disable_hub";
