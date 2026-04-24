@@ -225,17 +225,13 @@
 		if (autoRedirect && autoLogin && !error && !shouldSkipAutoRedirect()) {
 			if (autoLogin === 'saml' && saml) {
 				autoRedirecting = true
-				if (rd) {
-					try {
-						localStorage.setItem('rd', rd)
-					} catch (e) {
-						console.error('Could not persist redirection to local storage', e)
-					}
-				}
-				window.location.href = saml
+				if (!redirectSaml()) autoRedirecting = false
 			} else if (logins?.some((l) => l.type === autoLogin)) {
 				autoRedirecting = true
-				storeRedirect(autoLogin)
+				if (!storeRedirect(autoLogin)) {
+					autoRedirecting = false
+					sendUserToast('Popup blocked — please click the sign-in button to continue.', true)
+				}
 			}
 		}
 	}
@@ -330,7 +326,7 @@
 		window.removeEventListener('storage', handleStorageEvent)
 	})
 
-	function storeRedirect(provider: string) {
+	function persistRd() {
 		if (rd) {
 			try {
 				localStorage.setItem('rd', rd)
@@ -338,6 +334,10 @@
 				console.error('Could not persist redirection to local storage', e)
 			}
 		}
+	}
+
+	function storeRedirect(provider: string): boolean {
+		persistRd()
 		let url = base + '/api/oauth/login/' + provider + (popup ? '?close=true' : '')
 		console.log('storeRedirect', popup, url)
 
@@ -345,11 +345,28 @@
 			localStorage.setItem('closeUponLogin', 'true')
 			window.addEventListener('message', popupListener)
 			window.addEventListener('storage', handleStorageEvent)
-			window.open(url, '_blank', 'popup')
+			const win = window.open(url, '_blank', 'popup')
+			if (!win) {
+				window.removeEventListener('message', popupListener)
+				window.removeEventListener('storage', handleStorageEvent)
+				return false
+			}
+			return true
 		} else {
 			localStorage.setItem('closeUponLogin', 'false')
 			window.location.href = url
+			return true
 		}
+	}
+
+	function redirectSaml(): boolean {
+		if (!saml) {
+			sendUserToast('No SAML login available', true)
+			return false
+		}
+		persistRd()
+		window.location.href = saml
+		return true
 	}
 
 	$effect(() => {
@@ -393,26 +410,7 @@
 			{/each}
 		{/if}
 		{#if saml}
-			<Button
-				variant="default"
-				btnClasses="mt-2 w-full"
-				on:click={() => {
-					if (saml) {
-						if (rd) {
-							try {
-								localStorage.setItem('rd', rd)
-							} catch (e) {
-								console.error('Could not persist redirection to local storage', e)
-							}
-						}
-						window.location.href = saml
-					} else {
-						sendUserToast('No SAML login available', true)
-					}
-				}}
-			>
-				SSO
-			</Button>
+			<Button variant="default" btnClasses="mt-2 w-full" on:click={redirectSaml}>SSO</Button>
 		{/if}
 	</div>
 	{#if !autoRedirecting && !disablePasswordLogin && (saml || (logins && logins.length > 0))}
