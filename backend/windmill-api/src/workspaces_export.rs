@@ -277,9 +277,11 @@ struct SimplifiedSettings {
     webhook: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     deploy_to: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Always serialize (including as `null`) so that `wmill sync pull` emits
+    // these fields in settings.yaml unconditionally. Makes round-trip
+    // bijective: YAML is the source of truth, absence/null = "clear remote",
+    // mirroring every other workspace setting.
     error_handler: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     success_handler: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ai_config: Option<serde_json::Value>,
@@ -306,9 +308,8 @@ struct SimplifiedSettings {
     slack_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     slack_command_script: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Always serialize (see note above on error_handler / success_handler).
     slack_oauth_client_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     slack_oauth_client_secret: Option<String>,
 }
 

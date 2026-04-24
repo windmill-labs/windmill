@@ -967,6 +967,18 @@ async fn set_slack_oauth_config(
 
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings { setting_type: "slack_oauth_config".to_string() },
+        Some("Slack OAuth config set".to_string()),
+        false,
+        None,
+    )
+    .await?;
+
     Ok(format!("Slack OAuth config set for workspace {}", &w_id))
 }
 
@@ -1000,6 +1012,18 @@ async fn delete_slack_oauth_config(
     .await?;
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings { setting_type: "slack_oauth_config".to_string() },
+        Some("Slack OAuth config deleted".to_string()),
+        false,
+        None,
+    )
+    .await?;
 
     Ok(format!(
         "Slack OAuth config deleted for workspace {}",

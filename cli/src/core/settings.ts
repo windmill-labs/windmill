@@ -283,13 +283,11 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  // Handle error_handler using grouped format.
-  // Absent from YAML (undefined) means "not managed by git" — leave remote alone.
-  // Explicit null clears remote. Present object upserts.
-  if (
-    localSettings.error_handler !== undefined &&
-    !deepEqual(localSettings.error_handler, settings.error_handler)
-  ) {
+  // Handle error_handler using grouped format. YAML is canonical:
+  // absent / null → clear remote; present object → upsert.
+  // (Same "omit = clear" rule as every other workspace setting. Pull always
+  // emits the field as null when remote is NULL, so round-trip is bijective.)
+  if (!deepEqual(localSettings.error_handler, settings.error_handler)) {
     log.debug(`Updating error handler...`);
     const localErrorHandler = localSettings.error_handler;
     await wmill.editErrorHandler({
@@ -304,10 +302,7 @@ export async function pushWorkspaceSettings(
   }
 
   // Handle success_handler using grouped format. Same semantics as error_handler.
-  if (
-    localSettings.success_handler !== undefined &&
-    !deepEqual(localSettings.success_handler, settings.success_handler)
-  ) {
+  if (!deepEqual(localSettings.success_handler, settings.success_handler)) {
     log.debug(`Updating success handler...`);
     const localSuccessHandler = localSettings.success_handler;
     await wmill.editSuccessHandler({
@@ -425,17 +420,12 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  // Workspace-level Slack OAuth override:
-  //   - absent from YAML (either side undefined) → leave remote alone ("not managed by git")
-  //   - both defined and truthy → upsert via setWorkspaceSlackOauthConfig
-  //   - both defined but at least one falsy (e.g. empty string) and remote has a value → delete
-  // Backend requires both id + secret together, which is why we gate on both
-  // being defined before deciding set vs delete.
+  // Workspace-level Slack OAuth override. YAML is canonical (same rule as
+  // every other setting): both present → upsert; anything else → delete.
+  // Pull always emits both fields as null when remote is NULL.
   if (
-    localSettings.slack_oauth_client_id !== undefined &&
-    localSettings.slack_oauth_client_secret !== undefined &&
-    (localSettings.slack_oauth_client_id != settings.slack_oauth_client_id ||
-      localSettings.slack_oauth_client_secret != settings.slack_oauth_client_secret)
+    localSettings.slack_oauth_client_id != settings.slack_oauth_client_id ||
+    localSettings.slack_oauth_client_secret != settings.slack_oauth_client_secret
   ) {
     log.debug(`Updating slack oauth config...`);
     if (
@@ -449,11 +439,7 @@ export async function pushWorkspaceSettings(
           slack_oauth_client_secret: localSettings.slack_oauth_client_secret,
         },
       });
-    } else if (
-      settings.slack_oauth_client_id ||
-      settings.slack_oauth_client_secret
-    ) {
-      // Local cleared (empty strings or null), remote has a value → delete.
+    } else {
       await wmill.deleteWorkspaceSlackOauthConfig({ workspace });
     }
   }
