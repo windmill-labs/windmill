@@ -135,7 +135,7 @@ export async function getOpenAIResponsesCompletion(
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
 	options?: {
 		forceModelProvider?: AIProviderModel
-		openaiClient?: OpenAI
+		openaiClient?: OpenAI | Promise<OpenAI>
 	}
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({

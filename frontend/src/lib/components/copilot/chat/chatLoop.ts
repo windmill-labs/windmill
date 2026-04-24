@@ -13,8 +13,8 @@ import type { Tool, ToolCallbacks } from './shared'
 import { addChatTokenUsage, emptyChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
 export interface ChatClients {
-	openai: OpenAI
-	anthropic: Anthropic
+	openai: Promise<OpenAI>
+	anthropic: Promise<Anthropic>
 }
 
 export interface ChatLoopConfig {

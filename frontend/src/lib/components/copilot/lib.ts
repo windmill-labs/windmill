@@ -412,12 +412,16 @@ export async function createAnthropicProxyClient(baseURL: string): Promise<Anthr
 }
 
 class WorkspacedAIClients {
+	private baseURL: string | undefined
 	private openaiClient: Promise<OpenAI> | undefined
 	private anthropicClient: Promise<Anthropic> | undefined
 
 	init(workspace: string) {
-		this.openaiClient = this.createOpenaiClient(workspace)
-		this.anthropicClient = this.createAnthropicClient(workspace)
+		this.baseURL = getAiProxyBaseURL(workspace)
+		// Invalidate cached clients; they will be constructed on first use,
+		// so the SDK chunks only load when Copilot is actually invoked.
+		this.openaiClient = undefined
+		this.anthropicClient = undefined
 	}
 
 	createOpenaiClient(workspace: string): Promise<OpenAI> {
@@ -429,17 +433,17 @@ class WorkspacedAIClients {
 	}
 
 	getOpenaiClient(): Promise<OpenAI> {
-		if (!this.openaiClient) {
+		if (!this.baseURL) {
 			throw new Error('OpenAI not initialized')
 		}
-		return this.openaiClient
+		return (this.openaiClient ??= createOpenAIProxyClient(this.baseURL))
 	}
 
 	getAnthropicClient(): Promise<Anthropic> {
-		if (!this.anthropicClient) {
+		if (!this.baseURL) {
 			throw new Error('Anthropic not initialized')
 		}
-		return this.anthropicClient
+		return (this.anthropicClient ??= createAnthropicProxyClient(this.baseURL))
 	}
 }
 
@@ -892,7 +896,7 @@ export async function getCompletion(
 	options?: {
 		forceCompletions?: boolean
 		forceModelProvider?: AIProviderModel
-		openaiClient?: OpenAI
+		openaiClient?: OpenAI | Promise<OpenAI>
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({

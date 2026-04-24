@@ -30,7 +30,7 @@ export async function getAnthropicCompletion(
 	tools?: OpenAI.Chat.Completions.ChatCompletionFunctionTool[],
 	options?: {
 		forceModelProvider?: AIProviderModel
-		anthropicClient?: Anthropic
+		anthropicClient?: Anthropic | Promise<Anthropic>
 	}
 ): Promise<MessageStream> {
 	const { provider, config } = getProviderAndCompletionConfig({
