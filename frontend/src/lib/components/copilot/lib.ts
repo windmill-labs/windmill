@@ -906,10 +906,16 @@ export async function getCompletion(
 		forceModelProvider: options?.forceModelProvider
 	})
 
-	// Use Responses API for OpenAI and Azure OpenAI
+	// Use Responses API for OpenAI and Azure OpenAI. Setup failures (dynamic
+	// SDK import, client construction, initial request) now surface here and
+	// fall through to the Completions API below.
 	if ((provider === 'openai' || provider === 'azure_openai') && !options?.forceCompletions) {
 		try {
-			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools) as any
+			const stream = (await getOpenAIResponsesCompletionStream(
+				messages,
+				abortController,
+				tools
+			)) as any
 			return stream
 		} catch (error) {
 			console.error('Error using Responses API:', error)

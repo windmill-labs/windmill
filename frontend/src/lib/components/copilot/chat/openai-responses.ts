@@ -166,12 +166,15 @@ export async function getOpenAIResponsesCompletion(
 	return runner
 }
 
-// Wrapper that converts ResponseStream to ChatCompletionChunk format for lib.ts usage
-export async function* getOpenAIResponsesCompletionStream(
+// Wrapper that converts ResponseStream to ChatCompletionChunk format for lib.ts usage.
+// Returns an AsyncIterable so setup failures (SDK dynamic import, client construction,
+// responses.stream() request) surface at the await in the caller and the caller can
+// fall back to the Completions API.
+export async function getOpenAIResponsesCompletionStream(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
-): AsyncGenerator<OpenAI.Chat.Completions.ChatCompletionChunk> {
+): Promise<AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
 	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
@@ -192,27 +195,31 @@ export async function* getOpenAIResponsesCompletionStream(
 		}
 	)
 
-	// Convert ResponseStream events to ChatCompletionChunk format
-	for await (const event of runner) {
-		if (event.type === 'response.output_text.delta') {
-			// Yield text chunks in ChatCompletionChunk format
-			yield {
-				id: 'chatcmpl-' + Date.now(),
-				object: 'chat.completion.chunk',
-				created: Date.now(),
-				model: responsesConfig.model,
-				choices: [
-					{
-						index: 0,
-						delta: {
-							content: event.delta || ''
-						},
-						finish_reason: null
-					}
-				]
-			} as OpenAI.Chat.Completions.ChatCompletionChunk
+	async function* iterate() {
+		// Convert ResponseStream events to ChatCompletionChunk format
+		for await (const event of runner) {
+			if (event.type === 'response.output_text.delta') {
+				// Yield text chunks in ChatCompletionChunk format
+				yield {
+					id: 'chatcmpl-' + Date.now(),
+					object: 'chat.completion.chunk',
+					created: Date.now(),
+					model: responsesConfig.model,
+					choices: [
+						{
+							index: 0,
+							delta: {
+								content: event.delta || ''
+							},
+							finish_reason: null
+						}
+					]
+				} as OpenAI.Chat.Completions.ChatCompletionChunk
+			}
 		}
 	}
+
+	return iterate()
 }
 
 export async function parseOpenAIResponsesCompletion(
