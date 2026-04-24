@@ -56,6 +56,7 @@ export type TriggerKind =
 	| 'mqtt'
 	| 'sqs'
 	| 'gcp'
+	| 'azure'
 	| 'nextcloud'
 	| 'google'
 	| 'github'

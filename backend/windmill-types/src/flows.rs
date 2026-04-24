@@ -63,6 +63,10 @@ pub fn is_none_or_false(b: &Option<bool>) -> bool {
     b.is_none() || !b.unwrap()
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 #[derive(Serialize, sqlx::FromRow)]
 pub struct ListableFlow {
     pub workspace_id: String,
@@ -921,6 +925,8 @@ pub enum FlowModuleValue {
     AIAgent {
         input_transforms: HashMap<String, InputTransform>,
         tools: Vec<AgentTool>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        omit_output_from_conversation: bool,
     },
 }
 
@@ -955,6 +961,7 @@ struct UntaggedFlowModuleValue {
     modules_node: Option<FlowNodeId>,
     assets: Option<Vec<AssetWithAltAccessType>>,
     tools: Option<Vec<AgentTool>>,
+    omit_output_from_conversation: Option<bool>,
     pass_flow_input_directly: Option<bool>,
     squash: Option<bool>,
     #[serde(flatten)]
@@ -1056,6 +1063,9 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 tools: untagged
                     .tools
                     .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
+                omit_output_from_conversation: untagged
+                    .omit_output_from_conversation
+                    .unwrap_or(false),
             }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
@@ -1172,5 +1182,38 @@ mod tests {
         });
         let val: FlowValue = serde_json::from_value(input).unwrap();
         assert_eq!(val.modules.len(), 1);
+    }
+
+    #[test]
+    fn ai_agent_omit_output_from_conversation_defaults_to_false() {
+        let input = json!({
+            "type": "aiagent",
+            "tools": [],
+            "input_transforms": {}
+        });
+
+        let val: FlowModuleValue = serde_json::from_value(input).unwrap();
+        let FlowModuleValue::AIAgent { omit_output_from_conversation, .. } = val else {
+            panic!("expected aiagent module");
+        };
+
+        assert!(!omit_output_from_conversation);
+    }
+
+    #[test]
+    fn ai_agent_omit_output_from_conversation_preserves_true() {
+        let input = json!({
+            "type": "aiagent",
+            "tools": [],
+            "input_transforms": {},
+            "omit_output_from_conversation": true
+        });
+
+        let val: FlowModuleValue = serde_json::from_value(input).unwrap();
+        let FlowModuleValue::AIAgent { omit_output_from_conversation, .. } = val else {
+            panic!("expected aiagent module");
+        };
+
+        assert!(omit_output_from_conversation);
     }
 }

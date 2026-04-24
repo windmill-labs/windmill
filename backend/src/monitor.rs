@@ -3879,6 +3879,10 @@ pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
 
     JWT_SECRET.store(std::sync::Arc::new(jwt_secret));
 
+    // The debug signing key is derived from JWT_SECRET, so re-derive it here so
+    // rotation propagates to /api/debug/* signing without requiring a restart.
+    windmill_api::reload_debug_signing_key().await;
+
     Ok(())
 }
 

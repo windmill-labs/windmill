@@ -9,7 +9,8 @@ import * as getPort from "get-port";
 import * as http from "node:http";
 import * as https from "node:https";
 import * as open from "open";
-import { access, readFile, readdir, realpath, unlink, writeFile } from "node:fs/promises";
+import { access, readdir, realpath, unlink, writeFile } from "node:fs/promises";
+import { readTextFile } from "../../utils/utils.ts";
 import { watch } from "node:fs";
 import { getTypeStrFromPath, GlobalOptions } from "../../types.ts";
 import { ignoreF } from "../sync/sync.ts";
@@ -327,7 +328,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
         )) as FlowFile;
         await replaceInlineScripts(
           localFlow.value.modules,
-          async (path: string) => await readFile(localPath + path, "utf-8"),
+          async (path: string) => await readTextFile(localPath + path),
           log,
           localPath,
           SEP,
@@ -353,7 +354,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
       } else if (typ == "script") {
         const splitted = cpath.split(".");
         const wmPath = splitted[0];
-        const content = await readFile(cpath, "utf-8");
+        const content = await readTextFile(cpath);
         const lang = inferContentTypeFromFilePath(cpath, opts.defaultTs);
         const typed =
           (await parseMetadataFile(
@@ -425,7 +426,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
       const localFlow = (await yamlParseFile(flowYaml)) as FlowFile;
       await replaceInlineScripts(
         localFlow.value.modules,
-        async (p: string) => await readFile(flowDir + p, "utf-8"),
+        async (p: string) => await readTextFile(flowDir + p),
         log,
         flowDir,
         SEP,
@@ -456,7 +457,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
       const filePath = wmPath + ext;
       try {
         await access(filePath);
-        const content = await readFile(filePath, "utf-8");
+        const content = await readTextFile(filePath);
         const lang = inferContentTypeFromFilePath(filePath, opts.defaultTs);
         const typed = (await parseMetadataFile(removeExtensionToPath(filePath), undefined))?.payload;
         const edit: LastEditScript = {
@@ -515,7 +516,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
       const filePath = flowDir + s.path;
       let needsWrite = true;
       try {
-        const existing = await readFile(filePath, "utf-8");
+        const existing = await readTextFile(filePath);
         if (existing === s.content) needsWrite = false;
       } catch {
         // File doesn't exist

@@ -416,37 +416,13 @@
 				}
 			},
 			getSelectedContext: () => {
-				const baseContext = {
+				return {
 					inspectorElement: inspectorElement,
-					selectionExcluded: selectionExcludedFromPrompt,
-					toggleSelectionExcluded: toggleSelectionExcluded,
 					clearInspector: clearInspectorSelection,
-					clearRunnable: handleClearRunnable,
 					codeSelection: codeSelection,
 					clearCodeSelection: () => {
 						codeSelection = undefined
 					}
-				}
-				if (selectedRunnable) {
-					const runnable = convertToBackendRunnable(selectedRunnable, runnables[selectedRunnable])
-					return {
-						type: 'backend' as const,
-						backendKey: selectedRunnable,
-						backendRunnable: runnable,
-						...baseContext
-					}
-				}
-				if (selectedDocument) {
-					return {
-						type: 'frontend' as const,
-						frontendPath: selectedDocument,
-						frontendContent: files?.[selectedDocument],
-						...baseContext
-					}
-				}
-				return {
-					type: 'none' as const,
-					...baseContext
 				}
 			},
 			snapshot: () => {
@@ -608,12 +584,7 @@
 	let selectedRunnable: string | undefined = $state(undefined)
 	let selectedDocument: string | undefined = $state(undefined)
 	let inspectorElement: InspectorElementInfo | undefined = $state(undefined)
-	let selectionExcludedFromPrompt: boolean = $state(false)
 	let codeSelection: AppCodeSelectionElement | undefined = $state(undefined)
-
-	function toggleSelectionExcluded() {
-		selectionExcludedFromPrompt = !selectionExcludedFromPrompt
-	}
 
 	let modules = $state({}) as Modules
 
@@ -722,23 +693,17 @@
 		)
 	}
 
-	function handleClearRunnable() {
-		selectedRunnable = undefined
-	}
-
 	// Track previous values for change detection
 	let prevSelectedRunnable: string | undefined = undefined
 	let prevSelectedDocument: string | undefined = undefined
 
-	// Clear inspector and reset exclusion when selection changes
+	// Clear inspector when selection changes
 	$effect(() => {
 		if (selectedRunnable !== prevSelectedRunnable || selectedDocument !== prevSelectedDocument) {
 			// Only clear if we're actually switching to something different
 			if (prevSelectedRunnable !== undefined || prevSelectedDocument !== undefined) {
 				clearInspectorSelection()
 			}
-			// Reset exclusion when switching files/runnables
-			selectionExcludedFromPrompt = false
 			prevSelectedRunnable = selectedRunnable
 			prevSelectedDocument = selectedDocument
 		}

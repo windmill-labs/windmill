@@ -3,8 +3,6 @@
 	import { type Snippet } from 'svelte'
 	import {
 		CheckIcon,
-		Code2,
-		FileCode,
 		HistoryIcon,
 		Loader2,
 		MousePointer2,
@@ -143,7 +141,7 @@
 								<div class="text-center text-primary text-xs">No history</div>
 							{:else}
 								<div class="flex flex-col">
-									{#each pastChats as chat}
+									{#each pastChats as chat (chat.id)}
 										<button
 											class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1"
 											onclick={() => {
@@ -206,7 +204,7 @@
 			}}
 		>
 			<div class="flex flex-col" bind:clientHeight={height}>
-				{#each messages as message, messageIndex}
+				{#each messages as message, messageIndex (messageIndex)}
 					<AIChatMessage
 						{message}
 						{messageIndex}
@@ -293,38 +291,7 @@
 						{/if}
 						<ProviderModelSelector />
 
-						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.type !== 'none' || appContext.inspectorElement || appContext.codeSelection)}
-							{#if appContext.type === 'frontend' && appContext.frontendPath && !appContext.selectionExcluded}
-								<div
-									class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-2xs"
-									title={appContext.frontendPath}
-								>
-									<FileCode class="w-3 h-3" />
-									<span class="truncate max-w-[80px]">{appContext.frontendPath}</span>
-									<button
-										class="hover:bg-blue-200 dark:hover:bg-blue-800/50 rounded p-0.5 -mr-0.5"
-										onclick={() => appContext.toggleSelectionExcluded?.()}
-										title="Exclude from prompt"
-									>
-										<X class="w-2.5 h-2.5" />
-									</button>
-								</div>
-							{:else if appContext.type === 'backend' && appContext.backendKey && !appContext.selectionExcluded}
-								<div
-									class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-2xs"
-									title={appContext.backendKey}
-								>
-									<Code2 class="w-3 h-3" />
-									<span class="truncate max-w-[80px]">{appContext.backendKey}</span>
-									<button
-										class="hover:bg-green-200 dark:hover:bg-green-800/50 rounded p-0.5 -mr-0.5"
-										onclick={() => appContext.toggleSelectionExcluded?.()}
-										title="Exclude from prompt"
-									>
-										<X class="w-2.5 h-2.5" />
-									</button>
-								</div>
-							{/if}
+						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
 							{#if appContext.inspectorElement}
 								<div
 									class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-2xs"
@@ -374,7 +341,7 @@
 		{#if (aiChatManager.mode === AIMode.NAVIGATOR || aiChatManager.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
 			<div class="px-2 mt-4">
 				<div class="flex flex-col gap-2">
-					{#each suggestions as suggestion}
+					{#each suggestions as suggestion (suggestion)}
 						<Button
 							on:click={() => submitSuggestion(suggestion)}
 							size="xs2"

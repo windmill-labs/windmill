@@ -25,6 +25,17 @@ When SDK methods or the OpenFlow schema change, run:
 python system_prompts/generate.py
 ```
 
+To also refresh the standalone skills in a Claude plugin checkout:
+
+```bash
+python system_prompts/generate.py --plugin-dir ~/windmill-claude-plugin
+```
+
+`--plugin-dir` accepts:
+- the `windmill-claude-plugin` repo root
+- a plugin root such as `plugins/windmill-code-plugin`
+- a direct `skills/` directory
+
 This will:
 
 1. Parse TypeScript and Python SDK files to extract function signatures
@@ -32,6 +43,7 @@ This will:
 3. Parse the CLI commands
 4. Assemble complete prompts from markdown files
 5. Generate TypeScript exports in `auto-generated/`
+6. Optionally refresh plugin-ready standalone `SKILL.md` files in the target directory
 
 ### Scope
 

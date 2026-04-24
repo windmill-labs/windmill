@@ -92,11 +92,12 @@ pub struct TokenResponse {
 struct Logins {
     oauth: Vec<String>,
     saml: Option<String>,
+    auto_login: Option<String>,
 }
 #[cfg(not(feature = "private"))]
 async fn list_logins() -> error::JsonResult<Logins> {
     // Implementation is not open source
-    return Ok(Json(Logins { oauth: vec![], saml: None }));
+    return Ok(Json(Logins { oauth: vec![], saml: None, auto_login: None }));
 }
 
 #[allow(unused)]

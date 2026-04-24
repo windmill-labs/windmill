@@ -25,6 +25,7 @@
 		EmailTriggerService,
 		FlowService,
 		FolderService,
+		AzureTriggerService,
 		GcpTriggerService,
 		HttpTriggerService,
 		KafkaTriggerService,
@@ -53,6 +54,7 @@
 	import MqttTriggerEditor from './triggers/mqtt/MqttTriggerEditor.svelte'
 	import SqsTriggerEditor from './triggers/sqs/SqsTriggerEditor.svelte'
 	import GcpTriggerEditor from './triggers/gcp/GcpTriggerEditor.svelte'
+	import AzureTriggerEditor from './triggers/azure/AzureTriggerEditor.svelte'
 	import EmailTriggerEditor from './triggers/email/EmailTriggerEditor.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
@@ -640,6 +642,7 @@
 	let mqttEditor: MqttTriggerEditor | undefined = $state()
 	let sqsEditor: SqsTriggerEditor | undefined = $state()
 	let gcpEditor: GcpTriggerEditor | undefined = $state()
+	let azureEditor: AzureTriggerEditor | undefined = $state()
 	let emailEditor: EmailTriggerEditor | undefined = $state()
 
 	function openTriggerDetails(trigger: ForkTrigger) {
@@ -671,6 +674,9 @@
 				break
 			case 'gcp':
 				gcpEditor?.openEdit(trigger.path, isFlow)
+				break
+			case 'azure':
+				azureEditor?.openEdit(trigger.path, isFlow)
 				break
 			case 'emails':
 				emailEditor?.openEdit(trigger.path, isFlow)
@@ -792,6 +798,19 @@
 				isFlow: item.is_flow,
 				enabled: item.mode === 'enabled',
 				extraLabel: item.topic_id
+			})
+		},
+		azure: {
+			list: (ws: string) => AzureTriggerService.listAzureTriggers({ workspace: ws }),
+			delete: (ws: string, path: string) =>
+				AzureTriggerService.deleteAzureTrigger({ workspace: ws, path }),
+			normalize: (item: any): ForkTrigger => ({
+				path: item.path,
+				triggerKind: 'azure',
+				scriptPath: item.script_path,
+				isFlow: item.is_flow,
+				enabled: item.mode === 'enabled',
+				extraLabel: item.topic_name ?? item.scope_resource_id
 			})
 		},
 		emails: {
@@ -1316,6 +1335,7 @@
 	<MqttTriggerEditor bind:this={mqttEditor} />
 	<SqsTriggerEditor bind:this={sqsEditor} />
 	<GcpTriggerEditor bind:this={gcpEditor} />
+	<AzureTriggerEditor bind:this={azureEditor} />
 	<EmailTriggerEditor bind:this={emailEditor} />
 
 	<ConfirmationModal

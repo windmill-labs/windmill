@@ -35,7 +35,7 @@ import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
 import { createInlineScriptSession, type InlineScriptSession } from './inlineScriptsUtils'
-import type { FlowJsonUpdateResult } from './helperUtils'
+import { validateFlowGroups, type FlowGroup, type FlowJsonUpdateResult } from './helperUtils'
 import { flowModuleSchema, flowModulesSchema } from './openFlowZod'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
 import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
@@ -268,6 +268,7 @@ type FlowJsonUpdate = {
 	schema?: Record<string, any> | null
 	preprocessorModule?: FlowModule | null
 	failureModule?: FlowModule | null
+	groups?: FlowGroup[] | null
 }
 
 type EditableFlowJson = {
@@ -275,6 +276,7 @@ type EditableFlowJson = {
 	schema: Record<string, any> | null
 	preprocessor_module: FlowModule | null
 	failure_module: FlowModule | null
+	groups: FlowGroup[] | null
 }
 
 function formatEmptyInlineScriptWarning({
@@ -386,12 +388,19 @@ function validateEditableFlowJson(rawFlow: unknown): EditableFlowJson {
 		'preprocessor_module'
 	)
 	const failureModule = validateOptionalFlowModule(flow.failure_module, 'failure_module')
+	const groupModuleIds = new Set(collectAllFlowModuleIdsFromModules(modules))
+	const groups = validateFlowGroups(flow.groups, groupModuleIds)
 
 	if (preprocessorModule) {
 		if (preprocessorModule.id !== SPECIAL_MODULE_IDS.PREPROCESSOR) {
-			throw new Error(`Invalid preprocessor_module: id must be "${SPECIAL_MODULE_IDS.PREPROCESSOR}"`)
+			throw new Error(
+				`Invalid preprocessor_module: id must be "${SPECIAL_MODULE_IDS.PREPROCESSOR}"`
+			)
 		}
-		if (preprocessorModule.value.type !== 'rawscript' && preprocessorModule.value.type !== 'script') {
+		if (
+			preprocessorModule.value.type !== 'rawscript' &&
+			preprocessorModule.value.type !== 'script'
+		) {
 			throw new Error(
 				'Invalid preprocessor_module: only "rawscript" and "script" modules are supported'
 			)
@@ -402,9 +411,7 @@ function validateEditableFlowJson(rawFlow: unknown): EditableFlowJson {
 			throw new Error(`Invalid failure_module: id must be "${SPECIAL_MODULE_IDS.FAILURE}"`)
 		}
 		if (failureModule.value.type !== 'rawscript' && failureModule.value.type !== 'script') {
-			throw new Error(
-				'Invalid failure_module: only "rawscript" and "script" modules are supported'
-			)
+			throw new Error('Invalid failure_module: only "rawscript" and "script" modules are supported')
 		}
 	}
 
@@ -423,7 +430,8 @@ function validateEditableFlowJson(rawFlow: unknown): EditableFlowJson {
 		modules,
 		schema,
 		preprocessor_module: preprocessorModule,
-		failure_module: failureModule
+		failure_module: failureModule,
+		groups
 	}
 }
 
@@ -455,7 +463,11 @@ function buildEditableFlowJson(
 	}
 
 	let failureModule = flow.value.failure_module
-	if (failureModule?.value?.type === 'rawscript' && failureModule.value.content && inlineScriptSession) {
+	if (
+		failureModule?.value?.type === 'rawscript' &&
+		failureModule.value.content &&
+		inlineScriptSession
+	) {
 		inlineScriptSession.set(failureModule.id, failureModule.value.content)
 		failureModule = {
 			...failureModule,
@@ -470,7 +482,8 @@ function buildEditableFlowJson(
 		modules,
 		schema: flow.schema ?? null,
 		preprocessor_module: preprocessorModule ?? null,
-		failure_module: failureModule ?? null
+		failure_module: failureModule ?? null,
+		groups: flow.value.groups ?? null
 	}
 }
 
@@ -563,13 +576,20 @@ const setFlowJsonToolSchema = z.object({
 		.string()
 		.optional()
 		.nullable()
-		.describe('JSON string containing the optional failure module')
+		.describe('JSON string containing the optional failure module'),
+	groups: z
+		.string()
+		.optional()
+		.nullable()
+		.describe(
+			'JSON string containing the optional array of semantic flow groups (summary, note, autocollapse, start_id, end_id, color). Pass null to clear groups.'
+		)
 })
 
 const setFlowJsonToolDef = createToolDef(
 	setFlowJsonToolSchema,
 	'set_flow_json',
-	'Set the complete flow modules array and optionally the flow input schema, preprocessor module, and failure module.',
+	'Set the complete flow modules array and optionally the flow input schema, preprocessor module, failure module, and semantic groups.',
 	{ strict: false }
 )
 
@@ -644,10 +664,7 @@ function validateSpecialFlowModule(
 }
 
 const patchFlowJsonSchema = z.object({
-	old_string: z
-		.string()
-		.min(1)
-		.describe('Exact text to find in the current compact flow JSON'),
+	old_string: z.string().min(1).describe('Exact text to find in the current compact flow JSON'),
 	new_string: z.string().describe('Replacement JSON text'),
 	replace_all: z
 		.boolean()
@@ -864,13 +881,13 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				// Test script step - need to get the script content
 				const script = moduleValue.hash
 					? await ScriptService.getScriptByHash({
-						workspace: workspace,
-						hash: moduleValue.hash
-					})
+							workspace: workspace,
+							hash: moduleValue.hash
+						})
 					: await ScriptService.getScriptByPath({
-						workspace: workspace,
-						path: moduleValue.path
-					})
+							workspace: workspace,
+							path: moduleValue.path
+						})
 
 				return executeTestRun({
 					jobStarter: () =>
@@ -1023,7 +1040,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				modules: parsedFlow.modules,
 				schema: parsedFlow.schema,
 				preprocessorModule: parsedFlow.preprocessor_module,
-				failureModule: parsedFlow.failure_module
+				failureModule: parsedFlow.failure_module,
+				groups: parsedFlow.groups
 			})
 			const warning = formatEmptyInlineScriptWarning(updateResult)
 
@@ -1058,7 +1076,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			toolCallbacks.setToolStatus(toolId, {
 				content:
-					parsedModule === null ? 'Removing preprocessor module...' : 'Setting preprocessor module...'
+					parsedModule === null
+						? 'Removing preprocessor module...'
+						: 'Setting preprocessor module...'
 			})
 			const updateResult = await helpers.setFlowJson({ preprocessorModule: parsedModule })
 			const warning = formatEmptyInlineScriptWarning(updateResult)
@@ -1073,7 +1093,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
-				content: parsedModule === null ? 'Preprocessor module removed' : 'Preprocessor module updated',
+				content:
+					parsedModule === null ? 'Preprocessor module removed' : 'Preprocessor module updated',
 				result: 'Success'
 			})
 			return parsedModule === null
@@ -1123,16 +1144,20 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		showDetails: true,
 		showFade: true,
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const { modules, schema, preprocessor_module, failure_module } = args
+			const { modules, schema, preprocessor_module, failure_module, groups } = args
 
 			let parsedModules: FlowModule[] | null | undefined
 			let parsedSchema: Record<string, any> | null | undefined
 			let parsedPreprocessorModule: FlowModule | null | undefined
 			let parsedFailureModule: FlowModule | null | undefined
+			let parsedGroups: FlowGroup[] | null | undefined
 
 			// Parse JSON strings
 			parsedModules = parseOptionalJsonArg(modules, 'modules') as FlowModule[] | null | undefined
-			parsedSchema = parseOptionalJsonArg(schema, 'schema') as Record<string, any> | null | undefined
+			parsedSchema = parseOptionalJsonArg(schema, 'schema') as
+				| Record<string, any>
+				| null
+				| undefined
 			parsedPreprocessorModule = parseOptionalJsonArg(
 				preprocessor_module,
 				'preprocessor_module'
@@ -1141,6 +1166,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				| FlowModule
 				| null
 				| undefined
+			parsedGroups = parseOptionalJsonArg(groups, 'groups') as FlowGroup[] | null | undefined
 			if (parsedModules === null) {
 				parsedModules = undefined
 			}
@@ -1151,8 +1177,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			if (parsedModules !== undefined) {
 				parsedModules = validateFlowModules(parsedModules)
 				const reservedIds = collectAllFlowModuleIdsFromModules(parsedModules).filter(
-					(id) =>
-						id === SPECIAL_MODULE_IDS.PREPROCESSOR || id === SPECIAL_MODULE_IDS.FAILURE
+					(id) => id === SPECIAL_MODULE_IDS.PREPROCESSOR || id === SPECIAL_MODULE_IDS.FAILURE
 				)
 				if (reservedIds.length > 0) {
 					throw new Error(
@@ -1170,12 +1195,18 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			)
 			parsedFailureModule = validateSpecialFlowModule(parsedFailureModule, 'failure_module')
 
+			if (parsedGroups !== undefined) {
+				const effectiveModules =
+					parsedModules ?? helpers.getFlowAndSelectedId().flow.value.modules ?? []
+				const moduleIdsForGroups = new Set(collectAllFlowModuleIdsFromModules(effectiveModules))
+				parsedGroups = validateFlowGroups(parsedGroups, moduleIdsForGroups)
+			}
+
 			const ids = [
 				...(parsedModules ? collectAllFlowModuleIdsFromModules(parsedModules) : []),
-				...([parsedPreprocessorModule, parsedFailureModule].filter(
-					(module): module is FlowModule => module !== undefined && module !== null
-				)
-					.map((module) => module.id))
+				...[parsedPreprocessorModule, parsedFailureModule]
+					.filter((module): module is FlowModule => module !== undefined && module !== null)
+					.map((module) => module.id)
 			]
 			if (ids.length !== new Set(ids).size) {
 				throw new Error('Duplicate module IDs found in flow')
@@ -1190,7 +1221,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				...(parsedPreprocessorModule !== undefined
 					? { preprocessorModule: parsedPreprocessorModule }
 					: {}),
-				...(parsedFailureModule !== undefined ? { failureModule: parsedFailureModule } : {})
+				...(parsedFailureModule !== undefined ? { failureModule: parsedFailureModule } : {}),
+				...(parsedGroups !== undefined ? { groups: parsedGroups } : {})
 			})
 			const warning = formatEmptyInlineScriptWarning(updateResult)
 
@@ -1203,9 +1235,9 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				const { selectedId } = helpers.getFlowAndSelectedId()
 				const selectedModule =
 					selectedId === SPECIAL_MODULE_IDS.PREPROCESSOR
-						? parsedPreprocessorModule ?? undefined
+						? (parsedPreprocessorModule ?? undefined)
 						: selectedId === SPECIAL_MODULE_IDS.FAILURE
-							? parsedFailureModule ?? undefined
+							? (parsedFailureModule ?? undefined)
 							: parsedModules
 								? findModuleInModules(parsedModules, selectedId)
 								: undefined
@@ -1290,7 +1322,7 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 Use \`patch_flow_json\` for small, localized changes when you can target an exact snippet from the \`CURRENT FLOW JSON COMPACT\` block below.
 
 Always copy the exact search text from the \`CURRENT FLOW JSON COMPACT\` block below.
-The compact JSON is a single object with \`modules\`, \`schema\`, \`preprocessor_module\`, and \`failure_module\` keys.
+The compact JSON is a single object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, and \`groups\` keys.
 
 **Parameters:**
 - \`old_string\`: Exact JSON text to find
@@ -1311,13 +1343,14 @@ ${FLOW_CHAT_SPECIAL_MODULES}
 
 ## Flow Modification with set_flow_json
 
-Use the \`set_flow_json\` tool to set the entire flow structure at once. Provide the complete modules array and optionally the flow input schema, \`preprocessor_module\`, and \`failure_module\`.
+Use the \`set_flow_json\` tool to set the entire flow structure at once. Provide the complete modules array and optionally the flow input schema, \`preprocessor_module\`, \`failure_module\`, and \`groups\`.
 
 **Parameters:**
 - \`modules\`: Array of flow modules (required)
 - \`schema\`: Flow input schema in JSON Schema format (optional)
 - \`preprocessor_module\`: Special module that runs before \`modules\` (optional, separate from \`modules\`)
 - \`failure_module\`: Special module that runs on failure (optional, separate from \`modules\`)
+- \`groups\`: Array of semantic groups for organizing modules in the editor (optional). Each group has \`summary\` (display name), \`note\` (markdown description shown below the group header — attached directly to the group, not a separate sticky note), \`autocollapse\`, \`start_id\`, \`end_id\`, and \`color\`. \`start_id\` and \`end_id\` must reference existing module IDs in the flow (not \`preprocessor\` or \`failure\`). Groups do not affect execution — they provide naming and collapsibility in the editor. Pass \`null\` to clear existing groups.
 
 **Example - Simple flow:**
 \`\`\`javascript

@@ -312,6 +312,17 @@ export class FlowChatManager {
 		}
 	}
 
+	private getLastPersistedMessageSeq() {
+		for (let i = this.messages.length - 1; i >= 0; i--) {
+			const message = this.messages[i]
+			if (!message.id.startsWith('temp-')) {
+				return message.created_seq
+			}
+		}
+
+		return undefined
+	}
+
 	// Polling
 	private async pollJobResult(jobId: string) {
 		try {
@@ -338,13 +349,13 @@ export class FlowChatManager {
 		if (!get(workspaceStore)) return
 
 		try {
-			const lastId = this.messages[this.messages.length - 1].id
+			const lastSeq = this.getLastPersistedMessageSeq()
 			const response = await FlowConversationsService.listConversationMessages({
 				workspace: get(workspaceStore)!,
 				conversationId: conversationId,
 				page: 1,
 				perPage: 50,
-				afterId: lastId
+				afterSeq: lastSeq
 			})
 
 			if (options?.isNewConversation) {
@@ -352,8 +363,6 @@ export class FlowChatManager {
 			}
 
 			const filteredResponse = response.filter((msg) => msg.message_type !== 'user')
-
-			// Add any new intermediate messages not already present
 			for (const msg of filteredResponse) {
 				if (!this.messages.find((m) => m.id === msg.id)) {
 					this.messages = [...this.messages, msg]
@@ -363,7 +372,9 @@ export class FlowChatManager {
 			// Only remove temporary messages when explicitly requested (e.g., after job completion)
 			// During streaming, we keep temp messages to avoid them disappearing due to race conditions
 			if (options?.removeTempMessages) {
-				this.messages = this.messages.filter((msg) => !msg.id.startsWith('temp-'))
+				this.messages = this.messages.filter(
+					(msg) => !msg.id.startsWith('temp-') || msg.message_type === 'user'
+				)
 			}
 		} catch (error) {
 			console.error('Polling error:', error)
@@ -415,9 +426,10 @@ export class FlowChatManager {
 		delete this.#conversationsCache[currentConversationId]
 
 		const userMessage: ChatMessage = {
-			id: randomUUID(),
+			id: `temp-${randomUUID()}`,
 			content: this.inputMessage.trim(),
 			created_at: new Date().toISOString(),
+			created_seq: 0,
 			message_type: 'user',
 			conversation_id: currentConversationId
 		}
@@ -570,6 +582,7 @@ export class FlowChatManager {
 										id: 'temp-' + randomUUID(),
 										content: newContent,
 										created_at: new Date().toISOString(),
+										created_seq: 0,
 										message_type: 'tool',
 										conversation_id: currentConversationId,
 										job_id: '',
@@ -596,6 +609,7 @@ export class FlowChatManager {
 										id: assistantMessageId,
 										content: accumulatedContent,
 										created_at: new Date().toISOString(),
+										created_seq: 0,
 										message_type: 'assistant',
 										conversation_id: currentConversationId,
 										job_id: '',
