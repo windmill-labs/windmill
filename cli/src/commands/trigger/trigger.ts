@@ -5,6 +5,7 @@ import { stringify as yamlStringify } from "yaml";
 import * as wmill from "../../../gen/services.gen.ts";
 import {
   GcpTrigger,
+  AzureTrigger,
   HttpTrigger,
   KafkaTrigger,
   MqttTrigger,
@@ -33,6 +34,7 @@ import {
 import {
   fromWorkspaceSpecificPath,
   isWorkspaceSpecificFile,
+  resolveWsNameForGitBranch,
 } from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
 import { requireLogin } from "../../core/auth.ts";
@@ -48,6 +50,7 @@ type Trigger = {
   mqtt: MqttTrigger;
   sqs: SqsTrigger;
   gcp: GcpTrigger;
+  azure: AzureTrigger;
   email: EmailTrigger;
 };
 
@@ -83,6 +86,7 @@ async function getTrigger<K extends TriggerType>(
     mqtt: wmill.getMqttTrigger,
     sqs: wmill.getSqsTrigger,
     gcp: wmill.getGcpTrigger,
+    azure: wmill.getAzureTrigger,
     email: wmill.getEmailTrigger,
   };
   const triggerFunction = triggerFunctions[triggerType];
@@ -112,6 +116,7 @@ async function updateTrigger<K extends TriggerType>(
     mqtt: wmill.updateMqttTrigger,
     sqs: wmill.updateSqsTrigger,
     gcp: wmill.updateGcpTrigger,
+    azure: wmill.updateAzureTrigger,
     email: wmill.updateEmailTrigger,
   };
   const triggerFunction = triggerFunctions[triggerType];
@@ -139,6 +144,7 @@ async function createTrigger<K extends TriggerType>(
     mqtt: wmill.createMqttTrigger,
     sqs: wmill.createSqsTrigger,
     gcp: wmill.createGcpTrigger,
+    azure: wmill.createAzureTrigger,
     email: wmill.createEmailTrigger,
   };
   const triggerFunction = triggerFunctions[triggerType];
@@ -393,6 +399,15 @@ const triggerTemplates: Record<TriggerType, Record<string, any>> = {
     subscription_mode: "create_update",
     enabled: false,
   },
+  azure: {
+    script_path: "",
+    is_flow: false,
+    azure_resource_path: "",
+    azure_mode: "namespace_pull",
+    scope_resource_id: "",
+    subscription_name: "",
+    enabled: false,
+  },
   email: {
     script_path: "",
     is_flow: false,
@@ -523,6 +538,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     mqttTriggers,
     sqsTriggers,
     gcpTriggers,
+    azureTriggers,
     emailTriggers,
   ] = await Promise.all([
     listOrEmpty(() => wmill.listHttpTriggers({ workspace: ws })),
@@ -533,6 +549,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     listOrEmpty(() => wmill.listMqttTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listSqsTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listGcpTriggers({ workspace: ws })),
+    listOrEmpty(() => wmill.listAzureTriggers({ workspace: ws })),
     listOrEmpty(() => wmill.listEmailTriggers({ workspace: ws })),
   ]);
   const triggers = [
@@ -544,6 +561,7 @@ async function list(opts: GlobalOptions & { json?: boolean }) {
     ...mqttTriggers.map((x) => ({ path: x.path, kind: "mqtt" })),
     ...sqsTriggers.map((x) => ({ path: x.path, kind: "sqs" })),
     ...gcpTriggers.map((x) => ({ path: x.path, kind: "gcp" })),
+    ...azureTriggers.map((x) => ({ path: x.path, kind: "azure" })),
     ...emailTriggers.map((x) => ({ path: x.path, kind: "email" })),
   ];
 
@@ -567,14 +585,17 @@ function checkIfValidTrigger(kind: string | undefined): kind is TriggerType {
   }
 }
 
-function extractTriggerKindFromPath(filePath: string): string | undefined {
+async function extractTriggerKindFromPath(filePath: string): Promise<string | undefined> {
   let pathToAnalyze = filePath;
 
-  // If this is a branch-specific file, convert it to the base path first
+  // If this is a workspace-specific file, convert it to the base path first.
+  // Resolve the wmill.yaml config key for the current branch (falls back to
+  // the branch name when no matching workspace entry exists).
   if (isWorkspaceSpecificFile(filePath)) {
     const currentBranch = getCurrentGitBranch();
     if (currentBranch) {
-      pathToAnalyze = fromWorkspaceSpecificPath(filePath, currentBranch);
+      const wsName = await resolveWsNameForGitBranch(currentBranch);
+      pathToAnalyze = fromWorkspaceSpecificPath(filePath, wsName);
     }
   }
 
@@ -598,7 +619,7 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
 
   console.log(colors.bold.yellow("Pushing trigger..."));
 
-  const triggerKind = extractTriggerKindFromPath(filePath);
+  const triggerKind = await extractTriggerKindFromPath(filePath);
   if (!checkIfValidTrigger(triggerKind)) {
     throw new Error("Invalid trigger kind: " + triggerKind);
   }
@@ -622,11 +643,11 @@ const command = new Command()
   .command("get", "get a trigger's details")
   .arguments("<path:string>")
   .option("--json", "Output as JSON (for piping to jq)")
-  .option("--kind <kind:string>", "Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email). Recommended for faster lookup")
+  .option("--kind <kind:string>", "Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email). Recommended for faster lookup")
   .action(get as any)
   .command("new", "create a new trigger locally")
   .arguments("<path:string>")
-  .option("--kind <kind:string>", "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)")
+  .option("--kind <kind:string>", "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)")
   .action(newTrigger as any)
   .command(
     "push",
@@ -641,7 +662,7 @@ const command = new Command()
   .arguments("<path:string> <email:string>")
   .option(
     "--kind <kind:string>",
-    "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)"
+    "Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)"
   )
   .action((async (opts: any, triggerPath: string, email: string) => {
     const workspace = await resolveWorkspace(opts);

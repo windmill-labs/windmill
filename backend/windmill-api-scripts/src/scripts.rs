@@ -2863,13 +2863,37 @@ struct CiTestResult {
     started_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+#[derive(FromRow)]
+struct CiTestResultWithPattern {
+    test_script_path: String,
+    tested_item_path: String,
+    job_id: Option<sqlx::types::Uuid>,
+    status: Option<String>,
+    started_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl From<CiTestResultWithPattern> for CiTestResult {
+    fn from(r: CiTestResultWithPattern) -> Self {
+        CiTestResult {
+            test_script_path: r.test_script_path,
+            job_id: r.job_id,
+            status: r.status,
+            started_at: r.started_at,
+        }
+    }
+}
+
 async fn get_ci_test_results(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, kind, path)): Path<(String, String, StripPath)>,
 ) -> JsonResult<Vec<CiTestResult>> {
     let path = path.to_path();
-    let results = sqlx::query_as!(
+    let expected_trigger = format!("{}/{}", kind, path);
+
+    // Exact matches — uses the primary ci_test_reference index.
+    // Job lookup is scoped by trigger so multi-target tests report the right job per target.
+    let exact = sqlx::query_as!(
         CiTestResult,
         r#"SELECT
             ctr.test_script_path,
@@ -2882,19 +2906,60 @@ async fn get_ci_test_results(
             WHERE workspace_id = $1
               AND runnable_path = ctr.test_script_path
               AND trigger_kind = 'ci_test'
+              AND trigger = $4
             ORDER BY created_at DESC
             LIMIT 1
         ) j ON true
         LEFT JOIN v2_job_completed jc ON jc.id = j.id
         WHERE ctr.workspace_id = $1
           AND ctr.tested_item_path = $2
-          AND ctr.tested_item_kind = $3"#,
+          AND ctr.tested_item_kind = $3
+          AND NOT ctr.has_wildcard"#,
         &w_id,
         path,
-        &kind
+        &kind,
+        &expected_trigger
     )
     .fetch_all(&db)
     .await?;
+
+    // Wildcard candidates — partial index; filter patterns in Rust.
+    let wildcard = sqlx::query_as!(
+        CiTestResultWithPattern,
+        r#"SELECT
+            ctr.test_script_path,
+            ctr.tested_item_path,
+            j.id as "job_id?",
+            COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
+            j.created_at as "started_at?"
+        FROM ci_test_reference ctr
+        LEFT JOIN LATERAL (
+            SELECT id, created_at FROM v2_job
+            WHERE workspace_id = $1
+              AND runnable_path = ctr.test_script_path
+              AND trigger_kind = 'ci_test'
+              AND trigger = $3
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) j ON true
+        LEFT JOIN v2_job_completed jc ON jc.id = j.id
+        WHERE ctr.workspace_id = $1
+          AND ctr.tested_item_kind = $2
+          AND ctr.has_wildcard"#,
+        &w_id,
+        &kind,
+        &expected_trigger
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let mut results = exact;
+    results.extend(
+        wildcard
+            .into_iter()
+            .filter(|r| windmill_common::schema::ci_test_path_matches(path, &r.tested_item_path))
+            .map(CiTestResult::from),
+    );
 
     Ok(Json(results))
 }
@@ -2922,13 +2987,32 @@ async fn get_ci_test_results_batch(
         ));
     }
 
-    let mut result_map: HashMap<String, Vec<CiTestResult>> = HashMap::new();
+    // Initialize every requested key with an empty vec so the response shape matches input.
+    let mut result_map: HashMap<String, Vec<CiTestResult>> = req
+        .items
+        .iter()
+        .map(|it| (format!("{}:{}", it.kind, it.path), Vec::new()))
+        .collect();
 
+    // Group paths by kind so we can do one exact query + one wildcard query per distinct kind.
+    // Dedupe via HashSet so duplicate items in the input don't push matches multiple times.
+    let mut paths_by_kind: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
     for item in &req.items {
-        let results = sqlx::query_as!(
-            CiTestResult,
+        paths_by_kind
+            .entry(item.kind.clone())
+            .or_default()
+            .insert(item.path.clone());
+    }
+
+    for (kind, paths) in &paths_by_kind {
+        let paths_vec: Vec<String> = paths.iter().cloned().collect();
+        // Exact matches for all paths of this kind in one query.
+        // Trigger scoping ensures the job returned matches the requested target.
+        let exact = sqlx::query_as!(
+            CiTestResultWithPattern,
             r#"SELECT
                 ctr.test_script_path,
+                ctr.tested_item_path,
                 j.id as "job_id?",
                 COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
                 j.created_at as "started_at?"
@@ -2938,22 +3022,77 @@ async fn get_ci_test_results_batch(
                 WHERE workspace_id = $1
                   AND runnable_path = ctr.test_script_path
                   AND trigger_kind = 'ci_test'
+                  AND trigger = $3 || '/' || ctr.tested_item_path
                 ORDER BY created_at DESC
                 LIMIT 1
             ) j ON true
             LEFT JOIN v2_job_completed jc ON jc.id = j.id
             WHERE ctr.workspace_id = $1
-              AND ctr.tested_item_path = $2
-              AND ctr.tested_item_kind = $3"#,
+              AND ctr.tested_item_path = ANY($2::text[])
+              AND ctr.tested_item_kind = $3
+              AND NOT ctr.has_wildcard"#,
             &w_id,
-            &item.path,
-            &item.kind
+            &paths_vec[..],
+            kind
         )
         .fetch_all(&db)
         .await?;
 
-        let key = format!("{}:{}", item.kind, item.path);
-        result_map.insert(key, results);
+        for row in exact {
+            let key = format!("{}:{}", kind, row.tested_item_path);
+            if let Some(bucket) = result_map.get_mut(&key) {
+                bucket.push(row.into());
+            }
+        }
+
+        // Wildcard candidates for this kind — one row per (pattern, requested_path) pair so the
+        // LATERAL can scope the job lookup by the specific trigger.
+        let wildcard = sqlx::query!(
+            r#"SELECT
+                ctr.test_script_path as "test_script_path!",
+                ctr.tested_item_path as "tested_item_path!",
+                req.path as "requested_path!",
+                j.id as "job_id?",
+                COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
+                j.created_at as "started_at?"
+            FROM ci_test_reference ctr
+            CROSS JOIN unnest($3::text[]) AS req(path)
+            LEFT JOIN LATERAL (
+                SELECT id, created_at FROM v2_job
+                WHERE workspace_id = $1
+                  AND runnable_path = ctr.test_script_path
+                  AND trigger_kind = 'ci_test'
+                  AND trigger = $2 || '/' || req.path
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) j ON true
+            LEFT JOIN v2_job_completed jc ON jc.id = j.id
+            WHERE ctr.workspace_id = $1
+              AND ctr.tested_item_kind = $2
+              AND ctr.has_wildcard"#,
+            &w_id,
+            kind,
+            &paths_vec[..]
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in wildcard {
+            if windmill_common::schema::ci_test_path_matches(
+                &row.requested_path,
+                &row.tested_item_path,
+            ) {
+                let key = format!("{}:{}", kind, row.requested_path);
+                if let Some(bucket) = result_map.get_mut(&key) {
+                    bucket.push(CiTestResult {
+                        test_script_path: row.test_script_path,
+                        job_id: row.job_id,
+                        status: row.status,
+                        started_at: row.started_at,
+                    });
+                }
+            }
+        }
     }
 
     Ok(Json(result_map))

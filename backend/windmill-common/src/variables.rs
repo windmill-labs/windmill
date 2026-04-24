@@ -245,6 +245,7 @@ pub async fn get_reserved_variables(
     scheduled_for: Option<chrono::DateTime<Utc>>,
     runnable_id: Option<ScriptHash>,
     end_user_email: Option<String>,
+    tested_runnable: Option<String>,
 ) -> Vec<ContextualVariable> {
     let state_path = {
         let trigger = if schedule_path.is_some() {
@@ -419,6 +420,12 @@ pub async fn get_reserved_variables(
         name: "WM_END_USER_EMAIL".to_string(),
         value: end_user_email.unwrap_or_else(|| "".to_string()),
         description: "Email of the end user that executed the current script. Only available when triggered from an app.".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_TESTED_RUNNABLE".to_string(),
+        value: tested_runnable.unwrap_or_else(|| "".to_string()),
+        description: "Qualified path ({kind}/{path}) of the runnable that triggered this CI test. Empty string unless the job was triggered by a CI test annotation.".to_string(),
         is_custom: false,
     },
 ].into_iter().chain(custom_envs.into_iter().map(|(name, value)| ContextualVariable {

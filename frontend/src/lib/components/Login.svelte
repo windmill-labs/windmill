@@ -30,6 +30,7 @@
 		error?: string | undefined
 		popup?: boolean
 		firstTime?: boolean
+		autoRedirect?: boolean
 		onLoginSuccess?: () => void
 	}
 
@@ -40,6 +41,7 @@
 		error = undefined,
 		popup = false,
 		firstTime = false,
+		autoRedirect = true,
 		onLoginSuccess = undefined
 	}: Props = $props()
 
@@ -93,6 +95,7 @@
 	let saml: string | undefined = $state(undefined)
 	let smtpConfigured: boolean | undefined = $state(undefined)
 	let disablePasswordLogin = $state(false)
+	let autoRedirecting = $state(false)
 
 	type OAuthLogin = {
 		type: string
@@ -201,12 +204,14 @@
 			console.error('Could not load password login setting', disabledResult.reason)
 		}
 
+		let autoLogin: string | undefined = undefined
 		if (loginsResult.status === 'fulfilled') {
 			logins = loginsResult.value.oauth.map((login) => ({
 				type: login.type,
 				displayName: login.display_name || login.type
 			}))
 			saml = loginsResult.value.saml
+			autoLogin = loginsResult.value.auto_login
 		} else {
 			logins = []
 			saml = undefined
@@ -216,6 +221,28 @@
 		showPassword =
 			!disablePasswordLogin &&
 			((logins?.length === 0 && !saml) || (email != undefined && email.length > 0))
+
+		if (autoRedirect && autoLogin && !error && !shouldSkipAutoRedirect()) {
+			if (autoLogin === 'saml' && saml) {
+				autoRedirecting = true
+				if (!redirectSaml()) autoRedirecting = false
+			} else if (logins?.some((l) => l.type === autoLogin)) {
+				autoRedirecting = true
+				if (!storeRedirect(autoLogin)) {
+					autoRedirecting = false
+					sendUserToast('Popup blocked — please click the sign-in button to continue.', true)
+				}
+			}
+		}
+	}
+
+	function shouldSkipAutoRedirect(): boolean {
+		try {
+			const params = new URLSearchParams(window.location.search)
+			return params.get('no_sso') === '1'
+		} catch {
+			return false
+		}
 	}
 
 	loadLogins()
@@ -299,7 +326,7 @@
 		window.removeEventListener('storage', handleStorageEvent)
 	})
 
-	function storeRedirect(provider: string) {
+	function persistRd() {
 		if (rd) {
 			try {
 				localStorage.setItem('rd', rd)
@@ -307,6 +334,10 @@
 				console.error('Could not persist redirection to local storage', e)
 			}
 		}
+	}
+
+	function storeRedirect(provider: string): boolean {
+		persistRd()
 		let url = base + '/api/oauth/login/' + provider + (popup ? '?close=true' : '')
 		console.log('storeRedirect', popup, url)
 
@@ -314,11 +345,28 @@
 			localStorage.setItem('closeUponLogin', 'true')
 			window.addEventListener('message', popupListener)
 			window.addEventListener('storage', handleStorageEvent)
-			window.open(url, '_blank', 'popup')
+			const win = window.open(url, '_blank', 'popup')
+			if (!win) {
+				window.removeEventListener('message', popupListener)
+				window.removeEventListener('storage', handleStorageEvent)
+				return false
+			}
+			return true
 		} else {
 			localStorage.setItem('closeUponLogin', 'false')
 			window.location.href = url
+			return true
 		}
+	}
+
+	function redirectSaml(): boolean {
+		if (!saml) {
+			sendUserToast('No SAML login available', true)
+			return false
+		}
+		persistRd()
+		window.location.href = saml
+		return true
 	}
 
 	$effect(() => {
@@ -327,7 +375,14 @@
 </script>
 
 <div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">
-	<div class="grid {logins && logins.length > 2 ? 'grid-cols-2' : ''} gap-4">
+	{#if autoRedirecting}
+		<p class="text-sm text-center text-secondary py-4">Signing you in…</p>
+	{/if}
+	<div
+		class="grid {logins && logins.length > 2 ? 'grid-cols-2' : ''} gap-4 {autoRedirecting
+			? 'hidden'
+			: ''}"
+	>
 		{#if !logins}
 			{#each Array(4) as _}
 				<Skeleton layout={[0.5, [2.375]]} />
@@ -355,29 +410,10 @@
 			{/each}
 		{/if}
 		{#if saml}
-			<Button
-				variant="default"
-				btnClasses="mt-2 w-full"
-				on:click={() => {
-					if (saml) {
-						if (rd) {
-							try {
-								localStorage.setItem('rd', rd)
-							} catch (e) {
-								console.error('Could not persist redirection to local storage', e)
-							}
-						}
-						window.location.href = saml
-					} else {
-						sendUserToast('No SAML login available', true)
-					}
-				}}
-			>
-				SSO
-			</Button>
+			<Button variant="default" btnClasses="mt-2 w-full" on:click={redirectSaml}>SSO</Button>
 		{/if}
 	</div>
-	{#if !disablePasswordLogin && (saml || (logins && logins.length > 0))}
+	{#if !autoRedirecting && !disablePasswordLogin && (saml || (logins && logins.length > 0))}
 		<div class={classNames('center-center', logins && logins.length > 0 ? 'mt-6' : '')}>
 			<Button
 				size="xs"
@@ -391,7 +427,7 @@
 		</div>
 	{/if}
 
-	{#if showPassword && !disablePasswordLogin}
+	{#if !autoRedirecting && showPassword && !disablePasswordLogin}
 		<div>
 			{#if firstTime}
 				<p class="text-xs text-center w-full pb-4 text-secondary">

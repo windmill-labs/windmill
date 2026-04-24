@@ -26,6 +26,7 @@ fn build_trigger_scope_domains() -> Vec<ScopeDomain> {
         ("mqtt_triggers", "MQTT"),
         ("sqs_triggers", "AWS SQS"),
         ("gcp_triggers", "GCP Pub/Sub"),
+        ("azure_triggers", "Azure Event Grid"),
         ("postgres_triggers", "PostgreSQL"),
         ("email_triggers", "Email"),
     ];

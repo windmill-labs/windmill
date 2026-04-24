@@ -46,6 +46,7 @@ import {
 } from "../../utils/utils.ts";
 import {
   getEffectiveSettings,
+  getWorkspaceNames,
   mergeConfigWithConfigFile,
   parseSyncBehavior,
   SyncOptions,
@@ -120,6 +121,27 @@ let branchDeprecationWarned = false;
 function resolveWsNameFromBranch(opts: SyncOptions, branchName: string): string {
   const match = findWorkspaceByGitBranch(opts.workspaces, branchName);
   return match ? match[0] : branchName;
+}
+
+// Resolve wsNameForConfig from CLI flags. Prefers --branch → matching config key,
+// then --workspace → matching config key (incl. when --base-url is set). Returns
+// undefined when no flag-based resolution applies; callers then fall back to
+// inferWsNameFromProfile on the resolved workspace profile.
+export function resolveWsNameForConfigFromFlags(
+  opts: SyncOptions & { branch?: string; workspace?: string },
+): string | undefined {
+  if (opts.branch) {
+    return resolveWsNameFromBranch(opts, opts.branch);
+  }
+  if (opts.workspace) {
+    // Use getWorkspaceNames so reserved keys (e.g. commonSpecificItems) are filtered out,
+    // matching the behavior of findWorkspaceByGitBranch / inferWsNameFromProfile.
+    const validKeys = getWorkspaceNames(opts.workspaces);
+    if (validKeys.includes(opts.workspace)) {
+      return opts.workspace;
+    }
+  }
+  return undefined;
 }
 
 // Warn if --workspace overrides auto-detected branch or if workspace not in config.
@@ -1495,6 +1517,7 @@ export async function elementsToMap(
         path.endsWith(".mqtt_trigger" + ext) ||
         path.endsWith(".sqs_trigger" + ext) ||
         path.endsWith(".gcp_trigger" + ext) ||
+        path.endsWith(".azure_trigger" + ext) ||
         path.endsWith(".email_trigger" + ext) ||
         path.endsWith("_native_trigger" + ext))
     ) {
@@ -1873,6 +1896,7 @@ function getOrderFromPath(p: string) {
     typ == "mqtt_trigger" ||
     typ == "sqs_trigger" ||
     typ == "gcp_trigger" ||
+    typ == "azure_trigger" ||
     typ == "email_trigger" ||
     typ == "native_trigger"
   ) {
@@ -2179,27 +2203,29 @@ export async function pull(
 
   // Resolve workspace name for config lookups.
   // --branch resolves git branch → workspace name (deprecated but still supported).
-  // --workspace (without --base-url) selects a workspace config entry by name.
-  // When --base-url is used with --workspace, --workspace is a profile selector only;
-  // --branch should still drive config lookups.
+  // --workspace selects a workspace config entry by name when it matches one,
+  // regardless of --base-url. If it doesn't match any entry it's treated as a
+  // profile/credential selector only.
   const hasExplicitCredentials = !!opts.baseUrl;
   let wsNameForConfig: string | undefined;
 
-  if (opts.branch) {
-    if (!hasExplicitCredentials && !branchDeprecationWarned) {
-      log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
-      branchDeprecationWarned = true;
-    }
-    wsNameForConfig = resolveWsNameFromBranch(opts, opts.branch);
-  } else if (opts.workspace && !hasExplicitCredentials) {
-    // --workspace without --base-url: use as workspace config name
-    wsNameForConfig = opts.workspace;
-    warnWorkspaceOverride(opts, wsNameForConfig);
+  if (opts.branch && !hasExplicitCredentials && !branchDeprecationWarned) {
+    log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
+    branchDeprecationWarned = true;
   }
 
-  // Validate workspace configuration early (skipped when override is used)
+  wsNameForConfig = resolveWsNameForConfigFromFlags(opts);
+
+  if (!opts.branch && opts.workspace && !hasExplicitCredentials) {
+    // Warn if override doesn't match a config key, or mismatches the auto-detected branch
+    warnWorkspaceOverride(opts, opts.workspace);
+  }
+
+  // Validate workspace configuration early. Skip when ANY explicit flag is set
+  // (even a --workspace value that doesn't match a config key — the user opted
+  // out of branch-based auto-detection).
   try {
-    await validateBranchConfiguration(opts, wsNameForConfig);
+    await validateBranchConfiguration(opts, wsNameForConfig ?? opts.workspace);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -2721,20 +2747,23 @@ export async function push(
   const hasExplicitCredentials = !!opts.baseUrl;
   let wsNameForConfig: string | undefined;
 
-  if (opts.branch) {
-    if (!hasExplicitCredentials && !branchDeprecationWarned) {
-      log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
-      branchDeprecationWarned = true;
-    }
-    wsNameForConfig = resolveWsNameFromBranch(opts, opts.branch);
-  } else if (opts.workspace && !hasExplicitCredentials) {
-    wsNameForConfig = opts.workspace;
-    warnWorkspaceOverride(opts, wsNameForConfig);
+  if (opts.branch && !hasExplicitCredentials && !branchDeprecationWarned) {
+    log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
+    branchDeprecationWarned = true;
   }
 
-  // Validate workspace configuration early (skipped when override is used)
+  wsNameForConfig = resolveWsNameForConfigFromFlags(opts);
+
+  if (!opts.branch && opts.workspace && !hasExplicitCredentials) {
+    // Warn if override doesn't match a config key, or mismatches the auto-detected branch
+    warnWorkspaceOverride(opts, opts.workspace);
+  }
+
+  // Validate workspace configuration early. Skip when ANY explicit flag is set
+  // (even a --workspace value that doesn't match a config key — the user opted
+  // out of branch-based auto-detection).
   try {
-    await validateBranchConfiguration(opts, wsNameForConfig);
+    await validateBranchConfiguration(opts, wsNameForConfig ?? opts.workspace);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -3132,7 +3161,7 @@ export async function push(
           }
         }
         const rules = folderRulesCache.get(folderName)!;
-        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|sqs_trigger|gcp_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
+        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|sqs_trigger|gcp_trigger|azure_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
         const relative = remotePath.slice(`f/${folderName}/`.length);
         if (!relative) continue;
         for (const rule of rules) {
@@ -3763,6 +3792,12 @@ export async function push(
                   await wmill.deleteGcpTrigger({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".gcp_trigger.json"),
+                  });
+                  break;
+                case "azure_trigger":
+                  await wmill.deleteAzureTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".azure_trigger.json"),
                   });
                   break;
                 case "email_trigger":

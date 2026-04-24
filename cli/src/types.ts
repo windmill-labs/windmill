@@ -61,6 +61,7 @@ export const TRIGGER_TYPES = [
   "mqtt",
   "sqs",
   "gcp",
+  "azure",
   "email",
 ] as const;
 
@@ -204,6 +205,8 @@ export async function pushObj(
     await pushTrigger("sqs", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "gcp_trigger") {
     await pushTrigger("gcp", workspace, p, befObj, newObj, permissionedAsContext);
+  } else if (typeEnding === "azure_trigger") {
+    await pushTrigger("azure", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "email_trigger") {
     await pushTrigger("email", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "native_trigger") {
@@ -263,6 +266,7 @@ export function getTypeStrFromPath(
   | "mqtt_trigger"
   | "sqs_trigger"
   | "gcp_trigger"
+  | "azure_trigger"
   | "email_trigger"
   | "native_trigger"
   | "user"
@@ -343,6 +347,7 @@ export function getTypeStrFromPath(
     typeEnding === "mqtt_trigger" ||
     typeEnding === "sqs_trigger" ||
     typeEnding === "gcp_trigger" ||
+    typeEnding === "azure_trigger" ||
     typeEnding === "email_trigger" ||
     typeEnding === "user" ||
     typeEnding === "group" ||

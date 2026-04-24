@@ -384,6 +384,19 @@ def schema_to_rust_value(schema: Optional[Dict[str, Any]]) -> str:
         return "None"
     return f"Some(serde_json::json!({json.dumps(schema, indent=8)}))"
 
+def build_tool_description(operation: Dict[str, Any], method: str, path: str) -> str:
+    """Build the MCP tool description from OpenAPI summary and description."""
+    summary = operation.get('summary', '').strip()
+    description = operation.get('description', '').strip()
+
+    if summary and description:
+        return f"{summary}: {description}".rstrip('.!? ')
+    if summary:
+        return summary
+    if description:
+        return description.rstrip('.!? ')
+    return f'{method.upper()} {path}'
+
 def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Find all endpoints marked with x-mcp-tool: true."""
     tools = []
@@ -395,7 +408,7 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
                 # Extract tool information
                 tool = {
                     'name': operation.get('operationId', f"{method}_{path.replace('/', '_').replace('{', '').replace('}', '')}"),
-                    'description': operation.get('summary', operation.get('description', f'{method.upper()} {path}')),
+                    'description': build_tool_description(operation, method, path),
                     'instructions': operation.get('x-mcp-instructions', ''),
                     'path': path,
                     'method': method.upper(),

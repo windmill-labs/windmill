@@ -935,6 +935,7 @@ async fn list_selected_job_groups(
 struct GetJobQuery {
     pub no_logs: Option<bool>,
     pub no_code: Option<bool>,
+    pub approval_token: Option<String>,
 }
 
 async fn get_job(
@@ -942,16 +943,36 @@ async fn get_job(
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-    Query(GetJobQuery { no_logs, no_code }): Query<GetJobQuery>,
+    Query(GetJobQuery { no_logs, no_code, approval_token }): Query<GetJobQuery>,
 ) -> error::Result<Response> {
     let tags = opt_authed
         .as_ref()
         .map(|authed| get_scope_tags(authed))
         .flatten();
 
-    let mut get = GetQuery::new()
-        .with_auth(&opt_authed)
-        .with_in_tags(tags.as_ref());
+    // A valid approval token on the same (workspace, flow) grants read access
+    // so the approval page can render job metadata without login. The approval
+    // URL usually carries the flow id directly — try that first and only
+    // resolve the parent flow if the direct check fails.
+    let has_valid_approval_token = if let Some(ref token) = approval_token {
+        if validate_approval_token(&db, token, id, &w_id).await.is_ok() {
+            true
+        } else if let Ok(flow_id) = get_flow_id_for_job(&db, id).await {
+            flow_id != id
+                && validate_approval_token(&db, token, flow_id, &w_id)
+                    .await
+                    .is_ok()
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    let mut get = GetQuery::new().with_in_tags(tags.as_ref());
+    if !has_valid_approval_token {
+        get = get.with_auth(&opt_authed);
+    }
 
     if no_code.unwrap_or(false) {
         get = get.without_code();

@@ -180,20 +180,25 @@ export async function findResourceFile(path: string) {
   let contentBasePathJSON = splitPath[0] + "." + splitPath[1] + ".json";
   let contentBasePathYAML = splitPath[0] + "." + splitPath[1] + ".yaml";
 
-  // Check for branch-specific metadata files first
+  // Check for workspace-specific metadata files first, using the wmill.yaml
+  // config key for the current git branch as the filename suffix (falls back
+  // to the branch name when no matching workspace entry exists).
   const currentBranch = getCurrentGitBranch();
+  const wsName = currentBranch
+    ? await specificItems.resolveWsNameForGitBranch(currentBranch)
+    : null;
 
   const candidates = [contentBasePathJSON, contentBasePathYAML];
 
-  if (currentBranch) {
-    // Add branch-specific candidates at the beginning (higher priority)
+  if (wsName) {
+    // Add workspace-specific candidates at the beginning (higher priority)
     const branchSpecificJSON = specificItems.toWorkspaceSpecificPath(
       contentBasePathJSON,
-      currentBranch
+      wsName
     );
     const branchSpecificYAML = specificItems.toWorkspaceSpecificPath(
       contentBasePathYAML,
-      currentBranch
+      wsName
     );
     candidates.unshift(branchSpecificJSON, branchSpecificYAML);
   }
