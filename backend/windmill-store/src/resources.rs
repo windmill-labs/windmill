@@ -634,6 +634,7 @@ pub async fn transform_json_value(
                     v2_job.permissioned_as,
                     v2_job.runnable_path,
                     CASE WHEN v2_job.trigger_kind = 'schedule'::job_trigger_kind THEN v2_job.trigger END AS schedule_path,
+                    CASE WHEN v2_job.trigger_kind = 'ci_test'::job_trigger_kind THEN v2_job.trigger END AS tested_runnable,
                     v2_job.flow_step_id,
                     v2_job.flow_innermost_root_job,
                     v2_job.root_job,
@@ -679,6 +680,7 @@ pub async fn transform_json_value(
                 Some(job.scheduled_for.clone()),
                 None,
                 None,
+                job.tested_runnable.clone(),
             )
             .await;
 
