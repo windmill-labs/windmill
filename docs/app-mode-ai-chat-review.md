@@ -112,7 +112,8 @@ These are generally safe without confirmation:
 - `search_workspace`
 - `get_runnable_details`
 - `search_hub_scripts`
-- `get_datatables`
+- `list_datatables`
+- `get_datatable_table_schema`
 
 ### Mutating tools
 
@@ -143,7 +144,7 @@ The app system prompt is useful but heavier than ideal.
 ### Concerns
 
 1. It always includes broad app-building instructions, even for small localized edits.
-2. It includes the datatable SDK reference for both TypeScript and Python every time.
+2. The previous prompt included the datatable SDK reference for both TypeScript and Python every time. This has since been removed; concise examples remain in the prompt.
 3. The previous prompt told the model to start with `get_files()`, which encouraged loading all files even when selected context was sufficient. This is now improved by `list_files()`, but the prompt still needs to stay demand-driven.
 4. It relies heavily on prompt instructions for datatable safety instead of enforcing safety in tools.
 5. Custom workspace/user prompts are appended as `USER GIVEN INSTRUCTIONS`, which is flexible but can further increase context.
@@ -153,10 +154,10 @@ The app system prompt is useful but heavier than ideal.
 The base app prompt should be shorter and more demand-driven:
 
 - Keep file discovery demand-driven: use selected and explicitly provided context first; call `list_files()` only when a broader metadata overview is needed.
-- Move SDK details behind an on-demand tool such as `get_datatable_sdk_reference(language)`.
+- Keep full SDK details out of the default prompt; concise examples are usually enough. Add an on-demand SDK reference only if it does not cause unnecessary extra tool turns.
 - Keep only minimal datatable rules in the base prompt:
   - use datatables for persistence;
-  - call `get_datatables()` before schema work;
+  - call `list_datatables()` before schema work;
   - DDL must use `exec_datatable_sql`;
   - non-read SQL requires confirmation.
 
@@ -212,7 +213,8 @@ App mode should use the same infrastructure for important actions.
 - `get_frontend_file`;
 - `get_backend_runnable`;
 - `get_selected_context`;
-- `get_datatables`, if it returns schema metadata only;
+- `list_datatables`, as table-name metadata only;
+- `get_datatable_table_schema`, as a targeted schema read;
 - `lint`;
 - search tools.
 
@@ -271,7 +273,8 @@ The AI chat integration lets users:
 
 - mention datatable tables through `@` context;
 - add mentioned tables to the app whitelist;
-- retrieve datatable schemas with `get_datatables()`;
+- list datatable/schema/table names with `list_datatables()`;
+- retrieve one table's columns with `get_datatable_table_schema()`;
 - create tables through `exec_datatable_sql(..., new_table)`.
 
 ### Concerns
@@ -288,13 +291,10 @@ The AI chat integration lets users:
 4. **Datatable context cache can become stale.**
    `AIChatManager.refreshDatatables()` runs when app helpers are set, but may not refresh immediately after data panel changes or after AI creates a new table.
 
-5. **Full schema loading may be too expensive.**
-   Backend `list_datatable_schemas` introspects every configured datatable, and app-side code filters afterward.
+5. **Full schema loading can still be too expensive internally.**
+   `list_datatables()` and `get_datatable_table_schema()` reduce what is sent to the model, but they still currently rely on app helpers that fetch full schema data before filtering.
 
-6. **`get_datatables()` returns full schemas.**
-   The compact column format is good, but a large workspace can still produce a lot of context.
-
-7. **Auto-whitelisting from `@table` is convenient but silent.**
+6. **Auto-whitelisting from `@table` is convenient but silent.**
    It mutates app data without an obvious confirmation or undo affordance.
 
 ### Recommended datatable tool design
@@ -302,7 +302,7 @@ The AI chat integration lets users:
 Instead of one broad schema tool and one unrestricted SQL tool, prefer smaller tools:
 
 - `list_datatables()`
-- `list_datatable_tables(datatable, schema?, search?)`
+- `list_datatable_tables(datatable, schema?, search?)` (optional backend/API optimization if table lists need server-side filtering)
 - `get_datatable_table_schema(datatable, schema, table)`
 - `preview_datatable_rows(datatable, schema, table, limit)` with confirmation
 - `execute_datatable_sql(datatable, sql)` with query classification and confirmation
@@ -324,8 +324,8 @@ Instead of one broad schema tool and one unrestricted SQL tool, prefer smaller t
 3. **Reduce default prompt/tool context**
    - keep `list_files()` metadata-only and demand-driven;
    - use selected context first;
-   - move SDK reference to an on-demand tool;
-   - split datatable tools into smaller schema/table lookups.
+   - keep full SDK references out of the default prompt;
+   - keep datatable tools split into smaller schema/table lookups.
 
 4. **Refresh datatable context reliably**
    - refresh after data panel changes;

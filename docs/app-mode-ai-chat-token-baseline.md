@@ -157,3 +157,87 @@ Interpretation:
 - The selected-backend case also improved, despite still needing targeted runnable inspection.
 - The datatable-context cases can require an extra `get_frontend_file` after `list_files`, so the small datatable edit regressed in this single-run sample.
 - The large datatable case remains dominated by datatable/schema prompt bloat and model variability; moving datatable SDK/reference and schema discovery behind smaller on-demand tools is still the next likely high-impact optimization.
+
+## Follow-up: targeted datatable tools and shorter datatable prompt
+
+The next pass reduced default datatable context by making datatable discovery metadata-first and removing the full datatable SDK reference from the system prompt.
+
+Changes:
+
+- Replaced the broad schema discovery tool with `list_datatables()` for datatable/schema/table names only.
+- Added `get_datatable_table_schema(datatable_name, schema_name, table_name)` for targeted column lookup when column names/types are actually needed.
+- Removed the full TypeScript + Python datatable SDK reference from the default app system prompt.
+- Kept concise TypeScript and Python datatable examples in the prompt, which were enough for the benchmark cases.
+- Strengthened prompt/tool guidance so table-list dashboards use `list_datatables()` directly and avoid schema/SDK lookups unless needed.
+
+The same five cases were rerun with:
+
+```bash
+cd ai_evals
+set -a
+source ~/windmill/ai_evals/.env
+set +a
+bun run cli -- run app \
+  app-token-baseline-large-app-small-edit \
+  app-token-selected-large-frontend-context \
+  app-token-selected-large-backend-context \
+  app-token-many-datatable-context \
+  app-token-large-datatable-discovery \
+  --model haiku \
+  --runs 1 \
+  --output results/app-token-after-datatable-tools-v3.json
+```
+
+Pass rate: **100% (5/5)**
+
+| Case | Prompt tokens | Completion tokens | Total tokens | Tool calls | Tools used |
+|---|---:|---:|---:|---:|---|
+| `app-token-baseline-large-app-small-edit` | 37,516 | 425 | 37,941 | 3 | `list_files`, `get_frontend_file`, `patch_file` |
+| `app-token-selected-large-frontend-context` | 37,516 | 358 | 37,874 | 3 | `list_files`, `get_frontend_file`, `patch_file` |
+| `app-token-selected-large-backend-context` | 49,995 | 9,708 | 59,703 | 3 | `list_files`, `get_backend_runnable`, `set_backend_runnable` |
+| `app-token-many-datatable-context` | 43,493 | 536 | 44,029 | 3 | `list_files`, `get_frontend_file`, `patch_file` |
+| `app-token-large-datatable-discovery` | 24,193 | 2,043 | 26,236 | 4 | `list_datatables`, `list_files`, `get_frontend_file`, `set_frontend_file` |
+
+Aggregate token usage:
+
+```json
+{
+  "totalTokenUsage": {
+    "prompt": 192713,
+    "completion": 13070,
+    "total": 205783
+  },
+  "averageTokenUsagePerAttempt": {
+    "prompt": 38542.6,
+    "completion": 2614,
+    "total": 41156.6
+  }
+}
+```
+
+Comparison against the metadata-only `list_files` run (`results/app-token-after-list-files.json`):
+
+| Case | `list_files` total | Datatable-tools total | Delta | Delta % | Prompt delta |
+|---|---:|---:|---:|---:|---:|
+| `app-token-baseline-large-app-small-edit` | 41,442 | 37,941 | -3,501 | -8.4% | -3,504 |
+| `app-token-selected-large-frontend-context` | 41,442 | 37,874 | -3,568 | -8.6% | -3,504 |
+| `app-token-selected-large-backend-context` | 63,225 | 59,703 | -3,522 | -5.6% | -3,516 |
+| `app-token-many-datatable-context` | 47,465 | 44,029 | -3,436 | -7.2% | -3,497 |
+| `app-token-large-datatable-discovery` | 136,691 | 26,236 | -110,455 | -80.8% | -107,414 |
+
+Aggregate comparison:
+
+| Metric | `list_files` | Datatable tools | Delta | Delta % |
+|---|---:|---:|---:|---:|
+| Prompt tokens | 314,148 | 192,713 | -121,435 | -38.7% |
+| Completion tokens | 16,117 | 13,070 | -3,047 | -18.9% |
+| Total tokens | 330,265 | 205,783 | -124,482 | -37.7% |
+
+Compared to the post-rebase / PR #8922 run, the datatable-tools run is **-146,014 total tokens** (**-41.5% total**). Compared to the original baseline above, it is **-174,555 total tokens** (**-45.9% total**).
+
+Interpretation:
+
+- Removing the full datatable SDK reference from the default prompt saved about 3.5k prompt tokens in every case.
+- The large datatable discovery case improved dramatically because the model used `list_datatables()` table-name metadata instead of loading full schemas.
+- The small datatable-context edit is still higher than the post-rebase / PR #8922 run because selected file identifiers are not yet injected, so the model still discovers and reads `/index.tsx` before patching.
+- The next likely optimization is identifier-only selected frontend/backend context so selected-file cases can skip `list_files()`.

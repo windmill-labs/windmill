@@ -63,10 +63,6 @@ vi.mock('../AIChatManager.svelte', () => ({
 	}
 }))
 
-vi.mock('$system_prompts', () => ({
-	getDatatableSdkReference: () => 'Datatable SDK reference'
-}))
-
 const EMPTY_LINT_RESULT: LintResult = {
 	errorCount: 0,
 	warningCount: 0,
@@ -112,20 +108,20 @@ function createToolCallbacks() {
 	}
 }
 
-function getListFilesTool() {
-	const tool = getAppTools().find((entry) => entry.def.function.name === 'list_files')
+function getTool(name: string) {
+	const tool = getAppTools().find((entry) => entry.def.function.name === name)
 	if (!tool) {
-		throw new Error('list_files tool not found')
+		throw new Error(`${name} tool not found`)
 	}
 	return tool
 }
 
+function getListFilesTool() {
+	return getTool('list_files')
+}
+
 function getPatchFileTool() {
-	const tool = getAppTools().find((entry) => entry.def.function.name === 'patch_file')
-	if (!tool) {
-		throw new Error('patch_file tool not found')
-	}
-	return tool
+	return getTool('patch_file')
 }
 
 describe('app list_files tool', () => {
@@ -188,6 +184,86 @@ describe('app list_files tool', () => {
 		})
 		expect(result).not.toContain('secretFrontendContent')
 		expect(result).not.toContain('secretBackendContent')
+	})
+})
+
+describe('app datatable tools', () => {
+	it('lists datatable metadata without column definitions', async () => {
+		const tool = getTool('list_datatables')
+
+		const result = await tool.fn({
+			args: {},
+			workspace: 'test-workspace',
+			helpers: createHelpers({
+				getDatatables: async () => [
+					{
+						datatable_name: 'main',
+						schemas: {
+							public: {
+								users: { id: 'int4', email: 'text' },
+								orders: { id: 'int4', total: 'numeric' }
+							},
+							analytics: {
+								events: { id: 'int4', payload: 'jsonb' }
+							}
+						}
+					}
+				]
+			}),
+			toolCallbacks: createToolCallbacks(),
+			toolId: 'tool-list-datatables'
+		})
+
+		const parsed = JSON.parse(result)
+		expect(parsed).toEqual([
+			{
+				datatable_name: 'main',
+				schemas: {
+					public: ['users', 'orders'],
+					analytics: ['events']
+				},
+				tableCount: 3
+			}
+		])
+		expect(result).not.toContain('email')
+		expect(result).not.toContain('jsonb')
+	})
+
+	it('gets one datatable table schema', async () => {
+		const tool = getTool('get_datatable_table_schema')
+
+		const result = await tool.fn({
+			args: {
+				datatable_name: 'main',
+				schema_name: 'public',
+				table_name: 'users'
+			},
+			workspace: 'test-workspace',
+			helpers: createHelpers({
+				getDatatables: async () => [
+					{
+						datatable_name: 'main',
+						schemas: {
+							public: {
+								users: { id: 'int4', email: 'text' },
+								orders: { id: 'int4', total: 'numeric' }
+							}
+						}
+					}
+				]
+			}),
+			toolCallbacks: createToolCallbacks(),
+			toolId: 'tool-get-table-schema'
+		})
+
+		const parsed = JSON.parse(result)
+		expect(parsed).toEqual({
+			datatable_name: 'main',
+			schema_name: 'public',
+			table_name: 'users',
+			columns: { id: 'int4', email: 'text' }
+		})
+		expect(result).not.toContain('total')
 	})
 })
 
