@@ -128,6 +128,71 @@
     - deleting a recipe updates the visible list
     - keeps recipe persistence working through the existing datatable-backed app setup
 
+- id: app-datatable-persistent-notes
+  prompt: |-
+    Build a notes app that persists notes in the existing datatable table.
+    Inspect the existing datatable and table schema before writing code.
+    Use the existing main/public.notes table, and do not create any new tables.
+    Create backend runnables named exactly listNotes, addNote, and deleteNote.
+    The UI should list notes, add a note with title/body, and delete notes.
+    Do not use localStorage, sessionStorage, IndexedDB, or in-memory-only persistence.
+  initial: ai_evals/fixtures/frontend/app/initial/notes_datatable
+  runtime:
+    maxTurns: 10
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+    requiredFrontendFileContent:
+      - path: /index.tsx
+        includes:
+          - backend.listNotes
+          - backend.addNote
+          - backend.deleteNote
+    requiredBackendRunnableKeys:
+      - listNotes
+      - addNote
+      - deleteNote
+    requiredBackendRunnableTypes:
+      - key: listNotes
+        type: inline
+      - key: addNote
+        type: inline
+      - key: deleteNote
+        type: inline
+    requiredBackendRunnableContent:
+      - key: listNotes
+        includes:
+          - wmill.datatable
+          - select
+          - notes
+      - key: addNote
+        includes:
+          - wmill.datatable
+          - insert
+          - notes
+      - key: deleteNote
+        includes:
+          - wmill.datatable
+          - delete
+          - notes
+    requiredDatatables:
+      - datatableName: main
+        schema: public
+        table: notes
+    requiredToolsUsed:
+      - list_datatables
+      - get_datatable_table_schema
+    forbiddenAppContent:
+      - localStorage
+      - sessionStorage
+      - indexedDB
+  judgeChecklist:
+    - creates a notes UI that lists notes from the backend
+    - adds notes through backend datatable persistence
+    - deletes notes through backend datatable persistence
+    - reuses the existing main/public.notes table without creating new tables
+    - does not use browser storage or in-memory-only persistence as the source of truth
+
 - id: app-test10-session-id-no-crypto
   prompt: |-
     Update `generateSessionId` so it no longer uses `crypto.randomUUID()`.

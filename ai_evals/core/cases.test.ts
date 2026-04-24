@@ -87,6 +87,29 @@ describe("loadCases", () => {
     });
   });
 
+  it("loads the datatable-backed notes creation case", async () => {
+    const appCases = await loadCases("app");
+    const caseEntry = appCases.find((entry) => entry.id === "app-datatable-persistent-notes");
+
+    expect(caseEntry?.initialPath).toContain("ai_evals/fixtures/frontend/app/initial/notes_datatable");
+    expect(caseEntry?.runtime).toEqual({
+      maxTurns: 10,
+    });
+    expect(caseEntry?.validate).toMatchObject({
+      requiredFrontendPaths: ["/index.tsx"],
+      requiredBackendRunnableKeys: ["listNotes", "addNote", "deleteNote"],
+      requiredDatatables: [
+        {
+          datatableName: "main",
+          schema: "public",
+          table: "notes",
+        },
+      ],
+      requiredToolsUsed: ["list_datatables", "get_datatable_table_schema"],
+      forbiddenAppContent: ["localStorage", "sessionStorage", "indexedDB"],
+    });
+  });
+
   it("loads the session id micro-edit app case", async () => {
     const appCases = await loadCases("app");
     const caseEntry = appCases.find((entry) => entry.id === "app-test10-session-id-no-crypto");

@@ -54,12 +54,13 @@ export function createAppModeRunner(
         tokenUsage: result.tokenUsage,
       };
     },
-    validate({ evalCase, actual, initial, expected }) {
+    validate({ evalCase, actual, initial, expected, run }) {
       return validateAppState({
         actual,
         initial,
         expected,
         validate: evalCase.validate as AppValidationSpec | undefined,
+        toolsUsed: run.toolsUsed,
       });
     },
     buildArtifacts(actual): BenchmarkArtifactFile[] {

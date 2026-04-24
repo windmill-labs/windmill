@@ -99,10 +99,18 @@ export interface FlowValidationSpec {
 
 export interface AppValidationSpec {
   requiredFrontendPaths?: string[];
+  requiredFrontendFileContent?: Array<{
+    path: string;
+    includes: string[];
+  }>;
   requiredBackendRunnableKeys?: string[];
   requiredBackendRunnableTypes?: Array<{
     key: string;
     type: string;
+  }>;
+  requiredBackendRunnableContent?: Array<{
+    key: string;
+    includes: string[];
   }>;
   backendRunnableCountAtLeast?: number;
   datatableCountAtLeast?: number;
@@ -112,6 +120,8 @@ export interface AppValidationSpec {
     table: string;
     datatableName?: string;
   }>;
+  requiredToolsUsed?: string[];
+  forbiddenAppContent?: string[];
 }
 
 export interface CliValidationSpec {

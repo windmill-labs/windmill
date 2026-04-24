@@ -125,6 +125,105 @@ describe("validateAppState", () => {
     expect(checks.every((check) => check.passed)).toBe(true);
   });
 
+  it("validates app datatable code, tool usage, and forbidden storage", () => {
+    const checks = validateAppState({
+      actual: {
+        frontend: {
+          "/index.tsx":
+            "import { backend } from './wmill'\nexport default function App() { void backend.listNotes(); return <div /> }\n",
+        },
+        backend: {
+          listNotes: {
+            name: "List notes",
+            type: "inline",
+            inlineScript: {
+              language: "bun",
+              content:
+                "import * as wmill from 'windmill-client'\nexport async function main() { const sql = wmill.datatable(); return await sql`SELECT * FROM notes`.fetch() }\n",
+            },
+          },
+        },
+        datatables: [
+          {
+            datatable_name: "main",
+            schemas: {
+              public: {
+                notes: {},
+              },
+            },
+          },
+        ],
+      },
+      toolsUsed: ["list_datatables", "get_datatable_table_schema"],
+      validate: {
+        requiredFrontendFileContent: [
+          {
+            path: "/index.tsx",
+            includes: ["backend.listNotes"],
+          },
+        ],
+        requiredBackendRunnableContent: [
+          {
+            key: "listNotes",
+            includes: ["wmill.datatable", "select", "notes"],
+          },
+        ],
+        requiredToolsUsed: ["list_datatables", "get_datatable_table_schema"],
+        forbiddenAppContent: ["localStorage", "sessionStorage"],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("fails app datatable code validation when required code or tools are missing", () => {
+    const checks = validateAppState({
+      actual: {
+        frontend: {
+          "/index.tsx": "export default function App() { localStorage.setItem('x', 'y'); return <div /> }\n",
+        },
+        backend: {
+          listNotes: {
+            name: "List notes",
+            type: "inline",
+            inlineScript: {
+              language: "bun",
+              content: "export async function main() { return [] }\n",
+            },
+          },
+        },
+        datatables: [],
+      },
+      toolsUsed: ["list_files"],
+      validate: {
+        requiredBackendRunnableContent: [
+          {
+            key: "listNotes",
+            includes: ["wmill.datatable", "notes"],
+          },
+        ],
+        requiredToolsUsed: ["list_datatables"],
+        forbiddenAppContent: ["localStorage"],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "listNotes backend runnable includes required content",
+      passed: false,
+      details: "missing snippets: wmill.datatable, notes",
+    });
+    expect(checks).toContainEqual({
+      name: "tool list_datatables was used",
+      passed: false,
+      details: "tools used: list_files",
+    });
+    expect(checks).toContainEqual({
+      name: "app does not include forbidden content 'localStorage'",
+      passed: false,
+      details: "forbidden snippet: localStorage",
+    });
+  });
+
   it("fails validation when frontend references a missing backend runnable", () => {
     const checks = validateAppState({
       actual: {
