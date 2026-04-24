@@ -1,6 +1,6 @@
 import { stat, writeFile, rm, rmdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
@@ -379,37 +379,6 @@ async function initAction(opts: InitOptions) {
   if (skipClaudeAssets) {
     await cleanupClaudeAssets(nonDottedPaths);
   }
-
-  if (!skipClaudeAssets) {
-  // Generate .claude/launch.json at the workspace root so Claude Code can launch
-  // `wmill dev` from there and land on the file picker (no --path → picker mode).
-  try {
-    const rootClaudeDir = join(".", ".claude");
-    const rootLaunchPath = join(rootClaudeDir, "launch.json");
-    if (existsSync(rootLaunchPath)) {
-      log.info(colors.gray(`Skipped ${rootLaunchPath} (already exists)`));
-    } else {
-      const rootLaunchJson = JSON.stringify({
-        version: "0.0.1",
-        configurations: [{
-          name: "windmill",
-          runtimeExecutable: "bash",
-          runtimeArgs: ["-c", "wmill dev --proxy-port ${PORT:-4000} --no-open"],
-          port: 4000,
-          autoPort: true,
-        }],
-      }, null, 2) + "\n";
-      mkdirSync(rootClaudeDir, { recursive: true });
-      writeFileSync(rootLaunchPath, rootLaunchJson, "utf-8");
-      log.info(colors.green(`Created ${rootLaunchPath}`));
-    }
-  } catch (error) {
-    log.warn(
-      `Could not create root .claude/launch.json: ${error instanceof Error ? error.message : error}`
-    );
-  }
-
-  } // end if (!skipClaudeAssets)
 
   // Generate resource type namespace (only if a workspace was bound)
   if (didBindWorkspace && boundProfile) {

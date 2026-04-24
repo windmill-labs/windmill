@@ -292,7 +292,7 @@ Tell the user they can run these commands (do NOT run them yourself):
 | Command | Description |
 |---------|-------------|
 | `wmill app new` | Create a new raw app. Pass `--summary`, `--path`, `--framework` (and optional `--datatable`/`--schema`/`--overwrite`) to skip the wizard — required when invoked from an AI/script. |
-| `wmill app dev` | Start dev server with live reload |
+| `wmill app dev` | Start dev server with live reload (see the `preview` skill for the full open-the-app-in-the-IDE-pane procedure). |
 | `wmill app generate-agents` | Refresh AGENTS.md and DATATABLES.md |
 | `wmill generate-metadata` | Generate lock files for backend runnables |
 | `wmill sync push` | Deploy app to Windmill |

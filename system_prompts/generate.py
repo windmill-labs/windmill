@@ -931,6 +931,11 @@ SKILL_DEFINITIONS = [
         'description': 'MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`.',
         'content_key': 'cli_commands',
     },
+    {
+        'name': 'preview',
+        'description': 'MUST use when opening the Windmill dev page / visual preview of a flow, script, or app. Triggers on words like preview, open, navigate to, visualize, see the flow/app/script, and after writing a flow/script/app for visual verification.',
+        'content_key': 'preview',
+    },
 ]
 
 
@@ -960,6 +965,7 @@ def generate_skills(
         'schedules': read_markdown_file(base_dir / "schedules.md"),
         'resources': read_markdown_file(base_dir / "resources.md"),
         'cli_commands': cli_commands,
+        'preview': read_markdown_file(base_dir / "preview.md"),
     }
 
     # CLI intro for script skills
@@ -993,6 +999,8 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute `wmill script preview <path> -d '<args>'` directly — pick plausible args from the `main` signature.
 
 `wmill script preview` is safe to run yourself (it does not deploy). `wmill sync push` and `wmill generate-metadata` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than `script preview`'s run-and-print-result), use the `preview` skill.
 
 Use `wmill resource-type list --schema` to discover available resource types."""
 

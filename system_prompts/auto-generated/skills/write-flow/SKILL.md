@@ -5,10 +5,52 @@ description: MUST use when creating flows.
 
 # Windmill Flow Building Guide
 
-## CLI Commands
+## Creating a Flow
 
-Create a folder ending with `__flow` and add a `flow.yaml` file with the flow definition.
+**You — the AI agent — scaffold the flow yourself by running `wmill flow new <path>` with the right flags. Do NOT hand-create the folder + `flow.yaml`, and do NOT tell the user to "run `wmill flow new` and follow the prompts".**
+
+`wmill flow new` creates the folder with the correct suffix (`__flow` or `.flow` depending on the workspace's `nonDottedPaths` setting), writes a minimal `flow.yaml` shell, and prints Claude-specific next-step hints. Scaffolding by hand skips all of that and often picks the wrong suffix.
+
+### Step 1 — Gather path + summary via `AskUserQuestion`
+
+You need two things:
+
+1. **path** — the windmill path, e.g. `f/folder/my_flow` or `u/username/my_flow`.
+2. **summary** — a short description of the flow.
+
+If the user's request didn't supply both, **call `AskUserQuestion`** in a single call covering both fields. Provide one or two example values as multiple-choice options for each (with an "Other" / free-form fallback). Do not guess paths or summaries.
+
+If `AskUserQuestion` is genuinely unavailable in your runtime, ask in chat in one message — still requesting both at once, still refusing to invent values.
+
+### Step 2 — Run the command yourself
+
+```bash
+wmill flow new f/folder/my_flow --summary "Short description"
+```
+
+Add `--description "..."` when the user provided a longer explanation worth preserving separately from the summary.
+
+### Step 3 — Open the visual preview (before editing)
+
+**Before** you start editing `flow.yaml`, open the visual preview via the `preview` skill — do not ask the user first. The dev page live-reloads on every save, so opening it up-front lets the user watch the flow take shape as you edit in Step 4.
+
+This is the only case where you skip the "offer first" rule below — for edits to an existing flow, keep asking before running programmatic tests.
+
+### Step 4 — Fill in `flow.yaml`
+
+Open the generated `flow.yaml` (under the folder the command just created) and replace the empty `value.modules` + `schema` with the real flow definition.
+
 For rawscript modules, use `!inline path/to/script.ts` for the content key. Inline script files should NOT include `.inline_script.` in their names (e.g. use `a.ts`, not `a.inline_script.ts`).
+
+### Anti-patterns to avoid
+
+- ❌ Hand-creating the `__flow` folder + `flow.yaml` instead of running `wmill flow new`. You'll miss the suffix-setting resolution, the default shape, and the Claude hints.
+- ❌ Telling the user to "run `wmill flow new <path>`" — you can and should run it yourself.
+- ❌ Skipping `AskUserQuestion` and inventing a path/summary.
+- ❌ Asking "want me to open the preview?" right after `wmill flow new`. Just open it, before editing, so the user sees the flow come together via live reload.
+- ❌ Editing `flow.yaml` first and opening the preview at the end. Open it first so live reload actually shows something.
+
+## CLI Commands — running, previewing, deploying
 
 After writing, tell the user which command fits what they want to do:
 
@@ -29,13 +71,19 @@ Only use `sync push` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
-### After writing — offer to test, don't wait passively
+### After writing — offer to run, don't wait passively
 
-If the user hasn't already told you to run/test/preview the flow, offer it as a one-sentence next step (e.g. "Want me to run `wmill flow preview` with sample args?"). Do not present a multi-option menu.
+This is about **programmatic execution** (`wmill flow preview -d '<args>'`), which actually runs the flow and has side effects. Visual preview (the `preview` skill) is a different thing — it's always safe, and on fresh `wmill flow new` creations you open it without asking (see Step 3 above).
+
+If the user hasn't already told you to run/test the flow, offer it as a one-sentence next step (e.g. "Want me to run `wmill flow preview` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the flow in their original request, skip the offer and just execute `wmill flow preview <path> -d '<args>'` directly — pick plausible args from the flow's input schema.
 
 `wmill flow preview` is safe to run yourself (it does not deploy). `wmill sync push` and `wmill generate-metadata` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+### Visual preview
+
+To open the flow visually in the dev page (graph + live reload), use the `preview` skill. On fresh creations, open it automatically **before editing** (per Step 3 of the creation flow) so the user watches the flow take shape via live reload. On edits to existing flows, ask the user first unless they've already asked to see the flow.
 
 ## OpenFlow Schema
 

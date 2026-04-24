@@ -33,6 +33,7 @@ export const SKILLS: SkillMetadata[] = [
   { name: "schedules", description: "MUST use when configuring schedules." },
   { name: "resources", description: "MUST use when managing resources." },
   { name: "cli-commands", description: "MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`." },
+  { name: "preview", description: "MUST use when opening the Windmill dev page / visual preview of a flow, script, or app. Triggers on words like preview, open, navigate to, visualize, see the flow/app/script, and after writing a flow/script/app for visual verification." },
 ];
 
 // Skill content for each skill (loaded inline for bundling)
@@ -72,6 +73,8 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the \`main\` signature.
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -161,6 +164,8 @@ If the user already asked to test/run/try the script in their original request, 
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
 # BigQuery
@@ -210,6 +215,8 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the \`main\` signature.
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -901,6 +908,8 @@ If the user already asked to test/run/try the script in their original request, 
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
 # TypeScript (Bun Native)
@@ -1589,6 +1598,8 @@ If the user already asked to test/run/try the script in their original request, 
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
 # C#
@@ -1668,6 +1679,8 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the \`main\` signature.
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2363,6 +2376,8 @@ If the user already asked to test/run/try the script in their original request, 
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
 # DuckDB
@@ -2452,6 +2467,8 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the \`main\` signature.
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2550,6 +2567,8 @@ If the user already asked to test/run/try the script in their original request, 
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
 # GraphQL
@@ -2634,6 +2653,8 @@ If the user already asked to test/run/try the script in their original request, 
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
 # Java
@@ -2711,6 +2732,8 @@ If the user already asked to test/run/try the script in their original request, 
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
 # Microsoft SQL Server (MSSQL)
@@ -2761,6 +2784,8 @@ If the user already asked to test/run/try the script in their original request, 
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
 # MySQL
@@ -2810,6 +2835,8 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the \`main\` signature.
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -3466,6 +3493,8 @@ If the user already asked to test/run/try the script in their original request, 
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
 # PHP
@@ -3562,6 +3591,8 @@ If the user already asked to test/run/try the script in their original request, 
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
 # PostgreSQL
@@ -3611,6 +3642,8 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the \`main\` signature.
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -3705,6 +3738,8 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the \`main\` signature.
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -4555,6 +4590,8 @@ If the user already asked to test/run/try the script in their original request, 
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
 # R
@@ -4679,6 +4716,8 @@ If the user already asked to test/run/try the script in their original request, 
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
 # Rust
@@ -4793,6 +4832,8 @@ If the user already asked to test/run/try the script in their original request, 
 
 \`wmill script preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
+
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
 # Snowflake
@@ -4814,10 +4855,52 @@ description: MUST use when creating flows.
 
 # Windmill Flow Building Guide
 
-## CLI Commands
+## Creating a Flow
 
-Create a folder ending with \`{{FLOW_SUFFIX}}\` and add a \`flow.yaml\` file with the flow definition.
+**You — the AI agent — scaffold the flow yourself by running \`wmill flow new <path>\` with the right flags. Do NOT hand-create the folder + \`flow.yaml\`, and do NOT tell the user to "run \`wmill flow new\` and follow the prompts".**
+
+\`wmill flow new\` creates the folder with the correct suffix (\`{{FLOW_SUFFIX}}\` or \`.flow\` depending on the workspace's \`nonDottedPaths\` setting), writes a minimal \`flow.yaml\` shell, and prints Claude-specific next-step hints. Scaffolding by hand skips all of that and often picks the wrong suffix.
+
+### Step 1 — Gather path + summary via \`AskUserQuestion\`
+
+You need two things:
+
+1. **path** — the windmill path, e.g. \`f/folder/my_flow\` or \`u/username/my_flow\`.
+2. **summary** — a short description of the flow.
+
+If the user's request didn't supply both, **call \`AskUserQuestion\`** in a single call covering both fields. Provide one or two example values as multiple-choice options for each (with an "Other" / free-form fallback). Do not guess paths or summaries.
+
+If \`AskUserQuestion\` is genuinely unavailable in your runtime, ask in chat in one message — still requesting both at once, still refusing to invent values.
+
+### Step 2 — Run the command yourself
+
+\`\`\`bash
+wmill flow new f/folder/my_flow --summary "Short description"
+\`\`\`
+
+Add \`--description "..."\` when the user provided a longer explanation worth preserving separately from the summary.
+
+### Step 3 — Open the visual preview (before editing)
+
+**Before** you start editing \`flow.yaml\`, open the visual preview via the \`preview\` skill — do not ask the user first. The dev page live-reloads on every save, so opening it up-front lets the user watch the flow take shape as you edit in Step 4.
+
+This is the only case where you skip the "offer first" rule below — for edits to an existing flow, keep asking before running programmatic tests.
+
+### Step 4 — Fill in \`flow.yaml\`
+
+Open the generated \`flow.yaml\` (under the folder the command just created) and replace the empty \`value.modules\` + \`schema\` with the real flow definition.
+
 For rawscript modules, use \`!inline path/to/script.ts\` for the content key. {{INLINE_SCRIPT_NAMING}}
+
+### Anti-patterns to avoid
+
+- ❌ Hand-creating the \`{{FLOW_SUFFIX}}\` folder + \`flow.yaml\` instead of running \`wmill flow new\`. You'll miss the suffix-setting resolution, the default shape, and the Claude hints.
+- ❌ Telling the user to "run \`wmill flow new <path>\`" — you can and should run it yourself.
+- ❌ Skipping \`AskUserQuestion\` and inventing a path/summary.
+- ❌ Asking "want me to open the preview?" right after \`wmill flow new\`. Just open it, before editing, so the user sees the flow come together via live reload.
+- ❌ Editing \`flow.yaml\` first and opening the preview at the end. Open it first so live reload actually shows something.
+
+## CLI Commands — running, previewing, deploying
 
 After writing, tell the user which command fits what they want to do:
 
@@ -4838,13 +4921,19 @@ Only use \`sync push\` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
-### After writing — offer to test, don't wait passively
+### After writing — offer to run, don't wait passively
 
-If the user hasn't already told you to run/test/preview the flow, offer it as a one-sentence next step (e.g. "Want me to run \`wmill flow preview\` with sample args?"). Do not present a multi-option menu.
+This is about **programmatic execution** (\`wmill flow preview -d '<args>'\`), which actually runs the flow and has side effects. Visual preview (the \`preview\` skill) is a different thing — it's always safe, and on fresh \`wmill flow new\` creations you open it without asking (see Step 3 above).
+
+If the user hasn't already told you to run/test the flow, offer it as a one-sentence next step (e.g. "Want me to run \`wmill flow preview\` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the flow in their original request, skip the offer and just execute \`wmill flow preview <path> -d '<args>'\` directly — pick plausible args from the flow's input schema.
 
 \`wmill flow preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+### Visual preview
+
+To open the flow visually in the dev page (graph + live reload), use the \`preview\` skill. On fresh creations, open it automatically **before editing** (per Step 3 of the creation flow) so the user watches the flow take shape via live reload. On edits to existing flows, ask the user first unless they've already asked to see the flow.
 
 ## OpenFlow Schema
 
@@ -5441,7 +5530,7 @@ Tell the user they can run these commands (do NOT run them yourself):
 | Command | Description |
 |---------|-------------|
 | \`wmill app new\` | Create a new raw app. Pass \`--summary\`, \`--path\`, \`--framework\` (and optional \`--datatable\`/\`--schema\`/\`--overwrite\`) to skip the wizard — required when invoked from an AI/script. |
-| \`wmill app dev\` | Start dev server with live reload |
+| \`wmill app dev\` | Start dev server with live reload (see the \`preview\` skill for the full open-the-app-in-the-IDE-pane procedure). |
 | \`wmill app generate-agents\` | Refresh AGENTS.md and DATATABLES.md |
 | \`wmill generate-metadata\` | Generate lock files for backend runnables |
 | \`wmill sync push\` | Deploy app to Windmill |
@@ -6415,6 +6504,106 @@ workspace related commands
   - \`--preserve-on-behalf-of\` - Preserve original on_behalf_of/permissioned_as values
   - \`-y --yes\` - Non-interactive mode (deploy without prompts)
 
+`,
+  "preview": `---
+name: preview
+description: MUST use when opening the Windmill dev page / visual preview of a flow, script, or app. Triggers on words like preview, open, navigate to, visualize, see the flow/app/script, and after writing a flow/script/app for visual verification.
+---
+
+# Windmill Preview Workflow
+
+Use this skill any time the user wants to **see**, **open**, **navigate to**, **visualize**, or **preview** a flow, script, or app — and any time you've just finished writing one and want to offer visual verification.
+
+The Windmill dev page renders the flow graph / script editor, lets the user step through steps, and live-reloads on every save. It runs locally via \`wmill dev\` and is reached on a localhost port.
+
+## Choosing your branch
+
+Inspect your available tool list:
+- Anything starting with \`mcp__Claude_Preview__\` is present → **Branch A** (embed the preview, runs through a localhost proxy, one launch entry per target).
+- No such tool → **Branch B** (direct mode, hand the user a URL to open in their own browser, do **not** touch \`launch.json\`).
+
+Pick one. Never start the proxy "just in case" — Branch B has no proxy involved.
+
+## Branch A — MCP \`mcp__Claude_Preview__*\` tools available
+
+This is the Claude Desktop / Claude Code preview integration exposed via MCP. Tool names start with the \`mcp__Claude_Preview__\` prefix.
+
+**Each flow / script / app gets its own named entry** in the user's \`.claude/launch.json\` so multiple previews coexist without colliding — each entry pins a different port + path. Never reuse a generic "windmill" entry for different targets.
+
+### Step A1 — Reuse or add a per-target entry in \`.claude/launch.json\`
+
+Convention: name the entry \`windmill: <wmill_path>\` (e.g. \`windmill: f/test/my_flow\`).
+
+- **Entry already exists** → reuse it; note its \`port\` for the next step.
+- **Not there** → add one. Pick a port not already taken by another entry (start at 4000 and bump). Shape:
+
+For flows / scripts:
+\`\`\`json
+{
+  "name": "windmill: f/test/my_flow",
+  "runtimeExecutable": "bash",
+  "runtimeArgs": ["-c", "wmill dev --proxy-port \${PORT:-4000} --path f/test/my_flow --no-open"],
+  "port": 4000,
+  "autoPort": true
+}
+\`\`\`
+
+For apps (\`*__raw_app/\`), \`wmill app dev\` is the equivalent — runs from the app folder, no \`--path\`:
+\`\`\`json
+{
+  "name": "windmill: f/test/my_app",
+  "runtimeExecutable": "bash",
+  "runtimeArgs": ["-c", "cd f/test/my_app__raw_app && wmill app dev --no-open --port \${PORT:-4001}"],
+  "port": 4001,
+  "autoPort": true
+}
+\`\`\`
+
+If \`.claude/launch.json\` doesn't exist yet, create it with the standard shell \`{ "version": "0.0.1", "configurations": [...] }\`.
+
+### Step A2 — Invoke the MCP preview tool
+
+Point it at the entry you just added/found. Use \`http://localhost:<port>/\` as the URL — the proxy's redirect at \`/\` is what appends the workspace ID, the auth token, and the path. Do **NOT** construct a \`/dev?...\` URL yourself — you don't have the workspace ID or auth token.
+
+The MCP tool launches the configuration on demand, so you don't need to start the \`wmill dev\` process manually.
+
+## Branch B — no \`mcp__Claude_Preview__*\` tools available
+
+Don't touch \`launch.json\` and don't start the proxy. Start the dev server directly with \`--no-open\` in the background and hand the URL to the user.
+
+For flows or scripts:
+\`\`\`bash
+wmill dev --path <wmill_path> --no-open
+\`\`\`
+
+For apps:
+\`\`\`bash
+cd <app_path>__raw_app && wmill app dev --no-open --port 4000
+\`\`\`
+
+These print a \`Go to <url>\` line on stdout containing the full remote URL (workspace, token, path all baked in). Capture that URL from the process output and post it to the user: *"Preview is running — open \`<url>\` in your browser."* Don't try to construct the URL yourself.
+
+## Both branches — keep the run alive
+
+These commands are long-running. Start them in the background; don't block waiting. Tell the user the preview is up.
+
+## Non-visual alternative
+
+If the user wants a programmatic test rather than a visual one:
+- Flow: \`wmill flow preview <path> -d '<args>'\`
+- Script: \`wmill script preview <path> -d '<args>'\`
+
+Both print the job result, are safe to run yourself, and don't deploy.
+
+## Anti-patterns to avoid
+
+- ❌ Reusing a single generic \`launch.json\` entry for every preview target. Each flow/script/app gets its own named entry on its own port — that's how multiple sessions coexist without one preview clobbering another.
+- ❌ Mutating an existing entry's \`--path\` to retarget it. Add a new entry instead.
+- ❌ Constructing \`http://localhost:<port>/dev?path=<X>\` yourself. The proxy's \`/\` redirect is what appends the workspace ID and auth token; bypassing it gives a broken page. Always use \`http://localhost:<port>/\`.
+- ❌ Editing \`.claude/launch.json\` in Branch B. Direct mode prints the URL — just relay it.
+- ❌ Starting the proxy when no \`mcp__Claude_Preview__*\` tool is available. Direct mode is correct then — the proxy is overhead with no embedder to use it.
+- ❌ Starting \`wmill dev\` in the foreground (you'll hang). Always background.
+- ❌ Listing both "open in IDE pane" and "open in browser" as a menu — pick one based on context.
 `,
 };
 
