@@ -46,10 +46,7 @@ const CLAUDE_MD_DEFAULT = "Instructions are in @AGENTS.md\n";
  * Narrow scope: only paths we'd otherwise have created. CLAUDE.md is left alone
  * if its content has been customized. .claude/ is removed only if it ends up empty.
  */
-async function cleanupClaudeAssets(nonDottedPaths: boolean) {
-  const flowSuffix = nonDottedPaths ? "__flow" : ".flow";
-  const rawAppSuffix = nonDottedPaths ? "__raw_app" : ".raw_app";
-
+async function cleanupClaudeAssets() {
   let introPrinted = false;
   function logRemoval(msg: string) {
     if (!introPrinted) {
@@ -70,40 +67,6 @@ async function cleanupClaudeAssets(nonDottedPaths: boolean) {
     } catch {
       /* dir already gone or not a dir */
     }
-  }
-
-  // Per-flow / per-raw_app .claude/launch.json
-  async function scan(dir: string) {
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
-      const fullPath = join(dir, entry.name);
-      if (entry.name.endsWith(flowSuffix) || entry.name.endsWith(rawAppSuffix)) {
-        const claudeDir = join(fullPath, ".claude");
-        const launchPath = join(claudeDir, "launch.json");
-        if (existsSync(launchPath)) {
-          await rm(launchPath);
-          logRemoval(`Removed ${launchPath}`);
-          await tryRmEmptyDir(claudeDir);
-        }
-      } else {
-        await scan(fullPath);
-      }
-    }
-  }
-  await scan(".");
-
-  // Root .claude/launch.json
-  const rootLaunch = join(".claude", "launch.json");
-  if (existsSync(rootLaunch)) {
-    await rm(rootLaunch);
-    logRemoval(`Removed ${rootLaunch}`);
   }
 
   // .claude/skills/ — wholly ours; safe to remove the subtree
@@ -377,7 +340,7 @@ async function initAction(opts: InitOptions) {
   }
 
   if (skipClaudeAssets) {
-    await cleanupClaudeAssets(nonDottedPaths);
+    await cleanupClaudeAssets();
   }
 
   // Generate resource type namespace (only if a workspace was bound)

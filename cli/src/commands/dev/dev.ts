@@ -115,6 +115,14 @@ type WmPathItem = {
 const FLOW_SUFFIXES = [".flow", "__flow"] as const;
 const APP_SUFFIXES = [".app", "__app", ".raw_app", "__raw_app"] as const;
 
+// Extensions the dev round-trip might have written into a flow folder as
+// inline scripts. Anything else (README.md, fixtures, .env*, TODO.md…) is
+// preserved during orphan cleanup so we don't trample user-added files.
+const INLINE_SCRIPT_EXTS = new Set([
+  ".ts", ".js", ".py", ".go", ".sh", ".sql",
+  ".ps1", ".php", ".rs", ".java", ".cs", ".r", ".graphql",
+]);
+
 function stripFolderSuffix(rel: string, suffixes: readonly string[]): string {
   for (const s of suffixes) {
     if (rel.endsWith(s)) return rel.slice(0, -s.length);
@@ -531,12 +539,15 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     await writeFile(flowYamlPath, flowYaml, "utf-8");
     log.info(`Wrote flow: ${flowYamlPath}`);
 
-    // Clean up orphaned inline script files
+    // Clean up orphaned inline script files. Only consider files whose extension
+    // looks like one we'd ever have written ourselves — anything else (README.md,
+    // fixtures, .env.local, TODO.md…) belongs to the user and stays put.
     const extractedPaths = new Set(allExtracted.map((s) => s.path));
     try {
       const dirFiles = await readdir(flowDir);
       for (const file of dirFiles) {
         if (file === "flow.yaml" || file === "flow.json" || file.startsWith(".")) continue;
+        if (!INLINE_SCRIPT_EXTS.has(path.extname(file))) continue;
         if (!extractedPaths.has(file)) {
           await unlink(flowDir + file);
           log.info(`Removed orphaned file: ${flowDir + file}`);
