@@ -30,6 +30,7 @@
 		error?: string | undefined
 		popup?: boolean
 		firstTime?: boolean
+		autoRedirect?: boolean
 		onLoginSuccess?: () => void
 	}
 
@@ -40,6 +41,7 @@
 		error = undefined,
 		popup = false,
 		firstTime = false,
+		autoRedirect = true,
 		onLoginSuccess = undefined
 	}: Props = $props()
 
@@ -220,7 +222,7 @@
 			!disablePasswordLogin &&
 			((logins?.length === 0 && !saml) || (email != undefined && email.length > 0))
 
-		if (autoLogin && !error && !shouldSkipAutoRedirect()) {
+		if (autoRedirect && autoLogin && !error && !shouldSkipAutoRedirect()) {
 			if (autoLogin === 'saml' && saml) {
 				autoRedirecting = true
 				if (rd) {
