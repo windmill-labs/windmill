@@ -87,6 +87,25 @@ describe("loadCases", () => {
     });
   });
 
+  it("loads the file-manager rename save/cancel case", async () => {
+    const appCases = await loadCases("app");
+    const caseEntry = appCases.find(
+      (entry) => entry.id === "app-test6-file-manager-rename-save-cancel"
+    );
+
+    expect(caseEntry?.initialPath).toContain("ai_evals/fixtures/frontend/app/initial/file_manager");
+    expect(caseEntry?.validate).toMatchObject({
+      requiredFrontendPaths: ["/index.tsx", "/components/FileItem.tsx"],
+      requiredFrontendFileContent: [
+        {
+          path: "/components/FileItem.tsx",
+          includes: ["Save", "Cancel", "Escape", "handleCancel", "handleSave"],
+        },
+      ],
+      forbiddenAppContent: ["onBlur={handleRename}"],
+    });
+  });
+
   it("loads the datatable-backed notes creation case", async () => {
     const appCases = await loadCases("app");
     const caseEntry = appCases.find((entry) => entry.id === "app-datatable-persistent-notes");

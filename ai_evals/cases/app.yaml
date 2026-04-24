@@ -47,15 +47,32 @@
     - updates the visible file list from the search query
     - keeps the rest of the file manager usable
 
-- id: app-test6-file-manager-inline-rename
+- id: app-test6-file-manager-rename-save-cancel
   prompt: |-
-    Let users rename files and folders directly from the file list without leaving the page.
+    Improve the existing inline rename flow for files and folders.
+    When renaming, show explicit Save and Cancel buttons next to the name input.
+    Pressing Enter should save, pressing Escape should cancel, and Cancel should restore the original name without calling rename.
+    Keep the existing backend rename behavior for successful saves.
   initial: ai_evals/fixtures/frontend/app/initial/file_manager
+  validate:
+    requiredFrontendPaths:
+      - /index.tsx
+      - /components/FileItem.tsx
+    requiredFrontendFileContent:
+      - path: /components/FileItem.tsx
+        includes:
+          - Save
+          - Cancel
+          - Escape
+          - handleCancel
+          - handleSave
+    forbiddenAppContent:
+      - onBlur={handleRename}
   judgeChecklist:
-    - adds a visible rename action or inline edit mode in the file list
-    - lets users edit an item's name directly from the list
-    - saves the renamed item through the app's existing rename behavior
-    - refreshes the displayed name after a successful rename
+    - keeps the existing visible rename action in the file list
+    - shows explicit Save and Cancel controls while editing a name
+    - pressing Enter saves the new name through the existing rename behavior
+    - pressing Escape or Cancel exits rename mode and restores the original name without saving
 
 - id: app-test7-file-manager-select-all
   prompt: |-
