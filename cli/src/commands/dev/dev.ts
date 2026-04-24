@@ -630,7 +630,18 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     }
   }
 
-  // --- Reverse proxy (when --proxy-port is set) ---
+  // --- Proxy mode (when --proxy-port is set) ---
+  //
+  // Runs a localhost HTTP server that:
+  //   - serves the dev page from `http://localhost:<proxyPort>/` (forwarded
+  //     to the remote workspace), so embedders that need a localhost origin
+  //     can render it (e.g. Claude Code's port-detection preview), and
+  //   - upgrades local /ws connections back to this same process for the
+  //     live-reload channel.
+  //
+  // The simpler "direct" mode below works for standalone browser tabs and the
+  // VS Code extension's iframe — only embedders that demand a localhost origin
+  // need this proxy.
 
   async function startProxyServer(proxyPort: number) {
     const remote = new URL(workspace.remote);
@@ -744,15 +755,34 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     return new Promise<void>((resolve) => {
       proxyServer.listen(proxyPort, () => {
         console.log(`Dev proxy listening on http://localhost:${proxyPort}`);
+        if (opts.path) {
+          console.log(`Watching ${opts.path} — edits will live-reload in the dev page`);
+        } else {
+          console.log(
+            "Open the dev page and pick a flow or script to preview — edits will live-reload"
+          );
+          console.log("(pass --path <path> to skip the picker)");
+        }
         maybeOpenBrowser(`http://localhost:${proxyPort}/`);
         resolve();
       });
     });
   }
 
-  // --- Legacy server (direct WebSocket, no proxy) ---
+  // --- Direct mode (no localhost HTTP proxy) ---
+  //
+  // The browser loads the dev page from the remote workspace URL and opens a
+  // WebSocket directly to this localhost server. Used when:
+  //   - the user runs `wmill dev` and opens a regular browser tab, or
+  //   - the VS Code extension iframe loads the dev page (its iframe URL omits
+  //     `local=true`, so it never opens this WS, but everything else still
+  //     functions through the existing remote workspace connection).
+  //
+  // This is the simplest topology: a bare WebSocket server. The reverse-proxy
+  // mode (above) is only needed when something needs to embed the dev UI on a
+  // localhost origin (Claude Code's port-detection preview).
 
-  async function startLegacyServer() {
+  async function startDirectServer() {
     const server = http.createServer((_req, res) => {
       res.writeHead(200);
       res.end();
@@ -766,15 +796,21 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
       (port === PORT ? "" : `&port=${port}`) +
       (opts.path ? `&path=${opts.path}` : "");
 
-    console.log(`Go to ${url}`);
+    if (opts.open === false) {
+      console.log(`Go to ${url}`);
+    }
     maybeOpenBrowser(url);
 
-    console.log(
-      "Dev server will automatically point to the last script edited locally"
-    );
+    if (opts.path) {
+      console.log(`Watching ${opts.path} — edits will live-reload in the dev page`);
+    } else {
+      console.log(
+        "Open the dev page and pick a flow or script to preview — edits will live-reload"
+      );
+    }
 
     server.listen(port, () => {
-      console.log(`Server listening on port ${port}`);
+      console.log(`Dev WebSocket listening on ws://localhost:${port}/ws`);
     });
   }
 
@@ -787,7 +823,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
 
   const startServer = opts.proxyPort
     ? () => startProxyServer(opts.proxyPort!)
-    : () => startLegacyServer();
+    : () => startDirectServer();
 
   await Promise.all([startServer(), watchChanges()]);
   console.log("Stopped dev mode");
