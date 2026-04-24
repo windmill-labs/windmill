@@ -2276,11 +2276,11 @@ sync local with a remote workspaces or the opposite (push or pull)
 - \`sync push\` - Push any local changes and apply them remotely.
   - \`--yes\` - Push without needing confirmation
   - \`--dry-run\` - Show changes that would be pushed without actually pushing
-  - \`--plain-secrets\` - Push secrets as plain text
+  - \`--plain-secrets\` - Push secrets as plaintext (server encrypts on receipt). Required when pushing hand-written secret variables that weren't obtained via \`sync pull\`.
   - \`--json\` - Use JSON instead of YAML
   - \`--skip-variables\` - Skip syncing variables (including secrets)
   - \`--skip-secrets\` - Skip syncing only secrets variables
-  - \`--include-secrets\` - Include secrets in sync (overrides skipSecrets in wmill.yaml)
+  - \`--include-secrets\` - Include secrets in sync (overrides \`skipSecrets\` in wmill.yaml). Typically paired with \`--plain-secrets\` for hand-written secrets.
   - \`--skip-resources\` - Skip syncing  resources
   - \`--skip-resource-types\` - Skip syncing  resource types
   - \`--skip-scripts\` - Skip syncing scripts
@@ -2379,6 +2379,8 @@ variable related commands
 - \`variable add <value:string> <remote_path:string>\` - Create a new variable on the remote. This will update the variable if it already exists.
   - \`--plain-secrets\` - Push secrets as plain text
   - \`--public\` - Legacy option, use --plain-secrets instead
+
+**⚠ Secret variables:** \`variable push\` assumes the \`value\` field in the YAML is already encrypted ciphertext. To push a plaintext secret, pass \`--plain-secrets\` (available on \`variable push\` and \`sync push\`) so the server encrypts it on receipt. \`variable add <value> <path>\` always encrypts server-side and is the safest way to create a plaintext secret from the CLI.
 
 ### version
 

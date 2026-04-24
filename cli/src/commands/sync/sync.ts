@@ -4045,11 +4045,17 @@ const command = new Command()
     "--dry-run",
     "Show changes that would be pushed without actually pushing",
   )
-  .option("--plain-secrets", "Push secrets as plain text")
+  .option(
+    "--plain-secrets",
+    "Push secrets as plaintext (server encrypts on receipt). Required when pushing hand-written secret variables that weren't obtained via `sync pull`.",
+  )
   .option("--json", "Use JSON instead of YAML")
   .option("--skip-variables", "Skip syncing variables (including secrets)")
   .option("--skip-secrets", "Skip syncing only secrets variables")
-  .option("--include-secrets", "Include secrets in sync (overrides skipSecrets in wmill.yaml)")
+  .option(
+    "--include-secrets",
+    "Include secrets in sync (overrides `skipSecrets` in wmill.yaml). Typically paired with `--plain-secrets` for hand-written secrets.",
+  )
   .option("--skip-resources", "Skip syncing  resources")
   .option("--skip-resource-types", "Skip syncing  resource types")
   .option("--skip-scripts", "Skip syncing scripts")

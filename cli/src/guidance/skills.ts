@@ -5662,9 +5662,49 @@ Example: \`f/databases/postgres_prod.resource.json\`
 - \`value\` - Object containing the resource configuration
 - \`resource_type\` - Name of the resource type (e.g., "postgresql", "slack")
 
+## Variables
+
+Variables store configuration values and secrets. Secrets are encrypted at rest on the server.
+
+### File Format
+
+Variable files use the pattern: \`{path}.variable.yaml\`
+
+\`\`\`yaml
+value: "plaintext-or-ciphertext-see-below"
+is_secret: false
+description: "Optional description"
+\`\`\`
+
+### Secrets: plaintext vs. ciphertext (IMPORTANT)
+
+The \`value\` field for a secret variable is expected to be **already encrypted** by default. This is because the canonical way to get a local variable file is to \`wmill sync pull\` from the server, which writes encrypted ciphertext.
+
+If you write the YAML by hand with a plaintext value and \`is_secret: true\`, you **must** push with \`--plain-secrets\`, or the server will store your plaintext as if it were ciphertext and every later decryption will fail with errors like \`Encoded text cannot have a 6-bit remainder\`.
+
+Safe ways to create a plaintext secret:
+
+\`\`\`bash
+# Option 1: push the YAML with --plain-secrets so the server encrypts it
+wmill variable push path.variable.yaml f/folder/name --plain-secrets
+wmill sync push --plain-secrets --include-secrets
+
+# Option 2: send the value directly via the API (always encrypts server-side)
+wmill variable add "<plaintext>" f/folder/name
+\`\`\`
+
+### Recovering from a corrupt secret variable
+
+If a secret was pushed without \`--plain-secrets\`, it cannot be decrypted. Symptoms:
+- Resources that reference it fail at resolve time.
+- \`wmill sync push\` fails during the pre-push export with a 500 and the same decrypt error (the export tries to read every variable).
+- \`wmill variable push\` / \`variable add\` may fail with "already exists" due to a broken update path in some CLI versions.
+
+Recovery: delete the variable via the UI (Variables page), then re-create it using one of the safe methods above.
+
 ## Variable References
 
-Reference variables in resource values:
+See Variables above for how to create them. Reference variables in resource values:
 
 \`\`\`json
 {
@@ -6336,11 +6376,11 @@ sync local with a remote workspaces or the opposite (push or pull)
 - \`sync push\` - Push any local changes and apply them remotely.
   - \`--yes\` - Push without needing confirmation
   - \`--dry-run\` - Show changes that would be pushed without actually pushing
-  - \`--plain-secrets\` - Push secrets as plain text
+  - \`--plain-secrets\` - Push secrets as plaintext (server encrypts on receipt). Required when pushing hand-written secret variables that weren't obtained via \`sync pull\`.
   - \`--json\` - Use JSON instead of YAML
   - \`--skip-variables\` - Skip syncing variables (including secrets)
   - \`--skip-secrets\` - Skip syncing only secrets variables
-  - \`--include-secrets\` - Include secrets in sync (overrides skipSecrets in wmill.yaml)
+  - \`--include-secrets\` - Include secrets in sync (overrides \`skipSecrets\` in wmill.yaml). Typically paired with \`--plain-secrets\` for hand-written secrets.
   - \`--skip-resources\` - Skip syncing  resources
   - \`--skip-resource-types\` - Skip syncing  resource types
   - \`--skip-scripts\` - Skip syncing scripts
@@ -6439,6 +6479,8 @@ variable related commands
 - \`variable add <value:string> <remote_path:string>\` - Create a new variable on the remote. This will update the variable if it already exists.
   - \`--plain-secrets\` - Push secrets as plain text
   - \`--public\` - Legacy option, use --plain-secrets instead
+
+**⚠ Secret variables:** \`variable push\` assumes the \`value\` field in the YAML is already encrypted ciphertext. To push a plaintext secret, pass \`--plain-secrets\` (available on \`variable push\` and \`sync push\`) so the server encrypts it on receipt. \`variable add <value> <path>\` always encrypts server-side and is the safest way to create a plaintext secret from the CLI.
 
 ### version
 
