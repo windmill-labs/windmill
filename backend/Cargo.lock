@@ -16512,6 +16512,7 @@ dependencies = [
  "windmill-common",
  "windmill-git-sync",
  "windmill-native-triggers",
+ "windmill-queue",
  "windmill-test-utils",
  "windmill-worker",
 ]
