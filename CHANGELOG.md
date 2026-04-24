@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.691.0](https://github.com/windmill-labs/windmill/compare/v1.690.0...v1.691.0) (2026-04-24)
+
+
+### Features
+
+* add auto-login SSO provider instance setting ([#8929](https://github.com/windmill-labs/windmill/issues/8929)) ([4cf53a4](https://github.com/windmill-labs/windmill/commit/4cf53a44bb10b65dcdb45bac97186a10cdbb48d6))
+* cli diff/deploy no-op handling + promotion debouncing ([#8936](https://github.com/windmill-labs/windmill/issues/8936)) ([489337d](https://github.com/windmill-labs/windmill/commit/489337d5333e31164d83efad5f0fb433f4093640))
+* **cli:** non-interactive Slack connect/disconnect + sync round-trip fixes ([#8935](https://github.com/windmill-labs/windmill/issues/8935)) ([95d4c6a](https://github.com/windmill-labs/windmill/commit/95d4c6a94dfdaf311cba44b2049202dcd819c835))
+* WM_TESTED_RUNNABLE env var + wildcards in test: annotation ([#8926](https://github.com/windmill-labs/windmill/issues/8926)) ([8a98650](https://github.com/windmill-labs/windmill/commit/8a986500b932753508bf5f380f6458a9e1375449))
+
+
+### Bug Fixes
+
+* **autoscaling:** native worker stuck at max + wrong TimeAgo ([#8930](https://github.com/windmill-labs/windmill/issues/8930)) ([73fab0c](https://github.com/windmill-labs/windmill/commit/73fab0c26441678c5efaf8b38f57ba0bd7293522))
+* **nativets:** forward OTEL-prefixed console logs to tracing events ([#8937](https://github.com/windmill-labs/windmill/issues/8937)) ([e732004](https://github.com/windmill-labs/windmill/commit/e732004180728a2dfa45083225d204d9fde89d06))
+
 ## [1.690.0](https://github.com/windmill-labs/windmill/compare/v1.689.0...v1.690.0) (2026-04-23)
 
 
