@@ -311,6 +311,32 @@ describe('app patch_file tool', () => {
 		).rejects.toThrow('old_string matched 2 locations')
 	})
 
+	it('treats leading /backend paths as frontend files', async () => {
+		const setFrontendFile = vi.fn(() => EMPTY_LINT_RESULT)
+		const tool = getPatchFileTool()
+
+		const result = await tool.fn({
+			args: {
+				path: '/backend/deleteRecipe/main.ts',
+				old_string: 'frontend route',
+				new_string: 'frontend page'
+			},
+			workspace: 'test-workspace',
+			helpers: createHelpers({
+				getFrontendFile: () => 'export const title = "frontend route"\n',
+				setFrontendFile
+			}),
+			toolCallbacks: createToolCallbacks(),
+			toolId: 'tool-leading-backend-path'
+		})
+
+		expect(setFrontendFile).toHaveBeenCalledWith(
+			'/backend/deleteRecipe/main.ts',
+			'export const title = "frontend page"\n'
+		)
+		expect(result).toContain("Patched '/backend/deleteRecipe/main.ts' successfully.")
+	})
+
 	it('patches inline backend runnables through backend/<key>/main.ts paths', async () => {
 		const runnable: BackendRunnable = {
 			name: 'Delete recipe',

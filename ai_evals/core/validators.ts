@@ -1664,6 +1664,17 @@ function validateAppRequirements(
     );
   }
 
+  if (typeof validate.datatableTableCountExactly === "number") {
+    const actualTableCount = countDatatableTables(datatables);
+    checks.push(
+      check(
+        `app includes exactly ${validate.datatableTableCountExactly} datatable table${validate.datatableTableCountExactly === 1 ? "" : "s"}`,
+        actualTableCount === validate.datatableTableCountExactly,
+        `expected exactly ${validate.datatableTableCountExactly}, got ${actualTableCount}`
+      )
+    );
+  }
+
   for (const datatableRequirement of validate.requiredDatatables ?? []) {
     const label = datatableRequirement.datatableName
       ? `${datatableRequirement.datatableName}/${datatableRequirement.schema}.${datatableRequirement.table}`

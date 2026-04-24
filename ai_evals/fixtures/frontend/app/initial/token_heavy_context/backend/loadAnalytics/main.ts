@@ -191,7 +191,12 @@ const fallbackRows: AnalyticsRow[] = [
 
 export async function main(range: string = '30d') {
 	const sql = wmill.datatable()
-	const rows = await sql`SELECT metric, value, segment, notes FROM analytics_rollups WHERE range = ${range} LIMIT 50`.fetch()
+	let rows: AnalyticsRow[] = []
+	try {
+		rows = await sql`SELECT metric, value, segment, notes FROM analytics_rollups WHERE range = ${range} LIMIT 50`.fetch()
+	} catch {
+		rows = []
+	}
 	const sourceRows = Array.isArray(rows) && rows.length > 0 ? rows : fallbackRows
 	const total = sourceRows.reduce((acc, row) => acc + Number(row.value ?? 0), 0)
 	return {

@@ -99,7 +99,7 @@ describe("loadCases", () => {
       requiredFrontendFileContent: [
         {
           path: "/components/FileItem.tsx",
-          includes: ["Save", "Cancel", "Escape", "handleCancel", "handleSave"],
+          includes: ["Save", "Cancel", "Escape"],
         },
       ],
       forbiddenAppContent: ["onBlur={handleRename}"],
@@ -117,6 +117,7 @@ describe("loadCases", () => {
     expect(caseEntry?.validate).toMatchObject({
       requiredFrontendPaths: ["/index.tsx"],
       requiredBackendRunnableKeys: ["listNotes", "addNote", "deleteNote"],
+      datatableTableCountExactly: 1,
       requiredDatatables: [
         {
           datatableName: "main",

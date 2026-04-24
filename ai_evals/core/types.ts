@@ -99,6 +99,7 @@ export interface AppValidationSpec {
   backendRunnableCountAtLeast?: number;
   datatableCountAtLeast?: number;
   datatableTableCountAtLeast?: number;
+  datatableTableCountExactly?: number;
   requiredDatatables?: Array<{
     schema: string;
     table: string;

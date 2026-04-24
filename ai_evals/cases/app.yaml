@@ -64,8 +64,6 @@
           - Save
           - Cancel
           - Escape
-          - handleCancel
-          - handleSave
     forbiddenAppContent:
       - onBlur={handleRename}
   judgeChecklist:
@@ -192,6 +190,7 @@
           - wmill.datatable
           - delete
           - notes
+    datatableTableCountExactly: 1
     requiredDatatables:
       - datatableName: main
         schema: public

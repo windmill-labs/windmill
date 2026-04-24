@@ -180,11 +180,11 @@ type AppPatchTarget =
 
 function resolveAppPatchTarget(rawPath: string): AppPatchTarget {
 	const trimmedPath = rawPath.trim()
-	const backendMatch = trimmedPath.match(/^\/?backend\/([^/]+)\/main\.(ts|py)$/)
+	const backendMatch = trimmedPath.match(/^backend\/([^/]+)\/main\.(ts|py)$/)
 	if (backendMatch) {
 		return {
 			type: 'backend',
-			path: trimmedPath.startsWith('/') ? trimmedPath.slice(1) : trimmedPath,
+			path: trimmedPath,
 			key: backendMatch[1],
 			extension: backendMatch[2] as 'ts' | 'py'
 		}

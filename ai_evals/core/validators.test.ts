@@ -125,6 +125,37 @@ describe("validateAppState", () => {
     expect(checks.every((check) => check.passed)).toBe(true);
   });
 
+  it("can require an exact datatable table count", () => {
+    const checks = validateAppState({
+      actual: {
+        frontend: {
+          "/index.tsx": "export default function App() { return <div /> }\n",
+        },
+        backend: {},
+        datatables: [
+          {
+            datatable_name: "main",
+            schemas: {
+              public: {
+                notes: {},
+                extra_notes: {},
+              },
+            },
+          },
+        ],
+      },
+      validate: {
+        datatableTableCountExactly: 1,
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "app includes exactly 1 datatable table",
+      passed: false,
+      details: "expected exactly 1, got 2",
+    });
+  });
+
   it("validates app datatable code, tool usage, and forbidden storage", () => {
     const checks = validateAppState({
       actual: {

@@ -120,6 +120,7 @@ class AIChatManager {
 	cachedDatatables = $state<AppDatatableElement[]>([])
 
 	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
+	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.flowAiChatHelpers === undefined && this.scriptEditorOptions !== undefined,
@@ -1043,8 +1044,6 @@ class AIChatManager {
 
 		try {
 			const datatables = await this.appAiChatHelpers.getDatatables()
-			console.log('Refreshed datatables:', datatables)
-
 			this.cachedDatatables = flattenDatatablesToAppContextElements(datatables)
 		} catch (err) {
 			console.error('Failed to refresh datatables:', err)
@@ -1090,13 +1089,25 @@ class AIChatManager {
 		this.appAiChatHelpers = appHelpers
 		// Refresh datatables when app helpers are set (deferred to avoid loop)
 		// Use setTimeout to ensure this runs after the effect completes
-		setTimeout(() => {
-			this.refreshDatatables()
+		if (this.appDatatablesRefreshTimeout) {
+			clearTimeout(this.appDatatablesRefreshTimeout)
+		}
+		this.appDatatablesRefreshTimeout = setTimeout(() => {
+			this.appDatatablesRefreshTimeout = undefined
+			if (this.appAiChatHelpers === appHelpers) {
+				void this.refreshDatatables()
+			}
 		}, 50)
 
 		return () => {
-			this.appAiChatHelpers = undefined
-			this.cachedDatatables = []
+			if (this.appDatatablesRefreshTimeout) {
+				clearTimeout(this.appDatatablesRefreshTimeout)
+				this.appDatatablesRefreshTimeout = undefined
+			}
+			if (this.appAiChatHelpers === appHelpers) {
+				this.appAiChatHelpers = undefined
+				this.cachedDatatables = []
+			}
 		}
 	}
 
