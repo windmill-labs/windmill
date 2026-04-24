@@ -478,6 +478,7 @@ async fn create_snapshot_script(
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(query): Query<CreateScriptQuery>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, String)> {
     // TODO: Check for debouncing here as well.
@@ -499,6 +500,7 @@ async fn create_snapshot_script(
                 db.clone(),
                 user_db.clone(),
                 webhook.clone(),
+                query.skip_if_noop,
             )
             .await?;
             let mut nh = new_hash.to_string();
@@ -565,12 +567,23 @@ async fn list_paths_from_workspace_runnable(
     Ok(Json(runnables))
 }
 
+#[derive(Deserialize, Default, Clone, Copy)]
+struct CreateScriptQuery {
+    /// When set by the caller (currently only the CLI), the backend
+    /// short-circuits deploys whose content, lockfile, and metadata are
+    /// identical to the parent: no new version is inserted and the git
+    /// sync / promotion callbacks are suppressed.
+    #[serde(default)]
+    skip_if_noop: bool,
+}
+
 async fn create_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(query): Query<CreateScriptQuery>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -587,8 +600,16 @@ async fn create_script(
     let script_path = ns.path.clone();
     let email = authed.email.clone();
     let username = authed.username.clone();
-    let (hash, tx, hdm) =
-        create_script_internal(ns, w_id.clone(), authed, db.clone(), user_db, webhook).await?;
+    let (hash, tx, hdm) = create_script_internal(
+        ns,
+        w_id.clone(),
+        authed,
+        db.clone(),
+        user_db,
+        webhook,
+        query.skip_if_noop,
+    )
+    .await?;
     tx.commit().await?;
     if let Some(hdm) = hdm {
         // hdm is Some when no lock generation is needed (script is ready immediately).
@@ -638,6 +659,213 @@ impl HandleDeploymentMetadata {
     }
 }
 
+/// Returns true when `ns` is effectively identical to its `parent`: same
+/// path, content, lockfile, and all persisted metadata. Used by the deploy
+/// path to short-circuit no-op re-deploys and suppress the follow-on git
+/// sync / promotion callbacks.
+///
+/// ## How drift is prevented
+///
+/// `NewScript` grows over time. If a new field is added but not wired in
+/// here, a real change would be silently classified as a no-op and
+/// dropped. The exhaustive destructure below turns that into a *compile
+/// error*: every field of `NewScript` must either feed into a comparison
+/// or be explicitly opted out via `field: _` with a one-line rationale.
+///
+/// When adding a field to `NewScript`:
+/// 1. Add it to the destructure here. The compiler will refuse to build
+///    until you do.
+/// 2. Either add a `!=` comparison against `parent` below, or bind it to
+///    `_` and write why it shouldn't affect the no-op decision.
+/// 3. Don't forget `impl Hash for NewScript` in windmill-types.
+async fn is_noop_deploy_against_parent(
+    ns: &NewScript,
+    parent: &Script<ScriptRunnableSettingsHandle>,
+    db: &DB,
+) -> Result<bool> {
+    if parent.archived || parent.deleted {
+        return Ok(false);
+    }
+
+    // Compile-time drift guard — see the docstring above. The `ns.foo` bindings
+    // below shadow each field as `&T`; every binding must be referenced in a
+    // comparison (the compiler will warn on any that isn't), and every ignored
+    // field (`_`) carries its rationale inline.
+    let NewScript {
+        path,
+        // version-identity field — always differs between child and parent by design
+        parent_hash: _,
+        summary,
+        description,
+        content,
+        schema,
+        is_template,
+        lock,
+        language,
+        kind,
+        tag,
+        draft_only,
+        envs,
+        concurrency_settings,
+        debouncing_settings,
+        cache_ttl,
+        cache_ignore_s3_path,
+        dedicated_worker,
+        ws_error_handler_muted,
+        priority,
+        timeout,
+        delete_after_use,
+        delete_after_secs,
+        restart_unless_cancelled,
+        // per-deploy audit field — does not change what the script *is*
+        deployment_message: _,
+        visible_to_runner_only,
+        // derived from `content` at deploy time; content equality implies equality here
+        auto_kind: _,
+        codebase,
+        has_preprocessor,
+        on_behalf_of_email,
+        // caller-intent flag (permission preservation), not script state
+        preserve_on_behalf_of: _,
+        assets,
+        modules,
+        // caller-intent flag (auto-resolve parent), not script state
+        auto_parent: _,
+        labels,
+    } = ns;
+
+    if path != &parent.path {
+        return Ok(false);
+    }
+    if content != &parent.content {
+        return Ok(false);
+    }
+    if normalize_optional_text(lock.as_deref()) != normalize_optional_text(parent.lock.as_deref()) {
+        return Ok(false);
+    }
+    if summary != &parent.summary {
+        return Ok(false);
+    }
+    if description != &parent.description {
+        return Ok(false);
+    }
+    if language != &parent.language {
+        return Ok(false);
+    }
+    if std::mem::discriminant(kind.as_ref().unwrap_or(&ScriptKind::Script))
+        != std::mem::discriminant(&parent.kind)
+    {
+        return Ok(false);
+    }
+    if tag != &parent.tag {
+        return Ok(false);
+    }
+    if envs.as_deref().unwrap_or_default() != parent.envs.as_deref().unwrap_or_default() {
+        return Ok(false);
+    }
+    if labels != &parent.labels {
+        return Ok(false);
+    }
+    if cache_ttl != &parent.cache_ttl
+        || cache_ignore_s3_path != &parent.cache_ignore_s3_path
+        || dedicated_worker != &parent.dedicated_worker
+        || ws_error_handler_muted != &parent.ws_error_handler_muted
+        || priority != &parent.priority
+        || timeout != &parent.timeout
+        || delete_after_use != &parent.delete_after_use
+        || delete_after_secs != &parent.delete_after_secs
+        || restart_unless_cancelled != &parent.restart_unless_cancelled
+        || visible_to_runner_only != &parent.visible_to_runner_only
+        || has_preprocessor != &parent.has_preprocessor
+        || is_template.unwrap_or(false) != parent.is_template.unwrap_or(false)
+        || draft_only.unwrap_or(false) != parent.draft_only.unwrap_or(false)
+    {
+        return Ok(false);
+    }
+    if normalize_optional_text(codebase.as_deref())
+        != normalize_optional_text(parent.codebase.as_deref())
+    {
+        return Ok(false);
+    }
+    if on_behalf_of_email != &parent.on_behalf_of_email {
+        return Ok(false);
+    }
+    if !schema_opt_eq(schema.as_ref(), parent.schema.as_ref()) {
+        return Ok(false);
+    }
+    if !json_serialize_eq(assets, &parent.assets) {
+        return Ok(false);
+    }
+    if !modules_eq(modules.as_ref(), parent.modules.as_ref()) {
+        return Ok(false);
+    }
+
+    let (parent_debouncing, parent_concurrency) =
+        windmill_common::runnable_settings::prefetch_cached_from_handle(
+            parent.runnable_settings.runnable_settings_handle,
+            db,
+        )
+        .await?;
+    if concurrency_settings != &parent_concurrency {
+        return Ok(false);
+    }
+    if debouncing_settings != &parent_debouncing {
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+/// Treats `None` and `Some("")` as equivalent — matches how the insert path
+/// normalizes optional text fields like `lock` and `codebase`.
+fn normalize_optional_text(s: Option<&str>) -> &str {
+    s.unwrap_or("")
+}
+
+fn schema_opt_eq(a: Option<&Schema>, b: Option<&Schema>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(x), Some(y)) => {
+            match (
+                serde_json::from_str::<serde_json::Value>(x.0.get()),
+                serde_json::from_str::<serde_json::Value>(y.0.get()),
+            ) {
+                (Ok(xv), Ok(yv)) => xv == yv,
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+fn json_serialize_eq<T: Serialize>(a: &T, b: &T) -> bool {
+    match (serde_json::to_value(a), serde_json::to_value(b)) {
+        (Ok(av), Ok(bv)) => av == bv,
+        _ => false,
+    }
+}
+
+fn modules_eq(
+    a: Option<&HashMap<String, ScriptModule>>,
+    b: Option<&HashMap<String, ScriptModule>>,
+) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(x), Some(y)) => {
+            if x.len() != y.len() {
+                return false;
+            }
+            x.iter().all(|(k, v)| match y.get(k) {
+                Some(ov) => {
+                    v.content == ov.content && v.language == ov.language && v.lock == ov.lock
+                }
+                None => false,
+            })
+        }
+        _ => false,
+    }
+}
+
 async fn create_script_internal<'c>(
     mut ns: NewScript,
     w_id: String,
@@ -645,6 +873,7 @@ async fn create_script_internal<'c>(
     db: sqlx::Pool<Postgres>,
     user_db: UserDB,
     webhook: WebhookShared,
+    skip_if_noop: bool,
 ) -> Result<(
     ScriptHash,
     Transaction<'c, Postgres>,
@@ -820,6 +1049,24 @@ async fn create_script_internal<'c>(
 
             let ScriptWithStarred { script: ps, .. } =
                 get_script_by_hash_internal(&mut tx, &w_id, p_hash, None).await?;
+
+            // No-op detection (opt-in via `?skip_if_noop=true`, currently only
+            // passed by the CLI): when the new script is effectively identical
+            // to its parent (same path, content, lockfile, and metadata), skip
+            // creating a new version entirely. Returning `None` for the
+            // deployment-metadata handle also suppresses the follow-on git
+            // sync / promotion callbacks — the whole point is that idempotent
+            // CLI pushes must not produce phantom commits on the downstream
+            // git repository.
+            if skip_if_noop && is_noop_deploy_against_parent(&ns, &ps, &db).await? {
+                tracing::info!(
+                    workspace_id = %w_id,
+                    path = %ns.path,
+                    parent_hash = %p_hash.0,
+                    "Skipping no-op script deploy (identical to parent)"
+                );
+                return Ok((p_hash.clone(), tx, None));
+            }
 
             if ps.path != ns.path {
                 require_owner_of_path(&authed, &ps.path)?;

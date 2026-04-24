@@ -432,8 +432,10 @@ export async function updateScriptSchema(
     delete metadataContent.has_preprocessor;
   }
   // auto_kind is intentionally not written to metadata — it is auto-detected
-  // by the parser at deploy time from script content.
+  // by the parser at deploy time from script content. no_main_func is the
+  // legacy predecessor of auto_kind and is stripped for the same reason.
   delete metadataContent.auto_kind;
+  delete metadataContent.no_main_func;
 }
 
 // ---------------------------------------------------------------------------
