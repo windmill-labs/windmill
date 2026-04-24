@@ -425,7 +425,7 @@ pub async fn get_reserved_variables(
     ContextualVariable {
         name: "WM_TESTED_RUNNABLE".to_string(),
         value: tested_runnable.unwrap_or_else(|| "".to_string()),
-        description: "Qualified path ({kind}/{path}) of the runnable that triggered this CI test. Only set when the job was triggered by a CI test annotation.".to_string(),
+        description: "Qualified path ({kind}/{path}) of the runnable that triggered this CI test. Empty string unless the job was triggered by a CI test annotation.".to_string(),
         is_custom: false,
     },
 ].into_iter().chain(custom_envs.into_iter().map(|(name, value)| ContextualVariable {

@@ -2889,8 +2889,10 @@ async fn get_ci_test_results(
     Path((w_id, kind, path)): Path<(String, String, StripPath)>,
 ) -> JsonResult<Vec<CiTestResult>> {
     let path = path.to_path();
+    let expected_trigger = format!("{}/{}", kind, path);
 
     // Exact matches — uses the primary ci_test_reference index.
+    // Job lookup is scoped by trigger so multi-target tests report the right job per target.
     let exact = sqlx::query_as!(
         CiTestResult,
         r#"SELECT
@@ -2904,6 +2906,7 @@ async fn get_ci_test_results(
             WHERE workspace_id = $1
               AND runnable_path = ctr.test_script_path
               AND trigger_kind = 'ci_test'
+              AND trigger = $4
             ORDER BY created_at DESC
             LIMIT 1
         ) j ON true
@@ -2914,7 +2917,8 @@ async fn get_ci_test_results(
           AND NOT ctr.has_wildcard"#,
         &w_id,
         path,
-        &kind
+        &kind,
+        &expected_trigger
     )
     .fetch_all(&db)
     .await?;
@@ -2934,6 +2938,7 @@ async fn get_ci_test_results(
             WHERE workspace_id = $1
               AND runnable_path = ctr.test_script_path
               AND trigger_kind = 'ci_test'
+              AND trigger = $3
             ORDER BY created_at DESC
             LIMIT 1
         ) j ON true
@@ -2942,7 +2947,8 @@ async fn get_ci_test_results(
           AND ctr.tested_item_kind = $2
           AND ctr.has_wildcard"#,
         &w_id,
-        &kind
+        &kind,
+        &expected_trigger
     )
     .fetch_all(&db)
     .await?;
@@ -3001,6 +3007,7 @@ async fn get_ci_test_results_batch(
     for (kind, paths) in &paths_by_kind {
         let paths_vec: Vec<String> = paths.iter().cloned().collect();
         // Exact matches for all paths of this kind in one query.
+        // Trigger scoping ensures the job returned matches the requested target.
         let exact = sqlx::query_as!(
             CiTestResultWithPattern,
             r#"SELECT
@@ -3015,6 +3022,7 @@ async fn get_ci_test_results_batch(
                 WHERE workspace_id = $1
                   AND runnable_path = ctr.test_script_path
                   AND trigger_kind = 'ci_test'
+                  AND trigger = $3 || '/' || ctr.tested_item_path
                 ORDER BY created_at DESC
                 LIMIT 1
             ) j ON true
@@ -3037,21 +3045,24 @@ async fn get_ci_test_results_batch(
             }
         }
 
-        // Wildcard candidates for this kind — fetched once, then matched against each path.
-        let wildcard = sqlx::query_as!(
-            CiTestResultWithPattern,
+        // Wildcard candidates for this kind — one row per (pattern, requested_path) pair so the
+        // LATERAL can scope the job lookup by the specific trigger.
+        let wildcard = sqlx::query!(
             r#"SELECT
-                ctr.test_script_path,
-                ctr.tested_item_path,
+                ctr.test_script_path as "test_script_path!",
+                ctr.tested_item_path as "tested_item_path!",
+                req.path as "requested_path!",
                 j.id as "job_id?",
                 COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
                 j.created_at as "started_at?"
             FROM ci_test_reference ctr
+            CROSS JOIN unnest($3::text[]) AS req(path)
             LEFT JOIN LATERAL (
                 SELECT id, created_at FROM v2_job
                 WHERE workspace_id = $1
                   AND runnable_path = ctr.test_script_path
                   AND trigger_kind = 'ci_test'
+                  AND trigger = $2 || '/' || req.path
                 ORDER BY created_at DESC
                 LIMIT 1
             ) j ON true
@@ -3060,23 +3071,25 @@ async fn get_ci_test_results_batch(
               AND ctr.tested_item_kind = $2
               AND ctr.has_wildcard"#,
             &w_id,
-            kind
+            kind,
+            &paths_vec[..]
         )
         .fetch_all(&db)
         .await?;
 
-        for path in paths {
-            for row in &wildcard {
-                if windmill_common::schema::ci_test_path_matches(path, &row.tested_item_path) {
-                    let key = format!("{}:{}", kind, path);
-                    if let Some(bucket) = result_map.get_mut(&key) {
-                        bucket.push(CiTestResult {
-                            test_script_path: row.test_script_path.clone(),
-                            job_id: row.job_id,
-                            status: row.status.clone(),
-                            started_at: row.started_at,
-                        });
-                    }
+        for row in wildcard {
+            if windmill_common::schema::ci_test_path_matches(
+                &row.requested_path,
+                &row.tested_item_path,
+            ) {
+                let key = format!("{}:{}", kind, row.requested_path);
+                if let Some(bucket) = result_map.get_mut(&key) {
+                    bucket.push(CiTestResult {
+                        test_script_path: row.test_script_path,
+                        job_id: row.job_id,
+                        status: row.status,
+                        started_at: row.started_at,
+                    });
                 }
             }
         }

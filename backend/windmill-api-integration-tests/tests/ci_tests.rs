@@ -293,3 +293,41 @@ async fn test_ci_test_wildcard_annotation(db: Pool<Postgres>) -> anyhow::Result<
 
     Ok(())
 }
+
+/// Test 4: `**` wildcard crosses path segments end-to-end.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_ci_test_double_star_wildcard(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/scripts");
+
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(&new_script(
+            "u/test-user/deep_test",
+            "// test: script/u/test-user/**\nexport async function main() { return true; }",
+        ))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201);
+
+    for path in ["u/test-user/top", "u/test-user/nested/deep/leaf"] {
+        let resp = authed(client().post(format!("{base}/create")))
+            .json(&new_script(
+                path,
+                "export async function main() { return 1; }",
+            ))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 201, "create {path}: {}", resp.text().await?);
+
+        let resp = authed(client().get(script_url(port, "ci_test_results/script", path)))
+            .send()
+            .await?;
+        let results = resp.json::<Vec<serde_json::Value>>().await?;
+        assert_eq!(results.len(), 1, "** should match {path} across any depth");
+        assert_eq!(results[0]["test_script_path"], "u/test-user/deep_test");
+    }
+
+    Ok(())
+}
