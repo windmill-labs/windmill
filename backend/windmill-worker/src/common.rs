@@ -492,6 +492,11 @@ pub async fn get_reserved_variables(
         None
     };
 
+    let tested_runnable = match (&job.trigger_kind, &job.trigger) {
+        (Some(windmill_common::jobs::JobTriggerKind::CiTest), Some(t)) => Some(t.clone()),
+        _ => None,
+    };
+
     let variables = variables::get_reserved_variables(
         db,
         &job.workspace_id,
@@ -510,6 +515,7 @@ pub async fn get_reserved_variables(
         Some(job.scheduled_for.clone()),
         job.runnable_id,
         job.permissioned_as_end_user_email.clone(),
+        tested_runnable,
     )
     .await
     .to_vec();
