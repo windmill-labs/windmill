@@ -735,35 +735,6 @@ export async function bootstrap(
   const flowYamlPath = `${flowDirFullPath}/${metadataFile}`;
   writeFileSync(flowYamlPath, newFlowDefinitionYaml, { flag: "wx", encoding: "utf-8" });
 
-  // Generate .claude/launch.json for Claude Code preview (skipped via wmill.yaml's skipClaudeAssets)
-  let skipClaudeAssets = false;
-  try {
-    const { readConfigFile } = await import("../../core/conf.ts");
-    const config = await readConfigFile();
-    skipClaudeAssets = config.skipClaudeAssets ?? false;
-  } catch {
-    // If config can't be read, default to generating
-  }
-  if (!skipClaudeAssets) {
-    const claudeDir = pathJoin(flowDirFullPath, ".claude");
-    mkdirSync(claudeDir, { recursive: true });
-    const launchJson = {
-      version: "0.0.1",
-      configurations: [{
-        name: "windmill",
-        runtimeExecutable: "bash",
-        runtimeArgs: ["-c", "wmill dev --proxy-port ${PORT:-4000} --no-open"],
-        port: 4000,
-        autoPort: true,
-      }],
-    };
-    writeFileSync(
-      pathJoin(claudeDir, "launch.json"),
-      JSON.stringify(launchJson, null, 2) + "\n",
-      "utf-8",
-    );
-  }
-
   log.info(colors.green(`Created flow at ${flowDirFullPath}`));
 
   // Detect Claude CLI and Claude Desktop
