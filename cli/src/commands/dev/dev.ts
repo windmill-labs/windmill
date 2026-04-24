@@ -130,6 +130,10 @@ function stripFolderSuffix(rel: string, suffixes: readonly string[]): string {
   return rel;
 }
 
+function isFlowFolderName(name: string): boolean {
+  return FLOW_SUFFIXES.some((s) => name.endsWith(s));
+}
+
 async function listWorkspacePaths(): Promise<WmPathItem[]> {
   // Walk first, capturing each item's metadata file path. Then read summaries in
   // parallel — one tree pass plus N file reads is faster than a serialized walk.
@@ -146,7 +150,7 @@ async function listWorkspacePaths(): Promise<WmPathItem[]> {
       const childRel = rel ? `${rel}/${entry.name}` : entry.name;
       const childAbs = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (FLOW_SUFFIXES.some((s) => entry.name.endsWith(s))) {
+        if (isFlowFolderName(entry.name)) {
           items.push({
             path: stripFolderSuffix(childRel, FLOW_SUFFIXES),
             kind: "flow",
@@ -207,7 +211,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     // Need to init nonDottedPaths before checking suffix
     await loadNonDottedPathsSetting();
 
-    if (cwdBasename.endsWith(".flow") || cwdBasename.endsWith("__flow")) {
+    if (isFlowFolderName(cwdBasename)) {
       GLOBAL_CONFIG_OPT.noCdToRoot = true;
 
       // Find workspace root
@@ -226,14 +230,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
 
       if (workspaceRoot) {
         const relPath = path.relative(workspaceRoot, cwd).replaceAll("\\", "/");
-        // Strip whichever flow suffix is actually present (dotted or non-dotted)
-        if (relPath.endsWith(".flow")) {
-          opts.path = relPath.slice(0, -".flow".length);
-        } else if (relPath.endsWith("__flow")) {
-          opts.path = relPath.slice(0, -"__flow".length);
-        } else {
-          opts.path = relPath;
-        }
+        opts.path = stripFolderSuffix(relPath, FLOW_SUFFIXES);
         log.info(`Detected flow folder, path: ${opts.path}`);
         process.chdir(workspaceRoot);
       }
@@ -324,13 +321,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
           }
         }
         if (!localPath) return;
-        // Strip whichever flow suffix is present (dotted or non-dotted)
-        let wmFlowPath = localPath.replace(/\/$/, "");
-        if (wmFlowPath.endsWith(".flow")) {
-          wmFlowPath = wmFlowPath.slice(0, -".flow".length);
-        } else if (wmFlowPath.endsWith("__flow")) {
-          wmFlowPath = wmFlowPath.slice(0, -"__flow".length);
-        }
+        const wmFlowPath = stripFolderSuffix(localPath.replace(/\/$/, ""), FLOW_SUFFIXES);
         const localFlow = (await yamlParseFile(
           localPath + "flow.yaml"
         )) as FlowFile;
@@ -402,16 +393,9 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     path: string;
   };
 
-  // Normalize a windmill path by stripping any trailing flow/app suffix
+  // Normalize a windmill path by stripping any trailing flow suffix
   function normalizeWmPath(p: string): string {
-    let result = p.replace(/\/$/, "");
-    // Strip whichever flow suffix is present (dotted or non-dotted)
-    if (result.endsWith(".flow")) {
-      result = result.slice(0, -".flow".length);
-    } else if (result.endsWith("__flow")) {
-      result = result.slice(0, -"__flow".length);
-    }
-    return result;
+    return stripFolderSuffix(p.replace(/\/$/, ""), FLOW_SUFFIXES);
   }
 
   // Load a resource by its windmill path (e.g., "u/admin/my_script" or "f/my_flow")

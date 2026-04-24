@@ -194,13 +194,17 @@
 	const href = window.location.href
 	const indexQ = href.indexOf('?')
 	const searchParams = indexQ > -1 ? new URLSearchParams(href.substring(indexQ)) : undefined
-	let relativePaths: any[] = $state([])
+	let relativePaths: (string | [number, string])[] = $state([])
 
 	type WmPathItem = {
 		path: string
 		kind: 'flow' | 'script' | 'raw_app'
 		summary?: string
 	}
+	// watchPath is (re)synced on initial load, on popstate, and on explicit
+	// pickPath assignments. We don't listen for generic pushState events —
+	// the only pushState callsite is pickPath itself, and it updates watchPath
+	// directly. If a third caller starts pushing to history, add a resync there.
 	function parseWatchPath(): string | undefined {
 		const i = window.location.href.indexOf('?')
 		if (i < 0) return undefined
@@ -868,9 +872,11 @@
 <main class="h-screen w-full">
 	{#snippet itemRow(item: ItemType & { marked?: string }, depth: number)}
 		{@const wmItem = pickerItems.find((p) => p.path === item.path)}
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div onclick={() => wmItem && pickPath(wmItem)} class="cursor-pointer border-b last:border-b-0">
+		<button
+			type="button"
+			onclick={() => wmItem && pickPath(wmItem)}
+			class="block w-full text-left cursor-pointer border-b last:border-b-0"
+		>
 			<Row
 				marked={item.marked}
 				path={item.path}
@@ -880,7 +886,7 @@
 				workspaceId={$workspaceStore ?? ''}
 				canFavorite={false}
 			/>
-		</div>
+		</button>
 	{/snippet}
 	{#snippet treeNode(node: ItemType | FolderItem | UserItem, depth: number)}
 		{#if 'folderName' in node}
@@ -1278,12 +1284,7 @@
 						class="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-surface shrink-0"
 					>
 						<span class="text-xs text-secondary shrink-0">{selectedModule.id} summary</span>
-						<input
-							type="text"
-							class="text-xs w-full bg-transparent border border-border rounded px-2 py-1 focus:outline-none focus:border-blue-500"
-							placeholder="Summary"
-							bind:value={selectedModule.summary}
-						/>
+						<TextInput placeholder="Summary" bind:value={selectedModule.summary} />
 					</div>
 				{/if}
 			</div>

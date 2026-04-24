@@ -819,9 +819,17 @@ This folder is for SQL migration files that will be applied to datatables during
 
         // Import the session into Claude Desktop Code mode
         const deepLink = `claude://resume?session=${sessionId}&cwd=${encodeURIComponent(absAppDir)}`;
-        exec(`open ${JSON.stringify(deepLink)}`);
-
-        log.info(colors.bold.green("Opened in Claude Desktop!"));
+        exec(`open ${JSON.stringify(deepLink)}`, (err) => {
+          if (err) {
+            log.warn(
+              colors.yellow(
+                `Could not open Claude Desktop deep link (${err.message}). Open it manually: ${deepLink}`
+              )
+            );
+          } else {
+            log.info(colors.bold.green("Opened in Claude Desktop!"));
+          }
+        });
       } catch (error: unknown) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
