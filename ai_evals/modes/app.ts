@@ -34,6 +34,7 @@ export function createAppModeRunner(
           initialBackend: initial?.backend,
           initialDatatables: initial?.datatables,
           maxIterations: context.evalCase?.runtime?.maxTurns,
+          appContext: context.evalCase?.runtime?.appContext,
           provider: modelConfig.provider,
           model: modelConfig.model,
           transport: transportSettings?.transport,

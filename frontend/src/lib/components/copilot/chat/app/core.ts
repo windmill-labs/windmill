@@ -12,10 +12,11 @@ import {
 } from '../shared'
 import { getDatatableSdkReference } from '$system_prompts'
 import { aiChatManager } from '../AIChatManager.svelte'
-import type {
-	ContextElement,
-	AppCodeSelectionElement,
-	AppDatatableElement
+import {
+	formatAppDatatableContextTitle,
+	type ContextElement,
+	type AppCodeSelectionElement,
+	type AppDatatableElement
 } from '../context'
 
 // Backend runnable types
@@ -1162,10 +1163,11 @@ export function prepareAppUserMessage(
 					content += `\n- Backend runnable: ${ctx.key}\n`
 				} else if (ctx.type === 'app_datatable') {
 					const datatableCtx = ctx as AppDatatableElement
-					const tableRef =
-						datatableCtx.schemaName === 'public'
-							? `${datatableCtx.datatableName}/${datatableCtx.tableName}`
-							: `${datatableCtx.datatableName}/${datatableCtx.schemaName}:${datatableCtx.tableName}`
+					const tableRef = formatAppDatatableContextTitle(
+						datatableCtx.datatableName,
+						datatableCtx.schemaName,
+						datatableCtx.tableName
+					)
 					content += `\n**Table: ${tableRef}**\n`
 					content += `- **Datatable**: ${datatableCtx.datatableName}\n`
 					content += `- **Schema**: ${datatableCtx.schemaName}\n`

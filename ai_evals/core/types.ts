@@ -8,9 +8,46 @@ export interface EvalCaseRuntimeBackendPreview {
   timeoutSeconds?: number;
 }
 
+export type EvalCaseRuntimeAppSelectedContext =
+  | {
+      type: "none";
+    }
+  | {
+      type: "frontend";
+      path: string;
+      selectionExcluded?: boolean;
+    }
+  | {
+      type: "backend";
+      key: string;
+      selectionExcluded?: boolean;
+    };
+
+export type EvalCaseRuntimeAppAdditionalContext =
+  | {
+      type: "frontend";
+      path: string;
+    }
+  | {
+      type: "backend";
+      key: string;
+    }
+  | {
+      type: "datatable";
+      datatableName: string;
+      schema: string;
+      table: string;
+    };
+
+export interface EvalCaseRuntimeAppContextSpec {
+  selected?: EvalCaseRuntimeAppSelectedContext;
+  additional?: EvalCaseRuntimeAppAdditionalContext[];
+}
+
 export interface EvalCaseRuntimeSpec {
   maxTurns?: number;
   backendPreview?: EvalCaseRuntimeBackendPreview;
+  appContext?: EvalCaseRuntimeAppContextSpec;
 }
 
 export interface FlowValidationSpec {

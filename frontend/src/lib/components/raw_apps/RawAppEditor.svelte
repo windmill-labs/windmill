@@ -21,7 +21,7 @@
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { onMount, untrack } from 'svelte'
 	import type { LintResult, DataTableSchema, InspectorElementInfo } from '../copilot/chat/app/core'
-	import type { AppCodeSelectionElement } from '../copilot/chat/context'
+	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
 	import { runScriptAndPollResult } from '../jobs/utils'
@@ -416,14 +416,14 @@
 				}
 			},
 			getSelectedContext: () => {
-				return {
+				return createAppSelectedContext({
 					inspectorElement: inspectorElement,
 					clearInspector: clearInspectorSelection,
 					codeSelection: codeSelection,
 					clearCodeSelection: () => {
 						codeSelection = undefined
 					}
-				}
+				})
 			},
 			snapshot: () => {
 				// Force create snapshot for AI - it needs a restore point

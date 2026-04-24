@@ -102,6 +102,40 @@ describe("loadCases", () => {
     });
   });
 
+  it("loads app token usage cases with runtime context", async () => {
+    const appCases = await loadCases("app");
+    const frontendContextCase = appCases.find(
+      (entry) => entry.id === "app-token-selected-large-frontend-context"
+    );
+    const datatableContextCase = appCases.find(
+      (entry) => entry.id === "app-token-many-datatable-context"
+    );
+
+    expect(frontendContextCase?.initialPath).toContain(
+      "ai_evals/fixtures/frontend/app/initial/token_heavy_context"
+    );
+    expect(frontendContextCase?.runtime).toEqual({
+      maxTurns: 8,
+      appContext: {
+        selected: {
+          type: "frontend",
+          path: "/index.tsx",
+        },
+      },
+    });
+
+    expect(datatableContextCase?.initialPath).toContain(
+      "ai_evals/fixtures/frontend/app/initial/token_heavy_datatables"
+    );
+    expect(datatableContextCase?.runtime?.appContext?.additional).toHaveLength(10);
+    expect(datatableContextCase?.runtime?.appContext?.additional?.[0]).toEqual({
+      type: "datatable",
+      datatableName: "main",
+      schema: "analytics",
+      table: "event_log_01",
+    });
+  });
+
   it("loads CLI behavior expectations for deploy-guidance cases", async () => {
     const cliCases = await loadCases("cli");
     const caseEntry = cliCases.find((entry) => entry.id === "bun-hello-script");

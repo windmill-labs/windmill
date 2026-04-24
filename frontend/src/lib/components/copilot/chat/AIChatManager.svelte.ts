@@ -46,11 +46,12 @@ import { get } from 'svelte/store'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
-import type {
-	ContextElement,
-	AppFrontendFileElement,
-	AppBackendRunnableElement,
-	AppDatatableElement
+import {
+	createAppBackendRunnableContextElement,
+	createAppFrontendFileContextElement,
+	flattenDatatablesToAppContextElements,
+	type ContextElement,
+	type AppDatatableElement
 } from './context'
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
@@ -1044,32 +1045,7 @@ class AIChatManager {
 			const datatables = await this.appAiChatHelpers.getDatatables()
 			console.log('Refreshed datatables:', datatables)
 
-			// Flatten to individual tables
-			const tableElements: AppDatatableElement[] = []
-			for (const dt of datatables) {
-				if (dt.error) {
-					// Skip datatables with errors
-					continue
-				}
-				for (const [schemaName, tables] of Object.entries(dt.schemas)) {
-					for (const [tableName, columns] of Object.entries(tables)) {
-						// Format title as "datatable/schema:table" or "datatable/table" if schema is public
-						const title =
-							schemaName === 'public'
-								? `${dt.datatable_name}/${tableName}`
-								: `${dt.datatable_name}/${schemaName}:${tableName}`
-						tableElements.push({
-							type: 'app_datatable',
-							datatableName: dt.datatable_name,
-							schemaName,
-							tableName,
-							title,
-							columns
-						})
-					}
-				}
-			}
-			this.cachedDatatables = tableElements
+			this.cachedDatatables = flattenDatatablesToAppContextElements(datatables)
 		} catch (err) {
 			console.error('Failed to refresh datatables:', err)
 			this.cachedDatatables = []
@@ -1091,13 +1067,7 @@ class AIChatManager {
 		for (const path of frontendFiles) {
 			const content = this.appAiChatHelpers.getFrontendFile(path)
 			if (content !== undefined) {
-				const element: AppFrontendFileElement = {
-					type: 'app_frontend_file',
-					path,
-					title: path,
-					content
-				}
-				context.push(element)
+				context.push(createAppFrontendFileContextElement(path, content))
 			}
 		}
 
@@ -1106,13 +1076,7 @@ class AIChatManager {
 		for (const { key } of runnables) {
 			const runnable = this.appAiChatHelpers.getBackendRunnable(key)
 			if (runnable) {
-				const element: AppBackendRunnableElement = {
-					type: 'app_backend_runnable',
-					key,
-					title: key,
-					runnable
-				}
-				context.push(element)
+				context.push(createAppBackendRunnableContextElement(key, runnable))
 			}
 		}
 
