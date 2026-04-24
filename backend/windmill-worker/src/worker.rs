@@ -1395,7 +1395,7 @@ const STATUS_DESCRIPTION_MAX_LEN: usize = 512;
 pub(crate) fn record_job_span_status(result: &windmill_common::error::Result<bool>) {
     let description = match result {
         Ok(true) => return,
-        Ok(false) => "job returned false".to_string(),
+        Ok(false) => "job already completed by another worker".to_string(),
         Err(err) => truncate_description(&err.to_string()),
     };
     let span = tracing::Span::current();
