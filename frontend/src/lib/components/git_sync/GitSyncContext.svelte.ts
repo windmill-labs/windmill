@@ -178,7 +178,6 @@ export function createGitSyncContext(workspace: string) {
 			script_path: repo.script_path,
 			use_individual_branch: repo.use_individual_branch,
 			group_by_folder: repo.group_by_folder,
-			force_branch: repo.force_branch,
 			settings: repo.settings,
 			exclude_types_override: repo.exclude_types_override
 		}
@@ -501,7 +500,6 @@ export function createGitSyncContext(workspace: string) {
 					script_path: repoToSave.script_path,
 					use_individual_branch: repoToSave.use_individual_branch,
 					group_by_folder: repoToSave.group_by_folder,
-					force_branch: repoToSave.force_branch,
 					settings: repoToSave.settings,
 					exclude_types_override: repoToSave.exclude_types_override
 				}
