@@ -1,4 +1,4 @@
-import { stat, writeFile, rm, readdir } from "node:fs/promises";
+import { stat, writeFile, rm, rmdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { colors } from "@cliffy/ansi/colors";
@@ -37,6 +37,96 @@ export interface InitOptions {
   baseUrl?: string;
   configDir?: string;
   bindProfile?: boolean;
+}
+
+const CLAUDE_MD_DEFAULT = "Instructions are in @AGENTS.md\n";
+
+/**
+ * Remove the Claude assets we generate (per `skipClaudeAssets: true` in wmill.yaml).
+ * Narrow scope: only paths we'd otherwise have created. CLAUDE.md is left alone
+ * if its content has been customized. .claude/ is removed only if it ends up empty.
+ */
+async function cleanupClaudeAssets(nonDottedPaths: boolean) {
+  const flowSuffix = nonDottedPaths ? "__flow" : ".flow";
+  const rawAppSuffix = nonDottedPaths ? "__raw_app" : ".raw_app";
+
+  let introPrinted = false;
+  function logRemoval(msg: string) {
+    if (!introPrinted) {
+      introPrinted = true;
+      log.info(
+        colors.gray(
+          "skipClaudeAssets is true; removing previously-generated Claude assets:"
+        )
+      );
+    }
+    log.info(colors.yellow(`  ${msg}`));
+  }
+
+  async function tryRmEmptyDir(dir: string) {
+    try {
+      const remaining = await readdir(dir);
+      if (remaining.length === 0) await rmdir(dir);
+    } catch {
+      /* dir already gone or not a dir */
+    }
+  }
+
+  // Per-flow / per-raw_app .claude/launch.json
+  async function scan(dir: string) {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      const fullPath = join(dir, entry.name);
+      if (entry.name.endsWith(flowSuffix) || entry.name.endsWith(rawAppSuffix)) {
+        const claudeDir = join(fullPath, ".claude");
+        const launchPath = join(claudeDir, "launch.json");
+        if (existsSync(launchPath)) {
+          await rm(launchPath);
+          logRemoval(`Removed ${launchPath}`);
+          await tryRmEmptyDir(claudeDir);
+        }
+      } else {
+        await scan(fullPath);
+      }
+    }
+  }
+  await scan(".");
+
+  // Root .claude/launch.json
+  const rootLaunch = join(".claude", "launch.json");
+  if (existsSync(rootLaunch)) {
+    await rm(rootLaunch);
+    logRemoval(`Removed ${rootLaunch}`);
+  }
+
+  // .claude/skills/ — wholly ours; safe to remove the subtree
+  const skillsDir = join(".claude", "skills");
+  if (existsSync(skillsDir)) {
+    await rm(skillsDir, { recursive: true });
+    logRemoval(`Removed ${skillsDir}/`);
+  }
+
+  await tryRmEmptyDir(".claude");
+
+  // CLAUDE.md — only if untouched (content matches default). Otherwise warn.
+  if (existsSync("CLAUDE.md")) {
+    const content = await readFile("CLAUDE.md", "utf-8");
+    if (content === CLAUDE_MD_DEFAULT) {
+      await rm("CLAUDE.md");
+      logRemoval("Removed CLAUDE.md");
+    } else {
+      logRemoval(
+        "CLAUDE.md was customized; left in place. Delete manually if no longer needed."
+      );
+    }
+  }
 }
 
 /**
@@ -277,6 +367,10 @@ async function initAction(opts: InitOptions) {
     } else {
       log.warn(`Could not create guidance files: ${error}`);
     }
+  }
+
+  if (skipClaudeAssets) {
+    await cleanupClaudeAssets(nonDottedPaths);
   }
 
   if (!skipClaudeAssets) {
