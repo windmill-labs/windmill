@@ -609,6 +609,15 @@ pub async fn eval_fetch_timeout(
                 let mut is_stream = false;
                 while let Some(log) = log_receiver.recv().await {
                     use windmill_common::result_stream::extract_stream_from_logs;
+                    use windmill_common::tracing_init::{OTEL_JOB_LOGS, OTEL_PREFIX};
+
+                    if *OTEL_JOB_LOGS {
+                        for line in log.lines() {
+                            if let Some(otel_suffix) = line.strip_prefix(OTEL_PREFIX) {
+                                tracing::event!(tracing::Level::INFO, otel_suffix);
+                            }
+                        }
+                    }
 
                     if let Some(stream) = extract_stream_from_logs(&log.trim_end_matches("\n")) {
                         if !is_stream {
