@@ -247,7 +247,7 @@ struct AutoscalingEvent {
     event_type: Option<String>,
     desired_workers: i32,
     reason: Option<String>,
-    applied_at: chrono::NaiveDateTime,
+    applied_at: chrono::DateTime<chrono::Utc>,
 }
 
 async fn list_autoscaling_events(
@@ -260,9 +260,12 @@ async fn list_autoscaling_events(
     }
     let (per_page, offset) = windmill_common::utils::paginate(pagination);
 
+    // applied_at is a naive TIMESTAMP; reinterpret it as UTC so the response
+    // includes a timezone (otherwise the browser parses it as local time and
+    // TimeAgo clamps future timestamps to "0s ago").
     let events = sqlx::query_as!(
         AutoscalingEvent,
-        "SELECT id, worker_group, event_type::text, desired_workers, reason, applied_at FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT $2 OFFSET $3",
+        r#"SELECT id, worker_group, event_type::text, desired_workers, reason, (applied_at AT TIME ZONE 'UTC') AS "applied_at!: chrono::DateTime<chrono::Utc>" FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT $2 OFFSET $3"#,
         worker_group,
         per_page as i64,
         offset as i64
