@@ -4587,8 +4587,6 @@ paths:
                               type: boolean
                             group_by_folder:
                               type: boolean
-                            force_branch:
-                              type: string
                             collapsed:
                               type: boolean
                             settings:
