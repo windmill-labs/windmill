@@ -493,10 +493,21 @@
 				if (dataPath && dataPath !== watchPath) {
 					return
 				}
-				if (data.type == 'script') {
-					replaceScript(data)
-				} else if (data.type == 'flow') {
-					replaceFlow(data)
+				if (data.type == 'script' || data.type == 'flow') {
+					// Guard against the $effect on flowStore.val (re)serializing the
+					// just-received payload back over the same WS to handleFlowRoundTrip
+					// (which would re-run the orphan-file scan with the same content).
+					// Mirrors the postMessage handler above.
+					lockChanges = true
+					if (data.type == 'script') {
+						replaceScript(data)
+					} else {
+						replaceFlow(data)
+					}
+					timeout && clearTimeout(timeout)
+					timeout = window.setTimeout(() => {
+						lockChanges = false
+					}, 500)
 				} else {
 					sendUserToast(`Received invalid message type ${data.type}`, true)
 				}
