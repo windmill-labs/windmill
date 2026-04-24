@@ -144,28 +144,18 @@ describe("loadCases", () => {
     });
   });
 
-  it("loads app token usage cases with runtime context", async () => {
+  it("loads app token usage cases with additional runtime context", async () => {
     const appCases = await loadCases("app");
-    const frontendContextCase = appCases.find(
-      (entry) => entry.id === "app-token-selected-large-frontend-context"
-    );
     const datatableContextCase = appCases.find(
       (entry) => entry.id === "app-token-many-datatable-context"
     );
 
-    expect(frontendContextCase?.initialPath).toContain(
-      "ai_evals/fixtures/frontend/app/initial/token_heavy_context"
-    );
-    expect(frontendContextCase?.runtime).toEqual({
-      maxTurns: 8,
-      appContext: {
-        selected: {
-          type: "frontend",
-          path: "/index.tsx",
-        },
-      },
-    });
-
+    expect(
+      appCases.find((entry) => entry.id === "app-token-selected-large-frontend-context")
+    ).toBeUndefined();
+    expect(
+      appCases.find((entry) => entry.id === "app-token-selected-large-backend-context")
+    ).toBeUndefined();
     expect(datatableContextCase?.initialPath).toContain(
       "ai_evals/fixtures/frontend/app/initial/token_heavy_datatables"
     );

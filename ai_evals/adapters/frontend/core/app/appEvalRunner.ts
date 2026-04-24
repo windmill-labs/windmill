@@ -5,7 +5,6 @@ import type {
   BackendRunnable,
   AppAIChatHelpers,
   DataTableSchema,
-  SelectedContext,
 } from "../../../../../frontend/src/lib/components/copilot/chat/app/core";
 import {
   getAppTools,
@@ -29,7 +28,6 @@ import {
   createAppBackendRunnableContextElement,
   createAppDatatableContextElement,
   createAppFrontendFileContextElement,
-  createAppSelectedContext,
   type ContextElement,
 } from "../../../../../frontend/src/lib/components/copilot/chat/context";
 
@@ -76,14 +74,13 @@ export async function runAppEval(
     const systemMessage = prepareAppSystemMessage();
     const tools = getAppTools() as ProductionTool<AppAIChatHelpers>[];
     const model = options?.model ?? "claude-haiku-4-5-20251001";
-    const contextualHelpers = withAppRuntimeContext(helpers, options?.appContext);
     const additionalContext = await buildAdditionalContext(
       options?.appContext,
-      contextualHelpers,
+      helpers,
     );
     const userMessage = prepareAppUserMessage(
       userPrompt,
-      contextualHelpers.getSelectedContext(),
+      helpers.getSelectedContext(),
       additionalContext,
     );
 
@@ -92,7 +89,7 @@ export async function runAppEval(
       systemMessage,
       userMessage,
       tools,
-      helpers: contextualHelpers,
+      helpers,
       apiKey,
       getOutput: getEvalState,
       onAssistantMessageStart: options?.runContext?.onAssistantMessageStart,
@@ -123,46 +120,6 @@ export async function runAppEval(
   } finally {
     await cleanup();
   }
-}
-
-function withAppRuntimeContext(
-  helpers: AppAIChatHelpers,
-  appContext?: EvalCaseRuntimeAppContextSpec,
-): AppAIChatHelpers {
-  if (!appContext?.selected) {
-    return helpers;
-  }
-
-  return {
-    ...helpers,
-    getSelectedContext: () => buildSelectedContext(appContext, helpers),
-  };
-}
-
-function buildSelectedContext(
-  appContext: EvalCaseRuntimeAppContextSpec,
-  helpers: AppAIChatHelpers,
-): SelectedContext {
-  const selected = appContext.selected;
-  if (!selected || selected.type === "none") {
-    return createAppSelectedContext();
-  }
-
-  if (selected.type === "frontend") {
-    const content = helpers.getFrontendFile(selected.path);
-    if (content === undefined) {
-      throw new Error(
-        `App eval selected frontend context not found: ${selected.path}`,
-      );
-    }
-    return createAppSelectedContext();
-  }
-
-  const runnable = helpers.getBackendRunnable(selected.key);
-  if (!runnable) {
-    throw new Error(`App eval selected backend context not found: ${selected.key}`);
-  }
-  return createAppSelectedContext();
 }
 
 async function buildAdditionalContext(

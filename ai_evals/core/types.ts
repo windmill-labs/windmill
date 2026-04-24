@@ -8,21 +8,6 @@ export interface EvalCaseRuntimeBackendPreview {
   timeoutSeconds?: number;
 }
 
-export type EvalCaseRuntimeAppSelectedContext =
-  | {
-      type: "none";
-    }
-  | {
-      type: "frontend";
-      path: string;
-      selectionExcluded?: boolean;
-    }
-  | {
-      type: "backend";
-      key: string;
-      selectionExcluded?: boolean;
-    };
-
 export type EvalCaseRuntimeAppAdditionalContext =
   | {
       type: "frontend";
@@ -40,7 +25,6 @@ export type EvalCaseRuntimeAppAdditionalContext =
     };
 
 export interface EvalCaseRuntimeAppContextSpec {
-  selected?: EvalCaseRuntimeAppSelectedContext;
   additional?: EvalCaseRuntimeAppAdditionalContext[];
 }
 

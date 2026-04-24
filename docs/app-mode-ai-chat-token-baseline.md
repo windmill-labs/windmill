@@ -2,6 +2,8 @@
 
 This baseline was collected before optimizing app-mode context/prompt/datatable behavior.
 
+> Note: The historical commands/results below include `app-token-selected-large-frontend-context` and `app-token-selected-large-backend-context`. Those cases were removed from the active eval suite because `runtime.appContext.selected` only verified that the file/runnable existed and did not serialize a selected file/runnable hint to the model. Future selected-file/runnable coverage should be reintroduced through the app context manager path.
+
 ## Command
 
 Secrets were loaded from `~/windmill/ai_evals/.env` without printing them.
@@ -240,4 +242,4 @@ Interpretation:
 - Removing the full datatable SDK reference from the default prompt saved about 3.5k prompt tokens in every case.
 - The large datatable discovery case improved dramatically because the model used `list_datatables()` table-name metadata instead of loading full schemas.
 - The small datatable-context edit is still higher than the post-rebase / PR #8922 run because selected file identifiers are not yet injected, so the model still discovers and reads `/index.tsx` before patching.
-- The next likely optimization is identifier-only selected frontend/backend context so selected-file cases can skip `list_files()`.
+- A future context-manager-backed selected file/runnable flow should add cheap selected identifiers when that UX is ready, so selected-file tasks can skip `list_files()` without reintroducing implicit source-content bloat.

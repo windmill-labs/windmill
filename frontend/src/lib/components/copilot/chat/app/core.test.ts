@@ -371,22 +371,6 @@ describe('app patch_file tool', () => {
 })
 
 describe('prepareAppUserMessage app context', () => {
-	it('does not serialize implicit selected frontend or backend files', () => {
-		const frontendMessage = prepareAppUserMessage('Update the layout', {
-			type: 'frontend',
-			frontendPath: '/index.tsx'
-		} as unknown as SelectedContext)
-		const backendMessage = prepareAppUserMessage('Use the existing runnable', {
-			type: 'backend',
-			backendKey: 'loadUsers'
-		} as unknown as SelectedContext)
-
-		expect(frontendMessage.content).toBe('## INSTRUCTIONS:\nUpdate the layout')
-		expect(frontendMessage.content).not.toContain('/index.tsx')
-		expect(backendMessage.content).toBe('## INSTRUCTIONS:\nUse the existing runnable')
-		expect(backendMessage.content).not.toContain('loadUsers')
-	})
-
 	it('still serializes inspector and code selections', () => {
 		const selectedContext: SelectedContext = {
 			type: 'frontend',
