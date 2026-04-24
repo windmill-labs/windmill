@@ -57,6 +57,8 @@ export interface SimplifiedSettings {
   slack_team_id?: string;
   slack_name?: string;
   slack_command_script?: string;
+  slack_oauth_client_id?: string;
+  slack_oauth_client_secret?: string;
 }
 
 // Legacy settings interface for reading old settings.yaml files
@@ -84,6 +86,8 @@ interface LegacySimplifiedSettings {
   slack_team_id?: string;
   slack_name?: string;
   slack_command_script?: string;
+  slack_oauth_client_id?: string;
+  slack_oauth_client_secret?: string;
 }
 
 // Helper to convert legacy flat settings to new grouped format
@@ -105,6 +109,8 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
   if (settings.slack_team_id !== undefined) result.slack_team_id = settings.slack_team_id;
   if (settings.slack_name !== undefined) result.slack_name = settings.slack_name;
   if (settings.slack_command_script !== undefined) result.slack_command_script = settings.slack_command_script;
+  if (settings.slack_oauth_client_id !== undefined) result.slack_oauth_client_id = settings.slack_oauth_client_id;
+  if (settings.slack_oauth_client_secret !== undefined) result.slack_oauth_client_secret = settings.slack_oauth_client_secret;
 
   // Handle auto_invite: check if already grouped or needs migration
   if (settings.auto_invite && typeof settings.auto_invite === "object") {
@@ -204,6 +210,8 @@ export async function pushWorkspaceSettings(
       slack_team_id: remoteSettings.slack_team_id,
       slack_name: remoteSettings.slack_name,
       slack_command_script: remoteSettings.slack_command_script,
+      slack_oauth_client_id: remoteSettings.slack_oauth_client_id,
+      slack_oauth_client_secret: remoteSettings.slack_oauth_client_secret,
     };
   } catch (err) {
     throw new Error(`Failed to get workspace settings: ${err}`);
@@ -415,6 +423,39 @@ export async function pushWorkspaceSettings(
         slack_command_script: localSettings.slack_command_script,
       },
     });
+  }
+
+  // Workspace-level Slack OAuth override:
+  //   - absent from YAML (either side undefined) → leave remote alone ("not managed by git")
+  //   - both defined and truthy → upsert via setWorkspaceSlackOauthConfig
+  //   - both defined but at least one falsy (e.g. empty string) and remote has a value → delete
+  // Backend requires both id + secret together, which is why we gate on both
+  // being defined before deciding set vs delete.
+  if (
+    localSettings.slack_oauth_client_id !== undefined &&
+    localSettings.slack_oauth_client_secret !== undefined &&
+    (localSettings.slack_oauth_client_id != settings.slack_oauth_client_id ||
+      localSettings.slack_oauth_client_secret != settings.slack_oauth_client_secret)
+  ) {
+    log.debug(`Updating slack oauth config...`);
+    if (
+      localSettings.slack_oauth_client_id &&
+      localSettings.slack_oauth_client_secret
+    ) {
+      await wmill.setWorkspaceSlackOauthConfig({
+        workspace,
+        requestBody: {
+          slack_oauth_client_id: localSettings.slack_oauth_client_id,
+          slack_oauth_client_secret: localSettings.slack_oauth_client_secret,
+        },
+      });
+    } else if (
+      settings.slack_oauth_client_id ||
+      settings.slack_oauth_client_secret
+    ) {
+      // Local cleared (empty strings or null), remote has a value → delete.
+      await wmill.deleteWorkspaceSlackOauthConfig({ workspace });
+    }
   }
 }
 
