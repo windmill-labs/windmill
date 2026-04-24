@@ -26,6 +26,7 @@ import {
   pushInstanceGroups,
   pushInstanceUsers,
 } from "../user/user.ts";
+import { connectSlackInstance } from "./slack.ts";
 import {
   add as workspaceSetup,
   addWorkspace,
@@ -825,6 +826,18 @@ const command = new Command()
     "--instance <instance:string>",
     "Name of the instance, override the active instance",
   )
-  .action(getConfig as any);
+  .action(getConfig as any)
+  .command("connect-slack")
+  .description(
+    "Non-interactively connect Slack at the instance level using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: global_settings 'slack' row + encrypted f/slack_bot/global_bot_token variable and resource in the admins workspace."
+  )
+  .option("--bot-token <bot_token:string>", "Slack bot token (xoxb-...)", { required: true })
+  .option("--team-id <team_id:string>", "Slack team id", { required: true })
+  .option("--team-name <team_name:string>", "Slack team name", { required: true })
+  .option(
+    "--instance <instance:string>",
+    "Instance profile to connect against (defaults to the active instance)"
+  )
+  .action((opts: any) => connectSlackInstance(opts));
 
 export default command;
