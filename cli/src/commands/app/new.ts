@@ -510,26 +510,36 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
   await mkdir(appDir, { recursive: true });
   await mkdir(path.join(appDir, "backend"), { recursive: true });
   await mkdir(path.join(appDir, "sql_to_apply"), { recursive: true });
-  await mkdir(path.join(appDir, ".claude"), { recursive: true });
 
-  // Create .claude/launch.json for Claude Code preview
-  const launchJson = {
-    version: "0.0.1",
-    configurations: [
-      {
-        name: "windmill",
-        runtimeExecutable: "bash",
-        runtimeArgs: ["-c", "wmill app dev --no-open --port ${PORT:-4000}"],
-        port: 4000,
-        autoPort: true,
-      },
-    ],
-  };
-  await writeFile(
-    path.join(appDir, ".claude", "launch.json"),
-    JSON.stringify(launchJson, null, 2) + "\n",
-    "utf-8"
-  );
+  // Create .claude/launch.json for Claude Code preview (skipped via wmill.yaml's skipClaudeAssets)
+  let skipClaudeAssets = false;
+  try {
+    const { readConfigFile } = await import("../../core/conf.ts");
+    const config = await readConfigFile();
+    skipClaudeAssets = config.skipClaudeAssets ?? false;
+  } catch {
+    // If config can't be read, default to generating
+  }
+  if (!skipClaudeAssets) {
+    await mkdir(path.join(appDir, ".claude"), { recursive: true });
+    const launchJson = {
+      version: "0.0.1",
+      configurations: [
+        {
+          name: "windmill",
+          runtimeExecutable: "bash",
+          runtimeArgs: ["-c", "wmill app dev --no-open --port ${PORT:-4000}"],
+          port: 4000,
+          autoPort: true,
+        },
+      ],
+    };
+    await writeFile(
+      path.join(appDir, ".claude", "launch.json"),
+      JSON.stringify(launchJson, null, 2) + "\n",
+      "utf-8"
+    );
+  }
 
   // Create raw_app.yaml with data configuration
   const rawAppConfig: Record<string, unknown> = {

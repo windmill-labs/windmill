@@ -236,17 +236,19 @@ async function initAction(opts: InitOptions) {
     }
   }
 
-  // Read nonDottedPaths from config to specialize generated skills
+  // Read nonDottedPaths and skipClaudeAssets from config
   let nonDottedPaths = true; // default for new inits
+  let skipClaudeAssets = false;
   try {
     const { readConfigFile } = await import("../../core/conf.ts");
     const config = await readConfigFile();
     nonDottedPaths = config.nonDottedPaths ?? true;
+    skipClaudeAssets = config.skipClaudeAssets ?? false;
   } catch {
-    // If config can't be read, use default
+    // If config can't be read, use defaults
   }
 
-  // Create guidance files (AGENTS.md, CLAUDE.md, and Claude skills)
+  // Create guidance files (AGENTS.md, plus CLAUDE.md and Claude skills unless skipClaudeAssets)
   try {
     const guidanceResult = await writeAiGuidanceFiles({
       targetDir: ".",
@@ -255,6 +257,7 @@ async function initAction(opts: InitOptions) {
       skillsSourcePath: process.env[WMILL_INIT_AI_SKILLS_SOURCE_ENV],
       agentsSourcePath: process.env[WMILL_INIT_AI_AGENTS_SOURCE_ENV],
       claudeSourcePath: process.env[WMILL_INIT_AI_CLAUDE_SOURCE_ENV],
+      skipClaudeAssets,
     });
 
     if (guidanceResult.agentsWritten) {
@@ -263,9 +266,11 @@ async function initAction(opts: InitOptions) {
     if (guidanceResult.claudeWritten) {
       log.info(colors.green("Created CLAUDE.md"));
     }
-    log.info(
-      colors.green(`Created .claude/skills/ with ${guidanceResult.skillCount} skills`)
-    );
+    if (guidanceResult.skillCount > 0) {
+      log.info(
+        colors.green(`Created .claude/skills/ with ${guidanceResult.skillCount} skills`)
+      );
+    }
   } catch (error) {
     if (error instanceof Error) {
       log.warn(`Could not create guidance files: ${error.message}`);
@@ -274,6 +279,7 @@ async function initAction(opts: InitOptions) {
     }
   }
 
+  if (!skipClaudeAssets) {
   // Generate .claude/launch.json at the workspace root so Claude Code can launch
   // `wmill dev` from there and land on the file picker (no --path → picker mode).
   try {
@@ -387,6 +393,7 @@ async function initAction(opts: InitOptions) {
       `Could not scan for raw app folders: ${error instanceof Error ? error.message : error}`
     );
   }
+  } // end if (!skipClaudeAssets)
 
   // Generate resource type namespace (only if a workspace was bound)
   if (didBindWorkspace && boundProfile) {

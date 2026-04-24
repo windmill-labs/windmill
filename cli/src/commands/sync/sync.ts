@@ -2481,6 +2481,7 @@ export async function pull(
         false,
       );
     }
+    if (!opts.skipClaudeAssets) {
     // Generate .claude/launch.json for all flow folders
     try {
       const flowSuffix = getFolderSuffix("flow");
@@ -2560,6 +2561,7 @@ export async function pull(
     } catch (error) {
       log.warn(`Could not scan for raw app folders: ${error instanceof Error ? error.message : error}`);
     }
+    } // end if (!opts.skipClaudeAssets)
 
     if (tracker.apps.length > 0) {
       log.info(

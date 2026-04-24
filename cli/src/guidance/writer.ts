@@ -20,6 +20,11 @@ export interface WriteAiGuidanceOptions {
   skillsSourcePath?: string;
   agentsSourcePath?: string;
   claudeSourcePath?: string;
+  /**
+   * Skip Claude-specific assets: CLAUDE.md and the `.claude/skills/` directory.
+   * AGENTS.md is still written because it's vendor-neutral.
+   */
+  skipClaudeAssets?: boolean;
 }
 
 export interface WriteAiGuidanceResult {
@@ -51,25 +56,29 @@ export async function writeAiGuidanceFiles(
         : generateAgentsMdContent(buildSkillsReference(skillMetadata)),
   });
 
-  const claudeWritten = await writeProjectGuidanceFile({
-    targetPath: join(options.targetDir, "CLAUDE.md"),
-    overwrite: options.overwriteProjectGuidance ?? false,
-    content:
-      options.claudeSourcePath != null
-        ? await readFile(options.claudeSourcePath, "utf8")
-        : CLAUDE_MD_DEFAULT,
-  });
+  const claudeWritten = options.skipClaudeAssets
+    ? false
+    : await writeProjectGuidanceFile({
+        targetPath: join(options.targetDir, "CLAUDE.md"),
+        overwrite: options.overwriteProjectGuidance ?? false,
+        content:
+          options.claudeSourcePath != null
+            ? await readFile(options.claudeSourcePath, "utf8")
+            : CLAUDE_MD_DEFAULT,
+      });
 
-  if (options.skillsSourcePath) {
-    await copySkillsFromSource(options.targetDir, options.skillsSourcePath);
-  } else {
-    await writeGeneratedSkills(options.targetDir, nonDottedPaths);
+  if (!options.skipClaudeAssets) {
+    if (options.skillsSourcePath) {
+      await copySkillsFromSource(options.targetDir, options.skillsSourcePath);
+    } else {
+      await writeGeneratedSkills(options.targetDir, nonDottedPaths);
+    }
   }
 
   return {
     agentsWritten,
     claudeWritten,
-    skillCount: skillMetadata.length,
+    skillCount: options.skipClaudeAssets ? 0 : skillMetadata.length,
   };
 }
 

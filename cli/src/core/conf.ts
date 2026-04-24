@@ -98,6 +98,7 @@ export interface SyncOptions {
   parallel?: number;
   jsonOutput?: boolean;
   nonDottedPaths?: boolean;
+  skipClaudeAssets?: boolean;
   // Primary config key — maps workspace names to workspace configurations
   workspaces?: WorkspacesConfig;
   // Deprecated aliases — normalized to `workspaces` in readConfigFile
@@ -351,6 +352,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
       | "includeSettings"
       | "includeKey"
       | "nonDottedPaths"
+      | "skipClaudeAssets"
       | "syncBehavior"
     >
   >
@@ -375,6 +377,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
   includeKey: false,
   skipWorkspaceDependencies: false,
   nonDottedPaths: false,
+  skipClaudeAssets: false,
   syncBehavior: "v1",
 } as const;
 

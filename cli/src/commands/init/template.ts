@@ -128,6 +128,8 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     commented: true },
   { name: "nonDottedPaths", type: "boolean", default: "true", description: "Use __flow/__app/__raw_app suffixes instead of .flow/.app/.raw_app",
     inlineComment: "recommended for new projects" },
+  { name: "skipClaudeAssets", type: "boolean", default: "false", description: "Skip generating Claude assets (.claude/launch.json, .claude/skills/, CLAUDE.md) in init/sync/new commands",
+    commented: true, templateValue: "true" },
   { name: "syncBehavior", type: "string", default: "v1", description: "Sync behavior version — controls ownership handling during push/pull (v1: preserve permissioned_as on update, strip on_behalf_of_email on pull)",
     inlineComment: "v1 enables ownership preservation" },
 
