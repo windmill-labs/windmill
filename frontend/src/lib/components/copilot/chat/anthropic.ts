@@ -1,5 +1,5 @@
-import { OpenAI } from 'openai'
-import Anthropic from '@anthropic-ai/sdk'
+import type { OpenAI } from 'openai'
+import type Anthropic from '@anthropic-ai/sdk'
 import type {
 	ChatCompletionMessageParam,
 	ChatCompletionMessageFunctionToolCall
@@ -41,7 +41,7 @@ export async function getAnthropicCompletion(
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 	const anthropicTools = convertOpenAIToolsToAnthropic(tools)
 
-	const client = options?.anthropicClient ?? workspaceAIClients.getAnthropicClient()
+	const client = await (options?.anthropicClient ?? workspaceAIClients.getAnthropicClient())
 
 	const anthropicParams = {
 		model: config.model,

@@ -1,4 +1,5 @@
-import OpenAI, { OpenAIError } from 'openai'
+import type OpenAI from 'openai'
+import type { OpenAIError } from 'openai'
 import type {
 	ChatCompletionMessageParam,
 	ChatCompletionMessageFunctionToolCall,
@@ -14,10 +15,7 @@ import {
 import { processToolCall, type Tool, type ToolCallbacks } from './shared'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProviderModel } from '$lib/gen'
-import {
-	openAIResponsesUsageToChatTokenUsage,
-	type ChatTokenUsage
-} from './tokenUsage'
+import { openAIResponsesUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
 interface ParsedCompletionResult {
 	shouldContinue: boolean
@@ -149,7 +147,7 @@ export async function getOpenAIResponsesCompletion(
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
 	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
 
-	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
+	const client = await (options?.openaiClient ?? workspaceAIClients.getOpenaiClient())
 
 	const runner = client.responses.stream(
 		{
@@ -178,7 +176,7 @@ export async function* getOpenAIResponsesCompletionStream(
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
 	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
 
-	const openaiClient = workspaceAIClients.getOpenaiClient()
+	const openaiClient = await workspaceAIClients.getOpenaiClient()
 
 	const runner = openaiClient.responses.stream(
 		{
@@ -417,11 +415,11 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 		}
 	}
 
-	const openaiClient = testOptions?.apiKey
+	const openaiClient = await (testOptions?.apiKey
 		? createOpenAIProxyClient(getAiProxyBaseURL())
 		: testOptions?.workspace
 			? workspaceAIClients.createOpenaiClient(testOptions.workspace)
-			: workspaceAIClients.getOpenaiClient()
+			: workspaceAIClients.getOpenaiClient())
 
 	const response = await openaiClient.responses.create(
 		{

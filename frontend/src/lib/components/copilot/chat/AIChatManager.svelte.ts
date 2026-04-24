@@ -416,6 +416,10 @@ class AIChatManager {
 			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
 			// which reassigns this.tools, this.helpers, this.systemMessage mid-loop.
 			const self = this
+			const [openai, anthropic] = await Promise.all([
+				workspaceAIClients.getOpenaiClient(),
+				workspaceAIClients.getAnthropicClient()
+			])
 			const result = await runChatLoop({
 				messages,
 				get systemMessage() {
@@ -433,8 +437,8 @@ class AIChatManager {
 					return getCurrentModel()
 				},
 				clients: {
-					openai: workspaceAIClients.getOpenaiClient(),
-					anthropic: workspaceAIClients.getAnthropicClient()
+					openai,
+					anthropic
 				},
 				workspace: get(workspaceStore) ?? '',
 				skipResponsesApi: this.skipResponsesApi,

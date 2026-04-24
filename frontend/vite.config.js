@@ -111,6 +111,53 @@ const config = {
 		dedupe: ['vscode', 'monaco-editor']
 	},
 	assetsInclude: ['**/*.wasm'],
+	build: {
+		rollupOptions: {
+			output: {
+				manualChunks(id) {
+					if (id.includes('node_modules')) {
+						if (id.includes('monaco-editor') || id.includes('@codingame/monaco-vscode')) {
+							return 'vendor-monaco'
+						}
+						if (id.includes('/openai/') || id.includes('/@anthropic-ai/')) {
+							return 'vendor-ai'
+						}
+						if (id.includes('@xyflow/svelte') || id.includes('d3-dag')) {
+							return 'vendor-flow'
+						}
+						if (id.includes('/yjs/') || id.includes('y-websocket') || id.includes('y-monaco')) {
+							return 'vendor-collab'
+						}
+						if (id.includes('ag-grid') || id.includes('ag-charts')) {
+							return 'vendor-ag'
+						}
+						if (id.includes('pdfjs-dist')) {
+							return 'vendor-pdf'
+						}
+						if (
+							id.includes('svelte-exmarkdown') ||
+							id.includes('/parse5/') ||
+							id.includes('/rehype-') ||
+							id.includes('/remark-') ||
+							id.includes('/mdast-') ||
+							id.includes('/micromark')
+						) {
+							return 'vendor-markdown'
+						}
+						if (id.includes('quicktype-core')) {
+							return 'vendor-quicktype'
+						}
+						if (id.includes('/quill/')) {
+							return 'vendor-quill'
+						}
+						if (id.includes('/chart.js/') || id.includes('chartjs-')) {
+							return 'vendor-chart'
+						}
+					}
+				}
+			}
+		}
+	},
 	test: {
 		expect: { requireAssertions: true },
 		projects: [
