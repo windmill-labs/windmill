@@ -9,11 +9,33 @@ description: MUST use when creating flows.
 
 Create a folder ending with `__flow` and add a `flow.yaml` file with the flow definition.
 For rawscript modules, use `!inline path/to/script.ts` for the content key. Inline script files should NOT include `.inline_script.` in their names (e.g. use `a.ts`, not `a.inline_script.ts`).
-After writing, tell the user they can run:
-- `wmill generate-metadata` - Generate lock files for the flow you modified
-- `wmill sync push` - Deploy to Windmill
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- `wmill flow preview <flow_path>` — **default when iterating on a local flow.** Runs the local `flow.yaml` against local inline scripts without deploying. Add `--remote` to use deployed workspace scripts for PathScript steps instead of local files.
+- `wmill flow run <path>` — runs the flow **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- `wmill generate-metadata` — regenerate lock files for the flow you modified.
+- `wmill sync push` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the flow", "try it", "test it", "does it work" while there are **local edits to a `flow.yaml`**, use `flow preview`. Do NOT push the flow to then `flow run` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use `flow run` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local `flow.yaml` being edited (you're just invoking an existing flow).
+
+Only use `sync push` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the flow, offer it as a one-sentence next step (e.g. "Want me to run `wmill flow preview` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the flow in their original request, skip the offer and just execute `wmill flow preview <path> -d '<args>'` directly — pick plausible args from the flow's input schema.
+
+`wmill flow preview` is safe to run yourself (it does not deploy). `wmill sync push` and `wmill generate-metadata` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
 
 ## OpenFlow Schema
 
