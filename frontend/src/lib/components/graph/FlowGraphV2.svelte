@@ -762,7 +762,10 @@
 	}
 
 	$effect(() => {
+		// Track both bounds — updateHeight() reads both, so missing one (as
+		// maxHeight was) leaves height stale when only that bound changes.
 		minHeight
+		maxHeight
 		untrack(() => updateHeight())
 	})
 
