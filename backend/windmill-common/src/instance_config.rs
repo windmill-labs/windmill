@@ -1079,15 +1079,15 @@ pub fn diff_global_settings(
             );
             continue;
         }
-        // An empty string means "unset": route it to deletes so clearing a
-        // setting via YAML sync has the same effect as clearing it via the UI
-        // (`set_global_setting_internal` already treats `""` as a delete).
-        // Without this, stale `""` rows linger and trip the EE registry gate,
-        // producing spurious "requires Enterprise" warnings on every CE job.
-        if desired_value
-            .as_str()
-            .map_or(false, |s| s.trim().is_empty())
-        {
+        // An empty string or explicit null means "unset": route it to deletes
+        // so clearing a setting via the bulk endpoint has the same effect as
+        // clearing it via the per-key endpoint (`set_global_setting_internal`
+        // already treats both `""` and `null` as deletes).
+        // Without this, the InstanceSettings YAML editor cannot delete keys
+        // (Merge mode silently preserves missing/null values), and stale `""`
+        // rows linger and trip the EE registry gate, producing spurious
+        // "requires Enterprise" warnings on every CE job.
+        if is_empty_or_null(desired_value) {
             if let Some(existing) = current.get(key) {
                 previous_values.insert(key.clone(), existing.clone());
                 deletes.push(key.clone());
@@ -1837,6 +1837,40 @@ mod tests {
                 "Protected key {key} should not be in deletes"
             );
         }
+    }
+
+    #[test]
+    fn diff_global_settings_merge_deletes_on_null_or_empty_string() {
+        // Frontend sends explicit null when the user removes a key (e.g.
+        // deletes `object_store_cache_config` in the YAML editor). Merge mode
+        // must honor this as a deletion, just like `set_global_setting_internal`.
+        let mut current = BTreeMap::new();
+        current.insert(
+            "object_store_cache_config".to_string(),
+            serde_json::json!({"type": "S3"}),
+        );
+        current.insert("base_url".to_string(), serde_json::json!("http://x"));
+        current.insert("hub_base_url".to_string(), serde_json::json!("http://y"));
+
+        let mut desired = BTreeMap::new();
+        desired.insert(
+            "object_store_cache_config".to_string(),
+            serde_json::Value::Null,
+        );
+        desired.insert("base_url".to_string(), serde_json::json!("http://x"));
+        desired.insert("hub_base_url".to_string(), serde_json::json!(""));
+
+        let diff = diff_global_settings(&current, &desired, ApplyMode::Merge);
+        assert!(diff.upserts.is_empty(), "no upserts expected");
+        let mut deletes = diff.deletes.clone();
+        deletes.sort();
+        assert_eq!(
+            deletes,
+            vec![
+                "hub_base_url".to_string(),
+                "object_store_cache_config".to_string()
+            ]
+        );
     }
 
     #[test]
