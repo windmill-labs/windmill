@@ -79,6 +79,27 @@ describe("loadRunnablesFromBackend", () => {
     expect(runnables.inlineRunnable.inlineScript.language).toBe("bun");
     expect(runnables.inlineRunnable.inlineScript.content).toContain("main(");
   });
+
+  // Regression for #8939: a buggy CLI release lowercased the content filename
+  // while keeping the YAML filename mixed-case, splitting one runnable into
+  // two on the next push. Pairing must work case-insensitively.
+  test("CamelCase YAML pairs with lowercased sibling code (legacy repo recovery)", async () => {
+    fs.writeFileSync(
+      path.join(backendDir, "CamelCaseTSRunnable.yaml"),
+      "type: inline\nfields: {}\n",
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(backendDir, "camelcasetsrunnable.ts"),
+      "export async function main() { return 1; }\n",
+      "utf-8",
+    );
+
+    const runnables = await loadRunnablesFromBackend(backendDir);
+
+    expect(Object.keys(runnables)).toEqual(["CamelCaseTSRunnable"]);
+    expect(runnables.CamelCaseTSRunnable.inlineScript.content).toContain("main(");
+  });
 });
 
 describe("genWmillTs (regression: path-based runnable schema)", () => {
