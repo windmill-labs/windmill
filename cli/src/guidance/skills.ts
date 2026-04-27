@@ -4861,16 +4861,14 @@ description: MUST use when creating flows.
 
 \`wmill flow new\` creates the folder with the correct suffix (\`{{FLOW_SUFFIX}}\` or \`.flow\` depending on the workspace's \`nonDottedPaths\` setting), writes a minimal \`flow.yaml\` shell, and prints Claude-specific next-step hints. Scaffolding by hand skips all of that and often picks the wrong suffix.
 
-### Step 1 — Gather path + summary via \`AskUserQuestion\`
+### Step 1 — Gather path + summary by asking the user
 
 You need two things:
 
 1. **path** — the windmill path, e.g. \`f/folder/my_flow\` or \`u/username/my_flow\`.
 2. **summary** — a short description of the flow.
 
-If the user's request didn't supply both, **call \`AskUserQuestion\`** in a single call covering both fields. Provide one or two example values as multiple-choice options for each (with an "Other" / free-form fallback). Do not guess paths or summaries.
-
-If \`AskUserQuestion\` is genuinely unavailable in your runtime, ask in chat in one message — still requesting both at once, still refusing to invent values.
+If the user's request didn't supply both, ask for both in a single round-trip. Use whichever interactive question facility your runtime provides — a structured multi-choice tool if available, otherwise plain chat — and provide one or two example values for each (with an "Other" / free-form fallback). Do not guess paths or summaries.
 
 ### Step 2 — Run the command yourself
 
@@ -4892,7 +4890,7 @@ Once the flow has real content, **offer** to open the visual preview as a one-se
 
 - ❌ Hand-creating the \`{{FLOW_SUFFIX}}\` folder + \`flow.yaml\` instead of running \`wmill flow new\`. You'll miss the suffix-setting resolution, the default shape, and the Claude hints.
 - ❌ Telling the user to "run \`wmill flow new <path>\`" — you can and should run it yourself.
-- ❌ Skipping \`AskUserQuestion\` and inventing a path/summary.
+- ❌ Inventing a path/summary instead of asking the user.
 
 ## CLI Commands — running, previewing, deploying
 
@@ -5238,7 +5236,7 @@ Raw apps let you build custom frontends with React, Svelte, or Vue that connect 
 
 **You — the AI agent — create the app yourself by running \`wmill app new\` with the right flags. Do NOT tell the user to "run \`wmill app new\` and follow the prompts" or wait for them to do it.** The bare \`wmill app new\` is an interactive wizard that hangs waiting for stdin in any non-TTY context (which includes you). Always pass flags.
 
-### Step 1 — Gather the three required values via \`AskUserQuestion\`
+### Step 1 — Gather the three required values by asking the user
 
 You need three things to run the command:
 
@@ -5246,16 +5244,14 @@ You need three things to run the command:
 2. **path** — the windmill path, e.g. \`f/folder/my_app\` or \`u/username/my_app\`
 3. **framework** — one of \`react19\` (recommended), \`react18\`, \`svelte5\`, \`vue\`
 
-If the user's request did not supply *every* one of these explicitly, **call the \`AskUserQuestion\` tool**. Do not guess values, do not invent paths, do not pick a framework on the user's behalf, do not "just use react19 because it's the default" — ask.
+If the user's request did not supply *every* one of these explicitly, ask. Do not guess values, do not invent paths, do not pick a framework on the user's behalf, do not "just use react19 because it's the default".
 
-Group all missing fields into a **single** \`AskUserQuestion\` call so the user answers them in one round-trip:
+Use whichever interactive question facility your runtime provides — a structured multi-choice tool if available, otherwise plain chat — and group all missing fields into a single round-trip so the user answers them at once:
 
 - For \`framework\` — multiple-choice with the four allowed values; mark \`react19\` as \`(Recommended)\` and put it first.
 - For \`summary\` and \`path\` — provide one or two example values as multiple-choice options (the user can pick "Other" to type a free-form answer).
 
-Only proceed once you have concrete values for all three. If the user replies with something ambiguous, call \`AskUserQuestion\` again rather than guessing.
-
-If \`AskUserQuestion\` is genuinely unavailable in your runtime (you'd see no tool by that name), then ask in chat in one message — still requesting all three at once, still refusing to invent values.
+Only proceed once you have concrete values for all three. If the user replies with something ambiguous, ask again rather than guessing.
 
 ### Step 2 — Run the command yourself
 
@@ -5283,16 +5279,16 @@ Layer these in only when the user asked for them:
 
 ### Step 3 — Offer the visual preview
 
-After \`wmill app new\` and any initial edits to \`App.tsx\` / \`index.tsx\`, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry under MCP-preview branches) the user should consent to.
+After \`wmill app new\` and any initial edits to \`App.tsx\` / \`index.tsx\`, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry when an embedded preview tool is in play) the user should consent to.
 
-For apps the preview command runs from the app folder (\`cd <app_path>__raw_app && wmill app dev …\`); the \`preview\` skill picks the proxy vs direct branch based on whether \`mcp__Claude_Preview__*\` MCP tools are available. If the user already asked to see/preview/visualize the app in their original request, skip the offer and just invoke the skill.
+For apps the preview command runs from the app folder (\`cd <app_path>__raw_app && wmill app dev …\`); the \`preview\` skill picks the proxy vs direct branch based on whether the runtime exposes a tool that can embed a localhost URL. If the user already asked to see/preview/visualize the app in their original request, skip the offer and just invoke the skill.
 
 ### Anti-patterns to avoid
 
 - ❌ Running \`wmill app new\` with no flags (the prompt will hang).
 - ❌ Telling the user to "run \`wmill app new\` and follow the prompts" — that's a step backwards from what you can do directly.
-- ❌ Skipping \`AskUserQuestion\` and inventing a path/summary/framework yourself.
-- ❌ Defaulting to \`react19\` because the user didn't say — even sensible defaults must be confirmed via \`AskUserQuestion\`.
+- ❌ Inventing a path/summary/framework instead of asking the user.
+- ❌ Defaulting to \`react19\` because the user didn't say — even sensible defaults must be confirmed.
 - ❌ Passing \`--overwrite\` automatically when the directory exists — confirm with the user first.
 
 ### Interactive (only when a human is at the terminal)
@@ -6530,14 +6526,14 @@ The Windmill dev page renders the flow graph / script editor, lets the user step
 ## Choosing your branch
 
 Inspect your available tool list:
-- Anything starting with \`mcp__Claude_Preview__\` is present → **Branch A** (embed the preview, runs through a localhost proxy, one launch entry per target).
+- The runtime exposes a tool that can embed or open a localhost URL inside the IDE / chat surface → **Branch A** (run the dev server through the localhost proxy, one launch entry per target).
 - No such tool → **Branch B** (direct mode, hand the user a URL to open in their own browser, do **not** touch \`launch.json\`).
 
 Pick one. Never start the proxy "just in case" — Branch B has no proxy involved.
 
-## Branch A — MCP \`mcp__Claude_Preview__*\` tools available
+## Branch A — runtime has an embedded preview tool
 
-This is the Claude Desktop / Claude Code preview integration exposed via MCP. Tool names start with the \`mcp__Claude_Preview__\` prefix.
+Used when the runtime can embed or open a localhost URL inside the IDE or chat surface (for example, the Claude Desktop / Claude Code MCP preview integration whose tool names start with the \`mcp__Claude_Preview__\` prefix). The proxy mode bridges that localhost requirement to the remote workspace.
 
 **Each flow / script / app gets its own named entry** in the user's \`.claude/launch.json\` so multiple previews coexist without colliding — each entry pins a different port + path. Never reuse a generic "windmill" entry for different targets.
 
@@ -6572,13 +6568,13 @@ For apps (\`*__raw_app/\`), \`wmill app dev\` is the equivalent — runs from th
 
 If \`.claude/launch.json\` doesn't exist yet, create it with the standard shell \`{ "version": "0.0.1", "configurations": [...] }\`.
 
-### Step A2 — Invoke the MCP preview tool
+### Step A2 — Invoke the embedded preview tool
 
 Point it at the entry you just added/found. Use \`http://localhost:<port>/\` as the URL — the proxy's redirect at \`/\` is what appends the workspace ID, the auth token, and the path. Do **NOT** construct a \`/dev?...\` URL yourself — you don't have the workspace ID or auth token.
 
-The MCP tool launches the configuration on demand, so you don't need to start the \`wmill dev\` process manually.
+The embedded preview tool launches the configuration on demand, so you don't need to start the \`wmill dev\` process manually.
 
-## Branch B — no \`mcp__Claude_Preview__*\` tools available
+## Branch B — no embedded preview tool
 
 Don't touch \`launch.json\` and don't start the proxy. Start the dev server directly with \`--no-open\` in the background and hand the URL to the user.
 
@@ -6617,7 +6613,7 @@ Both print the job result, are safe to run yourself, and don't deploy.
 - ❌ Mutating an existing entry's \`--path\` to retarget it. Add a new entry instead.
 - ❌ Constructing \`http://localhost:<port>/dev?path=<X>\` yourself. The proxy's \`/\` redirect is what appends the workspace ID and auth token; bypassing it gives a broken page. Always use \`http://localhost:<port>/\`.
 - ❌ Editing \`.claude/launch.json\` in Branch B. Direct mode prints the URL — just relay it.
-- ❌ Starting the proxy when no \`mcp__Claude_Preview__*\` tool is available. Direct mode is correct then — the proxy is overhead with no embedder to use it.
+- ❌ Starting the proxy when the runtime has no way to embed a localhost URL. Direct mode is correct then — the proxy is overhead with no embedder to use it.
 - ❌ Starting \`wmill dev\` in the foreground (you'll hang). Always background.
 - ❌ Listing both "open in IDE pane" and "open in browser" as a menu — pick one based on context.
 `,

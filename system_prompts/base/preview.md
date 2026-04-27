@@ -7,14 +7,14 @@ The Windmill dev page renders the flow graph / script editor, lets the user step
 ## Choosing your branch
 
 Inspect your available tool list:
-- Anything starting with `mcp__Claude_Preview__` is present → **Branch A** (embed the preview, runs through a localhost proxy, one launch entry per target).
+- The runtime exposes a tool that can embed or open a localhost URL inside the IDE / chat surface → **Branch A** (run the dev server through the localhost proxy, one launch entry per target).
 - No such tool → **Branch B** (direct mode, hand the user a URL to open in their own browser, do **not** touch `launch.json`).
 
 Pick one. Never start the proxy "just in case" — Branch B has no proxy involved.
 
-## Branch A — MCP `mcp__Claude_Preview__*` tools available
+## Branch A — runtime has an embedded preview tool
 
-This is the Claude Desktop / Claude Code preview integration exposed via MCP. Tool names start with the `mcp__Claude_Preview__` prefix.
+Used when the runtime can embed or open a localhost URL inside the IDE or chat surface (for example, the Claude Desktop / Claude Code MCP preview integration whose tool names start with the `mcp__Claude_Preview__` prefix). The proxy mode bridges that localhost requirement to the remote workspace.
 
 **Each flow / script / app gets its own named entry** in the user's `.claude/launch.json` so multiple previews coexist without colliding — each entry pins a different port + path. Never reuse a generic "windmill" entry for different targets.
 
@@ -49,13 +49,13 @@ For apps (`*__raw_app/`), `wmill app dev` is the equivalent — runs from the ap
 
 If `.claude/launch.json` doesn't exist yet, create it with the standard shell `{ "version": "0.0.1", "configurations": [...] }`.
 
-### Step A2 — Invoke the MCP preview tool
+### Step A2 — Invoke the embedded preview tool
 
 Point it at the entry you just added/found. Use `http://localhost:<port>/` as the URL — the proxy's redirect at `/` is what appends the workspace ID, the auth token, and the path. Do **NOT** construct a `/dev?...` URL yourself — you don't have the workspace ID or auth token.
 
-The MCP tool launches the configuration on demand, so you don't need to start the `wmill dev` process manually.
+The embedded preview tool launches the configuration on demand, so you don't need to start the `wmill dev` process manually.
 
-## Branch B — no `mcp__Claude_Preview__*` tools available
+## Branch B — no embedded preview tool
 
 Don't touch `launch.json` and don't start the proxy. Start the dev server directly with `--no-open` in the background and hand the URL to the user.
 
@@ -94,6 +94,6 @@ Both print the job result, are safe to run yourself, and don't deploy.
 - ❌ Mutating an existing entry's `--path` to retarget it. Add a new entry instead.
 - ❌ Constructing `http://localhost:<port>/dev?path=<X>` yourself. The proxy's `/` redirect is what appends the workspace ID and auth token; bypassing it gives a broken page. Always use `http://localhost:<port>/`.
 - ❌ Editing `.claude/launch.json` in Branch B. Direct mode prints the URL — just relay it.
-- ❌ Starting the proxy when no `mcp__Claude_Preview__*` tool is available. Direct mode is correct then — the proxy is overhead with no embedder to use it.
+- ❌ Starting the proxy when the runtime has no way to embed a localhost URL. Direct mode is correct then — the proxy is overhead with no embedder to use it.
 - ❌ Starting `wmill dev` in the foreground (you'll hang). Always background.
 - ❌ Listing both "open in IDE pane" and "open in browser" as a menu — pick one based on context.

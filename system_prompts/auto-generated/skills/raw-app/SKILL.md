@@ -11,7 +11,7 @@ Raw apps let you build custom frontends with React, Svelte, or Vue that connect 
 
 **You — the AI agent — create the app yourself by running `wmill app new` with the right flags. Do NOT tell the user to "run `wmill app new` and follow the prompts" or wait for them to do it.** The bare `wmill app new` is an interactive wizard that hangs waiting for stdin in any non-TTY context (which includes you). Always pass flags.
 
-### Step 1 — Gather the three required values via `AskUserQuestion`
+### Step 1 — Gather the three required values by asking the user
 
 You need three things to run the command:
 
@@ -19,16 +19,14 @@ You need three things to run the command:
 2. **path** — the windmill path, e.g. `f/folder/my_app` or `u/username/my_app`
 3. **framework** — one of `react19` (recommended), `react18`, `svelte5`, `vue`
 
-If the user's request did not supply *every* one of these explicitly, **call the `AskUserQuestion` tool**. Do not guess values, do not invent paths, do not pick a framework on the user's behalf, do not "just use react19 because it's the default" — ask.
+If the user's request did not supply *every* one of these explicitly, ask. Do not guess values, do not invent paths, do not pick a framework on the user's behalf, do not "just use react19 because it's the default".
 
-Group all missing fields into a **single** `AskUserQuestion` call so the user answers them in one round-trip:
+Use whichever interactive question facility your runtime provides — a structured multi-choice tool if available, otherwise plain chat — and group all missing fields into a single round-trip so the user answers them at once:
 
 - For `framework` — multiple-choice with the four allowed values; mark `react19` as `(Recommended)` and put it first.
 - For `summary` and `path` — provide one or two example values as multiple-choice options (the user can pick "Other" to type a free-form answer).
 
-Only proceed once you have concrete values for all three. If the user replies with something ambiguous, call `AskUserQuestion` again rather than guessing.
-
-If `AskUserQuestion` is genuinely unavailable in your runtime (you'd see no tool by that name), then ask in chat in one message — still requesting all three at once, still refusing to invent values.
+Only proceed once you have concrete values for all three. If the user replies with something ambiguous, ask again rather than guessing.
 
 ### Step 2 — Run the command yourself
 
@@ -56,16 +54,16 @@ Layer these in only when the user asked for them:
 
 ### Step 3 — Offer the visual preview
 
-After `wmill app new` and any initial edits to `App.tsx` / `index.tsx`, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a `launch.json` entry under MCP-preview branches) the user should consent to.
+After `wmill app new` and any initial edits to `App.tsx` / `index.tsx`, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a `launch.json` entry when an embedded preview tool is in play) the user should consent to.
 
-For apps the preview command runs from the app folder (`cd <app_path>__raw_app && wmill app dev …`); the `preview` skill picks the proxy vs direct branch based on whether `mcp__Claude_Preview__*` MCP tools are available. If the user already asked to see/preview/visualize the app in their original request, skip the offer and just invoke the skill.
+For apps the preview command runs from the app folder (`cd <app_path>__raw_app && wmill app dev …`); the `preview` skill picks the proxy vs direct branch based on whether the runtime exposes a tool that can embed a localhost URL. If the user already asked to see/preview/visualize the app in their original request, skip the offer and just invoke the skill.
 
 ### Anti-patterns to avoid
 
 - ❌ Running `wmill app new` with no flags (the prompt will hang).
 - ❌ Telling the user to "run `wmill app new` and follow the prompts" — that's a step backwards from what you can do directly.
-- ❌ Skipping `AskUserQuestion` and inventing a path/summary/framework yourself.
-- ❌ Defaulting to `react19` because the user didn't say — even sensible defaults must be confirmed via `AskUserQuestion`.
+- ❌ Inventing a path/summary/framework instead of asking the user.
+- ❌ Defaulting to `react19` because the user didn't say — even sensible defaults must be confirmed.
 - ❌ Passing `--overwrite` automatically when the directory exists — confirm with the user first.
 
 ### Interactive (only when a human is at the terminal)

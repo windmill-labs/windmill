@@ -37,16 +37,14 @@ export const FLOW_BASE = `# Windmill Flow Building Guide
 
 \`wmill flow new\` creates the folder with the correct suffix (\`__flow\` or \`.flow\` depending on the workspace's \`nonDottedPaths\` setting), writes a minimal \`flow.yaml\` shell, and prints Claude-specific next-step hints. Scaffolding by hand skips all of that and often picks the wrong suffix.
 
-### Step 1 — Gather path + summary via \`AskUserQuestion\`
+### Step 1 — Gather path + summary by asking the user
 
 You need two things:
 
 1. **path** — the windmill path, e.g. \`f/folder/my_flow\` or \`u/username/my_flow\`.
 2. **summary** — a short description of the flow.
 
-If the user's request didn't supply both, **call \`AskUserQuestion\`** in a single call covering both fields. Provide one or two example values as multiple-choice options for each (with an "Other" / free-form fallback). Do not guess paths or summaries.
-
-If \`AskUserQuestion\` is genuinely unavailable in your runtime, ask in chat in one message — still requesting both at once, still refusing to invent values.
+If the user's request didn't supply both, ask for both in a single round-trip. Use whichever interactive question facility your runtime provides — a structured multi-choice tool if available, otherwise plain chat — and provide one or two example values for each (with an "Other" / free-form fallback). Do not guess paths or summaries.
 
 ### Step 2 — Run the command yourself
 
@@ -68,7 +66,7 @@ Once the flow has real content, **offer** to open the visual preview as a one-se
 
 - ❌ Hand-creating the \`__flow\` folder + \`flow.yaml\` instead of running \`wmill flow new\`. You'll miss the suffix-setting resolution, the default shape, and the Claude hints.
 - ❌ Telling the user to "run \`wmill flow new <path>\`" — you can and should run it yourself.
-- ❌ Skipping \`AskUserQuestion\` and inventing a path/summary.
+- ❌ Inventing a path/summary instead of asking the user.
 
 ## CLI Commands — running, previewing, deploying
 
