@@ -74,56 +74,55 @@
 		}
 	}
 
-	async function fetchGitRepoData() {
+	async function fetchCommitHash() {
+		if (commitHash) return
 		try {
 			error = null
-			// Step 1: Fetch commit hash if not provided
-			if (!commitHash) {
-				isLoadingCommitHash = true
-				error = null
-				const result = await ResourceService.getGitCommitHash({
-					workspace: $workspaceStore!,
-					path: gitRepoResourcePath,
-					gitSshIdentity: gitSshIdentity?.join(',')
-				})
-
-				commitHashInput = result.commit_hash
-				isLoadingCommitHash = false
-			}
-
-			// Step 2: Check if S3 path exists
-			if (commitHash) {
-				isCheckingPathExists = true
-
-				const s3Path = `gitrepos/${$workspaceStore}/${gitRepoResourcePath}/${commitHash}/`
-
-				const pathCheck = await HelpersService.checkS3FolderExists({
-					workspace: $workspaceStore!,
-					fileKey: s3Path
-				})
-
-				pathExists = pathCheck.exists && pathCheck.is_folder
-				isCheckingPathExists = false
-			}
+			isLoadingCommitHash = true
+			const result = await ResourceService.getGitCommitHash({
+				workspace: $workspaceStore!,
+				path: gitRepoResourcePath,
+				gitSshIdentity: gitSshIdentity?.join(',')
+			})
+			commitHashInput = result.commit_hash
 		} catch (err: any) {
 			error = `Failed to load git repository ${gitRepoResourcePath}: ${err.status} -  ${err.message || 'Unknown error'}: ${err.body}`
+		} finally {
 			isLoadingCommitHash = false
+		}
+	}
+
+	async function checkS3Path() {
+		if (!commitHash) return
+		try {
+			error = null
+			isCheckingPathExists = true
+			const s3Path = `gitrepos/${$workspaceStore}/${gitRepoResourcePath}/${commitHash}/`
+			const pathCheck = await HelpersService.checkS3FolderExists({
+				workspace: $workspaceStore!,
+				fileKey: s3Path
+			})
+			pathExists = pathCheck.exists && pathCheck.is_folder
+		} catch (err: any) {
+			error = `Failed to load git repository ${gitRepoResourcePath}: ${err.status} -  ${err.message || 'Unknown error'}: ${err.body}`
+		} finally {
 			isCheckingPathExists = false
 		}
 	}
 
 	$effect(() => {
-		;[commitHashInput, gitRepoResourcePath]
-		untrack(() => {
-			fetchGitRepoData()
-		})
+		gitRepoResourcePath
+		untrack(() => fetchCommitHash())
 	})
 
 	$effect(() => {
-		;[commitHash, pathExists, isCheckingPathExists, isLoadingCommitHash]
-		untrack(() => {
-			s3FilePicker?.reloadContent()
-		})
+		;[commitHash, gitRepoResourcePath]
+		untrack(() => checkS3Path())
+	})
+
+	$effect(() => {
+		;[s3FilePicker, commitHash, gitRepoResourcePath, pathExists]
+		untrack(() => s3FilePicker?.reloadContent())
 	})
 </script>
 
@@ -154,31 +153,35 @@
 		<Button onclick={populateS3WithGitRepo} color="blue">Load Repository Contents</Button>
 	</div>
 {:else if commitHash && pathExists === true}
-	<S3FilePickerInner
-		bind:this={s3FilePicker}
-		readOnlyMode
-		hideS3SpecificDetails
-		rootPath={`gitrepos/${$workspaceStore}/${gitRepoResourcePath}/${commitHash}/`}
-		listStoredFilesRequest={HelpersService.listGitRepoFiles}
-		loadFilePreviewRequest={HelpersService.loadGitRepoFilePreview}
-		testConnectionRequest={(async (_d) => {
-			const bucketConfig: any = await SettingService.getGlobal({ key: 'object_store_cache_config' })
-			return SettingService.testObjectStorageConfig({
-				requestBody: bucketConfig
-			})
-		}) as any}
-		loadFileMetadataRequest={HelpersService.loadGitRepoFileMetadata}
-	>
-		{#snippet replaceUnauthorizedWarning()}
-			<div class="mb-2">
-				<Alert type="error" title="Cannot view git repo">
-					<p>
-						The git repo resource you are trying to access either doesn't exist or you don't have
-						access to it. Make sure the resource path is correct and that you have visibility over
-						the resource.
-					</p>
-				</Alert>
-			</div>
-		{/snippet}
-	</S3FilePickerInner>
+	{#key `${gitRepoResourcePath}-${commitHash}`}
+		<S3FilePickerInner
+			bind:this={s3FilePicker}
+			readOnlyMode
+			hideS3SpecificDetails
+			rootPath={`gitrepos/${$workspaceStore}/${gitRepoResourcePath}/${commitHash}/`}
+			listStoredFilesRequest={HelpersService.listGitRepoFiles}
+			loadFilePreviewRequest={HelpersService.loadGitRepoFilePreview}
+			testConnectionRequest={(async (_d) => {
+				const bucketConfig: any = await SettingService.getGlobal({
+					key: 'object_store_cache_config'
+				})
+				return SettingService.testObjectStorageConfig({
+					requestBody: bucketConfig
+				})
+			}) as any}
+			loadFileMetadataRequest={HelpersService.loadGitRepoFileMetadata}
+		>
+			{#snippet replaceUnauthorizedWarning()}
+				<div class="mb-2">
+					<Alert type="error" title="Cannot view git repo">
+						<p>
+							The git repo resource you are trying to access either doesn't exist or you don't have
+							access to it. Make sure the resource path is correct and that you have visibility over
+							the resource.
+						</p>
+					</Alert>
+				</div>
+			{/snippet}
+		</S3FilePickerInner>
+	{/key}
 {/if}
