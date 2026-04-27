@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.691.1](https://github.com/windmill-labs/windmill/compare/v1.691.0...v1.691.1) (2026-04-27)
+
+
+### Bug Fixes
+
+* **cli:** preserve case in raw-app runnable filenames ([#8940](https://github.com/windmill-labs/windmill/issues/8940)) ([2f58a31](https://github.com/windmill-labs/windmill/commit/2f58a31d009025c18e8eba087ea7001f02639615))
+* preserve s3 rootPath when reloading git repo viewer ([#8942](https://github.com/windmill-labs/windmill/issues/8942)) ([b8fcb7f](https://github.com/windmill-labs/windmill/commit/b8fcb7f04b6a47cd913710522ead37cc07c56fdd))
+
 ## [1.691.0](https://github.com/windmill-labs/windmill/compare/v1.690.0...v1.691.0) (2026-04-24)
 
 
