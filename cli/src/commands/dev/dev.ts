@@ -57,11 +57,20 @@ const FLOW_SUFFIXES = [".flow", "__flow"] as const;
 const APP_SUFFIXES = [".app", "__app", ".raw_app", "__raw_app"] as const;
 
 // Extensions the dev round-trip might have written into a flow folder as
-// inline scripts. Anything else (README.md, fixtures, .env*, TODO.md…) is
-// preserved during orphan cleanup so we don't trample user-added files.
+// inline scripts. Derived from script.ts's `exts` so adding a new language
+// there auto-extends orphan cleanup; otherwise stale inline scripts of that
+// language would silently linger. Excludes `.yml` — user fixtures commonly
+// use it in flow folders, and leaving a stale `.playbook.yml` inline script
+// is preferable to deleting a fixture. `.js` is added explicitly for
+// hand-written flows that aren't in the `exts` list.
+//
+// Anything else (README.md, fixtures, .env*, TODO.md…) is preserved during
+// orphan cleanup so we don't trample user-added files.
 const INLINE_SCRIPT_EXTS = new Set([
-  ".ts", ".js", ".py", ".go", ".sh", ".sql",
-  ".ps1", ".php", ".rs", ".java", ".cs", ".r", ".graphql",
+  // path.extname(".py") === "" (Node treats ".py" as a hidden filename, not
+  // an extension), so prefix with a dummy character before extracting.
+  ...exts.map((e) => path.extname("x" + e)).filter((e) => e !== ".yml"),
+  ".js",
 ]);
 
 function stripFolderSuffix(rel: string, suffixes: readonly string[]): string {

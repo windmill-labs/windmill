@@ -12,7 +12,7 @@ import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import path from "node:path";
-import { execSync, exec } from "node:child_process";
+import { execSync, exec, execFile } from "node:child_process";
 import {
   buildFolderPath,
   loadNonDottedPathsSetting,
@@ -785,13 +785,17 @@ This folder is for SQL migration files that will be applied to datatables during
   log.info("");
   log.info(colors.gray("  4. wmill sync push (to deploy when ready)"));
 
-  // Offer to open in Claude Desktop
+  // Offer to open in Claude Desktop. macOS-only for now: the deep-link
+  // handler below uses `open <url>`, and the install path probe checks
+  // /Applications/Claude.app. Both are Mac-specific.
   let hasClaudeDesktop = false;
-  try {
-    execSync("ls /Applications/Claude.app", { stdio: "ignore" });
-    hasClaudeDesktop = true;
-  } catch {
-    // Claude Desktop not installed
+  if (process.platform === "darwin") {
+    try {
+      execSync("ls /Applications/Claude.app", { stdio: "ignore" });
+      hasClaudeDesktop = true;
+    } catch {
+      // Claude Desktop not installed
+    }
   }
 
   if (hasClaudeDesktop && !nonInteractive && opts.openInDesktop !== false) {
@@ -850,9 +854,12 @@ This folder is for SQL migration files that will be applied to datatables during
           process.stdout.write("\r" + " ".repeat(40) + "\r");
         }
 
-        // Import the session into Claude Desktop Code mode
+        // Import the session into Claude Desktop Code mode. Use execFile so
+        // the deep link doesn't pass through a shell — `sessionId` is a UUID
+        // and absAppDir is URI-encoded inside the URL today, but execFile
+        // removes shell escaping concerns entirely.
         const deepLink = `claude://resume?session=${sessionId}&cwd=${encodeURIComponent(absAppDir)}`;
-        exec(`open ${JSON.stringify(deepLink)}`, (err) => {
+        execFile("open", [deepLink], (err) => {
           if (err) {
             log.warn(
               colors.yellow(
