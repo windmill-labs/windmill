@@ -213,6 +213,10 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub job_default_timeout: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub bun_install_min_release_age: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uv_exclude_newer: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub request_size_limit_mb: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_wait_result: Option<i64>,

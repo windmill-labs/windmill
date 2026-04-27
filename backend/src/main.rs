@@ -39,14 +39,15 @@ use windmill_common::{
     agent_workers::AgentConfig,
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING,
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
-        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING,
-        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
-        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
-        INDEXER_SETTING, INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
+        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
+        INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
@@ -56,7 +57,7 @@ use windmill_common::{
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
         RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
         SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-        UV_INDEX_STRATEGY_SETTING, WORKSPACE_REGISTRIES_SETTING,
+        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -105,15 +106,16 @@ use crate::monitor::{
     load_require_preexisting_user, load_tag_per_workspace_enabled,
     load_tag_per_workspace_workspaces, monitor_db, reload_app_workspaced_route_setting,
     reload_audit_log_retention_days_setting, reload_base_url_setting,
-    reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
-    reload_critical_alerts_on_token_expiry_setting, reload_critical_error_channels_setting,
-    reload_extra_pip_index_url_setting, reload_http_route_workspaced_route_setting,
-    reload_hub_api_secret_setting, reload_hub_base_url_setting,
-    reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
-    reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
-    reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
+    reload_bun_install_min_release_age_setting, reload_bunfig_install_scopes_setting,
+    reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
+    reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
+    reload_http_route_workspaced_route_setting, reload_hub_api_secret_setting,
+    reload_hub_base_url_setting, reload_instance_events_webhook_setting,
+    reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
+    reload_license_key, reload_npm_config_registry_setting, reload_otel_tracing_proxy_setting,
     reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
-    reload_smtp_config, reload_uv_index_strategy_setting, reload_worker_config, MonitorIteration,
+    reload_smtp_config, reload_uv_exclude_newer_setting, reload_uv_index_strategy_setting,
+    reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
@@ -1742,6 +1744,10 @@ async fn process_notify_event(
                 EXTRA_PIP_INDEX_URL_SETTING => reload_extra_pip_index_url_setting(conn).await,
                 PIP_INDEX_URL_SETTING => reload_pip_index_url_setting(conn).await,
                 UV_INDEX_STRATEGY_SETTING => reload_uv_index_strategy_setting(conn).await,
+                UV_EXCLUDE_NEWER_SETTING => reload_uv_exclude_newer_setting(conn).await,
+                BUN_INSTALL_MIN_RELEASE_AGE_SETTING => {
+                    reload_bun_install_min_release_age_setting(conn).await
+                }
                 INSTANCE_PYTHON_VERSION_SETTING => {
                     reload_instance_python_version_setting(conn).await
                 }

@@ -22,9 +22,9 @@ use crate::{
     get_proxy_envs_for_lang,
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry_with_workspace_override, BUNFIG_INSTALL_SCOPES,
-    BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH, DISABLE_NUSER, HOME_ENV,
-    NODE_BIN_PATH, NODE_PATH, NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_AVAILABLE, NSJAIL_PATH,
-    PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_INSTALL_MIN_RELEASE_AGE, BUN_NO_CACHE, BUN_PATH,
+    DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH,
+    NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -3239,6 +3239,12 @@ pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMa
     }
     if let Some(ref node_path) = NODE_PATH.as_ref() {
         bun_envs.insert(String::from("NODE_PATH"), node_path.to_string());
+    }
+    if let Some(secs) = *BUN_INSTALL_MIN_RELEASE_AGE.read().await {
+        bun_envs.insert(
+            String::from("BUN_INSTALL_MINIMUM_RELEASE_AGE"),
+            secs.to_string(),
+        );
     }
 
     #[cfg(windows)]
