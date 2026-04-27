@@ -244,7 +244,7 @@ async function initAction(opts: InitOptions) {
     // If config can't be read, use default
   }
 
-  // Create guidance files (AGENTS.md, CLAUDE.md, and Claude skills)
+  // Create guidance files (AGENTS.md, CLAUDE.md, and agent skills)
   try {
     const guidanceResult = await writeAiGuidanceFiles({
       targetDir: ".",
@@ -262,7 +262,9 @@ async function initAction(opts: InitOptions) {
       log.info(colors.green("Created CLAUDE.md"));
     }
     log.info(
-      colors.green(`Created .claude/skills/ with ${guidanceResult.skillCount} skills`)
+      colors.green(
+        `Created .claude/skills/ and .agents/skills/ with ${guidanceResult.skillCount} skills`
+      )
     );
   } catch (error) {
     if (error instanceof Error) {
