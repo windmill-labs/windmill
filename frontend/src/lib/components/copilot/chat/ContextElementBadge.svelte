@@ -2,7 +2,7 @@
 	import { untrack } from 'svelte'
 	import { Popover } from '$lib/components/meltComponents'
 	import { Loader2, X } from 'lucide-svelte'
-	import { ContextIconMap, type ContextElement } from './context'
+	import { ContextIconMap, formatAppDatatableContextTitle, type ContextElement } from './context'
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { twMerge } from 'tailwind-merge'
@@ -136,9 +136,11 @@
 		{:else if contextElement.type === 'app_datatable'}
 			<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
 				<div class="text-tertiary text-xs mb-1">
-					{contextElement.datatableName}/{contextElement.schemaName === 'public'
-						? ''
-						: contextElement.schemaName + ':'}{contextElement.tableName}
+					{formatAppDatatableContextTitle(
+						contextElement.datatableName,
+						contextElement.schemaName,
+						contextElement.tableName
+					)}
 				</div>
 				<ObjectViewer json={contextElement.columns} pureViewer collapseLevel={1} />
 			</div>

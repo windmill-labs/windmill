@@ -8,9 +8,30 @@ export interface EvalCaseRuntimeBackendPreview {
   timeoutSeconds?: number;
 }
 
+export type EvalCaseRuntimeAppAdditionalContext =
+  | {
+      type: "frontend";
+      path: string;
+    }
+  | {
+      type: "backend";
+      key: string;
+    }
+  | {
+      type: "datatable";
+      datatableName: string;
+      schema: string;
+      table: string;
+    };
+
+export interface EvalCaseRuntimeAppContextSpec {
+  additional?: EvalCaseRuntimeAppAdditionalContext[];
+}
+
 export interface EvalCaseRuntimeSpec {
   maxTurns?: number;
   backendPreview?: EvalCaseRuntimeBackendPreview;
+  appContext?: EvalCaseRuntimeAppContextSpec;
 }
 
 export interface FlowValidationSpec {
@@ -62,19 +83,30 @@ export interface FlowValidationSpec {
 
 export interface AppValidationSpec {
   requiredFrontendPaths?: string[];
+  requiredFrontendFileContent?: Array<{
+    path: string;
+    includes: string[];
+  }>;
   requiredBackendRunnableKeys?: string[];
   requiredBackendRunnableTypes?: Array<{
     key: string;
     type: string;
   }>;
+  requiredBackendRunnableContent?: Array<{
+    key: string;
+    includes: string[];
+  }>;
   backendRunnableCountAtLeast?: number;
   datatableCountAtLeast?: number;
   datatableTableCountAtLeast?: number;
+  datatableTableCountExactly?: number;
   requiredDatatables?: Array<{
     schema: string;
     table: string;
     datatableName?: string;
   }>;
+  requiredToolsUsed?: string[];
+  forbiddenAppContent?: string[];
 }
 
 export interface CliValidationSpec {

@@ -63,10 +63,6 @@ vi.mock('../AIChatManager.svelte', () => ({
 	}
 }))
 
-vi.mock('$system_prompts', () => ({
-	getDatatableSdkReference: () => 'Datatable SDK reference'
-}))
-
 const EMPTY_LINT_RESULT: LintResult = {
 	errorCount: 0,
 	warningCount: 0,
@@ -112,13 +108,164 @@ function createToolCallbacks() {
 	}
 }
 
-function getPatchFileTool() {
-	const tool = getAppTools().find((entry) => entry.def.function.name === 'patch_file')
+function getTool(name: string) {
+	const tool = getAppTools().find((entry) => entry.def.function.name === name)
 	if (!tool) {
-		throw new Error('patch_file tool not found')
+		throw new Error(`${name} tool not found`)
 	}
 	return tool
 }
+
+function getListFilesTool() {
+	return getTool('list_files')
+}
+
+function getPatchFileTool() {
+	return getTool('patch_file')
+}
+
+describe('app list_files tool', () => {
+	it('returns lightweight metadata without file or runnable contents', async () => {
+		const tool = getListFilesTool()
+
+		const result = await tool.fn({
+			args: {},
+			workspace: 'test-workspace',
+			helpers: createHelpers({
+				getFiles: () => ({
+					frontend: {
+						'/index.tsx': 'const secretFrontendContent = true',
+						'/styles.css': '.secret-class { color: red; }'
+					},
+					backend: {
+						loadUsers: {
+							name: 'Load users',
+							type: 'inline',
+							staticInputs: { admin: true },
+							inlineScript: {
+								language: 'bun',
+								content: 'export async function main() { return "secretBackendContent" }'
+							}
+						},
+						workspaceFlow: {
+							name: 'Workspace flow',
+							type: 'flow',
+							path: 'f/flows/workspace_flow'
+						}
+					}
+				})
+			}),
+			toolCallbacks: createToolCallbacks(),
+			toolId: 'tool-list-files'
+		})
+
+		const parsed = JSON.parse(result)
+		expect(parsed).toEqual({
+			frontend: [
+				{ path: '/index.tsx', size: 34, kind: 'tsx' },
+				{ path: '/styles.css', size: 29, kind: 'css' }
+			],
+			backend: [
+				{
+					key: 'loadUsers',
+					name: 'Load users',
+					type: 'inline',
+					language: 'bun',
+					contentSize: 62,
+					staticInputKeys: ['admin']
+				},
+				{
+					key: 'workspaceFlow',
+					name: 'Workspace flow',
+					type: 'flow',
+					path: 'f/flows/workspace_flow'
+				}
+			]
+		})
+		expect(result).not.toContain('secretFrontendContent')
+		expect(result).not.toContain('secretBackendContent')
+	})
+})
+
+describe('app datatable tools', () => {
+	it('lists datatable metadata without column definitions', async () => {
+		const tool = getTool('list_datatables')
+
+		const result = await tool.fn({
+			args: {},
+			workspace: 'test-workspace',
+			helpers: createHelpers({
+				getDatatables: async () => [
+					{
+						datatable_name: 'main',
+						schemas: {
+							public: {
+								users: { id: 'int4', email: 'text' },
+								orders: { id: 'int4', total: 'numeric' }
+							},
+							analytics: {
+								events: { id: 'int4', payload: 'jsonb' }
+							}
+						}
+					}
+				]
+			}),
+			toolCallbacks: createToolCallbacks(),
+			toolId: 'tool-list-datatables'
+		})
+
+		const parsed = JSON.parse(result)
+		expect(parsed).toEqual([
+			{
+				datatable_name: 'main',
+				schemas: {
+					public: ['users', 'orders'],
+					analytics: ['events']
+				},
+				tableCount: 3
+			}
+		])
+		expect(result).not.toContain('email')
+		expect(result).not.toContain('jsonb')
+	})
+
+	it('gets one datatable table schema', async () => {
+		const tool = getTool('get_datatable_table_schema')
+
+		const result = await tool.fn({
+			args: {
+				datatable_name: 'main',
+				schema_name: 'public',
+				table_name: 'users'
+			},
+			workspace: 'test-workspace',
+			helpers: createHelpers({
+				getDatatables: async () => [
+					{
+						datatable_name: 'main',
+						schemas: {
+							public: {
+								users: { id: 'int4', email: 'text' },
+								orders: { id: 'int4', total: 'numeric' }
+							}
+						}
+					}
+				]
+			}),
+			toolCallbacks: createToolCallbacks(),
+			toolId: 'tool-get-table-schema'
+		})
+
+		const parsed = JSON.parse(result)
+		expect(parsed).toEqual({
+			datatable_name: 'main',
+			schema_name: 'public',
+			table_name: 'users',
+			columns: { id: 'int4', email: 'text' }
+		})
+		expect(result).not.toContain('total')
+	})
+})
 
 describe('app patch_file tool', () => {
 	it('patches frontend files with an exact replacement', async () => {
@@ -162,6 +309,32 @@ describe('app patch_file tool', () => {
 				toolId: 'tool-2'
 			})
 		).rejects.toThrow('old_string matched 2 locations')
+	})
+
+	it('treats leading /backend paths as frontend files', async () => {
+		const setFrontendFile = vi.fn(() => EMPTY_LINT_RESULT)
+		const tool = getPatchFileTool()
+
+		const result = await tool.fn({
+			args: {
+				path: '/backend/deleteRecipe/main.ts',
+				old_string: 'frontend route',
+				new_string: 'frontend page'
+			},
+			workspace: 'test-workspace',
+			helpers: createHelpers({
+				getFrontendFile: () => 'export const title = "frontend route"\n',
+				setFrontendFile
+			}),
+			toolCallbacks: createToolCallbacks(),
+			toolId: 'tool-leading-backend-path'
+		})
+
+		expect(setFrontendFile).toHaveBeenCalledWith(
+			'/backend/deleteRecipe/main.ts',
+			'export const title = "frontend page"\n'
+		)
+		expect(result).toContain("Patched '/backend/deleteRecipe/main.ts' successfully.")
 	})
 
 	it('patches inline backend runnables through backend/<key>/main.ts paths', async () => {
@@ -224,22 +397,6 @@ describe('app patch_file tool', () => {
 })
 
 describe('prepareAppUserMessage app context', () => {
-	it('does not serialize implicit selected frontend or backend files', () => {
-		const frontendMessage = prepareAppUserMessage('Update the layout', {
-			type: 'frontend',
-			frontendPath: '/index.tsx'
-		} as unknown as SelectedContext)
-		const backendMessage = prepareAppUserMessage('Use the existing runnable', {
-			type: 'backend',
-			backendKey: 'loadUsers'
-		} as unknown as SelectedContext)
-
-		expect(frontendMessage.content).toBe('## INSTRUCTIONS:\nUpdate the layout')
-		expect(frontendMessage.content).not.toContain('/index.tsx')
-		expect(backendMessage.content).toBe('## INSTRUCTIONS:\nUse the existing runnable')
-		expect(backendMessage.content).not.toContain('loadUsers')
-	})
-
 	it('still serializes inspector and code selections', () => {
 		const selectedContext: SelectedContext = {
 			type: 'frontend',

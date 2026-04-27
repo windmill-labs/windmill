@@ -134,6 +134,7 @@ export function validateAppState(input: {
   initial?: AppFilesState;
   expected?: AppFilesState;
   validate?: AppValidationSpec;
+  toolsUsed?: string[];
 }): BenchmarkCheck[] {
   const checks: BenchmarkCheck[] = [];
   const frontendEntries = Object.entries(input.actual.frontend ?? {});
@@ -245,7 +246,7 @@ export function validateAppState(input: {
   }
 
   if (input.validate) {
-    checks.push(...validateAppRequirements(input.actual, input.validate));
+    checks.push(...validateAppRequirements(input.actual, input.validate, input.toolsUsed ?? []));
   }
 
   return checks;
@@ -1545,7 +1546,8 @@ function fileMapsEqual(left: Record<string, string>, right: Record<string, strin
 
 function validateAppRequirements(
   app: AppFilesState,
-  validate: AppValidationSpec
+  validate: AppValidationSpec,
+  toolsUsed: string[] = []
 ): BenchmarkCheck[] {
   const checks: BenchmarkCheck[] = [];
   const frontendPaths = Object.keys(app.frontend ?? {});
@@ -1558,6 +1560,27 @@ function validateAppRequirements(
         "app includes required frontend paths",
         validate.requiredFrontendPaths.every((filePath) => frontendPaths.includes(filePath)),
         `required paths: ${validate.requiredFrontendPaths.join(", ")}; actual paths: ${frontendPaths.join(", ")}`
+      )
+    );
+  }
+
+  for (const contentRequirement of validate.requiredFrontendFileContent ?? []) {
+    const content = app.frontend?.[contentRequirement.path];
+    checks.push(
+      check(
+        `frontend ${contentRequirement.path} exists for content validation`,
+        content !== undefined
+      )
+    );
+    if (content === undefined) {
+      continue;
+    }
+
+    checks.push(
+      check(
+        `frontend ${contentRequirement.path} includes required content`,
+        contentIncludesAll(content, contentRequirement.includes),
+        missingSnippetsDetails(content, contentRequirement.includes)
       )
     );
   }
@@ -1598,6 +1621,28 @@ function validateAppRequirements(
     );
   }
 
+  for (const contentRequirement of validate.requiredBackendRunnableContent ?? []) {
+    const runnable = app.backend?.[contentRequirement.key];
+    checks.push(
+      check(
+        `${contentRequirement.key} backend runnable exists for content validation`,
+        Boolean(runnable)
+      )
+    );
+    if (!runnable) {
+      continue;
+    }
+
+    const content = runnable.inlineScript?.content ?? "";
+    checks.push(
+      check(
+        `${contentRequirement.key} backend runnable includes required content`,
+        contentIncludesAll(content, contentRequirement.includes),
+        missingSnippetsDetails(content, contentRequirement.includes)
+      )
+    );
+  }
+
   if (typeof validate.datatableCountAtLeast === "number") {
     checks.push(
       check(
@@ -1619,6 +1664,17 @@ function validateAppRequirements(
     );
   }
 
+  if (typeof validate.datatableTableCountExactly === "number") {
+    const actualTableCount = countDatatableTables(datatables);
+    checks.push(
+      check(
+        `app includes exactly ${validate.datatableTableCountExactly} datatable table${validate.datatableTableCountExactly === 1 ? "" : "s"}`,
+        actualTableCount === validate.datatableTableCountExactly,
+        `expected exactly ${validate.datatableTableCountExactly}, got ${actualTableCount}`
+      )
+    );
+  }
+
   for (const datatableRequirement of validate.requiredDatatables ?? []) {
     const label = datatableRequirement.datatableName
       ? `${datatableRequirement.datatableName}/${datatableRequirement.schema}.${datatableRequirement.table}`
@@ -1631,7 +1687,51 @@ function validateAppRequirements(
     );
   }
 
+  for (const toolName of validate.requiredToolsUsed ?? []) {
+    checks.push(
+      check(
+        `tool ${toolName} was used`,
+        toolsUsed.includes(toolName),
+        `tools used: ${toolsUsed.join(", ") || "none"}`
+      )
+    );
+  }
+
+  for (const forbiddenSnippet of validate.forbiddenAppContent ?? []) {
+    checks.push(
+      check(
+        `app does not include forbidden content '${forbiddenSnippet}'`,
+        !appContentIncludes(app, forbiddenSnippet),
+        `forbidden snippet: ${forbiddenSnippet}`
+      )
+    );
+  }
+
   return checks;
+}
+
+function contentIncludesAll(content: string, snippets: string[]): boolean {
+  const normalizedContent = content.toLowerCase();
+  return snippets.every((snippet) => normalizedContent.includes(snippet.toLowerCase()));
+}
+
+function missingSnippetsDetails(content: string, snippets: string[]): string {
+  const normalizedContent = content.toLowerCase();
+  const missing = snippets.filter(
+    (snippet) => !normalizedContent.includes(snippet.toLowerCase())
+  );
+  return missing.length > 0 ? `missing snippets: ${missing.join(", ")}` : "";
+}
+
+function appContentIncludes(app: AppFilesState, snippet: string): boolean {
+  const normalizedSnippet = snippet.toLowerCase();
+  const frontendContent = Object.values(app.frontend ?? {});
+  const backendContent = Object.values(app.backend ?? {}).map(
+    (runnable) => runnable.inlineScript?.content ?? ""
+  );
+  return [...frontendContent, ...backendContent].some((content) =>
+    content.toLowerCase().includes(normalizedSnippet)
+  );
 }
 
 function countDatatableTables(datatables: AppDatatableState[]): number {

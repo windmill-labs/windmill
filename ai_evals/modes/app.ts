@@ -34,6 +34,7 @@ export function createAppModeRunner(
           initialBackend: initial?.backend,
           initialDatatables: initial?.datatables,
           maxIterations: context.evalCase?.runtime?.maxTurns,
+          appContext: context.evalCase?.runtime?.appContext,
           provider: modelConfig.provider,
           model: modelConfig.model,
           transport: transportSettings?.transport,
@@ -53,12 +54,13 @@ export function createAppModeRunner(
         tokenUsage: result.tokenUsage,
       };
     },
-    validate({ evalCase, actual, initial, expected }) {
+    validate({ evalCase, actual, initial, expected, run }) {
       return validateAppState({
         actual,
         initial,
         expected,
         validate: evalCase.validate as AppValidationSpec | undefined,
+        toolsUsed: run.toolsUsed,
       });
     },
     buildArtifacts(actual): BenchmarkArtifactFile[] {

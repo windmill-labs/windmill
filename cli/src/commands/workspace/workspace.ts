@@ -17,6 +17,7 @@ import { setClient } from "../../core/client.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { createWorkspaceFork, deleteWorkspaceFork } from "./fork.ts";
 import { mergeWorkspaces } from "./merge.ts";
+import { connectSlack, disconnectSlack } from "./slack.ts";
 
 import * as wmill from "../../../gen/services.gen.ts";
 
@@ -787,6 +788,19 @@ const command = new Command()
   .option("--exclude <items:string>", "Comma-separated kind:path items to exclude")
   .option("--preserve-on-behalf-of", "Preserve original on_behalf_of/permissioned_as values")
   .option("-y --yes", "Non-interactive mode (deploy without prompts)")
-  .action(mergeWorkspaces as any);
+  .action(mergeWorkspaces as any)
+  .command("connect-slack")
+  .description(
+    "Non-interactively connect Slack to the active workspace using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: workspace_settings fields, g/slack group, f/slack_bot folder, and the encrypted bot token variable + resource at f/slack_bot/bot_token."
+  )
+  .option("--bot-token <bot_token:string>", "Slack bot token (xoxb-...)", { required: true })
+  .option("--team-id <team_id:string>", "Slack team id", { required: true })
+  .option("--team-name <team_name:string>", "Slack team name", { required: true })
+  .action(connectSlack as any)
+  .command("disconnect-slack")
+  .description(
+    "Clear slack_team_id / slack_name on the active workspace (marks the workspace as disconnected). Does NOT remove the bot token variable/resource/folder/group — delete those from the local sync folder and run 'wmill sync push' to tear them down. Does NOT remove the workspace-level OAuth override — set slack_oauth_client_id/_secret to '' in settings.yaml and push."
+  )
+  .action(disconnectSlack as any);
 
 export default command;

@@ -189,7 +189,7 @@ export async function createAppFileHelpers(
 			frontend: { ...frontend },
 			backend: { ...backend }
 		}),
-		getSelectedContext: (): SelectedContext => ({ type: 'none' }),
+		getSelectedContext: (): SelectedContext => ({}),
 		snapshot: () => {
 			const id = ++snapshotId
 			snapshots.set(id, {
