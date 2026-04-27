@@ -1211,7 +1211,7 @@
 					{/if}
 				</div>
 
-				<Splitpanes horizontal={flowHorizontalSplit} class="h-full max-h-screen grow">
+				<Splitpanes horizontal={flowHorizontalSplit} class="min-h-0 max-h-screen grow">
 					<Pane size={67}>
 						<div class="relative h-full w-full">
 							{#if flowStore.val?.value?.modules}
