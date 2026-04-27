@@ -4880,25 +4880,19 @@ wmill flow new f/folder/my_flow --summary "Short description"
 
 Add \`--description "..."\` when the user provided a longer explanation worth preserving separately from the summary.
 
-### Step 3 — Open the visual preview (before editing)
-
-**Before** you start editing \`flow.yaml\`, open the visual preview via the \`preview\` skill — do not ask the user first. The dev page live-reloads on every save, so opening it up-front lets the user watch the flow take shape as you edit in Step 4.
-
-This is the only case where you skip the "offer first" rule below — for edits to an existing flow, keep asking before running programmatic tests.
-
-### Step 4 — Fill in \`flow.yaml\`
+### Step 3 — Fill in \`flow.yaml\`
 
 Open the generated \`flow.yaml\` (under the folder the command just created) and replace the empty \`value.modules\` + \`schema\` with the real flow definition.
 
 For rawscript modules, use \`!inline path/to/script.ts\` for the content key. {{INLINE_SCRIPT_NAMING}}
+
+Once the flow has real content, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry) and the user should consent.
 
 ### Anti-patterns to avoid
 
 - ❌ Hand-creating the \`{{FLOW_SUFFIX}}\` folder + \`flow.yaml\` instead of running \`wmill flow new\`. You'll miss the suffix-setting resolution, the default shape, and the Claude hints.
 - ❌ Telling the user to "run \`wmill flow new <path>\`" — you can and should run it yourself.
 - ❌ Skipping \`AskUserQuestion\` and inventing a path/summary.
-- ❌ Asking "want me to open the preview?" right after \`wmill flow new\`. Just open it, before editing, so the user sees the flow come together via live reload.
-- ❌ Editing \`flow.yaml\` first and opening the preview at the end. Open it first so live reload actually shows something.
 
 ## CLI Commands — running, previewing, deploying
 
@@ -4923,7 +4917,7 @@ Only use \`sync push\` when:
 
 ### After writing — offer to run, don't wait passively
 
-This is about **programmatic execution** (\`wmill flow preview -d '<args>'\`), which actually runs the flow and has side effects. Visual preview (the \`preview\` skill) is a different thing — it's always safe, and on fresh \`wmill flow new\` creations you open it without asking (see Step 3 above).
+This is about **programmatic execution** (\`wmill flow preview -d '<args>'\`), which actually runs the flow and has side effects. Visual preview (the \`preview\` skill) is offered separately — see "Visual preview" below.
 
 If the user hasn't already told you to run/test the flow, offer it as a one-sentence next step (e.g. "Want me to run \`wmill flow preview\` with sample args?"). Do not present a multi-option menu.
 
@@ -4933,7 +4927,7 @@ If the user already asked to test/run/try the flow in their original request, sk
 
 ### Visual preview
 
-To open the flow visually in the dev page (graph + live reload), use the \`preview\` skill. On fresh creations, open it automatically **before editing** (per Step 3 of the creation flow) so the user watches the flow take shape via live reload. On edits to existing flows, ask the user first unless they've already asked to see the flow.
+To open the flow visually in the dev page (graph + live reload), use the \`preview\` skill. Always **offer** it as a one-sentence next step (e.g. "Want me to open the visual preview?") rather than opening it automatically — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry under MCP-preview branches) the user should consent to. If the user already asked to see/preview/visualize the flow in their original request, skip the offer and just invoke the skill.
 
 ## OpenFlow Schema
 
@@ -5287,11 +5281,11 @@ Layer these in only when the user asked for them:
 | \`--overwrite\` | The target directory already exists and the user said it's OK to replace. Without it, non-interactive mode aborts with an error so you don't clobber existing work. |
 | \`--no-open-in-desktop\` | Already implied in non-interactive mode; only needed if you're somehow running interactively. |
 
-### Step 3 — Open the visual preview (before editing)
+### Step 3 — Offer the visual preview
 
-**Before** you start editing \`App.tsx\` / \`index.tsx\` / etc., open the visual preview via the \`preview\` skill — do not ask the user first. \`wmill app dev\` live-reloads on every save, so opening it up-front lets the user watch the app come together as you edit.
+After \`wmill app new\` and any initial edits to \`App.tsx\` / \`index.tsx\`, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry under MCP-preview branches) the user should consent to.
 
-For apps the preview command runs from the app folder (\`cd <app_path>__raw_app && wmill app dev …\`); the \`preview\` skill picks the proxy vs direct branch based on whether \`mcp__Claude_Preview__*\` MCP tools are available.
+For apps the preview command runs from the app folder (\`cd <app_path>__raw_app && wmill app dev …\`); the \`preview\` skill picks the proxy vs direct branch based on whether \`mcp__Claude_Preview__*\` MCP tools are available. If the user already asked to see/preview/visualize the app in their original request, skip the offer and just invoke the skill.
 
 ### Anti-patterns to avoid
 
@@ -5300,8 +5294,6 @@ For apps the preview command runs from the app folder (\`cd <app_path>__raw_app 
 - ❌ Skipping \`AskUserQuestion\` and inventing a path/summary/framework yourself.
 - ❌ Defaulting to \`react19\` because the user didn't say — even sensible defaults must be confirmed via \`AskUserQuestion\`.
 - ❌ Passing \`--overwrite\` automatically when the directory exists — confirm with the user first.
-- ❌ Editing the app source first and opening the preview at the end. Open it first, before editing, so live reload actually shows the user the app taking shape.
-- ❌ Asking "want me to open the preview?" right after \`wmill app new\`. Just open it.
 
 ### Interactive (only when a human is at the terminal)
 

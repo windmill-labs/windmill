@@ -49,11 +49,11 @@ Layer these in only when the user asked for them:
 | `--overwrite` | The target directory already exists and the user said it's OK to replace. Without it, non-interactive mode aborts with an error so you don't clobber existing work. |
 | `--no-open-in-desktop` | Already implied in non-interactive mode; only needed if you're somehow running interactively. |
 
-### Step 3 — Open the visual preview (before editing)
+### Step 3 — Offer the visual preview
 
-**Before** you start editing `App.tsx` / `index.tsx` / etc., open the visual preview via the `preview` skill — do not ask the user first. `wmill app dev` live-reloads on every save, so opening it up-front lets the user watch the app come together as you edit.
+After `wmill app new` and any initial edits to `App.tsx` / `index.tsx`, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a `launch.json` entry under MCP-preview branches) the user should consent to.
 
-For apps the preview command runs from the app folder (`cd <app_path>__raw_app && wmill app dev …`); the `preview` skill picks the proxy vs direct branch based on whether `mcp__Claude_Preview__*` MCP tools are available.
+For apps the preview command runs from the app folder (`cd <app_path>__raw_app && wmill app dev …`); the `preview` skill picks the proxy vs direct branch based on whether `mcp__Claude_Preview__*` MCP tools are available. If the user already asked to see/preview/visualize the app in their original request, skip the offer and just invoke the skill.
 
 ### Anti-patterns to avoid
 
@@ -62,8 +62,6 @@ For apps the preview command runs from the app folder (`cd <app_path>__raw_app &
 - ❌ Skipping `AskUserQuestion` and inventing a path/summary/framework yourself.
 - ❌ Defaulting to `react19` because the user didn't say — even sensible defaults must be confirmed via `AskUserQuestion`.
 - ❌ Passing `--overwrite` automatically when the directory exists — confirm with the user first.
-- ❌ Editing the app source first and opening the preview at the end. Open it first, before editing, so live reload actually shows the user the app taking shape.
-- ❌ Asking "want me to open the preview?" right after `wmill app new`. Just open it.
 
 ### Interactive (only when a human is at the terminal)
 
