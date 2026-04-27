@@ -79,7 +79,7 @@ Both commands print the URL on stdout. The exact line shape differs:
 - `wmill dev --no-open` prints `Go to <url>` (the full remote URL with workspace, token, path baked in).
 - `wmill app dev --no-open` prints `🚀 Dev server running at <url>` (the local app server).
 
-Capture the URL with a loose match (e.g. the first `http://...` token after startup) and post it to the user: *"Preview is running — open `<url>` in your browser."* Don't try to construct the URL yourself.
+Capture the URL with a loose match (the first `https?://...` token after startup — remote workspaces use HTTPS, local ones HTTP) and post it to the user: *"Preview is running — open `<url>` in your browser."* Don't try to construct the URL yourself.
 
 ## Both branches — keep the run alive
 
