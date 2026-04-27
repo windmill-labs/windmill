@@ -534,7 +534,7 @@ pub async fn handle_flow_dependency_job(
             // because `try_skip_relock` reads `imported_lockfile_hash` during
             // phase 2.
             if !triggered_by_relative_import {
-                dependency_map.dissolve_in_place(&mut tx).await;
+                dependency_map.dissolve_in_place(&mut tx).await?;
             }
 
             if !skip_flow_update {
@@ -702,7 +702,7 @@ pub async fn handle_flow_dependency_job(
 
             // Counterpart to phase 1's conditional dissolve.
             if triggered_by_relative_import {
-                dependency_map.dissolve_in_place(&mut tx).await;
+                dependency_map.dissolve_in_place(&mut tx).await?;
             }
 
             // Phase 1/2 are no longer serialised by row locks, so two

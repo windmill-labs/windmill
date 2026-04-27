@@ -262,13 +262,19 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
     }
 
     /// Like `dissolve` but borrows `&mut self` so the SDM stays usable.
-    pub async fn dissolve_in_place<'a>(&mut self, tx: &mut sqlx::Transaction<'a, sqlx::Postgres>) {
+    /// Unlike `dissolve`, propagates DELETE errors instead of swallowing them
+    /// (callers running this in a phase 1 tx need the failure to surface so
+    /// they can roll back instead of committing a partial cleanup).
+    pub async fn dissolve_in_place<'a>(
+        &mut self,
+        tx: &mut sqlx::Transaction<'a, sqlx::Postgres>,
+    ) -> Result<()> {
         if *WMDEBUG_NO_DMAP_DISSOLVE {
             tracing::warn!(
                 "WMDEBUG_NO_DMAP_DISSOLVE usually should not be used. Behavior might be unstable."
             );
             self.to_delete.clear();
-            return;
+            return Ok(());
         }
 
         tracing::info!(
@@ -287,7 +293,7 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
                 &imported_lockfile_hash,
             );
 
-            if let Err(err) = sqlx::query!(
+            sqlx::query!(
                 "
         DELETE FROM dependency_map
         WHERE workspace_id = $1
@@ -305,16 +311,9 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
                 imported_lockfile_hash
             )
             .execute(&mut **tx)
-            .await
-            {
-                tracing::error!(
-                    "error while cleaning dependency_map for: importer_node_id - {}, imported_path - {}, importer_path - {}: {err}",
-                    importer_node_id,
-                    imported_path,
-                    self.importer_path,
-                );
-            }
+            .await?;
         }
+        Ok(())
     }
 
     /// clean orphan entries from `dependency_map`

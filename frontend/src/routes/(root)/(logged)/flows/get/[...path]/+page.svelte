@@ -470,7 +470,7 @@
 	$effect(() => {
 		if ($workspaceStore && $userStore && page.params.path) {
 			const versionParam = page.url.searchParams.get('version') ?? ''
-			const loadKey = `${path}|${versionParam}`
+			const loadKey = `${$workspaceStore}|${path}|${versionParam}`
 			if (previousLoadKey !== loadKey) {
 				previousLoadKey = loadKey
 				untrack(() => {
