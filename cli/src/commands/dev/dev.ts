@@ -9,7 +9,7 @@ import * as getPort from "get-port";
 import * as http from "node:http";
 import * as https from "node:https";
 import * as open from "open";
-import { access, readdir, realpath, unlink, writeFile } from "node:fs/promises";
+import { access, readdir, realpath, stat, unlink, writeFile } from "node:fs/promises";
 import { readTextFile } from "../../utils/utils.ts";
 import { watch } from "node:fs";
 import { getTypeStrFromPath, GlobalOptions } from "../../types.ts";
@@ -27,6 +27,7 @@ import { OpenFlow } from "../../../gen/types.gen.ts";
 import { FlowFile } from "../flow/flow.ts";
 import { replaceInlineScripts, replaceAllPathScriptsWithLocal } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { extractInlineScripts, extractCurrentMapping } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { newPathAssigner } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 import { parseMetadataFile } from "../../utils/metadata.ts";
 import {
   getMetadataFileName,
@@ -38,73 +39,13 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { listSyncCodebases } from "../../utils/codebase.ts";
 import { createPreviewLocalScriptReader } from "../../utils/local_path_scripts.ts";
+import {
+  snapshotPathScripts,
+  tagReplacedPathScripts,
+  restorePathScripts,
+} from "./pathscript-restore.ts";
 
 const PORT = 3001;
-
-// PathScript snapshot/restore for flow round-trip
-const TAG_KEY = "_originalPathScript" as const;
-
-function walkFlowModules(modules: any[], visitor: { onModule: (m: any) => void }) {
-  for (const module of modules) {
-    if (!module.value) continue;
-    const val = module.value;
-    if (val.type === "forloopflow" || val.type === "whileloopflow") {
-      walkFlowModules(val.modules, visitor);
-    } else if (val.type === "branchall") {
-      for (const branch of val.branches ?? []) {
-        walkFlowModules(branch.modules, visitor);
-      }
-    } else if (val.type === "branchone") {
-      for (const branch of val.branches ?? []) {
-        walkFlowModules(branch.modules, visitor);
-      }
-      if (val.default) {
-        walkFlowModules(val.default, visitor);
-      }
-    } else {
-      visitor.onModule(module);
-    }
-  }
-}
-
-function walkFlow(flowValue: any, visitor: { onModule: (m: any) => void }) {
-  if (flowValue?.modules) walkFlowModules(flowValue.modules, visitor);
-  if (flowValue?.failure_module) walkFlowModules([flowValue.failure_module], visitor);
-  if (flowValue?.preprocessor_module) walkFlowModules([flowValue.preprocessor_module], visitor);
-}
-
-function snapshotPathScripts(flowValue: any) {
-  walkFlow(flowValue, {
-    onModule(module) {
-      if (module.value.type === "script") {
-        module[TAG_KEY] = JSON.parse(JSON.stringify(module.value));
-      }
-    },
-  });
-}
-
-function tagReplacedPathScripts(flowValue: any) {
-  walkFlow(flowValue, {
-    onModule(module) {
-      if (module[TAG_KEY] && module.value.type === "rawscript") {
-        module.value[TAG_KEY] = module[TAG_KEY];
-        delete module[TAG_KEY];
-      } else if (module[TAG_KEY]) {
-        delete module[TAG_KEY];
-      }
-    },
-  });
-}
-
-function restorePathScripts(flowValue: any) {
-  walkFlow(flowValue, {
-    onModule(module) {
-      if (module.value[TAG_KEY]) {
-        module.value = module.value[TAG_KEY];
-      }
-    },
-  });
-}
 
 type WmPathItem = {
   path: string;
@@ -333,15 +274,17 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
           SEP,
           undefined,
         );
-        // Snapshot PathScript modules before replacement, then tag after
-        snapshotPathScripts(localFlow);
+        // Snapshot PathScript modules before replacement, then tag after.
+        // Helpers walk `flowValue` (modules/failure_module/preprocessor_module),
+        // so pass `.value`, not the FlowFile wrapper.
+        snapshotPathScripts(localFlow.value);
         const localScriptReader = createPreviewLocalScriptReader({
           exts,
           defaultTs: opts.defaultTs,
           codebases,
         });
         await replaceAllPathScriptsWithLocal(localFlow.value, localScriptReader, log);
-        tagReplacedPathScripts(localFlow);
+        tagReplacedPathScripts(localFlow.value);
         currentLastEdit = {
           type: "flow",
           flow: localFlow,
@@ -424,14 +367,14 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
         SEP,
         undefined,
       );
-      snapshotPathScripts(localFlow);
+      snapshotPathScripts(localFlow.value);
       const localScriptReader = createPreviewLocalScriptReader({
         exts,
         defaultTs: opts.defaultTs,
         codebases,
       });
       await replaceAllPathScriptsWithLocal(localFlow.value, localScriptReader, log);
-      tagReplacedPathScripts(localFlow);
+      tagReplacedPathScripts(localFlow.value);
       const edit: LastEditFlow = {
         type: "flow",
         flow: localFlow,
@@ -472,6 +415,15 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
   }
 
   // Handle flow edits from the dev UI — write changes back to disk
+  // Mirrors the windmill-vscode extension's `processFlowMessage`
+  // (src/extension.ts). Keep them in step — the dev page is the same code in
+  // both contexts, and divergence here means the same flow round-trips
+  // differently between VS Code and the local dev preview.
+  //
+  // Deliberate divergence: the orphan-cleanup pass is restricted to
+  // INLINE_SCRIPT_EXTS so unrelated files (README.md, fixtures, etc.) are
+  // not deleted. The extension's version doesn't filter and would delete
+  // them — that's a known issue tracked separately.
   async function handleFlowRoundTrip(data: { flow: any; uriPath: string }) {
     if (!data.uriPath || !data.flow?.value) return;
 
@@ -481,31 +433,77 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
       flowDir = new URL(flowDir).pathname;
     }
 
+    // Restore PathScripts BEFORE extracting so we don't write a file for the
+    // inlined body of a `type: 'script'` reference.
     restorePathScripts(data.flow.value);
 
     const flowYamlPath = flowDir + "flow.yaml";
-    let currentModules: any[] | undefined;
+    let currentLoadedFlow: any[] | undefined;
+    let currentLoadedFailureModule: any | undefined;
+    let currentLoadedPreprocessorModule: any | undefined;
     try {
       const currentFlow = (await yamlParseFile(flowYamlPath)) as FlowFile;
-      currentModules = currentFlow.value?.modules;
+      currentLoadedFlow = currentFlow.value?.modules;
+      currentLoadedFailureModule = currentFlow.value?.failure_module;
+      currentLoadedPreprocessorModule = currentFlow.value?.preprocessor_module;
     } catch {
       // flow.yaml doesn't exist yet or is invalid
     }
 
     const inlineScriptMapping: Record<string, string> = {};
-    extractCurrentMapping(currentModules, inlineScriptMapping);
+    extractCurrentMapping(
+      currentLoadedFlow,
+      inlineScriptMapping,
+      currentLoadedFailureModule,
+      currentLoadedPreprocessorModule,
+    );
+
+    // Share one pathAssigner across all extraction calls so failure /
+    // preprocessor modules don't collide on filenames with main modules.
+    const extractOptions = { skipInlineScriptSuffix: getNonDottedPaths() };
+    const pathAssigner = newPathAssigner(opts.defaultTs ?? "bun", extractOptions);
 
     const allExtracted = extractInlineScripts(
       data.flow.value.modules ?? [],
       inlineScriptMapping,
       "/",
       opts.defaultTs ?? "bun",
-      undefined,
-      { skipInlineScriptSuffix: getNonDottedPaths() },
+      pathAssigner,
+      extractOptions,
     );
+    if (data.flow.value.failure_module?.value?.type === "rawscript") {
+      allExtracted.push(...extractInlineScripts(
+        [data.flow.value.failure_module],
+        inlineScriptMapping,
+        "/",
+        opts.defaultTs ?? "bun",
+        pathAssigner,
+        extractOptions,
+      ));
+    }
+    if (data.flow.value.preprocessor_module?.value?.type === "rawscript") {
+      allExtracted.push(...extractInlineScripts(
+        [data.flow.value.preprocessor_module],
+        inlineScriptMapping,
+        "/",
+        opts.defaultTs ?? "bun",
+        pathAssigner,
+        extractOptions,
+      ));
+    }
 
     for (const s of allExtracted) {
       const filePath = flowDir + s.path;
+      // `!inline foo.ts` is a YAML directive that points at another file —
+      // treat it as a placeholder, not as content to overwrite.
+      if (s.content.startsWith("!inline ")) {
+        try {
+          await stat(filePath);
+        } catch {
+          await writeFile(filePath, "", "utf-8");
+        }
+        continue;
+      }
       let needsWrite = true;
       try {
         const existing = await readTextFile(filePath);
@@ -519,13 +517,23 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
       }
     }
 
+    // Only rewrite flow.yaml when the serialized YAML actually differs from
+    // what's on disk. Avoids noisy mtime updates that re-trigger the watcher.
     const flowYaml = yamlStringify(data.flow);
-    await writeFile(flowYamlPath, flowYaml, "utf-8");
-    log.info(`Wrote flow: ${flowYamlPath}`);
+    let currentYaml: string | undefined;
+    try {
+      currentYaml = await readTextFile(flowYamlPath);
+    } catch {
+      // File doesn't exist
+    }
+    if (currentYaml?.trimEnd() !== flowYaml.trimEnd()) {
+      await writeFile(flowYamlPath, flowYaml, "utf-8");
+      log.info(`Wrote flow: ${flowYamlPath}`);
+    }
 
-    // Clean up orphaned inline script files. Only consider files whose extension
-    // looks like one we'd ever have written ourselves — anything else (README.md,
-    // fixtures, .env.local, TODO.md…) belongs to the user and stays put.
+    // Orphan cleanup: extension does this unconditionally and overshoots,
+    // deleting README.md / fixtures / .env.local. We restrict to known
+    // inline-script extensions.
     const extractedPaths = new Set(allExtracted.map((s) => s.path));
     try {
       const dirFiles = await readdir(flowDir);
