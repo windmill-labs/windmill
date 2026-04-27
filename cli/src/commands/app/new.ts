@@ -797,6 +797,28 @@ This folder is for SQL migration files that will be applied to datatables during
     if (openInDesktop) {
       try {
         const absAppDir = path.resolve(appDir);
+
+        // Seed the app folder with a launch.json entry pointing at `wmill app dev`
+        // so the freshly-opened Claude Desktop session can launch the preview
+        // directly. Skip if the file already exists — never clobber user edits.
+        const claudeDir = path.join(absAppDir, ".claude");
+        const launchPath = path.join(claudeDir, "launch.json");
+        if (!await stat(launchPath).catch(() => null)) {
+          const launchJson = JSON.stringify({
+            version: "0.0.1",
+            configurations: [{
+              name: `windmill: ${appPath}`,
+              runtimeExecutable: "bash",
+              runtimeArgs: ["-c", "wmill app dev --no-open --port ${PORT:-4000}"],
+              port: 4000,
+              autoPort: true,
+            }],
+          }, null, 2) + "\n";
+          await mkdir(claudeDir, { recursive: true });
+          await writeFile(launchPath, launchJson, "utf-8");
+          log.info(colors.gray(`Seeded ${path.relative(process.cwd(), launchPath)}`));
+        }
+
         const sessionId = crypto.randomUUID();
 
         // Create a persisted CLI session with welcome message (async to allow spinner)
