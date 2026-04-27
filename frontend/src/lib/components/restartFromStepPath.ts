@@ -65,3 +65,31 @@ export function findStepPath(modules: FlowModule[], targetId: string): StepPath 
 	}
 	return undefined
 }
+
+/**
+ * Inline-expanded subflows produce step IDs like
+ * `subflow:<outer_subflow_step>:[<nested_subflow_step>:...]<leaf>`. Each `:`-separated
+ * segment after the `subflow:` marker is a step ID; the last segment is the leaf
+ * (the user's selected step) and the preceding segments are subflow steps along
+ * the way (each one a `Flow{path}` module).
+ *
+ * Returns the parsed segments + leaf, or `undefined` if `id` is not a subflow-prefixed
+ * step.
+ */
+export function parseExpandedSubflowId(
+	id: string
+): { subflowSteps: string[]; leaf: string } | undefined {
+	if (!id.startsWith('subflow:')) {
+		return undefined
+	}
+	const parts = id
+		.slice('subflow:'.length)
+		.split(':')
+		.filter((p) => p.length > 0)
+	if (parts.length < 2) {
+		return undefined
+	}
+	const leaf = parts[parts.length - 1]
+	const subflowSteps = parts.slice(0, -1)
+	return { subflowSteps, leaf }
+}

@@ -87,7 +87,7 @@
 	import { page } from '$app/state'
 	import { twMerge } from 'tailwind-merge'
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
-	import { findStepPath } from '$lib/components/restartFromStepPath'
+	import { findStepPath, parseExpandedSubflowId } from '$lib/components/restartFromStepPath'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
@@ -203,43 +203,68 @@
 				selectedJobStepType = 'single'
 			}
 
-			// Nested-step restart: walk the flow_value to find the selected step's path.
-			// Supported when ancestors are BranchOne / sequential ForLoop only. BranchAll,
-			// parallel loops, and subflow-internal steps are unsupported here.
-			if (!selectedJobStepIsTopLevel && job?.raw_flow?.modules) {
-				const path = findStepPath(job.raw_flow.modules, selectedJobStep!)
-				if (path && path.ancestors.length > 0) {
-					const top = path.ancestors[0]
-					const inner = path.ancestors.slice(1)
-					const blocked = path.ancestors.some(
-						(a) => a.type === 'branchall' || a.type === 'whileloopflow'
-					)
-					if (!blocked) {
-						const topStatus = job.flow_status?.modules?.find((m) => m.id === top.stepId)
-						let topBranchOrIter: number | undefined
-						if (top.type === 'forloopflow') {
-							topBranchOrIter = 0
-							const flowJobs = (topStatus as any)?.flow_jobs as string[] | undefined
-							nestedRestartIterationInputs = [flowJobs?.length ?? 0]
-						}
+			if (!selectedJobStepIsTopLevel) {
+				// Case 1: step is inside an inline-expanded subflow (id has form
+				// `subflow:outerStep:[innerSubflow:...]<leaf>`). The graph adds the
+				// `subflow:` prefix only for subflow expansions, so each segment is
+				// a `Flow{path}` step (or the leaf is a top-level step of the deepest
+				// subflow). The backend will validate that the leaf actually exists
+				// at that path.
+				const subflowParse = parseExpandedSubflowId(selectedJobStep!)
+				if (subflowParse && job?.raw_flow?.modules) {
+					const top = job.raw_flow.modules.find((m) => m.id === subflowParse.subflowSteps[0])
+					if (top && top.value.type === 'flow') {
 						const innerPath: Array<{ step_id: string; branch_or_iteration_n?: number }> = []
-						for (const a of inner) {
-							const entry: { step_id: string; branch_or_iteration_n?: number } = {
-								step_id: a.stepId
-							}
-							if (a.type === 'forloopflow') {
-								entry.branch_or_iteration_n = 0
-								nestedRestartIterationInputs.push(0)
-							}
-							innerPath.push(entry)
+						for (const seg of subflowParse.subflowSteps.slice(1)) {
+							innerPath.push({ step_id: seg })
 						}
-						// The leaf is the selected step itself
-						innerPath.push({ step_id: selectedJobStep! })
-
-						nestedRestartTopStepId = top.stepId
-						nestedRestartTopBranchOrIterationN = topBranchOrIter
+						innerPath.push({ step_id: subflowParse.leaf })
+						nestedRestartTopStepId = top.id
+						nestedRestartTopBranchOrIterationN = undefined
 						nestedRestartPath = innerPath
 						nestedRestartSupported = true
+					}
+				}
+				// Case 2: step is nested inside a BranchOne / ForLoop within the parent's
+				// own flow_value (no subflow expansion). Walk the tree to find the path.
+				// Supported when ancestors are BranchOne / sequential ForLoop only.
+				if (!nestedRestartSupported && job?.raw_flow?.modules) {
+					const path = findStepPath(job.raw_flow.modules, selectedJobStep!)
+					if (path && path.ancestors.length > 0) {
+						const top = path.ancestors[0]
+						const inner = path.ancestors.slice(1)
+						const blocked = path.ancestors.some(
+							(a) => a.type === 'branchall' || a.type === 'whileloopflow'
+						)
+						if (!blocked) {
+							const topStatus = job.flow_status?.modules?.find((m) => m.id === top.stepId)
+							let topBranchOrIter: number | undefined
+							if (top.type === 'forloopflow') {
+								topBranchOrIter = 0
+								const flowJobs = (topStatus as any)?.flow_jobs as string[] | undefined
+								nestedRestartIterationInputs = [flowJobs?.length ?? 0]
+							}
+							const innerPath: Array<{
+								step_id: string
+								branch_or_iteration_n?: number
+							}> = []
+							for (const a of inner) {
+								const entry: { step_id: string; branch_or_iteration_n?: number } = {
+									step_id: a.stepId
+								}
+								if (a.type === 'forloopflow') {
+									entry.branch_or_iteration_n = 0
+									nestedRestartIterationInputs.push(0)
+								}
+								innerPath.push(entry)
+							}
+							innerPath.push({ step_id: selectedJobStep! })
+
+							nestedRestartTopStepId = top.stepId
+							nestedRestartTopBranchOrIterationN = topBranchOrIter
+							nestedRestartPath = innerPath
+							nestedRestartSupported = true
+						}
 					}
 				}
 			}

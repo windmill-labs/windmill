@@ -55,6 +55,12 @@
 	}: Props = $props()
 
 	const isNested = $derived((nestedPath?.length ?? 0) > 0)
+	// Inline-expanded subflow steps come in as `subflow:A:B:leaf` — show only `leaf`.
+	const displayStepId = $derived(
+		isNested && nestedPath && nestedPath.length > 0
+			? nestedPath[nestedPath.length - 1].step_id
+			: selectedJobStep
+	)
 
 	// Sentinel value meaning "use the same version as the original run" (backend receives undefined)
 	const RUN_VERSION_SENTINEL = -1
@@ -157,7 +163,7 @@
 {/snippet}
 {#snippet singleRestartButton()}
 	<Button
-		title={`Re-start this flow from step ${selectedJobStep} (included).${enterpriseOnly ? ' This is a feature only available in enterprise edition.' : ''}`}
+		title={`Re-start this flow from step ${displayStepId} (included).${enterpriseOnly ? ' This is a feature only available in enterprise edition.' : ''}`}
 		{variant}
 		{unifiedSize}
 		{disabled}
@@ -211,7 +217,7 @@
 	>
 		{#snippet trigger()}
 			<Button
-				title={`Re-start this flow from step ${selectedJobStep} (included).${enterpriseOnly ? ' This is a feature only available in enterprise edition.' : ''}`}
+				title={`Re-start this flow from step ${displayStepId} (included).${enterpriseOnly ? ' This is a feature only available in enterprise edition.' : ''}`}
 				{variant}
 				{unifiedSize}
 				{disabled}
@@ -220,7 +226,7 @@
 			>
 				Re-start from
 				<Badge baseClass="ml-1" color="indigo">
-					{selectedJobStep}
+					{displayStepId}
 				</Badge>
 				{#if enterpriseOnly && disabled}
 					(EE)

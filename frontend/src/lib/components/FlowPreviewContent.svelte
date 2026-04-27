@@ -40,7 +40,7 @@
 	import FlowChat from './flows/conversations/FlowChat.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import FlowRestartButton from './FlowRestartButton.svelte'
-	import { findStepPath } from './restartFromStepPath'
+	import { findStepPath, parseExpandedSubflowId } from './restartFromStepPath'
 	import { createFlowRecording, setActiveRecording } from './recording/flowRecording.svelte'
 	import type { FlowRecording } from './recording/types'
 
@@ -240,30 +240,52 @@
 				selectedJobStepType = 'single'
 			}
 
-			if (!selectedJobStepIsTopLevel && job?.raw_flow?.modules) {
-				const path = findStepPath(job.raw_flow.modules, selectedJobStep!)
-				if (path && path.ancestors.length > 0) {
-					const blocked = path.ancestors.find(
-						(a) => a.type === 'branchall' || a.type === 'whileloopflow'
-					)
-					if (!blocked) {
-						const top = path.ancestors[0]
-						const inner = path.ancestors.slice(1)
+			if (!selectedJobStepIsTopLevel) {
+				// Inline-expanded subflow: id is `subflow:outerStep:[innerSubflow:...]<leaf>`.
+				const subflowParse = parseExpandedSubflowId(selectedJobStep!)
+				if (subflowParse && job?.raw_flow?.modules) {
+					const top = job.raw_flow.modules.find((m) => m.id === subflowParse.subflowSteps[0])
+					if (top && top.value.type === 'flow') {
 						const innerPath: Array<{ step_id: string; branch_or_iteration_n?: number }> = []
-						for (const a of inner) {
-							const entry: { step_id: string; branch_or_iteration_n?: number } = {
-								step_id: a.stepId
-							}
-							if (a.type === 'forloopflow') {
-								entry.branch_or_iteration_n = 0
-							}
-							innerPath.push(entry)
+						for (const seg of subflowParse.subflowSteps.slice(1)) {
+							innerPath.push({ step_id: seg })
 						}
-						innerPath.push({ step_id: selectedJobStep! })
-						nestedRestartTopStepId = top.stepId
-						nestedRestartTopBranchOrIterationN = top.type === 'forloopflow' ? 0 : undefined
+						innerPath.push({ step_id: subflowParse.leaf })
+						nestedRestartTopStepId = top.id
+						nestedRestartTopBranchOrIterationN = undefined
 						nestedRestartPath = innerPath
 						nestedRestartSupported = true
+					}
+				}
+				// BranchOne / sequential ForLoop nested in the parent's own flow_value.
+				if (!nestedRestartSupported && job?.raw_flow?.modules) {
+					const path = findStepPath(job.raw_flow.modules, selectedJobStep!)
+					if (path && path.ancestors.length > 0) {
+						const blocked = path.ancestors.find(
+							(a) => a.type === 'branchall' || a.type === 'whileloopflow'
+						)
+						if (!blocked) {
+							const top = path.ancestors[0]
+							const inner = path.ancestors.slice(1)
+							const innerPath: Array<{
+								step_id: string
+								branch_or_iteration_n?: number
+							}> = []
+							for (const a of inner) {
+								const entry: { step_id: string; branch_or_iteration_n?: number } = {
+									step_id: a.stepId
+								}
+								if (a.type === 'forloopflow') {
+									entry.branch_or_iteration_n = 0
+								}
+								innerPath.push(entry)
+							}
+							innerPath.push({ step_id: selectedJobStep! })
+							nestedRestartTopStepId = top.stepId
+							nestedRestartTopBranchOrIterationN = top.type === 'forloopflow' ? 0 : undefined
+							nestedRestartPath = innerPath
+							nestedRestartSupported = true
+						}
 					}
 				}
 			}

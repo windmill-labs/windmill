@@ -829,6 +829,8 @@ mod job_payload {
         let server = ApiServer::start(db.clone()).await?;
         let port = server.addr.port();
 
+        // BranchOne with TWO inner steps so we can verify that earlier siblings
+        // inside the branch are preserved when restarting at a later one.
         let flow_value: FlowValue = serde_json::from_value(json!({
             "modules": [{
                 "id": "a",
@@ -848,14 +850,25 @@ mod job_payload {
                     "branches": [{
                         "expr": "true",
                         "modules": [{
-                            "id": "inner",
+                            "id": "inner_first",
                             "value": {
                                 "type": "rawscript",
                                 "language": "deno",
                                 "input_transforms": {
                                     "world": { "type": "javascript", "expr": "flow_input.world" }
                                 },
-                                "content": "export function main(world: string) { return `inner-${world}` }"
+                                "content": "export function main(world: string) { return `first-${world}` }"
+                            }
+                        }, {
+                            "id": "inner_second",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "deno",
+                                "input_transforms": {
+                                    "world": { "type": "javascript", "expr": "flow_input.world" },
+                                    "first": { "type": "javascript", "expr": "results.inner_first" }
+                                },
+                                "content": "export function main(world: string, first: string) { return `${first}|second-${world}` }"
                             }
                         }]
                     }]
@@ -880,15 +893,16 @@ mod job_payload {
             .arg("world", json!("foo"))
             .run_until_complete(db, false, port)
             .await;
-            assert_eq!(first_run.json_result().unwrap(), json!("inner-foo"));
+            assert_eq!(
+                first_run.json_result().unwrap(),
+                json!("first-foo|second-foo")
+            );
 
             let original_branch_child =
                 child_job_id_for_step(db, first_run.id, "branch", None).await;
 
-            // Restart at the nested `inner` step inside `branch`. The new run should
-            // re-execute step `a` (since it's before the BranchOne) AND `inner`
-            // (the restart point). The chosen branch is locked to branch 0.
-            let restarted = RunJob::from(JobPayload::RawFlow {
+            // Restart at the FIRST inner step. Both inner steps re-run with new args.
+            let restarted_at_first = RunJob::from(JobPayload::RawFlow {
                 value: flow_value.clone(),
                 path: None,
                 restarted_from: Some(RestartedFrom {
@@ -899,7 +913,7 @@ mod job_payload {
                     branch_chosen: Some(BranchChosen::Branch { branch: 0 }),
                     nested: Some(Box::new(RestartedFrom {
                         flow_job_id: original_branch_child,
-                        step_id: "inner".into(),
+                        step_id: "inner_first".into(),
                         branch_or_iteration_n: None,
                         flow_version: None,
                         branch_chosen: None,
@@ -910,7 +924,42 @@ mod job_payload {
             .arg("world", json!("bar"))
             .run_until_complete(db, false, port)
             .await;
-            assert_eq!(restarted.json_result().unwrap(), json!("inner-bar"));
+            assert_eq!(
+                restarted_at_first.json_result().unwrap(),
+                json!("first-bar|second-bar")
+            );
+
+            // Restart at the SECOND inner step (the user-reported case). The first
+            // inner step's original output ("first-foo") must be preserved as a
+            // dependency for the second step's `results.inner_first` reference.
+            let restarted_at_second = RunJob::from(JobPayload::RawFlow {
+                value: flow_value.clone(),
+                path: None,
+                restarted_from: Some(RestartedFrom {
+                    flow_job_id: first_run.id,
+                    step_id: "branch".into(),
+                    branch_or_iteration_n: None,
+                    flow_version: None,
+                    branch_chosen: Some(BranchChosen::Branch { branch: 0 }),
+                    nested: Some(Box::new(RestartedFrom {
+                        flow_job_id: original_branch_child,
+                        step_id: "inner_second".into(),
+                        branch_or_iteration_n: None,
+                        flow_version: None,
+                        branch_chosen: None,
+                        nested: None,
+                    })),
+                }),
+            })
+            .arg("world", json!("baz"))
+            .run_until_complete(db, false, port)
+            .await;
+            // `inner_first` keeps its original "first-foo" result; only `inner_second`
+            // re-runs with the new `world=baz` arg.
+            assert_eq!(
+                restarted_at_second.json_result().unwrap(),
+                json!("first-foo|second-baz")
+            );
         };
         test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
@@ -1005,6 +1054,90 @@ mod job_payload {
                 json!(["first:x", "second:y"])
             );
         };
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
+        Ok(())
+    }
+
+    /// Regression test for the FlowNode case: when a flow is deployed, container
+    /// bodies (BranchOne branches, ForLoop iterations) get compiled into FlowNodes.
+    /// A nested restart targeting a step inside such a container spawns a child as
+    /// `JobPayload::RestartedFlow` against the original FlowNode-kind child. Without
+    /// preserving the original `JobKind` (the bug we just fixed), the new spawn
+    /// would land as `JobKind::Flow` with the FlowNode id misinterpreted as a
+    /// flow_version id, failing with "Flow version not found".
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_nested_restart_inside_deployed_loop_flownode(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        // The fixture's `hello_with_nodes_flow` is a deployed flow with a top-level
+        // ForLoop iterating ['foo', 'bar', 'baz'], whose body has modules `b` (greet)
+        // and `c` (echo greeting). After deployment the body is wrapped in a FlowNode.
+        let test = || async {
+            let db = &db;
+            let first_run = RunJob::from(JobPayload::Flow {
+                path: "f/system/hello_with_nodes_flow".to_string(),
+                dedicated_worker: None,
+                apply_preprocessor: true,
+                version: 1443253234253454,
+                labels: None,
+            })
+            .run_until_complete(db, false, port)
+            .await;
+
+            // Iteration 1's child job (kind=flownode after FlowDependencies has run).
+            let original_iter1_child = child_job_id_for_step(db, first_run.id, "a", Some(1)).await;
+
+            // Restart at inner step `c` of iteration 1. Iteration 0 keeps its original
+            // result; iteration 1 re-runs starting at `c` (so `b` is preserved as
+            // Success inside the iteration); iteration 2 fresh-runs.
+            let restarted = RunJob::from(JobPayload::RestartedFlow {
+                completed_job_id: first_run.id,
+                step_id: "a".into(),
+                branch_or_iteration_n: Some(1),
+                flow_version: None,
+                branch_chosen: None,
+                nested: Some(Box::new(RestartedFrom {
+                    flow_job_id: original_iter1_child,
+                    step_id: "c".into(),
+                    branch_or_iteration_n: None,
+                    flow_version: None,
+                    branch_chosen: None,
+                    nested: None,
+                })),
+            })
+            .run_until_complete(db, false, port)
+            .await;
+            // Same args, same output as original — the goal is to verify the spawn
+            // doesn't 500 with "Flow version not found" when the inner child is a
+            // FlowNode.
+            assert_eq!(
+                restarted.json_result().unwrap(),
+                json!([
+                    "Did you just say \"Hello foo!\"??!",
+                    "Did you just say \"Hello bar!\"??!",
+                    "Did you just say \"Hello baz!\"??!",
+                ])
+            );
+        };
+        // Exercise BOTH the pre-deployment path (raw flow inline, FlowPreview kind)
+        // and the post-deployment path (FlowNode kind) — the latter is the case the
+        // user originally hit.
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
+        let _ = RunJob::from(JobPayload::FlowDependencies {
+            path: "f/system/hello_with_nodes_flow".to_string(),
+            dedicated_worker: None,
+            version: 1443253234253454,
+            debouncing_settings: Default::default(),
+        })
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
         test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
