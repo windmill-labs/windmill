@@ -108,7 +108,8 @@
 		initFlowGraphAssetsCtx({ getModules: () => flow?.value.modules ?? [] })
 	)
 
-	let previousPath: string | undefined = $state(undefined)
+	// `${path}|${version}` so navigating between pinned and latest re-runs loadFlow.
+	let previousLoadKey: string | undefined = $state(undefined)
 
 	async function archiveFlow(): Promise<void> {
 		await FlowService.archiveFlowByPath({
@@ -143,12 +144,31 @@
 		)
 	}
 
+	let pinnedVersion: number | undefined = $state(undefined)
+
 	async function loadFlow(): Promise<void> {
-		flow = await FlowService.getFlowByPath({
-			workspace: $workspaceStore!,
-			path,
-			withStarredInfo: true
-		})
+		const versionParam = page.url.searchParams.get('version')
+		const versionId = versionParam ? Number(versionParam) : NaN
+		if (Number.isFinite(versionId)) {
+			const versioned = await FlowService.getFlowVersion({
+				workspace: $workspaceStore!,
+				version: versionId
+			})
+			if (versioned.path !== path) {
+				sendUserToast(`Flow version ${versionId} belongs to ${versioned.path}, not ${path}.`, true)
+				goto(`/flows/get/${versioned.path}?workspace=${$workspaceStore}&version=${versionId}`)
+				return
+			}
+			flow = versioned
+			pinnedVersion = versionId
+		} else {
+			flow = await FlowService.getFlowByPath({
+				workspace: $workspaceStore!,
+				path,
+				withStarredInfo: true
+			})
+			pinnedVersion = undefined
+		}
 		if (!flow.path.startsWith(`u/${$userStore?.username}`) && flow.path.split('/').length > 2) {
 			invisible_to_owner = flow.visible_to_runner_only
 		}
@@ -449,8 +469,10 @@
 	})
 	$effect(() => {
 		if ($workspaceStore && $userStore && page.params.path) {
-			if (previousPath !== path) {
-				previousPath = path
+			const versionParam = page.url.searchParams.get('version') ?? ''
+			const loadKey = `${$workspaceStore}|${path}|${versionParam}`
+			if (previousLoadKey !== loadKey) {
+				previousLoadKey = loadKey
 				untrack(() => {
 					loadFlow()
 					loadTriggersCount()
@@ -583,6 +605,16 @@
 
 						{#if flow?.archived}
 							<Alert type="error" title="Archived">This flow was archived</Alert>
+							<div class="h-4"></div>
+						{/if}
+
+						{#if pinnedVersion !== undefined}
+							<Alert type="info" title="Viewing pinned version {pinnedVersion}">
+								This is a historical version of the flow, not the latest.
+								<a class="underline" href="/flows/get/{path}?workspace={$workspaceStore}">
+									View latest
+								</a>
+							</Alert>
 							<div class="h-4"></div>
 						{/if}
 

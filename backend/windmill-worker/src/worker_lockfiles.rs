@@ -512,39 +512,85 @@ pub async fn handle_flow_dependency_job(
         version
     };
 
-    let mut tx = db.begin().await?;
+    // Phase 1: short tx that clears stale rows + snapshots dep_map. Committed
+    // before phase 2 so subprocesses don't hold row locks. Outer timeout fails
+    // fast if the connection stalls, before the 60 s zombie-no-ping cascade.
+    let mut dependency_map = match tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        async {
+            let mut tx = db.begin().await?;
 
-    let mut dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
-        &job.workspace_id,
-        &job_path,
-        "flow",
-        &parent_path,
-        &mut *tx,
+            let mut dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
+                &job.workspace_id,
+                &job_path,
+                "flow",
+                &parent_path,
+                &mut *tx,
+            )
+            .await?;
+
+            // Direct saves: dissolve now so a partial phase 2 doesn't leave
+            // orphan dep_map rows. Relative-import jobs MUST defer to phase 3
+            // because `try_skip_relock` reads `imported_lockfile_hash` during
+            // phase 2.
+            if !triggered_by_relative_import {
+                dependency_map.dissolve_in_place(&mut tx).await?;
+            }
+
+            if !skip_flow_update {
+                sqlx::query!(
+                    "DELETE FROM workspace_runnable_dependencies WHERE flow_path = $1 AND workspace_id = $2",
+                    job_path,
+                    job.workspace_id
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+
+            clear_static_asset_usage(&mut *tx, &job.workspace_id, &job_path, AssetUsageKind::Flow)
+                .await?;
+
+            tx.commit().await?;
+            Ok::<_, Error>(dependency_map)
+        },
     )
-    .await?;
+    .await
+    {
+        Ok(Ok(d)) => d,
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            let msg = "flow-dependency phase 1 (cleanup tx) exceeded 15s — the DB \
+                connection likely stalled. Re-saving the flow will retrigger the \
+                dep job."
+                .to_string();
+            // Surface the error on the flow viewer's "Deployment failed"
+            // banner; own timeout since the connection that just stalled is
+            // probably the same one we'd reuse here.
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                sqlx::query!(
+                    "UPDATE flow SET lock_error_logs = $1 WHERE path = $2 AND workspace_id = $3",
+                    &msg,
+                    &job_path,
+                    &job.workspace_id,
+                )
+                .execute(db),
+            )
+            .await;
+            return Err(Error::ExecutionErr(msg));
+        }
+    };
 
-    if !skip_flow_update {
-        sqlx::query!(
-        "DELETE FROM workspace_runnable_dependencies WHERE flow_path = $1 AND workspace_id = $2",
-        job_path,
-        job.workspace_id
-    )
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    clear_static_asset_usage(&mut *tx, &job.workspace_id, &job_path, AssetUsageKind::Flow).await?;
-
+    // Phase 2: no tx. Per-module writes inside `lock_modules` are auto-commits.
     let modified_ids;
     let errors;
-    (flow, tx, modified_ids, errors) = lock_flow_value(
+    (flow, modified_ids, errors) = lock_flow_value(
         flow,
         &job,
         mem_peak,
         canceled_by,
         job_dir,
         db,
-        tx,
         worker_name,
         worker_dir,
         &job_path,
@@ -634,7 +680,8 @@ pub async fn handle_flow_dependency_job(
         tracing::error!(%job.id, %err, "error checking cancellation for job {0}: {err}", job.id);
         false
     }) {
-        // Drop tx and thus cancel any changes
+        // Skip phase 3. Phase 1's deletes are committed; flow is left with no
+        // deps and the previous `flow.value`. Self-healing on next dep job.
         return Ok(to_raw_value_owned(json!({
             "status": "Flow lock generation was canceled",
         })));
@@ -645,13 +692,22 @@ pub async fn handle_flow_dependency_job(
             Error::internal_err("Flow Dependency requires script hash (flow version)".to_owned())
         })?;
 
-        tx = dependency_map.dissolve(tx).await;
+        // Phase 3: short tx for the final apply. Outer timeout matches phase 1.
+        enum Phase3 {
+            Skipped(Box<RawValue>),
+            Done,
+        }
+        let phase3 = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            let mut tx = db.begin().await?;
 
-        // When triggered by a relative import, re-check that our version is still
-        // the latest before writing. Between reading the flow value and now (module
-        // locking can take significant time), another job may have created a newer
-        // version. If so, skip the update — the newer version's dep job will handle it.
-        if triggered_by_relative_import {
+            // Counterpart to phase 1's conditional dissolve.
+            if triggered_by_relative_import {
+                dependency_map.dissolve_in_place(&mut tx).await?;
+            }
+
+            // Phase 1/2 are no longer serialised by row locks, so two
+            // concurrent dep jobs for the same flow path can race. Skip the
+            // write if a newer flow_version landed while we were in phase 2.
             let current_latest = sqlx::query_scalar!(
                 "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
                 job_path,
@@ -667,77 +723,106 @@ pub async fn handle_flow_dependency_job(
                     current_latest
                 );
                 tx.commit().await?;
-                return Ok(to_raw_value_owned(json!({
+                return Ok::<_, Error>(Phase3::Skipped(to_raw_value_owned(json!({
                     "status": "Skipped: newer flow version exists",
                     "modified_ids": modified_ids,
-                })));
+                }))));
             }
-        }
 
-        sqlx::query!(
-            "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
-            &new_flow_value as &Json<Box<RawValue>>,
-            job_path,
-            job.workspace_id
-        )
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query!(
-            "UPDATE flow_version SET value = $1 WHERE id = $2",
-            &new_flow_value as &Json<Box<RawValue>>,
-            version
-        )
-        .execute(&mut *tx)
-        .await?;
+            sqlx::query!(
+                "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
+                &new_flow_value as &Json<Box<RawValue>>,
+                job_path,
+                job.workspace_id
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!(
+                "UPDATE flow_version SET value = $1 WHERE id = $2",
+                &new_flow_value as &Json<Box<RawValue>>,
+                version
+            )
+            .execute(&mut *tx)
+            .await?;
 
-        // Compute a lite version of the flow value (`RawScript` => `FlowScript`).
-        let mut value_lite = flow.clone();
+            // Compute a lite version of the flow value (`RawScript` => `FlowScript`).
+            let mut value_lite = flow.clone();
 
-        tx = reduce_flow(
-            tx,
-            &mut value_lite.modules,
-            &job_path,
-            &job.workspace_id,
-            flow.failure_module.as_ref(),
-            flow.same_worker,
-        )
-        .await?;
-
-        let value_lite_with_extras = Json(
-            serde_json::value::to_raw_value(&FlowValueWithExtras {
-                value: &value_lite,
-                notes: extras.as_ref().and_then(|e| e.notes.clone()),
-                groups: extras.as_ref().and_then(|e| e.groups.clone()),
-            })
-            .map_err(to_anyhow)?,
-        );
-        sqlx::query!(
-            "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
-             ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
-            version,
-            &value_lite_with_extras as &Json<Box<RawValue>>,
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        // NOTE: Temporary solution.
-        // Ideally we do this for every job regardless whether it was triggered by relative import or by creation/update of the flow.
-        if triggered_by_relative_import {
-            // Making new version viewable as the current one.
-            // This will also trigger `flow_versions_append_trigger` (check _flow_versions_update_notify.up.sql)
-            // which will invalidate cache for the latest flow versions for all workers.
-            // Only append if this version isn't already the last element in the array.
-            // This prevents duplicates when update_flow already appended this version.
-            sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3 AND (versions[array_upper(versions, 1)] IS DISTINCT FROM $1)",
-                version,
+            tx = reduce_flow(
+                tx,
+                &mut value_lite.modules,
                 &job_path,
                 &job.workspace_id,
-            ).execute(&mut *tx).await?;
-            tracing::debug!("Marked flow version as latest");
-            tracing::debug!("Flow version: {}", version);
-        }
+                flow.failure_module.as_ref(),
+                flow.same_worker,
+            )
+            .await?;
 
-        tx.commit().await?;
+            let value_lite_with_extras = Json(
+                serde_json::value::to_raw_value(&FlowValueWithExtras {
+                    value: &value_lite,
+                    notes: extras.as_ref().and_then(|e| e.notes.clone()),
+                    groups: extras.as_ref().and_then(|e| e.groups.clone()),
+                })
+                .map_err(to_anyhow)?,
+            );
+            sqlx::query!(
+                "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
+                 ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
+                version,
+                &value_lite_with_extras as &Json<Box<RawValue>>,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            // NOTE: Temporary solution.
+            // Ideally we do this for every job regardless whether it was triggered by relative import or by creation/update of the flow.
+            if triggered_by_relative_import {
+                // Making new version viewable as the current one.
+                // This will also trigger `flow_versions_append_trigger` (check _flow_versions_update_notify.up.sql)
+                // which will invalidate cache for the latest flow versions for all workers.
+                // Only append if this version isn't already the last element in the array.
+                // This prevents duplicates when update_flow already appended this version.
+                sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3 AND (versions[array_upper(versions, 1)] IS DISTINCT FROM $1)",
+                    version,
+                    &job_path,
+                    &job.workspace_id,
+                ).execute(&mut *tx).await?;
+                tracing::debug!("Marked flow version as latest");
+                tracing::debug!("Flow version: {}", version);
+            }
+
+            tx.commit().await?;
+            Ok::<_, Error>(Phase3::Done)
+        })
+        .await;
+
+        let phase3 = match phase3 {
+            Ok(Ok(p)) => p,
+            Ok(Err(e)) => return Err(e),
+            Err(_) => {
+                let msg = "flow-dependency phase 3 (apply tx) exceeded 30s — the DB \
+                    connection likely stalled. Re-saving the flow will retrigger \
+                    the dep job."
+                    .to_string();
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    sqlx::query!(
+                        "UPDATE flow SET lock_error_logs = $1 WHERE path = $2 AND workspace_id = $3",
+                        &msg,
+                        &job_path,
+                        &job.workspace_id,
+                    )
+                    .execute(db),
+                )
+                .await;
+                return Err(Error::ExecutionErr(msg));
+            }
+        };
+
+        if let Phase3::Skipped(rv) = phase3 {
+            return Ok(rv);
+        }
 
         if let Err(e) = handle_deployment_metadata(
             &job.permissioned_as_email,
@@ -792,15 +877,15 @@ struct LockModuleError {
     error: Error,
 }
 
-// Process entire FlowValue including failure_module and preprocessor_module
-async fn lock_flow_value<'c>(
+// No wrapping tx — `lock_modules` auto-commits per-module writes so subprocesses
+// don't hold row locks. Atomicity isn't needed; dep jobs are idempotent on retry.
+async fn lock_flow_value(
     mut flow: FlowValue,
     job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
-    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     worker_name: &str,
     worker_dir: &str,
     job_path: &str,
@@ -814,24 +899,18 @@ async fn lock_flow_value<'c>(
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     triggered_by_relative_import: bool,
     temp_script_refs: &Option<HashMap<String, String>>,
-) -> Result<(
-    FlowValue,
-    sqlx::Transaction<'c, sqlx::Postgres>,
-    Vec<String>,
-    Vec<LockModuleError>,
-)> {
+) -> Result<(FlowValue, Vec<String>, Vec<LockModuleError>)> {
     let mut all_modified_ids = Vec::new();
     let mut all_errors = Vec::new();
 
     // Process main modules
-    let (updated_modules, updated_tx, modules_modified_ids, modules_errors) = lock_modules(
+    let (updated_modules, modules_modified_ids, modules_errors) = lock_modules(
         flow.modules,
         job,
         mem_peak,
         canceled_by,
         job_dir,
         db,
-        tx,
         worker_name,
         worker_dir,
         job_path,
@@ -848,60 +927,19 @@ async fn lock_flow_value<'c>(
     )
     .await?;
 
-    tx = updated_tx;
     flow.modules = updated_modules;
     all_modified_ids.extend(modules_modified_ids);
     all_errors.extend(modules_errors);
 
     // Process failure_module if it exists
     if let Some(failure_module) = flow.failure_module {
-        let (updated_failure_modules, updated_tx, failure_modified_ids, failure_errors) =
-            lock_modules(
-                vec![*failure_module],
-                job,
-                mem_peak,
-                canceled_by,
-                job_dir,
-                db,
-                tx,
-                worker_name,
-                worker_dir,
-                job_path,
-                base_internal_url,
-                token,
-                locks_to_reload,
-                occupancy_metrics,
-                skip_flow_update,
-                &raw_deps,
-                dependency_map,
-                &raw_workspace_dependencies_o,
-                triggered_by_relative_import,
-                temp_script_refs,
-            )
-            .await?;
-
-        tx = updated_tx;
-        all_modified_ids.extend(failure_modified_ids);
-        all_errors.extend(failure_errors);
-
-        flow.failure_module = updated_failure_modules.into_iter().next().map(Box::new);
-    }
-
-    // Process preprocessor_module if it exists
-    if let Some(preprocessor_module) = flow.preprocessor_module {
-        let (
-            updated_preprocessor_modules,
-            updated_tx,
-            preprocessor_modified_ids,
-            preprocessor_errors,
-        ) = lock_modules(
-            vec![*preprocessor_module],
+        let (updated_failure_modules, failure_modified_ids, failure_errors) = lock_modules(
+            vec![*failure_module],
             job,
             mem_peak,
             canceled_by,
             job_dir,
             db,
-            tx,
             worker_name,
             worker_dir,
             job_path,
@@ -912,13 +950,44 @@ async fn lock_flow_value<'c>(
             skip_flow_update,
             &raw_deps,
             dependency_map,
-            raw_workspace_dependencies_o,
+            &raw_workspace_dependencies_o,
             triggered_by_relative_import,
             temp_script_refs,
         )
         .await?;
 
-        tx = updated_tx;
+        all_modified_ids.extend(failure_modified_ids);
+        all_errors.extend(failure_errors);
+
+        flow.failure_module = updated_failure_modules.into_iter().next().map(Box::new);
+    }
+
+    // Process preprocessor_module if it exists
+    if let Some(preprocessor_module) = flow.preprocessor_module {
+        let (updated_preprocessor_modules, preprocessor_modified_ids, preprocessor_errors) =
+            lock_modules(
+                vec![*preprocessor_module],
+                job,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                db,
+                worker_name,
+                worker_dir,
+                job_path,
+                base_internal_url,
+                token,
+                locks_to_reload,
+                occupancy_metrics,
+                skip_flow_update,
+                &raw_deps,
+                dependency_map,
+                raw_workspace_dependencies_o,
+                triggered_by_relative_import,
+                temp_script_refs,
+            )
+            .await?;
+
         all_modified_ids.extend(preprocessor_modified_ids);
         all_errors.extend(preprocessor_errors);
 
@@ -928,19 +997,21 @@ async fn lock_flow_value<'c>(
             .map(Box::new);
     }
 
-    Ok((flow, tx, all_modified_ids, all_errors))
+    Ok((flow, all_modified_ids, all_errors))
 }
 
 // TODO: Maybe use [FlowValue::traverse_leafs]
 // IMPORTANT: If updating this function, make sure you also update [FlowValue::traverse_leafs]
-async fn lock_modules<'c>(
+//
+// No tx: each per-module DB write auto-commits so `capture_dependency_job`
+// runs without row locks held.
+async fn lock_modules(
     modules: Vec<FlowModule>,
     job: &MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
-    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     worker_name: &str,
     worker_dir: &str,
     job_path: &str,
@@ -950,16 +1021,11 @@ async fn lock_modules<'c>(
     occupancy_metrics: &mut OccupancyMetrics,
     skip_flow_update: bool,
     raw_deps: &Option<HashMap<String, String>>,
-    dependency_map: &mut ScopedDependencyMap, // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
+    dependency_map: &mut ScopedDependencyMap,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     triggered_by_relative_import: bool,
     temp_script_refs: &Option<HashMap<String, String>>,
-) -> Result<(
-    Vec<FlowModule>,
-    sqlx::Transaction<'c, sqlx::Postgres>,
-    Vec<String>,
-    Vec<LockModuleError>,
-)> {
+) -> Result<(Vec<FlowModule>, Vec<String>, Vec<LockModuleError>)> {
     let mut new_flow_modules = Vec::new();
     let mut modified_ids = Vec::new();
     let mut errors = Vec::new();
@@ -989,14 +1055,13 @@ async fn lock_modules<'c>(
                     squash,
                 } => {
                     let nmodules;
-                    (nmodules, tx, nmodified_ids, nerrors) = Box::pin(lock_modules(
+                    (nmodules, nmodified_ids, nerrors) = Box::pin(lock_modules(
                         modules,
                         job,
                         mem_peak,
                         canceled_by,
                         job_dir,
                         db,
-                        tx,
                         worker_name,
                         worker_dir,
                         job_path,
@@ -1029,14 +1094,13 @@ async fn lock_modules<'c>(
                         let nmodules;
                         let inner_modified_ids;
                         let inner_errors;
-                        (nmodules, tx, inner_modified_ids, inner_errors) = Box::pin(lock_modules(
+                        (nmodules, inner_modified_ids, inner_errors) = Box::pin(lock_modules(
                             b.modules,
                             job,
                             mem_peak,
                             canceled_by,
                             job_dir,
                             db,
-                            tx,
                             worker_name,
                             worker_dir,
                             job_path,
@@ -1061,14 +1125,13 @@ async fn lock_modules<'c>(
                 }
                 FlowModuleValue::WhileloopFlow { modules, modules_node, skip_failures, squash } => {
                     let nmodules;
-                    (nmodules, tx, nmodified_ids, nerrors) = Box::pin(lock_modules(
+                    (nmodules, nmodified_ids, nerrors) = Box::pin(lock_modules(
                         modules,
                         job,
                         mem_peak,
                         canceled_by,
                         job_dir,
                         db,
-                        tx,
                         worker_name,
                         worker_dir,
                         job_path,
@@ -1098,14 +1161,13 @@ async fn lock_modules<'c>(
                         let nmodules;
                         let inner_modified_ids;
                         let inner_errors;
-                        (nmodules, tx, inner_modified_ids, inner_errors) = Box::pin(lock_modules(
+                        (nmodules, inner_modified_ids, inner_errors) = Box::pin(lock_modules(
                             b.modules,
                             job,
                             mem_peak,
                             canceled_by,
                             job_dir,
                             db,
-                            tx,
                             worker_name,
                             worker_dir,
                             job_path,
@@ -1129,14 +1191,13 @@ async fn lock_modules<'c>(
                     let ndefault;
                     let ninner_errors;
                     let ninner_modified_ids;
-                    (ndefault, tx, ninner_modified_ids, ninner_errors) = Box::pin(lock_modules(
+                    (ndefault, ninner_modified_ids, ninner_errors) = Box::pin(lock_modules(
                         default,
                         job,
                         mem_peak,
                         canceled_by,
                         job_dir,
                         db,
-                        tx,
                         worker_name,
                         worker_dir,
                         job_path,
@@ -1171,7 +1232,7 @@ async fn lock_modules<'c>(
                         hash.map(|h| h.0),
                         job.workspace_id
                     )
-                    .execute(&mut *tx)
+                    .execute(db)
                     .await?;
                 }
                 FlowModuleValue::Flow { path, .. } if !skip_flow_update => {
@@ -1181,7 +1242,7 @@ async fn lock_modules<'c>(
                         path,
                         job.workspace_id,
                     )
-                    .execute(&mut *tx)
+                    .execute(db)
                     .await?;
                 }
                 FlowModuleValue::AIAgent {
@@ -1204,14 +1265,13 @@ async fn lock_modules<'c>(
 
                     // Lock only the FlowModule-type tools
                     let locked_flow_modules;
-                    (locked_flow_modules, tx, nmodified_ids, nerrors) = Box::pin(lock_modules(
+                    (locked_flow_modules, nmodified_ids, nerrors) = Box::pin(lock_modules(
                         flow_modules,
                         job,
                         mem_peak,
                         canceled_by,
                         job_dir,
                         db,
-                        tx,
                         worker_name,
                         worker_dir,
                         job_path,
@@ -1252,14 +1312,8 @@ async fn lock_modules<'c>(
         };
 
         for asset in assets.iter().flatten() {
-            insert_static_asset_usage(
-                &mut *tx,
-                &job.workspace_id,
-                asset,
-                job_path,
-                AssetUsageKind::Flow,
-            )
-            .await?;
+            insert_static_asset_usage(db, &job.workspace_id, asset, job_path, AssetUsageKind::Flow)
+                .await?;
         }
 
         let get_references = || {
@@ -1269,8 +1323,8 @@ async fn lock_modules<'c>(
 
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
-                tx = dependency_map
-                    .patch(get_references(), e.id.clone(), tx)
+                dependency_map
+                    .patch_via_pool(get_references(), &e.id, db)
                     .await?;
                 new_flow_modules.push(e);
                 continue;
@@ -1281,8 +1335,8 @@ async fn lock_modules<'c>(
                     && (MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
                         || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT)
                 {
-                    tx = dependency_map
-                        .patch(get_references(), e.id.clone(), tx)
+                    dependency_map
+                        .patch_via_pool(get_references(), &e.id, db)
                         .await?;
 
                     new_flow_modules.push(e);
@@ -1339,8 +1393,8 @@ async fn lock_modules<'c>(
             Ok(new_lock) => {
                 if !raw_deps && !skip_flow_update {
                     let relative_imports = get_references();
-                    tx = dependency_map
-                        .patch(relative_imports.clone(), e.id.clone(), tx)
+                    dependency_map
+                        .patch_via_pool(relative_imports, &e.id, db)
                         .await?;
                 }
                 if language == ScriptLang::Bun || language == ScriptLang::Bunnative {
@@ -1377,7 +1431,7 @@ async fn lock_modules<'c>(
         continue;
     }
 
-    Ok((new_flow_modules, tx, modified_ids, errors))
+    Ok((new_flow_modules, modified_ids, errors))
 }
 
 /// Parse relative imports in script and call db to get each scripts' hash.
