@@ -1260,41 +1260,44 @@
 							{/if}
 						</div></Pane
 					>
+
 					<Pane size={33}>
-						{#key reload}
-							<FlowEditorPanel
-								enableAi
-								noEditor
-								on:applyArgs={(ev) => {
-									if (ev.detail.kind === 'preprocessor') {
-										stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
-										selectionManager.selectId('preprocessor')
-									} else {
-										previewArgsStore.val = ev.detail.args ?? {}
-										flowPreviewButtons?.openPreview()
-									}
-								}}
-								onTestFlow={flowPreviewButtons?.runPreview}
-								{job}
-								isOwner={flowPreviewContent?.getIsOwner()}
-								{suspendStatus}
-								onOpenDetails={flowPreviewButtons?.openPreview}
-								previewOpen={flowPreviewButtons?.getPreviewOpen()}
-							/>
-						{/key}
+						<div class="h-full w-full overflow-hidden pl-0.5">
+							{#if selectedModule}
+								<div
+									class="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-surface shrink-0"
+								>
+									<span class="text-xs text-secondary shrink-0">{selectedModule.id} summary</span>
+									<TextInput
+										inputProps={{ placeholder: 'Summary' }}
+										bind:value={selectedModule.summary}
+									/>
+								</div>
+							{/if}
+							{#key reload}
+								<FlowEditorPanel
+									enableAi
+									noEditor
+									on:applyArgs={(ev) => {
+										if (ev.detail.kind === 'preprocessor') {
+											stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
+											selectionManager.selectId('preprocessor')
+										} else {
+											previewArgsStore.val = ev.detail.args ?? {}
+											flowPreviewButtons?.openPreview()
+										}
+									}}
+									onTestFlow={flowPreviewButtons?.runPreview}
+									{job}
+									isOwner={flowPreviewContent?.getIsOwner()}
+									{suspendStatus}
+									onOpenDetails={flowPreviewButtons?.openPreview}
+									previewOpen={flowPreviewButtons?.getPreviewOpen()}
+								/>
+							{/key}
+						</div>
 					</Pane>
 				</Splitpanes>
-				{#if selectedModule}
-					<div
-						class="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-surface shrink-0"
-					>
-						<span class="text-xs text-secondary shrink-0">{selectedModule.id} summary</span>
-						<TextInput
-							inputProps={{ placeholder: 'Summary' }}
-							bind:value={selectedModule.summary}
-						/>
-					</div>
-				{/if}
 			</div>
 		</div>
 	{/if}
