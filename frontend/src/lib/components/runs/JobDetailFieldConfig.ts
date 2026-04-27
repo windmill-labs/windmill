@@ -96,6 +96,21 @@ export function getJobCategory(job: Job): JobCategory {
 	}
 }
 
+// For flow-shaped jobs the `script_hash` column on the job actually stores the
+// `flow_version` id (i64) — the API serializes it as zero-padded 16-char hex.
+export function isFlowVersionHash(job: Job): boolean {
+	switch (job.job_kind) {
+		case 'flow':
+		case 'flowpreview':
+		case 'singlestepflow':
+		case 'flownode':
+		case 'flowdependencies':
+			return true
+		default:
+			return false
+	}
+}
+
 /**
  * Gets trigger information from a job
  */
@@ -230,11 +245,38 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 	script_hash: {
 		field: 'script_hash',
 		label: 'Hash',
-		getValue: (job) => job.script_hash?.toString() || null,
-		getHref: (job, workspaceId) =>
-			job.script_hash && job.job_kind === 'script'
-				? `/scripts/get/${job.script_hash}?workspace=${workspaceId}`
-				: null
+		getValue: (job) => {
+			if (!job.script_hash) return null
+			// For flow-kind jobs, `script_hash` actually holds the `flow_version` id
+			// (i64) serialized as zero-padded 16-char hex. Decode to decimal so users
+			// can read it and click through to the exact version.
+			if (isFlowVersionHash(job)) {
+				try {
+					return BigInt('0x' + job.script_hash).toString()
+				} catch {
+					return job.script_hash.toString()
+				}
+			}
+			return job.script_hash.toString()
+		},
+		getHref: (job, workspaceId) => {
+			if (!job.script_hash) return null
+			if (job.job_kind === 'script' || job.job_kind === 'dependencies') {
+				// `dependencies` is the script-dependency job; its `script_hash` is a
+				// real script hash, so link to the script (same target as plain script jobs).
+				return `/scripts/get/${job.script_hash}?workspace=${workspaceId}`
+			}
+			if (isFlowVersionHash(job) && job.script_path) {
+				let version: string
+				try {
+					version = BigInt('0x' + job.script_hash).toString()
+				} catch {
+					return null
+				}
+				return `/flows/get/${job.script_path}?workspace=${workspaceId}&version=${version}`
+			}
+			return null
+		}
 	},
 
 	script_path: {
@@ -244,9 +286,7 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		getHref: (job, _workspaceId) => {
 			if (!job.script_path) return null
 			const isScript = job.job_kind === 'script'
-			return isScript
-				? `/scripts/get/${job.script_hash}`
-				: flowPathToHref(job.script_path)
+			return isScript ? `/scripts/get/${job.script_hash}` : flowPathToHref(job.script_path)
 		}
 	},
 
@@ -345,6 +385,7 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 		worker: true,
 		run_id: true,
 		script_path: true,
+		script_hash: true, // flow_version id, rendered with link to pinned version
 		flow_status: false,
 		duration: false,
 		// Optional fields
@@ -352,7 +393,6 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 		trigger_info: false,
 		parent_job: false,
 		schedule_path: false,
-		script_hash: false,
 		language: false,
 		step_info: false,
 		priority: false,
@@ -365,14 +405,14 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 		worker: true,
 		run_id: true,
 		started_at: true,
+		script_hash: true, // for flowdependencies/appdependencies this is the version id
+		script_path: true,
 		duration: false,
 		// Optional fields
 		memory_peak: false,
 		trigger_info: false,
 		parent_job: false,
 		schedule_path: false,
-		script_hash: false,
-		script_path: false,
 		language: false,
 		step_info: false,
 		flow_status: false,
