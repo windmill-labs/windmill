@@ -706,53 +706,51 @@
 					{/if}
 				</div>
 			{:else}
-				<div class="p-4 gap-2">
-					<Section
-						label={((p) => (p.startsWith(rootPath) ? p.slice(rootPath.length) : p))(
-							fileMetadata.fileKey
-						)}
-						breakAll
-					>
-						{#snippet action()}
-							<div class="flex gap-2">
-								{#if filePreview !== undefined}
-									{#if !hideS3SpecificDetails}
-										<Button
-											title="Download file from S3"
-											variant="default"
-											href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata?.fileKey ?? '')}${storage ? `&storage=${storage}` : ''}`}
-											download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
-											startIcon={{ icon: Download }}
-											iconOnly={true}
-										/>
-									{/if}
-									{#if !readOnlyMode}
-										<Button
-											title="Move file"
-											variant="default"
-											on:click={() => {
-												moveDestKey = fileMetadata?.fileKey ?? ''
-												moveModalOpen = true
-											}}
-											startIcon={{ icon: MoveRight }}
-											iconOnly={true}
-										/>
-									{/if}
-									{#if !readOnlyMode || allowDelete}
-										<Button
-											title="Delete file"
-											variant="default"
-											on:click={() => {
-												deletionModalOpen = true
-											}}
-											startIcon={{ icon: Trash }}
-											iconOnly={true}
-										/>
-									{/if}
+				<div class="px-3 py-2 flex flex-col gap-2">
+					<div class="flex flex-row items-center justify-between gap-2">
+						<h2 class="text-emphasis text-sm font-semibold break-all min-w-0">
+							{((p) => (p.startsWith(rootPath) ? p.slice(rootPath.length) : p))(
+								fileMetadata.fileKey
+							)}
+						</h2>
+						{#if filePreview !== undefined && (!hideS3SpecificDetails || !readOnlyMode || allowDelete)}
+							<div class="flex gap-2 shrink-0">
+								{#if !hideS3SpecificDetails}
+									<Button
+										title="Download file from S3"
+										variant="default"
+										href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata?.fileKey ?? '')}${storage ? `&storage=${storage}` : ''}`}
+										download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
+										startIcon={{ icon: Download }}
+										iconOnly={true}
+									/>
+								{/if}
+								{#if !readOnlyMode}
+									<Button
+										title="Move file"
+										variant="default"
+										on:click={() => {
+											moveDestKey = fileMetadata?.fileKey ?? ''
+											moveModalOpen = true
+										}}
+										startIcon={{ icon: MoveRight }}
+										iconOnly={true}
+									/>
+								{/if}
+								{#if !readOnlyMode || allowDelete}
+									<Button
+										title="Delete file"
+										variant="default"
+										on:click={() => {
+											deletionModalOpen = true
+										}}
+										startIcon={{ icon: Trash }}
+										iconOnly={true}
+									/>
 								{/if}
 							</div>
-						{/snippet}
-					</Section>
+						{/if}
+					</div>
 					{#if !hideS3SpecificDetails}
 						<TableSimple
 							headers={['Last modified', 'Size', 'Type']}
