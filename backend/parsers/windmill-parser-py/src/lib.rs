@@ -351,8 +351,11 @@ pub fn parse_python_signature(
         }
     };
 
+    // Mirror the runtime detector `is_wac_v2_py` in `windmill-worker/src/wac_executor.rs`:
+    // a wmill import + an `@workflow` decorator is sufficient. `@task` is optional —
+    // a workflow that only uses inline `step()` calls still goes through the WAC runner,
+    // and labelling it as `wac` here is what aligns the editor badge with execution.
     let is_wac_v2 = (code.contains("@workflow") || code.contains("workflow("))
-        && (code.contains("@task") || code.contains("task("))
         && (code.contains("import wmill") || code.contains("from wmill"));
 
     // Check if main function was found
@@ -1028,6 +1031,23 @@ def main(): return
             }
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_wac_step_only() -> anyhow::Result<()> {
+        // A WAC script that uses inline step() instead of @task should still be
+        // detected as auto_kind = "wac" — the runtime path treats @task as
+        // optional, and the editor badge needs to match.
+        let code = r#"
+from wmill import workflow, step
+
+@workflow
+async def main(x: str):
+    return await step("k", lambda: x.upper())
+"#;
+        let sig = parse_python_signature(code, None, false)?;
+        assert_eq!(sig.auto_kind, Some("wac".to_string()));
         Ok(())
     }
 

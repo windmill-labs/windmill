@@ -722,25 +722,28 @@ pub async fn handle_python_job(
 
     let main_override = main_name.unwrap_or_else(|| "main".to_string());
     let res_to_json_body = python_res_to_json_body(postprocessor);
+    // Indented at 4 spaces so it can be inlined inside the wrapper's
+    // `try:` block — preprocessor failures route through the same error
+    // serializer as workflow failures.
     let wac_preprocessor = if let Some(pre_spread) = wac_pre_spread.as_ref() {
         format!(
             r#"if not hasattr(inner_script, 'preprocessor') or not callable(inner_script.preprocessor):
-    raise ValueError("preprocessor function is missing")
-pre_args = {{}}
-{pre_spread}
-for k, v in list(pre_args.items()):
-    if v == '<function call>':
-        del pre_args[k]
-_pre_result = inner_script.preprocessor(**pre_args)
-if hasattr(_pre_result, '__await__'):
-    import asyncio
-    _pre_result = asyncio.get_event_loop().run_until_complete(_pre_result)
-kwargs = _pre_result if _pre_result is not None else {{}}
-_pre_json = json.dumps(kwargs, separators=(',', ':'), default=str)
-with open("args.json", 'w') as f:
-    f.write(_pre_json)
-sys.stdout.write("wm_res[preprocessed_args]:" + _pre_json + "\n")
-sys.stdout.flush()"#
+        raise ValueError("preprocessor function is missing")
+    pre_args = {{}}
+    {pre_spread}
+    for k, v in list(pre_args.items()):
+        if v == '<function call>':
+            del pre_args[k]
+    _pre_result = inner_script.preprocessor(**pre_args)
+    if hasattr(_pre_result, '__await__'):
+        import asyncio
+        _pre_result = asyncio.run(_pre_result)
+    kwargs = _pre_result if _pre_result is not None else {{}}
+    _pre_json = json.dumps(kwargs, separators=(',', ':'), default=str)
+    with open("args.json", 'w') as f:
+        f.write(_pre_json)
+    sys.stdout.write("wm_res[preprocessed_args]:" + _pre_json + "\n")
+    sys.stdout.flush()"#
         )
     } else {
         "".to_string()
@@ -761,30 +764,28 @@ from wmill.client import _run_workflow
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
 {transforms}
-{wac_preprocessor}
-args = kwargs
 
 with open("checkpoint.json") as f:
     checkpoint = json.load(f, strict=False)
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
-# Find the @workflow-decorated function
-workflow_fn = None
-for name in dir(inner_script):
-    obj = getattr(inner_script, name)
-    if callable(obj) and getattr(obj, '_is_workflow', False):
-        workflow_fn = obj
-        break
-
-if workflow_fn is None:
-    raise ValueError("No @workflow function found in script")
-
-for k, v in list(args.items()):
-    if v == '<function call>':
-        del args[k]
-
 try:
+    {wac_preprocessor}
+    args = kwargs
+    for k, v in list(args.items()):
+        if v == '<function call>':
+            del args[k]
+
+    workflow_fn = None
+    for name in dir(inner_script):
+        obj = getattr(inner_script, name)
+        if callable(obj) and getattr(obj, '_is_workflow', False):
+            workflow_fn = obj
+            break
+    if workflow_fn is None:
+        raise ValueError("No @workflow function found in script")
+
     output = _run_workflow(workflow_fn, checkpoint, args)
     if isinstance(output, dict) and output.get("type") == "complete":
         print("")
@@ -1647,9 +1648,11 @@ async fn prepare_wrapper(
     let pre_spread = pre_sig
         .as_ref()
         .map(|sig| python_preprocessor_spread(sig, "        "));
+    // 4-space indent for the WAC wrapper, where the preprocessor block is
+    // injected inside the `try:` body so failures get serialized to result.json.
     let wac_pre_spread = pre_sig
         .as_ref()
-        .map(|sig| python_preprocessor_spread(sig, ""));
+        .map(|sig| python_preprocessor_spread(sig, "    "));
 
     let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
 

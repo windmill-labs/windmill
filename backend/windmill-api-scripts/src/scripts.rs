@@ -347,11 +347,10 @@ async fn list_scripts(
             .unwrap_or(true))
         || authed.is_operator
     {
-        // only include scripts that have a runnable entrypoint:
-        // - auto_kind IS NULL: regular script with main()
-        // - auto_kind = 'wac': workflow-as-code script
-        // exclude auto_kind = 'lib' (library scripts without main)
-        sqlb.and_where("(o.auto_kind IS NULL OR o.auto_kind = 'wac')");
+        // only include scripts that have a runnable entrypoint. Use a
+        // deny-list: anything that isn't a 'lib' (library script without
+        // main) is callable, including future `auto_kind` values.
+        sqlb.and_where("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')");
     }
 
     if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
