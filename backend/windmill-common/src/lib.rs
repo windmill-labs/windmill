@@ -199,15 +199,6 @@ lazy_static::lazy_static! {
     pub static ref OTEL_TRACING_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_TRACING").is_ok());
     pub static ref OTEL_LOGS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_LOGS").is_ok());
 
-    /// Severity at which job stderr output is emitted to the tracing bridge.
-    /// Defaults to `Error`; operators can lower it via the `otel` instance
-    /// setting when their scripts write routine warnings/info to stderr
-    /// (Python `logging` is the common offender) and flood observability
-    /// backends with false-positive errors.
-    pub static ref STDERR_LOG_SEVERITY: arc_swap::ArcSwap<StderrLogSeverity> =
-        arc_swap::ArcSwap::from_pointee(StderrLogSeverity::Error);
-
-
     pub static ref METRICS_DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
     pub static ref CRITICAL_ALERT_MUTE_UI_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -393,19 +384,24 @@ async fn reset() -> () {
     todo!()
 }
 
-/// Severity level at which job stderr output is emitted.
+/// Parse the canonical Python `logging.basicConfig()` line format
+/// `LEVELNAME:logger.name:message` and return the corresponding tracing level.
 ///
-/// Serialized lowercase (`"error"`, `"warn"`, `"info"`, `"debug"`) for the
-/// `otel.stderr_default_severity` instance setting.
-#[derive(Deserialize, Serialize, Copy, Clone, Debug, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "lowercase")]
-pub enum StderrLogSeverity {
-    #[default]
-    Error,
-    Warn,
-    Info,
-    Debug,
+/// Returns `None` for lines that don't match — tracebacks, raw `print` to
+/// stderr, third-party tools with custom formats — leaving those to the caller's
+/// default (typically `tracing::error!`).
+pub fn classify_python_logging_line(line: &str) -> Option<tracing::Level> {
+    let (level, rest) = line.split_once(':')?;
+    if !rest.contains(':') {
+        return None;
+    }
+    match level {
+        "CRITICAL" | "ERROR" => Some(tracing::Level::ERROR),
+        "WARNING" => Some(tracing::Level::WARN),
+        "INFO" => Some(tracing::Level::INFO),
+        "DEBUG" => Some(tracing::Level::DEBUG),
+        _ => None,
+    }
 }
 
 #[derive(Serialize, Debug)]

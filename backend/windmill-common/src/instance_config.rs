@@ -558,12 +558,6 @@ pub struct OtelSettings {
     pub otel_exporter_otlp_protocol: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub otel_exporter_otlp_compression: Option<String>,
-    /// Severity used when emitting job stderr output to the OTEL log bridge.
-    /// Defaults to `"error"`; set to `"warn"`, `"info"`, or `"debug"` when
-    /// scripts routinely write non-error output to stderr (Python `logging`,
-    /// dlt, etc.) to avoid flooding alerting with false positives.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stderr_default_severity: Option<crate::StderrLogSeverity>,
 }
 
 /// Per-language HTTP request tracing proxy configuration.
