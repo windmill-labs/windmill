@@ -49,7 +49,8 @@ mod job_payload {
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default().into(),
                 debouncing_settings:
-                    windmill_common::runnable_settings::DebouncingSettings::default(), labels: None,
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
+                labels: None,
                 cache_ttl: None,
                 cache_ignore_s3_path: None,
                 dedicated_worker: None,
@@ -89,7 +90,8 @@ mod job_payload {
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
-                    windmill_common::runnable_settings::DebouncingSettings::default(), labels: None,
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
+                labels: None,
             })
             .run_until_complete_with(db, false, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
@@ -276,19 +278,25 @@ mod job_payload {
 
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_dependencies_payload_min_1_427(db: Pool<Postgres>) -> anyhow::Result<()> {
-        MIN_VERSION.store(std::sync::Arc::new(MIN_VERSION_IS_AT_LEAST_1_427.version().clone()));
+        MIN_VERSION.store(std::sync::Arc::new(
+            MIN_VERSION_IS_AT_LEAST_1_427.version().clone(),
+        ));
         test_dependencies_payload(db).await?;
         Ok(())
     }
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_dependencies_payload_min_1_432(db: Pool<Postgres>) -> anyhow::Result<()> {
-        MIN_VERSION.store(std::sync::Arc::new(MIN_VERSION_IS_AT_LEAST_1_432.version().clone()));
+        MIN_VERSION.store(std::sync::Arc::new(
+            MIN_VERSION_IS_AT_LEAST_1_432.version().clone(),
+        ));
         test_dependencies_payload(db).await?;
         Ok(())
     }
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_dependencies_payload_min_1_440(db: Pool<Postgres>) -> anyhow::Result<()> {
-        MIN_VERSION.store(std::sync::Arc::new(MIN_VERSION_IS_AT_LEAST_1_440.version().clone()));
+        MIN_VERSION.store(std::sync::Arc::new(
+            MIN_VERSION_IS_AT_LEAST_1_440.version().clone(),
+        ));
         test_dependencies_payload(db).await?;
         Ok(())
     }
@@ -424,7 +432,8 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: false,
-                version: 1443253234253454, labels: None,
+                version: 1443253234253454,
+                labels: None,
             })
             .run_until_complete(&db, false, port)
             .await
@@ -473,7 +482,8 @@ mod job_payload {
                 path: "f/system/hello_with_preprocessor".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: true,
-                version: 1443253234253456, labels: None,
+                version: 1443253234253456,
+                labels: None,
             })
             .run_until_complete_with(db, false, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
@@ -543,7 +553,8 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow".to_string(),
                 dedicated_worker: None,
                 apply_preprocessor: true,
-                version: 1443253234253454, labels: None,
+                version: 1443253234253454,
+                labels: None,
             })
             .run_until_complete(&db, false, port)
             .await
@@ -554,6 +565,8 @@ mod job_payload {
                 step_id: "a".into(),
                 branch_or_iteration_n: None,
                 flow_version: None,
+                branch_chosen: None,
+                nested: None,
             })
             .arg("iter", json!({ "value": "tests", "index": 0 }))
             .run_until_complete(&db, false, port)
@@ -727,6 +740,7 @@ mod job_payload {
                 step_id: "a".into(),
                 branch_or_iteration_n: None,
                 flow_version: None,
+                ..Default::default()
             }),
             json!("foo"),
             json!([
@@ -742,6 +756,7 @@ mod job_payload {
                 step_id: "b".into(),
                 branch_or_iteration_n: None,
                 flow_version: None,
+                ..Default::default()
             }),
             json!("bar"),
             json!([
@@ -757,6 +772,7 @@ mod job_payload {
                 step_id: "c".into(),
                 branch_or_iteration_n: Some(1),
                 flow_version: None,
+                ..Default::default()
             }),
             json!("yolo"),
             json!([
@@ -766,6 +782,230 @@ mod job_payload {
             ]),
         )
         .await;
+        Ok(())
+    }
+
+    /// Walk a completed flow's `flow_status` to find the child job UUID for a given
+    /// container step at the given iteration. Used by nested-restart tests to
+    /// reconstruct the `nested` chain that the API would resolve normally.
+    async fn child_job_id_for_step(
+        db: &Pool<Postgres>,
+        flow_job_id: uuid::Uuid,
+        step_id: &str,
+        iter: Option<usize>,
+    ) -> uuid::Uuid {
+        let row = sqlx::query!(
+            "SELECT flow_status FROM v2_job_completed WHERE id = $1",
+            flow_job_id,
+        )
+        .fetch_one(db)
+        .await
+        .unwrap();
+        let raw = row.flow_status.expect("flow_status missing");
+        let status: windmill_common::flow_status::FlowStatus =
+            serde_json::from_value(raw).expect("parse flow_status");
+        let module = status
+            .modules
+            .iter()
+            .find(|m| m.id() == step_id)
+            .expect("step not found in completed flow_status");
+        match iter {
+            Some(i) => module
+                .flow_jobs()
+                .expect("expected flow_jobs on container module")
+                .get(i)
+                .copied()
+                .expect("iteration not found in flow_jobs"),
+            None => module.job().expect("expected single child job on module"),
+        }
+    }
+
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_nested_restart_inside_branchone(db: Pool<Postgres>) -> anyhow::Result<()> {
+        use windmill_common::flow_status::BranchChosen;
+
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        let flow_value: FlowValue = serde_json::from_value(json!({
+            "modules": [{
+                "id": "a",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "input_transforms": {
+                        "world": { "type": "javascript", "expr": "flow_input.world" }
+                    },
+                    "content": "export function main(world: string) { return `pre-${world}` }"
+                }
+            }, {
+                "id": "branch",
+                "value": {
+                    "type": "branchone",
+                    "default": [],
+                    "branches": [{
+                        "expr": "true",
+                        "modules": [{
+                            "id": "inner",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "deno",
+                                "input_transforms": {
+                                    "world": { "type": "javascript", "expr": "flow_input.world" }
+                                },
+                                "content": "export function main(world: string) { return `inner-${world}` }"
+                            }
+                        }]
+                    }]
+                }
+            }],
+            "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": { "world": { "type": "string" } },
+                "order": ["world"]
+            }
+        }))
+        .unwrap();
+
+        let test = || async {
+            let db = &db;
+            let first_run = RunJob::from(JobPayload::RawFlow {
+                value: flow_value.clone(),
+                path: None,
+                restarted_from: None,
+            })
+            .arg("world", json!("foo"))
+            .run_until_complete(db, false, port)
+            .await;
+            assert_eq!(first_run.json_result().unwrap(), json!("inner-foo"));
+
+            let original_branch_child =
+                child_job_id_for_step(db, first_run.id, "branch", None).await;
+
+            // Restart at the nested `inner` step inside `branch`. The new run should
+            // re-execute step `a` (since it's before the BranchOne) AND `inner`
+            // (the restart point). The chosen branch is locked to branch 0.
+            let restarted = RunJob::from(JobPayload::RawFlow {
+                value: flow_value.clone(),
+                path: None,
+                restarted_from: Some(RestartedFrom {
+                    flow_job_id: first_run.id,
+                    step_id: "branch".into(),
+                    branch_or_iteration_n: None,
+                    flow_version: None,
+                    branch_chosen: Some(BranchChosen::Branch { branch: 0 }),
+                    nested: Some(Box::new(RestartedFrom {
+                        flow_job_id: original_branch_child,
+                        step_id: "inner".into(),
+                        branch_or_iteration_n: None,
+                        flow_version: None,
+                        branch_chosen: None,
+                        nested: None,
+                    })),
+                }),
+            })
+            .arg("world", json!("bar"))
+            .run_until_complete(db, false, port)
+            .await;
+            assert_eq!(restarted.json_result().unwrap(), json!("inner-bar"));
+        };
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
+        Ok(())
+    }
+
+    #[cfg(feature = "deno_core")]
+    #[sqlx::test(fixtures("base", "hello"))]
+    async fn test_nested_restart_inside_forloop_iteration(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
+        initialize_tracing().await;
+        let server = ApiServer::start(db.clone()).await?;
+        let port = server.addr.port();
+
+        // Sequential ForLoop with an inner step. We restart at the inner step inside
+        // iteration 1, expecting iteration 0 to remain unchanged and only iteration
+        // 1 to re-run with new input.
+        let flow_value: FlowValue = serde_json::from_value(json!({
+            "modules": [{
+                "id": "loop",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": { "type": "javascript", "expr": "['x', 'y']" },
+                    "skip_failures": false,
+                    "modules": [{
+                        "id": "inner",
+                        "value": {
+                            "type": "rawscript",
+                            "language": "deno",
+                            "input_transforms": {
+                                "iter_val": { "type": "javascript", "expr": "flow_input.iter.value" },
+                                "tag": { "type": "javascript", "expr": "flow_input.tag" }
+                            },
+                            "content": "export function main(iter_val: string, tag: string) { return `${tag}:${iter_val}` }"
+                        }
+                    }]
+                }
+            }],
+            "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": { "tag": { "type": "string" } },
+                "order": ["tag"]
+            }
+        }))
+        .unwrap();
+
+        let test = || async {
+            let db = &db;
+            let first_run = RunJob::from(JobPayload::RawFlow {
+                value: flow_value.clone(),
+                path: None,
+                restarted_from: None,
+            })
+            .arg("tag", json!("first"))
+            .run_until_complete(db, false, port)
+            .await;
+            assert_eq!(
+                first_run.json_result().unwrap(),
+                json!(["first:x", "first:y"])
+            );
+
+            // Original child job for iteration 1 of `loop`.
+            let original_iter1_child =
+                child_job_id_for_step(db, first_run.id, "loop", Some(1)).await;
+
+            let restarted = RunJob::from(JobPayload::RawFlow {
+                value: flow_value.clone(),
+                path: None,
+                restarted_from: Some(RestartedFrom {
+                    flow_job_id: first_run.id,
+                    step_id: "loop".into(),
+                    branch_or_iteration_n: Some(1),
+                    flow_version: None,
+                    branch_chosen: None,
+                    nested: Some(Box::new(RestartedFrom {
+                        flow_job_id: original_iter1_child,
+                        step_id: "inner".into(),
+                        branch_or_iteration_n: None,
+                        flow_version: None,
+                        branch_chosen: None,
+                        nested: None,
+                    })),
+                }),
+            })
+            .arg("tag", json!("second"))
+            .run_until_complete(db, false, port)
+            .await;
+            // Iteration 0 keeps the original "first:x"; iteration 1 re-ran with "second"
+            assert_eq!(
+                restarted.json_result().unwrap(),
+                json!(["first:x", "second:y"])
+            );
+        };
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
 
@@ -789,7 +1029,8 @@ mod job_payload {
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
-                    windmill_common::runnable_settings::DebouncingSettings::default(), labels: None,
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
+                labels: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))
@@ -839,7 +1080,8 @@ mod job_payload {
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
-                    windmill_common::runnable_settings::DebouncingSettings::default(), labels: None,
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
+                labels: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))
@@ -889,7 +1131,8 @@ mod job_payload {
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
-                    windmill_common::runnable_settings::DebouncingSettings::default(), labels: None,
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
+                labels: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))
@@ -939,7 +1182,8 @@ mod job_payload {
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
-                    windmill_common::runnable_settings::DebouncingSettings::default(), labels: None,
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
+                labels: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))
@@ -991,7 +1235,8 @@ mod job_payload {
                 concurrency_settings:
                     windmill_common::runnable_settings::ConcurrencySettings::default(),
                 debouncing_settings:
-                    windmill_common::runnable_settings::DebouncingSettings::default(), labels: None,
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
+                labels: None,
             })
             .arg("foo", json!("hello"))
             .arg("bar", json!("world"))

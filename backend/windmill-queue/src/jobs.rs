@@ -5030,6 +5030,8 @@ async fn push_inner<'c, 'd>(
                             step_id: restarted_from_val.step_id,
                             branch_or_iteration_n: restarted_from_val.branch_or_iteration_n,
                             flow_version: restarted_from_val.flow_version,
+                            branch_chosen: restarted_from_val.branch_chosen,
+                            nested: restarted_from_val.nested,
                         }),
                         user_states,
                         preprocessor_module: None,
@@ -5312,6 +5314,8 @@ async fn push_inner<'c, 'd>(
             step_id,
             branch_or_iteration_n,
             flow_version,
+            branch_chosen,
+            nested,
         } => {
             let (
                 version,
@@ -5351,6 +5355,8 @@ async fn push_inner<'c, 'd>(
                     step_id,
                     branch_or_iteration_n,
                     flow_version,
+                    branch_chosen,
+                    nested,
                 }),
                 user_states,
                 preprocessor_module: None,
@@ -6133,7 +6139,6 @@ async fn restarted_flows_resolution(
     restart_step_id: &str,
     branch_or_iteration_n: Option<usize>,
     flow_version: Option<i64>,
-    // parents: Vec<RestartedParent>,
 ) -> Result<
     (
         Option<i64>,

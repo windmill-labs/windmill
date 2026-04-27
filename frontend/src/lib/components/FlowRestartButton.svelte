@@ -18,6 +18,18 @@
 		enterpriseOnly?: boolean
 		variant?: 'default' | 'accent'
 		unifiedSize?: 'xs' | 'sm' | 'md' | 'lg'
+		/**
+		 * For nested-step restarts: path of ancestor containers from the top-level
+		 * step down to the leaf. When provided, the LAST entry's step_id is the
+		 * actual restart point and `selectedJobStep` (the leaf shown in the UI) is
+		 * informational only — the request is built from `nestedTopStepId`,
+		 * `nestedTopBranchOrIterationN` and `nestedPath`.
+		 */
+		nestedPath?: Array<{ step_id: string; branch_or_iteration_n?: number }>
+		/** Top-level container step id (only used when nestedPath is set) */
+		nestedTopStepId?: string
+		/** Top-level container branch_or_iteration_n (only used when nestedPath is set) */
+		nestedTopBranchOrIterationN?: number
 		/** Called when flow is restarted. If not provided, will navigate to the new run using goto (requires SvelteKit) */
 		onRestart?: (stepId: string, branchOrIterationN: number, flowVersion?: number) => void
 		/** Called when flow restart completes with the new job ID. Used for navigation in non-SvelteKit contexts */
@@ -35,9 +47,14 @@
 		enterpriseOnly = false,
 		variant = 'default',
 		unifiedSize = 'md',
+		nestedPath = undefined,
+		nestedTopStepId = undefined,
+		nestedTopBranchOrIterationN = undefined,
 		onRestart,
 		onRestartComplete
 	}: Props = $props()
+
+	const isNested = $derived((nestedPath?.length ?? 0) > 0)
 
 	// Sentinel value meaning "use the same version as the original run" (backend receives undefined)
 	const RUN_VERSION_SENTINEL = -1
@@ -50,14 +67,22 @@
 	let runVersionInList: boolean = $state(false)
 
 	async function restartFlow(stepId: string, branchOrIterationN: number, flowVersion?: number) {
+		const requestBody = isNested
+			? {
+					step_id: nestedTopStepId!,
+					branch_or_iteration_n: nestedTopBranchOrIterationN,
+					flow_version: flowVersion,
+					nested_path: nestedPath
+				}
+			: {
+					step_id: stepId,
+					branch_or_iteration_n: branchOrIterationN,
+					flow_version: flowVersion
+				}
 		let run = await JobService.restartFlowAtStep({
 			workspace: $workspaceStore!,
 			id: jobId,
-			requestBody: {
-				step_id: stepId,
-				branch_or_iteration_n: branchOrIterationN,
-				flow_version: flowVersion
-			}
+			requestBody
 		})
 		onRestartComplete?.(run)
 	}
@@ -161,7 +186,9 @@
 		<Popover
 			floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
 			disablePopup={!flowPath}
-			on:openChange={(e) => { if (e.detail) loadFlowVersions() }}
+			on:openChange={(e) => {
+				if (e.detail) loadFlowVersions()
+			}}
 		>
 			{#snippet trigger()}
 				{@render singleRestartButton()}
@@ -178,7 +205,9 @@
 {:else}
 	<Popover
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
-		on:openChange={(e) => { if (e.detail) loadFlowVersions() }}
+		on:openChange={(e) => {
+			if (e.detail) loadFlowVersions()
+		}}
 	>
 		{#snippet trigger()}
 			<Button

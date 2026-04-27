@@ -87,6 +87,7 @@
 	import { page } from '$app/state'
 	import { twMerge } from 'tailwind-merge'
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
+	import { findStepPath } from '$lib/components/restartFromStepPath'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
@@ -103,6 +104,15 @@
 	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
 	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = $state('single')
 	let restartBranchNames: [number, string][] = []
+	// When the selected step is nested inside a top-level container (BranchOne / sequential
+	// ForLoop), this carries the path to send to the backend; the top-level container is
+	// addressed via `nestedTopStepId` + `nestedTopBranchOrIterationN`.
+	let nestedRestartTopStepId: string | undefined = $state(undefined)
+	let nestedRestartTopBranchOrIterationN: number | undefined = $state(undefined)
+	let nestedRestartPath: Array<{ step_id: string; branch_or_iteration_n?: number }> | undefined =
+		$state(undefined)
+	let nestedRestartIterationInputs: number[] = $state([])
+	let nestedRestartSupported: boolean = $state(false)
 
 	let testIsLoading = $state(false)
 	let jobLoader: JobLoader | undefined = $state(undefined)
@@ -170,6 +180,11 @@
 	}
 
 	function onSelectedJobStepChange() {
+		nestedRestartTopStepId = undefined
+		nestedRestartTopBranchOrIterationN = undefined
+		nestedRestartPath = undefined
+		nestedRestartIterationInputs = []
+		nestedRestartSupported = false
 		if (selectedJobStep !== undefined && job?.flow_status?.modules !== undefined) {
 			selectedJobStepIsTopLevel =
 				job?.flow_status?.modules.map((m) => m.id).indexOf(selectedJobStep) >= 0
@@ -186,6 +201,47 @@
 				})
 			} else {
 				selectedJobStepType = 'single'
+			}
+
+			// Nested-step restart: walk the flow_value to find the selected step's path.
+			// Supported when ancestors are BranchOne / sequential ForLoop only. BranchAll,
+			// parallel loops, and subflow-internal steps are unsupported here.
+			if (!selectedJobStepIsTopLevel && job?.raw_flow?.modules) {
+				const path = findStepPath(job.raw_flow.modules, selectedJobStep!)
+				if (path && path.ancestors.length > 0) {
+					const top = path.ancestors[0]
+					const inner = path.ancestors.slice(1)
+					const blocked = path.ancestors.some(
+						(a) => a.type === 'branchall' || a.type === 'whileloopflow'
+					)
+					if (!blocked) {
+						const topStatus = job.flow_status?.modules?.find((m) => m.id === top.stepId)
+						let topBranchOrIter: number | undefined
+						if (top.type === 'forloopflow') {
+							topBranchOrIter = 0
+							const flowJobs = (topStatus as any)?.flow_jobs as string[] | undefined
+							nestedRestartIterationInputs = [flowJobs?.length ?? 0]
+						}
+						const innerPath: Array<{ step_id: string; branch_or_iteration_n?: number }> = []
+						for (const a of inner) {
+							const entry: { step_id: string; branch_or_iteration_n?: number } = {
+								step_id: a.stepId
+							}
+							if (a.type === 'forloopflow') {
+								entry.branch_or_iteration_n = 0
+								nestedRestartIterationInputs.push(0)
+							}
+							innerPath.push(entry)
+						}
+						// The leaf is the selected step itself
+						innerPath.push({ step_id: selectedJobStep! })
+
+						nestedRestartTopStepId = top.stepId
+						nestedRestartTopBranchOrIterationN = topBranchOrIter
+						nestedRestartPath = innerPath
+						nestedRestartSupported = true
+					}
+				}
 			}
 		}
 	}
@@ -633,12 +689,15 @@
 					startIcon={{ icon: Calendar }}>Edit schedule</Button
 				>
 			{/if}
-			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && selectedJobStepIsTopLevel && job.id}
+			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && (selectedJobStepIsTopLevel || nestedRestartSupported) && job.id}
 				<FlowRestartButton
 					jobId={job.id}
 					{selectedJobStep}
 					{selectedJobStepType}
 					{restartBranchNames}
+					nestedPath={nestedRestartSupported ? nestedRestartPath : undefined}
+					nestedTopStepId={nestedRestartTopStepId}
+					nestedTopBranchOrIterationN={nestedRestartTopBranchOrIterationN}
 					onRestartComplete={(newJobId) => {
 						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
 					}}

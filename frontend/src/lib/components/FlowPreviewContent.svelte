@@ -40,6 +40,7 @@
 	import FlowChat from './flows/conversations/FlowChat.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import FlowRestartButton from './FlowRestartButton.svelte'
+	import { findStepPath } from './restartFromStepPath'
 	import { createFlowRecording, setActiveRecording } from './recording/flowRecording.svelte'
 	import type { FlowRecording } from './recording/types'
 
@@ -91,6 +92,11 @@
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
+	let nestedRestartTopStepId: string | undefined = $state(undefined)
+	let nestedRestartTopBranchOrIterationN: number | undefined = $state(undefined)
+	let nestedRestartPath: Array<{ step_id: string; branch_or_iteration_n?: number }> | undefined =
+		$state(undefined)
+	let nestedRestartSupported: boolean = $state(false)
 	let isRunning: boolean = $state(false)
 	let jsonView: boolean = $state(false)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -212,6 +218,10 @@
 	}
 
 	function onSelectedJobStepChange() {
+		nestedRestartTopStepId = undefined
+		nestedRestartTopBranchOrIterationN = undefined
+		nestedRestartPath = undefined
+		nestedRestartSupported = false
 		if (selectedJobStep !== undefined && job?.flow_status?.modules !== undefined) {
 			selectedJobStepIsTopLevel =
 				job?.flow_status?.modules.map((m) => m.id).indexOf(selectedJobStep) >= 0
@@ -228,6 +238,34 @@
 				})
 			} else {
 				selectedJobStepType = 'single'
+			}
+
+			if (!selectedJobStepIsTopLevel && job?.raw_flow?.modules) {
+				const path = findStepPath(job.raw_flow.modules, selectedJobStep!)
+				if (path && path.ancestors.length > 0) {
+					const blocked = path.ancestors.find(
+						(a) => a.type === 'branchall' || a.type === 'whileloopflow'
+					)
+					if (!blocked) {
+						const top = path.ancestors[0]
+						const inner = path.ancestors.slice(1)
+						const innerPath: Array<{ step_id: string; branch_or_iteration_n?: number }> = []
+						for (const a of inner) {
+							const entry: { step_id: string; branch_or_iteration_n?: number } = {
+								step_id: a.stepId
+							}
+							if (a.type === 'forloopflow') {
+								entry.branch_or_iteration_n = 0
+							}
+							innerPath.push(entry)
+						}
+						innerPath.push({ step_id: selectedJobStep! })
+						nestedRestartTopStepId = top.stepId
+						nestedRestartTopBranchOrIterationN = top.type === 'forloopflow' ? 0 : undefined
+						nestedRestartPath = innerPath
+						nestedRestartSupported = true
+					}
+				}
 			}
 		}
 	}
@@ -418,12 +456,15 @@
 				</div>
 			{:else}
 				<div class="grow justify-center flex flex-row gap-2 items-center">
-					{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel}
+					{#if jobId !== undefined && selectedJobStep !== undefined && (selectedJobStepIsTopLevel || nestedRestartSupported)}
 						<FlowRestartButton
 							{jobId}
 							{selectedJobStep}
 							{selectedJobStepType}
 							{restartBranchNames}
+							nestedPath={nestedRestartSupported ? nestedRestartPath : undefined}
+							nestedTopStepId={nestedRestartTopStepId}
+							nestedTopBranchOrIterationN={nestedRestartTopBranchOrIterationN}
 							onRestart={(stepId, branchOrIterationN) => {
 								runPreview(previewArgs.val, {
 									flow_job_id: jobId,

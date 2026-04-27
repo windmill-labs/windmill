@@ -10598,13 +10598,27 @@ paths:
               properties:
                 step_id:
                   type: string
-                  description: step id to restart the flow from
+                  description: top-level step id to restart the flow from (or the outermost container when restarting at a nested step)
                 branch_or_iteration_n:
                   type: integer
-                  description: for branchall or loop, the iteration at which the flow should restart (optional)
+                  description: for branchall or loop at the top level, the iteration at which the flow should restart (optional)
                 flow_version:
                   type: integer
                   description: specific flow version to use for restart (optional, uses current version if not specified)
+                nested_path:
+                  type: array
+                  description: path of additional steps to descend into AFTER `step_id`. Each entry represents one level of nesting inside the spawned child of the previous level's container (BranchOne / sequential ForLoop iteration / Subflow). When non-empty, the actual restart point is the LAST entry's step_id.
+                  items:
+                    type: object
+                    required:
+                      - step_id
+                    properties:
+                      step_id:
+                        type: string
+                        description: step id at this nesting level
+                      branch_or_iteration_n:
+                        type: integer
+                        description: for ForLoop containers, the iteration to restart at (0-based; iterations 0..n-1 are preserved)
 
       responses:
         "201":

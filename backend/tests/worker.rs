@@ -3344,6 +3344,7 @@ async fn test_complex_flow_restart(db: Pool<Postgres>) -> anyhow::Result<()> {
             step_id: "h".to_owned(),
             branch_or_iteration_n: None,
             flow_version: None,
+            ..Default::default()
         }),
     })
     .run_until_complete(&db, false, port)
