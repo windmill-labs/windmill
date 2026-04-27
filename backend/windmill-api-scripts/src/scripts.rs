@@ -347,9 +347,10 @@ async fn list_scripts(
             .unwrap_or(true))
         || authed.is_operator
     {
-        // only include scripts that have a main function
-        // do not hide scripts without main if preprocessor is in the kinds
-        sqlb.and_where("o.auto_kind IS NULL");
+        // only include scripts that have a runnable entrypoint. Use a
+        // deny-list: anything that isn't a 'lib' (library script without
+        // main) is callable, including future `auto_kind` values.
+        sqlb.and_where("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')");
     }
 
     if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {

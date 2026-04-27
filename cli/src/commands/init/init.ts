@@ -1,6 +1,4 @@
-import { stat, writeFile, rm, rmdir, readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { stat, writeFile, rm } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
@@ -37,59 +35,6 @@ export interface InitOptions {
   baseUrl?: string;
   configDir?: string;
   bindProfile?: boolean;
-}
-
-const CLAUDE_MD_DEFAULT = "Instructions are in @AGENTS.md\n";
-
-/**
- * Remove the Claude assets we generate (per `skipClaudeAssets: true` in wmill.yaml).
- * Narrow scope: only paths we'd otherwise have created. CLAUDE.md is left alone
- * if its content has been customized. .claude/ is removed only if it ends up empty.
- */
-async function cleanupClaudeAssets() {
-  let introPrinted = false;
-  function logRemoval(msg: string) {
-    if (!introPrinted) {
-      introPrinted = true;
-      log.info(
-        colors.gray(
-          "skipClaudeAssets is true; removing previously-generated Claude assets:"
-        )
-      );
-    }
-    log.info(colors.yellow(`  ${msg}`));
-  }
-
-  async function tryRmEmptyDir(dir: string) {
-    try {
-      const remaining = await readdir(dir);
-      if (remaining.length === 0) await rmdir(dir);
-    } catch {
-      /* dir already gone or not a dir */
-    }
-  }
-
-  // .claude/skills/ — wholly ours; safe to remove the subtree
-  const skillsDir = join(".claude", "skills");
-  if (existsSync(skillsDir)) {
-    await rm(skillsDir, { recursive: true });
-    logRemoval(`Removed ${skillsDir}/`);
-  }
-
-  await tryRmEmptyDir(".claude");
-
-  // CLAUDE.md — only if untouched (content matches default). Otherwise warn.
-  if (existsSync("CLAUDE.md")) {
-    const content = await readFile("CLAUDE.md", "utf-8");
-    if (content === CLAUDE_MD_DEFAULT) {
-      await rm("CLAUDE.md");
-      logRemoval("Removed CLAUDE.md");
-    } else {
-      logRemoval(
-        "CLAUDE.md was customized; left in place. Delete manually if no longer needed."
-      );
-    }
-  }
 }
 
 /**
@@ -296,19 +241,17 @@ async function initAction(opts: InitOptions) {
     }
   }
 
-  // Read nonDottedPaths and skipClaudeAssets from config
+  // Read nonDottedPaths from config
   let nonDottedPaths = true; // default for new inits
-  let skipClaudeAssets = false;
   try {
     const { readConfigFile } = await import("../../core/conf.ts");
     const config = await readConfigFile();
     nonDottedPaths = config.nonDottedPaths ?? true;
-    skipClaudeAssets = config.skipClaudeAssets ?? false;
   } catch {
     // If config can't be read, use defaults
   }
 
-  // Create guidance files (AGENTS.md, plus CLAUDE.md and Claude skills unless skipClaudeAssets)
+  // Create guidance files (AGENTS.md, CLAUDE.md, and agent skills)
   try {
     const guidanceResult = await writeAiGuidanceFiles({
       targetDir: ".",
@@ -317,7 +260,6 @@ async function initAction(opts: InitOptions) {
       skillsSourcePath: process.env[WMILL_INIT_AI_SKILLS_SOURCE_ENV],
       agentsSourcePath: process.env[WMILL_INIT_AI_AGENTS_SOURCE_ENV],
       claudeSourcePath: process.env[WMILL_INIT_AI_CLAUDE_SOURCE_ENV],
-      skipClaudeAssets,
     });
 
     if (guidanceResult.agentsWritten) {
@@ -326,21 +268,17 @@ async function initAction(opts: InitOptions) {
     if (guidanceResult.claudeWritten) {
       log.info(colors.green("Created CLAUDE.md"));
     }
-    if (guidanceResult.skillCount > 0) {
-      log.info(
-        colors.green(`Created .claude/skills/ with ${guidanceResult.skillCount} skills`)
-      );
-    }
+    log.info(
+      colors.green(
+        `Created .claude/skills/ and .agents/skills/ with ${guidanceResult.skillCount} skills`
+      )
+    );
   } catch (error) {
     if (error instanceof Error) {
       log.warn(`Could not create guidance files: ${error.message}`);
     } else {
       log.warn(`Could not create guidance files: ${error}`);
     }
-  }
-
-  if (skipClaudeAssets) {
-    await cleanupClaudeAssets();
   }
 
   // Generate resource type namespace (only if a workspace was bound)
