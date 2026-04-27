@@ -1262,7 +1262,7 @@
 					>
 
 					<Pane size={33}>
-						<div class="h-full w-full overflow-hidden pl-0.5">
+						<div class="h-full w-full pl-0.5">
 							{#if selectedModule}
 								<div
 									class="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-surface shrink-0"
