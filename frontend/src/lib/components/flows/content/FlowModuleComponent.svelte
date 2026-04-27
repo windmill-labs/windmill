@@ -1515,7 +1515,11 @@
 						</Splitpanes>
 					{/snippet}
 
-					{#if flowModule.value.type === 'aiagent' || noEditor}
+					{#if flowModule.value.type === 'aiagent' || (noEditor && flowModule.value.type !== 'flow')}
+						<!-- Top pane has no content to show (aiagent has no editor; rawscript/script
+						gate their content on !noEditor). Skip the Splitpanes wrapper entirely so
+						there's no orphan splitter. type === 'flow' still renders FlowPathViewer
+						even with noEditor, so it falls into the Splitpanes branch below. -->
 						<div class="h-full">
 							{@render bottomPaneContent()}
 						</div>
