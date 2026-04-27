@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.692.0](https://github.com/windmill-labs/windmill/compare/v1.691.1...v1.692.0) (2026-04-27)
+
+
+### Features
+
+* add agents skills to cli init ([#8948](https://github.com/windmill-labs/windmill/issues/8948)) ([abbfd50](https://github.com/windmill-labs/windmill/commit/abbfd504ac6dd8fe3aa2bb3acfab7f72f24b81c6))
+* **cli:** wmill dev with per-flow proxy and responsive Dev UI ([#8529](https://github.com/windmill-labs/windmill/issues/8529)) ([eebe24d](https://github.com/windmill-labs/windmill/commit/eebe24d8b0739a61d308bc53a322a01df984511a))
+
+
+### Bug Fixes
+
+* Audit logs filters UI spacing ([#8944](https://github.com/windmill-labs/windmill/issues/8944)) ([15bba79](https://github.com/windmill-labs/windmill/commit/15bba79ef25988f923b9604a58b719f9f244c641))
+* delete instance settings cleared via bulk endpoint ([#8949](https://github.com/windmill-labs/windmill/issues/8949)) ([e8f7589](https://github.com/windmill-labs/windmill/commit/e8f7589d7a9cba5b050a35ff7b92116e679566f6))
+* prevent flow-dep job stalls under row-lock contention ([#8952](https://github.com/windmill-labs/windmill/issues/8952)) ([e636f58](https://github.com/windmill-labs/windmill/commit/e636f589a534b29f5deceed3674c6b7d312cb6d4))
+* **wac:** recognize [@workflow](https://github.com/workflow) main, list WAC in scripts/list, run preprocessor ([#8951](https://github.com/windmill-labs/windmill/issues/8951)) ([581658d](https://github.com/windmill-labs/windmill/commit/581658d881dd35e39a3fb8f4216d2f91d4184b03))
+
 ## [1.691.1](https://github.com/windmill-labs/windmill/compare/v1.691.0...v1.691.1) (2026-04-27)
 
 
