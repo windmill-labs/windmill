@@ -591,7 +591,6 @@ async fn increment_connection_counter(database_string: &str) {
     *counter_map.entry(database_string.to_string()).or_insert(0) += 1;
 }
 
-/// Parse a date string in formats produced by chrono's Display or JS frontends.
 /// For each `(s3object)` arg in `sig_args`: download the referenced file, decode it
 /// to JSON text, then rewrite the arg to bind as `jsonb`. Mutates `args_map` in place
 /// so the existing bind path picks up the materialized payload.
@@ -638,6 +637,7 @@ async fn materialize_s3object_args(
     Ok(())
 }
 
+/// Parse a date string in formats produced by chrono's Display or JS frontends.
 fn parse_naive_date(s: &str) -> Result<chrono::NaiveDate, chrono::ParseError> {
     chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
         .or_else(|_| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.fZ"))

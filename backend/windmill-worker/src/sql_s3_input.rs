@@ -110,11 +110,12 @@ fn parse_jsonl(text: &str) -> anyhow::Result<Vec<Box<serde_json::value::RawValue
 }
 
 fn truncate_for_log(s: &str) -> String {
-    const MAX: usize = 80;
-    if s.len() <= MAX {
+    const MAX_CHARS: usize = 80;
+    if s.chars().count() <= MAX_CHARS {
         s.to_string()
     } else {
-        format!("{}…", &s[..MAX])
+        let head: String = s.chars().take(MAX_CHARS).collect();
+        format!("{}…", head)
     }
 }
 
@@ -177,5 +178,14 @@ mod tests {
     fn malformed_payload_errors() {
         let err = normalise_json_or_jsonl(b"not valid json").unwrap_err();
         assert!(err.to_string().contains("could not be parsed"));
+    }
+
+    #[test]
+    fn truncate_for_log_handles_multibyte_at_boundary() {
+        // 80 narrow chars then a 4-byte emoji = byte index 80 falls inside the emoji.
+        // Naive `&s[..80]` would panic; chars-aware truncation must not.
+        let s = format!("{}{}", "a".repeat(80), "🦀");
+        let out = truncate_for_log(&s);
+        assert!(out.ends_with('…'));
     }
 }
