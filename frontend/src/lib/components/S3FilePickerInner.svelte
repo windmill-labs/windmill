@@ -789,51 +789,53 @@
 							<Loader2 size={12} class="animate-spin mr-1" /> File preview loading
 						</div>
 					{:else if fileMetadata !== undefined && filePreview !== undefined}
-						<div class="flex items-center text-primary mb-4">
-							{#if filePreview.contentType === 'Unknown'}
-								Type of file not supported for preview.
-							{:else if filePreview.contentType === 'Csv'}
-								Previewing a {filePreview.contentType?.toLowerCase()} file. Separator character:
-								<div class="inline-flex w-12 ml-2 mr-2">
-									<select
-										class="h-8"
-										bind:value={csvSeparatorChar}
-										onchange={(e) =>
-											loadFilePreview(
-												fileMetadata?.fileKey ?? '',
-												fileMetadata?.size,
-												fileMetadata?.mimeType
+						{#if filePreview.contentType === 'Unknown' || filePreview.contentType === 'Csv' || !hideS3SpecificDetails}
+							<div class="flex items-center text-primary mb-4">
+								{#if filePreview.contentType === 'Unknown'}
+									Type of file not supported for preview.
+								{:else if filePreview.contentType === 'Csv'}
+									Previewing a {filePreview.contentType?.toLowerCase()} file. Separator character:
+									<div class="inline-flex w-12 ml-2 mr-2">
+										<select
+											class="h-8"
+											bind:value={csvSeparatorChar}
+											onchange={(e) =>
+												loadFilePreview(
+													fileMetadata?.fileKey ?? '',
+													fileMetadata?.size,
+													fileMetadata?.mimeType
+												)}
+										>
+											<option value=",">,</option>
+											<option value=";">;</option>
+											<option value="\t">\t</option>
+											<option value="|">|</option>
+										</select>
+									</div>
+									Header row:
+									<div class="inline-flex item-center w-4 ml-2 mr-2">
+										<input
+											onfocus={bubble('focus')}
+											onclick={bubble('click')}
+											disabled={false}
+											type="checkbox"
+											id="csv-header"
+											class="h-5"
+											bind:checked={csvHasHeader}
+											onchange={stopPropagation((e) =>
+												loadFilePreview(
+													fileMetadata?.fileKey ?? '',
+													fileMetadata?.size,
+													fileMetadata?.mimeType
+												)
 											)}
-									>
-										<option value=",">,</option>
-										<option value=";">;</option>
-										<option value="\t">\t</option>
-										<option value="|">|</option>
-									</select>
-								</div>
-								Header row:
-								<div class="inline-flex item-center w-4 ml-2 mr-2">
-									<input
-										onfocus={bubble('focus')}
-										onclick={bubble('click')}
-										disabled={false}
-										type="checkbox"
-										id="csv-header"
-										class="h-5"
-										bind:checked={csvHasHeader}
-										onchange={stopPropagation((e) =>
-											loadFilePreview(
-												fileMetadata?.fileKey ?? '',
-												fileMetadata?.size,
-												fileMetadata?.mimeType
-											)
-										)}
-									/>
-								</div>
-							{:else if !hideS3SpecificDetails}
-								Previewing a {filePreview.contentType?.toLowerCase()} file.
-							{/if}
-						</div>
+										/>
+									</div>
+								{:else}
+									Previewing a {filePreview.contentType?.toLowerCase()} file.
+								{/if}
+							</div>
+						{/if}
 						<pre class="grow whitespace-no-wrap break-words"
 							>{#if !emptyString(filePreview.contentPreview)}{filePreview.contentPreview}{:else if filePreview.contentType !== undefined}Preview impossible.{/if}
 					</pre>
