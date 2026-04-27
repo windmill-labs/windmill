@@ -678,7 +678,6 @@ pub async fn resolve_opt_job_authed(
                         path,
                         method,
                     ) {
-                        BRUTE_FORCE_COUNTER.increment().await;
                         return Err((err, parts));
                     }
                 }
