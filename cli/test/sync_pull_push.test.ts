@@ -631,10 +631,6 @@ test("newPathAssigner with skipInlineScriptSuffix removes .inline_script. from p
   expect(noSuffixPyExt).toEqual("py");
 });
 
-// Regression for #8939: filenames must preserve the original casing of the
-// summary so raw-app pull/push round-trips don't break for camel-cased
-// runnable ids (e.g. CamelCaseTSRunnable.ts must not become
-// camelcasetsrunnable.ts).
 test("path assigners preserve mixed-case summaries", () => {
   const inlineAssigner = newPathAssigner("bun", { skipInlineScriptSuffix: true });
   const [inlinePath] = inlineAssigner.assignPath("CamelCaseTSRunnable", "bun");
@@ -645,8 +641,6 @@ test("path assigners preserve mixed-case summaries", () => {
   expect(rawPath).toEqual("CamelCaseTSRunnable.");
 });
 
-// Names that differ only by case must still be deduped to avoid colliding
-// on case-insensitive filesystems (Windows, default macOS).
 test("path assigners dedupe case-insensitively", () => {
   const assigner = newRawAppPathAssigner("bun");
   const [first] = assigner.assignPath("Foo", "bun");

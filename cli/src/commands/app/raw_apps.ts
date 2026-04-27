@@ -37,6 +37,24 @@ export interface AppFile {
   };
 }
 
+// Match siblings of a YAML metadata file case-insensitively. A buggy CLI
+// release lowercased content/lock filenames while keeping mixed-case YAML
+// filenames, so legacy repos can still pair correctly on the next push.
+async function readSiblingLock(
+  backendPath: string,
+  runnableId: string,
+  allFiles: string[],
+): Promise<string | undefined> {
+  const target = `${runnableId.toLowerCase()}.lock`;
+  const lockFile = allFiles.find((f) => f.toLowerCase() === target);
+  if (!lockFile) return undefined;
+  try {
+    return await readTextFile(path.join(backendPath, lockFile));
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Finds the content file for a runnable by looking for files matching the runnableId.
  * Returns the file extension and content, or undefined if not found.
@@ -166,21 +184,7 @@ export async function loadRunnablesFromBackend(
 
         if (contentFile) {
           const language = getLanguageFromExtension(contentFile.ext, defaultTs);
-
-          // Try to load lock file. Match case-insensitively for the same
-          // legacy-CLI reason as findRunnableContentFile above.
-          let lock: string | undefined;
-          const runnableIdLower = runnableId.toLowerCase();
-          const lockFile = allFiles.find(
-            (f) => f.toLowerCase() === `${runnableIdLower}.lock`,
-          );
-          if (lockFile) {
-            try {
-              lock = await readTextFile(path.join(backendPath, lockFile));
-            } catch {
-              // No lock file, that's fine
-            }
-          }
+          const lock = await readSiblingLock(backendPath, runnableId, allFiles);
 
           // Reconstruct inlineScript object
           runnable.inlineScript = {
@@ -232,16 +236,7 @@ export async function loadRunnablesFromBackend(
 
       if (contentFile) {
         const language = getLanguageFromExtension(contentFile.ext, defaultTs);
-
-        // Try to load lock file
-        let lock: string | undefined;
-        try {
-          lock = await readTextFile(
-            path.join(backendPath, `${runnableId}.lock`),
-          );
-        } catch {
-          // No lock file, that's fine
-        }
+        const lock = await readSiblingLock(backendPath, runnableId, allFiles);
 
         // Create inline runnable with default empty fields
         runnables[runnableId] = {
