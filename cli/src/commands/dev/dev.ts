@@ -5,7 +5,6 @@ import { yamlParseFile } from "../../utils/yaml.ts";
 import { stringify as yamlStringify } from "yaml";
 import { WebSocket, WebSocketServer } from "ws";
 
-import * as getPort from "get-port";
 import * as http from "node:http";
 import * as https from "node:https";
 import * as open from "open";
@@ -74,6 +73,30 @@ function stripFolderSuffix(rel: string, suffixes: readonly string[]): string {
 
 function isFlowFolderName(name: string): boolean {
   return FLOW_SUFFIXES.some((s) => name.endsWith(s));
+}
+
+// Normalize a windmill path: strip trailing slash and any flow folder suffix
+// so f/foo, f/foo/, f/foo.flow, and f/foo.flow/ all compare equal.
+function normalizeWmPath(p: string): string {
+  return stripFolderSuffix(p.replace(/\/$/, ""), FLOW_SUFFIXES);
+}
+
+// Anchor on path segments — substring matches like cpath.includes(".flow/")
+// also fire on innocent names like "notes_about__flow_design/readme.md".
+function isInsideFlowFolder(cpath: string): boolean {
+  return cpath.split("/").some(isFlowFolderName);
+}
+
+// Return the path prefix up to and including the first flow-folder segment,
+// with a trailing slash. Returns undefined if no segment matches.
+function findFlowFolderPrefix(cpath: string): string | undefined {
+  const segs = cpath.split("/");
+  for (let i = 0; i < segs.length; i++) {
+    if (isFlowFolderName(segs[i])) {
+      return segs.slice(0, i + 1).join("/") + "/";
+    }
+  }
+  return undefined;
 }
 
 async function listWorkspacePaths(): Promise<WmPathItem[]> {
@@ -180,6 +203,11 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
   }
 
   opts = await mergeConfigWithConfigFile(opts);
+  // Normalize once so broadcastChanges' equality check survives user input
+  // like --path f/foo/ or --path f/foo.flow (and the same set via wmill.yaml).
+  if (opts.path) {
+    opts.path = normalizeWmPath(opts.path);
+  }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -232,36 +260,22 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     const cpath = nativePath.replaceAll("\\", "/");
     // Bypass ignore for paths inside flow folders — ignore() only checks the configured
     // suffix (dotted or non-dotted), but the workspace may contain both kinds
-    const isInFlowFolder = cpath.includes(".flow/") || cpath.includes("__flow/");
-    if (isInFlowFolder || !ignore(nativePath, false)) {
+    const insideFlow = isInsideFlowFolder(cpath);
+    if (insideFlow || !ignore(nativePath, false)) {
       let typ: string;
-      if (isInFlowFolder) {
+      if (insideFlow) {
         // Force flow type for any file inside a flow folder — getTypeStrFromPath
         // only recognises the configured suffix (dotted or non-dotted) and would
         // mis-classify or throw for the other variant
         typ = "flow";
       } else {
         typ = getTypeStrFromPath(cpath);
-        // If a script file is inside a flow folder, treat it as a flow change
-        // (handles both .flow/ and __flow/ regardless of nonDottedPaths setting)
-        if (typ === "script" && (cpath.includes(".flow/") || cpath.includes("__flow/"))) {
-          typ = "flow";
-        }
       }
       log.info("Detected change in " + cpath + " (" + typ + ")");
       if (typ == "flow") {
-        // Try extractFolderPath, fallback to manual extraction for mixed suffix cases
-        let localPath = extractFolderPath(cpath, "flow");
-        if (!localPath) {
-          // extractFolderPath only checks the configured suffix; try both manually
-          for (const suffix of [".flow/", "__flow/"]) {
-            const idx = cpath.indexOf(suffix);
-            if (idx !== -1) {
-              localPath = cpath.substring(0, idx) + suffix;
-              break;
-            }
-          }
-        }
+        // Try extractFolderPath, fallback to segment-anchored extraction for
+        // mixed suffix cases (extractFolderPath only checks the configured suffix).
+        let localPath = extractFolderPath(cpath, "flow") ?? findFlowFolderPrefix(cpath);
         if (!localPath) return;
         const wmFlowPath = stripFolderSuffix(localPath.replace(/\/$/, ""), FLOW_SUFFIXES);
         const localFlow = (await yamlParseFile(
@@ -336,11 +350,6 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     uriPath: string;
     path: string;
   };
-
-  // Normalize a windmill path by stripping any trailing flow suffix
-  function normalizeWmPath(p: string): string {
-    return stripFolderSuffix(p.replace(/\/$/, ""), FLOW_SUFFIXES);
-  }
 
   // Load a resource by its windmill path (e.g., "u/admin/my_script" or "f/my_flow")
   async function loadWmPath(wmPath: string): Promise<LastEditScript | LastEditFlow | undefined> {
@@ -571,7 +580,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
 
       // Push the currently loaded edit so the page renders immediately on
       // page load, without waiting for a file change to trigger a broadcast.
-      if (currentLastEdit) {
+      if (currentLastEdit && ws.readyState === WebSocket.OPEN) {
         try {
           ws.send(JSON.stringify(currentLastEdit));
         } catch (e) {
@@ -804,7 +813,14 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     const wss = new WebSocketServer({ server });
     setupDevWs(wss);
 
-    const port = await getPort.default({ port: PORT });
+    // Probe both IPv4 and IPv6 stacks before binding. Same dual-stack
+    // collision risk as proxy mode: a leftover wmill dev on [::]:3001 would
+    // silently steer localhost:3001 traffic to the wrong process if we only
+    // probed one stack (which is what getPort does).
+    const port = await resolveBindPort(PORT, "wmill dev", {
+      info: (m) => console.log(m),
+      warn: (m) => console.warn(m),
+    });
     const url =
       `${workspace.remote}dev?workspace=${workspace.workspaceId}&local=true&wm_token=${workspace.token}` +
       (port === PORT ? "" : `&port=${port}`) +
@@ -823,7 +839,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
       );
     }
 
-    server.listen(port, () => {
+    server.listen(port, BIND_HOST, () => {
       console.log(`Dev WebSocket listening on ws://localhost:${port}/ws`);
     });
   }
@@ -847,7 +863,7 @@ const command = new Command()
   .description("Watch local file changes and live-reload the dev page for preview. Does NOT deploy to the remote workspace — use wmill sync push for that.")
   .option(
     "--includes <pattern...:string>",
-    "Filter paths givena glob pattern or path"
+    "Filter paths given a glob pattern or path"
   )
   .option(
     "--proxy-port <port:number>",

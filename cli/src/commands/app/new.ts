@@ -1,4 +1,4 @@
-import { stat, writeFile, mkdir } from "node:fs/promises";
+import { stat, writeFile, mkdir, rm } from "node:fs/promises";
 import { Command } from "@cliffy/command";
 import { colors } from "@cliffy/ansi/colors";
 import { Confirm } from "@cliffy/prompt/confirm";
@@ -585,8 +585,14 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
   const appDir = path.join(process.cwd(), folderName);
 
   // Check if directory already exists
+  let dirExists = false;
   try {
     await stat(appDir);
+    dirExists = true;
+  } catch {
+    // Directory doesn't exist, which is good
+  }
+  if (dirExists) {
     if (opts.overwrite) {
       log.warn(colors.yellow(`Overwriting existing '${folderName}' (--overwrite)`));
     } else if (nonInteractive) {
@@ -606,8 +612,9 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
         return;
       }
     }
-  } catch {
-    // Directory doesn't exist, which is good
+    // Wipe before re-creating so leftover files from a different framework
+    // (e.g. App.tsx from react18 when re-scaffolding as svelte5) don't survive.
+    await rm(appDir, { recursive: true, force: true });
   }
 
   await mkdir(appDir, { recursive: true });
@@ -828,16 +835,20 @@ This folder is for SQL migration files that will be applied to datatables during
           process.stdout.write(`\r${colors.gray(`${frames[i++ % frames.length]} Creating Claude session...`)}`);
         }, 80);
 
-        await new Promise<void>((resolve, reject) => {
-          exec(
-            `claude --session-id "${sessionId}" -p "Say: Your app is ready, click on preview to test it!"`,
-            { cwd: absAppDir },
-            (error) => (error ? reject(error) : resolve())
-          );
-        });
-
-        clearInterval(spinner);
-        process.stdout.write("\r" + " ".repeat(40) + "\r");
+        try {
+          await new Promise<void>((resolve, reject) => {
+            exec(
+              `claude --session-id "${sessionId}" -p "Say: Your app is ready, click on preview to test it!"`,
+              { cwd: absAppDir },
+              (error) => (error ? reject(error) : resolve())
+            );
+          });
+        } finally {
+          // On exec rejection control jumps to the outer catch — without this
+          // finally the spinner keeps writing to stdout and garbles output.
+          clearInterval(spinner);
+          process.stdout.write("\r" + " ".repeat(40) + "\r");
+        }
 
         // Import the session into Claude Desktop Code mode
         const deepLink = `claude://resume?session=${sessionId}&cwd=${encodeURIComponent(absAppDir)}`;
