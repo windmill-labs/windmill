@@ -96,8 +96,11 @@ export function getJobCategory(job: Job): JobCategory {
 	}
 }
 
-// For flow-shaped jobs the `script_hash` column on the job actually stores the
-// `flow_version` id (i64) — the API serializes it as zero-padded 16-char hex.
+// For flow- and app-shaped jobs the `script_hash` column on the job actually
+// stores a `flow_version` / `app_version` id (i64) rather than a real script
+// hash — the API serializes it as zero-padded 16-char hex. We decode it to
+// decimal for the run-page display (and link it to a pinned-version viewer
+// where one exists; appdependencies have no pinned-version page yet).
 export function isFlowVersionHash(job: Job): boolean {
 	switch (job.job_kind) {
 		case 'flow':
@@ -105,6 +108,7 @@ export function isFlowVersionHash(job: Job): boolean {
 		case 'singlestepflow':
 		case 'flownode':
 		case 'flowdependencies':
+		case 'appdependencies':
 			return true
 		default:
 			return false
@@ -266,7 +270,16 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 				// real script hash, so link to the script (same target as plain script jobs).
 				return `/scripts/get/${job.script_hash}?workspace=${workspaceId}`
 			}
-			if (isFlowVersionHash(job) && job.script_path) {
+			// For flow-shaped jobs we have a pinned-version flow viewer (`?version=`).
+			// For appdependencies, the value is decoded for display but there's no
+			// equivalent pinned app viewer yet, so no link.
+			const isFlowKind =
+				job.job_kind === 'flow' ||
+				job.job_kind === 'flowpreview' ||
+				job.job_kind === 'singlestepflow' ||
+				job.job_kind === 'flownode' ||
+				job.job_kind === 'flowdependencies'
+			if (isFlowKind && job.script_path) {
 				let version: string
 				try {
 					version = BigInt('0x' + job.script_hash).toString()

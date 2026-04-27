@@ -581,14 +581,20 @@ pub async fn handle_flow_dependency_job(
                 dep job."
                 .to_string();
             // Best-effort: surface the error on the flow viewer page's
-            // "Deployment failed" banner, not just the run page.
-            let _ = sqlx::query!(
-                "UPDATE flow SET lock_error_logs = $1 WHERE path = $2 AND workspace_id = $3",
-                &msg,
-                &job_path,
-                &job.workspace_id,
+            // "Deployment failed" banner, not just the run page. Wrapped in its
+            // own short timeout because the trigger condition for the outer
+            // timeout was a stalled connection — without this wrapper the
+            // followup would inherit the same stall.
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                sqlx::query!(
+                    "UPDATE flow SET lock_error_logs = $1 WHERE path = $2 AND workspace_id = $3",
+                    &msg,
+                    &job_path,
+                    &job.workspace_id,
+                )
+                .execute(db),
             )
-            .execute(db)
             .await;
             return Err(Error::ExecutionErr(msg));
         }
@@ -833,13 +839,16 @@ pub async fn handle_flow_dependency_job(
                     connection likely stalled. Re-saving the flow will retrigger \
                     the dep job."
                     .to_string();
-                let _ = sqlx::query!(
-                    "UPDATE flow SET lock_error_logs = $1 WHERE path = $2 AND workspace_id = $3",
-                    &msg,
-                    &job_path,
-                    &job.workspace_id,
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    sqlx::query!(
+                        "UPDATE flow SET lock_error_logs = $1 WHERE path = $2 AND workspace_id = $3",
+                        &msg,
+                        &job_path,
+                        &job.workspace_id,
+                    )
+                    .execute(db),
                 )
-                .execute(db)
                 .await;
                 return Err(Error::ExecutionErr(msg));
             }

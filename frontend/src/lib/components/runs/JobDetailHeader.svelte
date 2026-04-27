@@ -96,7 +96,11 @@
 			case 'run_id':
 				return truncateRev(fullValue, 8)
 			case 'script_hash':
-				return truncateHash(fullValue.toString())
+				// For flow-shaped jobs the field stores a decoded decimal version id
+				// (e.g. "1234567"). truncateHash() returns the LAST 6 chars, which
+				// would silently drop leading digits ("1234567" -> "234567"). Skip
+				// truncation for these.
+				return isFlowVersionHash(job) ? fullValue.toString() : truncateHash(fullValue.toString())
 			case 'parent_job':
 				return truncateRev(fullValue, 6)
 			case 'schedule_path':
@@ -286,7 +290,13 @@
 			{href}
 			class="flex items-center gap-1 min-w-0 text-primary"
 			title={config.field === 'script_hash'
-				? `${isFlowVersionHash(job) ? 'Flow version' : 'Script hash'}: ${fullValue}`
+				? `${
+						job.job_kind === 'appdependencies'
+							? 'App version'
+							: isFlowVersionHash(job)
+								? 'Flow version'
+								: 'Script hash'
+					}: ${fullValue}`
 				: fullValue}
 		>
 			<span class="truncate flex-shrink min-w-0">{displayValue}</span>

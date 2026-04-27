@@ -108,7 +108,10 @@
 		initFlowGraphAssetsCtx({ getModules: () => flow?.value.modules ?? [] })
 	)
 
-	let previousPath: string | undefined = $state(undefined)
+	// Composite key of (path, ?version=) — re-runs loadFlow whenever either changes.
+	// Using just `path` would not detect navigation between `?version=N` and the
+	// latest (same path, different query string).
+	let previousLoadKey: string | undefined = $state(undefined)
 
 	async function archiveFlow(): Promise<void> {
 		await FlowService.archiveFlowByPath({
@@ -468,8 +471,10 @@
 	})
 	$effect(() => {
 		if ($workspaceStore && $userStore && page.params.path) {
-			if (previousPath !== path) {
-				previousPath = path
+			const versionParam = page.url.searchParams.get('version') ?? ''
+			const loadKey = `${path}|${versionParam}`
+			if (previousLoadKey !== loadKey) {
+				previousLoadKey = loadKey
 				untrack(() => {
 					loadFlow()
 					loadTriggersCount()
