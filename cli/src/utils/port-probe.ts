@@ -33,13 +33,18 @@ function isPortFree(port: number, host: Host): Promise<boolean> {
  * A port counts as free only if BOTH IPv4 and IPv6 stacks accept the bind.
  * If either is held by another process, the OS may route `localhost` traffic
  * to that other process even when our listener succeeds on the free stack.
+ *
+ * Probes sequentially, not in parallel: on Linux the default is
+ * `net.ipv6.bindv6only=0`, which makes a `bind(::, port)` socket also occupy
+ * the IPv4 stack on the same port. Running both probes concurrently then
+ * causes one to lose the race with EADDRINUSE on a port that is actually
+ * free, producing false negatives. Sequential keeps each probe's bind fully
+ * released before the next starts.
  */
 async function isPortFreeOnBothStacks(port: number): Promise<boolean> {
-  const [v4, v6] = await Promise.all([
-    isPortFree(port, "0.0.0.0"),
-    isPortFree(port, "::"),
-  ]);
-  return v4 && v6;
+  if (!(await isPortFree(port, "0.0.0.0"))) return false;
+  if (!(await isPortFree(port, "::"))) return false;
+  return true;
 }
 
 /**
