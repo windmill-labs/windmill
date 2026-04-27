@@ -518,42 +518,69 @@ pub async fn handle_flow_dependency_job(
     // per-language lockfile subprocess so we don't hold row locks on these
     // tables while bun/uv/cargo/etc. is running.
     //
-    // `lock_timeout` bounds how long a single statement here waits on a
-    // foreign row-lock holder. Without it, contention here could otherwise
-    // park the dep job until the worker's 60 s zombie-no-ping detector fires
-    // and triggers a cascade where 3 workers in turn each park behind the
-    // same row locks. With the timeout, a single contention event fails the
-    // job in seconds rather than stalling for minutes.
-    let mut dependency_map = {
-        let mut tx = db.begin().await?;
-        sqlx::query("SET LOCAL lock_timeout = '30s'")
-            .execute(&mut *tx)
-            .await?;
+    // We wrap the whole phase in a `tokio::time::timeout` so that if the DB
+    // connection goes dark on the network for any reason — Ubicloud-side
+    // pause, TCP blip, OS scheduler stall, etc. — the dep job task fails fast
+    // (in seconds) instead of stalling silently until the worker's 60 s
+    // zombie-no-ping detector triggers a 3-worker takeover cascade. Symmetric
+    // pattern with `update_worker_ping_main_loop_query` at
+    // windmill-common/src/worker.rs:1502, which uses the same wrapper for
+    // exactly the same failure mode (we observed q8zxq's `Elapsed` errors
+    // around the production stall — same root cause class). Each query in
+    // this phase runs in microseconds on real data, so 15 s leaves ample slack
+    // for normal load.
+    let mut dependency_map = match tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        async {
+            let mut tx = db.begin().await?;
 
-        let dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
-            &job.workspace_id,
-            &job_path,
-            "flow",
-            &parent_path,
-            &mut *tx,
-        )
-        .await?;
-
-        if !skip_flow_update {
-            sqlx::query!(
-                "DELETE FROM workspace_runnable_dependencies WHERE flow_path = $1 AND workspace_id = $2",
-                job_path,
-                job.workspace_id
+            let dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
+                &job.workspace_id,
+                &job_path,
+                "flow",
+                &parent_path,
+                &mut *tx,
             )
-            .execute(&mut *tx)
             .await?;
+
+            if !skip_flow_update {
+                sqlx::query!(
+                    "DELETE FROM workspace_runnable_dependencies WHERE flow_path = $1 AND workspace_id = $2",
+                    job_path,
+                    job.workspace_id
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+
+            clear_static_asset_usage(&mut *tx, &job.workspace_id, &job_path, AssetUsageKind::Flow)
+                .await?;
+
+            tx.commit().await?;
+            Ok::<_, Error>(dependency_map)
+        },
+    )
+    .await
+    {
+        Ok(Ok(d)) => d,
+        Ok(Err(e)) => return Err(e),
+        Err(_) => {
+            let msg = "flow-dependency phase 1 (cleanup tx) exceeded 15s — the DB \
+                connection likely stalled. Re-saving the flow will retrigger the \
+                dep job."
+                .to_string();
+            // Best-effort: surface the error on the flow viewer page's
+            // "Deployment failed" banner, not just the run page.
+            let _ = sqlx::query!(
+                "UPDATE flow SET lock_error_logs = $1 WHERE path = $2 AND workspace_id = $3",
+                &msg,
+                &job_path,
+                &job.workspace_id,
+            )
+            .execute(db)
+            .await;
+            return Err(Error::ExecutionErr(msg));
         }
-
-        clear_static_asset_usage(&mut *tx, &job.workspace_id, &job_path, AssetUsageKind::Flow)
-            .await?;
-
-        tx.commit().await?;
-        dependency_map
     };
 
     // Phase 2 (no tx): walk modules and run the per-language lockfile
@@ -677,107 +704,136 @@ pub async fn handle_flow_dependency_job(
 
         // Phase 3 (short tx): atomically apply the dep_map dissolve and the
         // final UPDATEs to flow / flow_version / flow_version_lite. Same
-        // `lock_timeout` defense as phase 1 — if a foreign session is parked
-        // on these rows we'd rather fail in seconds than ride out a 4-minute
-        // zombie cascade.
-        let mut tx = db.begin().await?;
-        sqlx::query("SET LOCAL lock_timeout = '30s'")
-            .execute(&mut *tx)
-            .await?;
+        // failure-mode protection as phase 1 — if the DB connection stalls
+        // anywhere in here we want the task to error in seconds, not stall
+        // until the worker is declared zombie.
+        enum Phase3 {
+            Skipped(Box<RawValue>),
+            Done,
+        }
+        let phase3 = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            let mut tx = db.begin().await?;
 
-        tx = dependency_map.dissolve(tx).await;
+            tx = dependency_map.dissolve(tx).await;
 
-        // When triggered by a relative import, re-check that our version is still
-        // the latest before writing. Between reading the flow value and now (module
-        // locking can take significant time), another job may have created a newer
-        // version. If so, skip the update — the newer version's dep job will handle it.
-        if triggered_by_relative_import {
-            let current_latest = sqlx::query_scalar!(
-                "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+            // When triggered by a relative import, re-check that our version is still
+            // the latest before writing. Between reading the flow value and now (module
+            // locking can take significant time), another job may have created a newer
+            // version. If so, skip the update — the newer version's dep job will handle it.
+            if triggered_by_relative_import {
+                let current_latest = sqlx::query_scalar!(
+                    "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+                    job_path,
+                    job.workspace_id
+                )
+                .fetch_optional(&mut *tx)
+                .await?;
+
+                if current_latest != Some(version) {
+                    tracing::info!(
+                        "Flow version changed during dependency locking ({} -> {:?}), skipping update to avoid overwriting newer version",
+                        version,
+                        current_latest
+                    );
+                    tx.commit().await?;
+                    return Ok::<_, Error>(Phase3::Skipped(to_raw_value_owned(json!({
+                        "status": "Skipped: newer flow version exists",
+                        "modified_ids": modified_ids,
+                    }))));
+                }
+            }
+
+            sqlx::query!(
+                "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
+                &new_flow_value as &Json<Box<RawValue>>,
                 job_path,
                 job.workspace_id
             )
-            .fetch_optional(&mut *tx)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query!(
+                "UPDATE flow_version SET value = $1 WHERE id = $2",
+                &new_flow_value as &Json<Box<RawValue>>,
+                version
+            )
+            .execute(&mut *tx)
             .await?;
 
-            if current_latest != Some(version) {
-                tracing::info!(
-                    "Flow version changed during dependency locking ({} -> {:?}), skipping update to avoid overwriting newer version",
-                    version,
-                    current_latest
-                );
-                tx.commit().await?;
-                return Ok(to_raw_value_owned(json!({
-                    "status": "Skipped: newer flow version exists",
-                    "modified_ids": modified_ids,
-                })));
-            }
-        }
+            // Compute a lite version of the flow value (`RawScript` => `FlowScript`).
+            let mut value_lite = flow.clone();
 
-        sqlx::query!(
-            "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
-            &new_flow_value as &Json<Box<RawValue>>,
-            job_path,
-            job.workspace_id
-        )
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query!(
-            "UPDATE flow_version SET value = $1 WHERE id = $2",
-            &new_flow_value as &Json<Box<RawValue>>,
-            version
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        // Compute a lite version of the flow value (`RawScript` => `FlowScript`).
-        let mut value_lite = flow.clone();
-
-        tx = reduce_flow(
-            tx,
-            &mut value_lite.modules,
-            &job_path,
-            &job.workspace_id,
-            flow.failure_module.as_ref(),
-            flow.same_worker,
-        )
-        .await?;
-
-        let value_lite_with_extras = Json(
-            serde_json::value::to_raw_value(&FlowValueWithExtras {
-                value: &value_lite,
-                notes: extras.as_ref().and_then(|e| e.notes.clone()),
-                groups: extras.as_ref().and_then(|e| e.groups.clone()),
-            })
-            .map_err(to_anyhow)?,
-        );
-        sqlx::query!(
-            "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
-             ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
-            version,
-            &value_lite_with_extras as &Json<Box<RawValue>>,
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        // NOTE: Temporary solution.
-        // Ideally we do this for every job regardless whether it was triggered by relative import or by creation/update of the flow.
-        if triggered_by_relative_import {
-            // Making new version viewable as the current one.
-            // This will also trigger `flow_versions_append_trigger` (check _flow_versions_update_notify.up.sql)
-            // which will invalidate cache for the latest flow versions for all workers.
-            // Only append if this version isn't already the last element in the array.
-            // This prevents duplicates when update_flow already appended this version.
-            sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3 AND (versions[array_upper(versions, 1)] IS DISTINCT FROM $1)",
-                version,
+            tx = reduce_flow(
+                tx,
+                &mut value_lite.modules,
                 &job_path,
                 &job.workspace_id,
-            ).execute(&mut *tx).await?;
-            tracing::debug!("Marked flow version as latest");
-            tracing::debug!("Flow version: {}", version);
-        }
+                flow.failure_module.as_ref(),
+                flow.same_worker,
+            )
+            .await?;
 
-        tx.commit().await?;
+            let value_lite_with_extras = Json(
+                serde_json::value::to_raw_value(&FlowValueWithExtras {
+                    value: &value_lite,
+                    notes: extras.as_ref().and_then(|e| e.notes.clone()),
+                    groups: extras.as_ref().and_then(|e| e.groups.clone()),
+                })
+                .map_err(to_anyhow)?,
+            );
+            sqlx::query!(
+                "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
+                 ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
+                version,
+                &value_lite_with_extras as &Json<Box<RawValue>>,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            // NOTE: Temporary solution.
+            // Ideally we do this for every job regardless whether it was triggered by relative import or by creation/update of the flow.
+            if triggered_by_relative_import {
+                // Making new version viewable as the current one.
+                // This will also trigger `flow_versions_append_trigger` (check _flow_versions_update_notify.up.sql)
+                // which will invalidate cache for the latest flow versions for all workers.
+                // Only append if this version isn't already the last element in the array.
+                // This prevents duplicates when update_flow already appended this version.
+                sqlx::query!("UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3 AND (versions[array_upper(versions, 1)] IS DISTINCT FROM $1)",
+                    version,
+                    &job_path,
+                    &job.workspace_id,
+                ).execute(&mut *tx).await?;
+                tracing::debug!("Marked flow version as latest");
+                tracing::debug!("Flow version: {}", version);
+            }
+
+            tx.commit().await?;
+            Ok::<_, Error>(Phase3::Done)
+        })
+        .await;
+
+        let phase3 = match phase3 {
+            Ok(Ok(p)) => p,
+            Ok(Err(e)) => return Err(e),
+            Err(_) => {
+                let msg = "flow-dependency phase 3 (apply tx) exceeded 30s — the DB \
+                    connection likely stalled. Re-saving the flow will retrigger \
+                    the dep job."
+                    .to_string();
+                let _ = sqlx::query!(
+                    "UPDATE flow SET lock_error_logs = $1 WHERE path = $2 AND workspace_id = $3",
+                    &msg,
+                    &job_path,
+                    &job.workspace_id,
+                )
+                .execute(db)
+                .await;
+                return Err(Error::ExecutionErr(msg));
+            }
+        };
+
+        if let Phase3::Skipped(rv) = phase3 {
+            return Ok(rv);
+        }
 
         if let Err(e) = handle_deployment_metadata(
             &job.permissioned_as_email,
