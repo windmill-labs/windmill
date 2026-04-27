@@ -260,6 +260,9 @@ export async function main(message: string, name: string, step_id: string) {
 const POSTGRES_INIT_CODE = `-- result_collection=last_statement_all_rows
 -- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
+-- to feed an S3Object (json/jsonl/parquet/csv) as a parameter, declare it as (s3object):
+--   -- $5 input_file (s3object)
+--   INSERT INTO demo SELECT * FROM jsonb_to_recordset(\$5::jsonb) AS x(id INT, name TEXT);
 -- $1 name1 = default arg
 -- $2 name2
 -- $3 name3
@@ -271,6 +274,9 @@ UPDATE demo SET col2 = \$4::INT WHERE col2 = \$2::INT;
 const MYSQL_INIT_CODE = `-- result_collection=last_statement_all_rows
 -- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
+-- to feed an S3Object (json/jsonl/parquet/csv) as a parameter, declare it as (s3object):
+--   -- :input_file (s3object)
+--   INSERT INTO demo SELECT * FROM JSON_TABLE(:input_file, '$[*]' COLUMNS (id INT PATH '$.id', name VARCHAR(255) PATH '$.name')) AS x;
 -- :name1 (text) = default arg
 -- :name2 (int)
 -- :name3 (int)
@@ -281,6 +287,9 @@ UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 const BIGQUERY_INIT_CODE = `-- result_collection=last_statement_all_rows
 -- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
+-- to feed an S3Object (json/jsonl/parquet/csv) as a parameter, declare it as (s3object):
+--   -- @input_file (s3object)
+--   SELECT * FROM UNNEST(JSON_QUERY_ARRAY(@input_file)) AS row;
 -- @name1 (string) = default arg
 -- @name2 (integer)
 -- @name3 (string[])
@@ -302,6 +311,10 @@ UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 const SNOWFLAKE_INIT_CODE = `-- result_collection=last_statement_all_rows
 -- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
+-- to feed an S3Object (json/jsonl/parquet/csv) as a parameter, declare it as (s3object):
+--   -- ? input_file (s3object)
+--   SELECT v.value:id::int AS id, v.value:name::string AS name
+--   FROM TABLE(FLATTEN(input => PARSE_JSON(?))) v;
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
 INSERT INTO demo VALUES (?, ?);
@@ -313,6 +326,10 @@ UPDATE demo SET col2 = ? WHERE col2 = ?;
 const MSSQL_INIT_CODE = `-- result_collection=last_statement_all_rows
 -- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
+-- to feed an S3Object (json/jsonl/parquet/csv) as a parameter, declare it as (s3object):
+--   -- @P4 input_file (s3object)
+--   INSERT INTO demo
+--   SELECT id, name FROM OPENJSON(@P4) WITH (id INT '$.id', name NVARCHAR(255) '$.name');
 -- @P1 name1 (varchar) = default arg
 -- @P2 name2 (int)
 -- @P3 name3 (int)

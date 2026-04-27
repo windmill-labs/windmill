@@ -854,6 +854,7 @@ pub fn parse_mysql_typ(typ: &str) -> Typ {
         "bool" | "bit" => Typ::Bool,
         "double precision" | "float" | "real" | "dec" | "fixed" => Typ::Float,
         "date" | "datetime" | "timestamp" | "time" => Typ::Datetime,
+        "s3object" => Typ::Resource("S3Object".to_string()),
         _ => Typ::Str(None),
     }
 }
@@ -901,6 +902,7 @@ pub fn parse_pg_typ(typ: &str) -> Typ {
             | "timestamp with time zone"
             | "timestamp without time zone" => Typ::Datetime,
             "bytea" => Typ::Bytes,
+            "s3object" => Typ::Resource("S3Object".to_string()),
             _ => Typ::Str(None),
         }
     }
@@ -919,6 +921,7 @@ pub fn parse_bigquery_typ(typ: &str) -> Typ {
             "integer" | "int64" => Typ::Int,
             "float" | "float64" | "numeric" | "bignumeric" => Typ::Float,
             "boolean" | "bool" => Typ::Bool,
+            "s3object" => Typ::Resource("S3Object".to_string()),
             _ => Typ::Str(None),
         }
     }
@@ -959,6 +962,7 @@ pub fn parse_snowflake_typ(typ: &str) -> Typ {
         "int" => Typ::Int,
         "float" => Typ::Float,
         "boolean" => Typ::Bool,
+        "s3object" => Typ::Resource("S3Object".to_string()),
         _ => Typ::Str(None),
     }
 }
@@ -973,6 +977,7 @@ pub fn parse_mssql_typ(typ: &str) -> Typ {
         "bigint" | "int" | "tinyint" | "smallint" => Typ::Int,
         "float" | "real" | "numeric" | "decimal" => Typ::Float,
         "bit" => Typ::Bool,
+        "s3object" => Typ::Resource("S3Object".to_string()),
         _ => Typ::Str(None),
     }
 }
@@ -1693,6 +1698,62 @@ SELECT $1::integer;
                 has_preprocessor: None,
                 ..Default::default()
             }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_s3object_arg_per_dialect() -> anyhow::Result<()> {
+        // Confirms that `(s3object)` is recognised as a resource-typed arg in every
+        // native SQL dialect that opts in (PG, MySQL, MSSQL, BigQuery, Snowflake).
+        // The frontend uses `Typ::Resource("S3Object")` to render the S3 picker, and
+        // the worker dispatches on `otyp == "s3object"` to fetch + bind the file.
+        let s3 = || Typ::Resource("S3Object".to_string());
+
+        assert_eq!(
+            parse_pgsql_sig("-- $1 myfile (s3object)\nSELECT $1::jsonb;")?
+                .args
+                .into_iter()
+                .map(|a| (a.name, a.typ, a.otyp))
+                .collect::<Vec<_>>(),
+            vec![("myfile".to_string(), s3(), Some("s3object".to_string()))]
+        );
+
+        assert_eq!(
+            parse_mssql_sig("-- @P1 myfile (s3object)\nSELECT @P1;")?
+                .args
+                .into_iter()
+                .map(|a| (a.name, a.typ, a.otyp))
+                .collect::<Vec<_>>(),
+            vec![("myfile".to_string(), s3(), Some("s3object".to_string()))]
+        );
+
+        assert_eq!(
+            parse_mysql_sig("-- :myfile (s3object)\nSELECT :myfile;")?
+                .args
+                .into_iter()
+                .map(|a| (a.name, a.typ, a.otyp))
+                .collect::<Vec<_>>(),
+            vec![("myfile".to_string(), s3(), Some("s3object".to_string()))]
+        );
+
+        assert_eq!(
+            parse_bigquery_sig("-- @myfile (s3object)\nSELECT @myfile;")?
+                .args
+                .into_iter()
+                .map(|a| (a.name, a.typ, a.otyp))
+                .collect::<Vec<_>>(),
+            vec![("myfile".to_string(), s3(), Some("s3object".to_string()))]
+        );
+
+        assert_eq!(
+            parse_snowflake_sig("-- ? myfile (s3object)\nSELECT ?;")?
+                .args
+                .into_iter()
+                .map(|a| (a.name, a.typ, a.otyp))
+                .collect::<Vec<_>>(),
+            vec![("myfile".to_string(), s3(), Some("s3object".to_string()))]
         );
 
         Ok(())

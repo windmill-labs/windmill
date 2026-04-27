@@ -173,7 +173,7 @@ pub async fn do_mysql(
     occupancy_metrics: &mut OccupancyMetrics,
     parent_runnable_path: Option<String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let job_args = build_args_values(job, client, conn).await?;
+    let mut job_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
     let s3 = parse_s3_mode(&query)?.map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
@@ -225,6 +225,34 @@ pub async fn do_mysql(
     let sig = parse_mysql_sig(query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
+
+    // Materialize any `(s3object)` args into JSON text. mysql_async binds strings as
+    // VARBINARY/TEXT, which MySQL's `JSON_TABLE`/`JSON_EXTRACT` accept directly.
+    for arg in sig.iter() {
+        if arg.otyp.as_deref() != Some("s3object") {
+            continue;
+        }
+        let raw = job_args.remove(&arg.name).unwrap_or(Value::Null);
+        if matches!(raw, Value::Null) {
+            return Err(Error::BadRequest(format!(
+                "Missing S3Object value for arg `{}`",
+                arg.name
+            )));
+        }
+        let s3_obj: windmill_types::s3::S3Object = serde_json::from_value(raw).map_err(|e| {
+            Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
+        })?;
+        let json_text =
+            crate::sql_s3_input::fetch_s3object_as_json_text(client, &job.workspace_id, &s3_obj)
+                .await
+                .map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "Failed to fetch S3 object for arg `{}`: {e}",
+                        arg.name
+                    ))
+                })?;
+        job_args.insert(arg.name.clone(), Value::String(json_text));
+    }
 
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
