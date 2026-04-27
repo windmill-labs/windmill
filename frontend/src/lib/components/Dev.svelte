@@ -1289,7 +1289,10 @@
 						class="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-surface shrink-0"
 					>
 						<span class="text-xs text-secondary shrink-0">{selectedModule.id} summary</span>
-						<TextInput placeholder="Summary" bind:value={selectedModule.summary} />
+						<TextInput
+							inputProps={{ placeholder: 'Summary' }}
+							bind:value={selectedModule.summary}
+						/>
 					</div>
 				{/if}
 			</div>
