@@ -197,6 +197,76 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
         Ok(())
     }
 
+    /// Pool-based variant of [`patch_tx_ref`]. Each statement runs on a fresh
+    /// connection from the pool (auto-commit). Use this from code paths that
+    /// should NOT hold a long-lived transaction (e.g. flow-dep job module walk,
+    /// where we don't want to keep `dependency_map` row locks while a
+    /// per-language lockfile subprocess runs). Atomicity across the read/insert
+    /// pair isn't required: external updates to `lock_hash` between the SELECT
+    /// and the INSERTs already race the same way inside the long tx (the SELECT
+    /// snapshot is used for hash assignment regardless).
+    pub async fn patch_via_pool(
+        &mut self,
+        referenced_paths: Option<Vec<String>>,
+        node_id: &str,
+        db: &sqlx::Pool<sqlx::Postgres>,
+    ) -> Result<()> {
+        let Some(mut referenced_paths) = referenced_paths else {
+            tracing::info!("relative imports are not found for: importer - {}, importer_node_id - {}, importer_kind - {}",
+                &self.importer_path,
+                &node_id,
+                &self.importer_kind,
+            );
+            return Ok(());
+        };
+
+        let lock_hashes: std::collections::HashMap<String, Option<i64>> = sqlx::query_as(
+            "SELECT path, lockfile_hash FROM lock_hash WHERE workspace_id = $1 AND path = ANY($2)",
+        )
+        .bind(&self.w_id)
+        .bind(&referenced_paths)
+        .fetch_all(db)
+        .await?
+        .into_iter()
+        .collect();
+
+        referenced_paths.retain(|path| {
+            let hash = lock_hashes.get(path).cloned().flatten();
+            !self
+                .to_delete
+                .remove(&(node_id.to_owned(), path.clone(), hash))
+        });
+
+        if !referenced_paths.is_empty() {
+            tracing::info!("adding missing entries to dependency_map: importer_node_id - {}, importer_kind - {}, new_imported_paths - {:?}",
+                &node_id,
+                &self.importer_kind,
+                &lock_hashes,
+            );
+        }
+
+        for import in referenced_paths {
+            let lock_hash = lock_hashes.get(&import).copied().flatten();
+            sqlx::query!(
+                "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id, imported_lockfile_hash)
+                VALUES ($1, $2, $3::text::IMPORTER_KIND, $4, $5, $6)
+                ON CONFLICT (workspace_id, importer_node_id, importer_kind, importer_path, imported_path)
+                DO UPDATE SET imported_lockfile_hash = EXCLUDED.imported_lockfile_hash",
+                &self.w_id,
+                &self.importer_path,
+                &self.importer_kind,
+                &import,
+                node_id,
+                lock_hash
+            )
+            .execute(db)
+            .await?;
+
+            tracing::info!("added entry to dependency_map: {import:?}");
+        }
+        Ok(())
+    }
+
     /// clean orphan entries from `dependency_map`
     pub async fn dissolve<'a>(
         self,
