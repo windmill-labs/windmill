@@ -213,7 +213,12 @@
 	const PATH_SUFFIX_RE = /(\.(flow|app|raw_app)|__(flow|app|raw_app))\/?$/
 	let watchPath = $state(parseWatchPath()?.replace(PATH_SUFFIX_RE, ''))
 	let pickerItems: WmPathItem[] = $state([])
-	const pickerMode = $derived(!watchPath)
+	// Picker only makes sense on the local dev page — that's the only context
+	// with a wmill dev WebSocket capable of returning the workspace listing.
+	// The VS Code extension iframe omits ?local=true and drives the page via
+	// postMessage (replaceScript / replaceFlow), so it must skip the picker.
+	const isLocalDevPage = !!searchParams?.has('local')
+	const pickerMode = $derived(isLocalDevPage && !watchPath)
 	let wsState: 'connecting' | 'open' | 'closed' = $state('connecting')
 	let pickerFilter = $state('')
 	let pickerKind: 'all' | 'flow' | 'script' | 'raw_app' = $state('all')
