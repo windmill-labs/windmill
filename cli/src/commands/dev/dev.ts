@@ -39,6 +39,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { listSyncCodebases } from "../../utils/codebase.ts";
 import { createPreviewLocalScriptReader } from "../../utils/local_path_scripts.ts";
+import { resolveBindPort, BIND_HOST } from "../../utils/port-probe.ts";
 import {
   snapshotPathScripts,
   tagReplacedPathScripts,
@@ -648,7 +649,15 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
   // VS Code extension's iframe — only embedders that demand a localhost origin
   // need this proxy.
 
-  async function startProxyServer(proxyPort: number) {
+  async function startProxyServer(requestedPort: number) {
+    // Probe both IPv4 and IPv6 stacks before binding. If the requested port is
+    // taken on either, walk upward to the next free one so we don't silently
+    // collide with a leftover dev server (see cli/src/utils/port-probe.ts).
+    const proxyPort = await resolveBindPort(requestedPort, "--proxy-port", {
+      info: (m) => console.log(m),
+      warn: (m) => console.warn(m),
+    });
+
     const remote = new URL(workspace.remote);
     const isHttps = remote.protocol === "https:";
     const remoteHost = remote.hostname;
@@ -758,7 +767,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     });
 
     return new Promise<void>((resolve) => {
-      proxyServer.listen(proxyPort, () => {
+      proxyServer.listen(proxyPort, BIND_HOST, () => {
         console.log(`Dev proxy listening on http://localhost:${proxyPort}`);
         if (opts.path) {
           console.log(`Watching ${opts.path} — edits will live-reload in the dev page`);
