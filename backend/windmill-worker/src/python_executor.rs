@@ -675,6 +675,7 @@ pub async fn handle_python_job(
         spread,
         main_name,
         pre_spread,
+        wac_pre_spread,
     ) = prepare_wrapper(
         job_dir,
         job.flow_step_id.as_deref(),
@@ -721,6 +722,29 @@ pub async fn handle_python_job(
 
     let main_override = main_name.unwrap_or_else(|| "main".to_string());
     let res_to_json_body = python_res_to_json_body(postprocessor);
+    let wac_preprocessor = if let Some(pre_spread) = wac_pre_spread.as_ref() {
+        format!(
+            r#"if not hasattr(inner_script, 'preprocessor') or not callable(inner_script.preprocessor):
+    raise ValueError("preprocessor function is missing")
+pre_args = {{}}
+{pre_spread}
+for k, v in list(pre_args.items()):
+    if v == '<function call>':
+        del pre_args[k]
+_pre_result = inner_script.preprocessor(**pre_args)
+if hasattr(_pre_result, '__await__'):
+    import asyncio
+    _pre_result = asyncio.get_event_loop().run_until_complete(_pre_result)
+kwargs = _pre_result if _pre_result is not None else {{}}
+_pre_json = json.dumps(kwargs, separators=(',', ':'), default=str)
+with open("args.json", 'w') as f:
+    f.write(_pre_json)
+sys.stdout.write("wm_res[preprocessed_args]:" + _pre_json + "\n")
+sys.stdout.flush()"#
+        )
+    } else {
+        "".to_string()
+    };
     let wrapper_content: String = if is_wac_v2 {
         format!(
             r#"
@@ -737,6 +761,7 @@ from wmill.client import _run_workflow
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
 {transforms}
+{wac_preprocessor}
 args = kwargs
 
 with open("checkpoint.json") as f:
@@ -1069,7 +1094,11 @@ mount {{
     // Box::pin to avoid bloating handle_python_job's async state machine (stack overflow).
     if is_wac_v2 {
         return Box::pin(crate::bun_executor::handle_wac_v2_output(
-            result, job, conn, modules,
+            result,
+            job,
+            conn,
+            modules,
+            new_args.as_ref(),
         ))
         .await;
     }
@@ -1079,12 +1108,12 @@ mount {{
 
 /// Generate Python code to spread preprocessor args from `kwargs` into `pre_args`.
 /// The `indent` parameter controls the join separator for multi-arg spreads.
-fn python_preprocessor_spread(sig: windmill_parser::MainArgSignature, indent: &str) -> String {
+fn python_preprocessor_spread(sig: &windmill_parser::MainArgSignature, indent: &str) -> String {
     if sig.star_kwargs {
         "pre_args = kwargs".to_string()
     } else {
         sig.args
-            .into_iter()
+            .iter()
             .map(|x| {
                 let name = &x.name;
                 if x.default.is_none() {
@@ -1208,7 +1237,7 @@ pub fn compute_py_codegen(content: &str, script_path: &str) -> PyScriptCodegen {
             .join("\n    ")
     };
 
-    let pre_spread = pre_sig.map(|sig| python_preprocessor_spread(sig, "    "));
+    let pre_spread = pre_sig.map(|sig| python_preprocessor_spread(&sig, "    "));
 
     let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
 
@@ -1479,6 +1508,7 @@ async fn prepare_wrapper(
     String,
     Option<String>,
     Option<String>,
+    Option<String>,
 )> {
     let main_override = job_script_entrypoint_override.as_deref();
     let apply_preprocessor =
@@ -1614,7 +1644,12 @@ async fn prepare_wrapper(
             .join("\n    ")
     };
 
-    let pre_spread = pre_sig.map(|sig| python_preprocessor_spread(sig, "        "));
+    let pre_spread = pre_sig
+        .as_ref()
+        .map(|sig| python_preprocessor_spread(sig, "        "));
+    let wac_pre_spread = pre_sig
+        .as_ref()
+        .map(|sig| python_preprocessor_spread(sig, ""));
 
     let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
 
@@ -1629,6 +1664,7 @@ async fn prepare_wrapper(
         spread,
         main_override.map(ToString::to_string),
         pre_spread,
+        wac_pre_spread,
     ))
 }
 
