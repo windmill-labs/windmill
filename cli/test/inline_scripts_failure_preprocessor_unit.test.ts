@@ -524,7 +524,7 @@ describe("extractInlineScripts with mapping preserves file paths", () => {
 
     const contentScript = scripts.find((s) => !s.is_lock);
     // Should use assigner path based on summary, not mapped
-    expect(contentScript!.path).toContain("get_users_data");
+    expect(contentScript!.path).toContain("Get_Users_Data");
   });
 
   test("mapped modules and unmapped modules coexist", () => {
@@ -538,7 +538,7 @@ describe("extractInlineScripts with mapping preserves file paths", () => {
 
     const paths = scripts.filter((s) => !s.is_lock).map((s) => s.path);
     expect(paths[0]).toBe("my_custom_name.ts");
-    expect(paths[1]).toContain("step_b"); // assigner-generated from summary
+    expect(paths[1]).toContain("Step_B"); // assigner-generated from summary
   });
 
   test("lock path is derived from mapped content path", () => {
@@ -560,7 +560,7 @@ describe("extractInlineScripts with mapping preserves file paths", () => {
     const scripts = extractInlineScripts([mod], {}, "/", "bun");
 
     const lockScript = scripts.find((s) => s.is_lock);
-    expect(lockScript!.path).toContain("get_users_data");
+    expect(lockScript!.path).toContain("Get_Users_Data");
     expect(lockScript!.path).toEndWith(".lock");
   });
 
