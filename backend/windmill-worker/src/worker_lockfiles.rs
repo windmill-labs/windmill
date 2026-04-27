@@ -543,16 +543,24 @@ pub async fn handle_flow_dependency_job(
             )
             .await?;
 
-            // Dissolve the dep_map snapshot here in phase 1, NOT in phase 3.
-            // The original code dissolved at the end after lock_modules walked
-            // every module and `patch_via_pool` had a chance to remove
-            // re-inserted entries from `to_delete`. With the refactor, phase 2
-            // is auto-committed and can fail partway through — leaving phase 3
-            // (and its dissolve) un-run, which would leak orphan rows in
-            // `dependency_map` until the next successful dep job. Doing it now
-            // is equivalent to "clear all rows for this importer" and makes
-            // phase 2 idempotent on re-run: no orphans accumulate.
-            dependency_map.dissolve_in_place(&mut tx).await;
+            // For *direct* user saves (not relative-import-triggered), dissolve
+            // the dep_map snapshot here in phase 1 instead of phase 3. With the
+            // refactor, phase 2 is auto-committed and can fail partway through;
+            // doing the dissolve now ensures phase-2 partial failures don't
+            // leak orphan rows that would otherwise sit until the next
+            // successful dep-job's phase 3.
+            //
+            // For relative-import-triggered jobs we MUST keep the existing
+            // "dissolve at end of phase 3" behavior. `try_skip_relock` runs
+            // inside phase 2 (only for that path) and reads the recorded
+            // `imported_lockfile_hash` from `dependency_map` to decide whether
+            // to skip the lockfile rebuild. Dissolving in phase 1 would erase
+            // the hash, force every relative-import dep job to actually
+            // re-lock, and break the optimization (regression caught by the
+            // `relock_skip_on_*_redeployment` integration tests).
+            if !triggered_by_relative_import {
+                dependency_map.dissolve_in_place(&mut tx).await;
+            }
 
             if !skip_flow_update {
                 sqlx::query!(
@@ -730,6 +738,17 @@ pub async fn handle_flow_dependency_job(
         }
         let phase3 = tokio::time::timeout(std::time::Duration::from_secs(30), async {
             let mut tx = db.begin().await?;
+
+            // For relative-import-triggered jobs, dissolve here (not in phase
+            // 1) so that `try_skip_relock` could see the existing
+            // `imported_lockfile_hash` values during phase 2's walk. After
+            // phase 2, `to_delete` only contains entries for modules that
+            // disappeared from the new flow value — those are the orphans we
+            // want to remove. For direct saves the dissolve already happened
+            // in phase 1 and `to_delete` is empty, so this is a no-op.
+            if triggered_by_relative_import {
+                dependency_map.dissolve_in_place(&mut tx).await;
+            }
 
             // Always re-check that our version is still the latest before
             // writing. With the refactor, phase 1 commits before phase 2 runs,
