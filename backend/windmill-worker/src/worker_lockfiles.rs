@@ -534,7 +534,7 @@ pub async fn handle_flow_dependency_job(
         async {
             let mut tx = db.begin().await?;
 
-            let dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
+            let mut dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
                 &job.workspace_id,
                 &job_path,
                 "flow",
@@ -542,6 +542,17 @@ pub async fn handle_flow_dependency_job(
                 &mut *tx,
             )
             .await?;
+
+            // Dissolve the dep_map snapshot here in phase 1, NOT in phase 3.
+            // The original code dissolved at the end after lock_modules walked
+            // every module and `patch_via_pool` had a chance to remove
+            // re-inserted entries from `to_delete`. With the refactor, phase 2
+            // is auto-committed and can fail partway through — leaving phase 3
+            // (and its dissolve) un-run, which would leak orphan rows in
+            // `dependency_map` until the next successful dep job. Doing it now
+            // is equivalent to "clear all rows for this importer" and makes
+            // phase 2 idempotent on re-run: no orphans accumulate.
+            dependency_map.dissolve_in_place(&mut tx).await;
 
             if !skip_flow_update {
                 sqlx::query!(
@@ -714,33 +725,36 @@ pub async fn handle_flow_dependency_job(
         let phase3 = tokio::time::timeout(std::time::Duration::from_secs(30), async {
             let mut tx = db.begin().await?;
 
-            tx = dependency_map.dissolve(tx).await;
+            // Always re-check that our version is still the latest before
+            // writing. With the refactor, phase 1 commits before phase 2 runs,
+            // so two dep jobs for the same flow path (e.g. two manual saves
+            // within the bun-build window) can interleave: the second user
+            // save creates a newer flow_version while we're in phase 2; if we
+            // unconditionally `UPDATE flow SET value = $new_flow_value`, we'd
+            // overwrite the newer version's locks with our older version's.
+            // Pre-refactor, the long tx serialized the two dep jobs via row
+            // locks on `workspace_runnable_dependencies`. Now they can run in
+            // parallel, so this guard is required (not just for the
+            // relative-import path it was originally written for).
+            let current_latest = sqlx::query_scalar!(
+                "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+                job_path,
+                job.workspace_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
 
-            // When triggered by a relative import, re-check that our version is still
-            // the latest before writing. Between reading the flow value and now (module
-            // locking can take significant time), another job may have created a newer
-            // version. If so, skip the update — the newer version's dep job will handle it.
-            if triggered_by_relative_import {
-                let current_latest = sqlx::query_scalar!(
-                    "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
-                    job_path,
-                    job.workspace_id
-                )
-                .fetch_optional(&mut *tx)
-                .await?;
-
-                if current_latest != Some(version) {
-                    tracing::info!(
-                        "Flow version changed during dependency locking ({} -> {:?}), skipping update to avoid overwriting newer version",
-                        version,
-                        current_latest
-                    );
-                    tx.commit().await?;
-                    return Ok::<_, Error>(Phase3::Skipped(to_raw_value_owned(json!({
-                        "status": "Skipped: newer flow version exists",
-                        "modified_ids": modified_ids,
-                    }))));
-                }
+            if current_latest != Some(version) {
+                tracing::info!(
+                    "Flow version changed during dependency locking ({} -> {:?}), skipping update to avoid overwriting newer version",
+                    version,
+                    current_latest
+                );
+                tx.commit().await?;
+                return Ok::<_, Error>(Phase3::Skipped(to_raw_value_owned(json!({
+                    "status": "Skipped: newer flow version exists",
+                    "modified_ids": modified_ids,
+                }))));
             }
 
             sqlx::query!(
