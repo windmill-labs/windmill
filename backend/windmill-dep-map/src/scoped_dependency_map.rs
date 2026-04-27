@@ -197,14 +197,8 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
         Ok(())
     }
 
-    /// Pool-based variant of [`patch_tx_ref`]. Each statement runs on a fresh
-    /// connection from the pool (auto-commit). Use this from code paths that
-    /// should NOT hold a long-lived transaction (e.g. flow-dep job module walk,
-    /// where we don't want to keep `dependency_map` row locks while a
-    /// per-language lockfile subprocess runs). Atomicity across the read/insert
-    /// pair isn't required: external updates to `lock_hash` between the SELECT
-    /// and the INSERTs already race the same way inside the long tx (the SELECT
-    /// snapshot is used for hash assignment regardless).
+    /// Like `patch_tx_ref` but auto-commits each statement on the pool so the
+    /// caller doesn't have to hold a long-lived tx around a slow subprocess.
     pub async fn patch_via_pool(
         &mut self,
         referenced_paths: Option<Vec<String>>,
@@ -267,11 +261,7 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
         Ok(())
     }
 
-    /// `dissolve` variant that drains `to_delete` from `&mut self` instead of
-    /// consuming. Used by the flow-dep job which moves the dissolve to phase 1
-    /// (alongside the other DELETEs) so a partial phase-2 walk doesn't leave
-    /// orphan rows behind. After this call the SDM has an empty `to_delete`
-    /// and is reusable for subsequent `patch_via_pool` calls.
+    /// Like `dissolve` but borrows `&mut self` so the SDM stays usable.
     pub async fn dissolve_in_place<'a>(&mut self, tx: &mut sqlx::Transaction<'a, sqlx::Postgres>) {
         if *WMDEBUG_NO_DMAP_DISSOLVE {
             tracing::warn!(

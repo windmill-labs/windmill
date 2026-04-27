@@ -96,11 +96,8 @@ export function getJobCategory(job: Job): JobCategory {
 	}
 }
 
-// For flow- and app-shaped jobs the `script_hash` column on the job actually
-// stores a `flow_version` / `app_version` id (i64) rather than a real script
-// hash — the API serializes it as zero-padded 16-char hex. We decode it to
-// decimal for the run-page display (and link it to a pinned-version viewer
-// where one exists; appdependencies have no pinned-version page yet).
+// For flow/app-shaped jobs `script_hash` is a flow_version/app_version id
+// (i64) serialized as zero-padded 16-char hex.
 export function isFlowVersionHash(job: Job): boolean {
 	switch (job.job_kind) {
 		case 'flow':
@@ -251,9 +248,7 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		label: 'Hash',
 		getValue: (job) => {
 			if (!job.script_hash) return null
-			// For flow-kind jobs, `script_hash` actually holds the `flow_version` id
-			// (i64) serialized as zero-padded 16-char hex. Decode to decimal so users
-			// can read it and click through to the exact version.
+			// Decode hex → decimal for flow/app version ids.
 			if (isFlowVersionHash(job)) {
 				try {
 					return BigInt('0x' + job.script_hash).toString()
@@ -266,13 +261,9 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		getHref: (job, workspaceId) => {
 			if (!job.script_hash) return null
 			if (job.job_kind === 'script' || job.job_kind === 'dependencies') {
-				// `dependencies` is the script-dependency job; its `script_hash` is a
-				// real script hash, so link to the script (same target as plain script jobs).
 				return `/scripts/get/${job.script_hash}?workspace=${workspaceId}`
 			}
-			// For flow-shaped jobs we have a pinned-version flow viewer (`?version=`).
-			// For appdependencies, the value is decoded for display but there's no
-			// equivalent pinned app viewer yet, so no link.
+			// Only flow-shaped jobs have a pinned-version viewer; app dep stays unlinked.
 			const isFlowKind =
 				job.job_kind === 'flow' ||
 				job.job_kind === 'flowpreview' ||
@@ -398,7 +389,7 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 		worker: true,
 		run_id: true,
 		script_path: true,
-		script_hash: true, // flow_version id, rendered with link to pinned version
+		script_hash: true,
 		flow_status: false,
 		duration: false,
 		// Optional fields
@@ -418,7 +409,7 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 		worker: true,
 		run_id: true,
 		started_at: true,
-		script_hash: true, // for flowdependencies/appdependencies this is the version id
+		script_hash: true,
 		script_path: true,
 		duration: false,
 		// Optional fields

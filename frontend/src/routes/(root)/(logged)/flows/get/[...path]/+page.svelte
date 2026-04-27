@@ -108,9 +108,7 @@
 		initFlowGraphAssetsCtx({ getModules: () => flow?.value.modules ?? [] })
 	)
 
-	// Composite key of (path, ?version=) — re-runs loadFlow whenever either changes.
-	// Using just `path` would not detect navigation between `?version=N` and the
-	// latest (same path, different query string).
+	// `${path}|${version}` so navigating between pinned and latest re-runs loadFlow.
 	let previousLoadKey: string | undefined = $state(undefined)
 
 	async function archiveFlow(): Promise<void> {

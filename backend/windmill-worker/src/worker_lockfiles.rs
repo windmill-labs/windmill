@@ -512,23 +512,9 @@ pub async fn handle_flow_dependency_job(
         version
     };
 
-    // Phase 1 (short tx): clear out stale per-flow rows in
-    // `workspace_runnable_dependencies` / `asset` and snapshot the current
-    // `dependency_map` for this flow. We commit this tx BEFORE running any
-    // per-language lockfile subprocess so we don't hold row locks on these
-    // tables while bun/uv/cargo/etc. is running.
-    //
-    // We wrap the whole phase in a `tokio::time::timeout` so that if the DB
-    // connection goes dark on the network for any reason — Ubicloud-side
-    // pause, TCP blip, OS scheduler stall, etc. — the dep job task fails fast
-    // (in seconds) instead of stalling silently until the worker's 60 s
-    // zombie-no-ping detector triggers a 3-worker takeover cascade. Symmetric
-    // pattern with `update_worker_ping_main_loop_query` at
-    // windmill-common/src/worker.rs:1502, which uses the same wrapper for
-    // exactly the same failure mode (we observed q8zxq's `Elapsed` errors
-    // around the production stall — same root cause class). Each query in
-    // this phase runs in microseconds on real data, so 15 s leaves ample slack
-    // for normal load.
+    // Phase 1: short tx that clears stale rows + snapshots dep_map. Committed
+    // before phase 2 so subprocesses don't hold row locks. Outer timeout fails
+    // fast if the connection stalls, before the 60 s zombie-no-ping cascade.
     let mut dependency_map = match tokio::time::timeout(
         std::time::Duration::from_secs(15),
         async {
@@ -543,21 +529,10 @@ pub async fn handle_flow_dependency_job(
             )
             .await?;
 
-            // For *direct* user saves (not relative-import-triggered), dissolve
-            // the dep_map snapshot here in phase 1 instead of phase 3. With the
-            // refactor, phase 2 is auto-committed and can fail partway through;
-            // doing the dissolve now ensures phase-2 partial failures don't
-            // leak orphan rows that would otherwise sit until the next
-            // successful dep-job's phase 3.
-            //
-            // For relative-import-triggered jobs we MUST keep the existing
-            // "dissolve at end of phase 3" behavior. `try_skip_relock` runs
-            // inside phase 2 (only for that path) and reads the recorded
-            // `imported_lockfile_hash` from `dependency_map` to decide whether
-            // to skip the lockfile rebuild. Dissolving in phase 1 would erase
-            // the hash, force every relative-import dep job to actually
-            // re-lock, and break the optimization (regression caught by the
-            // `relock_skip_on_*_redeployment` integration tests).
+            // Direct saves: dissolve now so a partial phase 2 doesn't leave
+            // orphan dep_map rows. Relative-import jobs MUST defer to phase 3
+            // because `try_skip_relock` reads `imported_lockfile_hash` during
+            // phase 2.
             if !triggered_by_relative_import {
                 dependency_map.dissolve_in_place(&mut tx).await;
             }
@@ -588,11 +563,9 @@ pub async fn handle_flow_dependency_job(
                 connection likely stalled. Re-saving the flow will retrigger the \
                 dep job."
                 .to_string();
-            // Best-effort: surface the error on the flow viewer page's
-            // "Deployment failed" banner, not just the run page. Wrapped in its
-            // own short timeout because the trigger condition for the outer
-            // timeout was a stalled connection — without this wrapper the
-            // followup would inherit the same stall.
+            // Surface the error on the flow viewer's "Deployment failed"
+            // banner; own timeout since the connection that just stalled is
+            // probably the same one we'd reuse here.
             let _ = tokio::time::timeout(
                 std::time::Duration::from_secs(5),
                 sqlx::query!(
@@ -608,11 +581,7 @@ pub async fn handle_flow_dependency_job(
         }
     };
 
-    // Phase 2 (no tx): walk modules and run the per-language lockfile
-    // subprocess for each. Any DB writes inside (asset usage rows, dep map
-    // upserts, INSERTs into workspace_runnable_dependencies) go through their
-    // own auto-committed statements on the pool — see `lock_modules`. Subprocess
-    // calls therefore run with no row locks held.
+    // Phase 2: no tx. Per-module writes inside `lock_modules` are auto-commits.
     let modified_ids;
     let errors;
     (flow, modified_ids, errors) = lock_flow_value(
@@ -711,12 +680,8 @@ pub async fn handle_flow_dependency_job(
         tracing::error!(%job.id, %err, "error checking cancellation for job {0}: {err}", job.id);
         false
     }) {
-        // Skip phase 3. Phase 1's deletes are already committed (we trade
-        // end-to-end atomicity for shorter row-lock hold time across
-        // subprocesses); the flow is left with no deps and the previous
-        // `flow.value`. The next dep job for this flow will rebuild — phase
-        // 1 starts with a blanket DELETE for the flow's rows, so it's
-        // self-healing.
+        // Skip phase 3. Phase 1's deletes are committed; flow is left with no
+        // deps and the previous `flow.value`. Self-healing on next dep job.
         return Ok(to_raw_value_owned(json!({
             "status": "Flow lock generation was canceled",
         })));
@@ -727,11 +692,7 @@ pub async fn handle_flow_dependency_job(
             Error::internal_err("Flow Dependency requires script hash (flow version)".to_owned())
         })?;
 
-        // Phase 3 (short tx): atomically apply the dep_map dissolve and the
-        // final UPDATEs to flow / flow_version / flow_version_lite. Same
-        // failure-mode protection as phase 1 — if the DB connection stalls
-        // anywhere in here we want the task to error in seconds, not stall
-        // until the worker is declared zombie.
+        // Phase 3: short tx for the final apply. Outer timeout matches phase 1.
         enum Phase3 {
             Skipped(Box<RawValue>),
             Done,
@@ -739,28 +700,14 @@ pub async fn handle_flow_dependency_job(
         let phase3 = tokio::time::timeout(std::time::Duration::from_secs(30), async {
             let mut tx = db.begin().await?;
 
-            // For relative-import-triggered jobs, dissolve here (not in phase
-            // 1) so that `try_skip_relock` could see the existing
-            // `imported_lockfile_hash` values during phase 2's walk. After
-            // phase 2, `to_delete` only contains entries for modules that
-            // disappeared from the new flow value — those are the orphans we
-            // want to remove. For direct saves the dissolve already happened
-            // in phase 1 and `to_delete` is empty, so this is a no-op.
+            // Counterpart to phase 1's conditional dissolve.
             if triggered_by_relative_import {
                 dependency_map.dissolve_in_place(&mut tx).await;
             }
 
-            // Always re-check that our version is still the latest before
-            // writing. With the refactor, phase 1 commits before phase 2 runs,
-            // so two dep jobs for the same flow path (e.g. two manual saves
-            // within the bun-build window) can interleave: the second user
-            // save creates a newer flow_version while we're in phase 2; if we
-            // unconditionally `UPDATE flow SET value = $new_flow_value`, we'd
-            // overwrite the newer version's locks with our older version's.
-            // Pre-refactor, the long tx serialized the two dep jobs via row
-            // locks on `workspace_runnable_dependencies`. Now they can run in
-            // parallel, so this guard is required (not just for the
-            // relative-import path it was originally written for).
+            // Phase 1/2 are no longer serialised by row locks, so two
+            // concurrent dep jobs for the same flow path can race. Skip the
+            // write if a newer flow_version landed while we were in phase 2.
             let current_latest = sqlx::query_scalar!(
                 "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
                 job_path,
@@ -930,13 +877,8 @@ struct LockModuleError {
     error: Error,
 }
 
-// Process entire FlowValue including failure_module and preprocessor_module.
-// Note: this runs WITHOUT a wrapping transaction. Each individual write inside
-// `lock_modules` (asset usage, dep_map patch, runnable dependencies) is its own
-// short auto-commit so that the per-language lockfile subprocess (bun/uv/cargo
-// /etc.) doesn't run while row locks are held. Atomicity across modules is not
-// required because dep jobs are idempotent — they DELETE the existing rows for
-// this flow before re-running.
+// No wrapping tx — `lock_modules` auto-commits per-module writes so subprocesses
+// don't hold row locks. Atomicity isn't needed; dep jobs are idempotent on retry.
 async fn lock_flow_value(
     mut flow: FlowValue,
     job: &MiniPulledJob,
@@ -1061,14 +1003,8 @@ async fn lock_flow_value(
 // TODO: Maybe use [FlowValue::traverse_leafs]
 // IMPORTANT: If updating this function, make sure you also update [FlowValue::traverse_leafs]
 //
-// This function does NOT take a transaction. Each per-module DB write
-// (insert_static_asset_usage, INSERT workspace_runnable_dependencies,
-// dependency_map patch) runs as its own auto-committed statement on the pool.
-// That way the per-language lockfile subprocess at `capture_dependency_job`
-// (bun/uv/cargo/...) doesn't run while we're holding row locks on `asset` /
-// `workspace_runnable_dependencies` / `dependency_map`. End-to-end atomicity
-// across the dep-job is intentionally given up: the job is idempotent (the
-// caller DELETEs all rows for this flow at the start, then re-runs us).
+// No tx: each per-module DB write auto-commits so `capture_dependency_job`
+// runs without row locks held.
 async fn lock_modules(
     modules: Vec<FlowModule>,
     job: &MiniPulledJob,
