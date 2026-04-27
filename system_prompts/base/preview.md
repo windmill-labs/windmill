@@ -69,7 +69,12 @@ For apps:
 cd <app_path>__raw_app && wmill app dev --no-open --port 4000
 ```
 
-These print a `Go to <url>` line on stdout containing the full remote URL (workspace, token, path all baked in). Capture that URL from the process output and post it to the user: *"Preview is running — open `<url>` in your browser."* Don't try to construct the URL yourself.
+Both commands print the URL on stdout. The exact line shape differs:
+
+- `wmill dev --no-open` prints `Go to <url>` (the full remote URL with workspace, token, path baked in).
+- `wmill app dev --no-open` prints `🚀 Dev server running at <url>` (the local app server).
+
+Capture the URL with a loose match (e.g. the first `http://...` token after startup) and post it to the user: *"Preview is running — open `<url>` in your browser."* Don't try to construct the URL yourself.
 
 ## Both branches — keep the run alive
 

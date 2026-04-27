@@ -86,7 +86,7 @@ workspace dependencies related commands
 Watch local file changes and live-reload the dev page for preview. Does NOT deploy to the remote workspace — use wmill sync push for that.
 
 **Options:**
-- `--includes <pattern...:string>` - Filter paths givena glob pattern or path
+- `--includes <pattern...:string>` - Filter paths given a glob pattern or path
 - `--proxy-port <port:number>` - Port for a localhost reverse proxy to the remote Windmill server
 - `--path <path:string>` - Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)
 - `--no-open` - Do not open the browser automatically

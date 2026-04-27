@@ -76,7 +76,7 @@ After writing, tell the user which command fits what they want to do:
 
 - \`wmill flow preview <flow_path>\` — **default when iterating on a local flow.** Runs the local \`flow.yaml\` against local inline scripts without deploying. Add \`--remote\` to use deployed workspace scripts for PathScript steps instead of local files.
 - \`wmill flow run <path>\` — runs the flow **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- \`wmill generate-metadata\` — regenerate lock files for the flow you modified.
+- \`wmill generate-metadata\` — regenerate stale \`.lock\` and \`.script.yaml\` files. By default it scans **scripts, flows, and apps** across the workspace; pass \`--skip-flows --skip-apps\` (or run from a subdirectory) to limit the scope when you only care about the flow you edited.
 - \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
@@ -1904,7 +1904,7 @@ workspace dependencies related commands
 Watch local file changes and live-reload the dev page for preview. Does NOT deploy to the remote workspace — use wmill sync push for that.
 
 **Options:**
-- \`--includes <pattern...:string>\` - Filter paths givena glob pattern or path
+- \`--includes <pattern...:string>\` - Filter paths given a glob pattern or path
 - \`--proxy-port <port:number>\` - Port for a localhost reverse proxy to the remote Windmill server
 - \`--path <path:string>\` - Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)
 - \`--no-open\` - Do not open the browser automatically
