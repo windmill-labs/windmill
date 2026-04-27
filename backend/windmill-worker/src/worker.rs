@@ -1403,9 +1403,10 @@ pub(crate) fn record_job_span_status(result: &windmill_common::error::Result<boo
     span.record("otel.status_description", description.as_str());
 }
 
-/// Cap an error description at `STATUS_DESCRIPTION_MAX_LEN` chars, appending
-/// an ellipsis when truncated. Always returns an owned `String` so callers
-/// don't have to juggle `Cow` lifetimes.
+/// Cap an error description at `STATUS_DESCRIPTION_MAX_LEN` bytes, appending
+/// an ellipsis when truncated. The cut is rounded down to the nearest UTF-8
+/// codepoint boundary so the result is always valid UTF-8. Always returns an
+/// owned `String` so callers don't have to juggle `Cow` lifetimes.
 pub(crate) fn truncate_description(s: &str) -> String {
     if s.len() <= STATUS_DESCRIPTION_MAX_LEN {
         return s.to_string();

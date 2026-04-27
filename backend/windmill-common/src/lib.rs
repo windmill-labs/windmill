@@ -404,6 +404,51 @@ pub fn classify_python_logging_line(line: &str) -> Option<tracing::Level> {
     }
 }
 
+#[cfg(test)]
+mod classify_python_logging_line_tests {
+    use super::classify_python_logging_line;
+    use tracing::Level;
+
+    #[test]
+    fn matches_python_levels() {
+        assert_eq!(
+            classify_python_logging_line("WARNING:dlt.normalize:msg"),
+            Some(Level::WARN)
+        );
+        assert_eq!(
+            classify_python_logging_line("INFO:app:hello"),
+            Some(Level::INFO)
+        );
+        assert_eq!(
+            classify_python_logging_line("ERROR:a:b"),
+            Some(Level::ERROR)
+        );
+        assert_eq!(
+            classify_python_logging_line("CRITICAL:a:b"),
+            Some(Level::ERROR)
+        );
+        assert_eq!(
+            classify_python_logging_line("DEBUG:a:b"),
+            Some(Level::DEBUG)
+        );
+    }
+
+    #[test]
+    fn rejects_non_python_format() {
+        assert_eq!(
+            classify_python_logging_line("Traceback (most recent call last):"),
+            None
+        );
+        assert_eq!(
+            classify_python_logging_line("WARNING:no-second-colon"),
+            None
+        );
+        assert_eq!(classify_python_logging_line("warning:lowercase:msg"), None);
+        assert_eq!(classify_python_logging_line("plain stderr text"), None);
+        assert_eq!(classify_python_logging_line(""), None);
+    }
+}
+
 #[derive(Serialize, Debug)]
 pub struct PrepareQueryColumnInfo {
     pub name: String,
