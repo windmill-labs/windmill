@@ -1,11 +1,12 @@
 <script lang="ts">
 	import TreeView from './TreeView.svelte'
 
-	import { ChevronDown, ChevronUp, Folder, FolderTree, User } from 'lucide-svelte'
+	import { ChevronDown, ChevronUp, Folder, FolderTree, NetworkIcon, User } from 'lucide-svelte'
 	import Item from './Item.svelte'
 	import type { FolderItem, ItemType, UserItem } from './treeViewUtils'
 	import { twMerge } from 'tailwind-merge'
 	import { pluralize } from '$lib/utils'
+	import { base } from '$lib/base'
 
 	interface Props {
 		item: ItemType | FolderItem | UserItem
@@ -13,11 +14,24 @@
 		depth?: number
 		showCode: (path: string, summary: string) => void
 		isSearching?: boolean
+		pipelineFolders?: Set<string>
 	}
 
-	let { item, collapseAll, depth = 0, showCode, isSearching = false }: Props = $props()
+	let {
+		item,
+		collapseAll,
+		depth = 0,
+		showCode,
+		isSearching = false,
+		pipelineFolders
+	}: Props = $props()
 
-	const isFolder = (i: typeof item): i is FolderItem => i && 'folderName' in i
+	const isFolderItem = (i: typeof item): i is FolderItem => i && 'folderName' in i
+	let hasPipeline = $derived(
+		depth === 0 && isFolderItem(item) && (pipelineFolders?.has(item.folderName) ?? false)
+	)
+
+	const isFolder = isFolderItem
 	const isUser = (i: typeof item): i is UserItem => i && 'username' in i
 
 	let opened: boolean = $state(true)
@@ -67,11 +81,25 @@
 		</div>
 		{#if opened || isSearching}
 			<div>
+				{#if hasPipeline && isFolder(item)}
+					<a
+						href="{base}/pipeline/{encodeURIComponent(item.folderName)}"
+						class="flex items-center gap-4 px-4 py-2 border-b text-sm hover:bg-surface-hover transition-colors"
+						style="padding-left: {(depth + 1) * 16}px;"
+					>
+						<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
+						<div class="flex flex-col">
+							<span class="text-xs font-medium text-emphasis">Pipeline</span>
+							<span class="text-2xs text-secondary">Open pipeline editor</span>
+						</div>
+					</a>
+				{/if}
 				{#each item.items.slice(0, showMax) as subItem, index ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] + '__' + index : undefined) ?? 'folder__' + subItem['folderName'] + '__' + index)}
 					<TreeView
 						{isSearching}
 						{collapseAll}
 						item={subItem}
+						{pipelineFolders}
 						on:scriptChanged
 						on:flowChanged
 						on:appChanged

@@ -9,8 +9,8 @@ use sqlparser::{
     parser::Parser,
 };
 use windmill_parser::asset_parser::{
-    asset_was_used, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
-    ParseAssetsOutput, ParseAssetsResult,
+    asset_was_used, merge_assets, parse_asset_syntax, parse_pipeline_annotations, AssetKind,
+    AssetUsageAccessType, ParseAssetsOutput, ParseAssetsResult,
 };
 use AssetUsageAccessType::*;
 
@@ -33,7 +33,13 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
         }
     }
 
-    Ok(ParseAssetsOutput { assets: merge_assets(collector.assets), ..Default::default() })
+    let (is_materializer, triggers) = parse_pipeline_annotations(input);
+    Ok(ParseAssetsOutput {
+        assets: merge_assets(collector.assets),
+        is_materializer,
+        triggers,
+        ..Default::default()
+    })
 }
 
 /// Visitor that collects S3 asset literals from SQL statements

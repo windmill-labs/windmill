@@ -33,6 +33,14 @@
 	const collabLang = page.url.searchParams.get('lang') as ScriptLang | null
 	const wacParam = page.url.searchParams.get('wac')
 	const importParam = page.url.searchParams.get('import')
+	// Pipeline opt-in marker. Any truthy value prefills `<comment-prefix>
+	// materialize` at the top of the new script so the bare marker fires on
+	// deploy. ScriptBuilder's initialCode path only runs when content is
+	// empty, so this survives.
+	const materializeParam = page.url.searchParams.get('materialize')
+	// Optional `// on <asset>` trigger. Value is the full asset-syntax string
+	// (e.g. s3://bucket/key) — written verbatim after the `materialize` line.
+	const onAssetParam = page.url.searchParams.get('on_asset')
 
 	let initialArgs = urlArgs ? decodeState(urlArgs) : (get(initialArgsStore) ?? {})
 	if (get(initialArgsStore)) $initialArgsStore = undefined
@@ -53,19 +61,61 @@
 		}
 	}
 
+	// Language → comment prefix recognized by the pipeline annotation
+	// parser. Any of //, #, -- is accepted.
+	function commentPrefix(lang: ScriptLang): string {
+		switch (lang) {
+			case 'python3':
+			case 'bash':
+			case 'powershell':
+			case 'nu':
+			case 'ansible':
+				return '#'
+			case 'postgresql':
+			case 'mysql':
+			case 'bigquery':
+			case 'snowflake':
+			case 'mssql':
+			case 'oracledb':
+			case 'duckdb':
+				return '--'
+			default:
+				return '//'
+		}
+	}
+
+	// Compose the prefix block for a new pipeline script: bare `// materialize`
+	// marker plus optional `// on <ref>` trigger. Placed at the very top so
+	// comments precede any language-specific preamble the builder injects.
+	function pipelinePreamble(lang: ScriptLang): string {
+		const p = commentPrefix(lang)
+		const lines: string[] = []
+		if (materializeParam) lines.push(`${p} materialize`)
+		if (onAssetParam) lines.push(`${p} on ${onAssetParam}`)
+		return lines.length ? lines.join('\n') + '\n' : ''
+	}
+
 	function defaultScript(): Script {
+		const language = ((wacParam === 'python'
+			? 'python3'
+			: wacParam === 'typescript'
+				? 'bun'
+				: null) ??
+			collabLang ??
+			$defaultScripts?.order?.filter(
+				(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x)
+			)?.[0] ??
+			'bun') as ScriptLang
 		return {
 			hash: '',
 			path: path ?? '',
 			summary: '',
-			content: '',
+			content: pipelinePreamble(language),
 			description: '',
 			schema: schema,
 			is_template: false,
 			extra_perms: {},
-			language: (wacParam === 'python' ? 'python3' : wacParam === 'typescript' ? 'bun' : null) ?? collabLang ?? ($defaultScripts?.order?.filter(
-				(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x)
-			)?.[0] ?? 'bun') as ScriptLang,
+			language,
 			kind: 'script'
 		}
 	}
@@ -139,8 +189,7 @@
 			extra_perms: {}
 		}
 		if (isWac) {
-			importedWacTemplate =
-				imported.language === 'python3' ? 'wac_python' : 'wac_typescript'
+			importedWacTemplate = imported.language === 'python3' ? 'wac_python' : 'wac_typescript'
 			sendUserToast('WAC script loaded from YAML/JSON')
 		} else {
 			sendUserToast('Script loaded from YAML/JSON')
@@ -159,7 +208,12 @@
 		{initialArgs}
 		bind:this={scriptBuilder}
 		lockedLanguage={templatePath != null || hubPath != null}
-		template={importedWacTemplate ?? (wacParam === 'python' ? 'wac_python' : wacParam === 'typescript' ? 'wac_typescript' : 'script')}
+		template={importedWacTemplate ??
+			(wacParam === 'python'
+				? 'wac_python'
+				: wacParam === 'typescript'
+					? 'wac_typescript'
+					: 'script')}
 		onDeploy={(e) => {
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}

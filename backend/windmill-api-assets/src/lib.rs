@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
 use windmill_common::{
-    assets::{AssetKind, AssetUsageKind},
+    assets::{parse_asset_trigger_ref, AssetKind, AssetUsageKind},
     db::UserDB,
     error::JsonResult,
     utils::escape_ilike_pattern,
@@ -21,6 +21,7 @@ pub fn workspaced_service() -> Router {
         .route("/list_by_usages", post(list_assets_by_usages))
         .route("/list_favorites", get(list_favorites))
         .route("/graph", get(asset_graph))
+        .route("/pipelines", get(list_pipeline_folders))
 }
 
 #[derive(Deserialize)]
@@ -388,8 +389,14 @@ struct GraphAssetNode {
 struct GraphRunnableNode {
     path: String,
     usage_kind: AssetUsageKind,
+    // True iff the script was deployed with `// materialize` — drives the
+    // pipeline-member visual state on the frontend.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    is_materializer: bool,
 }
 
+// Lineage edge from parsed r/w usages. One per (runnable, asset, access_type)
+// tuple. Informational — not the DAG execution edges.
 #[derive(Serialize, Debug)]
 struct GraphEdge {
     runnable_path: String,
@@ -399,11 +406,72 @@ struct GraphEdge {
     access_type: Option<String>,
 }
 
+// Declared `// on <trigger>` trigger edge — the actual execution DAG.
+// For the eight non-native, non-schedule trigger kinds the variant carries
+// just the trigger's workspace path; the config (broker, topic, auth, …)
+// lives in its own trigger table and UI.
+#[derive(Serialize, Debug)]
+#[serde(tag = "trigger_kind", rename_all = "lowercase")]
+enum TriggerEdge {
+    Asset {
+        asset_kind: AssetKind,
+        asset_path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Schedule {
+        cron: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Webhook {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Email {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Kafka {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Mqtt {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Nats {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Postgres {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Sqs {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+    Gcp {
+        path: String,
+        runnable_kind: AssetUsageKind,
+        runnable_path: String,
+    },
+}
+
 #[derive(Serialize, Debug)]
 struct AssetGraphResponse {
     assets: Vec<GraphAssetNode>,
     runnables: Vec<GraphRunnableNode>,
     edges: Vec<GraphEdge>,
+    triggers: Vec<TriggerEdge>,
 }
 
 async fn asset_graph(
@@ -450,11 +518,59 @@ async fn asset_graph(
     .fetch_all(&mut *tx)
     .await?;
 
+    // Pipeline triggers attached to scripts in scope. Fetched separately so
+    // we can widen the runnable_set for trigger-only endpoints (e.g. an
+    // asset trigger whose asset has no usage in the pipeline yet).
+    let trigger_rows = sqlx::query!(
+        r#"
+        SELECT
+            runnable_kind AS "runnable_kind!: AssetUsageKind",
+            runnable_path AS "runnable_path!",
+            trigger_kind::text AS "trigger_kind!",
+            trigger_ref   AS "trigger_ref!"
+        FROM script_trigger
+        WHERE workspace_id = $1
+          AND ($2::text IS NULL OR runnable_path LIKE $2)
+        "#,
+        &w_id,
+        folder_filter.as_deref(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Which scripts in scope are pipeline members (have `// materialize`).
+    let materializer_paths = sqlx::query!(
+        r#"
+        SELECT path AS "path!"
+        FROM script
+        WHERE workspace_id = $1
+          AND auto_kind = 'materializer'
+          AND archived = false
+          AND deleted = false
+          AND ($2::text IS NULL OR path LIKE $2)
+        "#,
+        &w_id,
+        folder_filter.as_deref(),
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
     tx.commit().await?;
+
+    let materializer_script_paths: std::collections::HashSet<String> =
+        materializer_paths.into_iter().map(|r| r.path).collect();
 
     let mut edges = Vec::with_capacity(rows.len());
     let mut asset_set: std::collections::HashSet<(AssetKind, String)> = Default::default();
     let mut runnable_set: std::collections::HashSet<(AssetUsageKind, String)> = Default::default();
+
+    // Every materializer in scope goes into the graph, even when the parser
+    // didn't detect any asset r/w and the script has no triggers yet. Without
+    // this, a freshly-saved materializer whose template body hasn't been
+    // filled in would vanish from the pipeline view on graph refetch.
+    for path in &materializer_script_paths {
+        runnable_set.insert((AssetUsageKind::Script, path.clone()));
+    }
 
     for r in rows {
         asset_set.insert((r.asset_kind, r.asset_path.clone()));
@@ -468,6 +584,79 @@ async fn asset_graph(
         });
     }
 
+    let mut triggers: Vec<TriggerEdge> = Vec::with_capacity(trigger_rows.len());
+    for t in trigger_rows {
+        runnable_set.insert((t.runnable_kind, t.runnable_path.clone()));
+        match t.trigger_kind.as_str() {
+            "asset" => {
+                // trigger_ref is `<prefix><path>` — parse back out so both
+                // endpoints match what the frontend uses for node ids.
+                if let Some((asset_kind, asset_path)) = parse_asset_trigger_ref(&t.trigger_ref) {
+                    // Make sure the source asset has a node even if nothing
+                    // reads/writes it in this folder.
+                    asset_set.insert((asset_kind, asset_path.clone()));
+                    triggers.push(TriggerEdge::Asset {
+                        asset_kind,
+                        asset_path,
+                        runnable_kind: t.runnable_kind,
+                        runnable_path: t.runnable_path,
+                    });
+                }
+            }
+            "schedule" => {
+                triggers.push(TriggerEdge::Schedule {
+                    cron: t.trigger_ref,
+                    runnable_kind: t.runnable_kind,
+                    runnable_path: t.runnable_path,
+                });
+            }
+            // One-liners for the `<kind> <path>` trigger variants. Kept as a
+            // flat match rather than a helper — each arm's variant ctor is
+            // different and we don't benefit from abstracting it.
+            "webhook" => triggers.push(TriggerEdge::Webhook {
+                path: t.trigger_ref,
+                runnable_kind: t.runnable_kind,
+                runnable_path: t.runnable_path,
+            }),
+            "email" => triggers.push(TriggerEdge::Email {
+                path: t.trigger_ref,
+                runnable_kind: t.runnable_kind,
+                runnable_path: t.runnable_path,
+            }),
+            "kafka" => triggers.push(TriggerEdge::Kafka {
+                path: t.trigger_ref,
+                runnable_kind: t.runnable_kind,
+                runnable_path: t.runnable_path,
+            }),
+            "mqtt" => triggers.push(TriggerEdge::Mqtt {
+                path: t.trigger_ref,
+                runnable_kind: t.runnable_kind,
+                runnable_path: t.runnable_path,
+            }),
+            "nats" => triggers.push(TriggerEdge::Nats {
+                path: t.trigger_ref,
+                runnable_kind: t.runnable_kind,
+                runnable_path: t.runnable_path,
+            }),
+            "postgres" => triggers.push(TriggerEdge::Postgres {
+                path: t.trigger_ref,
+                runnable_kind: t.runnable_kind,
+                runnable_path: t.runnable_path,
+            }),
+            "sqs" => triggers.push(TriggerEdge::Sqs {
+                path: t.trigger_ref,
+                runnable_kind: t.runnable_kind,
+                runnable_path: t.runnable_path,
+            }),
+            "gcp" => triggers.push(TriggerEdge::Gcp {
+                path: t.trigger_ref,
+                runnable_kind: t.runnable_kind,
+                runnable_path: t.runnable_path,
+            }),
+            _ => {} // Unknown trigger_kind — forward-compat.
+        }
+    }
+
     let mut assets: Vec<GraphAssetNode> = asset_set
         .into_iter()
         .map(|(kind, path)| GraphAssetNode { kind, path })
@@ -476,9 +665,66 @@ async fn asset_graph(
 
     let mut runnables: Vec<GraphRunnableNode> = runnable_set
         .into_iter()
-        .map(|(usage_kind, path)| GraphRunnableNode { path, usage_kind })
+        .map(|(usage_kind, path)| {
+            let is_materializer =
+                usage_kind == AssetUsageKind::Script && materializer_script_paths.contains(&path);
+            GraphRunnableNode { path, usage_kind, is_materializer }
+        })
         .collect();
     runnables.sort_by(|a, b| a.path.cmp(&b.path));
 
-    Ok(Json(AssetGraphResponse { assets, runnables, edges }))
+    Ok(Json(AssetGraphResponse {
+        assets,
+        runnables,
+        edges,
+        triggers,
+    }))
+}
+
+// ------------------------------------------------------------------
+// GET /w/:workspace/assets/pipelines
+// ------------------------------------------------------------------
+// Distinct folder names that contain at least one materializer script
+// (auto_kind='materializer'). Used by the pipeline-editor folder picker
+// and the "Pipeline" entry in folder views. Keyed by the partial index
+// on `script (workspace_id, path) WHERE auto_kind='materializer' ...`
+// so this is effectively O(matches).
+
+#[derive(Serialize, Debug)]
+struct PipelineFolder {
+    folder: String,
+    script_count: i64,
+}
+
+async fn list_pipeline_folders(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<PipelineFolder>> {
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        r#"
+        SELECT
+            substring(path from '^f/([^/]+)/') AS "folder!",
+            COUNT(*) AS "script_count!"
+        FROM script
+        WHERE workspace_id = $1
+          AND auto_kind = 'materializer'
+          AND archived = false
+          AND deleted = false
+          AND path LIKE 'f/%'
+        GROUP BY substring(path from '^f/([^/]+)/')
+        ORDER BY substring(path from '^f/([^/]+)/')
+        "#,
+        &w_id,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| PipelineFolder { folder: r.folder, script_count: r.script_count })
+            .collect(),
+    ))
 }

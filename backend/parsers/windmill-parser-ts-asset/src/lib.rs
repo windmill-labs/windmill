@@ -5,8 +5,8 @@ use swc_ecma_ast::{CallExpr, Expr, Lit, MemberExpr, MemberProp, Str};
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
 use swc_ecma_visit::{Visit, VisitWith};
 use windmill_parser::asset_parser::{
-    asset_was_used, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
-    ParseAssetsOutput, ParseAssetsResult, SqlQueryDetails,
+    asset_was_used, merge_assets, parse_asset_syntax, parse_pipeline_annotations, AssetKind,
+    AssetUsageAccessType, ParseAssetsOutput, ParseAssetsResult, SqlQueryDetails,
 };
 use AssetUsageAccessType::*;
 
@@ -38,9 +38,12 @@ pub fn parse_assets(code: &str) -> anyhow::Result<ParseAssetsOutput> {
     let mut assets_finder =
         AssetsFinder { assets: vec![], sql_queries: vec![], var_identifiers: HashMap::new() };
     assets_finder.visit_module_items(&ast);
+    let (is_materializer, triggers) = parse_pipeline_annotations(code);
     Ok(ParseAssetsOutput {
         assets: merge_assets(assets_finder.assets),
         sql_queries: assets_finder.sql_queries,
+        is_materializer,
+        triggers,
     })
 }
 

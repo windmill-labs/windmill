@@ -161,10 +161,10 @@
 				<Button
 					variant="accent-secondary"
 					unifiedSize="sm"
-					href="{base}/assets/graph"
+					href="{base}/pipeline"
 					startIcon={{ icon: NetworkIcon }}
 				>
-					Graph view
+					Pipelines
 				</Button>
 			</div>
 		</PageHeader>

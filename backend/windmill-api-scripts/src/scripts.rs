@@ -43,8 +43,9 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 
 use windmill_common::{
     assets::{
-        clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
-        insert_static_asset_usage, AssetUsageKind, AssetWithAltAccessType,
+        clear_script_triggers, clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
+        insert_script_trigger, insert_static_asset_usage, parse_pipeline_annotations,
+        trigger_spec_to_row, AssetUsageKind, AssetWithAltAccessType,
     },
     error::{self, to_anyhow},
     min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
@@ -966,7 +967,14 @@ async fn create_script_internal<'c>(
 
     let ci_test_refs =
         windmill_common::schema::parse_ci_test_annotation(&ns.content, &lang.as_comment_lit());
-    let auto_kind = if ci_test_refs.is_some() {
+    // `materializer` wins over `test` and any client-supplied auto_kind. The
+    // bare `// materialize` marker is the opt-in signal for pipeline
+    // membership; parsed writes tell us what is produced (we don't record
+    // them in auto_kind itself).
+    let (is_materializer, pipeline_triggers) = parse_pipeline_annotations(&ns.content);
+    let auto_kind = if is_materializer {
+        Some("materializer".to_string())
+    } else if ci_test_refs.is_some() {
         Some("test".to_string())
     } else {
         auto_kind
@@ -1275,6 +1283,22 @@ async fn create_script_internal<'c>(
     for asset in ns.assets.as_ref().into_iter().flatten() {
         insert_static_asset_usage(&mut *tx, &w_id, &asset, &ns.path, AssetUsageKind::Script)
             .await?;
+    }
+
+    // Pipeline trigger edges: wipe-and-reinsert per deploy so removing an
+    // `// on ...` annotation drops the edge.
+    clear_script_triggers(&mut *tx, &w_id, &ns.path, AssetUsageKind::Script).await?;
+    for spec in &pipeline_triggers {
+        let (trigger_kind, trigger_ref) = trigger_spec_to_row(spec);
+        insert_script_trigger(
+            &mut *tx,
+            &w_id,
+            AssetUsageKind::Script,
+            &ns.path,
+            trigger_kind,
+            &trigger_ref,
+        )
+        .await?;
     }
 
     let permissioned_as = username_to_permissioned_as(&authed.username);

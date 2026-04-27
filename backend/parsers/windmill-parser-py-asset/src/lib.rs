@@ -2,8 +2,8 @@ use rustpython_ast::{Constant, Expr, ExprConstant, Visitor};
 use rustpython_parser::{ast::Suite, Parse};
 use std::collections::HashMap;
 use windmill_parser::asset_parser::{
-    asset_was_used, merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType,
-    ParseAssetsOutput, ParseAssetsResult,
+    asset_was_used, merge_assets, parse_asset_syntax, parse_pipeline_annotations, AssetKind,
+    AssetUsageAccessType, ParseAssetsOutput, ParseAssetsResult,
 };
 use AssetUsageAccessType::*;
 
@@ -28,7 +28,13 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
         }
     }
 
-    Ok(ParseAssetsOutput { assets: merge_assets(assets_finder.assets), ..Default::default() })
+    let (is_materializer, triggers) = parse_pipeline_annotations(input);
+    Ok(ParseAssetsOutput {
+        assets: merge_assets(assets_finder.assets),
+        is_materializer,
+        triggers,
+        ..Default::default()
+    })
 }
 
 type VarAssetName = String;

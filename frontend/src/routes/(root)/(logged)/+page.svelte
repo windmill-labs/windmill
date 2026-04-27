@@ -20,7 +20,8 @@
 		Globe2,
 		Loader2,
 		Code,
-		LayoutDashboard
+		LayoutDashboard,
+		NetworkIcon
 	} from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -117,7 +118,8 @@
 			setTimeout(() => {
 				workspaceTutorials?.runTutorialById('workspace-onboarding')
 			}, 500)
-		} else if (tutorialParam === 'workspace-onboarding-operator') { // Small delay to ensure page is fully loaded
+		} else if (tutorialParam === 'workspace-onboarding-operator') {
+			// Small delay to ensure page is fully loaded
 			setTimeout(() => {
 				workspaceTutorials?.runTutorialById('workspace-onboarding-operator')
 			}, 500)
@@ -284,16 +286,26 @@
 			childrenWrapperDivClasses="flex-1 flex flex-row gap-4 flex-wrap justify-end items-center"
 		>
 			{#if !$userStore?.operator && showCreateButtons}
-				<span class="text-xs font-normal text-primary">Create a</span>
 				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
 				{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
+				<Button
+					id="pipeline-button"
+					aiId="pipeline-button"
+					aiDescription="Opens the pipeline editor"
+					unifiedSize="lg"
+					startIcon={{ icon: NetworkIcon }}
+					href="{base}/pipeline"
+					variant="accent"
+				>
+					Pipeline
+				</Button>
 				{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
 			{/if}
 		</PageHeader>
 
 		<TutorialBanner />
 
-		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => showCreateButtons = v}/>
+		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 
 		{#if !$userStore?.operator}
 			<div class="w-full overflow-auto scrollbar-hidden pb-2">
