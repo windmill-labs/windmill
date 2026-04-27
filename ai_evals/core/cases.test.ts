@@ -87,6 +87,49 @@ describe("loadCases", () => {
     });
   });
 
+  it("loads the file-manager rename save/cancel case", async () => {
+    const appCases = await loadCases("app");
+    const caseEntry = appCases.find(
+      (entry) => entry.id === "app-test6-file-manager-rename-save-cancel"
+    );
+
+    expect(caseEntry?.initialPath).toContain("ai_evals/fixtures/frontend/app/initial/file_manager");
+    expect(caseEntry?.validate).toMatchObject({
+      requiredFrontendPaths: ["/index.tsx", "/components/FileItem.tsx"],
+      requiredFrontendFileContent: [
+        {
+          path: "/components/FileItem.tsx",
+          includes: ["Save", "Cancel", "Escape"],
+        },
+      ],
+      forbiddenAppContent: ["onBlur={handleRename}"],
+    });
+  });
+
+  it("loads the datatable-backed notes creation case", async () => {
+    const appCases = await loadCases("app");
+    const caseEntry = appCases.find((entry) => entry.id === "app-datatable-persistent-notes");
+
+    expect(caseEntry?.initialPath).toContain("ai_evals/fixtures/frontend/app/initial/notes_datatable");
+    expect(caseEntry?.runtime).toEqual({
+      maxTurns: 10,
+    });
+    expect(caseEntry?.validate).toMatchObject({
+      requiredFrontendPaths: ["/index.tsx"],
+      requiredBackendRunnableKeys: ["listNotes", "addNote", "deleteNote"],
+      datatableTableCountExactly: 1,
+      requiredDatatables: [
+        {
+          datatableName: "main",
+          schema: "public",
+          table: "notes",
+        },
+      ],
+      requiredToolsUsed: ["list_datatables", "get_datatable_table_schema"],
+      forbiddenAppContent: ["localStorage", "sessionStorage", "indexedDB"],
+    });
+  });
+
   it("loads the session id micro-edit app case", async () => {
     const appCases = await loadCases("app");
     const caseEntry = appCases.find((entry) => entry.id === "app-test10-session-id-no-crypto");
@@ -99,6 +142,30 @@ describe("loadCases", () => {
       requiredFrontendPaths: ["/index.tsx"],
       requiredBackendRunnableKeys: ["a"],
       requiredBackendRunnableTypes: [{ key: "a", type: "inline" }],
+    });
+  });
+
+  it("loads app token usage cases with additional runtime context", async () => {
+    const appCases = await loadCases("app");
+    const datatableContextCase = appCases.find(
+      (entry) => entry.id === "app-token-many-datatable-context"
+    );
+
+    expect(
+      appCases.find((entry) => entry.id === "app-token-selected-large-frontend-context")
+    ).toBeUndefined();
+    expect(
+      appCases.find((entry) => entry.id === "app-token-selected-large-backend-context")
+    ).toBeUndefined();
+    expect(datatableContextCase?.initialPath).toContain(
+      "ai_evals/fixtures/frontend/app/initial/token_heavy_datatables"
+    );
+    expect(datatableContextCase?.runtime?.appContext?.additional).toHaveLength(10);
+    expect(datatableContextCase?.runtime?.appContext?.additional?.[0]).toEqual({
+      type: "datatable",
+      datatableName: "main",
+      schema: "analytics",
+      table: "event_log_01",
     });
   });
 

@@ -120,7 +120,6 @@ const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/;
 
 export function sanitizeForFilesystem(summary: string): string {
   const name = summary
-    .toLowerCase()
     .replaceAll(" ", "_")
     // Remove characters invalid on Windows/Unix/Mac: / \ : * ? " < > |
     // Also remove control characters (0x00-0x1F) and DEL (0x7F)
@@ -131,7 +130,7 @@ export function sanitizeForFilesystem(summary: string): string {
     // Trim leading/trailing dots and underscores (hidden files, Windows edge cases)
     .replace(/^[._]+|[._]+$/g, "");
   // Prefix Windows reserved device names (CON, PRN, AUX, NUL, COM0-9, LPT0-9)
-  return WINDOWS_RESERVED.test(name) ? `_${name}` : name;
+  return WINDOWS_RESERVED.test(name.toLowerCase()) ? `_${name}` : name;
 }
 
 export interface PathAssigner {
@@ -160,6 +159,8 @@ export function newPathAssigner(defaultTs: "bun" | "deno" | PathAssignerOptions,
   const { defaultTs: tsRuntime, skipInlineScriptSuffix } = resolvedOptions;
 
   let counter = 0;
+  // Dedupe case-insensitively so case-only duplicates don't collide on
+  // case-insensitive filesystems (Windows, default macOS).
   const seen_names = new Set<string>();
   function assignPath(
     summary: string | undefined,
@@ -176,11 +177,11 @@ export function newPathAssigner(defaultTs: "bun" | "deno" | PathAssignerOptions,
       name = `${INLINE_SCRIPT_PREFIX}_0`;
     }
 
-    while (seen_names.has(name)) {
+    while (seen_names.has(name.toLowerCase())) {
       counter++;
       name = `${original_name}_${counter}`;
     }
-    seen_names.add(name);
+    seen_names.add(name.toLowerCase());
 
     const ext = getLanguageExtension(language, tsRuntime);
 
@@ -201,6 +202,8 @@ export function newPathAssigner(defaultTs: "bun" | "deno" | PathAssignerOptions,
  */
 export function newRawAppPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
   let counter = 0;
+  // Dedupe case-insensitively so case-only duplicates don't collide on
+  // case-insensitive filesystems (Windows, default macOS).
   const seen_names = new Set<string>();
   function assignPath(
     summary: string | undefined,
@@ -217,11 +220,11 @@ export function newRawAppPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
       name = `runnable_0`;
     }
 
-    while (seen_names.has(name)) {
+    while (seen_names.has(name.toLowerCase())) {
       counter++;
       name = `${original_name}_${counter}`;
     }
-    seen_names.add(name);
+    seen_names.add(name.toLowerCase());
 
     const ext = getLanguageExtension(language, defaultTs);
 

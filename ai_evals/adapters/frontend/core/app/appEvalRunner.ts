@@ -4,6 +4,7 @@ import { join } from "path";
 import type {
   BackendRunnable,
   AppAIChatHelpers,
+  DataTableSchema,
 } from "../../../../../frontend/src/lib/components/copilot/chat/app/core";
 import {
   getAppTools,
@@ -14,11 +15,21 @@ import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/com
 import { createAppFileHelpers } from "./fileHelpers";
 import { runEval } from "../shared";
 import type { AIProvider } from "$lib/gen/types.gen";
-import type { ModeRunContext } from "../../../../core/types";
+import type {
+  EvalCaseRuntimeAppAdditionalContext,
+  EvalCaseRuntimeAppContextSpec,
+  ModeRunContext,
+} from "../../../../core/types";
 import type { TokenUsage } from "../shared/types";
 import type { AppFilesState } from "../../../../core/validators";
 import type { FrontendEvalTransport } from "../../../../core/frontendTransport";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
+import {
+  createAppBackendRunnableContextElement,
+  createAppDatatableContextElement,
+  createAppFrontendFileContextElement,
+  type ContextElement,
+} from "../../../../../frontend/src/lib/components/copilot/chat/context";
 
 export interface AppEvalResult {
   success: boolean;
@@ -34,6 +45,7 @@ export interface AppEvalOptions {
   initialFrontend?: Record<string, string>;
   initialBackend?: AppFilesState["backend"];
   initialDatatables?: AppFilesState["datatables"];
+  appContext?: EvalCaseRuntimeAppContextSpec;
   model?: string;
   maxIterations?: number;
   provider?: AIProvider;
@@ -62,9 +74,14 @@ export async function runAppEval(
     const systemMessage = prepareAppSystemMessage();
     const tools = getAppTools() as ProductionTool<AppAIChatHelpers>[];
     const model = options?.model ?? "claude-haiku-4-5-20251001";
+    const additionalContext = await buildAdditionalContext(
+      options?.appContext,
+      helpers,
+    );
     const userMessage = prepareAppUserMessage(
       userPrompt,
       helpers.getSelectedContext(),
+      additionalContext,
     );
 
     const rawResult = await runEval({
@@ -103,4 +120,61 @@ export async function runAppEval(
   } finally {
     await cleanup();
   }
+}
+
+async function buildAdditionalContext(
+  appContext: EvalCaseRuntimeAppContextSpec | undefined,
+  helpers: AppAIChatHelpers,
+): Promise<ContextElement[]> {
+  const entries = appContext?.additional ?? [];
+  if (entries.length === 0) {
+    return [];
+  }
+
+  const datatables = entries.some((entry) => entry.type === "datatable")
+    ? await helpers.getDatatables()
+    : [];
+
+  return entries.map((entry) =>
+    buildAdditionalContextElement(entry, helpers, datatables),
+  );
+}
+
+function buildAdditionalContextElement(
+  entry: EvalCaseRuntimeAppAdditionalContext,
+  helpers: AppAIChatHelpers,
+  datatables: DataTableSchema[],
+): ContextElement {
+  if (entry.type === "frontend") {
+    const content = helpers.getFrontendFile(entry.path);
+    if (content === undefined) {
+      throw new Error(`App eval @ frontend context not found: ${entry.path}`);
+    }
+    return createAppFrontendFileContextElement(entry.path, content);
+  }
+
+  if (entry.type === "backend") {
+    const runnable = helpers.getBackendRunnable(entry.key);
+    if (!runnable) {
+      throw new Error(`App eval @ backend context not found: ${entry.key}`);
+    }
+    return createAppBackendRunnableContextElement(entry.key, runnable);
+  }
+
+  const datatable = datatables.find(
+    (candidate) => candidate.datatable_name === entry.datatableName,
+  );
+  const columns = datatable?.schemas?.[entry.schema]?.[entry.table];
+  if (!columns) {
+    throw new Error(
+      `App eval @ datatable context not found: ${entry.datatableName}/${entry.schema}.${entry.table}`,
+    );
+  }
+
+  return createAppDatatableContextElement(
+    entry.datatableName,
+    entry.schema,
+    entry.table,
+    columns,
+  );
 }

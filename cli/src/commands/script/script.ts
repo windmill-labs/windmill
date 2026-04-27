@@ -722,13 +722,31 @@ async function createScript(
   workspace: Workspace
 ): Promise<number> {
   const start = performance.now();
+  // skip_if_noop asks the backend to treat deploys identical to the parent
+  // (same content, lockfile, and metadata) as a no-op, so the CLI does not
+  // produce phantom git-sync / promotion commits on re-pushes.
+  const skipIfNoop = "skip_if_noop=true";
   if (!bundleContent) {
     try {
-      // no parent hash
-      await wmill.createScript({
-        workspace: workspaceId,
-        requestBody: body,
+      const url =
+        workspace.remote +
+        "api/w/" +
+        workspaceId +
+        "/scripts/create?" +
+        skipIfNoop;
+      const req = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${workspace.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
       });
+      if (req.status != 201) {
+        throw Error(
+          `${req.status} - ${req.statusText} - ${await req.text()}`
+        );
+      }
     } catch (e: any) {
       throw Error(
         `Script creation for ${body.path} with parent ${
@@ -750,7 +768,8 @@ async function createScript(
       workspace.remote +
       "api/w/" +
       workspace.workspaceId +
-      "/scripts/create_snapshot";
+      "/scripts/create_snapshot?" +
+      skipIfNoop;
     const req = await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${workspace.token} ` },

@@ -43,7 +43,10 @@ import {
   getModuleFolderSuffix,
   hasWrongFormatSuffix,
 } from "../src/utils/resource_folders.ts";
-import { newPathAssigner } from "../windmill-utils-internal/src/path-utils/path-assigner.ts";
+import {
+  newPathAssigner,
+  newRawAppPathAssigner,
+} from "../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
 // =============================================================================
 // Test Fixtures - Every Type of Windmill Resource
@@ -626,6 +629,24 @@ test("newPathAssigner with skipInlineScriptSuffix removes .inline_script. from p
   const [noSuffixPyPath, noSuffixPyExt] = noSuffixPyAssigner.assignPath("python_script", "python3");
   expect(noSuffixPyPath).toEqual("python_script.");
   expect(noSuffixPyExt).toEqual("py");
+});
+
+test("path assigners preserve mixed-case summaries", () => {
+  const inlineAssigner = newPathAssigner("bun", { skipInlineScriptSuffix: true });
+  const [inlinePath] = inlineAssigner.assignPath("CamelCaseTSRunnable", "bun");
+  expect(inlinePath).toEqual("CamelCaseTSRunnable.");
+
+  const rawAssigner = newRawAppPathAssigner("bun");
+  const [rawPath] = rawAssigner.assignPath("CamelCaseTSRunnable", "bun");
+  expect(rawPath).toEqual("CamelCaseTSRunnable.");
+});
+
+test("path assigners dedupe case-insensitively", () => {
+  const assigner = newRawAppPathAssigner("bun");
+  const [first] = assigner.assignPath("Foo", "bun");
+  const [second] = assigner.assignPath("foo", "bun");
+  expect(first).toEqual("Foo.");
+  expect(second).toEqual("foo_1.");
 });
 
 test("newPathAssigner generates unique paths for duplicate names", () => {

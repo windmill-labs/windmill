@@ -12,6 +12,8 @@ use windmill_api_workspaces::workspaces::{build_copilot_settings_state, Instance
 
 use crate::ai::{invalidate_ai_request_cache_for_workspace, AIConfig};
 use crate::db::ApiAuthed;
+#[cfg(feature = "oauth2")]
+use crate::oauth2_oss::workspace_connect_slack;
 use crate::teams_oss::{
     connect_teams, edit_teams_command, run_teams_message_test_job,
     workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
@@ -71,6 +73,9 @@ pub fn workspaced_service() -> Router {
             post(acknowledge_all_critical_alerts),
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts));
+
+    #[cfg(feature = "oauth2")]
+    let router = router.route("/connect_slack", post(workspace_connect_slack));
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
     {

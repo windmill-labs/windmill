@@ -2275,7 +2275,7 @@ try {{
 
     // WAC v2 post-execution: parse output and handle dispatch/suspend
     if is_wac_v2 {
-        return handle_wac_v2_output(result, job, conn, modules).await;
+        return handle_wac_v2_output(result, job, conn, modules, new_args.as_ref()).await;
     }
 
     Ok(result)
@@ -2306,6 +2306,7 @@ pub async fn handle_wac_v2_output(
     job: &MiniPulledJob,
     conn: &Connection,
     modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
+    preprocessed_args: Option<&HashMap<String, Box<RawValue>>>,
 ) -> error::Result<Box<RawValue>> {
     use crate::wac_executor::{
         load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch, WacOutput,
@@ -2379,8 +2380,29 @@ pub async fn handle_wac_v2_output(
             //   2. Save checkpoint + suspend parent + seed child checkpoints
             //   3. THEN push the child jobs (making them visible to workers)
 
-            // Read the parent's original args for the child jobs
-            let parent_args: HashMap<String, Box<RawValue>> = {
+            // Read the parent's original args for the child jobs.
+            // If preprocessed_args is Some, the wrapper just ran the preprocessor
+            // and the DB row hasn't been updated yet — use those instead so child
+            // re-runs of the parent see the post-preprocessor args.
+            let parent_args: HashMap<String, Box<RawValue>> = if let Some(pre) = preprocessed_args {
+                // Single pass: parse each raw value into a serde_json::Value for
+                // checkpoint.input_args, and clone the Box<RawValue> for the
+                // returned HashMap. A parse failure surfaces as an error rather
+                // than being silently coerced to null and persisted.
+                let mut map = serde_json::Map::with_capacity(pre.len());
+                let mut owned = HashMap::with_capacity(pre.len());
+                for (k, v) in pre.iter() {
+                    let parsed = serde_json::from_str::<Value>(v.get()).map_err(|e| {
+                        error::Error::internal_err(format!(
+                            "Failed to parse preprocessed arg '{k}': {e}"
+                        ))
+                    })?;
+                    map.insert(k.clone(), parsed);
+                    owned.insert(k.clone(), v.clone());
+                }
+                checkpoint.input_args = map;
+                owned
+            } else {
                 let stored: serde_json::Map<String, Value> = checkpoint.input_args.clone();
                 if stored.is_empty() {
                     // First dispatch — read from the parent job's args
