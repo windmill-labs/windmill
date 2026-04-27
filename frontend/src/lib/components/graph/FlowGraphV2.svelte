@@ -1246,7 +1246,7 @@
 					</Controls>
 
 					<Controls
-						position={'top-left'}
+						position="top-left"
 						orientation="vertical"
 						showLock={false}
 						showZoom={false}
