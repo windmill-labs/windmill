@@ -1,10 +1,18 @@
 # test: script/u/user/script_to_test
 #
+# Wildcards: `*` matches one path segment, `**` matches any depth.
+#   # test: script/u/user/*
+#   # test: flow/u/team/**
+#
 # To test multiple items, list them on separate lines:
 # # test:
 # # script/u/user/script_a
 # # script/u/user/script_b
 # # flow/u/user/my_flow
+#
+# The triggering item is exposed as os.environ["WM_TESTED_RUNNABLE"]
+# (e.g. "script/u/user/script_to_test"), useful for branching inside a
+# single test script that covers multiple targets.
 import wmill
 
 
