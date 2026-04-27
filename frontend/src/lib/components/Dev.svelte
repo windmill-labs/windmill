@@ -915,7 +915,7 @@
 								>{#if depth === 0}f/{/if}{node.folderName}</span
 							>
 							<div class="text-2xs font-normal text-secondary whitespace-nowrap">
-								({pluralize(node.items.length, ' item')})
+								({pluralize(node.items.length, 'item')})
 							</div>
 						</div>
 					</div>
@@ -945,7 +945,7 @@
 								>u/{node.username}</span
 							>
 							<div class="text-2xs font-normal text-secondary whitespace-nowrap">
-								({pluralize(node.items.length, ' item')})
+								({pluralize(node.items.length, 'item')})
 							</div>
 						</div>
 					</div>

@@ -390,19 +390,23 @@ async function dev(opts: DevOptions, appFolder?: string) {
   // Dynamically import esbuild only when the dev command is called
   const esbuild = await import("esbuild");
 
-  // When --port is explicit, probe both IPv4 and IPv6 stacks before binding so
-  // we don't silently collide with a leftover dev server on the other stack
-  // (see cli/src/utils/port-probe.ts). When unset, getPort already handles
-  // fallback internally.
+  const host = opts.host ?? DEFAULT_HOST;
+  // Probe both IPv4 and IPv6 stacks only when binding to localhost — that's
+  // the case where the OS may route traffic to a leftover listener on the
+  // other stack (see cli/src/utils/port-probe.ts). For an explicit IP host
+  // there's only one stack to worry about, so don't move the user's
+  // requested port over a phantom v6 collision.
+  const probeBothStacks = host === DEFAULT_HOST;
   const port = opts.port !== undefined
-    ? await resolveBindPort(opts.port, "--port", {
-        info: (m) => log.info(m),
-        warn: (m) => log.warn(m),
-      })
+    ? (probeBothStacks
+      ? await resolveBindPort(opts.port, "--port", {
+          info: (m) => log.info(m),
+          warn: (m) => log.warn(m),
+        })
+      : opts.port)
     : await getPort.default({
         port: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((p) => p + DEFAULT_PORT),
       });
-  const host = opts.host ?? DEFAULT_HOST;
   const shouldOpen = opts.open ?? true;
 
   // Detect frameworks to determine default entry point

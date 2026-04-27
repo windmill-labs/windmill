@@ -19,11 +19,26 @@ import { execSync } from "node:child_process";
 
 type Host = "0.0.0.0" | "::";
 
-/** Try to bind a fresh server to (port, host) and immediately close it. */
+/**
+ * Try to bind a fresh server to (port, host) and immediately close it.
+ *
+ * Returns false ONLY when the port is genuinely held by another process
+ * (EADDRINUSE) or denied by permissions (EACCES). Other errors — most
+ * importantly EAFNOSUPPORT / EADDRNOTAVAIL on the IPv6 probe when the host
+ * has no IPv6 stack at all — return true: the stack we're probing simply
+ * isn't reachable, which is functionally indistinguishable from "free" for
+ * the dual-stack collision check.
+ */
 function isPortFree(port: number, host: Host): Promise<boolean> {
   return new Promise((resolve) => {
     const s = createServer();
-    s.once("error", () => resolve(false));
+    s.once("error", (err: NodeJS.ErrnoException) => {
+      const code = err.code ?? "";
+      // Anything that means "another process is holding this port" → not free.
+      // Anything else (no IPv6 stack on this host, etc.) → treat as free so we
+      // don't false-alarm on IPv4-only containers.
+      resolve(code !== "EADDRINUSE" && code !== "EACCES");
+    });
     s.once("listening", () => s.close(() => resolve(true)));
     s.listen(port, host);
   });
