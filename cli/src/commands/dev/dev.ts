@@ -827,7 +827,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
 }
 
 const command = new Command()
-  .description("Watch local file changes and live-reload the dev page for preview. Does NOT deploy to the remote workspace — use 'wmill sync push' for that.")
+  .description("Watch local file changes and live-reload the dev page for preview. Does NOT deploy to the remote workspace — use wmill sync push for that.")
   .option(
     "--includes <pattern...:string>",
     "Filter paths givena glob pattern or path"
