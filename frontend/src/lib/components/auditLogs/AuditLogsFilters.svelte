@@ -317,7 +317,7 @@
 	})
 </script>
 
-<div class="flex flex-col gap-8 2xl:flex-row mt-4 xl:mt-0 pr-2">
+<div class="flex flex-col gap-8 2xl:gap-2 2xl:flex-row mt-4 xl:mt-0 pr-2">
 	{#if $workspaceStore == 'admins'}
 		<div class="flex gap-1 relative">
 			<span class="text-xs absolute font-semibold text-emphasis -top-4">Scope</span>
