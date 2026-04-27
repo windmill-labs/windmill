@@ -24,7 +24,7 @@
 
 	let { gitRepoResourcePath, gitSshIdentity, commitHashInput = $bindable() }: Props = $props()
 
-	let commitHash = $derived(commitHashInput);
+	let commitHash = $derived(commitHashInput)
 
 	async function populateS3WithGitRepo() {
 		const workspace = $workspaceStore
@@ -34,7 +34,7 @@
 			workspace: workspace,
 			resource_path: gitRepoResourcePath,
 			git_ssh_identity: gitSshIdentity,
-			commit: commitHash,
+			commit: commitHash
 		}
 
 		isLoadingRepoClone = true
@@ -53,7 +53,7 @@
 				if (jobSuccess) {
 					await JobService.getCompletedJobResult({ workspace, id: jobId })
 				} else {
-					error = (testResult.result as any).error.message ?? "Failed to clone"
+					error = (testResult.result as any).error.message ?? 'Failed to clone'
 				}
 			},
 			timeoutCode: async () => {
@@ -84,7 +84,7 @@
 				const result = await ResourceService.getGitCommitHash({
 					workspace: $workspaceStore!,
 					path: gitRepoResourcePath,
-					gitSshIdentity: gitSshIdentity?.join(",")
+					gitSshIdentity: gitSshIdentity?.join(',')
 				})
 
 				commitHashInput = result.commit_hash
@@ -117,13 +117,12 @@
 		untrack(() => {
 			fetchGitRepoData()
 		})
-
 	})
 
 	$effect(() => {
 		;[commitHash, pathExists, isCheckingPathExists, isLoadingCommitHash]
 		untrack(() => {
-			s3FilePicker?.open(undefined)
+			s3FilePicker?.reloadContent()
 		})
 	})
 </script>
