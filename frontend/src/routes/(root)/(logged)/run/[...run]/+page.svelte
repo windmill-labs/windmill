@@ -119,6 +119,27 @@
 	let graphModuleStates: Record<string, import('$lib/components/graph').GraphModuleState> = $state(
 		{}
 	)
+	// For top-level ForLoop restart: the iteration the user is currently viewing
+	// (read from `selectedForloopIndex`). Pre-fills the restart button's iteration
+	// input so the user doesn't have to retype it; they can still edit it in the popup.
+	let topLevelLoopIteration: number | undefined = $derived(
+		(selectedJobStepType as string) === 'forloop' && selectedJobStep
+			? graphModuleStates[selectedJobStep]?.selectedForloopIndex
+			: undefined
+	)
+	// Map of ForLoop step id -> iteration count (number of iterations that ran in
+	// the original execution). Lets the restart popup render a `<select>` of
+	// 0..count-1 instead of a free-form number input.
+	let iterationCounts: Record<string, number> = $derived.by(() => {
+		const out: Record<string, number> = {}
+		for (const [id, state] of Object.entries(graphModuleStates)) {
+			const n = state.flow_jobs?.length
+			if (typeof n === 'number' && n > 0) {
+				out[id] = n
+			}
+		}
+		return out
+	})
 
 	let testIsLoading = $state(false)
 	let jobLoader: JobLoader | undefined = $state(undefined)
@@ -241,17 +262,13 @@
 						const blocked = path.ancestors.some(
 							(a) => a.type === 'branchall' || a.type === 'whileloopflow'
 						)
-						// For each ForLoop ancestor on the path, read which iteration the user
-						// is currently viewing in the graph. `selectedForloopIndex` is set
-						// when the user opens an iteration; if it's still undefined we
-						// can't disambiguate which iteration to restart at and refuse to
-						// offer the button rather than silently picking iteration 0.
-						const iterationFor = (stepId: string): number | undefined =>
-							graphModuleStates[stepId]?.selectedForloopIndex
-						const missingIteration = path.ancestors.some(
-							(a) => a.type === 'forloopflow' && iterationFor(a.stepId) === undefined
-						)
-						if (!blocked && !missingIteration) {
+						// For each ForLoop ancestor we pre-fill the iteration from the graph's
+						// `selectedForloopIndex`. When the user hasn't opened an iteration in
+						// the graph we default to 0; the popup surfaces every iteration so the
+						// user can confirm or edit it before submitting.
+						const iterationFor = (stepId: string): number =>
+							graphModuleStates[stepId]?.selectedForloopIndex ?? 0
+						if (!blocked) {
 							const topBranchOrIter: number | undefined =
 								top.type === 'forloopflow' ? iterationFor(top.stepId) : undefined
 							const innerPath: Array<{
@@ -267,7 +284,16 @@
 								}
 								innerPath.push(entry)
 							}
-							innerPath.push({ step_id: selectedJobStep! })
+							// If the SELECTED step is itself a ForLoop (e.g. user clicked a
+							// nested loop's node directly), include its iteration too so the
+							// popup exposes a selector for it.
+							const leafEntry: { step_id: string; branch_or_iteration_n?: number } = {
+								step_id: selectedJobStep!
+							}
+							if (path.target.value.type === 'forloopflow') {
+								leafEntry.branch_or_iteration_n = iterationFor(selectedJobStep!)
+							}
+							innerPath.push(leafEntry)
 
 							nestedRestartTopStepId = top.stepId
 							nestedRestartTopBranchOrIterationN = topBranchOrIter
@@ -732,6 +758,8 @@
 					nestedPath={nestedRestartSupported ? nestedRestartPath : undefined}
 					nestedTopStepId={nestedRestartTopStepId}
 					nestedTopBranchOrIterationN={nestedRestartTopBranchOrIterationN}
+					presetIterationN={topLevelLoopIteration}
+					{iterationCounts}
 					onRestartComplete={(newJobId) => {
 						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
 					}}

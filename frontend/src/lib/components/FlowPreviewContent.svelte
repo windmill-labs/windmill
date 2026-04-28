@@ -97,6 +97,24 @@
 	let nestedRestartPath: Array<{ step_id: string; branch_or_iteration_n?: number }> | undefined =
 		$state(undefined)
 	let nestedRestartSupported: boolean = $state(false)
+	// Pre-fill iteration input for top-level ForLoop restart from the iteration the
+	// user is currently viewing in the graph. Editable in the popup if they want to
+	// pick a different one.
+	let topLevelLoopIteration: number | undefined = $derived(
+		(selectedJobStepType as string) === 'forloop' && selectedJobStep
+			? localModuleStates[selectedJobStep]?.selectedForloopIndex
+			: undefined
+	)
+	let iterationCounts: Record<string, number> = $derived.by(() => {
+		const out: Record<string, number> = {}
+		for (const [id, state] of Object.entries(localModuleStates)) {
+			const n = state.flow_jobs?.length
+			if (typeof n === 'number' && n > 0) {
+				out[id] = n
+			}
+		}
+		return out
+	})
 	let isRunning: boolean = $state(false)
 	let jsonView: boolean = $state(false)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -264,12 +282,10 @@
 						const blocked = path.ancestors.find(
 							(a) => a.type === 'branchall' || a.type === 'whileloopflow'
 						)
-						const iterationFor = (stepId: string): number | undefined =>
-							localModuleStates[stepId]?.selectedForloopIndex
-						const missingIteration = path.ancestors.some(
-							(a) => a.type === 'forloopflow' && iterationFor(a.stepId) === undefined
-						)
-						if (!blocked && !missingIteration) {
+						// Default missing iterations to 0; the popup surfaces them for confirmation.
+						const iterationFor = (stepId: string): number =>
+							localModuleStates[stepId]?.selectedForloopIndex ?? 0
+						if (!blocked) {
 							const top = path.ancestors[0]
 							const inner = path.ancestors.slice(1)
 							const innerPath: Array<{
@@ -285,7 +301,13 @@
 								}
 								innerPath.push(entry)
 							}
-							innerPath.push({ step_id: selectedJobStep! })
+							const leafEntry: { step_id: string; branch_or_iteration_n?: number } = {
+								step_id: selectedJobStep!
+							}
+							if (path.target.value.type === 'forloopflow') {
+								leafEntry.branch_or_iteration_n = iterationFor(selectedJobStep!)
+							}
+							innerPath.push(leafEntry)
 							nestedRestartTopStepId = top.stepId
 							nestedRestartTopBranchOrIterationN =
 								top.type === 'forloopflow' ? iterationFor(top.stepId) : undefined
@@ -493,6 +515,8 @@
 							nestedPath={nestedRestartSupported ? nestedRestartPath : undefined}
 							nestedTopStepId={nestedRestartTopStepId}
 							nestedTopBranchOrIterationN={nestedRestartTopBranchOrIterationN}
+							presetIterationN={topLevelLoopIteration}
+							{iterationCounts}
 							onRestart={(stepId, branchOrIterationN) => {
 								runPreview(previewArgs.val, {
 									flow_job_id: jobId,
