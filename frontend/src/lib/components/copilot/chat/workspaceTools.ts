@@ -8,36 +8,41 @@ import {
 	PostgresTriggerService,
 	ScheduleService,
 	SqsTriggerService,
-	WebsocketTriggerService
+	WebsocketTriggerService,
+	$AuthenticationMethod,
+	$AwsAuthResourceType,
+	$AzureMode,
+	$DeliveryType,
+	$HttpMethod,
+	$HttpRequestType,
+	$MqttClientVersion,
+	$MqttQoS,
+	$SubscriptionMode,
+	$TriggerMode,
+	type AuthenticationMethod,
+	type AzureMode,
+	type AzureTriggerData,
+	type AwsAuthResourceType,
+	type DeliveryType,
+	type GcpTriggerData,
+	type HttpMethod,
+	type HttpRequestType,
+	type JobTriggerKind,
+	type MqttClientVersion,
+	type MqttQoS,
+	type NewHttpTrigger,
+	type NewKafkaTrigger,
+	type NewMqttTrigger,
+	type NewNatsTrigger,
+	type NewPostgresTrigger,
+	type NewSchedule,
+	type NewSqsTrigger,
+	type NewWebsocketTrigger,
+	type SubscriptionMode,
+	type TriggerMode
 } from '$lib/gen'
-import { mcpEndpointTools } from '$lib/mcpEndpointTools'
-import type { ChatCompletionFunctionTool } from 'openai/resources/index.mjs'
-import YAML from 'yaml'
-import type { Tool } from './shared'
-
-import azureTriggerSchemaYaml from '$system_prompts/schemas/azure_trigger.schema.yaml?raw'
-import gcpTriggerSchemaYaml from '$system_prompts/schemas/gcp_trigger.schema.yaml?raw'
-import httpTriggerSchemaYaml from '$system_prompts/schemas/http_trigger.schema.yaml?raw'
-import kafkaTriggerSchemaYaml from '$system_prompts/schemas/kafka_trigger.schema.yaml?raw'
-import mqttTriggerSchemaYaml from '$system_prompts/schemas/mqtt_trigger.schema.yaml?raw'
-import natsTriggerSchemaYaml from '$system_prompts/schemas/nats_trigger.schema.yaml?raw'
-import postgresTriggerSchemaYaml from '$system_prompts/schemas/postgres_trigger.schema.yaml?raw'
-import sqsTriggerSchemaYaml from '$system_prompts/schemas/sqs_trigger.schema.yaml?raw'
-import websocketTriggerSchemaYaml from '$system_prompts/schemas/websocket_trigger.schema.yaml?raw'
-
-type JsonSchema = {
-	type?: string | string[]
-	properties?: Record<string, JsonSchema>
-	required?: string[]
-	items?: JsonSchema
-	enum?: unknown[]
-	nullable?: boolean
-	oneOf?: JsonSchema[]
-	anyOf?: JsonSchema[]
-	allOf?: JsonSchema[]
-	$ref?: string
-	description?: string
-}
+import { z } from 'zod'
+import { createToolDef, type Tool } from './shared'
 
 type CurrentRunnable = {
 	path: string | undefined
@@ -45,148 +50,481 @@ type CurrentRunnable = {
 	label: 'script' | 'flow'
 }
 
-type TriggerKind =
-	| 'http'
-	| 'websocket'
-	| 'kafka'
-	| 'nats'
-	| 'postgres'
-	| 'mqtt'
-	| 'sqs'
-	| 'gcp'
-	| 'azure'
+const triggerKinds = [
+	'http',
+	'websocket',
+	'kafka',
+	'nats',
+	'postgres',
+	'mqtt',
+	'sqs',
+	'gcp',
+	'azure'
+] as const satisfies readonly JobTriggerKind[]
+type TriggerKind = (typeof triggerKinds)[number]
+
+type TriggerRequestByKind = {
+	http: NewHttpTrigger
+	websocket: NewWebsocketTrigger
+	kafka: NewKafkaTrigger
+	nats: NewNatsTrigger
+	postgres: NewPostgresTrigger
+	mqtt: NewMqttTrigger
+	sqs: NewSqsTrigger
+	gcp: GcpTriggerData
+	azure: AzureTriggerData
+}
+type TriggerRequestBody = TriggerRequestByKind[TriggerKind]
+
+function generatedEnumSchema<T extends string>(schema: { enum: readonly T[] }) {
+	return z.enum(schema.enum as [T, ...T[]])
+}
+
+const triggerModeSchema = generatedEnumSchema<TriggerMode>($TriggerMode)
+const httpMethodSchema = generatedEnumSchema<HttpMethod>($HttpMethod)
+const httpRequestTypeSchema = generatedEnumSchema<HttpRequestType>($HttpRequestType)
+const authenticationMethodSchema = generatedEnumSchema<AuthenticationMethod>($AuthenticationMethod)
+const mqttClientVersionSchema = generatedEnumSchema<MqttClientVersion>($MqttClientVersion)
+const mqttQosSchema = generatedEnumSchema<MqttQoS>($MqttQoS)
+const awsAuthResourceTypeSchema = generatedEnumSchema<AwsAuthResourceType>($AwsAuthResourceType)
+const subscriptionModeSchema = generatedEnumSchema<SubscriptionMode>($SubscriptionMode)
+const deliveryTypeSchema = generatedEnumSchema<DeliveryType>($DeliveryType)
+const azureModeSchema = generatedEnumSchema<AzureMode>($AzureMode)
 
 const INFERRED_FIELDS = ['script_path', 'is_flow'] as const
-const TRIGGER_REQUIRED_OPTIONAL_AT_RUNTIME = ['script_path', 'is_flow', 'permissioned_as']
+const runnableFields = {
+	path: z.string().min(1).describe('The unique path identifier for this trigger'),
+	script_path: z.string().min(1).describe('The current script or flow path, inferred by the tool'),
+	is_flow: z.boolean().describe('True when the inferred target path is a flow')
+}
+const scriptArgsSchema = z.record(z.string(), z.unknown())
+const labelsSchema = z.array(z.string())
+const retrySchema = z
+	.object({
+		constant: z
+			.object({
+				attempts: z.number().int().optional(),
+				seconds: z.number().int().optional()
+			})
+			.optional(),
+		exponential: z
+			.object({
+				attempts: z.number().int().optional(),
+				multiplier: z.number().int().optional(),
+				seconds: z.number().int().min(1).optional(),
+				random_factor: z.number().int().min(0).max(100).optional()
+			})
+			.optional(),
+		retry_if: z
+			.object({
+				expr: z.string()
+			})
+			.optional()
+	})
+	.passthrough()
 
-function cloneSchema(schema: JsonSchema): JsonSchema {
-	return JSON.parse(JSON.stringify(schema))
+const commonTriggerFields = {
+	mode: triggerModeSchema.default('enabled'),
+	error_handler_path: z.string().optional(),
+	error_handler_args: scriptArgsSchema.optional(),
+	retry: retrySchema.optional(),
+	permissioned_as: z.string().optional(),
+	preserve_permissioned_as: z.boolean().optional(),
+	labels: labelsSchema.optional()
 }
 
-function omitPropertiesFromSchema(schema: JsonSchema, fields: string[]): JsonSchema {
-	const cloned = cloneSchema(schema)
-	for (const field of fields) {
-		delete cloned.properties?.[field]
+const filterSchema = z
+	.object({
+		key: z.string(),
+		value: z.unknown()
+	})
+	.passthrough()
+
+const websocketInitialMessageSchema = z.union([
+	z.object({ raw_message: z.string() }),
+	z.object({
+		runnable_result: z.object({
+			path: z.string(),
+			args: scriptArgsSchema,
+			is_flow: z.boolean()
+		})
+	})
+])
+
+const websocketHeartbeatSchema = z.object({
+	interval_secs: z.number().int(),
+	message: z.string(),
+	state_field: z.string().optional()
+})
+
+const httpTriggerRequestSchema = z
+	.object({
+		...runnableFields,
+		...commonTriggerFields,
+		route_path: z
+			.string()
+			.min(1)
+			.describe("The URL route path that will trigger this endpoint. Must not start with '/'."),
+		static_asset_config: z
+			.object({
+				s3: z.string(),
+				storage: z.string().optional(),
+				filename: z.string().optional()
+			})
+			.nullable()
+			.optional(),
+		http_method: httpMethodSchema,
+		authentication_resource_path: z.string().nullable().optional(),
+		summary: z.string().nullable().optional(),
+		description: z.string().nullable().optional(),
+		request_type: httpRequestTypeSchema.default('sync'),
+		authentication_method: authenticationMethodSchema.default('none'),
+		is_static_website: z.boolean().default(false),
+		workspaced_route: z.boolean().default(false),
+		wrap_body: z.boolean().default(false),
+		raw_string: z.boolean().default(false)
+	})
+	.passthrough()
+
+const websocketTriggerRequestSchema = z
+	.object({
+		...runnableFields,
+		...commonTriggerFields,
+		url: z.string().min(1),
+		filters: z.array(filterSchema).default([]),
+		filter_logic: z.enum(['and', 'or']).default('and'),
+		initial_messages: z.array(websocketInitialMessageSchema).nullable().optional(),
+		url_runnable_args: scriptArgsSchema.nullable().optional(),
+		can_return_message: z.boolean().default(false),
+		can_return_error_result: z.boolean().default(false),
+		heartbeat: websocketHeartbeatSchema.nullable().optional()
+	})
+	.passthrough()
+
+const kafkaTriggerRequestSchema = z
+	.object({
+		...runnableFields,
+		...commonTriggerFields,
+		kafka_resource_path: z.string().min(1),
+		group_id: z.string().min(1),
+		topics: z.array(z.string()),
+		filters: z.array(filterSchema).default([]),
+		filter_logic: z.enum(['and', 'or']).default('and'),
+		auto_offset_reset: z.enum(['latest', 'earliest']).default('latest'),
+		auto_commit: z.boolean().default(true)
+	})
+	.passthrough()
+
+const natsTriggerRequestSchema = z
+	.object({
+		...runnableFields,
+		...commonTriggerFields,
+		nats_resource_path: z.string().min(1),
+		use_jetstream: z.boolean().default(false),
+		stream_name: z.string().nullable().optional(),
+		consumer_name: z.string().nullable().optional(),
+		subjects: z.array(z.string())
+	})
+	.passthrough()
+
+const postgresTriggerRequestSchema = z
+	.object({
+		...runnableFields,
+		...commonTriggerFields,
+		postgres_resource_path: z.string().min(1),
+		replication_slot_name: z.string().optional(),
+		publication_name: z.string().optional(),
+		publication: z.record(z.string(), z.unknown()).optional()
+	})
+	.passthrough()
+
+const mqttTriggerRequestSchema = z
+	.object({
+		...runnableFields,
+		...commonTriggerFields,
+		mqtt_resource_path: z.string().min(1),
+		subscribe_topics: z.array(
+			z.object({
+				qos: mqttQosSchema,
+				topic: z.string()
+			})
+		),
+		client_id: z.string().nullable().optional(),
+		v3_config: z
+			.object({
+				clean_session: z.boolean().optional()
+			})
+			.nullable()
+			.optional(),
+		v5_config: z
+			.object({
+				clean_start: z.boolean().optional(),
+				topic_alias_maximum: z.number().optional(),
+				session_expiry_interval: z.number().optional()
+			})
+			.nullable()
+			.optional(),
+		client_version: mqttClientVersionSchema.nullable().optional()
+	})
+	.passthrough()
+
+const sqsTriggerRequestSchema = z
+	.object({
+		...runnableFields,
+		...commonTriggerFields,
+		queue_url: z.string().min(1),
+		aws_auth_resource_type: awsAuthResourceTypeSchema.default('credentials'),
+		aws_resource_path: z.string().min(1),
+		message_attributes: z.array(z.string()).nullable().optional()
+	})
+	.passthrough()
+
+const gcpTriggerRequestSchema = z
+	.object({
+		...runnableFields,
+		...commonTriggerFields,
+		gcp_resource_path: z.string().min(1),
+		subscription_mode: subscriptionModeSchema,
+		topic_id: z.string().min(1),
+		subscription_id: z.string().optional(),
+		base_endpoint: z.string().optional(),
+		delivery_type: deliveryTypeSchema.optional(),
+		delivery_config: z
+			.object({
+				authenticate: z.boolean(),
+				audience: z.string().optional()
+			})
+			.nullable()
+			.optional(),
+		auto_acknowledge_msg: z.boolean().default(true),
+		ack_deadline: z.number().optional()
+	})
+	.passthrough()
+
+const azureTriggerRequestSchema = z
+	.object({
+		...runnableFields,
+		...commonTriggerFields,
+		azure_resource_path: z.string().min(1),
+		azure_mode: azureModeSchema,
+		scope_resource_id: z.string().min(1),
+		topic_name: z.string().nullable().optional(),
+		subscription_name: z.string().min(1),
+		base_endpoint: z.string().optional(),
+		event_type_filters: z.array(z.string()).optional()
+	})
+	.passthrough()
+
+const createScheduleRequestSchema = z
+	.object({
+		path: z.string().min(1).describe('The unique path identifier for this schedule'),
+		schedule: z.string().min(1).describe('Cron expression with 6 fields, including seconds'),
+		timezone: z.string().min(1).describe("IANA timezone, for example 'UTC' or 'Europe/Paris'"),
+		script_path: z
+			.string()
+			.min(1)
+			.describe('The current script or flow path, inferred by the tool'),
+		is_flow: z.boolean().describe('True when the inferred target path is a flow'),
+		args: scriptArgsSchema.nullable().default({}),
+		enabled: z.boolean().default(true),
+		on_failure: z.string().nullable().optional(),
+		on_failure_times: z.number().nullable().optional(),
+		on_failure_exact: z.boolean().nullable().optional(),
+		on_failure_extra_args: scriptArgsSchema.nullable().optional(),
+		on_recovery: z.string().nullable().optional(),
+		on_recovery_times: z.number().nullable().optional(),
+		on_recovery_extra_args: scriptArgsSchema.nullable().optional(),
+		on_success: z.string().nullable().optional(),
+		on_success_extra_args: scriptArgsSchema.nullable().optional(),
+		ws_error_handler_muted: z.boolean().optional(),
+		retry: retrySchema.nullable().optional(),
+		no_flow_overlap: z.boolean().optional(),
+		summary: z.string().nullable().optional(),
+		description: z.string().nullable().optional(),
+		tag: z.string().nullable().optional(),
+		paused_until: z.string().nullable().optional(),
+		cron_version: z.string().nullable().optional(),
+		dynamic_skip: z.string().nullable().optional(),
+		permissioned_as: z.string().optional(),
+		preserve_permissioned_as: z.boolean().optional(),
+		labels: labelsSchema.optional()
+	})
+	.passthrough()
+
+const createScheduleToolSchema = createScheduleRequestSchema.omit({
+	script_path: true,
+	is_flow: true
+})
+
+const triggerConfigSchemas = {
+	http: httpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	websocket: websocketTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	kafka: kafkaTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	nats: natsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	postgres: postgresTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	mqtt: mqttTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	sqs: sqsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	gcp: gcpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	azure: azureTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true })
+} satisfies Record<TriggerKind, z.ZodType>
+
+const createTriggerToolSchema = z.discriminatedUnion('kind', [
+	z.object({
+		kind: z.literal('http'),
+		path: z.string().min(1).describe("The new trigger's Windmill path"),
+		config: triggerConfigSchemas.http
+	}),
+	z.object({
+		kind: z.literal('websocket'),
+		path: z.string().min(1).describe("The new trigger's Windmill path"),
+		config: triggerConfigSchemas.websocket
+	}),
+	z.object({
+		kind: z.literal('kafka'),
+		path: z.string().min(1).describe("The new trigger's Windmill path"),
+		config: triggerConfigSchemas.kafka
+	}),
+	z.object({
+		kind: z.literal('nats'),
+		path: z.string().min(1).describe("The new trigger's Windmill path"),
+		config: triggerConfigSchemas.nats
+	}),
+	z.object({
+		kind: z.literal('postgres'),
+		path: z.string().min(1).describe("The new trigger's Windmill path"),
+		config: triggerConfigSchemas.postgres
+	}),
+	z.object({
+		kind: z.literal('mqtt'),
+		path: z.string().min(1).describe("The new trigger's Windmill path"),
+		config: triggerConfigSchemas.mqtt
+	}),
+	z.object({
+		kind: z.literal('sqs'),
+		path: z.string().min(1).describe("The new trigger's Windmill path"),
+		config: triggerConfigSchemas.sqs
+	}),
+	z.object({
+		kind: z.literal('gcp'),
+		path: z.string().min(1).describe("The new trigger's Windmill path"),
+		config: triggerConfigSchemas.gcp
+	}),
+	z.object({
+		kind: z.literal('azure'),
+		path: z.string().min(1).describe("The new trigger's Windmill path"),
+		config: triggerConfigSchemas.azure
+	})
+])
+
+const createScheduleToolDef = createToolDef(
+	createScheduleToolSchema,
+	'create_schedule',
+	'Create a schedule for the current script or flow. Do not provide script_path or is_flow; they are inferred from the current editor.',
+	{ strict: false }
+)
+
+const createTriggerToolDef = createToolDef(
+	createTriggerToolSchema,
+	'create_trigger',
+	'Create a trigger for the current script or flow. Do not provide script_path or is_flow; they are inferred from the current editor.',
+	{ strict: false }
+)
+
+const triggerConfigs = {
+	http: {
+		label: 'HTTP trigger',
+		requestSchema: httpTriggerRequestSchema as z.ZodType<NewHttpTrigger>,
+		create: (data: { workspace: string; requestBody: NewHttpTrigger }) =>
+			HttpTriggerService.createHttpTrigger(data)
+	},
+	websocket: {
+		label: 'WebSocket trigger',
+		requestSchema: websocketTriggerRequestSchema as z.ZodType<NewWebsocketTrigger>,
+		create: (data: { workspace: string; requestBody: NewWebsocketTrigger }) =>
+			WebsocketTriggerService.createWebsocketTrigger(data)
+	},
+	kafka: {
+		label: 'Kafka trigger',
+		requestSchema: kafkaTriggerRequestSchema as z.ZodType<NewKafkaTrigger>,
+		create: (data: { workspace: string; requestBody: NewKafkaTrigger }) =>
+			KafkaTriggerService.createKafkaTrigger(data)
+	},
+	nats: {
+		label: 'NATS trigger',
+		requestSchema: natsTriggerRequestSchema as z.ZodType<NewNatsTrigger>,
+		create: (data: { workspace: string; requestBody: NewNatsTrigger }) =>
+			NatsTriggerService.createNatsTrigger(data)
+	},
+	postgres: {
+		label: 'Postgres trigger',
+		requestSchema: postgresTriggerRequestSchema as z.ZodType<NewPostgresTrigger>,
+		create: (data: { workspace: string; requestBody: NewPostgresTrigger }) =>
+			PostgresTriggerService.createPostgresTrigger(data)
+	},
+	mqtt: {
+		label: 'MQTT trigger',
+		requestSchema: mqttTriggerRequestSchema as z.ZodType<NewMqttTrigger>,
+		create: (data: { workspace: string; requestBody: NewMqttTrigger }) =>
+			MqttTriggerService.createMqttTrigger(data)
+	},
+	sqs: {
+		label: 'SQS trigger',
+		requestSchema: sqsTriggerRequestSchema as z.ZodType<NewSqsTrigger>,
+		create: (data: { workspace: string; requestBody: NewSqsTrigger }) =>
+			SqsTriggerService.createSqsTrigger(data)
+	},
+	gcp: {
+		label: 'GCP Pub/Sub trigger',
+		requestSchema: gcpTriggerRequestSchema as z.ZodType<GcpTriggerData>,
+		create: (data: { workspace: string; requestBody: GcpTriggerData }) =>
+			GcpTriggerService.createGcpTrigger(data)
+	},
+	azure: {
+		label: 'Azure Event Grid trigger',
+		requestSchema: azureTriggerRequestSchema as z.ZodType<AzureTriggerData>,
+		create: (data: { workspace: string; requestBody: AzureTriggerData }) =>
+			AzureTriggerService.createAzureTrigger(data)
 	}
-	cloned.required = cloned.required?.filter((field) => !fields.includes(field)) ?? []
-	return cloned
-}
-
-function parseYamlSchema(yaml: string): JsonSchema {
-	return YAML.parse(yaml) as JsonSchema
-}
-
-function getEndpointBodySchema(name: string): JsonSchema {
-	const endpoint = mcpEndpointTools.find((tool) => tool.name === name)
-	if (!endpoint?.bodySchema) {
-		throw new Error(`Internal error: missing generated schema for ${name}`)
+} satisfies {
+	[K in TriggerKind]: {
+		label: string
+		requestSchema: z.ZodType<TriggerRequestByKind[K]>
+		create: (data: { workspace: string; requestBody: TriggerRequestByKind[K] }) => Promise<string>
 	}
-	return endpoint.bodySchema as JsonSchema
 }
 
-function formatPath(path: (string | number)[]): string {
+function formatPath(path: (string | number | symbol)[]): string {
 	if (path.length === 0) {
 		return 'value'
 	}
 	return path
-		.map((part) => (typeof part === 'number' ? `[${part}]` : part))
+		.map((part) => (typeof part === 'number' ? `[${part}]` : String(part)))
 		.join('.')
 		.replaceAll('.[', '[')
 }
 
-function isStandardJsonSchemaType(type: string): boolean {
-	return ['object', 'array', 'string', 'number', 'integer', 'boolean', 'null'].includes(type)
+function formatZodError(error: z.ZodError): string {
+	return error.issues
+		.slice(0, 8)
+		.map((issue) => `${formatPath(issue.path)}: ${issue.message}`)
+		.join('; ')
 }
 
-function valueMatchesType(value: unknown, type: string): boolean {
-	switch (type) {
-		case 'object':
-			return typeof value === 'object' && value !== null && !Array.isArray(value)
-		case 'array':
-			return Array.isArray(value)
-		case 'string':
-			return typeof value === 'string'
-		case 'number':
-			return typeof value === 'number' && Number.isFinite(value)
-		case 'integer':
-			return typeof value === 'number' && Number.isInteger(value)
-		case 'boolean':
-			return typeof value === 'boolean'
-		case 'null':
-			return value === null
-		default:
-			return true
+function parseWithExplicitErrors<T>(schema: z.ZodType<T>, value: unknown, label: string): T {
+	const result = schema.safeParse(value)
+	if (!result.success) {
+		throw new Error(`${label} is invalid: ${formatZodError(result.error)}`)
 	}
+	return result.data
 }
 
-function validateJsonSchema(
-	value: unknown,
-	schema: JsonSchema,
-	path: (string | number)[] = []
-): string[] {
-	if (!schema || schema.$ref) {
-		return []
+function rejectModelSuppliedInferredFields(args: unknown, toolName: string): void {
+	if (!args || typeof args !== 'object') {
+		return
 	}
-
-	if (value === null || value === undefined) {
-		return schema.nullable || value === undefined ? [] : [`${formatPath(path)} must not be null`]
-	}
-
-	if (schema.allOf) {
-		return schema.allOf.flatMap((inner) => validateJsonSchema(value, inner, path))
-	}
-
-	if (schema.anyOf || schema.oneOf) {
-		const candidates = schema.anyOf ?? schema.oneOf ?? []
-		const errors = candidates.map((inner) => validateJsonSchema(value, inner, path))
-		return errors.some((candidateErrors) => candidateErrors.length === 0) ? [] : (errors[0] ?? [])
-	}
-
-	const rawTypes = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : []
-	const standardTypes = rawTypes.filter(isStandardJsonSchemaType)
-	if (standardTypes.length > 0 && !standardTypes.some((type) => valueMatchesType(value, type))) {
-		return [`${formatPath(path)} must be ${standardTypes.join(' or ')}`]
-	}
-
-	if (schema.enum && !schema.enum.includes(value)) {
-		return [
-			`${formatPath(path)} must be one of ${schema.enum.map((v) => JSON.stringify(v)).join(', ')}`
-		]
-	}
-
-	if (schema.type === 'object' && schema.properties) {
-		const record = value as Record<string, unknown>
-		const errors: string[] = []
-		for (const required of schema.required ?? []) {
-			if (record[required] === undefined) {
-				errors.push(`${formatPath([...path, required])} is required`)
-			}
-		}
-		for (const [key, propertySchema] of Object.entries(schema.properties)) {
-			if (record[key] !== undefined) {
-				errors.push(...validateJsonSchema(record[key], propertySchema, [...path, key]))
-			}
-		}
-		return errors
-	}
-
-	if (schema.type === 'array' && schema.items && Array.isArray(value)) {
-		return value.flatMap((item, index) => validateJsonSchema(item, schema.items!, [...path, index]))
-	}
-
-	return []
-}
-
-function assertValid(value: unknown, schema: JsonSchema, label: string): void {
-	const errors = validateJsonSchema(value, schema)
-	if (errors.length > 0) {
-		throw new Error(`${label} is invalid: ${errors.slice(0, 8).join('; ')}`)
-	}
-}
-
-function rejectModelSuppliedInferredFields(args: Record<string, unknown>, toolName: string): void {
+	const record = args as Record<string, unknown>
 	for (const field of INFERRED_FIELDS) {
-		if (args[field] !== undefined) {
+		if (record[field] !== undefined) {
 			throw new Error(
 				`${toolName} does not accept ${field}. It is inferred automatically from the current script or flow.`
 			)
@@ -237,131 +575,6 @@ function formatApiError(error: any): string {
 	return error?.status ? `HTTP ${error.status}: ${message}` : message
 }
 
-const createScheduleBodySchema = getEndpointBodySchema('createSchedule')
-const createScheduleParametersSchema = omitPropertiesFromSchema(createScheduleBodySchema, [
-	'script_path',
-	'is_flow'
-])
-createScheduleParametersSchema.required =
-	createScheduleParametersSchema.required?.filter((field) => field !== 'args') ?? []
-
-const createScheduleToolDef: ChatCompletionFunctionTool = {
-	type: 'function',
-	function: {
-		name: 'create_schedule',
-		description:
-			'Create a schedule for the current script or flow. Do not provide script_path or is_flow; they are inferred from the current editor.',
-		strict: false,
-		parameters: createScheduleParametersSchema as Record<string, unknown>
-	}
-}
-
-const triggerConfigs: Record<
-	TriggerKind,
-	{
-		label: string
-		schema: JsonSchema
-		create: (data: { workspace: string; requestBody: any }) => Promise<string>
-		defaults?: Record<string, unknown>
-	}
-> = {
-	http: {
-		label: 'HTTP trigger',
-		schema: parseYamlSchema(httpTriggerSchemaYaml),
-		create: (data) => HttpTriggerService.createHttpTrigger(data),
-		defaults: {
-			authentication_method: 'none',
-			request_type: 'sync',
-			is_static_website: false,
-			workspaced_route: false,
-			wrap_body: false,
-			raw_string: false
-		}
-	},
-	websocket: {
-		label: 'WebSocket trigger',
-		schema: parseYamlSchema(websocketTriggerSchemaYaml),
-		create: (data) => WebsocketTriggerService.createWebsocketTrigger(data),
-		defaults: {
-			filters: [],
-			filter_logic: 'and',
-			can_return_message: false,
-			can_return_error_result: false
-		}
-	},
-	kafka: {
-		label: 'Kafka trigger',
-		schema: parseYamlSchema(kafkaTriggerSchemaYaml),
-		create: (data) => KafkaTriggerService.createKafkaTrigger(data),
-		defaults: { filters: [], filter_logic: 'and', auto_offset_reset: 'latest', auto_commit: true }
-	},
-	nats: {
-		label: 'NATS trigger',
-		schema: parseYamlSchema(natsTriggerSchemaYaml),
-		create: (data) => NatsTriggerService.createNatsTrigger(data),
-		defaults: { use_jetstream: false }
-	},
-	postgres: {
-		label: 'Postgres trigger',
-		schema: parseYamlSchema(postgresTriggerSchemaYaml),
-		create: (data) => PostgresTriggerService.createPostgresTrigger(data)
-	},
-	mqtt: {
-		label: 'MQTT trigger',
-		schema: parseYamlSchema(mqttTriggerSchemaYaml),
-		create: (data) => MqttTriggerService.createMqttTrigger(data)
-	},
-	sqs: {
-		label: 'SQS trigger',
-		schema: parseYamlSchema(sqsTriggerSchemaYaml),
-		create: (data) => SqsTriggerService.createSqsTrigger(data),
-		defaults: { aws_auth_resource_type: 'credentials' }
-	},
-	gcp: {
-		label: 'GCP Pub/Sub trigger',
-		schema: parseYamlSchema(gcpTriggerSchemaYaml),
-		create: (data) => GcpTriggerService.createGcpTrigger(data),
-		defaults: { auto_acknowledge_msg: true }
-	},
-	azure: {
-		label: 'Azure Event Grid trigger',
-		schema: parseYamlSchema(azureTriggerSchemaYaml),
-		create: (data) => AzureTriggerService.createAzureTrigger(data)
-	}
-}
-
-const triggerKinds = Object.keys(triggerConfigs) as TriggerKind[]
-
-const createTriggerToolDef: ChatCompletionFunctionTool = {
-	type: 'function',
-	function: {
-		name: 'create_trigger',
-		description:
-			'Create a trigger for the current script or flow. Do not provide script_path or is_flow; they are inferred from the current editor. Supported kinds: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure.',
-		strict: false,
-		parameters: {
-			type: 'object',
-			properties: {
-				kind: {
-					type: 'string',
-					enum: triggerKinds,
-					description: 'Trigger kind to create.'
-				},
-				path: {
-					type: 'string',
-					description: "The new trigger's Windmill path, for example f/folder/my_trigger."
-				},
-				config: {
-					type: 'object',
-					description:
-						'Trigger-specific configuration from the generated trigger schema. Omit path, script_path, and is_flow. Common defaults are applied for HTTP, Kafka, WebSocket, NATS, SQS, and GCP.'
-				}
-			},
-			required: ['kind', 'path', 'config']
-		}
-	}
-}
-
 const createScheduleTool: Tool<any> = {
 	def: createScheduleToolDef,
 	requiresConfirmation: true,
@@ -369,16 +582,17 @@ const createScheduleTool: Tool<any> = {
 	showDetails: true,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		rejectModelSuppliedInferredFields(args, 'create_schedule')
+		const parsedArgs = parseWithExplicitErrors(createScheduleToolSchema, args, 'Schedule')
 		const runnable = requireRunnablePath(helpers, 'create a schedule')
-		const requestBody = {
-			enabled: true,
-			args: {},
-			...args,
-			script_path: runnable.path,
-			is_flow: runnable.isFlow
-		}
-
-		assertValid(requestBody, createScheduleBodySchema, 'Schedule')
+		const requestBody = parseWithExplicitErrors(
+			createScheduleRequestSchema as z.ZodType<NewSchedule>,
+			{
+				...parsedArgs,
+				script_path: runnable.path,
+				is_flow: runnable.isFlow
+			},
+			'Schedule'
+		)
 
 		toolCallbacks.setToolStatus(toolId, {
 			content: `Validating schedule "${requestBody.path}"...`
@@ -388,7 +602,7 @@ const createScheduleTool: Tool<any> = {
 				requestBody: {
 					schedule: requestBody.schedule,
 					timezone: requestBody.timezone,
-					cron_version: requestBody.cron_version
+					cron_version: requestBody.cron_version ?? undefined
 				}
 			})
 		} catch (error) {
@@ -423,65 +637,55 @@ const createTriggerTool: Tool<any> = {
 	confirmationMessage: 'Create trigger',
 	showDetails: true,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-		const kind = args.kind as TriggerKind
-		if (!triggerKinds.includes(kind)) {
-			throw new Error(
-				`Unsupported trigger kind "${args.kind}". Supported trigger kinds are: ${triggerKinds.join(', ')}.`
-			)
-		}
-		if (!args.path || typeof args.path !== 'string') {
-			throw new Error('create_trigger requires a string path for the new trigger.')
-		}
-		const config = args.config
-		if (!config || typeof config !== 'object' || Array.isArray(config)) {
-			throw new Error('create_trigger requires config to be an object.')
-		}
-
-		rejectModelSuppliedInferredFields(config, 'create_trigger config')
-		if ((config as Record<string, unknown>).path !== undefined) {
+		rejectModelSuppliedInferredFields(args, 'create_trigger')
+		const rawConfig =
+			args && typeof args === 'object' ? (args as Record<string, unknown>).config : undefined
+		rejectModelSuppliedInferredFields(rawConfig, 'create_trigger config')
+		if (
+			rawConfig &&
+			typeof rawConfig === 'object' &&
+			!Array.isArray(rawConfig) &&
+			(rawConfig as Record<string, unknown>).path !== undefined
+		) {
 			throw new Error(
 				'create_trigger config does not accept path. Pass path as the top-level path argument.'
 			)
 		}
 
+		const parsedArgs = parseWithExplicitErrors(createTriggerToolSchema, args, 'Trigger')
 		const runnable = requireRunnablePath(helpers, 'create a trigger')
-		const triggerConfig = triggerConfigs[kind]
-		const requestBody = {
-			mode: 'enabled',
-			...(triggerConfig.defaults ?? {}),
-			...(config as Record<string, unknown>),
-			path: args.path,
-			script_path: runnable.path,
-			is_flow: runnable.isFlow
-		}
-		const validationSchema = cloneSchema(triggerConfig.schema)
-		validationSchema.required =
-			validationSchema.required?.filter(
-				(field) => !TRIGGER_REQUIRED_OPTIONAL_AT_RUNTIME.includes(field)
-			) ?? []
-
-		assertValid(requestBody, validationSchema, triggerConfig.label)
+		const triggerConfig = triggerConfigs[parsedArgs.kind]
+		const requestBody = parseWithExplicitErrors(
+			triggerConfig.requestSchema as z.ZodType<TriggerRequestBody>,
+			{
+				...parsedArgs.config,
+				path: parsedArgs.path,
+				script_path: runnable.path,
+				is_flow: runnable.isFlow
+			},
+			triggerConfig.label
+		)
 
 		toolCallbacks.setToolStatus(toolId, {
-			content: `Creating ${triggerConfig.label} "${args.path}" for current ${runnable.label}...`
+			content: `Creating ${triggerConfig.label} "${requestBody.path}" for current ${runnable.label}...`
 		})
 		try {
-			const result = await triggerConfig.create({ workspace, requestBody })
+			const result = await triggerConfig.create({ workspace, requestBody } as never)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Created ${triggerConfig.label} "${args.path}"`,
+				content: `Created ${triggerConfig.label} "${requestBody.path}"`,
 				result
 			})
 			return JSON.stringify({
 				success: true,
-				kind,
-				path: args.path,
+				kind: parsedArgs.kind,
+				path: requestBody.path,
 				target_path: runnable.path,
 				target_kind: runnable.label,
 				result
 			})
 		} catch (error) {
 			throw new Error(
-				`Failed to create ${triggerConfig.label} "${args.path}": ${formatApiError(error)}`
+				`Failed to create ${triggerConfig.label} "${requestBody.path}": ${formatApiError(error)}`
 			)
 		}
 	}
