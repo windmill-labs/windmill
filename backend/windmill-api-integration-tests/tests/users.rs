@@ -44,21 +44,17 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(email, "test@windmill.dev");
 
     // --- exists_email ---
-    let resp = authed(client().get(format!(
-        "{global_base}/exists/test@windmill.dev"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("{global_base}/exists/test@windmill.dev")))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     assert_eq!(resp.json::<bool>().await?, true);
 
-    let resp = authed(client().get(format!(
-        "{global_base}/exists/nonexistent@windmill.dev"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("{global_base}/exists/nonexistent@windmill.dev")))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     assert_eq!(resp.json::<bool>().await?, false);
 
@@ -89,20 +85,51 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let new_token = resp.text().await?;
     assert!(!new_token.is_empty());
 
-    // --- tokens/delete ---
     let token_prefix = &new_token[..std::cmp::min(new_token.len(), 10)];
-    let resp = authed(client().delete(format!(
-        "{global_base}/tokens/delete/{token_prefix}"
-    )))
-    .send()
-    .await
-    .unwrap();
-    assert_eq!(
-        resp.status(),
-        200,
-        "delete token: {}",
-        resp.text().await?
-    );
+
+    // --- tokens/update_scopes (set explicit scopes) ---
+    let resp = authed(client().post(format!("{global_base}/tokens/update_scopes/{token_prefix}")))
+        .json(&json!({"scopes": ["jobs:run:scripts"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "update_scopes: {}", resp.text().await?);
+
+    // Verify via tokens/list that scopes were applied.
+    let resp = authed(client().get(format!("{global_base}/tokens/list")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let tokens = resp.json::<Vec<serde_json::Value>>().await?;
+    let updated = tokens
+        .iter()
+        .find(|t| t["token_prefix"] == *token_prefix)
+        .expect("token in list");
+    assert_eq!(updated["scopes"], json!(["jobs:run:scripts"]));
+
+    // --- tokens/update_scopes (clear scopes via null = full access) ---
+    let resp = authed(client().post(format!("{global_base}/tokens/update_scopes/{token_prefix}")))
+        .json(&json!({"scopes": null}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // --- tokens/update_scopes on nonexistent prefix returns 404 ---
+    let resp = authed(client().post(format!("{global_base}/tokens/update_scopes/zzznotreal")))
+        .json(&json!({"scopes": ["jobs:run:scripts"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+
+    // --- tokens/delete ---
+    let resp = authed(client().delete(format!("{global_base}/tokens/delete/{token_prefix}")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "delete token: {}", resp.text().await?);
 
     // --- list_invites ---
     let resp = authed(client().get(format!("{global_base}/list_invites")))
@@ -113,12 +140,10 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     resp.json::<Vec<serde_json::Value>>().await?;
 
     // --- username_info ---
-    let resp = authed(client().get(format!(
-        "{global_base}/username_info/test@windmill.dev"
-    )))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().get(format!("{global_base}/username_info/test@windmill.dev")))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body = resp.json::<serde_json::Value>().await?;
     assert_eq!(body["username"], "test-user");
@@ -158,13 +183,11 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(body["progress"], 42);
 
     // --- global update user ---
-    let resp = authed(client().post(format!(
-        "{global_base}/update/test2@windmill.dev"
-    )))
-    .json(&json!({"name": "Updated Test User 2"}))
-    .send()
-    .await
-    .unwrap();
+    let resp = authed(client().post(format!("{global_base}/update/test2@windmill.dev")))
+        .json(&json!({"name": "Updated Test User 2"}))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(
         resp.status(),
         200,
@@ -218,7 +241,9 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // --- auth: is_first_time_setup (unauthed) ---
     let resp = client()
-        .get(format!("http://localhost:{port}/api/auth/is_first_time_setup"))
+        .get(format!(
+            "http://localhost:{port}/api/auth/is_first_time_setup"
+        ))
         .send()
         .await
         .unwrap();
@@ -228,7 +253,9 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // --- auth: is_smtp_configured (unauthed) ---
     let resp = client()
-        .get(format!("http://localhost:{port}/api/auth/is_smtp_configured"))
+        .get(format!(
+            "http://localhost:{port}/api/auth/is_smtp_configured"
+        ))
         .send()
         .await
         .unwrap();
@@ -255,27 +282,20 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     if create_status == 201 {
         // --- rename user (only if create succeeded / EE) ---
-        let resp = authed(client().post(format!(
-            "{global_base}/rename/newglobaluser@windmill.dev"
-        )))
-        .json(&json!({"new_username": "renamed_user"}))
-        .send()
-        .await
-        .unwrap();
-        assert_eq!(
-            resp.status(),
-            200,
-            "rename user: {}",
-            resp.text().await?
-        );
+        let resp =
+            authed(client().post(format!("{global_base}/rename/newglobaluser@windmill.dev")))
+                .json(&json!({"new_username": "renamed_user"}))
+                .send()
+                .await
+                .unwrap();
+        assert_eq!(resp.status(), 200, "rename user: {}", resp.text().await?);
 
         // --- global delete user ---
-        let resp = authed(client().delete(format!(
-            "{global_base}/delete/newglobaluser@windmill.dev"
-        )))
-        .send()
-        .await
-        .unwrap();
+        let resp =
+            authed(client().delete(format!("{global_base}/delete/newglobaluser@windmill.dev")))
+                .send()
+                .await
+                .unwrap();
         assert_eq!(
             resp.status(),
             200,
@@ -462,12 +482,7 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await
         .unwrap();
-    assert_eq!(
-        resp.status(),
-        200,
-        "delete user: {}",
-        resp.text().await?
-    );
+    assert_eq!(resp.status(), 200, "delete user: {}", resp.text().await?);
 
     // verify deleted
     let resp = authed(client().get(format!("{base}/list_usernames")))

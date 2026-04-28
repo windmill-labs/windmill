@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT label, token_prefix, expiration, created_at, last_used_at, scopes FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)\n             ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+  "query": "SELECT label, token_prefix, expiration, created_at, last_used_at, scopes, workspace_id FROM token WHERE email = $1\n            ORDER BY created_at DESC LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -32,6 +32,11 @@
         "ordinal": 5,
         "name": "scopes",
         "type_info": "TextArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "workspace_id",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -47,8 +52,9 @@
       true,
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "1bf4a93cb85c6eed313a2f393da9408dd2aa4e47ef7a38a0d3ccca944a09f5bb"
+  "hash": "2b5fc0500beb2f4c7cf5997f9aea48f77e2abe4523180c507a9a90570127be6d"
 }

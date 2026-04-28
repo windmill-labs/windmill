@@ -6,8 +6,7 @@
 	import Toggle from '../Toggle.svelte'
 	import { UserService, type NewToken } from '$lib/gen'
 	import TokenDisplay from './TokenDisplay.svelte'
-	import ScopeSelector from './ScopeSelector.svelte'
-	import McpScopeSelector from '../mcp/McpScopeSelector.svelte'
+	import ScopesPicker from './ScopesPicker.svelte'
 
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
@@ -43,12 +42,10 @@
 	let newTokenExpiration = $state<number | undefined>(undefined)
 	let newTokenWorkspace = $state<string | undefined>(untrack(() => defaultNewTokenWorkspace))
 	let mcpCreationMode = $state(false)
-	let mcpScope = $state('mcp:favorites')
 	let lastRequestedMcpMode = $state<boolean | undefined>(undefined)
 	let mcpLabelAutofilled = $state(false)
 
-	let customScopes = $state<string[]>([])
-	let showCustomScopes = $state(false)
+	let pickedScopes = $state<string[] | null>(null)
 
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
@@ -96,12 +93,7 @@
 				date = new Date(new Date().getTime() + newTokenExpiration * 1000)
 			}
 
-			let tokenScopes = scopes
-			if (mcpMode) {
-				tokenScopes = mcpScope.split(' ').filter((s) => s.length > 0)
-			} else if (showCustomScopes && customScopes.length > 0) {
-				tokenScopes = customScopes
-			}
+			const tokenScopes = scopes ?? pickedScopes ?? undefined
 
 			const createdToken = await UserService.createToken({
 				requestBody: {
@@ -195,77 +187,58 @@
 			</div>
 		{/if}
 
-		{#if !mcpCreationMode && (!scopes || scopes.length === 0)}
-			<div class="flex flex-col gap-2">
-				<Toggle
-					checked={showCustomScopes}
-					on:change={(e) => {
-						showCustomScopes = e.detail
-					}}
-					options={{
-						right: 'Limit token permissions',
-						rightTooltip:
-							'By default, tokens have full API access. Enable this to restrict the token to specific scopes.'
-					}}
-					size="xs"
-				/>
-				{#if showCustomScopes}
-					<ScopeSelector bind:selectedScopes={customScopes} />
-				{/if}
-			</div>
+		{#if !scopes || scopes.length === 0}
+			<ScopesPicker
+				mode={mcpCreationMode ? 'mcp' : 'standard'}
+				workspaceId={newTokenWorkspace || $workspaceStore || ''}
+				bind:value={pickedScopes}
+			/>
 		{/if}
 
 		<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-				{#if mcpCreationMode}
-					<div class="col-span-2">
-						<McpScopeSelector
-							workspaceId={newTokenWorkspace || $workspaceStore || ''}
-							bind:scope={mcpScope}
-						/>
-					</div>
-
-					{#if !lockWorkspace}
-						<div>
-							<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
-							<Select
-								bind:value={newTokenWorkspace}
-								items={workspaces.map((w) => ({ label: w.name, value: w.id, subtitle: w.id }))}
-							/>
-						</div>
-					{/if}
-				{/if}
-
-				{#if !mcpOnly}
+			{#if mcpCreationMode}
+				{#if !lockWorkspace}
 					<div>
-						<span class="block mb-1 text-emphasis text-xs font-semibold"
-							>Label <span class="text-xs text-primary">(optional)</span></span
-						>
-						<TextInput inputProps={{ type: 'text' }} bind:value={newTokenLabel} class="w-full" />
-					</div>
-				{/if}
-
-				{#if !mcpCreationMode}
-					<div>
-						<span class="block mb-1 text-xs text-emphasis font-semibold"
-							>Expires In <span class="text-xs text-primary">(optional)</span></span
-						>
+						<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
 						<Select
-							bind:value={newTokenExpiration}
-							placeholder="No expiration"
-							inputClass="w-full"
-							items={[
-								{ label: 'No expiration', value: undefined },
-								{ label: '15 minutes', value: 15 * 60 },
-								{ label: '30 minutes', value: 30 * 60 },
-								{ label: '1 hour', value: 1 * 60 * 60 },
-								{ label: '1 day', value: 1 * 24 * 60 * 60 },
-								{ label: '7 days', value: 7 * 24 * 60 * 60 },
-								{ label: '30 days', value: 30 * 24 * 60 * 60 },
-								{ label: '90 days', value: 90 * 24 * 60 * 60 }
-							]}
+							bind:value={newTokenWorkspace}
+							items={workspaces.map((w) => ({ label: w.name, value: w.id, subtitle: w.id }))}
 						/>
 					</div>
 				{/if}
+			{/if}
+
+			{#if !mcpOnly}
+				<div>
+					<span class="block mb-1 text-emphasis text-xs font-semibold"
+						>Label <span class="text-xs text-primary">(optional)</span></span
+					>
+					<TextInput inputProps={{ type: 'text' }} bind:value={newTokenLabel} class="w-full" />
+				</div>
+			{/if}
+
+			{#if !mcpCreationMode}
+				<div>
+					<span class="block mb-1 text-xs text-emphasis font-semibold"
+						>Expires In <span class="text-xs text-primary">(optional)</span></span
+					>
+					<Select
+						bind:value={newTokenExpiration}
+						placeholder="No expiration"
+						inputClass="w-full"
+						items={[
+							{ label: 'No expiration', value: undefined },
+							{ label: '15 minutes', value: 15 * 60 },
+							{ label: '30 minutes', value: 30 * 60 },
+							{ label: '1 hour', value: 1 * 60 * 60 },
+							{ label: '1 day', value: 1 * 24 * 60 * 60 },
+							{ label: '7 days', value: 7 * 24 * 60 * 60 },
+							{ label: '30 days', value: 30 * 24 * 60 * 60 },
+							{ label: '90 days', value: 90 * 24 * 60 * 60 }
+						]}
+					/>
+				</div>
+			{/if}
 		</div>
 
 		<div class="mt-4 flex justify-end gap-2 flex-row">
@@ -281,8 +254,7 @@
 			{/if}
 			<Button
 				on:click={() => createToken(mcpCreationMode)}
-				disabled={mcpCreationMode &&
-					(newTokenWorkspace == undefined || !mcpScope || mcpScope.trim().length === 0)}
+				disabled={mcpCreationMode && (newTokenWorkspace == undefined || !pickedScopes)}
 				variant="accent"
 			>
 				{mcpCreationMode ? 'Generate MCP URL' : 'New token'}
