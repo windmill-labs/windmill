@@ -78,9 +78,6 @@
 
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
-	let datatableTablesCache: { key: string; promise: Promise<AppDatatableMetadata[]> } | undefined =
-		undefined
-	let datatableTableSchemaCache = new Map<string, Promise<Record<string, string>>>()
 
 	type DataTableTablesMetadata = {
 		datatable_name: string
@@ -163,24 +160,6 @@
 		}
 
 		return results
-	}
-
-	function getDatatableTablesCacheKey(): string {
-		return `${$workspaceStore ?? ''}:${data.tables.join('\u0000')}`
-	}
-
-	function invalidateDatatableCaches(datatableName?: string) {
-		datatableTablesCache = undefined
-		if (!datatableName) {
-			datatableTableSchemaCache.clear()
-			return
-		}
-
-		for (const key of datatableTableSchemaCache.keys()) {
-			if (key.includes(`:${datatableName}:`)) {
-				datatableTableSchemaCache.delete(key)
-			}
-		}
 	}
 
 	// Initialize history manager
@@ -558,19 +537,10 @@
 					return []
 				}
 
-				const cacheKey = getDatatableTablesCacheKey()
-				if (datatableTablesCache?.key === cacheKey) {
-					return datatableTablesCache.promise
-				}
-
-				datatableTablesCache = {
-					key: cacheKey,
-					promise: WorkspaceService.listDataTableTables({
-						workspace: $workspaceStore
-					}).then((tables) => filterDatatableTables(tables))
-				}
-
-				return datatableTablesCache.promise
+				const tables = await WorkspaceService.listDataTableTables({
+					workspace: $workspaceStore
+				})
+				return filterDatatableTables(tables)
 			},
 			getDatatableTableSchema: async (
 				datatableName: string,
@@ -581,19 +551,13 @@
 					return {}
 				}
 
-				const cacheKey = `${$workspaceStore}:${datatableName}:${schemaName}:${tableName}`
-				let schemaPromise = datatableTableSchemaCache.get(cacheKey)
-				if (!schemaPromise) {
-					schemaPromise = WorkspaceService.getDataTableTableSchema({
-						workspace: $workspaceStore,
-						datatableName,
-						schemaName,
-						tableName
-					}).then((schema) => schema.columns)
-					datatableTableSchemaCache.set(cacheKey, schemaPromise)
-				}
-
-				return schemaPromise
+				const schema = await WorkspaceService.getDataTableTableSchema({
+					workspace: $workspaceStore,
+					datatableName,
+					schemaName,
+					tableName
+				})
+				return schema.columns
 			},
 			getAvailableDatatableNames: (): string[] => {
 				// Get unique datatable names from dataTableRefs
@@ -635,7 +599,6 @@
 						}
 					}
 
-					invalidateDatatableCaches(datatableName)
 					void aiChatManager.refreshDatatables()
 
 					// Check if result is an array (SELECT) or something else
@@ -660,7 +623,6 @@
 				if (!data.tables.includes(newRef)) {
 					data.tables = [...data.tables, newRef]
 					saveFrontendDraft()
-					invalidateDatatableCaches(datatableName)
 					void aiChatManager.refreshDatatables()
 				}
 			}

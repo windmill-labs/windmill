@@ -24,10 +24,7 @@ use regex::Regex;
 
 use hex;
 use sha2::{Digest, Sha256};
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{HashMap, HashSet};
 use strum::IntoEnumIterator;
 use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
@@ -42,10 +39,9 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_user_against_rule, get_datatable_resource_from_db_unchecked,
-    list_datatable_resources_from_db_unchecked, DataTable, DataTableCatalogResourceType,
-    DataTableForkBehavior, ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult,
-    WorkspaceGitSyncSettings, WM_FORK_PREFIX,
+    check_user_against_rule, get_datatable_resource_from_db_unchecked, DataTable,
+    DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
+    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings, WM_FORK_PREFIX,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -1377,8 +1373,6 @@ type SchemaMap = HashMap<String, TableMap>;
 /// Schemas mapped by name to their table names
 type TableListMap = HashMap<String, Vec<String>>;
 
-const DATATABLE_CATALOG_LIST_CONCURRENCY: usize = 4;
-
 #[derive(Serialize, Debug)]
 struct DataTableSchema {
     datatable_name: String,
@@ -1417,76 +1411,22 @@ async fn list_datatable_schemas(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DataTableSchema>> {
-    let datatable_resource_results = list_datatable_resources_from_db_unchecked(&db, &w_id).await?;
-    let mut results = Vec::with_capacity(datatable_resource_results.len());
-    let mut datatable_resources = Vec::new();
-    let datatable_resource_results = datatable_resource_results.into_iter().enumerate();
-    for (index, (datatable_name, db_resource)) in datatable_resource_results {
-        results.push(None);
-        match db_resource {
-            Ok(db_resource) => datatable_resources.push((index, datatable_name, db_resource)),
-            Err(e) => {
-                results[index] = Some(DataTableSchema {
-                    datatable_name,
-                    schemas: HashMap::new(),
-                    error: Some(e),
-                })
-            }
-        }
+    let datatable_names = list_datatable_names(&db, &w_id).await?;
+    let mut results = Vec::new();
+
+    for datatable_name in datatable_names {
+        let schema = match get_datatable_schema(&db, &w_id, &datatable_name).await {
+            Ok(schemas) => DataTableSchema { datatable_name, schemas, error: None },
+            Err(e) => DataTableSchema {
+                datatable_name,
+                schemas: HashMap::new(),
+                error: Some(e.to_string()),
+            },
+        };
+        results.push(schema);
     }
 
-    let resource_groups = group_datatables_by_resource(datatable_resources)?;
-    let semaphore = Arc::new(tokio::sync::Semaphore::new(
-        DATATABLE_CATALOG_LIST_CONCURRENCY,
-    ));
-    let mut handles = Vec::with_capacity(resource_groups.len());
-
-    for (db_resource, datatables) in resource_groups {
-        let db = db.clone();
-        let permit = semaphore.clone().acquire_owned().await.map_err(|e| {
-            Error::internal_err(format!("datatable schema list semaphore closed: {}", e))
-        })?;
-
-        handles.push(tokio::spawn(async move {
-            let _permit = permit;
-            let schemas = get_datatable_schema_from_resource(&db_resource, Some(&db)).await;
-            datatables
-                .into_iter()
-                .map(|(index, datatable_name)| match &schemas {
-                    Ok(schemas) => (
-                        index,
-                        DataTableSchema { datatable_name, schemas: schemas.clone(), error: None },
-                    ),
-                    Err(e) => (
-                        index,
-                        DataTableSchema {
-                            datatable_name,
-                            schemas: HashMap::new(),
-                            error: Some(e.to_string()),
-                        },
-                    ),
-                })
-                .collect::<Vec<_>>()
-        }));
-    }
-
-    for handle in handles {
-        let datatables = handle.await.map_err(|e| {
-            Error::internal_err(format!("failed to join datatable schema list task: {}", e))
-        })?;
-        for (index, datatable) in datatables {
-            results[index] = Some(datatable);
-        }
-    }
-
-    let mut ordered_results = Vec::with_capacity(results.len());
-    for result in results {
-        ordered_results.push(result.ok_or_else(|| {
-            Error::internal_err("missing datatable schema list result".to_string())
-        })?);
-    }
-
-    Ok(Json(ordered_results))
+    Ok(Json(results))
 }
 
 async fn list_datatable_tables(
@@ -1494,98 +1434,22 @@ async fn list_datatable_tables(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DataTableTables>> {
-    let datatable_resource_results = list_datatable_resources_from_db_unchecked(&db, &w_id).await?;
-    let mut results = Vec::with_capacity(datatable_resource_results.len());
-    let mut datatable_resources = Vec::new();
-    let datatable_resource_results = datatable_resource_results.into_iter().enumerate();
-    for (index, (datatable_name, db_resource)) in datatable_resource_results {
-        results.push(None);
-        match db_resource {
-            Ok(db_resource) => datatable_resources.push((index, datatable_name, db_resource)),
-            Err(e) => {
-                results[index] = Some(DataTableTables {
-                    datatable_name,
-                    schemas: HashMap::new(),
-                    error: Some(e),
-                })
-            }
-        }
+    let datatable_names = list_datatable_names(&db, &w_id).await?;
+    let mut results = Vec::new();
+
+    for datatable_name in datatable_names {
+        let tables = match get_datatable_tables(&db, &w_id, &datatable_name).await {
+            Ok(schemas) => DataTableTables { datatable_name, schemas, error: None },
+            Err(e) => DataTableTables {
+                datatable_name,
+                schemas: HashMap::new(),
+                error: Some(e.to_string()),
+            },
+        };
+        results.push(tables);
     }
 
-    let resource_groups = group_datatables_by_resource(datatable_resources)?;
-    let semaphore = Arc::new(tokio::sync::Semaphore::new(
-        DATATABLE_CATALOG_LIST_CONCURRENCY,
-    ));
-    let mut handles = Vec::with_capacity(resource_groups.len());
-
-    for (db_resource, datatables) in resource_groups {
-        let db = db.clone();
-        let permit = semaphore.clone().acquire_owned().await.map_err(|e| {
-            Error::internal_err(format!("datatable table list semaphore closed: {}", e))
-        })?;
-
-        handles.push(tokio::spawn(async move {
-            let _permit = permit;
-            let schemas = get_datatable_tables_from_resource(&db_resource, Some(&db)).await;
-            datatables
-                .into_iter()
-                .map(|(index, datatable_name)| match &schemas {
-                    Ok(schemas) => (
-                        index,
-                        DataTableTables { datatable_name, schemas: schemas.clone(), error: None },
-                    ),
-                    Err(e) => (
-                        index,
-                        DataTableTables {
-                            datatable_name,
-                            schemas: HashMap::new(),
-                            error: Some(e.to_string()),
-                        },
-                    ),
-                })
-                .collect::<Vec<_>>()
-        }));
-    }
-
-    for handle in handles {
-        let datatables = handle.await.map_err(|e| {
-            Error::internal_err(format!("failed to join datatable table list task: {}", e))
-        })?;
-        for (index, datatable) in datatables {
-            results[index] = Some(datatable);
-        }
-    }
-
-    let mut ordered_results = Vec::with_capacity(results.len());
-    for result in results {
-        ordered_results.push(result.ok_or_else(|| {
-            Error::internal_err("missing datatable table list result".to_string())
-        })?);
-    }
-
-    Ok(Json(ordered_results))
-}
-
-fn group_datatables_by_resource(
-    datatable_resources: Vec<(usize, String, serde_json::Value)>,
-) -> Result<Vec<(serde_json::Value, Vec<(usize, String)>)>> {
-    let mut group_indexes: HashMap<String, usize> = HashMap::new();
-    let mut groups: Vec<(serde_json::Value, Vec<(usize, String)>)> = Vec::new();
-
-    for (index, datatable_name, db_resource) in datatable_resources {
-        let key = serde_json::to_string(&db_resource).map_err(|e| {
-            Error::internal_err(format!("failed to serialize datatable resource: {}", e))
-        })?;
-
-        if let Some(group_index) = group_indexes.get(&key) {
-            groups[*group_index].1.push((index, datatable_name));
-        } else {
-            group_indexes.insert(key, groups.len());
-            groups.push((db_resource, vec![(index, datatable_name)]));
-        }
-    }
-
-    Ok(groups)
+    Ok(Json(results))
 }
 
 async fn get_datatable_table_schema(
@@ -1611,13 +1475,32 @@ async fn get_datatable_table_schema(
     }))
 }
 
-async fn get_datatable_schema_from_resource(
-    db_resource: &serde_json::Value,
-    main_db: Option<&DB>,
-) -> Result<SchemaMap> {
-    let pg_db: PgDatabase = serde_json::from_value(db_resource.clone())
+async fn list_datatable_names(db: &DB, w_id: &str) -> Result<Vec<String>> {
+    Ok(sqlx::query_scalar!(
+        r#"
+            SELECT jsonb_object_keys(ws.datatable->'datatables') AS datatable_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        w_id
+    )
+    .fetch_all(db)
+    .await?
+    .into_iter()
+    .filter_map(|s| s)
+    .collect())
+}
+
+async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Result<SchemaMap> {
+    // Get the datatable resource (connection credentials)
+    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+
+    // Parse the resource as PgDatabase
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
-    let (client, connection) = pg_db.connect(main_db).await?;
+
+    // Connect to the datatable database
+    let (client, connection) = pg_db.connect(Some(db)).await?;
 
     // Spawn the connection handler
     tokio::spawn(async move {
@@ -1626,77 +1509,82 @@ async fn get_datatable_schema_from_resource(
         }
     });
 
-    let rows = client
+    // First, get all non-system schemas (including empty ones)
+    let schema_rows = client
         .query(
             r#"
-            SELECT
-                n.nspname::text AS schema_name,
-                c.relname::text AS table_name,
-                a.attname::text AS column_name,
-                t.typname::text AS udt_name,
-                CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END::text AS is_nullable,
-                pg_get_expr(ad.adbin, ad.adrelid)::text AS column_default
-            FROM pg_namespace n
-            LEFT JOIN pg_class c
-             ON c.relnamespace = n.oid
-             AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
-             AND (
-                pg_catalog.has_table_privilege(c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
-                OR pg_catalog.has_any_column_privilege(c.oid, 'SELECT, INSERT, UPDATE, REFERENCES')
-             )
-            LEFT JOIN pg_attribute a
-              ON a.attrelid = c.oid
-             AND a.attnum > 0
-             AND NOT a.attisdropped
-             AND (
-                pg_catalog.has_table_privilege(c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
-                OR pg_catalog.has_column_privilege(c.oid, a.attnum, 'SELECT, INSERT, UPDATE, REFERENCES')
-             )
-            LEFT JOIN pg_type t
-              ON t.oid = a.atttypid
-            LEFT JOIN pg_attrdef ad
-              ON ad.adrelid = c.oid
-             AND ad.adnum = a.attnum
-            WHERE n.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
-              AND n.nspname NOT LIKE 'pg_%'
-            ORDER BY n.nspname, c.relname, a.attnum
+            SELECT nspname::text AS schema_name
+            FROM pg_namespace
+            WHERE nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
+              AND nspname NOT LIKE 'pg_%'
+            ORDER BY nspname
             "#,
             &[],
         )
         .await
+        .map_err(|e| Error::internal_err(format!("Failed to query schemas: {}", e)))?;
+
+    // Build hierarchical structure: schema -> table -> column -> compact_type
+    let mut schema_map: SchemaMap = HashMap::new();
+
+    // Collect schema names and initialize map
+    let schema_names: Vec<String> = schema_rows
+        .iter()
+        .map(|row| {
+            let name: String = row.get(0);
+            schema_map.entry(name.clone()).or_default();
+            name
+        })
+        .collect();
+
+    // Query column information only for the schemas we found
+    let rows = client
+        .query(
+            r#"
+            SELECT
+                table_schema::text,
+                table_name::text,
+                column_name::text,
+                udt_name::text,
+                is_nullable::text,
+                column_default::text
+            FROM information_schema.columns
+            WHERE table_schema = ANY($1)
+              AND table_name IS NOT NULL
+            ORDER BY table_schema, table_name, ordinal_position
+            "#,
+            &[&schema_names],
+        )
+        .await
         .map_err(|e| Error::internal_err(format!("Failed to query columns: {}", e)))?;
 
-    let mut schema_map: SchemaMap = HashMap::new();
     for row in rows {
         let table_schema: String = row.get(0);
-        let table_name: Option<String> = row.get(1);
-        let column_name: Option<String> = row.get(2);
-        let udt_name: Option<String> = row.get(3);
+        let table_name: String = row.get(1);
+        let column_name: String = row.get(2);
+        let udt_name: String = row.get(3);
         let is_nullable: String = row.get(4);
         let column_default: Option<String> = row.get(5);
 
-        let schema = schema_map.entry(table_schema).or_default();
-        if let Some(table_name) = table_name {
-            let table = schema.entry(table_name).or_default();
-            if let (Some(column_name), Some(udt_name)) = (column_name, udt_name) {
-                table.insert(
-                    column_name,
-                    compact_column_type(udt_name, is_nullable, column_default),
-                );
-            }
-        }
+        schema_map
+            .entry(table_schema)
+            .or_default()
+            .entry(table_name)
+            .or_default()
+            .insert(
+                column_name,
+                compact_column_type(udt_name, is_nullable, column_default),
+            );
     }
 
     Ok(schema_map)
 }
 
-async fn get_datatable_tables_from_resource(
-    db_resource: &serde_json::Value,
-    main_db: Option<&DB>,
-) -> Result<TableListMap> {
-    let pg_db: PgDatabase = serde_json::from_value(db_resource.clone())
+async fn get_datatable_tables(db: &DB, w_id: &str, datatable_name: &str) -> Result<TableListMap> {
+    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
-    let (client, connection) = pg_db.connect(main_db).await?;
+    let (client, connection) = pg_db.connect(Some(db)).await?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -1704,37 +1592,50 @@ async fn get_datatable_tables_from_resource(
         }
     });
 
-    let rows = client
+    let schema_rows = client
         .query(
             r#"
-            SELECT
-                n.nspname::text AS schema_name,
-                c.relname::text AS table_name
-            FROM pg_namespace n
-            LEFT JOIN pg_class c
-             ON c.relnamespace = n.oid
-             AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
-             AND (
-                pg_catalog.has_table_privilege(c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
-                OR pg_catalog.has_any_column_privilege(c.oid, 'SELECT, INSERT, UPDATE, REFERENCES')
-             )
-            WHERE n.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
-              AND n.nspname NOT LIKE 'pg_%'
-            ORDER BY n.nspname, c.relname
+            SELECT nspname::text AS schema_name
+            FROM pg_namespace
+            WHERE nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
+              AND nspname NOT LIKE 'pg_%'
+            ORDER BY nspname
             "#,
             &[],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to query tables: {}", e)))?;
+        .map_err(|e| Error::internal_err(format!("Failed to query schemas: {}", e)))?;
 
     let mut table_map: TableListMap = HashMap::new();
+    let schema_names: Vec<String> = schema_rows
+        .iter()
+        .map(|row| {
+            let name: String = row.get(0);
+            table_map.entry(name.clone()).or_default();
+            name
+        })
+        .collect();
+
+    let rows = client
+        .query(
+            r#"
+            SELECT DISTINCT
+                table_schema::text,
+                table_name::text
+            FROM information_schema.columns
+            WHERE table_schema = ANY($1)
+              AND table_name IS NOT NULL
+            ORDER BY table_schema, table_name
+            "#,
+            &[&schema_names],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to query tables: {}", e)))?;
+
     for row in rows {
         let table_schema: String = row.get(0);
-        let table_name: Option<String> = row.get(1);
-        let tables = table_map.entry(table_schema).or_default();
-        if let Some(table_name) = table_name {
-            tables.push(table_name);
-        }
+        let table_name: String = row.get(1);
+        table_map.entry(table_schema).or_default().push(table_name);
     }
 
     Ok(table_map)
@@ -1748,26 +1649,9 @@ async fn get_datatable_table_columns(
     table_name: &str,
 ) -> Result<ColumnMap> {
     let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
-    get_datatable_table_columns_from_resource(
-        &db_resource,
-        Some(db),
-        datatable_name,
-        schema_name,
-        table_name,
-    )
-    .await
-}
-
-async fn get_datatable_table_columns_from_resource(
-    db_resource: &serde_json::Value,
-    main_db: Option<&DB>,
-    datatable_name: &str,
-    schema_name: &str,
-    table_name: &str,
-) -> Result<ColumnMap> {
-    let pg_db: PgDatabase = serde_json::from_value(db_resource.clone())
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
-    let (client, connection) = pg_db.connect(main_db).await?;
+    let (client, connection) = pg_db.connect(Some(db)).await?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -1779,34 +1663,14 @@ async fn get_datatable_table_columns_from_resource(
         .query(
             r#"
             SELECT
-                a.attname::text AS column_name,
-                t.typname::text AS udt_name,
-                CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END::text AS is_nullable,
-                pg_get_expr(ad.adbin, ad.adrelid)::text AS column_default
-            FROM pg_namespace n
-            JOIN pg_class c
-             ON c.relnamespace = n.oid
-             AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
-             AND (
-                pg_catalog.has_table_privilege(c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
-                OR pg_catalog.has_any_column_privilege(c.oid, 'SELECT, INSERT, UPDATE, REFERENCES')
-             )
-            LEFT JOIN pg_attribute a
-              ON a.attrelid = c.oid
-             AND a.attnum > 0
-             AND NOT a.attisdropped
-             AND (
-                pg_catalog.has_table_privilege(c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
-                OR pg_catalog.has_column_privilege(c.oid, a.attnum, 'SELECT, INSERT, UPDATE, REFERENCES')
-             )
-            LEFT JOIN pg_type t
-              ON t.oid = a.atttypid
-            LEFT JOIN pg_attrdef ad
-              ON ad.adrelid = c.oid
-             AND ad.adnum = a.attnum
-            WHERE n.nspname = $1
-              AND c.relname = $2
-            ORDER BY a.attnum
+                column_name::text,
+                udt_name::text,
+                is_nullable::text,
+                column_default::text
+            FROM information_schema.columns
+            WHERE table_schema = $1
+              AND table_name = $2
+            ORDER BY ordinal_position
             "#,
             &[&schema_name, &table_name],
         )
@@ -1822,16 +1686,14 @@ async fn get_datatable_table_columns_from_resource(
 
     let mut columns: ColumnMap = HashMap::new();
     for row in rows {
-        let column_name: Option<String> = row.get(0);
-        let udt_name: Option<String> = row.get(1);
+        let column_name: String = row.get(0);
+        let udt_name: String = row.get(1);
         let is_nullable: String = row.get(2);
         let column_default: Option<String> = row.get(3);
-        if let (Some(column_name), Some(udt_name)) = (column_name, udt_name) {
-            columns.insert(
-                column_name,
-                compact_column_type(udt_name, is_nullable, column_default),
-            );
-        }
+        columns.insert(
+            column_name,
+            compact_column_type(udt_name, is_nullable, column_default),
+        );
     }
 
     Ok(columns)
