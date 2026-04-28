@@ -499,21 +499,163 @@ pub async fn get_datatable_resource_from_db_unchecked(
     .ok_or_else(|| Error::internal_err(format!("datatable {name} not found")))?;
     let datatable = serde_json::from_value::<DataTable>(datatable)?;
 
+    datatable_resource_from_config_unchecked(db, w_id, &datatable, None, None).await
+}
+
+pub async fn list_datatable_resources_from_db_unchecked(
+    db: &DB,
+    w_id: &str,
+) -> Result<Vec<(String, std::result::Result<serde_json::Value, String>)>> {
+    let config: Option<serde_json::Value> = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        r#"
+            SELECT ws.datatable->'datatables' AS config
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+    )
+    .bind(w_id)
+    .fetch_optional(db)
+    .await?
+    .flatten();
+
+    let raw_datatables: std::collections::BTreeMap<String, serde_json::Value> = match config {
+        Some(value) if !value.is_null() => serde_json::from_value(value)?,
+        _ => std::collections::BTreeMap::new(),
+    };
+
+    let mut datatables = Vec::with_capacity(raw_datatables.len());
+    let mut needs_instance_password = false;
+    let mut resource_paths = std::collections::BTreeSet::new();
+    for (name, value) in raw_datatables {
+        match serde_json::from_value::<DataTable>(value) {
+            Ok(datatable) => {
+                needs_instance_password |=
+                    datatable.database.resource_type == DataTableCatalogResourceType::Instance;
+                if datatable.database.resource_type != DataTableCatalogResourceType::Instance {
+                    resource_paths.insert(datatable.database.resource_path.clone());
+                }
+                datatables.push((name, Ok(datatable)));
+            }
+            Err(e) => datatables.push((name, Err(e.to_string()))),
+        }
+    }
+
+    let mut resource_values = std::collections::BTreeMap::new();
+    if !resource_paths.is_empty() {
+        let resource_paths = resource_paths.into_iter().collect::<Vec<_>>();
+        let resources: Vec<(String, serde_json::Value)> = sqlx::query_as(
+            r#"
+                SELECT path, value
+                FROM resource
+                WHERE workspace_id = $1 AND path = ANY($2)
+            "#,
+        )
+        .bind(w_id)
+        .bind(&resource_paths)
+        .fetch_all(db)
+        .await?;
+
+        for (path, value) in resources {
+            resource_values.insert(path, value);
+        }
+    }
+
+    let instance_password = match needs_instance_password {
+        true => Some(
+            get_custom_pg_instance_password(db)
+                .await
+                .map_err(|e| e.to_string()),
+        ),
+        false => None,
+    };
+
+    let mut resources = Vec::with_capacity(datatables.len());
+    for (name, datatable) in datatables {
+        let db_resource = match datatable {
+            Ok(datatable) => {
+                let instance_password =
+                    if datatable.database.resource_type == DataTableCatalogResourceType::Instance {
+                        match instance_password.as_ref() {
+                            Some(Ok(password)) => Some(password.as_str()),
+                            Some(Err(e)) => {
+                                resources.push((name, Err(e.clone())));
+                                continue;
+                            }
+                            None => None,
+                        }
+                    } else {
+                        None
+                    };
+                let resource_value =
+                    if datatable.database.resource_type == DataTableCatalogResourceType::Instance {
+                        None
+                    } else {
+                        match resource_values.get(&datatable.database.resource_path) {
+                            Some(resource_value) => Some(resource_value),
+                            None => {
+                                resources.push((
+                                    name,
+                                    Err(format!(
+                                        "datatable resource {} not found",
+                                        datatable.database.resource_path
+                                    )),
+                                ));
+                                continue;
+                            }
+                        }
+                    };
+
+                datatable_resource_from_config_unchecked(
+                    db,
+                    w_id,
+                    &datatable,
+                    instance_password,
+                    resource_value,
+                )
+                .await
+                .map_err(|e| e.to_string())
+            }
+            Err(e) => Err(e),
+        };
+        resources.push((name, db_resource));
+    }
+
+    Ok(resources)
+}
+
+async fn datatable_resource_from_config_unchecked(
+    db: &DB,
+    w_id: &str,
+    datatable: &DataTable,
+    instance_password: Option<&str>,
+    resource_value: Option<&serde_json::Value>,
+) -> Result<serde_json::Value> {
     let db_resource = if datatable.database.resource_type == DataTableCatalogResourceType::Instance
     {
         let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
         pg_creds.dbname = datatable.database.resource_path.clone();
         pg_creds.user = Some("custom_instance_user".to_string());
-        pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
+        pg_creds.password = Some(match instance_password {
+            Some(password) => password.to_string(),
+            None => get_custom_pg_instance_password(db).await?,
+        });
         serde_json::to_value(&pg_creds)
             .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
     } else {
-        transform_json_unchecked(
-            &serde_json::Value::String(format!("$res:{}", datatable.database.resource_path)),
-            w_id,
-            db,
-        )
-        .await?
+        match resource_value {
+            Some(resource_value) => transform_json_unchecked(resource_value, w_id, db).await?,
+            None => {
+                transform_json_unchecked(
+                    &serde_json::Value::String(format!(
+                        "$res:{}",
+                        datatable.database.resource_path
+                    )),
+                    w_id,
+                    db,
+                )
+                .await?
+            }
+        }
     };
 
     Ok(db_resource)
