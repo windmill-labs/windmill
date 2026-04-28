@@ -1043,7 +1043,7 @@ class AIChatManager {
 		}
 
 		try {
-			const datatables = await this.appAiChatHelpers.getDatatables()
+			const datatables = await this.appAiChatHelpers.listDatatableTables()
 			this.cachedDatatables = flattenDatatablesToAppContextElements(datatables)
 		} catch (err) {
 			console.error('Failed to refresh datatables:', err)

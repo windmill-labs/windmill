@@ -103,6 +103,13 @@ export interface DataTableSchema {
 	error?: string
 }
 
+export interface AppDatatableMetadata {
+	datatable_name: string
+	schemas: Record<string, string[]>
+	tableCount: number
+	error?: string
+}
+
 export interface AppAIChatHelpers {
 	// Frontend file operations
 	listFrontendFiles: () => string[]
@@ -127,8 +134,14 @@ export interface AppAIChatHelpers {
 	/** Lint all frontend files and backend runnables, returns errors and warnings */
 	lint: () => LintResult
 	// Data table operations
-	/** Get all datatables configured in the app with their schemas */
-	getDatatables: () => Promise<DataTableSchema[]>
+	/** List configured datatables with schema/table names only. */
+	listDatatableTables: () => Promise<AppDatatableMetadata[]>
+	/** Get columns for one datatable table. */
+	getDatatableTableSchema: (
+		datatableName: string,
+		schemaName: string,
+		tableName: string
+	) => Promise<Record<string, string>>
 	/** Get unique datatable names configured in the app (for UI policy selector) */
 	getAvailableDatatableNames: () => string[]
 	/** Execute a SQL query on a datatable. Optionally specify newTable to register a newly created table. */
@@ -406,33 +419,6 @@ const getListFilesToolDef = memo(() =>
 
 // ============= Data Table Tools =============
 
-interface AppDatatableMetadata {
-	datatable_name: string
-	schemas: Record<string, string[]>
-	tableCount: number
-	error?: string
-}
-
-function summarizeDatatables(datatables: DataTableSchema[]): AppDatatableMetadata[] {
-	return datatables.map((datatable) => {
-		const schemas: Record<string, string[]> = {}
-		let tableCount = 0
-
-		for (const [schemaName, tables] of Object.entries(datatable.schemas)) {
-			const tableNames = Object.keys(tables)
-			schemas[schemaName] = tableNames
-			tableCount += tableNames.length
-		}
-
-		return {
-			datatable_name: datatable.datatable_name,
-			schemas,
-			tableCount,
-			...(datatable.error && { error: datatable.error })
-		}
-	})
-}
-
 const getListDatatablesSchema = memo(() => z.object({}))
 const getListDatatablesToolDef = memo(() =>
 	createToolDef(
@@ -641,7 +627,9 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 
 			if (target.type === 'frontend') {
 				if (target.path === '/wmill.d.ts') {
-					throw new Error("'/wmill.d.ts' is generated automatically. Edit backend runnables instead.")
+					throw new Error(
+						"'/wmill.d.ts' is generated automatically. Edit backend runnables instead."
+					)
 				}
 
 				const frontendContent = helpers.getFrontendFile(target.path)
@@ -824,12 +812,11 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing datatables...' })
 			try {
-				const datatables = await helpers.getDatatables()
-				if (datatables.length === 0) {
+				const metadata = await helpers.listDatatableTables()
+				if (metadata.length === 0) {
 					toolCallbacks.setToolStatus(toolId, { content: 'No datatables configured' })
 					return 'No datatables are configured in this app. Use the Data panel in the sidebar to add datatable references.'
 				}
-				const metadata = summarizeDatatables(datatables)
 				const totalTables = metadata.reduce((acc, datatable) => acc + datatable.tableCount, 0)
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Listed ${metadata.length} datatable(s) with ${totalTables} table(s)`
@@ -850,32 +837,11 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				content: `Getting schema for ${parsedArgs.datatable_name}.${parsedArgs.schema_name}.${parsedArgs.table_name}...`
 			})
 			try {
-				const datatables = await helpers.getDatatables()
-				const datatable = datatables.find(
-					(candidate) => candidate.datatable_name === parsedArgs.datatable_name
+				const columns = await helpers.getDatatableTableSchema(
+					parsedArgs.datatable_name,
+					parsedArgs.schema_name,
+					parsedArgs.table_name
 				)
-				if (!datatable) {
-					const availableDatatables = datatables.map((candidate) => candidate.datatable_name)
-					const errorMsg = `Datatable '${parsedArgs.datatable_name}' not found. Available datatables: ${availableDatatables.join(', ') || 'none'}`
-					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
-					return errorMsg
-				}
-
-				const schema = datatable.schemas[parsedArgs.schema_name]
-				if (!schema) {
-					const availableSchemas = Object.keys(datatable.schemas)
-					const errorMsg = `Schema '${parsedArgs.schema_name}' not found in datatable '${parsedArgs.datatable_name}'. Available schemas: ${availableSchemas.join(', ') || 'none'}`
-					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
-					return errorMsg
-				}
-
-				const columns = schema[parsedArgs.table_name]
-				if (!columns) {
-					const availableTables = Object.keys(schema)
-					const errorMsg = `Table '${parsedArgs.table_name}' not found in '${parsedArgs.datatable_name}.${parsedArgs.schema_name}'. Available tables: ${availableTables.join(', ') || 'none'}`
-					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
-					return errorMsg
-				}
 
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Retrieved schema for ${parsedArgs.schema_name}.${parsedArgs.table_name}`
@@ -1271,12 +1237,16 @@ export function prepareAppUserMessage(
 					content += `- **Schema**: ${datatableCtx.schemaName}\n`
 					content += `- **Table**: ${datatableCtx.tableName}\n`
 					// Format columns as column_name: type
-					const columnsStr = JSON.stringify(datatableCtx.columns, null, 2)
-					const truncatedColumns =
-						columnsStr.length > MAX_CONTEXT_CONTENT_LENGTH
-							? columnsStr.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + '\n... [TRUNCATED]'
-							: columnsStr
-					content += `- **Columns** (column_name -> type):\n\`\`\`json\n${truncatedColumns}\n\`\`\`\n`
+					if (datatableCtx.columns) {
+						const columnsStr = JSON.stringify(datatableCtx.columns, null, 2)
+						const truncatedColumns =
+							columnsStr.length > MAX_CONTEXT_CONTENT_LENGTH
+								? columnsStr.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + '\n... [TRUNCATED]'
+								: columnsStr
+						content += `- **Columns** (column_name -> type):\n\`\`\`json\n${truncatedColumns}\n\`\`\`\n`
+					} else {
+						content += `- **Columns**: not loaded. Use get_datatable_table_schema() if column names or types are needed.\n`
+					}
 				}
 			}
 		}

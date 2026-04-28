@@ -3996,6 +3996,55 @@ paths:
                 items:
                   $ref: "#/components/schemas/DataTableSchema"
 
+  /w/{workspace}/workspaces/list_datatable_tables:
+    get:
+      summary: list tables of all connected Datatables
+      operationId: listDataTableTables
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: table metadata of all datatables
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DataTableTables"
+
+  /w/{workspace}/workspaces/get_datatable_table_schema:
+    get:
+      summary: get one Datatable table schema
+      operationId: getDataTableTableSchema
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: schema_name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: table_name
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: schema of one datatable table
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataTableTableSchema"
+
   /w/{workspace}/workspaces/edit_ducklake_config:
     post:
       summary: edit ducklake settings
@@ -26476,6 +26525,39 @@ components:
                 description: "Compact type: 'type[?][=default]' where ? means nullable"
         error:
           type: string
+
+    DataTableTables:
+      type: object
+      required: [datatable_name, schemas]
+      properties:
+        datatable_name:
+          type: string
+        schemas:
+          type: object
+          description: "Hierarchical metadata: schema_name -> table_names"
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        error:
+          type: string
+
+    DataTableTableSchema:
+      type: object
+      required: [datatable_name, schema_name, table_name, columns]
+      properties:
+        datatable_name:
+          type: string
+        schema_name:
+          type: string
+        table_name:
+          type: string
+        columns:
+          type: object
+          description: "Columns in this table: column_name -> compact_type"
+          additionalProperties:
+            type: string
+            description: "Compact type: 'type[?][=default]' where ? means nullable"
 
     DynamicInputData:
       type: object
