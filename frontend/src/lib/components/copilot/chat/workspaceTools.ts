@@ -44,12 +44,6 @@ import {
 import { z } from 'zod'
 import { createToolDef, type Tool } from './shared'
 
-type CurrentRunnable = {
-	path: string | undefined
-	isFlow: boolean
-	label: 'script' | 'flow'
-}
-
 const triggerKinds = [
 	'http',
 	'websocket',
@@ -91,11 +85,10 @@ const subscriptionModeSchema = generatedEnumSchema<SubscriptionMode>($Subscripti
 const deliveryTypeSchema = generatedEnumSchema<DeliveryType>($DeliveryType)
 const azureModeSchema = generatedEnumSchema<AzureMode>($AzureMode)
 
-const INFERRED_FIELDS = ['script_path', 'is_flow'] as const
 const runnableFields = {
 	path: z.string().min(1).describe('The unique path identifier for this trigger'),
-	script_path: z.string().min(1).describe('The current script or flow path, inferred by the tool'),
-	is_flow: z.boolean().describe('True when the inferred target path is a flow')
+	script_path: z.string().min(1).describe('Path to the script or flow to execute'),
+	is_flow: z.boolean().describe('True if script_path points to a flow')
 }
 const scriptArgsSchema = z.record(z.string(), z.unknown())
 const labelsSchema = z.array(z.string())
@@ -320,11 +313,8 @@ const createScheduleRequestSchema = z
 		path: z.string().min(1).describe('The unique path identifier for this schedule'),
 		schedule: z.string().min(1).describe('Cron expression with 6 fields, including seconds'),
 		timezone: z.string().min(1).describe("IANA timezone, for example 'UTC' or 'Europe/Paris'"),
-		script_path: z
-			.string()
-			.min(1)
-			.describe('The current script or flow path, inferred by the tool'),
-		is_flow: z.boolean().describe('True when the inferred target path is a flow'),
+		script_path: z.string().min(1).describe('Path to the script or flow to execute'),
+		is_flow: z.boolean().describe('True if script_path points to a flow'),
 		args: scriptArgsSchema.nullable().default({}),
 		enabled: z.boolean().default(true),
 		on_failure: z.string().nullable().optional(),
@@ -351,21 +341,18 @@ const createScheduleRequestSchema = z
 	})
 	.passthrough()
 
-const createScheduleToolSchema = createScheduleRequestSchema.omit({
-	script_path: true,
-	is_flow: true
-})
+const createScheduleToolSchema = createScheduleRequestSchema
 
 const triggerConfigSchemas = {
-	http: httpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-	websocket: websocketTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-	kafka: kafkaTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-	nats: natsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-	postgres: postgresTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-	mqtt: mqttTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-	sqs: sqsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-	gcp: gcpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-	azure: azureTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true })
+	http: httpTriggerRequestSchema.omit({ path: true }),
+	websocket: websocketTriggerRequestSchema.omit({ path: true }),
+	kafka: kafkaTriggerRequestSchema.omit({ path: true }),
+	nats: natsTriggerRequestSchema.omit({ path: true }),
+	postgres: postgresTriggerRequestSchema.omit({ path: true }),
+	mqtt: mqttTriggerRequestSchema.omit({ path: true }),
+	sqs: sqsTriggerRequestSchema.omit({ path: true }),
+	gcp: gcpTriggerRequestSchema.omit({ path: true }),
+	azure: azureTriggerRequestSchema.omit({ path: true })
 } satisfies Record<TriggerKind, z.ZodType>
 
 const createTriggerToolSchema = z.discriminatedUnion('kind', [
@@ -419,14 +406,14 @@ const createTriggerToolSchema = z.discriminatedUnion('kind', [
 const createScheduleToolDef = createToolDef(
 	createScheduleToolSchema,
 	'create_schedule',
-	'Create a schedule for the current script or flow. Do not provide script_path or is_flow; they are inferred from the current editor.',
+	'Create a schedule for the current script or flow.',
 	{ strict: false }
 )
 
 const createTriggerToolDef = createToolDef(
 	createTriggerToolSchema,
 	'create_trigger',
-	'Create a trigger for the current script or flow. Do not provide script_path or is_flow; they are inferred from the current editor.',
+	'Create a trigger for the current script or flow.',
 	{ strict: false }
 )
 
@@ -518,52 +505,6 @@ function parseWithExplicitErrors<T>(schema: z.ZodType<T>, value: unknown, label:
 	return result.data
 }
 
-function rejectModelSuppliedInferredFields(args: unknown, toolName: string): void {
-	if (!args || typeof args !== 'object') {
-		return
-	}
-	const record = args as Record<string, unknown>
-	for (const field of INFERRED_FIELDS) {
-		if (record[field] !== undefined) {
-			throw new Error(
-				`${toolName} does not accept ${field}. It is inferred automatically from the current script or flow.`
-			)
-		}
-	}
-}
-
-function inferCurrentRunnable(helpers: any): CurrentRunnable {
-	if (typeof helpers?.getCurrentRunnableForAiTools === 'function') {
-		return helpers.getCurrentRunnableForAiTools()
-	}
-	if (typeof helpers?.getScriptOptions === 'function') {
-		return {
-			path: helpers.getScriptOptions().path,
-			isFlow: false,
-			label: 'script'
-		}
-	}
-	if (typeof helpers?.getFlowAndSelectedId === 'function') {
-		const { flow } = helpers.getFlowAndSelectedId()
-		return {
-			path: (flow as any)?.path,
-			isFlow: true,
-			label: 'flow'
-		}
-	}
-	throw new Error('Cannot infer the current script or flow path in this chat mode.')
-}
-
-function requireRunnablePath(helpers: any, action: string): CurrentRunnable & { path: string } {
-	const runnable = inferCurrentRunnable(helpers)
-	if (!runnable.path?.trim()) {
-		throw new Error(
-			`Cannot ${action} because the current ${runnable.label} has no saved path. Ask the user to save the ${runnable.label} first.`
-		)
-	}
-	return { ...runnable, path: runnable.path }
-}
-
 function formatApiError(error: any): string {
 	const body =
 		typeof error?.body === 'string'
@@ -580,17 +521,11 @@ const createScheduleTool: Tool<any> = {
 	requiresConfirmation: true,
 	confirmationMessage: 'Create schedule',
 	showDetails: true,
-	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-		rejectModelSuppliedInferredFields(args, 'create_schedule')
+	fn: async ({ args, workspace, toolCallbacks, toolId }) => {
 		const parsedArgs = parseWithExplicitErrors(createScheduleToolSchema, args, 'Schedule')
-		const runnable = requireRunnablePath(helpers, 'create a schedule')
 		const requestBody = parseWithExplicitErrors(
 			createScheduleRequestSchema as z.ZodType<NewSchedule>,
-			{
-				...parsedArgs,
-				script_path: runnable.path,
-				is_flow: runnable.isFlow
-			},
+			parsedArgs,
 			'Schedule'
 		)
 
@@ -610,7 +545,7 @@ const createScheduleTool: Tool<any> = {
 		}
 
 		toolCallbacks.setToolStatus(toolId, {
-			content: `Creating schedule "${requestBody.path}" for current ${runnable.label}...`
+			content: `Creating schedule "${requestBody.path}"...`
 		})
 		try {
 			const result = await ScheduleService.createSchedule({ workspace, requestBody })
@@ -621,8 +556,8 @@ const createScheduleTool: Tool<any> = {
 			return JSON.stringify({
 				success: true,
 				path: requestBody.path,
-				target_path: runnable.path,
-				target_kind: runnable.label,
+				target_path: requestBody.script_path,
+				target_kind: requestBody.is_flow ? 'flow' : 'script',
 				result
 			})
 		} catch (error) {
@@ -636,38 +571,20 @@ const createTriggerTool: Tool<any> = {
 	requiresConfirmation: true,
 	confirmationMessage: 'Create trigger',
 	showDetails: true,
-	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-		rejectModelSuppliedInferredFields(args, 'create_trigger')
-		const rawConfig =
-			args && typeof args === 'object' ? (args as Record<string, unknown>).config : undefined
-		rejectModelSuppliedInferredFields(rawConfig, 'create_trigger config')
-		if (
-			rawConfig &&
-			typeof rawConfig === 'object' &&
-			!Array.isArray(rawConfig) &&
-			(rawConfig as Record<string, unknown>).path !== undefined
-		) {
-			throw new Error(
-				'create_trigger config does not accept path. Pass path as the top-level path argument.'
-			)
-		}
-
+	fn: async ({ args, workspace, toolCallbacks, toolId }) => {
 		const parsedArgs = parseWithExplicitErrors(createTriggerToolSchema, args, 'Trigger')
-		const runnable = requireRunnablePath(helpers, 'create a trigger')
 		const triggerConfig = triggerConfigs[parsedArgs.kind]
 		const requestBody = parseWithExplicitErrors(
 			triggerConfig.requestSchema as z.ZodType<TriggerRequestBody>,
 			{
 				...parsedArgs.config,
-				path: parsedArgs.path,
-				script_path: runnable.path,
-				is_flow: runnable.isFlow
+				path: parsedArgs.path
 			},
 			triggerConfig.label
 		)
 
 		toolCallbacks.setToolStatus(toolId, {
-			content: `Creating ${triggerConfig.label} "${requestBody.path}" for current ${runnable.label}...`
+			content: `Creating ${triggerConfig.label} "${requestBody.path}"...`
 		})
 		try {
 			const result = await triggerConfig.create({ workspace, requestBody } as never)
@@ -679,8 +596,8 @@ const createTriggerTool: Tool<any> = {
 				success: true,
 				kind: parsedArgs.kind,
 				path: requestBody.path,
-				target_path: runnable.path,
-				target_kind: runnable.label,
+				target_path: requestBody.script_path,
+				target_kind: requestBody.is_flow ? 'flow' : 'script',
 				result
 			})
 		} catch (error) {
