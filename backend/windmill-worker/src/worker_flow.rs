@@ -5146,28 +5146,16 @@ async fn next_loop_iteration(
 ) -> Result<NextFlowTransform, Error> {
     let inner_path = || format!("{}/loop-{}", flow_job.runnable_path(), ns.index);
     if is_simple {
-        // The "simple" iteration fast path needs the same nested-restart spawn
-        // interception as the regular path: when the parent's `restarted_from`
-        // chain targets *this* iteration of *this* loop, swap the freshly-built
-        // simple payload for a `RestartedFlow` so the iteration runs in restart
-        // mode instead of fresh.
-        if let Some(nested) = nested_restart_payload(status, &module.id, Some(ns.index)) {
-            return Ok(NextFlowTransform::Continue(
-                ContinuePayload::SingleJob(JobPayloadWithTag {
-                    payload: nested,
-                    tag: None,
-                    delete_after_use,
-                    delete_after_secs: None,
-                    timeout: None,
-                    on_behalf_of: None,
-                }),
-                NextStatus::NextLoopIteration {
-                    next: ns,
-                    simple_input_transforms: None,
-                    start_runners,
-                },
-            ));
-        }
+        // Note on nested-restart and the is_simple fast path: the swap that the
+        // non-simple path applies (see below) is intentionally NOT mirrored here.
+        // `is_simple_modules` requires the body to be a single `script` /
+        // `rawscript` / `flowscript` module (see `FlowModule::is_simple`); none of
+        // those produce a flow-kind child job. Any nested-restart chain targeting
+        // a leaf inside such an iteration is rejected by `resolve_nested_restart`
+        // at the API layer (the leaf's container isn't a flow). Even if a chain
+        // reached here via direct `JobPayload::RawFlow.restarted_from` use, the
+        // resulting `JobPayload::RestartedFlow` would fail to resolve at push time
+        // (script kind isn't a flow kind). So no swap is meaningful here.
         let mut value = modules[0].get_value()?;
         let simple_input_transforms = match &mut value {
             FlowModuleValue::Script { input_transforms, .. }
