@@ -1581,6 +1581,23 @@ mod job_payload {
                 "step `c` inside preserved iter 0 should reuse its original UUID"
             );
         };
+        // Pre-deployment: subflow's iteration wrapper is a FlowPreview (inline
+        // RawFlow); leaf `c` runs as a rawscript embedded in the wrapper.
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
+        // Post-deployment: subflow's body is compiled into a FlowNode; the iteration
+        // wrapper jobs run with kind=FlowNode and the leaf becomes a FlowScript
+        // referencing a flow_node id. Re-running the same scenario exercises the
+        // kind-preservation path through the subflow boundary AND a level deeper.
+        let _ = RunJob::from(JobPayload::FlowDependencies {
+            path: "f/system/hello_with_nodes_flow".to_string(),
+            dedicated_worker: None,
+            version: 1443253234253454,
+            debouncing_settings: Default::default(),
+        })
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
         test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
