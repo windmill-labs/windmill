@@ -1648,6 +1648,13 @@ async fn get_datatable_table_columns(
     schema_name: &str,
     table_name: &str,
 ) -> Result<ColumnMap> {
+    if is_system_pg_schema(schema_name) {
+        return Err(Error::BadRequest(format!(
+            "Schema '{}' is not available for datatable schema lookup",
+            schema_name
+        )));
+    }
+
     let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
@@ -1697,6 +1704,13 @@ async fn get_datatable_table_columns(
     }
 
     Ok(columns)
+}
+
+fn is_system_pg_schema(schema_name: &str) -> bool {
+    matches!(
+        schema_name,
+        "information_schema" | "pg_toast" | "pg_catalog"
+    ) || schema_name.starts_with("pg_")
 }
 
 fn compact_column_type(
