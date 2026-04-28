@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            j.runnable_id AS \"runnable_id: ScriptHash\",\n            j.kind AS \"job_kind!: JobKind\",\n            COALESCE(c.flow_status, c.workflow_as_code_status) AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",\n            j.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\"\n        FROM v2_job_completed c JOIN v2_job j USING (id)\n        WHERE j.id = $1 AND j.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "runnable_id: ScriptHash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "job_kind!: JobKind",
+        "type_info": {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "flow_status: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "raw_flow: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      null,
+      true
+    ]
+  },
+  "hash": "cc181a37ae10254f0b7727655207c40ba729ac4c8a21667ede7b4d13d328482f"
+}
