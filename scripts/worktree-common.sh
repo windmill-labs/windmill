@@ -94,6 +94,22 @@ wm_copy_dependencies() {
   fi
 }
 
+wm_copy_optional_env_files() {
+  local repo_root=$1
+  local main_repo_root=$2
+  local rel_path src_env dst_dir
+
+  for rel_path in "integration_tests/ai_agent_tests" "ai_evals"; do
+    src_env="${main_repo_root}/${rel_path}/.env"
+    dst_dir="${repo_root}/${rel_path}"
+    if [[ -f "$src_env" ]]; then
+      mkdir -p "$dst_dir"
+      cp "$src_env" "${dst_dir}/.env"
+      echo "Copied ${rel_path}/.env"
+    fi
+  done
+}
+
 wm_allow_direnv() {
   local repo_root=$1
   if command -v direnv >/dev/null 2>&1 && [[ -f "${repo_root}/.envrc" ]]; then
@@ -217,6 +233,7 @@ wm_shared_post_create() {
   wm_allow_direnv "$repo_root"
   wm_setup_database "$repo_root" "${repo_root}/.env.local"
   wm_copy_dependencies "$repo_root" "$main_repo_root"
+  wm_copy_optional_env_files "$repo_root" "$main_repo_root"
   wm_trust_claude "$repo_root"
   wm_setup_ee_worktree "$repo_root" "$main_repo_root"
 }
