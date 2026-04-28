@@ -5146,6 +5146,28 @@ async fn next_loop_iteration(
 ) -> Result<NextFlowTransform, Error> {
     let inner_path = || format!("{}/loop-{}", flow_job.runnable_path(), ns.index);
     if is_simple {
+        // The "simple" iteration fast path needs the same nested-restart spawn
+        // interception as the regular path: when the parent's `restarted_from`
+        // chain targets *this* iteration of *this* loop, swap the freshly-built
+        // simple payload for a `RestartedFlow` so the iteration runs in restart
+        // mode instead of fresh.
+        if let Some(nested) = nested_restart_payload(status, &module.id, Some(ns.index)) {
+            return Ok(NextFlowTransform::Continue(
+                ContinuePayload::SingleJob(JobPayloadWithTag {
+                    payload: nested,
+                    tag: None,
+                    delete_after_use,
+                    delete_after_secs: None,
+                    timeout: None,
+                    on_behalf_of: None,
+                }),
+                NextStatus::NextLoopIteration {
+                    next: ns,
+                    simple_input_transforms: None,
+                    start_runners,
+                },
+            ));
+        }
         let mut value = modules[0].get_value()?;
         let simple_input_transforms = match &mut value {
             FlowModuleValue::Script { input_transforms, .. }

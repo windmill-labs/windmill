@@ -414,15 +414,19 @@
 				</div>
 			{:else}
 				<div class="grow justify-center flex flex-row gap-2 items-center">
-					{#if jobId !== undefined && selectedJobStep !== undefined && (restart.topLevelRestartable || restart.nestedRestartSupported)}
+					{#if jobId !== undefined && selectedJobStep !== undefined && restart.topLevelRestartable}
+						<!--
+							Nested-step restart is intentionally not surfaced from the editor
+							preview: the chain needs `flow_job_id` resolved at every level,
+							which only the backend can do (by walking the original
+							execution). Users who want nested restart should use the run
+							page, which goes through the dedicated restart API.
+						-->
 						<FlowRestartButton
 							{jobId}
 							{selectedJobStep}
 							selectedJobStepType={restart.selectedJobStepType}
 							restartBranchNames={restart.restartBranchNames}
-							nestedPath={restart.nestedRestartSupported ? restart.nestedRestartPath : undefined}
-							nestedTopStepId={restart.nestedRestartTopStepId}
-							nestedTopBranchOrIterationN={restart.nestedRestartTopBranchOrIterationN}
 							presetIterationN={restart.topLevelLoopIteration}
 							iterationCounts={restart.iterationCounts}
 							onRestart={(stepId, branchOrIterationN) => {

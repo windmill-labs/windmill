@@ -4135,8 +4135,10 @@ pub struct RestartFlowRequestBody {
 #[derive(Deserialize)]
 pub struct NestedRestartStep {
     step_id: String,
-    /// For ForLoop containers: the iteration to restart at (1-based; iterations
-    /// 0..N-1 are preserved). Unused for BranchOne / Subflow containers.
+    /// For ForLoop / sequential BranchAll containers: the 0-based iteration
+    /// (or branch) index to restart at. Iterations `0..n-1` are preserved,
+    /// iteration `n` is the restart target. Defaults to `0` when omitted.
+    /// Unused for BranchOne / Subflow containers.
     branch_or_iteration_n: Option<usize>,
 }
 
@@ -4166,10 +4168,6 @@ async fn resolve_nested_restart(
 )> {
     use windmill_common::flow_status::BranchChosen;
     use windmill_common::flows::FlowModuleValue;
-
-    if nested_path.is_empty() {
-        return Ok((None, None));
-    }
 
     let row = sqlx::query!(
         "SELECT
@@ -4230,6 +4228,13 @@ async fn resolve_nested_restart(
                 parent_step_id, parent_job_id
             ))
         })?;
+
+    // Leaf level: validation is done (`parent_step_id` exists), no chain to
+    // build below. Return early so the caller's `nested_path.last()` step is
+    // confirmed to actually exist before we queue the restart job.
+    if nested_path.is_empty() {
+        return Ok((None, None));
+    }
 
     let parent_module_value = parent_module_def.get_value()?;
     let (child_job_id, parent_branch_chosen): (Uuid, Option<BranchChosen>) =

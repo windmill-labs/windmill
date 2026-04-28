@@ -10,19 +10,20 @@ export type NestedRestartStep = { step_id: string; branch_or_iteration_n?: numbe
  * selected leaf, encoded as `branchIndex` where -1 means default and 0..N-1
  * means `branches[i]`) is the same branch the original run took. If the user
  * clicked a step inside an `else` branch the original run didn't take, the
- * step never executed — restart there is impossible (the resolver would either
- * not find the step or find it in a non-Success state). We hide the button
- * preemptively to avoid a confusing backend error.
+ * step never executed — restart there is impossible.
  *
- * Only checks parent-level BranchOne ancestors (we have direct access to
- * `job.flow_status` for those). Inside-subflow BranchOne mismatches still
- * reach the backend; it errors with a clear "step not found" message.
+ * Only verifiable for top-level BranchOne ancestors (we have direct access to
+ * `job.flow_status.modules`). For deeper BranchOne ancestors (e.g. nested
+ * inside a ForLoop iteration) the relevant `flow_status` lives on a child job
+ * we don't fetch here — be permissive and let the backend reject if needed,
+ * rather than hide the button for valid cases.
  */
 function branchOneAncestorMatchesOriginal(job: Job, ancestor: AncestorEntry): boolean {
 	if (ancestor.type !== 'branchone') return true
 	const status = job.flow_status?.modules?.find((m) => m.id === ancestor.stepId)
 	const chosen = status?.branch_chosen
-	if (!chosen) return false
+	// Status not reachable at this level (deeper BranchOne) — permissive fallback.
+	if (!chosen) return true
 	const taken = chosen.type === 'default' ? -1 : (chosen.branch ?? -1)
 	return ancestor.branchIndex === taken
 }
@@ -82,6 +83,7 @@ export function useNestedRestartState(opts: {
 		nestedRestartPath = undefined
 		nestedRestartSupported = false
 		restartBranchNames = []
+		selectedJobStepIsTopLevel = undefined
 
 		if (selectedJobStep === undefined || job?.flow_status?.modules === undefined) {
 			return
@@ -260,6 +262,13 @@ export function useNestedRestartState(opts: {
 	// subflows we ALSO index by the leaf segment of the prefixed graph id (e.g.
 	// `subflow:h:loop_1` → also indexed at `loop_1`) so the popup can find the
 	// count regardless of which path produced the field.
+	//
+	// Known caveat: if the same step id appears at multiple levels (e.g. a
+	// top-level `loop_1` AND a `loop_1` inside a subflow), the last-writer-wins
+	// here may show the wrong option count. The submitted value is still 0-based
+	// and the backend validates it, so a wrong-count display only affects how
+	// many options the `<select>` shows. Step ids are globally unique within a
+	// single flow value, so the collision only happens across subflow boundaries.
 	const iterationCounts = $derived.by((): Record<string, number> => {
 		const out: Record<string, number> = {}
 		for (const [id, state] of Object.entries(opts.graphModuleStates())) {

@@ -26046,8 +26046,21 @@ components:
           type: string
         branch_or_iteration_n:
           type: integer
+          description: 0-based iteration index for ForLoop / branch index for BranchAll. Iterations 0..n-1 are preserved; iteration n is restarted.
         flow_version:
           type: integer
+        branch_chosen:
+          description: For BranchOne nested restart — the branch that was originally chosen, used to lock branch evaluation.
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [default, branch]
+            branch:
+              type: integer
+        nested:
+          $ref: "#/components/schemas/RestartedFrom"
+          description: When set, the worker spawns the child for `step_id` as a `RestartedFlow` against `nested.flow_job_id` instead of fresh-launching it.
 
     Policy:
       type: object

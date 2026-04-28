@@ -59,7 +59,11 @@
 		isOwner = $bindable(false),
 		wideResults = false,
 		localModuleStates = $bindable({}),
-		expandedSubflows = $bindable({}),
+		// `$bindable()` without default per CLAUDE.md's banned-pattern guidance.
+		// Inner owns the cache; outer just relays the binding. Callers always
+		// initialize a `$state({})` and bind it, so the value is never actually
+		// undefined at runtime.
+		expandedSubflows = $bindable(),
 		localDurationStatuses = $bindable({}),
 		job = $bindable(undefined),
 		render = true,
@@ -103,6 +107,10 @@
 			for (let key in localModuleStates) delete flowState[key]
 			localDurationStatuses = {}
 			localModuleStates = {}
+			// Reset the subflow definition cache too — a new run can reference
+			// different subflow versions; stale entries would confuse nested
+			// restart path-finding.
+			expandedSubflows = {}
 		}
 	}
 
