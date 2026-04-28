@@ -414,7 +414,7 @@
 				</div>
 			{:else}
 				<div class="grow justify-center flex flex-row gap-2 items-center">
-					{#if jobId !== undefined && selectedJobStep !== undefined && (restart.selectedJobStepIsTopLevel || restart.nestedRestartSupported)}
+					{#if jobId !== undefined && selectedJobStep !== undefined && (restart.topLevelRestartable || restart.nestedRestartSupported)}
 						<FlowRestartButton
 							{jobId}
 							{selectedJobStep}

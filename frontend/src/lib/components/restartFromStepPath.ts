@@ -7,6 +7,9 @@ export type AncestorEntry = {
 	type: ContainerType
 	/** For BranchOne: -1 means default branch, 0..N-1 means branches[i] */
 	branchIndex?: number
+	/** True for parallel ForLoop / BranchAll — backend rejects nested restart
+	 * inside parallel containers, so the caller should hide the restart button. */
+	parallel?: boolean
 }
 
 export type StepPath = {
@@ -34,7 +37,10 @@ export function findStepPath(modules: FlowModule[], targetId: string): StepPath 
 			if (sub) {
 				return {
 					target: sub.target,
-					ancestors: [{ stepId: mod.id, type: value.type }, ...sub.ancestors]
+					ancestors: [
+						{ stepId: mod.id, type: value.type, parallel: value.parallel === true },
+						...sub.ancestors
+					]
 				}
 			}
 		} else if (value.type === 'branchone') {
@@ -57,7 +63,15 @@ export function findStepPath(modules: FlowModule[], targetId: string): StepPath 
 				if (sub) {
 					return {
 						target: sub.target,
-						ancestors: [{ stepId: mod.id, type: 'branchall', branchIndex: i }, ...sub.ancestors]
+						ancestors: [
+							{
+								stepId: mod.id,
+								type: 'branchall',
+								branchIndex: i,
+								parallel: value.parallel === true
+							},
+							...sub.ancestors
+						]
 					}
 				}
 			}

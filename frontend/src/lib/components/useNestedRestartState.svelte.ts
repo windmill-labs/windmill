@@ -1,9 +1,31 @@
 import type { FlowModule, Job } from '$lib/gen'
 import type { GraphModuleState } from './graph'
-import { findStepPath, parseExpandedSubflowId } from './restartFromStepPath'
+import { findStepPath, parseExpandedSubflowId, type AncestorEntry } from './restartFromStepPath'
 import { emptyString } from '$lib/utils'
 
 export type NestedRestartStep = { step_id: string; branch_or_iteration_n?: number }
+
+/**
+ * Returns true when the BranchOne ancestor's path branch (the one containing the
+ * selected leaf, encoded as `branchIndex` where -1 means default and 0..N-1
+ * means `branches[i]`) is the same branch the original run took. If the user
+ * clicked a step inside an `else` branch the original run didn't take, the
+ * step never executed — restart there is impossible (the resolver would either
+ * not find the step or find it in a non-Success state). We hide the button
+ * preemptively to avoid a confusing backend error.
+ *
+ * Only checks parent-level BranchOne ancestors (we have direct access to
+ * `job.flow_status` for those). Inside-subflow BranchOne mismatches still
+ * reach the backend; it errors with a clear "step not found" message.
+ */
+function branchOneAncestorMatchesOriginal(job: Job, ancestor: AncestorEntry): boolean {
+	if (ancestor.type !== 'branchone') return true
+	const status = job.flow_status?.modules?.find((m) => m.id === ancestor.stepId)
+	const chosen = status?.branch_chosen
+	if (!chosen) return false
+	const taken = chosen.type === 'default' ? -1 : (chosen.branch ?? -1)
+	return ancestor.branchIndex === taken
+}
 
 /**
  * Reactive state shared by the run page and the editor's flow preview to drive
@@ -112,8 +134,12 @@ export function useNestedRestartState(opts: {
 				if (deepestModules) {
 					const path = findStepPath(deepestModules, subflowParse.leaf)
 					if (path) {
+						// Same gating as the parent-flow case, minus the BranchOne
+						// branch-mismatch check (subflow's flow_status isn't directly
+						// reachable here; backend will still reject if the branch
+						// wasn't taken). Parallel and unsupported containers are checked.
 						const blocked = path.ancestors.some(
-							(a) => a.type === 'branchall' || a.type === 'whileloopflow'
+							(a) => a.type === 'branchall' || a.type === 'whileloopflow' || a.parallel === true
 						)
 						if (!blocked) {
 							// Inside the subflow, the graph state for ForLoop ancestors
@@ -156,11 +182,19 @@ export function useNestedRestartState(opts: {
 
 		// BranchOne / sequential ForLoop within the parent's own flow_value. Walk
 		// the tree to find the path; supported when ancestors are BranchOne /
-		// sequential ForLoop only.
+		// sequential ForLoop only — and only when each BranchOne ancestor's chosen
+		// branch in the original run actually contains the leaf, otherwise the
+		// step never executed and the backend would error.
 		if (!job.raw_flow?.modules) return
 		const path = findStepPath(job.raw_flow.modules, selectedJobStep)
 		if (!path || path.ancestors.length === 0) return
-		const blocked = path.ancestors.some((a) => a.type === 'branchall' || a.type === 'whileloopflow')
+		const blocked = path.ancestors.some(
+			(a) =>
+				a.type === 'branchall' ||
+				a.type === 'whileloopflow' ||
+				a.parallel === true ||
+				(a.type === 'branchone' && !branchOneAncestorMatchesOriginal(job, a))
+		)
 		if (blocked) return
 
 		// For each ForLoop ancestor, default to the user's currently-open iteration
@@ -198,6 +232,27 @@ export function useNestedRestartState(opts: {
 		if (!sel) return undefined
 		if ((selectedJobStepType as string) !== 'forloop') return undefined
 		return opts.graphModuleStates()[sel]?.selectedForloopIndex
+	})
+
+	// `selectedJobStepIsTopLevel` answers "is this a top-level module structurally";
+	// `topLevelRestartable` answers "AND should the restart button show". The
+	// difference: parallel ForLoop / parallel BranchAll at the top level are
+	// rejected by the backend, so we hide the button preemptively.
+	const topLevelRestartable = $derived.by((): boolean => {
+		if (!selectedJobStepIsTopLevel) return false
+		const sel = opts.selectedJobStep()
+		const job = opts.job()
+		if (!sel || !job?.raw_flow?.modules) return false
+		const mod = job.raw_flow.modules.find((m) => m.id === sel)
+		if (!mod) return false
+		const v = mod.value
+		if (
+			(v.type === 'forloopflow' || v.type === 'branchall' || v.type === 'whileloopflow') &&
+			(v as { parallel?: boolean }).parallel === true
+		) {
+			return false
+		}
+		return true
 	})
 
 	// Iteration counts indexed by the step id used in `nestedRestartPath`. For
@@ -243,6 +298,9 @@ export function useNestedRestartState(opts: {
 		},
 		get topLevelLoopIteration() {
 			return topLevelLoopIteration
+		},
+		get topLevelRestartable() {
+			return topLevelRestartable
 		},
 		get iterationCounts() {
 			return iterationCounts

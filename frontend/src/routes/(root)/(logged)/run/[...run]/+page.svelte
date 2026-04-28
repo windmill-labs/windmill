@@ -622,7 +622,7 @@
 					startIcon={{ icon: Calendar }}>Edit schedule</Button
 				>
 			{/if}
-			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && (restart.selectedJobStepIsTopLevel || restart.nestedRestartSupported) && job.id}
+			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && (restart.topLevelRestartable || restart.nestedRestartSupported) && job.id}
 				<FlowRestartButton
 					jobId={job.id}
 					{selectedJobStep}
