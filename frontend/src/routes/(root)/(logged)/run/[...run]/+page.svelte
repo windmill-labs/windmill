@@ -106,10 +106,15 @@
 	let graphModuleStates: Record<string, import('$lib/components/graph').GraphModuleState> = $state(
 		{}
 	)
+	let expandedSubflows: Record<
+		string,
+		{ modules: import('$lib/gen').FlowModule[]; groups?: any[] }
+	> = $state({})
 	const restart = useNestedRestartState({
 		selectedJobStep: () => selectedJobStep,
 		job: () => job,
-		graphModuleStates: () => graphModuleStates
+		graphModuleStates: () => graphModuleStates,
+		expandedSubflows: () => expandedSubflows
 	})
 
 	let testIsLoading = $state(false)
@@ -911,6 +916,7 @@
 						bind:suspendStatus
 						bind:isOwner
 						bind:localModuleStates={graphModuleStates}
+						bind:expandedSubflows
 					/>
 				{:else}
 					<Skeleton layout={[[5]]} />

@@ -1,4 +1,4 @@
-import type { Job } from '$lib/gen'
+import type { FlowModule, Job } from '$lib/gen'
 import type { GraphModuleState } from './graph'
 import { findStepPath, parseExpandedSubflowId } from './restartFromStepPath'
 import { emptyString } from '$lib/utils'
@@ -8,7 +8,8 @@ export type NestedRestartStep = { step_id: string; branch_or_iteration_n?: numbe
 /**
  * Reactive state shared by the run page and the editor's flow preview to drive
  * the "restart flow at step" UI. Given the currently selected step, the
- * completed flow job, and the graph's per-module display state, derives:
+ * completed flow job, the graph's per-module display state, and any expanded
+ * subflow definitions, derives:
  *
  *   - `selectedJobStepIsTopLevel` — whether the selected step appears in the
  *     parent flow's top-level `flow_status.modules`
@@ -23,9 +24,9 @@ export type NestedRestartStep = { step_id: string; branch_or_iteration_n?: numbe
  *     step is nested (subflow expansion or BranchOne / sequential ForLoop)
  *   - `topLevelLoopIteration` — when the selected step IS a top-level ForLoop,
  *     the iteration the user is currently viewing (pre-fills the popup input)
- *   - `iterationCounts` — map of ForLoop step id → number of recorded
- *     iterations, so the popup can render an iteration `<select>` matching
- *     the graph's tabs instead of a free-form number input
+ *   - `iterationCounts` — map of step id → number of recorded iterations,
+ *     so the popup can render an iteration `<select>` matching the graph's tabs
+ *     instead of a free-form number input
  *
  * Inputs are passed as getters so the composable stays reactive in either
  * caller's signal graph.
@@ -34,6 +35,11 @@ export function useNestedRestartState(opts: {
 	selectedJobStep: () => string | undefined
 	job: () => Job | undefined
 	graphModuleStates: () => Record<string, GraphModuleState>
+	/** Subflow definitions cached when the user expands a subflow in the graph,
+	 * keyed by the graph node id (i.e. the prefixed `subflow:...:<step_id>` for
+	 * nested subflows). Lets us walk inside subflows when building the nested
+	 * restart path. */
+	expandedSubflows?: () => Record<string, { modules: FlowModule[] }>
 }) {
 	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
 	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = $state('single')
@@ -47,6 +53,7 @@ export function useNestedRestartState(opts: {
 		const selectedJobStep = opts.selectedJobStep()
 		const job = opts.job()
 		const graphModuleStates = opts.graphModuleStates()
+		const expandedSubflows = opts.expandedSubflows?.() ?? {}
 
 		nestedRestartTopStepId = undefined
 		nestedRestartTopBranchOrIterationN = undefined
@@ -78,16 +85,67 @@ export function useNestedRestartState(opts: {
 
 		// Inline-expanded subflow: id is `subflow:outerStep:[innerSubflow:...]<leaf>`.
 		// The graph adds the `subflow:` prefix only for subflow expansions, so each
-		// segment is a `Flow{path}` step. The backend will validate that the leaf
-		// exists at that path.
+		// segment is a `Flow{path}` step. We walk the chain and, at the deepest
+		// subflow, recurse into its cached modules to detect BranchOne / ForLoop
+		// ancestors of the leaf so the chain captures locked branches and
+		// iteration indices for those too.
 		const subflowParse = parseExpandedSubflowId(selectedJobStep)
 		if (subflowParse && job.raw_flow?.modules) {
 			const top = job.raw_flow.modules.find((m) => m.id === subflowParse.subflowSteps[0])
 			if (top && top.value.type === 'flow') {
 				const innerPath: NestedRestartStep[] = []
+				// Intermediate subflow boundaries: each is itself a Flow{path}, no
+				// branch_or_iteration_n applies.
 				for (const seg of subflowParse.subflowSteps.slice(1)) {
 					innerPath.push({ step_id: seg })
 				}
+
+				// Look up the deepest subflow's modules in expandedSubflows. The graph
+				// stores them under the prefixed key (the graph node id used at that
+				// nesting level).
+				const deepestKey =
+					subflowParse.subflowSteps.length === 1
+						? subflowParse.subflowSteps[0]
+						: 'subflow:' + subflowParse.subflowSteps.join(':')
+				const deepestModules = expandedSubflows[deepestKey]?.modules
+
+				if (deepestModules) {
+					const path = findStepPath(deepestModules, subflowParse.leaf)
+					if (path) {
+						const blocked = path.ancestors.some(
+							(a) => a.type === 'branchall' || a.type === 'whileloopflow'
+						)
+						if (!blocked) {
+							// Inside the subflow, the graph state for ForLoop ancestors
+							// is keyed by the prefixed graph id. Build that key here so
+							// `selectedForloopIndex` lookups land on the right entry.
+							const subflowPrefix = 'subflow:' + subflowParse.subflowSteps.join(':') + ':'
+							const iterationFor = (stepId: string): number =>
+								graphModuleStates[subflowPrefix + stepId]?.selectedForloopIndex ?? 0
+							for (const a of path.ancestors) {
+								const entry: NestedRestartStep = { step_id: a.stepId }
+								if (a.type === 'forloopflow') {
+									entry.branch_or_iteration_n = iterationFor(a.stepId)
+								}
+								innerPath.push(entry)
+							}
+							const leafEntry: NestedRestartStep = { step_id: subflowParse.leaf }
+							if (path.target.value.type === 'forloopflow') {
+								leafEntry.branch_or_iteration_n = iterationFor(subflowParse.leaf)
+							}
+							innerPath.push(leafEntry)
+							nestedRestartTopStepId = top.id
+							nestedRestartPath = innerPath
+							nestedRestartSupported = true
+							return
+						}
+					}
+				}
+
+				// Fallback: subflow's modules not yet loaded (user clicked a step
+				// without expanding the subflow first), or leaf not found / blocked.
+				// Send a flat path; the backend will reject if the leaf is nested
+				// inside an unsupported container.
 				innerPath.push({ step_id: subflowParse.leaf })
 				nestedRestartTopStepId = top.id
 				nestedRestartPath = innerPath
@@ -142,12 +200,20 @@ export function useNestedRestartState(opts: {
 		return opts.graphModuleStates()[sel]?.selectedForloopIndex
 	})
 
+	// Iteration counts indexed by the step id used in `nestedRestartPath`. For
+	// regular nesting that's the bare `step_id`; for steps inside expanded
+	// subflows we ALSO index by the leaf segment of the prefixed graph id (e.g.
+	// `subflow:h:loop_1` → also indexed at `loop_1`) so the popup can find the
+	// count regardless of which path produced the field.
 	const iterationCounts = $derived.by((): Record<string, number> => {
 		const out: Record<string, number> = {}
 		for (const [id, state] of Object.entries(opts.graphModuleStates())) {
 			const n = state.flow_jobs?.length
-			if (typeof n === 'number' && n > 0) {
-				out[id] = n
+			if (typeof n !== 'number' || n <= 0) continue
+			out[id] = n
+			const lastColon = id.lastIndexOf(':')
+			if (lastColon >= 0) {
+				out[id.slice(lastColon + 1)] = n
 			}
 		}
 		return out

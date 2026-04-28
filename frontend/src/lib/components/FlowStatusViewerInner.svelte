@@ -111,6 +111,7 @@
 		job?: (Job & { result_stream?: string }) | undefined
 		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states' | 'tracing'
 		localModuleStates?: Record<string, GraphModuleState>
+		expandedSubflows?: Record<string, { modules: FlowModule[]; groups?: any[] }>
 		localDurationStatuses?: Record<string, DurationStatus>
 		onResultStreamUpdate?: ({
 			jobId,
@@ -168,6 +169,7 @@
 		job = $bindable(undefined),
 		rightColumnSelect = $bindable('timeline'),
 		localModuleStates = $bindable({}),
+		expandedSubflows = $bindable({}),
 		localDurationStatuses = $bindable({}),
 		customUi,
 		onResultStreamUpdate = undefined,
@@ -265,8 +267,6 @@
 
 	let retry_selected = $state('')
 	let timeout: number | undefined = undefined
-
-	let expandedSubflows: Record<string, { modules: FlowModule[]; groups?: any[] }> = $state({})
 
 	let selectionManager = new SelectionManager()
 

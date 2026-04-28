@@ -91,10 +91,15 @@
 		suspendStatus
 	}: Props = $props()
 
+	let previewExpandedSubflows: Record<
+		string,
+		{ modules: import('$lib/gen').FlowModule[]; groups?: any[] }
+	> = $state({})
 	const restart = useNestedRestartState({
 		selectedJobStep: () => selectedJobStep,
 		job: () => job,
-		graphModuleStates: () => localModuleStates
+		graphModuleStates: () => localModuleStates,
+		expandedSubflows: () => previewExpandedSubflows
 	})
 	// `selectedJobStepType` and `selectedJobStepIsTopLevel` are still exposed as
 	// `$bindable` props to legacy parents (FlowPreviewButtons binds them but
@@ -642,6 +647,7 @@
 				<FlowStatusViewer
 					bind:job
 					bind:localModuleStates
+					bind:expandedSubflows={previewExpandedSubflows}
 					bind:localDurationStatuses
 					{suspendStatus}
 					hideDownloadInGraph={customUi?.downloadLogs === false}

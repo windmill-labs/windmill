@@ -5,7 +5,7 @@
 	import type { DurationStatus, FlowStatusViewerContext, GraphModuleState } from './graph'
 	import { isOwner as loadIsOwner, type StateStore } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import type { CompletedJob, FlowNote, FlowValue, Job } from '$lib/gen'
+	import type { CompletedJob, FlowModule, FlowNote, FlowValue, Job } from '$lib/gen'
 
 	interface Props {
 		jobId: string
@@ -23,6 +23,11 @@
 		isOwner?: boolean
 		wideResults?: boolean
 		localModuleStates?: Record<string, GraphModuleState>
+		/** Cached subflow definitions, keyed by graph node id (subflow step id, with
+		 * `subflow:` prefix for nested subflows). Populated as the user expands a
+		 * subflow in the graph. Bindable so callers can use it to walk inside
+		 * subflows (e.g. for nested-restart path-finding). */
+		expandedSubflows?: Record<string, { modules: FlowModule[]; groups?: any[] }>
 		localDurationStatuses?: Record<string, DurationStatus>
 		job?: Job | undefined
 		render?: boolean
@@ -54,6 +59,7 @@
 		isOwner = $bindable(false),
 		wideResults = false,
 		localModuleStates = $bindable({}),
+		expandedSubflows = $bindable({}),
 		localDurationStatuses = $bindable({}),
 		job = $bindable(undefined),
 		render = true,
@@ -133,6 +139,7 @@
 		}}
 		globalModuleStates={[]}
 		bind:localModuleStates
+		bind:expandedSubflows
 		bind:selectedNode={selectedJobStep}
 		bind:localDurationStatuses
 		{onStart}
