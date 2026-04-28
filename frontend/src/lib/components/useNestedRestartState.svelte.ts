@@ -12,18 +12,20 @@ export type NestedRestartStep = { step_id: string; branch_or_iteration_n?: numbe
  * clicked a step inside an `else` branch the original run didn't take, the
  * step never executed — restart there is impossible.
  *
- * Only verifiable for top-level BranchOne ancestors (we have direct access to
- * `job.flow_status.modules`). For deeper BranchOne ancestors (e.g. nested
- * inside a ForLoop iteration) the relevant `flow_status` lives on a child job
- * we don't fetch here — be permissive and let the backend reject if needed,
- * rather than hide the button for valid cases.
+ * Three states for the lookup:
+ *   - `status === undefined`: the BranchOne isn't at the parent's top level, so
+ *     it lives on a child job we don't fetch here (e.g. nested inside a ForLoop
+ *     iteration). Permissive fallback — let the backend reject if needed.
+ *   - `status` defined but `chosen === undefined`: the BranchOne IS at the top
+ *     level but has no chosen branch (never executed / skipped / still
+ *     waiting). The leaf can't have run either, so reject.
+ *   - both defined: compare against `branchIndex`.
  */
 function branchOneAncestorMatchesOriginal(job: Job, ancestor: AncestorEntry): boolean {
 	if (ancestor.type !== 'branchone') return true
 	const status = job.flow_status?.modules?.find((m) => m.id === ancestor.stepId)
 	const chosen = status?.branch_chosen
-	// Status not reachable at this level (deeper BranchOne) — permissive fallback.
-	if (!chosen) return true
+	if (!chosen) return status === undefined
 	const taken = chosen.type === 'default' ? -1 : (chosen.branch ?? -1)
 	return ancestor.branchIndex === taken
 }

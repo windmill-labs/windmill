@@ -59,11 +59,15 @@
 		isOwner = $bindable(false),
 		wideResults = false,
 		localModuleStates = $bindable({}),
-		// `$bindable()` without default per CLAUDE.md's banned-pattern guidance.
-		// Inner owns the cache; outer just relays the binding. Callers always
-		// initialize a `$state({})` and bind it, so the value is never actually
-		// undefined at runtime.
-		expandedSubflows = $bindable(),
+		// `$bindable({})` is the right shape for this prop despite CLAUDE.md's
+		// general guidance against `$bindable(default_value)`: that rule targets
+		// props where `undefined` has distinct semantics from "empty default".
+		// For a Map-typed cache populated by the inner component, callers that
+		// don't bind it should still see a usable empty map (the inner writes to
+		// it when the user expands a subflow). Without the `{}` default, those
+		// callers would crash at write time. Same reasoning applies to the
+		// pre-existing `localModuleStates`/`localDurationStatuses` bindables.
+		expandedSubflows = $bindable({}),
 		localDurationStatuses = $bindable({}),
 		job = $bindable(undefined),
 		render = true,
