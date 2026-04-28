@@ -177,22 +177,22 @@
 	}
 
 	let iframeLoaded = $state(false) // @hmr:keep
+	// Suppresses iframe-sourced events for a short window after we re-push files,
+	// to keep the iframe's boot-time messages from clobbering the user's state.
+	// suppressIframeSetFiles is held across an entire iframe reload (e.g. theme switch);
+	// the timer is reset on every reload so rapid toggles don't clear it prematurely.
 	let suppressSetActiveDocument = false
-	// Suppresses incoming setFiles messages from the iframe while it's reloading
-	// (e.g. after a theme switch), so its built-in default template doesn't
-	// overwrite the user's files before we've re-pushed them.
 	let suppressIframeSetFiles = false
+	let suppressTimer: ReturnType<typeof setTimeout> | undefined
 
 	function populateFiles() {
 		if (files) {
-			// Suppress iframe's automatic setActiveDocument for a short window
-			// after sending files, to prevent it from resetting to App.tsx.
 			suppressSetActiveDocument = true
-			setTimeout(() => {
+			if (suppressTimer !== undefined) clearTimeout(suppressTimer)
+			suppressTimer = setTimeout(() => {
 				suppressSetActiveDocument = false
-			}, 500)
-			setTimeout(() => {
 				suppressIframeSetFiles = false
+				suppressTimer = undefined
 			}, 500)
 			const doc = untrack(() => selectedDocument)
 			if (doc) {
@@ -689,6 +689,13 @@
 			if (iframe && iframeLoaded) {
 				iframeLoaded = false
 				suppressIframeSetFiles = true
+				// Cancel any pending clear from a prior reload — otherwise on rapid
+				// toggles the previous timer can fire mid-reload and drop suppression
+				// before the iframe has finished booting.
+				if (suppressTimer !== undefined) {
+					clearTimeout(suppressTimer)
+					suppressTimer = undefined
+				}
 			}
 		})
 	})
