@@ -260,6 +260,13 @@ class AIChatManager {
 						return this.scriptEditorGetLintErrors()
 					}
 					return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+				},
+				getCurrentRunnableForAiTools: () => {
+					return {
+						path: this.scriptEditorOptions?.path,
+						isFlow: false,
+						label: 'script'
+					}
 				}
 			}
 			if (options?.closeScriptSettings) {
@@ -273,7 +280,18 @@ class AIChatManager {
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.systemMessage.content
 			this.tools = [...flowTools]
-			this.helpers = this.flowAiChatHelpers
+			this.helpers = {
+				...(this.flowAiChatHelpers ?? {}),
+				getCurrentRunnableForAiTools: () => {
+					return {
+						path:
+							this.flowOptions?.path ??
+							(this.flowAiChatHelpers?.getFlowAndSelectedId().flow as any)?.path,
+						isFlow: true,
+						label: 'flow'
+					}
+				}
+			}
 		} else if (mode === AIMode.NAVIGATOR) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareNavigatorSystemMessage(customPrompt)

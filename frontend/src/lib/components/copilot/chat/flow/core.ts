@@ -31,6 +31,7 @@ import {
 	createSearchWorkspaceTool,
 	createGetRunnableDetailsTool
 } from '../shared'
+import { createWorkspaceMutationTools } from '../workspaceTools'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
@@ -747,6 +748,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	createDbSchemaTool<FlowAIChatHelpers>(),
 	createSearchWorkspaceTool(),
 	createGetRunnableDetailsTool(),
+	...createWorkspaceMutationTools<FlowAIChatHelpers>(),
 	{
 		def: resourceTypeToolDef,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
@@ -1316,6 +1318,8 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 **Resources & Schema:**
 - **Search resource types** → \`resource_type\`
 - **Get database schema** → \`get_db_schema\`
+- **Create a schedule for the current flow** → \`create_schedule\` (do not provide \`script_path\` or \`is_flow\`; the tool infers them)
+- **Create a trigger for the current flow** → \`create_trigger\` (do not provide \`script_path\` or \`is_flow\`; the tool infers them)
 
 ## Quick Edits with patch_flow_json
 
@@ -1503,6 +1507,7 @@ set_flow_json({
 
 Follow the user instructions carefully.
 At the end of your changes, explain precisely what you did and what the flow does now.
+When creating schedules or triggers, rely on the tool error if the current flow has no saved path and explain that the user must save the flow first.
 ALWAYS test your modifications using the \`test_run_flow\` tool. If the user cancels the test run, do not try again and wait for the next user instruction.
 When testing steps that are sql scripts, the arguments to be passed are { database: $res:<db_resource> }.
 
