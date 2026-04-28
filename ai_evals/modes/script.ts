@@ -53,6 +53,7 @@ export function createScriptModeRunner(
         assistantMessageCount: result.assistantMessageCount,
         toolCallCount: result.toolCallCount,
         toolsUsed: result.toolsUsed,
+        toolCallDetails: result.toolCallDetails,
         skillsInvoked: [],
         tokenUsage: result.tokenUsage,
       };

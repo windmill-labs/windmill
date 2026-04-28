@@ -1,0 +1,39 @@
+{
+  "path": "f/evals/order_processing_flow",
+  "summary": "Order processing flow",
+  "value": {
+    "modules": [
+      {
+        "id": "get_orders",
+        "summary": "Fetch orders",
+        "value": {
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export async function main() {\n  return [\n    { id: \"ORD-001\", total: 150 },\n    { id: \"ORD-002\", total: 280 }\n  ];\n}",
+          "input_transforms": {}
+        }
+      },
+      {
+        "id": "summarize_orders",
+        "summary": "Summarize orders",
+        "value": {
+          "type": "rawscript",
+          "language": "bun",
+          "content": "export async function main(orders: Array<{ id: string; total: number }>) {\n  return {\n    count: orders.length,\n    total: orders.reduce((sum, order) => sum + order.total, 0)\n  };\n}",
+          "input_transforms": {
+            "orders": {
+              "type": "javascript",
+              "expr": "results.get_orders"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {},
+    "required": [],
+    "type": "object"
+  }
+}

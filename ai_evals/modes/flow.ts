@@ -62,6 +62,7 @@ export function createFlowModeRunner(
         assistantMessageCount: result.assistantMessageCount,
         toolCallCount: result.toolCallCount,
         toolsUsed: result.toolsUsed,
+        toolCallDetails: result.toolCallDetails,
         skillsInvoked: [],
         tokenUsage: result.tokenUsage,
       };

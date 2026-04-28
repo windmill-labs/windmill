@@ -7,6 +7,7 @@ import type {
   FrontendBenchmarkProgressEvent,
   ModeRunner,
 } from "./types";
+import { validateToolExpectations } from "./validators";
 
 export async function runSuite<TInitial, TExpected, TActual>(input: {
   modeRunner: ModeRunner<TInitial, TExpected, TActual>;
@@ -169,6 +170,10 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
           actual: run.actual,
           run,
         }),
+        ...validateToolExpectations({
+          run,
+          toolExpect: input.evalCase.toolExpect,
+        }),
       ];
       const artifactFiles = input.modeRunner.buildArtifacts?.(run.actual) ?? [];
 
@@ -213,7 +218,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
       let judgeScore: number | null = null;
       let judgeSummary: string | null = null;
 
-      if (run.success) {
+      if (run.success && !input.evalCase.skipJudge) {
         const judge = await judgeOutput({
           mode: input.modeRunner.mode,
           prompt: input.evalCase.prompt,
@@ -243,6 +248,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
         assistantMessageCount: run.assistantMessageCount,
         toolCallCount: run.toolCallCount,
         toolsUsed: uniqueStrings(run.toolsUsed),
+        toolCallDetails: run.toolCallDetails,
         skillsInvoked: uniqueStrings(run.skillsInvoked),
         checks,
         judgeScore,

@@ -19,8 +19,10 @@ interface RawEvalCase {
   initial?: string;
   expected?: string;
   validate?: EvalValidationSpec;
+  toolExpect?: EvalCase["toolExpect"];
   cliExpect?: CliValidationSpec;
   judgeChecklist?: string[];
+  skipJudge?: boolean;
   runtime?: EvalCaseRuntimeSpec;
 }
 export function getRepoRoot(): string {
@@ -46,8 +48,10 @@ export async function loadCases(mode: EvalMode): Promise<EvalCase[]> {
     initialPath: resolveFixturePath(entry.initial),
     expectedPath: resolveFixturePath(entry.expected),
     validate: entry.validate,
+    toolExpect: entry.toolExpect,
     cliExpect: entry.cliExpect,
     judgeChecklist: entry.judgeChecklist,
+    skipJudge: entry.skipJudge,
     runtime: entry.runtime,
   }));
 }
