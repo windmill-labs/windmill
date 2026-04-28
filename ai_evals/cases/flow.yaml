@@ -415,19 +415,15 @@
 
 - id: flow-test15-create-current-flow-schedule
   prompt: |-
-    Update this flow by adding a final top-level rawscript step named `return_schedule_status`.
+    Update this flow by adding a final step named `return_schedule_status`.
     It should return an object with `scheduled: true` and the order summary from `results.summarize_orders`.
-    Also create an enabled schedule for the current flow at path `f/evals/order_processing_daily`.
+    Also create an enabled daily schedule named `order_processing_daily` for the current flow.
     It should run every day at 07:30 UTC with empty args.
-    Use a Windmill schedule path under `f/evals/`, not a path under `schedules/`.
     Do not ask me for the flow path.
   initial: ai_evals/fixtures/frontend/flow/initial/scheduled_order_flow.json
   validate:
     topLevelStepIds:
       - return_schedule_status
-    topLevelStepTypes:
-      - id: return_schedule_status
-        type: rawscript
   toolExpect:
     requiredToolsUsed:
       - create_schedule
@@ -446,18 +442,15 @@
 
 - id: flow-test16-create-current-flow-http-trigger
   prompt: |-
-    Update this flow by adding a final top-level rawscript step named `webhook_response`.
+    Update this flow by adding a final step named `webhook_response`.
     It should return an object with `ok: true` and the order summary from `results.summarize_orders`.
-    Also create a POST HTTP trigger for the current flow.
-    Use trigger path `f/evals/order_processing_webhook`, route path `ai-evals/order-processing`, and no authentication.
+    Also create a public POST HTTP endpoint named `order_processing_webhook` for the current flow.
+    Use route path `ai-evals/order-processing` and no authentication.
     Do not ask me for the flow path.
   initial: ai_evals/fixtures/frontend/flow/initial/scheduled_order_flow.json
   validate:
     topLevelStepIds:
       - webhook_response
-    topLevelStepTypes:
-      - id: webhook_response
-        type: rawscript
   toolExpect:
     requiredToolsUsed:
       - create_trigger
