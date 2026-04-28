@@ -98,13 +98,11 @@
 		}
 	}
 
-	function filterDatatableTables(allTables: DataTableTablesMetadata[]): AppDatatableMetadata[] {
-		const whitelistedDatatables = new Set(dataTableRefsObjects.map((ref) => ref.datatable))
+	function getWhitelistedDatatableNames(): Set<string> {
+		return new Set(dataTableRefsObjects.map((ref) => ref.datatable))
+	}
 
-		if (whitelistedDatatables.size === 0) {
-			return allTables.map(withTableCount)
-		}
-
+	function getWhitelistedTables(): Map<string, Map<string, Set<string>>> {
 		const whitelistedTables = new Map<string, Map<string, Set<string>>>()
 		for (const ref of dataTableRefsObjects) {
 			if (!ref.table) continue
@@ -118,6 +116,35 @@
 			}
 			schemaMap.get(schemaKey)!.add(ref.table)
 		}
+		return whitelistedTables
+	}
+
+	function isDatatableTableWhitelisted(
+		datatableName: string,
+		schemaName: string,
+		tableName: string
+	): boolean {
+		const whitelistedDatatables = getWhitelistedDatatableNames()
+		if (whitelistedDatatables.size === 0) {
+			return true
+		}
+
+		return (
+			getWhitelistedTables()
+				.get(datatableName)
+				?.get(schemaName || 'public')
+				?.has(tableName) ?? false
+		)
+	}
+
+	function filterDatatableTables(allTables: DataTableTablesMetadata[]): AppDatatableMetadata[] {
+		const whitelistedDatatables = getWhitelistedDatatableNames()
+
+		if (whitelistedDatatables.size === 0) {
+			return allTables.map(withTableCount)
+		}
+
+		const whitelistedTables = getWhitelistedTables()
 
 		const results: AppDatatableMetadata[] = []
 		for (const datatable of allTables) {
@@ -549,6 +576,15 @@
 			): Promise<Record<string, string>> => {
 				if (!$workspaceStore) {
 					return {}
+				}
+
+				if (!isDatatableTableWhitelisted(datatableName, schemaName, tableName)) {
+					const tableRef = formatDataTableRef({
+						datatable: datatableName,
+						schema: schemaName === 'public' ? undefined : schemaName,
+						table: tableName
+					})
+					throw new Error(`Table '${tableRef}' is not configured in this app`)
 				}
 
 				const schema = await WorkspaceService.getDataTableTableSchema({
