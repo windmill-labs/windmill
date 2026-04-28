@@ -28,7 +28,7 @@
 		RefreshCw,
 		X
 	} from 'lucide-svelte'
-	import { emptyString, sendUserToast, type StateStore } from '$lib/utils'
+	import { sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
@@ -40,7 +40,7 @@
 	import FlowChat from './flows/conversations/FlowChat.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import FlowRestartButton from './FlowRestartButton.svelte'
-	import { findStepPath, parseExpandedSubflowId } from './restartFromStepPath'
+	import { useNestedRestartState } from './useNestedRestartState.svelte'
 	import { createFlowRecording, setActiveRecording } from './recording/flowRecording.svelte'
 	import type { FlowRecording } from './recording/types'
 
@@ -91,29 +91,20 @@
 		suspendStatus
 	}: Props = $props()
 
-	let restartBranchNames: [number, string][] = []
-	let nestedRestartTopStepId: string | undefined = $state(undefined)
-	let nestedRestartTopBranchOrIterationN: number | undefined = $state(undefined)
-	let nestedRestartPath: Array<{ step_id: string; branch_or_iteration_n?: number }> | undefined =
-		$state(undefined)
-	let nestedRestartSupported: boolean = $state(false)
-	// Pre-fill iteration input for top-level ForLoop restart from the iteration the
-	// user is currently viewing in the graph. Editable in the popup if they want to
-	// pick a different one.
-	let topLevelLoopIteration: number | undefined = $derived(
-		(selectedJobStepType as string) === 'forloop' && selectedJobStep
-			? localModuleStates[selectedJobStep]?.selectedForloopIndex
-			: undefined
-	)
-	let iterationCounts: Record<string, number> = $derived.by(() => {
-		const out: Record<string, number> = {}
-		for (const [id, state] of Object.entries(localModuleStates)) {
-			const n = state.flow_jobs?.length
-			if (typeof n === 'number' && n > 0) {
-				out[id] = n
-			}
-		}
-		return out
+	const restart = useNestedRestartState({
+		selectedJobStep: () => selectedJobStep,
+		job: () => job,
+		graphModuleStates: () => localModuleStates
+	})
+	// `selectedJobStepType` and `selectedJobStepIsTopLevel` are still exposed as
+	// `$bindable` props to legacy parents (FlowPreviewButtons binds them but
+	// doesn't read them). Sync them out of the composable here so the prop
+	// surface stays unchanged.
+	$effect(() => {
+		selectedJobStepIsTopLevel = restart.selectedJobStepIsTopLevel
+	})
+	$effect(() => {
+		selectedJobStepType = restart.selectedJobStepType
 	})
 	let isRunning: boolean = $state(false)
 	let jsonView: boolean = $state(false)
@@ -235,91 +226,6 @@
 		}
 	}
 
-	function onSelectedJobStepChange() {
-		nestedRestartTopStepId = undefined
-		nestedRestartTopBranchOrIterationN = undefined
-		nestedRestartPath = undefined
-		nestedRestartSupported = false
-		if (selectedJobStep !== undefined && job?.flow_status?.modules !== undefined) {
-			selectedJobStepIsTopLevel =
-				job?.flow_status?.modules.map((m) => m.id).indexOf(selectedJobStep) >= 0
-			let moduleDefinition = job?.raw_flow?.modules.find((m) => m.id == selectedJobStep)
-			if (moduleDefinition?.value.type == 'forloopflow') {
-				selectedJobStepType = 'forloop'
-			} else if (moduleDefinition?.value.type == 'branchall') {
-				selectedJobStepType = 'branchall'
-				moduleDefinition?.value.branches.forEach((branch, idx) => {
-					restartBranchNames.push([
-						idx,
-						emptyString(branch.summary) ? `Branch #${idx}` : branch.summary!
-					])
-				})
-			} else {
-				selectedJobStepType = 'single'
-			}
-
-			if (!selectedJobStepIsTopLevel) {
-				// Inline-expanded subflow: id is `subflow:outerStep:[innerSubflow:...]<leaf>`.
-				const subflowParse = parseExpandedSubflowId(selectedJobStep!)
-				if (subflowParse && job?.raw_flow?.modules) {
-					const top = job.raw_flow.modules.find((m) => m.id === subflowParse.subflowSteps[0])
-					if (top && top.value.type === 'flow') {
-						const innerPath: Array<{ step_id: string; branch_or_iteration_n?: number }> = []
-						for (const seg of subflowParse.subflowSteps.slice(1)) {
-							innerPath.push({ step_id: seg })
-						}
-						innerPath.push({ step_id: subflowParse.leaf })
-						nestedRestartTopStepId = top.id
-						nestedRestartTopBranchOrIterationN = undefined
-						nestedRestartPath = innerPath
-						nestedRestartSupported = true
-					}
-				}
-				// BranchOne / sequential ForLoop nested in the parent's own flow_value.
-				if (!nestedRestartSupported && job?.raw_flow?.modules) {
-					const path = findStepPath(job.raw_flow.modules, selectedJobStep!)
-					if (path && path.ancestors.length > 0) {
-						const blocked = path.ancestors.find(
-							(a) => a.type === 'branchall' || a.type === 'whileloopflow'
-						)
-						// Default missing iterations to 0; the popup surfaces them for confirmation.
-						const iterationFor = (stepId: string): number =>
-							localModuleStates[stepId]?.selectedForloopIndex ?? 0
-						if (!blocked) {
-							const top = path.ancestors[0]
-							const inner = path.ancestors.slice(1)
-							const innerPath: Array<{
-								step_id: string
-								branch_or_iteration_n?: number
-							}> = []
-							for (const a of inner) {
-								const entry: { step_id: string; branch_or_iteration_n?: number } = {
-									step_id: a.stepId
-								}
-								if (a.type === 'forloopflow') {
-									entry.branch_or_iteration_n = iterationFor(a.stepId)
-								}
-								innerPath.push(entry)
-							}
-							const leafEntry: { step_id: string; branch_or_iteration_n?: number } = {
-								step_id: selectedJobStep!
-							}
-							if (path.target.value.type === 'forloopflow') {
-								leafEntry.branch_or_iteration_n = iterationFor(selectedJobStep!)
-							}
-							innerPath.push(leafEntry)
-							nestedRestartTopStepId = top.stepId
-							nestedRestartTopBranchOrIterationN =
-								top.type === 'forloopflow' ? iterationFor(top.stepId) : undefined
-							nestedRestartPath = innerPath
-							nestedRestartSupported = true
-						}
-					}
-				}
-			}
-		}
-	}
-
 	let savedArgs = $state(previewArgs.val)
 	let inputSelected: 'captures' | 'history' | 'saved' | undefined = $state(undefined)
 	async function selectInput(input, type?: 'captures' | 'history' | 'saved' | undefined) {
@@ -401,9 +307,6 @@
 			scrollableDiv.scrollTop = scrollTop
 		}
 	}
-	$effect.pre(() => {
-		selectedJobStep !== undefined && untrack(() => onSelectedJobStepChange())
-	})
 	$effect(() => {
 		scrollableDiv && render && untrack(() => onScrollableDivChange())
 	})
@@ -506,17 +409,17 @@
 				</div>
 			{:else}
 				<div class="grow justify-center flex flex-row gap-2 items-center">
-					{#if jobId !== undefined && selectedJobStep !== undefined && (selectedJobStepIsTopLevel || nestedRestartSupported)}
+					{#if jobId !== undefined && selectedJobStep !== undefined && (restart.selectedJobStepIsTopLevel || restart.nestedRestartSupported)}
 						<FlowRestartButton
 							{jobId}
 							{selectedJobStep}
-							{selectedJobStepType}
-							{restartBranchNames}
-							nestedPath={nestedRestartSupported ? nestedRestartPath : undefined}
-							nestedTopStepId={nestedRestartTopStepId}
-							nestedTopBranchOrIterationN={nestedRestartTopBranchOrIterationN}
-							presetIterationN={topLevelLoopIteration}
-							{iterationCounts}
+							selectedJobStepType={restart.selectedJobStepType}
+							restartBranchNames={restart.restartBranchNames}
+							nestedPath={restart.nestedRestartSupported ? restart.nestedRestartPath : undefined}
+							nestedTopStepId={restart.nestedRestartTopStepId}
+							nestedTopBranchOrIterationN={restart.nestedRestartTopBranchOrIterationN}
+							presetIterationN={restart.topLevelLoopIteration}
+							iterationCounts={restart.iterationCounts}
 							onRestart={(stepId, branchOrIterationN) => {
 								runPreview(previewArgs.val, {
 									flow_job_id: jobId,
