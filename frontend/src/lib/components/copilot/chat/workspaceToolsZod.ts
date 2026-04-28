@@ -411,50 +411,28 @@ export const triggerRequestSchemas = {
 
 const triggerPathSchema = z.string().min(1).describe("The new trigger's Windmill path")
 
-export const createTriggerToolSchema = z.discriminatedUnion('kind', [
-	z.object({
-		kind: z.literal("http"),
-		path: triggerPathSchema,
-		config: httpTriggerRequestSchema.omit({ path: true })
-	}),
-	z.object({
-		kind: z.literal("websocket"),
-		path: triggerPathSchema,
-		config: websocketTriggerRequestSchema.omit({ path: true })
-	}),
-	z.object({
-		kind: z.literal("kafka"),
-		path: triggerPathSchema,
-		config: kafkaTriggerRequestSchema.omit({ path: true })
-	}),
-	z.object({
-		kind: z.literal("nats"),
-		path: triggerPathSchema,
-		config: natsTriggerRequestSchema.omit({ path: true })
-	}),
-	z.object({
-		kind: z.literal("postgres"),
-		path: triggerPathSchema,
-		config: postgresTriggerRequestSchema.omit({ path: true })
-	}),
-	z.object({
-		kind: z.literal("mqtt"),
-		path: triggerPathSchema,
-		config: mqttTriggerRequestSchema.omit({ path: true })
-	}),
-	z.object({
-		kind: z.literal("sqs"),
-		path: triggerPathSchema,
-		config: sqsTriggerRequestSchema.omit({ path: true })
-	}),
-	z.object({
-		kind: z.literal("gcp"),
-		path: triggerPathSchema,
-		config: gcpTriggerRequestSchema.omit({ path: true })
-	}),
-	z.object({
-		kind: z.literal("azure"),
-		path: triggerPathSchema,
-		config: azureTriggerRequestSchema.omit({ path: true })
-	}),
-])
+export const createTriggerToolSchema = z.object({
+	kind: z.enum([
+		"http",
+		"websocket",
+		"kafka",
+		"nats",
+		"postgres",
+		"mqtt",
+		"sqs",
+		"gcp",
+		"azure",
+	]),
+	path: triggerPathSchema,
+	config: z.union([
+		httpTriggerRequestSchema.omit({ path: true }),
+		websocketTriggerRequestSchema.omit({ path: true }),
+		kafkaTriggerRequestSchema.omit({ path: true }),
+		natsTriggerRequestSchema.omit({ path: true }),
+		postgresTriggerRequestSchema.omit({ path: true }),
+		mqttTriggerRequestSchema.omit({ path: true }),
+		sqsTriggerRequestSchema.omit({ path: true }),
+		gcpTriggerRequestSchema.omit({ path: true }),
+		azureTriggerRequestSchema.omit({ path: true }),
+	])
+})

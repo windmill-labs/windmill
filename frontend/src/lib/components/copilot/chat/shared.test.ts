@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest'
-import { z } from 'zod'
 
 vi.mock('monaco-editor', () => ({
 	editor: {}
@@ -40,20 +39,18 @@ vi.mock('@leeoniya/ufuzzy', () => ({
 }))
 
 describe('createToolDef', () => {
-	it('adds a top-level object type for composed object schemas', async () => {
+	it('builds the create_trigger schema without top-level composition', async () => {
 		const { createToolDef } = await import('./shared')
-		const toolDef = createToolDef(
-			z.discriminatedUnion('kind', [
-				z.object({ kind: z.literal('script'), path: z.string() }),
-				z.object({ kind: z.literal('flow'), path: z.string() })
-			]),
-			'create_runnable_trigger',
-			'Create a runnable trigger'
-		)
+		const { createTriggerToolSchema } = await import('./workspaceToolsZod')
+		const toolDef = createToolDef(createTriggerToolSchema, 'create_trigger', 'Create a trigger')
 
-		const parameters = toolDef.function.parameters
+		const parameters = toolDef.function.parameters as any
 		expect(parameters).toBeDefined()
 		expect(parameters?.type).toBe('object')
-		expect(parameters?.anyOf).toHaveLength(2)
+		expect(parameters?.anyOf).toBeUndefined()
+		expect(parameters?.oneOf).toBeUndefined()
+		expect(parameters?.allOf).toBeUndefined()
+		expect(parameters?.properties?.kind?.enum).toContain('http')
+		expect(parameters?.properties?.config?.anyOf?.length).toBeGreaterThan(1)
 	})
 })

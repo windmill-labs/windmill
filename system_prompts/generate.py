@@ -846,17 +846,22 @@ def generate_workspace_tool_zod_schemas(backend_schemas: dict, openflow_schemas:
         "",
         'const triggerPathSchema = z.string().min(1).describe("The new trigger\'s Windmill path")',
         "",
-        "export const createTriggerToolSchema = z.discriminatedUnion('kind', [",
+        "export const createTriggerToolSchema = z.object({",
+        "\tkind: z.enum([",
+        *[
+            f"\t\t{_ts_string(kind)},"
+            for kind, _ in WORKSPACE_TOOL_TRIGGER_SCHEMAS
+        ],
+        "\t]),",
+        "\tpath: triggerPathSchema,",
+        "\tconfig: z.union([",
     ])
     for kind, schema_name in WORKSPACE_TOOL_TRIGGER_SCHEMAS:
-        lines.extend([
-            "\tz.object({",
-            f"\t\tkind: z.literal({_ts_string(kind)}),",
-            "\t\tpath: triggerPathSchema,",
-            f"\t\tconfig: {schema_name}.omit({{ path: true }})",
-            "\t}),",
-        ])
-    lines.append("])")
+        lines.append(f"\t\t{schema_name}.omit({{ path: true }}),")
+    lines.extend([
+        "\t])",
+        "})",
+    ])
     lines.append("")
 
     WORKSPACE_TOOL_ZOD_OUTPUT_PATH.write_text("\n".join(lines))
