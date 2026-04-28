@@ -178,13 +178,22 @@
 
 	let iframeLoaded = $state(false) // @hmr:keep
 	let suppressSetActiveDocument = false
+	// Suppresses incoming setFiles messages from the iframe while it's reloading
+	// (e.g. after a theme switch), so its built-in default template doesn't
+	// overwrite the user's files before we've re-pushed them.
+	let suppressIframeSetFiles = false
 
 	function populateFiles() {
 		if (files) {
 			// Suppress iframe's automatic setActiveDocument for a short window
 			// after sending files, to prevent it from resetting to App.tsx.
 			suppressSetActiveDocument = true
-			setTimeout(() => { suppressSetActiveDocument = false }, 500)
+			setTimeout(() => {
+				suppressSetActiveDocument = false
+			}, 500)
+			setTimeout(() => {
+				suppressIframeSetFiles = false
+			}, 500)
 			const doc = untrack(() => selectedDocument)
 			if (doc) {
 				setFilesAndSelectInIframe(files, doc)
@@ -600,6 +609,9 @@
 
 	function listener(e: MessageEvent) {
 		if (e.data.type === 'setFiles') {
+			// Ignore setFiles from the iframe while it's reloading (e.g. theme switch);
+			// the iframe boots with its default template and would otherwise clobber the user's files.
+			if (suppressIframeSetFiles) return
 			// Normalize Windows-style path separators to Linux-style
 			const normalizedFiles = normalizeFilePaths(e.data.files)
 			// Only mark pending changes if files actually changed (ignore echo from setFilesInIframe)
@@ -666,6 +678,18 @@
 	$effect(() => {
 		iframe?.addEventListener('load', () => {
 			iframeLoaded = true
+		})
+	})
+	$effect(() => {
+		// Toggling dark mode changes the iframe src, causing it to reload.
+		// Reset iframeLoaded so the populate effect refires after the new load,
+		// and suppress the iframe's initial setFiles (default template) until then.
+		void darkMode
+		untrack(() => {
+			if (iframe && iframeLoaded) {
+				iframeLoaded = false
+				suppressIframeSetFiles = true
+			}
 		})
 	})
 	$effect(() => {
