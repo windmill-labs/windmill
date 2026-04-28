@@ -589,6 +589,9 @@ export function createToolDef(
 	// console.log('creating tool def for', name, zodSchema)
 	let parameters = z.toJSONSchema(zodSchema)
 	delete parameters.$schema
+	if (!parameters.type && (parameters.anyOf || parameters.oneOf || parameters.allOf)) {
+		parameters.type = 'object'
+	}
 	if (!parameters.required) parameters.required = []
 	normalizeToolParameterSchema(parameters)
 
