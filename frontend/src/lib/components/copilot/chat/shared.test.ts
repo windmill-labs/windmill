@@ -67,6 +67,23 @@ describe('createToolDef', () => {
 		expect(parameters?.properties?.kind?.enum).toContain('http')
 		expect(parameters?.properties?.config?.anyOf?.length).toBeGreaterThan(1)
 	})
+
+	it('does not expose runnable target fields on workspace mutation tools', async () => {
+		const { createWorkspaceMutationTools } = await import('./workspaceTools')
+		const [scheduleTool, triggerTool] = createWorkspaceMutationTools()
+
+		const scheduleParameters = scheduleTool.def.function.parameters as any
+		expect(scheduleParameters?.properties?.script_path).toBeUndefined()
+		expect(scheduleParameters?.properties?.is_flow).toBeUndefined()
+
+		const triggerParameters = triggerTool.def.function.parameters as any
+		const triggerConfigVariants = triggerParameters?.properties?.config?.anyOf ?? []
+		expect(triggerConfigVariants.length).toBeGreaterThan(1)
+		for (const variant of triggerConfigVariants) {
+			expect(variant?.properties?.script_path).toBeUndefined()
+			expect(variant?.properties?.is_flow).toBeUndefined()
+		}
+	})
 })
 
 describe('processToolCall', () => {
@@ -198,5 +215,96 @@ describe('processToolCall', () => {
 
 		expect(flowResult.content).toBe('the flow needs to be deployed before doing this action')
 		expect(requestConfirmation).not.toHaveBeenCalled()
+	})
+
+	it('injects runnable target fields into schedule and trigger requests', async () => {
+		const gen = (await import('$lib/gen')) as any
+		const { processToolCall } = await import('./shared')
+		const { createWorkspaceMutationTools } = await import('./workspaceTools')
+		const workspaceMutationTools = createWorkspaceMutationTools()
+
+		gen.ScheduleService.previewSchedule.mockResolvedValue({})
+		gen.ScheduleService.createSchedule.mockResolvedValue('schedule-created')
+		gen.HttpTriggerService.createHttpTrigger.mockResolvedValue('trigger-created')
+
+		await processToolCall({
+			tools: workspaceMutationTools,
+			toolCall: {
+				id: 'call_5',
+				type: 'function',
+				function: {
+					name: 'create_schedule',
+					arguments: JSON.stringify({
+						path: 'f/schedules/current',
+						schedule: '0 0 12 * * *',
+						timezone: 'UTC',
+						args: null
+					})
+				}
+			},
+			helpers: {
+				getWorkspaceMutationTarget: () => ({
+					kind: 'script',
+					path: 'f/scripts/current',
+					deployed: true
+				})
+			},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestConfirmation: vi.fn().mockResolvedValue(true)
+			}
+		})
+
+		expect(gen.ScheduleService.createSchedule).toHaveBeenCalledWith({
+			workspace: 'test-workspace',
+			requestBody: expect.objectContaining({
+				script_path: 'f/scripts/current',
+				is_flow: false
+			})
+		})
+
+		await processToolCall({
+			tools: workspaceMutationTools,
+			toolCall: {
+				id: 'call_6',
+				type: 'function',
+				function: {
+					name: 'create_trigger',
+					arguments: JSON.stringify({
+						kind: 'http',
+						path: 'f/triggers/current',
+						config: {
+							route_path: 'api/current',
+							http_method: 'post',
+							authentication_method: 'none',
+							is_static_website: false
+						}
+					})
+				}
+			},
+			helpers: {
+				getWorkspaceMutationTarget: () => ({
+					kind: 'flow',
+					path: 'f/flows/current',
+					deployed: true
+				})
+			},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestConfirmation: vi.fn().mockResolvedValue(true)
+			}
+		})
+
+		expect(gen.HttpTriggerService.createHttpTrigger).toHaveBeenCalledWith({
+			workspace: 'test-workspace',
+			requestBody: expect.objectContaining({
+				script_path: 'f/flows/current',
+				is_flow: true
+			})
+		})
 	})
 })

@@ -857,7 +857,7 @@ def generate_workspace_tool_zod_schemas(backend_schemas: dict, openflow_schemas:
         "\tconfig: z.union([",
     ])
     for kind, schema_name in WORKSPACE_TOOL_TRIGGER_SCHEMAS:
-        lines.append(f"\t\t{schema_name}.omit({{ path: true }}),")
+        lines.append(f"\t\t{schema_name}.omit({{ path: true, script_path: true, is_flow: true }}),")
     lines.extend([
         "\t])",
         "})",

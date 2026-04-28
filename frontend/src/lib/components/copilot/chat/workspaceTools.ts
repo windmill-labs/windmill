@@ -54,16 +54,36 @@ type WorkspaceMutationHelpers = {
 	getWorkspaceMutationTarget?: () => WorkspaceMutationTarget
 }
 
+const createScheduleToolSchema = scheduleRequestSchema.omit({ script_path: true, is_flow: true })
+
+function getWorkspaceMutationTarget(helpers: unknown): WorkspaceMutationTarget | undefined {
+	return (helpers as WorkspaceMutationHelpers | undefined)?.getWorkspaceMutationTarget?.()
+}
+
 function validateWorkspaceMutationTarget(helpers: unknown): string | undefined {
-	const target = (helpers as WorkspaceMutationHelpers | undefined)?.getWorkspaceMutationTarget?.()
-	if (!target || (!emptyString(target.path) && target.deployed)) {
+	const target = getWorkspaceMutationTarget(helpers)
+	if (!target) {
+		return 'the script or flow needs to be deployed before doing this action'
+	}
+	if (!emptyString(target.path) && target.deployed) {
 		return undefined
 	}
 	return `the ${target.kind} needs to be deployed before doing this action`
 }
 
+function getWorkspaceMutationTargetFields(helpers: unknown): Pick<NewSchedule, 'script_path' | 'is_flow'> {
+	const target = getWorkspaceMutationTarget(helpers)
+	if (!target?.path) {
+		throw new Error('the script or flow needs to be deployed before doing this action')
+	}
+	return {
+		script_path: target.path,
+		is_flow: target.kind === 'flow'
+	}
+}
+
 const createScheduleToolDef = createToolDef(
-	scheduleRequestSchema,
+	createScheduleToolSchema,
 	'create_schedule',
 	'Create a schedule for the current script or flow.',
 	{ strict: false }
@@ -181,10 +201,13 @@ const createScheduleTool: Tool<any> = {
 	confirmationMessage: 'Create schedule',
 	showDetails: true,
 	validateBeforeConfirmation: ({ helpers }) => validateWorkspaceMutationTarget(helpers),
-	fn: async ({ args, workspace, toolCallbacks, toolId }) => {
+	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		const requestBody = parseWithExplicitErrors(
 			scheduleRequestSchema as z.ZodType<NewSchedule>,
-			args,
+			{
+				...args,
+				...getWorkspaceMutationTargetFields(helpers)
+			},
 			'Schedule'
 		)
 
@@ -231,14 +254,15 @@ const createTriggerTool: Tool<any> = {
 	confirmationMessage: 'Create trigger',
 	showDetails: true,
 	validateBeforeConfirmation: ({ helpers }) => validateWorkspaceMutationTarget(helpers),
-	fn: async ({ args, workspace, toolCallbacks, toolId }) => {
+	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		const parsedArgs = parseWithExplicitErrors(createTriggerToolSchema, args, 'Trigger')
 		const triggerConfig = triggerConfigs[parsedArgs.kind]
 		const requestBody = parseWithExplicitErrors(
 			triggerConfig.requestSchema as z.ZodType<TriggerRequestBody>,
 			{
 				...parsedArgs.config,
-				path: parsedArgs.path
+				path: parsedArgs.path,
+				...getWorkspaceMutationTargetFields(helpers)
 			},
 			triggerConfig.label
 		)

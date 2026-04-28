@@ -425,14 +425,14 @@ export const createTriggerToolSchema = z.object({
 	]),
 	path: triggerPathSchema,
 	config: z.union([
-		httpTriggerRequestSchema.omit({ path: true }),
-		websocketTriggerRequestSchema.omit({ path: true }),
-		kafkaTriggerRequestSchema.omit({ path: true }),
-		natsTriggerRequestSchema.omit({ path: true }),
-		postgresTriggerRequestSchema.omit({ path: true }),
-		mqttTriggerRequestSchema.omit({ path: true }),
-		sqsTriggerRequestSchema.omit({ path: true }),
-		gcpTriggerRequestSchema.omit({ path: true }),
-		azureTriggerRequestSchema.omit({ path: true }),
+		httpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+		websocketTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+		kafkaTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+		natsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+		postgresTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+		mqttTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+		sqsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+		gcpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+		azureTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
 	])
 })
