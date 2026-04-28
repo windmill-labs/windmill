@@ -7,7 +7,7 @@
 	import ScopesPicker from './ScopesPicker.svelte'
 
 	interface Props {
-		open?: boolean
+		open: boolean
 		tokenPrefix?: string
 		initialScopes?: string[]
 		tokenWorkspaceId?: string
@@ -15,14 +15,19 @@
 	}
 
 	let {
-		open = $bindable(false),
+		open = $bindable(),
 		tokenPrefix,
 		initialScopes,
 		tokenWorkspaceId,
 		onSaved
 	}: Props = $props()
 
-	const isMcp = $derived((initialScopes ?? []).some((s) => s.startsWith('mcp:')))
+	// Treat as MCP only when *all* existing scopes are mcp:* — mixed-scope or
+	// null-scope tokens fall back to the standard picker so non-MCP scopes are
+	// never silently dropped.
+	const isMcp = $derived(
+		(initialScopes ?? []).length > 0 && (initialScopes ?? []).every((s) => s.startsWith('mcp:'))
+	)
 	const mcpWorkspaceId = $derived(tokenWorkspaceId ?? $workspaceStore ?? '')
 
 	let pickedScopes = $state<string[] | null>(null)

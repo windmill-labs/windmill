@@ -9,10 +9,10 @@
 		/** Existing scopes (used for both initial standard selection and parsing MCP scope) */
 		initialScopes?: string[]
 		/** Final scope value: null = unrestricted/full access, array = explicit list */
-		value?: string[] | null
+		value: string[] | null
 	}
 
-	let { mode, workspaceId = '', initialScopes, value = $bindable(null) }: Props = $props()
+	let { mode, workspaceId = '', initialScopes, value = $bindable() }: Props = $props()
 
 	const initialMcpScope = $derived(
 		(initialScopes ?? []).length > 0 ? (initialScopes ?? []).join(' ') : undefined

@@ -10,7 +10,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 CREATE TRIGGER token_scopes_update_trigger
 AFTER UPDATE OF scopes ON token

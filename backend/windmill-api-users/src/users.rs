@@ -2340,6 +2340,7 @@ async fn update_token_scopes(
         ))
     })?;
 
+    let scopes_json = serde_json::to_string(&req.scopes).unwrap_or_default();
     audit_log(
         &mut *tx,
         &authed,
@@ -2347,7 +2348,7 @@ async fn update_token_scopes(
         ActionKind::Update,
         &"global",
         Some(&prefix),
-        Some([("scopes", &format!("{:?}", req.scopes)[..])].into()),
+        Some([("scopes", scopes_json.as_str())].into()),
     )
     .await?;
 
