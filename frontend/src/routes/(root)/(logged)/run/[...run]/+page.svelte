@@ -111,8 +111,14 @@
 	let nestedRestartTopBranchOrIterationN: number | undefined = $state(undefined)
 	let nestedRestartPath: Array<{ step_id: string; branch_or_iteration_n?: number }> | undefined =
 		$state(undefined)
-	let nestedRestartIterationInputs: number[] = $state([])
 	let nestedRestartSupported: boolean = $state(false)
+	// Mirror of the graph's per-module display state (selected iteration of each
+	// ForLoop, etc.). We use it to know which iteration the user is viewing when
+	// they pick a step inside a loop, so the nested-restart path can target that
+	// iteration instead of guessing.
+	let graphModuleStates: Record<string, import('$lib/components/graph').GraphModuleState> = $state(
+		{}
+	)
 
 	let testIsLoading = $state(false)
 	let jobLoader: JobLoader | undefined = $state(undefined)
@@ -183,7 +189,6 @@
 		nestedRestartTopStepId = undefined
 		nestedRestartTopBranchOrIterationN = undefined
 		nestedRestartPath = undefined
-		nestedRestartIterationInputs = []
 		nestedRestartSupported = false
 		if (selectedJobStep !== undefined && job?.flow_status?.modules !== undefined) {
 			selectedJobStepIsTopLevel =
@@ -236,14 +241,19 @@
 						const blocked = path.ancestors.some(
 							(a) => a.type === 'branchall' || a.type === 'whileloopflow'
 						)
-						if (!blocked) {
-							const topStatus = job.flow_status?.modules?.find((m) => m.id === top.stepId)
-							let topBranchOrIter: number | undefined
-							if (top.type === 'forloopflow') {
-								topBranchOrIter = 0
-								const flowJobs = (topStatus as any)?.flow_jobs as string[] | undefined
-								nestedRestartIterationInputs = [flowJobs?.length ?? 0]
-							}
+						// For each ForLoop ancestor on the path, read which iteration the user
+						// is currently viewing in the graph. `selectedForloopIndex` is set
+						// when the user opens an iteration; if it's still undefined we
+						// can't disambiguate which iteration to restart at and refuse to
+						// offer the button rather than silently picking iteration 0.
+						const iterationFor = (stepId: string): number | undefined =>
+							graphModuleStates[stepId]?.selectedForloopIndex
+						const missingIteration = path.ancestors.some(
+							(a) => a.type === 'forloopflow' && iterationFor(a.stepId) === undefined
+						)
+						if (!blocked && !missingIteration) {
+							const topBranchOrIter: number | undefined =
+								top.type === 'forloopflow' ? iterationFor(top.stepId) : undefined
 							const innerPath: Array<{
 								step_id: string
 								branch_or_iteration_n?: number
@@ -253,8 +263,7 @@
 									step_id: a.stepId
 								}
 								if (a.type === 'forloopflow') {
-									entry.branch_or_iteration_n = 0
-									nestedRestartIterationInputs.push(0)
+									entry.branch_or_iteration_n = iterationFor(a.stepId)
 								}
 								innerPath.push(entry)
 							}
@@ -1005,6 +1014,7 @@
 						bind:selectedJobStep
 						bind:suspendStatus
 						bind:isOwner
+						bind:localModuleStates={graphModuleStates}
 					/>
 				{:else}
 					<Skeleton layout={[[5]]} />

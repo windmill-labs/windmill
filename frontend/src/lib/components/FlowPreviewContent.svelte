@@ -264,7 +264,12 @@
 						const blocked = path.ancestors.find(
 							(a) => a.type === 'branchall' || a.type === 'whileloopflow'
 						)
-						if (!blocked) {
+						const iterationFor = (stepId: string): number | undefined =>
+							localModuleStates[stepId]?.selectedForloopIndex
+						const missingIteration = path.ancestors.some(
+							(a) => a.type === 'forloopflow' && iterationFor(a.stepId) === undefined
+						)
+						if (!blocked && !missingIteration) {
 							const top = path.ancestors[0]
 							const inner = path.ancestors.slice(1)
 							const innerPath: Array<{
@@ -276,13 +281,14 @@
 									step_id: a.stepId
 								}
 								if (a.type === 'forloopflow') {
-									entry.branch_or_iteration_n = 0
+									entry.branch_or_iteration_n = iterationFor(a.stepId)
 								}
 								innerPath.push(entry)
 							}
 							innerPath.push({ step_id: selectedJobStep! })
 							nestedRestartTopStepId = top.stepId
-							nestedRestartTopBranchOrIterationN = top.type === 'forloopflow' ? 0 : undefined
+							nestedRestartTopBranchOrIterationN =
+								top.type === 'forloopflow' ? iterationFor(top.stepId) : undefined
 							nestedRestartPath = innerPath
 							nestedRestartSupported = true
 						}
