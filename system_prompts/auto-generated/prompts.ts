@@ -31,15 +31,77 @@ The preprocessor receives a single parameter called \`event\`.
 
 export const FLOW_BASE = `# Windmill Flow Building Guide
 
-## CLI Commands
+## Creating a Flow
 
-Create a folder ending with \`__flow\` and add a \`flow.yaml\` file with the flow definition.
+**You — the AI agent — scaffold the flow yourself by running \`wmill flow new <path>\` with the right flags. Do NOT hand-create the folder + \`flow.yaml\`, and do NOT tell the user to "run \`wmill flow new\` and follow the prompts".**
+
+\`wmill flow new\` creates the folder with the correct suffix (\`__flow\` or \`.flow\` depending on the workspace's \`nonDottedPaths\` setting), writes a minimal \`flow.yaml\` shell, and prints Claude-specific next-step hints. Scaffolding by hand skips all of that and often picks the wrong suffix.
+
+### Step 1 — Gather path + summary by asking the user
+
+You need two things:
+
+1. **path** — the windmill path, e.g. \`f/folder/my_flow\` or \`u/username/my_flow\`.
+2. **summary** — a short description of the flow.
+
+If the user's request didn't supply both, ask for both in a single round-trip. Use whichever interactive question facility your runtime provides — a structured multi-choice tool if available, otherwise plain chat — and provide one or two example values for each (with an "Other" / free-form fallback). Do not guess paths or summaries.
+
+### Step 2 — Run the command yourself
+
+\`\`\`bash
+wmill flow new f/folder/my_flow --summary "Short description"
+\`\`\`
+
+Add \`--description "..."\` when the user provided a longer explanation worth preserving separately from the summary.
+
+### Step 3 — Fill in \`flow.yaml\`
+
+Open the generated \`flow.yaml\` (under the folder the command just created) and replace the empty \`value.modules\` + \`schema\` with the real flow definition.
+
 For rawscript modules, use \`!inline path/to/script.ts\` for the content key. Inline script files should NOT include \`.inline_script.\` in their names (e.g. use \`a.ts\`, not \`a.inline_script.ts\`).
-After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate lock files for the flow you modified
-- \`wmill sync push\` - Deploy to Windmill
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+Once the flow has real content, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry) and the user should consent.
+
+### Anti-patterns to avoid
+
+- ❌ Hand-creating the \`__flow\` folder + \`flow.yaml\` instead of running \`wmill flow new\`. You'll miss the suffix-setting resolution, the default shape, and the Claude hints.
+- ❌ Telling the user to "run \`wmill flow new <path>\`" — you can and should run it yourself.
+- ❌ Inventing a path/summary instead of asking the user.
+
+## CLI Commands — running, previewing, deploying
+
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill flow preview <flow_path>\` — **default when iterating on a local flow.** Runs the local \`flow.yaml\` against local inline scripts without deploying. Add \`--remote\` to use deployed workspace scripts for PathScript steps instead of local files.
+- \`wmill flow run <path>\` — runs the flow **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — regenerate stale \`.lock\` and \`.script.yaml\` files. By default it scans **scripts, flows, and apps** across the workspace; pass \`--skip-flows --skip-apps\` (or run from a subdirectory) to limit the scope when you only care about the flow you edited.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the flow", "try it", "test it", "does it work" while there are **local edits to a \`flow.yaml\`**, use \`flow preview\`. Do NOT push the flow to then \`flow run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`flow run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local \`flow.yaml\` being edited (you're just invoking an existing flow).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to run, don't wait passively
+
+This is about **programmatic execution** (\`wmill flow preview -d '<args>'\`), which actually runs the flow and has side effects. Visual preview (the \`preview\` skill) is offered separately — see "Visual preview" below.
+
+If the user hasn't already told you to run/test the flow, offer it as a one-sentence next step (e.g. "Want me to run \`wmill flow preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the flow in their original request, skip the offer and just execute \`wmill flow preview <path> -d '<args>'\` directly — pick plausible args from the flow's input schema.
+
+\`wmill flow preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+### Visual preview
+
+To open the flow visually in the dev page (graph + live reload), use the \`preview\` skill. Always **offer** it as a one-sentence next step (e.g. "Want me to open the visual preview?") rather than opening it automatically — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry under MCP-preview branches) the user should consent to. If the user already asked to see/preview/visualize the flow in their original request, skip the offer and just invoke the skill.
 
 ## OpenFlow Schema
 
@@ -1794,6 +1856,13 @@ app related commands
 - \`app lint [app_folder:string]\` - Lint a raw app folder to validate structure and buildability
   - \`--fix\` - Attempt to fix common issues (not implemented yet)
 - \`app new\` - create a new raw app from a template
+  - \`--summary <summary:string>\` - App summary (short description). Skips the prompt when provided. Triggers non-interactive mode.
+  - \`--path <path:string>\` - App path (e.g., f/folder/my_app or u/username/my_app). Skips the prompt when provided. Triggers non-interactive mode.
+  - \`--framework <framework:string>\` - Framework template: react19 | react18 | svelte5 | vue. Skips the prompt when provided. Triggers non-interactive mode.
+  - \`--datatable <datatable:string>\` - Datatable to wire up. Without this flag in non-interactive mode, no datatable is configured.
+  - \`--schema <schema:string>\` - Schema to use with --datatable. Created (CREATE SCHEMA IF NOT EXISTS) if it doesn't already exist.
+  - \`--overwrite\` - Overwrite the target directory if it already exists, without prompting.
+  - \`--no-open-in-desktop\` - Do not prompt to open the new app in Claude Desktop.
 - \`app generate-agents [app_folder:string]\` - regenerate AGENTS.md and DATATABLES.md from remote workspace
 - \`app set-permissioned-as <path:string> <email:string>\` - Set the on_behalf_of_email for an app (requires admin or wm_deployers group)
 
@@ -1830,10 +1899,13 @@ workspace dependencies related commands
 
 ### dev
 
-Launch a dev server that watches for local file changes and auto-pushes them to the remote workspace. Provides live reload for scripts and flows during development.
+Watch local file changes and live-reload the dev page for preview. Does NOT deploy to the remote workspace — use wmill sync push for that.
 
 **Options:**
-- \`--includes <pattern...:string>\` - Filter paths givena glob pattern or path
+- \`--includes <pattern...:string>\` - Filter paths given a glob pattern or path
+- \`--proxy-port <port:number>\` - Port for a localhost reverse proxy to the remote Windmill server
+- \`--path <path:string>\` - Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)
+- \`--no-open\` - Do not open the browser automatically
 
 ### docs
 
@@ -2020,6 +2092,11 @@ sync local with a remote instance or the opposite (push or pull)
   - \`-o, --output-file <file:string>\` - Write YAML to a file instead of stdout
   - \`--show-secrets\` - Include sensitive fields (license key, JWT secret) without prompting
   - \`--instance <instance:string>\` - Name of the instance, override the active instance
+- \`instance connect-slack\`
+  - \`--bot-token <bot_token:string>\` - Slack bot token (xoxb-...)
+  - \`--team-id <team_id:string>\` - Slack team id
+  - \`--team-name <team_name:string>\` - Slack team name
+  - \`--instance <instance:string>\` - Instance profile to connect against (defaults to the active instance)
 
 ### job
 
@@ -2368,6 +2445,11 @@ workspace related commands
   - \`--exclude <items:string>\` - Comma-separated kind:path items to exclude
   - \`--preserve-on-behalf-of\` - Preserve original on_behalf_of/permissioned_as values
   - \`-y --yes\` - Non-interactive mode (deploy without prompts)
+- \`workspace connect-slack\` - Non-interactively connect Slack to the active workspace using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: workspace_settings fields, g/slack group, f/slack_bot folder, and the encrypted bot token variable + resource at f/slack_bot/bot_token.
+  - \`--bot-token <bot_token:string>\` - Slack bot token (xoxb-...)
+  - \`--team-id <team_id:string>\` - Slack team id
+  - \`--team-name <team_name:string>\` - Slack team name
+- \`workspace disconnect-slack\`
 
 `;
 

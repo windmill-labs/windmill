@@ -27,11 +27,12 @@ You MUST use the \`write-script-<language>\` skill to write or modify scripts in
 ## Flow Writing Guide
 
 You MUST use the \`write-flow\` skill to create or modify flows.
+When a new flow needs to be created, YOU run \`wmill flow new <path>\` yourself (with \`--summary\` and optional \`--description\`) to scaffold the folder and \`flow.yaml\`, then edit \`flow.yaml\` to fill in modules and schema. Do NOT scaffold the folder + yaml by hand and do NOT tell the user to run \`wmill flow new\`. If path or summary are missing from the user's request, ask via \`AskUserQuestion\` (one call, all missing fields) — never invent them. See the \`write-flow\` skill for the procedure.
 
 ## Raw App Development
 
 You MUST use the \`raw-app\` skill to create or modify raw apps.
-Whenever a new app needs to be created you MUST ask the user to run \`wmill app new\` in its terminal first.
+When a new app needs to be created, YOU run \`wmill app new\` yourself with \`--summary\`, \`--path\`, and \`--framework\` flags (and any other relevant flags). Do NOT ask the user to run it. If you don't have the values for those flags, ask the user via \`AskUserQuestion\` (one call, all missing fields) — never invent them. See the \`raw-app\` skill for the full procedure.
 
 ## Triggers
 
@@ -44,6 +45,10 @@ You MUST use the \`schedules\` skill to configure cron schedules.
 ## Resources
 
 You MUST use the \`resources\` skill to manage resource types and credentials.
+
+## Visual Preview
+
+You MUST use the \`preview\` skill any time the user wants to see/open/visualize/preview a flow, script, or app in the dev page — and after writing one, when offering visual verification. The skill picks between an MCP-embedded proxy (one named \`launch.json\` entry per target) and direct mode (URL handed to the user) based on what tools you have.
 
 ## CLI Reference
 

@@ -157,7 +157,7 @@ pub enum ObjectType {
     WorkspaceDependencies,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28213/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28215/sync-script-to-git-repo-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -174,8 +174,6 @@ pub struct GitRepositorySettings {
     pub git_repo_resource_path: String,
     pub use_individual_branch: Option<bool>,
     pub group_by_folder: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub force_branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<GitSyncSettings>,
 }

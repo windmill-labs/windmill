@@ -40,6 +40,13 @@ app related commands
 - `app lint [app_folder:string]` - Lint a raw app folder to validate structure and buildability
   - `--fix` - Attempt to fix common issues (not implemented yet)
 - `app new` - create a new raw app from a template
+  - `--summary <summary:string>` - App summary (short description). Skips the prompt when provided. Triggers non-interactive mode.
+  - `--path <path:string>` - App path (e.g., f/folder/my_app or u/username/my_app). Skips the prompt when provided. Triggers non-interactive mode.
+  - `--framework <framework:string>` - Framework template: react19 | react18 | svelte5 | vue. Skips the prompt when provided. Triggers non-interactive mode.
+  - `--datatable <datatable:string>` - Datatable to wire up. Without this flag in non-interactive mode, no datatable is configured.
+  - `--schema <schema:string>` - Schema to use with --datatable. Created (CREATE SCHEMA IF NOT EXISTS) if it doesn't already exist.
+  - `--overwrite` - Overwrite the target directory if it already exists, without prompting.
+  - `--no-open-in-desktop` - Do not prompt to open the new app in Claude Desktop.
 - `app generate-agents [app_folder:string]` - regenerate AGENTS.md and DATATABLES.md from remote workspace
 - `app set-permissioned-as <path:string> <email:string>` - Set the on_behalf_of_email for an app (requires admin or wm_deployers group)
 
@@ -76,10 +83,13 @@ workspace dependencies related commands
 
 ### dev
 
-Launch a dev server that watches for local file changes and auto-pushes them to the remote workspace. Provides live reload for scripts and flows during development.
+Watch local file changes and live-reload the dev page for preview. Does NOT deploy to the remote workspace — use wmill sync push for that.
 
 **Options:**
-- `--includes <pattern...:string>` - Filter paths givena glob pattern or path
+- `--includes <pattern...:string>` - Filter paths given a glob pattern or path
+- `--proxy-port <port:number>` - Port for a localhost reverse proxy to the remote Windmill server
+- `--path <path:string>` - Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)
+- `--no-open` - Do not open the browser automatically
 
 ### docs
 
@@ -266,6 +276,11 @@ sync local with a remote instance or the opposite (push or pull)
   - `-o, --output-file <file:string>` - Write YAML to a file instead of stdout
   - `--show-secrets` - Include sensitive fields (license key, JWT secret) without prompting
   - `--instance <instance:string>` - Name of the instance, override the active instance
+- `instance connect-slack`
+  - `--bot-token <bot_token:string>` - Slack bot token (xoxb-...)
+  - `--team-id <team_id:string>` - Slack team id
+  - `--team-name <team_name:string>` - Slack team name
+  - `--instance <instance:string>` - Instance profile to connect against (defaults to the active instance)
 
 ### job
 
@@ -614,4 +629,9 @@ workspace related commands
   - `--exclude <items:string>` - Comma-separated kind:path items to exclude
   - `--preserve-on-behalf-of` - Preserve original on_behalf_of/permissioned_as values
   - `-y --yes` - Non-interactive mode (deploy without prompts)
+- `workspace connect-slack` - Non-interactively connect Slack to the active workspace using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: workspace_settings fields, g/slack group, f/slack_bot folder, and the encrypted bot token variable + resource at f/slack_bot/bot_token.
+  - `--bot-token <bot_token:string>` - Slack bot token (xoxb-...)
+  - `--team-id <team_id:string>` - Slack team id
+  - `--team-name <team_name:string>` - Slack team name
+- `workspace disconnect-slack`
 

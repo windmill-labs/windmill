@@ -1015,6 +1015,110 @@ async def main(item: str, qty: int, email: str):
     Ok(())
 }
 
+/// Reproducer for issue #8946: WAC scripts (`auto_kind = 'wac'`) must show up
+/// in `GET /api/w/{workspace}/scripts/list?kinds=script`. The previous filter
+/// hid them by requiring `auto_kind IS NULL`, breaking trigger configuration
+/// dropdowns.
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "wac_preprocessor"))]
+async fn test_scripts_list_includes_wac(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let url = format!(
+        "http://localhost:{port}/api/w/test-workspace/scripts/list?kinds=script&without_description=true"
+    );
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "scripts/list failed: {}",
+        resp.status()
+    );
+    let scripts: Vec<serde_json::Value> = resp.json().await?;
+    let paths: Vec<&str> = scripts.iter().filter_map(|s| s["path"].as_str()).collect();
+    assert!(
+        paths.contains(&"f/system/wac_with_preprocessor"),
+        "WAC script missing from scripts/list response. Got: {:?}",
+        paths
+    );
+    Ok(())
+}
+
+/// Reproducer for issue #8947: a Python WAC script that defines a
+/// `preprocessor` function alongside the `@workflow` entrypoint must run the
+/// preprocessor on the trigger payload before invoking the workflow, persist
+/// the preprocessed args to `v2_job.args`, and dispatch inline child re-runs
+/// using the post-preprocessor args (so children of the WAC parent see the
+/// transformed shape, not the raw event).
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "wac_preprocessor"))]
+async fn test_python_wac_v2_with_preprocessor(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::scripts::ScriptHash;
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let db = &db;
+    in_test_worker(
+        db,
+        async move {
+            let job = Box::pin(
+                RunJob::from(JobPayload::ScriptHash {
+                    hash: ScriptHash(123419),
+                    path: "f/system/wac_with_preprocessor".to_string(),
+                    cache_ttl: None,
+                    cache_ignore_s3_path: None,
+                    dedicated_worker: None,
+                    language: ScriptLang::Python3,
+                    priority: None,
+                    apply_preprocessor: true,
+                    concurrency_settings:
+                        windmill_common::runnable_settings::ConcurrencySettings::default(),
+                    debouncing_settings:
+                        windmill_common::runnable_settings::DebouncingSettings::default(),
+                    labels: None,
+                })
+                .arg("who", json!("alice"))
+                .arg("count", json!(7))
+                .run_until_complete(db, false, port),
+            )
+            .await;
+
+            let result = job.json_result().unwrap();
+            // Preprocessor maps {who, count} -> {name, qty}. The @task
+            // `shout` upper-cases the name; the workflow returns greeting + qty.
+            assert_eq!(result["greeting"], json!("ALICE"));
+            assert_eq!(result["qty"], json!(7));
+
+            // Args column should now hold the preprocessed shape.
+            let args: serde_json::Value =
+                sqlx::query_scalar("SELECT args FROM v2_job WHERE id = $1")
+                    .bind(job.id)
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+            assert_eq!(args["name"], json!("alice"));
+            assert_eq!(args["qty"], json!(7));
+
+            let preprocessed: Option<bool> =
+                sqlx::query_scalar("SELECT preprocessed FROM v2_job WHERE id = $1")
+                    .bind(job.id)
+                    .fetch_one(db)
+                    .await
+                    .unwrap();
+            assert_eq!(preprocessed, Some(true));
+        },
+        port,
+    )
+    .await;
+    Ok(())
+}
+
 /// End-to-end comparison between the legacy `step()` suspend-and-replay path
 /// and the new SDK inline-persist fast path, toggled per-job via the
 /// `WM_WAC_INLINE_FAST_PATH` env var which the Python script sets on its own

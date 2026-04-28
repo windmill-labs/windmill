@@ -967,6 +967,18 @@ async fn set_slack_oauth_config(
 
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings { setting_type: "slack_oauth_config".to_string() },
+        Some("Slack OAuth config set".to_string()),
+        false,
+        None,
+    )
+    .await?;
+
     Ok(format!("Slack OAuth config set for workspace {}", &w_id))
 }
 
@@ -1000,6 +1012,18 @@ async fn delete_slack_oauth_config(
     .await?;
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings { setting_type: "slack_oauth_config".to_string() },
+        Some("Slack OAuth config deleted".to_string()),
+        false,
+        None,
+    )
+    .await?;
 
     Ok(format!(
         "Slack OAuth config deleted for workspace {}",
@@ -2803,17 +2827,18 @@ async fn edit_error_handler(
             }
         }
 
+        // Always persist `muted_on_cancel` and `muted_on_user_path` (including
+        // false values) so that a YAML round-trip via `wmill sync pull && wmill
+        // sync push` is stable instead of re-firing `editErrorHandler` on every
+        // push (the CLI sends `false` defaults and deepEqual would otherwise
+        // mismatch an omitted-on-write shape against an always-sent-by-CLI one).
         let mut error_handler = serde_json::json!({
             "path": path,
+            "muted_on_cancel": ee.muted_on_cancel,
+            "muted_on_user_path": ee.muted_on_user_path,
         });
         if let Some(extra_args) = &ee.extra_args {
             error_handler["extra_args"] = extra_args.clone();
-        }
-        if ee.muted_on_cancel {
-            error_handler["muted_on_cancel"] = serde_json::json!(true);
-        }
-        if ee.muted_on_user_path {
-            error_handler["muted_on_user_path"] = serde_json::json!(true);
         }
 
         sqlx::query!(

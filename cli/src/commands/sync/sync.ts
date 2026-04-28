@@ -1694,6 +1694,16 @@ async function compareDynFSElement(
         if (o["is_template"] != undefined) {
           delete o["is_template"];
         }
+        // no_main_func is a legacy field — replaced by auto_kind and
+        // auto-detected from script content at deploy time. auto_kind is
+        // intentionally never serialized to disk. Strip both so pre-migration
+        // local metadata does not produce phantom diffs.
+        if (o["no_main_func"] != undefined) {
+          delete o["no_main_func"];
+        }
+        if (o["auto_kind"] != undefined) {
+          delete o["auto_kind"];
+        }
       }
       return o;
     } else {
@@ -2549,6 +2559,7 @@ export async function pull(
         false,
       );
     }
+
     if (tracker.apps.length > 0) {
       log.info(
         colors.gray(

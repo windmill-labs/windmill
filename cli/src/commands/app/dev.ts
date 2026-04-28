@@ -5,6 +5,7 @@ import { sep as SEP } from "node:path";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import * as getPort from "get-port";
+import { resolveBindPort } from "../../utils/port-probe.ts";
 import * as open from "open";
 import { GlobalOptions } from "../../types.ts";
 import * as http from "node:http";
@@ -389,11 +390,23 @@ async function dev(opts: DevOptions, appFolder?: string) {
   // Dynamically import esbuild only when the dev command is called
   const esbuild = await import("esbuild");
 
-  const port = opts.port ??
-    (await getPort.default({
-      port: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((p) => p + DEFAULT_PORT),
-    }));
   const host = opts.host ?? DEFAULT_HOST;
+  // Probe both IPv4 and IPv6 stacks only when binding to localhost — that's
+  // the case where the OS may route traffic to a leftover listener on the
+  // other stack (see cli/src/utils/port-probe.ts). For an explicit IP host
+  // there's only one stack to worry about, so don't move the user's
+  // requested port over a phantom v6 collision.
+  const probeBothStacks = host === DEFAULT_HOST;
+  const port = opts.port !== undefined
+    ? (probeBothStacks
+      ? await resolveBindPort(opts.port, "--port", {
+          info: (m) => log.info(m),
+          warn: (m) => log.warn(m),
+        })
+      : opts.port)
+    : await getPort.default({
+        port: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((p) => p + DEFAULT_PORT),
+      });
   const shouldOpen = opts.open ?? true;
 
   // Detect frameworks to determine default entry point

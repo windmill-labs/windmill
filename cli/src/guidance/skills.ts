@@ -33,6 +33,7 @@ export const SKILLS: SkillMetadata[] = [
   { name: "schedules", description: "MUST use when configuring schedules." },
   { name: "resources", description: "MUST use when managing resources." },
   { name: "cli-commands", description: "MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`." },
+  { name: "preview", description: "MUST use when opening the Windmill dev page / visual preview of a flow, script, or app. Triggers on words like preview, open, navigate to, visualize, see the flow/app/script, and after writing a flow/script/app for visual verification." },
 ];
 
 // Skill content for each skill (loaded inline for bundling)
@@ -44,11 +45,36 @@ description: MUST use when writing Bash scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -109,11 +135,36 @@ description: MUST use when writing BigQuery queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -136,11 +187,36 @@ description: MUST use when writing Bun/TypeScript scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -803,11 +879,36 @@ description: MUST use when writing Bun Native scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -1468,11 +1569,36 @@ description: MUST use when writing C# scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -1525,11 +1651,36 @@ description: MUST use when writing Deno/TypeScript scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2196,11 +2347,36 @@ description: MUST use when writing DuckDB queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2263,11 +2439,36 @@ description: MUST use when writing Go scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2337,11 +2538,36 @@ description: MUST use when writing GraphQL queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2398,11 +2624,36 @@ description: MUST use when writing Java scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2452,11 +2703,36 @@ description: MUST use when writing MS SQL Server queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2479,11 +2755,36 @@ description: MUST use when writing MySQL queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2506,11 +2807,36 @@ description: MUST use when writing Native TypeScript scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -3138,11 +3464,36 @@ description: MUST use when writing PHP scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -3211,11 +3562,36 @@ description: MUST use when writing PostgreSQL queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -3238,11 +3614,36 @@ description: MUST use when writing PowerShell scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -3309,11 +3710,36 @@ description: MUST use when writing Python scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -4135,11 +4561,36 @@ description: MUST use when writing R scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -4236,11 +4687,36 @@ description: MUST use when writing Rust scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -4327,11 +4803,36 @@ description: MUST use when writing Snowflake queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -4354,15 +4855,77 @@ description: MUST use when creating flows.
 
 # Windmill Flow Building Guide
 
-## CLI Commands
+## Creating a Flow
 
-Create a folder ending with \`{{FLOW_SUFFIX}}\` and add a \`flow.yaml\` file with the flow definition.
+**You — the AI agent — scaffold the flow yourself by running \`wmill flow new <path>\` with the right flags. Do NOT hand-create the folder + \`flow.yaml\`, and do NOT tell the user to "run \`wmill flow new\` and follow the prompts".**
+
+\`wmill flow new\` creates the folder with the correct suffix (\`{{FLOW_SUFFIX}}\` or \`.flow\` depending on the workspace's \`nonDottedPaths\` setting), writes a minimal \`flow.yaml\` shell, and prints Claude-specific next-step hints. Scaffolding by hand skips all of that and often picks the wrong suffix.
+
+### Step 1 — Gather path + summary by asking the user
+
+You need two things:
+
+1. **path** — the windmill path, e.g. \`f/folder/my_flow\` or \`u/username/my_flow\`.
+2. **summary** — a short description of the flow.
+
+If the user's request didn't supply both, ask for both in a single round-trip. Use whichever interactive question facility your runtime provides — a structured multi-choice tool if available, otherwise plain chat — and provide one or two example values for each (with an "Other" / free-form fallback). Do not guess paths or summaries.
+
+### Step 2 — Run the command yourself
+
+\`\`\`bash
+wmill flow new f/folder/my_flow --summary "Short description"
+\`\`\`
+
+Add \`--description "..."\` when the user provided a longer explanation worth preserving separately from the summary.
+
+### Step 3 — Fill in \`flow.yaml\`
+
+Open the generated \`flow.yaml\` (under the folder the command just created) and replace the empty \`value.modules\` + \`schema\` with the real flow definition.
+
 For rawscript modules, use \`!inline path/to/script.ts\` for the content key. {{INLINE_SCRIPT_NAMING}}
-After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate lock files for the flow you modified
-- \`wmill sync push\` - Deploy to Windmill
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+Once the flow has real content, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry) and the user should consent.
+
+### Anti-patterns to avoid
+
+- ❌ Hand-creating the \`{{FLOW_SUFFIX}}\` folder + \`flow.yaml\` instead of running \`wmill flow new\`. You'll miss the suffix-setting resolution, the default shape, and the Claude hints.
+- ❌ Telling the user to "run \`wmill flow new <path>\`" — you can and should run it yourself.
+- ❌ Inventing a path/summary instead of asking the user.
+
+## CLI Commands — running, previewing, deploying
+
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill flow preview <flow_path>\` — **default when iterating on a local flow.** Runs the local \`flow.yaml\` against local inline scripts without deploying. Add \`--remote\` to use deployed workspace scripts for PathScript steps instead of local files.
+- \`wmill flow run <path>\` — runs the flow **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — regenerate stale \`.lock\` and \`.script.yaml\` files. By default it scans **scripts, flows, and apps** across the workspace; pass \`--skip-flows --skip-apps\` (or run from a subdirectory) to limit the scope when you only care about the flow you edited.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the flow", "try it", "test it", "does it work" while there are **local edits to a \`flow.yaml\`**, use \`flow preview\`. Do NOT push the flow to then \`flow run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`flow run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local \`flow.yaml\` being edited (you're just invoking an existing flow).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to run, don't wait passively
+
+This is about **programmatic execution** (\`wmill flow preview -d '<args>'\`), which actually runs the flow and has side effects. Visual preview (the \`preview\` skill) is offered separately — see "Visual preview" below.
+
+If the user hasn't already told you to run/test the flow, offer it as a one-sentence next step (e.g. "Want me to run \`wmill flow preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the flow in their original request, skip the offer and just execute \`wmill flow preview <path> -d '<args>'\` directly — pick plausible args from the flow's input schema.
+
+\`wmill flow preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+### Visual preview
+
+To open the flow visually in the dev page (graph + live reload), use the \`preview\` skill. Always **offer** it as a one-sentence next step (e.g. "Want me to open the visual preview?") rather than opening it automatically — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry under MCP-preview branches) the user should consent to. If the user already asked to see/preview/visualize the flow in their original request, skip the offer and just invoke the skill.
 
 ## OpenFlow Schema
 
@@ -4671,11 +5234,70 @@ Raw apps let you build custom frontends with React, Svelte, or Vue that connect 
 
 ## Creating a Raw App
 
+**You — the AI agent — create the app yourself by running \`wmill app new\` with the right flags. Do NOT tell the user to "run \`wmill app new\` and follow the prompts" or wait for them to do it.** The bare \`wmill app new\` is an interactive wizard that hangs waiting for stdin in any non-TTY context (which includes you). Always pass flags.
+
+### Step 1 — Gather the three required values by asking the user
+
+You need three things to run the command:
+
+1. **summary** — a short description of the app
+2. **path** — the windmill path, e.g. \`f/folder/my_app\` or \`u/username/my_app\`
+3. **framework** — one of \`react19\` (recommended), \`react18\`, \`svelte5\`, \`vue\`
+
+If the user's request did not supply *every* one of these explicitly, ask. Do not guess values, do not invent paths, do not pick a framework on the user's behalf, do not "just use react19 because it's the default".
+
+Use whichever interactive question facility your runtime provides — a structured multi-choice tool if available, otherwise plain chat — and group all missing fields into a single round-trip so the user answers them at once:
+
+- For \`framework\` — multiple-choice with the four allowed values; mark \`react19\` as \`(Recommended)\` and put it first.
+- For \`summary\` and \`path\` — provide one or two example values as multiple-choice options (the user can pick "Other" to type a free-form answer).
+
+Only proceed once you have concrete values for all three. If the user replies with something ambiguous, ask again rather than guessing.
+
+### Step 2 — Run the command yourself
+
+Once you have summary + path + framework, run it:
+
+\`\`\`bash
+wmill app new \\
+  --summary "Customer dashboard" \\
+  --path f/sales/dashboard \\
+  --framework react19
+\`\`\`
+
+That's the minimum. The datatable wizard and the "Open in Claude Desktop?" prompt are skipped silently because passing any of \`--summary\`/\`--path\`/\`--framework\` puts the command in non-interactive mode.
+
+### Optional flags
+
+Layer these in only when the user asked for them:
+
+| Flag | When to add it |
+|---|---|
+| \`--datatable <name>\` | The user wants this app wired to a specific Windmill datatable. Without it, the app is created with no datatable. |
+| \`--schema <name>\` | Together with \`--datatable\`. Creates the schema with \`CREATE SCHEMA IF NOT EXISTS\` if it doesn't already exist. |
+| \`--overwrite\` | The target directory already exists and the user said it's OK to replace. Without it, non-interactive mode aborts with an error so you don't clobber existing work. |
+| \`--no-open-in-desktop\` | Already implied in non-interactive mode; only needed if you're somehow running interactively. |
+
+### Step 3 — Offer the visual preview
+
+After \`wmill app new\` and any initial edits to \`App.tsx\` / \`index.tsx\`, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry when an embedded preview tool is in play) the user should consent to.
+
+For apps the preview command runs from the app folder (\`cd <app_path>__raw_app && wmill app dev …\`); the \`preview\` skill picks the proxy vs direct branch based on whether the runtime exposes a tool that can embed a localhost URL. If the user already asked to see/preview/visualize the app in their original request, skip the offer and just invoke the skill.
+
+### Anti-patterns to avoid
+
+- ❌ Running \`wmill app new\` with no flags (the prompt will hang).
+- ❌ Telling the user to "run \`wmill app new\` and follow the prompts" — that's a step backwards from what you can do directly.
+- ❌ Inventing a path/summary/framework instead of asking the user.
+- ❌ Defaulting to \`react19\` because the user didn't say — even sensible defaults must be confirmed.
+- ❌ Passing \`--overwrite\` automatically when the directory exists — confirm with the user first.
+
+### Interactive (only when a human is at the terminal)
+
 \`\`\`bash
 wmill app new
 \`\`\`
 
-This interactive command creates a complete app structure with your choice of frontend framework (React, Svelte, or Vue).
+This is the wizard. It only works when run by a human in a real terminal. Don't call it this way from an agent.
 
 ## App Structure
 
@@ -4899,12 +5521,13 @@ data:
 
 ## CLI Commands
 
-Tell the user they can run these commands (do NOT run them yourself):
+\`wmill app new\` is the exception: you run it yourself, with flags, per the "Creating a Raw App" section above.
+
+For everything else, tell the user which command fits their intent and let them run it — these touch the workspace or local lock files, and the user should consent each time:
 
 | Command | Description |
 |---------|-------------|
-| \`wmill app new\` | Create a new raw app interactively |
-| \`wmill app dev\` | Start dev server with live reload |
+| \`wmill app dev\` | Start dev server with live reload (see the \`preview\` skill for the full open-the-app-in-the-IDE-pane procedure). |
 | \`wmill app generate-agents\` | Refresh AGENTS.md and DATATABLES.md |
 | \`wmill generate-metadata\` | Generate lock files for backend runnables |
 | \`wmill sync push\` | Deploy app to Windmill |
@@ -5293,6 +5916,13 @@ app related commands
 - \`app lint [app_folder:string]\` - Lint a raw app folder to validate structure and buildability
   - \`--fix\` - Attempt to fix common issues (not implemented yet)
 - \`app new\` - create a new raw app from a template
+  - \`--summary <summary:string>\` - App summary (short description). Skips the prompt when provided. Triggers non-interactive mode.
+  - \`--path <path:string>\` - App path (e.g., f/folder/my_app or u/username/my_app). Skips the prompt when provided. Triggers non-interactive mode.
+  - \`--framework <framework:string>\` - Framework template: react19 | react18 | svelte5 | vue. Skips the prompt when provided. Triggers non-interactive mode.
+  - \`--datatable <datatable:string>\` - Datatable to wire up. Without this flag in non-interactive mode, no datatable is configured.
+  - \`--schema <schema:string>\` - Schema to use with --datatable. Created (CREATE SCHEMA IF NOT EXISTS) if it doesn't already exist.
+  - \`--overwrite\` - Overwrite the target directory if it already exists, without prompting.
+  - \`--no-open-in-desktop\` - Do not prompt to open the new app in Claude Desktop.
 - \`app generate-agents [app_folder:string]\` - regenerate AGENTS.md and DATATABLES.md from remote workspace
 - \`app set-permissioned-as <path:string> <email:string>\` - Set the on_behalf_of_email for an app (requires admin or wm_deployers group)
 
@@ -5329,10 +5959,13 @@ workspace dependencies related commands
 
 ### dev
 
-Launch a dev server that watches for local file changes and auto-pushes them to the remote workspace. Provides live reload for scripts and flows during development.
+Watch local file changes and live-reload the dev page for preview. Does NOT deploy to the remote workspace — use wmill sync push for that.
 
 **Options:**
-- \`--includes <pattern...:string>\` - Filter paths givena glob pattern or path
+- \`--includes <pattern...:string>\` - Filter paths given a glob pattern or path
+- \`--proxy-port <port:number>\` - Port for a localhost reverse proxy to the remote Windmill server
+- \`--path <path:string>\` - Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)
+- \`--no-open\` - Do not open the browser automatically
 
 ### docs
 
@@ -5519,6 +6152,11 @@ sync local with a remote instance or the opposite (push or pull)
   - \`-o, --output-file <file:string>\` - Write YAML to a file instead of stdout
   - \`--show-secrets\` - Include sensitive fields (license key, JWT secret) without prompting
   - \`--instance <instance:string>\` - Name of the instance, override the active instance
+- \`instance connect-slack\`
+  - \`--bot-token <bot_token:string>\` - Slack bot token (xoxb-...)
+  - \`--team-id <team_id:string>\` - Slack team id
+  - \`--team-name <team_name:string>\` - Slack team name
+  - \`--instance <instance:string>\` - Instance profile to connect against (defaults to the active instance)
 
 ### job
 
@@ -5867,7 +6505,139 @@ workspace related commands
   - \`--exclude <items:string>\` - Comma-separated kind:path items to exclude
   - \`--preserve-on-behalf-of\` - Preserve original on_behalf_of/permissioned_as values
   - \`-y --yes\` - Non-interactive mode (deploy without prompts)
+- \`workspace connect-slack\` - Non-interactively connect Slack to the active workspace using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: workspace_settings fields, g/slack group, f/slack_bot folder, and the encrypted bot token variable + resource at f/slack_bot/bot_token.
+  - \`--bot-token <bot_token:string>\` - Slack bot token (xoxb-...)
+  - \`--team-id <team_id:string>\` - Slack team id
+  - \`--team-name <team_name:string>\` - Slack team name
+- \`workspace disconnect-slack\`
 
+`,
+  "preview": `---
+name: preview
+description: MUST use when opening the Windmill dev page / visual preview of a flow, script, or app. Triggers on words like preview, open, navigate to, visualize, see the flow/app/script, and after writing a flow/script/app for visual verification.
+---
+
+# Windmill Preview Workflow
+
+Use this skill any time the user wants to **see**, **open**, **navigate to**, **visualize**, or **preview** a flow, script, or app — and any time you've just finished writing one and want to offer visual verification.
+
+The Windmill dev page renders the flow graph / script editor, lets the user step through steps, and live-reloads on every save. It runs locally via \`wmill dev\` and is reached on a localhost port.
+
+## Two independent decisions
+
+### 1. Mode: proxy or direct?
+
+\`wmill dev\` runs in two modes; pick by asking what kind of URL whatever will display the preview needs.
+
+- **Proxy** (\`--proxy-port <port>\`) — exposes the dev page on \`http://localhost:<port>/\`. Use it when the embedder you'll hand the URL to **only accepts localhost URLs** (most in-IDE / in-chat preview embedders do, because they sandbox cross-origin loads).
+- **Direct** (default) — the user's browser loads the dev page from the remote workspace's HTTPS URL; the local \`wmill dev\` only runs the WebSocket back-channel for live reload. Use it when the URL will be opened in a regular browser tab.
+
+Default to **direct** unless you have a specific embedder that needs localhost.
+
+### 2. Who starts the server?
+
+- **You start it** in the background. Spawn \`wmill dev …\` (or \`wmill app dev …\`) yourself, capture the URL it prints, do whatever's next (open a tab, hand the URL to an embedder).
+- **The runtime starts it from \`.claude/launch.json\`.** Some runtimes (currently the Claude Desktop / Claude Code MCP preview integration — tools prefixed with \`mcp__Claude_Preview__\`) can read a \`launch.json\` configuration and launch the dev server on demand when you invoke their preview tool. **Only take this path if you actually have such a tool** — otherwise nothing reads the file and \`wmill dev\` never starts.
+
+The two decisions compose. The common cases:
+
+| Embedder | Needs localhost? | launch.json runtime? | What to do |
+|---|---|---|---|
+| Regular browser tab | No | n/a | Direct mode, you start it, give URL to user |
+| IDE / chat preview pane that takes any URL | No | No | Direct mode, you start it, point the embedder at the printed URL |
+| IDE / chat preview pane that only accepts localhost | Yes | No | Proxy mode, you start it, point the embedder at \`http://localhost:<port>/\` |
+| Claude Desktop / Code MCP preview | Yes | Yes | Proxy mode, write a \`launch.json\` entry, invoke the MCP tool |
+
+Never start the proxy "just in case" — it adds the localhost hop for no benefit when no embedder needs it.
+
+## Starting the server yourself
+
+Use this when no \`launch.json\`-aware runtime is available, regardless of mode.
+
+For flows / scripts:
+\`\`\`bash
+# Direct mode — gives you the remote dev-page URL
+wmill dev --path <wmill_path> --no-open
+
+# Proxy mode — gives you a localhost URL that 302s to the remote dev page
+wmill dev --proxy-port 4000 --path <wmill_path> --no-open
+\`\`\`
+
+For apps:
+\`\`\`bash
+cd <app_path>__raw_app && wmill app dev --no-open --port 4000
+\`\`\`
+
+Each command prints the URL on stdout. Line shapes differ:
+
+- \`wmill dev --no-open\` (direct) prints \`Go to <url>\` with the full remote URL (workspace, token, path baked in).
+- \`wmill dev --proxy-port\` prints \`Dev proxy listening on http://localhost:<port>\` — the URL to hand to an embedder is \`http://localhost:<port>/\`.
+- \`wmill app dev --no-open\` prints \`🚀 Dev server running at <url>\` — the local app server.
+
+Capture the URL with a loose match (the first \`https?://…\` token after startup) and either hand it to your embedder or relay it to the user: *"Preview is running — open \`<url>\` in your browser."* Don't construct the URL yourself; you don't have the workspace ID or auth token.
+
+These commands are long-running — start them in the background, don't block waiting.
+
+## Letting \`launch.json\` start the server (Claude Desktop / Code MCP only)
+
+Take this path when **and only when** an \`mcp__Claude_Preview__*\` MCP tool is exposed in your tool list. Skip it otherwise — without an MCP tool reading the file, \`wmill dev\` never starts.
+
+**Each flow / script / app gets its own named entry** in the user's \`.claude/launch.json\` so multiple previews coexist without colliding — each entry pins a different port + path. Never reuse a generic "windmill" entry for different targets.
+
+### Step 1 — Reuse or add a per-target entry in \`.claude/launch.json\`
+
+Convention: name the entry \`windmill: <wmill_path>\` (e.g. \`windmill: f/test/my_flow\`).
+
+- **Entry already exists** → reuse it; note its \`port\` for the next step.
+- **Not there** → add one. Pick a port not already taken by another entry (start at 4000 and bump). Shape:
+
+For flows / scripts:
+\`\`\`json
+{
+  "name": "windmill: f/test/my_flow",
+  "runtimeExecutable": "bash",
+  "runtimeArgs": ["-c", "wmill dev --proxy-port \${PORT:-4000} --path f/test/my_flow --no-open"],
+  "port": 4000,
+  "autoPort": true
+}
+\`\`\`
+
+For apps (\`*__raw_app/\`), \`wmill app dev\` is the equivalent — runs from the app folder, no \`--path\`:
+\`\`\`json
+{
+  "name": "windmill: f/test/my_app",
+  "runtimeExecutable": "bash",
+  "runtimeArgs": ["-c", "cd f/test/my_app__raw_app && wmill app dev --no-open --port \${PORT:-4001}"],
+  "port": 4001,
+  "autoPort": true
+}
+\`\`\`
+
+If \`.claude/launch.json\` doesn't exist yet, create it with the standard shell \`{ "version": "0.0.1", "configurations": [...] }\`.
+
+### Step 2 — Invoke the MCP preview tool
+
+Point it at the entry you just added/found. Use \`http://localhost:<port>/\` as the URL — the proxy's redirect at \`/\` is what appends the workspace ID, the auth token, and the path. Do **NOT** construct a \`/dev?...\` URL yourself.
+
+The MCP tool launches the configuration on demand, so you don't need to start the \`wmill dev\` process manually.
+
+## Non-visual alternative
+
+If the user wants a programmatic test rather than a visual one:
+- Flow: \`wmill flow preview <path> -d '<args>'\`
+- Script: \`wmill script preview <path> -d '<args>'\`
+
+Both print the job result, are safe to run yourself, and don't deploy.
+
+## Anti-patterns to avoid
+
+- ❌ Writing a \`.claude/launch.json\` entry when no \`mcp__Claude_Preview__*\` tool is in your tool list. Nothing will read the file; the server never starts. Spawn \`wmill dev\` yourself instead.
+- ❌ Starting the proxy when no embedder needs a localhost URL. Direct mode is the right choice — the proxy is overhead with no purpose.
+- ❌ Reusing a single generic \`launch.json\` entry for every preview target. Each flow/script/app gets its own named entry on its own port — that's how multiple sessions coexist without one preview clobbering another.
+- ❌ Mutating an existing entry's \`--path\` to retarget it. Add a new entry instead.
+- ❌ Constructing \`http://localhost:<port>/dev?path=<X>\` yourself. The proxy's \`/\` redirect is what appends the workspace ID and auth token; bypassing it gives a broken page. Always use \`http://localhost:<port>/\`.
+- ❌ Starting \`wmill dev\` in the foreground (you'll hang). Always background.
+- ❌ Listing both "open in IDE pane" and "open in browser" as a menu — pick one based on context.
 `,
 };
 

@@ -214,6 +214,29 @@
 			// Build the full global_settings object for the bulk PUT
 			const globalSettings: Record<string, any> = { ...$values }
 
+			// Send explicit null for keys that were set on load but are now
+			// missing/cleared, so the Merge-mode bulk endpoint deletes them
+			// instead of silently preserving the old DB value. Covers both:
+			//   - YAML mode: user removed a line / set it to null / set it to {}.
+			//   - Form mode: user toggled a setting off (e.g.
+			//     object_store_cache_config), making the value undefined.
+			const isClearedValue = (v: any) => {
+				if (v === undefined || v === null) return true
+				if (typeof v === 'object') {
+					return Array.isArray(v) ? v.length === 0 : Object.keys(v).length === 0
+				}
+				return false
+			}
+			for (const key of Object.keys(initialValues ?? {})) {
+				if (excludedKeys.has(key)) continue
+				if (key === 'oauths' || key === 'require_preexisting_user_for_oauth') continue
+				if (!isClearedValue(globalSettings[key])) continue
+				// Only flag for deletion if it was non-empty before — otherwise
+				// every save would delete-then-recreate harmless `{}`/`[]` defaults.
+				if (isClearedValue(initialValues[key])) continue
+				globalSettings[key] = null
+			}
+
 			// Include oauths and require_preexisting_user_for_oauth
 			if (!deepEqual(initialOauths, oauths)) {
 				globalSettings['oauths'] = oauths
