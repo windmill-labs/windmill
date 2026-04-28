@@ -159,7 +159,7 @@
 			/>
 		</div>
 	{:else if RightIcon}
-		<div class="absolute z-10 right-2 h-full flex items-center">
+		<div class="absolute z-10 right-2 h-full flex items-center pointer-events-none">
 			<RightIcon size={iconSize} class="text-secondary" />
 		</div>
 	{/if}

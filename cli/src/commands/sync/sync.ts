@@ -1,6 +1,6 @@
 import { requireLogin } from "../../core/auth.ts";
 import { fetchVersion, resolveWorkspace } from "../../core/context.ts";
-import { readFile, writeFile, readdir, stat, rm, copyFile, mkdir } from "node:fs/promises";
+import { writeFile, readdir, stat, rm, copyFile, mkdir } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
@@ -42,9 +42,11 @@ import {
   isFilesetResource,
   isRawAppFile,
   isWorkspaceDependencies,
+  readTextFile,
 } from "../../utils/utils.ts";
 import {
   getEffectiveSettings,
+  getWorkspaceNames,
   mergeConfigWithConfigFile,
   parseSyncBehavior,
   SyncOptions,
@@ -119,6 +121,27 @@ let branchDeprecationWarned = false;
 function resolveWsNameFromBranch(opts: SyncOptions, branchName: string): string {
   const match = findWorkspaceByGitBranch(opts.workspaces, branchName);
   return match ? match[0] : branchName;
+}
+
+// Resolve wsNameForConfig from CLI flags. Prefers --branch → matching config key,
+// then --workspace → matching config key (incl. when --base-url is set). Returns
+// undefined when no flag-based resolution applies; callers then fall back to
+// inferWsNameFromProfile on the resolved workspace profile.
+export function resolveWsNameForConfigFromFlags(
+  opts: SyncOptions & { branch?: string; workspace?: string },
+): string | undefined {
+  if (opts.branch) {
+    return resolveWsNameFromBranch(opts, opts.branch);
+  }
+  if (opts.workspace) {
+    // Use getWorkspaceNames so reserved keys (e.g. commonSpecificItems) are filtered out,
+    // matching the behavior of findWorkspaceByGitBranch / inferWsNameFromProfile.
+    const validKeys = getWorkspaceNames(opts.workspaces);
+    if (validKeys.includes(opts.workspace)) {
+      return opts.workspace;
+    }
+  }
+  return undefined;
 }
 
 // Warn if --workspace overrides auto-detected branch or if workspace not in config.
@@ -325,7 +348,7 @@ export async function FSFSElement(
         }
       },
       async getContentText(): Promise<string> {
-        const content = await readFile(localP, "utf-8");
+        const content = await readTextFile(localP);
         const itemPath = localP.substring(p.length + 1);
         const r = await addCodebaseDigestIfRelevant(
           itemPath,
@@ -606,6 +629,48 @@ async function findFilesetResourceFile(changePath: string): Promise<string> {
     }
   }
   throw new Error(`No resource metadata file found for fileset resource: ${changePath}`);
+}
+
+type FilesetPushResult =
+  | { status: "pushed"; resourceFilePath: string }
+  | { status: "already-synced"; resourceFilePath: string }
+  | { status: "parent-missing" };
+
+async function pushFilesetParentResource(
+  childPath: string,
+  workspaceId: string,
+  alreadySynced: string[],
+  cachedWsName: string | null,
+): Promise<FilesetPushResult> {
+  let resourceFilePath: string;
+  try {
+    resourceFilePath = await findFilesetResourceFile(childPath);
+  } catch {
+    return { status: "parent-missing" };
+  }
+  if (alreadySynced.includes(resourceFilePath)) {
+    return { status: "already-synced", resourceFilePath };
+  }
+  alreadySynced.push(resourceFilePath);
+
+  const newObj = parseFromPath(
+    resourceFilePath,
+    await readTextFile(resourceFilePath),
+  );
+
+  let serverPath = resourceFilePath;
+  if (cachedWsName && isWorkspaceSpecificFile(resourceFilePath)) {
+    serverPath = fromWorkspaceSpecificPath(resourceFilePath, cachedWsName);
+  }
+
+  await pushResource(
+    workspaceId,
+    serverPath,
+    undefined,
+    newObj,
+    resourceFilePath,
+  );
+  return { status: "pushed", resourceFilePath };
 }
 
 function ZipFSElement(
@@ -1452,6 +1517,7 @@ export async function elementsToMap(
         path.endsWith(".mqtt_trigger" + ext) ||
         path.endsWith(".sqs_trigger" + ext) ||
         path.endsWith(".gcp_trigger" + ext) ||
+        path.endsWith(".azure_trigger" + ext) ||
         path.endsWith(".email_trigger" + ext) ||
         path.endsWith("_native_trigger" + ext))
     ) {
@@ -1627,6 +1693,16 @@ async function compareDynFSElement(
         }
         if (o["is_template"] != undefined) {
           delete o["is_template"];
+        }
+        // no_main_func is a legacy field — replaced by auto_kind and
+        // auto-detected from script content at deploy time. auto_kind is
+        // intentionally never serialized to disk. Strip both so pre-migration
+        // local metadata does not produce phantom diffs.
+        if (o["no_main_func"] != undefined) {
+          delete o["no_main_func"];
+        }
+        if (o["auto_kind"] != undefined) {
+          delete o["auto_kind"];
         }
       }
       return o;
@@ -1830,6 +1906,7 @@ function getOrderFromPath(p: string) {
     typ == "mqtt_trigger" ||
     typ == "sqs_trigger" ||
     typ == "gcp_trigger" ||
+    typ == "azure_trigger" ||
     typ == "email_trigger" ||
     typ == "native_trigger"
   ) {
@@ -2136,27 +2213,29 @@ export async function pull(
 
   // Resolve workspace name for config lookups.
   // --branch resolves git branch → workspace name (deprecated but still supported).
-  // --workspace (without --base-url) selects a workspace config entry by name.
-  // When --base-url is used with --workspace, --workspace is a profile selector only;
-  // --branch should still drive config lookups.
+  // --workspace selects a workspace config entry by name when it matches one,
+  // regardless of --base-url. If it doesn't match any entry it's treated as a
+  // profile/credential selector only.
   const hasExplicitCredentials = !!opts.baseUrl;
   let wsNameForConfig: string | undefined;
 
-  if (opts.branch) {
-    if (!hasExplicitCredentials && !branchDeprecationWarned) {
-      log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
-      branchDeprecationWarned = true;
-    }
-    wsNameForConfig = resolveWsNameFromBranch(opts, opts.branch);
-  } else if (opts.workspace && !hasExplicitCredentials) {
-    // --workspace without --base-url: use as workspace config name
-    wsNameForConfig = opts.workspace;
-    warnWorkspaceOverride(opts, wsNameForConfig);
+  if (opts.branch && !hasExplicitCredentials && !branchDeprecationWarned) {
+    log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
+    branchDeprecationWarned = true;
   }
 
-  // Validate workspace configuration early (skipped when override is used)
+  wsNameForConfig = resolveWsNameForConfigFromFlags(opts);
+
+  if (!opts.branch && opts.workspace && !hasExplicitCredentials) {
+    // Warn if override doesn't match a config key, or mismatches the auto-detected branch
+    warnWorkspaceOverride(opts, opts.workspace);
+  }
+
+  // Validate workspace configuration early. Skip when ANY explicit flag is set
+  // (even a --workspace value that doesn't match a config key — the user opted
+  // out of branch-based auto-detection).
   try {
-    await validateBranchConfiguration(opts, wsNameForConfig);
+    await validateBranchConfiguration(opts, wsNameForConfig ?? opts.workspace);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -2331,7 +2410,7 @@ export async function pull(
       if (change.name === "edited") {
         if (opts.stateful) {
           try {
-            const currentLocal = await readFile(target, "utf-8");
+            const currentLocal = await readTextFile(target);
             if (
               currentLocal !== change.before &&
               currentLocal !== change.after
@@ -2480,6 +2559,7 @@ export async function pull(
         false,
       );
     }
+
     if (tracker.apps.length > 0) {
       log.info(
         colors.gray(
@@ -2678,20 +2758,23 @@ export async function push(
   const hasExplicitCredentials = !!opts.baseUrl;
   let wsNameForConfig: string | undefined;
 
-  if (opts.branch) {
-    if (!hasExplicitCredentials && !branchDeprecationWarned) {
-      log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
-      branchDeprecationWarned = true;
-    }
-    wsNameForConfig = resolveWsNameFromBranch(opts, opts.branch);
-  } else if (opts.workspace && !hasExplicitCredentials) {
-    wsNameForConfig = opts.workspace;
-    warnWorkspaceOverride(opts, wsNameForConfig);
+  if (opts.branch && !hasExplicitCredentials && !branchDeprecationWarned) {
+    log.warn("⚠️  --branch/--env is deprecated. Use --workspace instead.");
+    branchDeprecationWarned = true;
   }
 
-  // Validate workspace configuration early (skipped when override is used)
+  wsNameForConfig = resolveWsNameForConfigFromFlags(opts);
+
+  if (!opts.branch && opts.workspace && !hasExplicitCredentials) {
+    // Warn if override doesn't match a config key, or mismatches the auto-detected branch
+    warnWorkspaceOverride(opts, opts.workspace);
+  }
+
+  // Validate workspace configuration early. Skip when ANY explicit flag is set
+  // (even a --workspace value that doesn't match a config key — the user opted
+  // out of branch-based auto-detection).
   try {
-    await validateBranchConfiguration(opts, wsNameForConfig);
+    await validateBranchConfiguration(opts, wsNameForConfig ?? opts.workspace);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -3089,7 +3172,7 @@ export async function push(
           }
         }
         const rules = folderRulesCache.get(folderName)!;
-        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|sqs_trigger|gcp_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
+        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|sqs_trigger|gcp_trigger|azure_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
         const relative = remotePath.slice(`f/${folderName}/`.length);
         if (!relative) continue;
         for (const rule of rules) {
@@ -3307,7 +3390,7 @@ export async function push(
 
                   const newObj = parseFromPath(
                     resourceFilePath,
-                    await readFile(resourceFilePath, "utf-8"),
+                    await readTextFile(resourceFilePath),
                   );
 
                   // For branch-specific resources, push to the base path on the workspace server
@@ -3336,37 +3419,24 @@ export async function push(
                 }
               }
               if (isFilesetResource(change.path)) {
-                const resourceFilePath = await findFilesetResourceFile(change.path);
-                if (!alreadySynced.includes(resourceFilePath)) {
-                  alreadySynced.push(resourceFilePath);
-
-                  const newObj = parseFromPath(
-                    resourceFilePath,
-                    await readFile(resourceFilePath, "utf-8"),
+                const result = await pushFilesetParentResource(
+                  change.path,
+                  workspace.workspaceId,
+                  alreadySynced,
+                  cachedWsNameForPush,
+                );
+                if (result.status === "parent-missing") {
+                  throw new Error(
+                    `No resource metadata file found for fileset resource: ${change.path}`,
                   );
-
-                  let serverPath = resourceFilePath;
-                  const currentBranch = cachedWsNameForPush;
-
-                  if (currentBranch && isWorkspaceSpecificFile(resourceFilePath)) {
-                    serverPath = fromWorkspaceSpecificPath(
-                      resourceFilePath,
-                      currentBranch,
-                    );
-                  }
-
-                  await pushResource(
-                    workspace.workspaceId,
-                    serverPath,
-                    undefined,
-                    newObj,
-                    resourceFilePath,
-                  );
+                }
+                if (result.status === "pushed") {
                   if (stateTarget) {
                     await writeFile(stateTarget, change.after, "utf-8");
                   }
                   continue;
                 }
+                // "already-synced": fall through (pre-existing behavior).
               }
               const oldObj = parseFromPath(change.path, change.before);
               const newObj = parseFromPath(change.path, change.after);
@@ -3397,12 +3467,23 @@ export async function push(
                 await writeFile(stateTarget, change.after, "utf-8");
               }
             } else if (change.name === "added") {
+              if (isFilesetResource(change.path)) {
+                // Re-push the parent resource (guarded by alreadySynced).
+                // Parent-missing means the parent itself is also being added and
+                // its own change will push the full fileset — safe to skip.
+                await pushFilesetParentResource(
+                  change.path,
+                  workspace.workspaceId,
+                  alreadySynced,
+                  cachedWsNameForPush,
+                );
+                continue;
+              }
               if (
                 change.path.endsWith(".script.json") ||
                 change.path.endsWith(".script.yaml") ||
                 change.path.endsWith(".lock") ||
-                isFileResource(change.path) ||
-                isFilesetResource(change.path)
+                isFileResource(change.path)
               ) {
                 continue;
               } else if (
@@ -3481,6 +3562,18 @@ export async function push(
                   opts,
                   rawWorkspaceDependencies,
                   codebases,
+                );
+                continue;
+              }
+              if (isFilesetResource(change.path)) {
+                // Re-push the parent resource (guarded by alreadySynced).
+                // Parent-missing means the parent itself is also being deleted
+                // and its own "deleted" change removes the whole resource.
+                await pushFilesetParentResource(
+                  change.path,
+                  workspace.workspaceId,
+                  alreadySynced,
+                  cachedWsNameForPush,
                 );
                 continue;
               }
@@ -3710,6 +3803,12 @@ export async function push(
                   await wmill.deleteGcpTrigger({
                     workspace: workspaceId,
                     path: removeSuffix(target, ".gcp_trigger.json"),
+                  });
+                  break;
+                case "azure_trigger":
+                  await wmill.deleteAzureTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".azure_trigger.json"),
                   });
                   break;
                 case "email_trigger":

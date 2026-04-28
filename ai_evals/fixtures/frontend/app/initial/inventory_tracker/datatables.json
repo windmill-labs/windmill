@@ -1,0 +1,17 @@
+[
+  {
+    "datatable_name": "main",
+    "schemas": {
+      "public": {
+        "inventory_items": {
+          "id": "int4",
+          "name": "text",
+          "sku": "text",
+          "quantity": "int4",
+          "price": "float8",
+          "created_at": "timestamp=now()"
+        }
+      }
+    }
+  }
+]

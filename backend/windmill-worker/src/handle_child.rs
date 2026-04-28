@@ -57,11 +57,10 @@ use crate::job_logger_oss::process_streaming_log_lines;
 use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
 use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
 
-use windmill_common::tracing_init::{QUIET_MODE, VERBOSE_TARGET};
+use windmill_common::tracing_init::{OTEL_JOB_LOGS, OTEL_PREFIX, QUIET_MODE, VERBOSE_TARGET};
 
 lazy_static::lazy_static! {
     pub static ref SLOW_LOGS: bool = std::env::var("SLOW_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
-    pub static ref OTEL_JOB_LOGS: bool = std::env::var("OTEL_JOB_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
 }
 
 //  - kill windows process along with all child processes
@@ -357,7 +356,6 @@ pub async fn handle_child(
     }
 }
 
-pub const OTEL_PREFIX: &str = "OTEL: ";
 pub const WAC_STEP_PREFIX: &str = "WM_WAC_STEP: ";
 
 pub async fn write_lines(

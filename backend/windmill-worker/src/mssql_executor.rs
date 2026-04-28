@@ -18,13 +18,13 @@ use windmill_common::{
     utils::empty_as_none,
     worker::{to_raw_value, Connection},
 };
-use windmill_object_store::convert_json_line_stream;
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig, parse_s3_mode};
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::common::{
-    build_args_values, get_reserved_variables, s3_mode_args_to_worker_data, OccupancyMetrics,
+    build_args_values, get_reserved_variables, s3_mode_args_to_worker_data,
+    s3_stream_and_upload_with_logs, OccupancyMetrics,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
@@ -246,17 +246,22 @@ pub async fn do_mssql(
         if let Some(s3) = s3 {
             let rows_stream = async_stream::stream! {
                 let mut stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?.into_row_stream().map(|row| {
-                    let raw_value = row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow);
-                    let json = raw_value.and_then(|raw_value| serde_json::from_str(raw_value.get()).map_err(to_anyhow));
-                    json
+                    row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow)
                 });
                 while let Some(row) = stream.next().await {
                     yield row;
                 }
             };
 
-            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
-            s3.upload(stream.boxed()).await?;
+            s3_stream_and_upload_with_logs(
+                "MSSQL",
+                rows_stream.boxed(),
+                &s3,
+                job.id,
+                &job.workspace_id,
+                conn,
+            )
+            .await?;
 
             Ok(to_raw_value(&s3.to_return_s3_obj()))
         } else {

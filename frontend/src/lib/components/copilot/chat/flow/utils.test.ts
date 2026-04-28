@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { FlowModule, OpenFlow } from '$lib/gen'
-import { getIndexInNestedModules, getModuleById } from './utils'
+import type { FlowModule } from '$lib/gen'
+import { collectAllFlowModuleIdsFromModules } from '../../../../components/flows/flowTree'
 
 function createAiAgentTool(id: string, content: string) {
 	return {
@@ -28,43 +28,37 @@ function createAiAgentModule(id: string, tools: ReturnType<typeof createAiAgentT
 }
 
 describe('chat flow utils', () => {
-	it('resolves ai agent tools by id against the stored flow node', () => {
-		const flow = {
-			value: {
-				modules: [createAiAgentModule('agent', [createAiAgentTool('sum', 'before-tool')])]
-			}
-		} as OpenFlow
+	it('collects nested module ids and all ai agent tool ids for flow-json validation', () => {
+		const modules = [
+			{
+				id: 'router',
+				value: {
+					type: 'branchone',
+					default: [{ id: 'default_step', value: { type: 'identity' } }],
+					branches: [{ expr: 'true', modules: [{ id: 'branch_step', value: { type: 'identity' } }] }],
+					input_transforms: {}
+				}
+			} as any as FlowModule,
+			createAiAgentModule('agent', [
+				createAiAgentTool('lookup', 'lookup-tool'),
+				{
+					id: 'search_docs',
+					summary: 'search_docs',
+					value: {
+						tool_type: 'mcp',
+						resource_path: ''
+					}
+				} as any
+			])
+		]
 
-		const tool = getModuleById(flow, 'sum')
-
-		expect(tool?.id).toBe('sum')
-		expect((tool?.value as any).content).toBe('before-tool')
-
-		;(tool?.value as any).content = 'after-tool'
-		expect(((flow.value.modules[0].value as any).tools[0].value as any).content).toBe('after-tool')
-	})
-
-	it('returns the ai agent tools array for nested index operations', () => {
-		const flow = {
-			value: {
-				modules: [
-					createAiAgentModule('agent', [
-						createAiAgentTool('lookup', 'lookup-tool'),
-						createAiAgentTool('sum', 'sum-tool')
-					])
-				]
-			}
-		} as OpenFlow
-
-		const result = getIndexInNestedModules(flow, 'sum')
-
-		expect(result).not.toBeNull()
-		expect(result?.index).toBe(1)
-		expect(result?.modules.map((module) => module.id)).toEqual(['lookup', 'sum'])
-
-		result?.modules.splice(result.index, 1)
-		expect(((flow.value.modules[0].value as any).tools ?? []).map((tool: any) => tool.id)).toEqual([
-			'lookup'
+		expect(collectAllFlowModuleIdsFromModules(modules)).toEqual([
+			'router',
+			'branch_step',
+			'default_step',
+			'agent',
+			'lookup',
+			'search_docs'
 		])
 	})
 })

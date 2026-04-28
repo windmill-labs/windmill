@@ -3,6 +3,23 @@
     Create a Windmill Bun script at `f/evals/hello.ts`.
     It should take a `name` input and return a greeting object like `{ greeting: "Hello, Alice!" }`.
   expected: ai_evals/fixtures/cli/expected/bun-hello-script
+  cliExpect:
+    requiredSkills:
+      - write-script-bun
+    requiredSkillsBeforeFirstMutation:
+      - write-script-bun
+    forbiddenSkills:
+      - write-script-python3
+      - write-flow
+    orderedAssistantMentions:
+      - wmill generate-metadata
+      - wmill sync push
+    orderedProposedCommands:
+      - wmill generate-metadata
+      - wmill sync push
+    forbiddenExecutedCommands:
+      - ^wmill generate-metadata
+      - ^wmill sync push
   judgeChecklist:
     - creates the requested Bun script at f/evals/hello.ts
     - takes a name input
@@ -14,6 +31,22 @@
     It should take a `name` input and return a greeting object like `{ greeting: "Hello, Alice!" }`.
     Put the step code in `hello.ts`.
   expected: ai_evals/fixtures/cli/expected/bun-hello-flow
+  cliExpect:
+    requiredSkills:
+      - write-flow
+    requiredSkillsBeforeFirstMutation:
+      - write-flow
+    forbiddenSkills:
+      - write-script-python3
+    orderedAssistantMentions:
+      - wmill generate-metadata
+      - wmill sync push
+    orderedProposedCommands:
+      - wmill generate-metadata
+      - wmill sync push
+    forbiddenExecutedCommands:
+      - ^wmill generate-metadata
+      - ^wmill sync push
   judgeChecklist:
     - creates the requested flow folder with flow.yaml and hello.ts
     - wires the name input into the flow step
@@ -24,6 +57,23 @@
     Add a Windmill Python script at `f/evals/add_numbers.py`.
     It should take `a` and `b` as inputs and return `{ "total": a + b }`.
   expected: ai_evals/fixtures/cli/expected/python-add-numbers-script
+  cliExpect:
+    requiredSkills:
+      - write-script-python3
+    requiredSkillsBeforeFirstMutation:
+      - write-script-python3
+    forbiddenSkills:
+      - write-script-bun
+      - write-flow
+    orderedAssistantMentions:
+      - wmill generate-metadata
+      - wmill sync push
+    orderedProposedCommands:
+      - wmill generate-metadata
+      - wmill sync push
+    forbiddenExecutedCommands:
+      - ^wmill generate-metadata
+      - ^wmill sync push
   judgeChecklist:
     - creates the requested Python script at f/evals/add_numbers.py
     - takes `a` and `b` as inputs
@@ -59,8 +109,91 @@
     Create a flow at `f/evals/reuse_greeting__flow` that takes a `name` input and reuses that existing script instead of duplicating the logic inline.
   initial: ai_evals/fixtures/cli/initial/flow-reuse-existing-script
   expected: ai_evals/fixtures/cli/expected/flow-reuse-existing-script
+  cliExpect:
+    requiredSkills:
+      - write-flow
+    requiredSkillsBeforeFirstMutation:
+      - write-flow
+    orderedAssistantMentions:
+      - wmill generate-metadata
+      - wmill sync push
+    orderedProposedCommands:
+      - wmill generate-metadata
+      - wmill sync push
+    forbiddenExecutedCommands:
+      - ^wmill generate-metadata
+      - ^wmill sync push
   judgeChecklist:
     - creates the requested flow at f/evals/reuse_greeting__flow
     - reuses the existing script from f/lib by path
     - does not duplicate the greeting logic in a new inline script
     - wires the name input into the reused script
+
+- id: cli-job-debug-guidance
+  prompt: |-
+    A Windmill job failed.
+    Tell me exactly which `wmill` commands to run to inspect the job details, logs, and final result for job ID `123`.
+    Do not modify any files.
+  cliExpect:
+    requiredSkills:
+      - cli-commands
+    workspaceUnchanged: true
+    orderedProposedCommands:
+      - wmill job get 123
+      - wmill job logs 123
+      - wmill job result 123
+    forbiddenProposedCommands:
+      - wmill sync push
+    forbiddenExecutedCommands:
+      - ^wmill job get
+      - ^wmill job logs
+      - ^wmill job result
+  judgeChecklist:
+    - does not modify the workspace
+    - recommends commands to inspect the job details
+    - recommends commands to inspect the job logs
+    - recommends commands to inspect the final result
+
+- id: cli-sync-pull-guidance
+  prompt: |-
+    I want to review remote workspace changes before editing locally.
+    Tell me the first `wmill` command I should run.
+    Do not modify any files.
+  cliExpect:
+    requiredSkills:
+      - cli-commands
+    workspaceUnchanged: true
+    requiredProposedCommands:
+      - wmill sync pull
+    forbiddenProposedCommands:
+      - wmill sync push
+    forbiddenExecutedCommands:
+      - ^wmill sync pull
+      - ^wmill sync push
+  judgeChecklist:
+    - does not modify the workspace
+    - recommends using sync pull before making local edits
+    - does not recommend pushing first
+
+- id: cli-script-deploy-guidance
+  prompt: |-
+    I already modified a Windmill script locally and now want the next CLI commands to prepare it and deploy it.
+    Tell me the commands to run, in order.
+    Do not modify any files.
+  cliExpect:
+    requiredSkills:
+      - cli-commands
+    workspaceUnchanged: true
+    orderedAssistantMentions:
+      - wmill generate-metadata
+      - wmill sync push
+    orderedProposedCommands:
+      - wmill generate-metadata
+      - wmill sync push
+    forbiddenExecutedCommands:
+      - ^wmill generate-metadata
+      - ^wmill sync push
+  judgeChecklist:
+    - does not modify the workspace
+    - recommends generate-metadata before sync push
+    - presents the commands in order

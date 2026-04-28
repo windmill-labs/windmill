@@ -15,7 +15,9 @@ use std::{
     iter::Peekable,
     str::CharIndices,
 };
-pub use windmill_parser::{s3_mode_extension, Arg, MainArgSignature, ObjectType, S3ModeFormat, Typ};
+pub use windmill_parser::{
+    s3_mode_extension, Arg, MainArgSignature, ObjectType, S3ModeFormat, Typ,
+};
 
 pub const SANITIZED_ENUM_STR: &str = "__sanitized_enum__";
 pub const SANITIZED_RAW_STRING_STR: &str = "__sanitized_raw_string__";
@@ -191,12 +193,13 @@ pub fn parse_s3_mode(code: &str) -> anyhow::Result<Option<S3ModeArgs>> {
     Ok(Some(S3ModeArgs { prefix, storage, format }))
 }
 
-pub fn parse_sql_blocks(code: &str) -> Vec<&str> {
+pub fn parse_sql_blocks(code: &str, track_dollar_quotes: bool) -> Vec<&str> {
     let mut blocks = vec![];
     let mut last_idx = 0;
 
     run_on_sql_statement_matches(
         code,
+        track_dollar_quotes,
         |char, _| char == ';',
         |idx, _| {
             blocks.push(&code[last_idx..=idx]);
@@ -395,6 +398,44 @@ enum ParserState {
     InDoubleQuote,
     InSingleLineComment,
     InMultiLineComment,
+    // Stores the full `$tag$` delimiter (including both `$`s). On re-encountering
+    // the same delimiter we return to `Normal`. An empty tag yields `$$`.
+    InDollarQuote(String),
+}
+
+// If `code[idx..]` starts with a PostgreSQL dollar-quote delimiter (`$$` or
+// `$tag$`), returns the delimiter's byte length. The tag follows identifier
+// rules (first char letter/underscore, subsequent letters/digits/underscores),
+// which naturally rejects placeholder syntax like `$1` or `$2::int`.
+fn parse_dollar_quote_delimiter(code: &str, idx: usize) -> Option<usize> {
+    let bytes = code.as_bytes();
+    if bytes.get(idx) != Some(&b'$') {
+        return None;
+    }
+    let mut i = idx + 1;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'$' {
+            return Some(i + 1 - idx);
+        }
+        let is_first = i == idx + 1;
+        let ok = if is_first {
+            b.is_ascii_alphabetic() || b == b'_'
+        } else {
+            b.is_ascii_alphanumeric() || b == b'_'
+        };
+        if !ok {
+            return None;
+        }
+        i += 1;
+    }
+    None
+}
+
+fn advance_past<I: Iterator<Item = (usize, char)>>(chars: &mut Peekable<I>, target: usize) {
+    while chars.peek().map_or(false, |&(i, _)| i < target) {
+        chars.next();
+    }
 }
 
 fn run_on_sql_statement_matches<
@@ -402,6 +443,7 @@ fn run_on_sql_statement_matches<
     F2: FnMut(usize, &mut Peekable<CharIndices>) -> (),
 >(
     code: &str,
+    track_dollar_quotes: bool,
     mut cond: F1,
     mut case: F2,
 ) {
@@ -424,6 +466,16 @@ fn run_on_sql_statement_matches<
                 if chars.peek().is_some_and(|&(_, next_char)| next_char == '*') =>
             {
                 state = ParserState::InMultiLineComment;
+            }
+            (ParserState::Normal, '$') if track_dollar_quotes => {
+                if let Some(delim_len) = parse_dollar_quote_delimiter(code, idx) {
+                    let delim_end = idx + delim_len;
+                    let delim = code[idx..delim_end].to_string();
+                    advance_past(&mut chars, delim_end);
+                    state = ParserState::InDollarQuote(delim);
+                } else if cond(char, &mut chars) {
+                    case(idx, &mut chars);
+                }
             }
             (ParserState::Normal, _) if cond(char, &mut chars) => {
                 case(idx, &mut chars);
@@ -453,6 +505,13 @@ fn run_on_sql_statement_matches<
             {
                 state = ParserState::Normal;
             }
+            (ParserState::InDollarQuote(delim), '$') => {
+                if code[idx..].starts_with(delim.as_str()) {
+                    let target = idx + delim.len();
+                    advance_past(&mut chars, target);
+                    state = ParserState::Normal;
+                }
+            }
             _ => {}
         }
     }
@@ -462,6 +521,7 @@ pub fn parse_pg_statement_arg_indices(code: &str) -> HashSet<i32> {
     let mut arg_indices = HashSet::new();
     run_on_sql_statement_matches(
         code,
+        true,
         |char, chars| {
             char == '$'
                 && chars
@@ -631,6 +691,7 @@ pub fn parse_sql_statement_named_params(code: &str, prefix: char) -> HashSet<Str
     let mut arg_names = HashSet::new();
     run_on_sql_statement_matches(
         code,
+        false,
         |char, chars| {
             char == prefix
                 && chars
@@ -952,7 +1013,7 @@ SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1002,7 +1063,7 @@ SELECT $2::TEXT;
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1019,7 +1080,7 @@ SELECT '--', ';' $3::TEXT, $1::BIGINT;
 -- ;
 SELECT $2::TEXT;
 "#;
-        assert_eq!(parse_sql_blocks(code).len(), 2);
+        assert_eq!(parse_sql_blocks(code, true).len(), 2);
 
         Ok(())
     }
@@ -1035,7 +1096,7 @@ SELECT '--', ';' $3::TEXT, $1::BIGINT;
 SELECT $2::TEXT
 "#;
         assert_eq!(
-            parse_sql_blocks(code),
+            parse_sql_blocks(code, true),
             vec![
                 r#"
 -- $1 param1
@@ -1062,7 +1123,7 @@ SELECT '--', ';' $3::TEXT, $1::BIGINT;
 -- hey
 "#;
         assert_eq!(
-            parse_sql_blocks(code),
+            parse_sql_blocks(code, true),
             vec![
                 r#"
 -- $1 param1
@@ -1084,7 +1145,7 @@ SELECT '--', ';' $3::TEXT, $1::BIGINT;"#,
 SELECT '--', ';' $3::TEXT, $1::BIGINT
 "#;
         assert_eq!(
-            parse_sql_blocks(code),
+            parse_sql_blocks(code, true),
             vec![
                 r#"
 -- $1 param1
@@ -1095,6 +1156,81 @@ SELECT '--', ';' $3::TEXT, $1::BIGINT
             ]
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_sql_blocks_dollar_quoted_function() -> anyhow::Result<()> {
+        let code = r#"CREATE OR REPLACE FUNCTION track_status_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.status IS DISTINCT FROM NEW.status THEN
+        INSERT INTO use_case_card_history (use_case_id, old_status, new_status)
+        VALUES (NEW.id, OLD.status, NEW.status);
+    END IF;
+    NEW.updated_at := NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;"#;
+        assert_eq!(parse_sql_blocks(code, true), vec![code]);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_sql_blocks_dollar_quoted_tagged() -> anyhow::Result<()> {
+        let code = r#"CREATE FUNCTION f() RETURNS int AS $body$ BEGIN RETURN 1; END; $body$ LANGUAGE plpgsql;
+SELECT 1;"#;
+        let blocks = parse_sql_blocks(code, true);
+        assert_eq!(blocks.len(), 2);
+        assert!(blocks[0].contains("$body$"));
+        assert!(blocks[0].contains("END;"));
+        assert_eq!(blocks[1], "\nSELECT 1;");
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_sql_blocks_dollar_quote_does_not_match_placeholder() -> anyhow::Result<()> {
+        // `$1`, `$2` must still be treated as placeholders, not dollar-quote openers.
+        let code = r#"SELECT $1::TEXT, $2::BIGINT;
+SELECT $1 FROM t;"#;
+        assert_eq!(parse_sql_blocks(code, true).len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_pg_statement_arg_indices_inside_dollar_quote() -> anyhow::Result<()> {
+        // `$1` inside a dollar-quoted body is part of the string literal, not a parameter.
+        let code = r#"CREATE FUNCTION f() RETURNS int AS $$ SELECT $1 $$ LANGUAGE sql;
+SELECT $2;"#;
+        let indices = parse_pg_statement_arg_indices(code);
+        assert!(!indices.contains(&1), "$1 inside $$...$$ should be ignored");
+        assert!(
+            indices.contains(&2),
+            "$2 outside dollar-quote should be collected"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_sql_blocks_non_pg_ignores_dollar_quotes() -> anyhow::Result<()> {
+        // Non-Postgres dialects (MySQL/Oracle/BigQuery/Snowflake) pass `false`,
+        // so a bare `$tag$...;...$tag$` sequence must still split on `;`.
+        let code = "SELECT $foo$; SELECT 1;";
+        assert_eq!(parse_sql_blocks(code, false).len(), 2);
+        // With tracking on (PG), `$foo$` opens a dollar-quote that is never closed,
+        // so the whole thing becomes a single block.
+        assert_eq!(parse_sql_blocks(code, true).len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_sql_blocks_nested_tag_mismatch() -> anyhow::Result<()> {
+        // An inner tag that doesn't match the outer one does not terminate the outer quote.
+        let code = r#"CREATE FUNCTION f() RETURNS int AS $outer$ SELECT $inner$ x; y $inner$ ; $outer$ LANGUAGE sql;
+SELECT 1;"#;
+        let blocks = parse_sql_blocks(code, true);
+        assert_eq!(blocks.len(), 2);
+        assert!(blocks[0].contains("$outer$ LANGUAGE sql;"));
         Ok(())
     }
 
@@ -1130,7 +1266,7 @@ SELECT ?, ?;
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1179,7 +1315,7 @@ SELECT :param2;
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1220,7 +1356,7 @@ SELECT @token;
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1269,7 +1405,7 @@ SELECT ?;
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1318,7 +1454,7 @@ SELECT @P2;
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1368,7 +1504,7 @@ SELECT * FROM table_name WHERE thing = :name4;
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1407,7 +1543,7 @@ SELECT * FROM users WHERE id = $1 AND email = $2::text;
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1446,7 +1582,7 @@ SELECT * FROM users LIMIT $1 OFFSET $2;
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1497,7 +1633,7 @@ WHERE id = $1
                 ],
                 auto_kind: None,
                 has_preprocessor: None,
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1525,7 +1661,7 @@ SELECT * FROM users WHERE id = ANY($1);
                 },],
                 auto_kind: None,
                 has_preprocessor: None,
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1555,7 +1691,7 @@ SELECT $1::integer;
                 },],
                 auto_kind: None,
                 has_preprocessor: None,
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1588,7 +1724,7 @@ SELECT x
                 },],
                 auto_kind: None,
                 has_preprocessor: None,
-                            ..Default::default()
+                ..Default::default()
             }
         );
 

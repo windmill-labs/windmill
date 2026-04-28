@@ -8,14 +8,10 @@
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { aiChatManager } from '../AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import { getSubModules } from '$lib/components/flows/flowExplorer'
 	import type { FlowCopilotContext } from '../../flow'
 	import type { ScriptLintResult } from '../shared'
-	import {
-		applyFlowJsonUpdate,
-		getFlowModuleById,
-		updateRawScriptModuleContent
-	} from './helperUtils'
+	import { applyFlowJsonUpdate, updateRawScriptModuleContent } from './helperUtils'
+	import { findModuleInFlow } from '$lib/components/flows/flowTree'
 
 	let {
 		flowModuleSchemaMap,
@@ -43,16 +39,7 @@
 				selectedId: selectedId === 'settings-metadata' ? '' : selectedId
 			}
 		},
-		getModules: (id?: string) => {
-			if (id) {
-				const module = getFlowModuleById(flowStore.val, id)
-
-				if (!module) {
-					throw new Error('Module not found')
-				}
-
-				return getSubModules(module).flat()
-			}
+		getRootModules: () => {
 			return flowStore.val.value.modules
 		},
 		inlineScriptSession,
@@ -68,7 +55,7 @@
 			// Update current editor if needed
 			const targetSnapshot = snapshot ?? diffManager.beforeFlow
 			if ($currentEditor && targetSnapshot) {
-				const module = getFlowModuleById(targetSnapshot, $currentEditor.stepId)
+				const module = findModuleInFlow(targetSnapshot.value, $currentEditor.stepId) ?? undefined
 				if (module) {
 					if ($currentEditor.type === 'script' && module.value.type === 'rawscript') {
 						$currentEditor.editor.setCode(module.value.content)
@@ -163,7 +150,7 @@
 		},
 
 		getLintErrors: async (moduleId: string): Promise<ScriptLintResult> => {
-			const module = getFlowModuleById(flowStore.val, moduleId)
+			const module = findModuleInFlow(flowStore.val.value, moduleId) ?? undefined
 			if (!module || module.value.type !== 'rawscript') {
 				return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 			}
@@ -190,13 +177,14 @@
 			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 		},
 
-		setFlowJson: async ({ modules, schema, preprocessorModule, failureModule }) => {
+		setFlowJson: async ({ modules, schema, preprocessorModule, failureModule, groups }) => {
 			try {
 				if (
 					modules !== undefined ||
 					schema !== undefined ||
 					preprocessorModule !== undefined ||
-					failureModule !== undefined
+					failureModule !== undefined ||
+					groups !== undefined
 				) {
 					// Take snapshot of current flowStore and set as beforeFlow
 					if (!diffManager?.hasPendingChanges) {
@@ -210,7 +198,8 @@
 					modules,
 					schema,
 					preprocessorModule,
-					failureModule
+					failureModule,
+					groups
 				})
 
 				// Refresh the state store to update UI
@@ -231,7 +220,9 @@
 			diffManager?.moduleActions[selectedId]?.pending &&
 			$currentEditor.editor.getAiChatEditorHandler()
 		) {
-			const moduleLastSnapshot = getFlowModuleById(diffManager.beforeFlow, selectedId)
+			const moduleLastSnapshot = diffManager.beforeFlow
+				? (findModuleInFlow(diffManager.beforeFlow.value, selectedId) ?? undefined)
+				: undefined
 			const content =
 				moduleLastSnapshot?.value.type === 'rawscript' ? moduleLastSnapshot.value.content : ''
 			if (content.length > 0) {

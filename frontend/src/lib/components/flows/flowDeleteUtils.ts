@@ -15,7 +15,7 @@ import {
 import type { AgentTool } from './agentToolUtils'
 import { dfs } from './dfs'
 import { getDependentComponents } from './flowExplorer'
-import { dfsByModule } from './previousResults'
+import { findModuleInModules } from './flowTree'
 
 export type DeleteSelection =
 	| { kind: 'clear' }
@@ -87,7 +87,7 @@ export function resolveDeleteTargets(
 		}
 
 		if (findInStructure(tree, id)) {
-			const module = findFlowModuleById(id, modules)
+			const module = findModuleInModules(modules, id)
 			if (module) {
 				targets.push({
 					kind: 'structure_node',
@@ -190,10 +190,6 @@ export function removeDeletePlanTools(
 	}
 
 	return [...removedIds]
-}
-
-function findFlowModuleById(id: string, modules: FlowModule[]): FlowModule | undefined {
-	return dfsByModule(id, modules)[0]
 }
 
 function pruneNestedTargets(targets: DeleteTarget[]): DeleteTarget[] {

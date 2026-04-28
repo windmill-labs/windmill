@@ -1,64 +1,24 @@
-import type { FlowModule, OpenFlow, RawScript } from '$lib/gen'
+import type { FlowModule, FlowValue, OpenFlow, RawScript } from '$lib/gen'
 import { forEachFlowModule } from '$lib/components/flows/dfs'
-import { dfs } from '$lib/components/flows/previousResults'
-import { SPECIAL_MODULE_IDS } from '../shared'
+import { findModuleInFlow } from '$lib/components/flows/flowTree'
 import type { InlineScriptSession } from './inlineScriptsUtils'
 
 type FlowLike = Pick<OpenFlow, 'value'> & {
 	schema?: Record<string, any>
 }
 
+export type FlowGroup = NonNullable<FlowValue['groups']>[number]
+
 export interface FlowJsonUpdate {
 	modules?: FlowModule[]
 	schema?: Record<string, any> | null
 	preprocessorModule?: FlowModule | null
 	failureModule?: FlowModule | null
+	groups?: FlowGroup[] | null
 }
 
 export interface FlowJsonUpdateResult {
 	emptyInlineScriptModuleIds: string[]
-}
-
-export function getFlowModuleById(flow: FlowLike | undefined, id: string): FlowModule | undefined {
-	if (!flow) {
-		return undefined
-	}
-
-	if (id === SPECIAL_MODULE_IDS.PREPROCESSOR) {
-		return flow.value.preprocessor_module
-	}
-
-	if (id === SPECIAL_MODULE_IDS.FAILURE) {
-		return flow.value.failure_module
-	}
-
-	return dfs(id, flow as OpenFlow, false)[0]
-}
-
-export function getMutableRawScriptModuleById(
-	flow: FlowLike | undefined,
-	id: string
-): (FlowModule & { value: RawScript }) | undefined {
-	if (!flow) {
-		return undefined
-	}
-
-	if (flow.value.preprocessor_module?.id === id && flow.value.preprocessor_module.value.type === 'rawscript') {
-		return flow.value.preprocessor_module as FlowModule & { value: RawScript }
-	}
-
-	if (flow.value.failure_module?.id === id && flow.value.failure_module.value.type === 'rawscript') {
-		return flow.value.failure_module as FlowModule & { value: RawScript }
-	}
-
-	let matchedModule: (FlowModule & { value: RawScript }) | undefined
-	forEachFlowModule(flow.value.modules, (module) => {
-		if (!matchedModule && module.id === id && module.value.type === 'rawscript') {
-			matchedModule = module as FlowModule & { value: RawScript }
-		}
-	})
-
-	return matchedModule
 }
 
 export function updateRawScriptModuleContent(
@@ -66,24 +26,68 @@ export function updateRawScriptModuleContent(
 	id: string,
 	code: string
 ): (FlowModule & { value: RawScript }) | undefined {
-	const rawScriptModule = getMutableRawScriptModuleById(flow, id)
-	if (!rawScriptModule) {
+	const module = findModuleInFlow(flow.value, id)
+	if (!module || module.value.type !== 'rawscript') {
 		return undefined
 	}
 
+	const rawScriptModule = module as FlowModule & { value: RawScript }
 	rawScriptModule.value.content = code
 	return rawScriptModule
+}
+
+export function validateFlowGroups(
+	rawGroups: unknown,
+	moduleIds?: Set<string>
+): FlowGroup[] | null {
+	if (rawGroups == null) {
+		return null
+	}
+
+	if (!Array.isArray(rawGroups)) {
+		throw new Error('Flow groups must be an array')
+	}
+
+	return rawGroups.map((group, index) => {
+		if (!group || typeof group !== 'object' || Array.isArray(group)) {
+			throw new Error(`Invalid group at index ${index}: must be an object`)
+		}
+		const g = group as Record<string, unknown>
+		if (typeof g.start_id !== 'string' || !g.start_id) {
+			throw new Error(`Invalid group at index ${index}: start_id must be a non-empty string`)
+		}
+		if (typeof g.end_id !== 'string' || !g.end_id) {
+			throw new Error(`Invalid group at index ${index}: end_id must be a non-empty string`)
+		}
+		if (moduleIds) {
+			if (!moduleIds.has(g.start_id)) {
+				throw new Error(
+					`Invalid group at index ${index}: start_id "${g.start_id}" does not match any flow module`
+				)
+			}
+			if (!moduleIds.has(g.end_id)) {
+				throw new Error(
+					`Invalid group at index ${index}: end_id "${g.end_id}" does not match any flow module`
+				)
+			}
+		}
+		return g as unknown as FlowGroup
+	})
 }
 
 export function applyFlowJsonUpdate(
 	flow: FlowLike,
 	inlineScriptSession: InlineScriptSession,
-	{ modules, schema, preprocessorModule, failureModule }: FlowJsonUpdate
+	{ modules, schema, preprocessorModule, failureModule, groups }: FlowJsonUpdate
 ): FlowJsonUpdateResult {
 	const emptyInlineScriptModuleIds = new Set<string>()
 
 	if (modules !== undefined) {
-		flow.value.modules = restoreFlowModules(modules, inlineScriptSession, emptyInlineScriptModuleIds)
+		flow.value.modules = restoreFlowModules(
+			modules,
+			inlineScriptSession,
+			emptyInlineScriptModuleIds
+		)
 	}
 
 	if (schema !== undefined) {
@@ -102,6 +106,10 @@ export function applyFlowJsonUpdate(
 			failureModule === null
 				? undefined
 				: restoreFlowModule(failureModule, inlineScriptSession, emptyInlineScriptModuleIds)
+	}
+
+	if (groups !== undefined) {
+		flow.value.groups = groups == null || groups.length === 0 ? undefined : groups
 	}
 
 	return {

@@ -22,9 +22,9 @@ use crate::{
     get_proxy_envs_for_lang,
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry_with_workspace_override, BUNFIG_INSTALL_SCOPES,
-    BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH, DISABLE_NUSER, HOME_ENV,
-    NODE_BIN_PATH, NODE_PATH, NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_AVAILABLE, NSJAIL_PATH,
-    PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_INSTALL_MIN_RELEASE_AGE, BUN_NO_CACHE, BUN_PATH,
+    DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH,
+    NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -2275,7 +2275,7 @@ try {{
 
     // WAC v2 post-execution: parse output and handle dispatch/suspend
     if is_wac_v2 {
-        return handle_wac_v2_output(result, job, conn, modules).await;
+        return handle_wac_v2_output(result, job, conn, modules, new_args.as_ref()).await;
     }
 
     Ok(result)
@@ -2306,6 +2306,7 @@ pub async fn handle_wac_v2_output(
     job: &MiniPulledJob,
     conn: &Connection,
     modules: &Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
+    preprocessed_args: Option<&HashMap<String, Box<RawValue>>>,
 ) -> error::Result<Box<RawValue>> {
     use crate::wac_executor::{
         load_checkpoint, parse_wac_output, update_checkpoint_for_dispatch, WacOutput,
@@ -2379,8 +2380,29 @@ pub async fn handle_wac_v2_output(
             //   2. Save checkpoint + suspend parent + seed child checkpoints
             //   3. THEN push the child jobs (making them visible to workers)
 
-            // Read the parent's original args for the child jobs
-            let parent_args: HashMap<String, Box<RawValue>> = {
+            // Read the parent's original args for the child jobs.
+            // If preprocessed_args is Some, the wrapper just ran the preprocessor
+            // and the DB row hasn't been updated yet — use those instead so child
+            // re-runs of the parent see the post-preprocessor args.
+            let parent_args: HashMap<String, Box<RawValue>> = if let Some(pre) = preprocessed_args {
+                // Single pass: parse each raw value into a serde_json::Value for
+                // checkpoint.input_args, and clone the Box<RawValue> for the
+                // returned HashMap. A parse failure surfaces as an error rather
+                // than being silently coerced to null and persisted.
+                let mut map = serde_json::Map::with_capacity(pre.len());
+                let mut owned = HashMap::with_capacity(pre.len());
+                for (k, v) in pre.iter() {
+                    let parsed = serde_json::from_str::<Value>(v.get()).map_err(|e| {
+                        error::Error::internal_err(format!(
+                            "Failed to parse preprocessed arg '{k}': {e}"
+                        ))
+                    })?;
+                    map.insert(k.clone(), parsed);
+                    owned.insert(k.clone(), v.clone());
+                }
+                checkpoint.input_args = map;
+                owned
+            } else {
                 let stored: serde_json::Map<String, Value> = checkpoint.input_args.clone();
                 if stored.is_empty() {
                     // First dispatch — read from the parent job's args
@@ -3218,6 +3240,12 @@ pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMa
     if let Some(ref node_path) = NODE_PATH.as_ref() {
         bun_envs.insert(String::from("NODE_PATH"), node_path.to_string());
     }
+    if let Some(secs) = *BUN_INSTALL_MIN_RELEASE_AGE.read().await {
+        bun_envs.insert(
+            String::from("BUN_INSTALL_MINIMUM_RELEASE_AGE"),
+            secs.to_string(),
+        );
+    }
 
     #[cfg(windows)]
     {
@@ -3559,6 +3587,7 @@ pub async fn start_worker(
         "NOT_AVAILABLE",
         "dedicated_worker",
         Some(script_path.to_string()),
+        None,
         None,
         None,
         None,

@@ -712,7 +712,7 @@
 			{/if}
 		{/snippet}
 	</ActionRow>
-	<div class="w-full">
+	<div class={twMerge('w-full', isNotFlow(job?.job_kind) && 'pb-8')}>
 		<!-- Flow Detail Header Card -->
 		<div class="max-w-7xl mx-auto px-4 py-0">
 			<Skeleton loading={!job} layout={[[24]]} />

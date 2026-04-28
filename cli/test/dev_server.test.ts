@@ -127,7 +127,8 @@ test(
         let stdoutBuffer = "";
         let port: number | null = null;
 
-        // Wait for "Server listening on port XXXX" message
+        // Wait for the dev WebSocket startup line — see startDirectServer
+        // in cli/src/commands/dev/dev.ts.
         const portMatch = await waitFor(
           async () => {
             try {
@@ -144,7 +145,7 @@ test(
               // Reader may be exhausted
             }
             const match = stdoutBuffer.match(
-              /Server listening on port (\d+)/,
+              /Dev WebSocket listening on ws:\/\/localhost:(\d+)/,
             );
             return match;
           },

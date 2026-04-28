@@ -11,11 +11,14 @@ This script:
 
 Usage:
     python generate.py
+    python generate.py --plugin-dir /path/to/windmill-claude-plugin
 """
 
+import argparse
 import ast
 import json
 import re
+import shutil
 from pathlib import Path
 
 import yaml
@@ -909,6 +912,7 @@ SKILL_DEFINITIONS = [
             ('MqttTrigger', 'mqtt_trigger'),
             ('SqsTrigger', 'sqs_trigger'),
             ('GcpTrigger', 'gcp_trigger'),
+            ('AzureTrigger', 'azure_trigger'),
         ],
     },
     {
@@ -924,8 +928,13 @@ SKILL_DEFINITIONS = [
     },
     {
         'name': 'cli-commands',
-        'description': 'MUST use when using the CLI.',
+        'description': 'MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`.',
         'content_key': 'cli_commands',
+    },
+    {
+        'name': 'preview',
+        'description': 'MUST use when opening the Windmill dev page / visual preview of a flow, script, or app. Triggers on words like preview, open, navigate to, visualize, see the flow/app/script, and after writing a flow/script/app for visual verification.',
+        'content_key': 'preview',
     },
 ]
 
@@ -956,16 +965,42 @@ def generate_skills(
         'schedules': read_markdown_file(base_dir / "schedules.md"),
         'resources': read_markdown_file(base_dir / "resources.md"),
         'cli_commands': cli_commands,
+        'preview': read_markdown_file(base_dir / "preview.md"),
     }
 
     # CLI intro for script skills
     script_cli_intro = """## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- `wmill generate-metadata` - Generate .script.yaml and .lock files
-- `wmill sync push` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- `wmill script preview <script_path>` — **default when iterating on a local script.** Runs the local file without deploying.
+- `wmill script run <path>` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- `wmill generate-metadata` — generate `.script.yaml` and `.lock` files for the script you modified.
+- `wmill sync push` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use `script preview`. Do NOT push the script to then `script run` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use `script run` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use `sync push` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run `wmill script preview` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute `wmill script preview <path> -d '<args>'` directly — pick plausible args from the script's declared parameters. The shape varies by language: `main(...)` for code languages, the SQL dialect's own placeholder syntax (`$1` for PostgreSQL, `?` for MySQL/Snowflake, `@P1` for MSSQL, `@name` for BigQuery, etc.), positional `$1`, `$2`, … for Bash, `param(...)` for PowerShell.
+
+`wmill script preview` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). `wmill sync push` and `wmill generate-metadata` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than `script preview`'s run-and-print-result), use the `preview` skill.
 
 Use `wmill resource-type list --schema` to discover available resource types."""
 
@@ -1104,13 +1139,121 @@ def generate_skills_ts_export(skills: list[str], schema_yaml_content: dict[str, 
     return ts
 
 
+def format_schema_for_markdown(schema_yaml: str, schema_name: str, file_pattern: str) -> str:
+    """Format a standalone schema block for plugin skill files."""
+    return f"""## {schema_name} (`{file_pattern}`)
+
+Must be a YAML file that adheres to the following schema:
+
+```yaml
+{schema_yaml.strip()}
+```"""
+
+
+def render_plugin_skill_content(skill_name: str, schema_yaml_content: dict[str, str]) -> str:
+    """Render plugin-ready skill content from generated base skill files."""
+    skill_path = OUTPUT_SKILLS_DIR / skill_name / "SKILL.md"
+    if not skill_path.exists():
+        raise FileNotFoundError(f"Missing generated skill content for {skill_name}: {skill_path}")
+
+    skill_content = skill_path.read_text()
+    schema_mappings = SCHEMA_MAPPINGS.get(skill_name, [])
+    if not schema_mappings:
+        return skill_content
+
+    schema_docs = []
+    for schema_name, schema_key in schema_mappings:
+        schema_yaml = schema_yaml_content.get(schema_key)
+        if not schema_yaml:
+            continue
+        schema_docs.append(
+            format_schema_for_markdown(
+                schema_yaml=schema_yaml,
+                schema_name=schema_name,
+                file_pattern=f"*.{schema_key}.yaml",
+            )
+        )
+
+    if not schema_docs:
+        return skill_content
+
+    return f"{skill_content}\n\n" + "\n\n".join(schema_docs)
+
+
+def resolve_plugin_skills_dir(plugin_dir: Path) -> Path:
+    """Resolve the plugin skills directory from a repo root, plugin root, or skills dir."""
+    plugin_dir = plugin_dir.expanduser().resolve()
+
+    repo_skills_dir = plugin_dir / "plugins" / "windmill-code-plugin" / "skills"
+    repo_plugin_json = plugin_dir / "plugins" / "windmill-code-plugin" / ".claude-plugin" / "plugin.json"
+    if repo_plugin_json.exists():
+        return repo_skills_dir
+
+    plugin_skills_dir = plugin_dir / "skills"
+    plugin_json = plugin_dir / ".claude-plugin" / "plugin.json"
+    if plugin_json.exists():
+        return plugin_skills_dir
+
+    if plugin_dir.name == "skills":
+        return plugin_dir
+
+    return plugin_skills_dir
+
+
+def generate_plugin_skills(
+    plugin_dir: Path,
+    skills: list[str],
+    schema_yaml_content: dict[str, str],
+) -> Path:
+    """Generate standalone skills in a Claude plugin checkout."""
+    skills_dir = resolve_plugin_skills_dir(plugin_dir)
+    skills_dir.mkdir(parents=True, exist_ok=True)
+
+    expected_skills = set(skills)
+    for existing in skills_dir.iterdir():
+        if existing.is_dir() and existing.name not in expected_skills:
+            shutil.rmtree(existing)
+
+    for skill_name in skills:
+        skill_dir = skills_dir / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(
+            render_plugin_skill_content(skill_name, schema_yaml_content)
+        )
+
+    print(f"\nGenerated for plugin:")
+    print(f"  - {skills_dir} ({len(skills)} skills)")
+    return skills_dir
+
+
 # =============================================================================
 # Main Entry Point
 # =============================================================================
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate Windmill system prompts, CLI guidance, and optionally "
+            "plugin-ready standalone skills."
+        )
+    )
+    parser.add_argument(
+        "--plugin-dir",
+        type=Path,
+        help=(
+            "Optional plugin target. Accepts a windmill-claude-plugin repo root, "
+            "a plugin root, or a skills directory, and refreshes standalone skills there."
+        ),
+    )
+    return parser.parse_args()
+
+
 def main():
     """Main generation function."""
+    args = parse_args()
+
     print("Generating system prompts documentation...")
 
     # Ensure output directories exist
@@ -1196,6 +1339,7 @@ def main():
             'MqttTrigger', 'NewMqttTrigger',
             'SqsTrigger', 'NewSqsTrigger',
             'GcpTrigger',
+            'AzureTrigger',
         ]
         for schema_name in schema_names:
             if schema_name in backend_schemas:
@@ -1344,6 +1488,10 @@ export function getDatatableSdkReference(): string {
     print(f"  - auto-generated/schemas/ ({len(schema_yaml_content)} schema files)")
     print(f"\nGenerated for CLI:")
     print(f"  - cli/src/guidance/skills.ts")
+
+    if args.plugin_dir:
+        generate_plugin_skills(args.plugin_dir, skills, schema_yaml_content)
+
     print("\nDone!")
 
 

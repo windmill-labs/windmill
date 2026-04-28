@@ -105,6 +105,12 @@
 				extra: cloudHosted ? extra : undefined
 			},
 			{
+				displayName: 'Azure Event Grid',
+				action: () => onAddDraftTrigger?.('azure'),
+				icon: triggerIconMap.azure,
+				extra: cloudHosted ? extra : undefined
+			},
+			{
 				displayName: 'Email',
 				action: () => onAddDraftTrigger?.('email'),
 				icon: triggerIconMap.email,

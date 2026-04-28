@@ -157,7 +157,11 @@
 					{:else}
 						{#if folders.length === 0}
 							<tr>
-								<td colspan="4" class="text-primary mt-2">No folders yet, create one!</td>
+								<Cell colspan="9">
+									<div class="text-xs text-primary py-2 text-center">
+										No folders yet, create one
+									</div>
+								</Cell>
 							</tr>
 						{/if}
 

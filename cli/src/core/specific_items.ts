@@ -4,9 +4,21 @@ import { isFileResource, isFilesetResource } from "../utils/utils.ts";
 import {
   SyncOptions,
   findWorkspaceByGitBranch,
+  readConfigFile,
   WorkspaceEntryConfig,
 } from "./conf.ts";
 import { TRIGGER_TYPES } from "../types.ts";
+
+/**
+ * Resolve the effective workspace name (wmill.yaml config key) for a given
+ * git branch. Falls back to the branch name itself when no matching workspace
+ * entry exists (legacy behavior).
+ */
+export async function resolveWsNameForGitBranch(branchName: string): Promise<string> {
+  const config = await readConfigFile({ warnIfMissing: false });
+  const match = findWorkspaceByGitBranch(config.workspaces, branchName);
+  return match ? match[0] : branchName;
+}
 
 export interface SpecificItemsConfig {
   variables?: string[];

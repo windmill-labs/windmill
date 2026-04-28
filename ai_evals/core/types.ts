@@ -1,15 +1,37 @@
 export const EVAL_MODES = ["cli", "flow", "script", "app"] as const;
 
 export type EvalMode = (typeof EVAL_MODES)[number];
+export type FrontendEvalTransport = "direct" | "proxy";
 
 export interface EvalCaseRuntimeBackendPreview {
   args?: Record<string, unknown>;
   timeoutSeconds?: number;
 }
 
+export type EvalCaseRuntimeAppAdditionalContext =
+  | {
+      type: "frontend";
+      path: string;
+    }
+  | {
+      type: "backend";
+      key: string;
+    }
+  | {
+      type: "datatable";
+      datatableName: string;
+      schema: string;
+      table: string;
+    };
+
+export interface EvalCaseRuntimeAppContextSpec {
+  additional?: EvalCaseRuntimeAppAdditionalContext[];
+}
+
 export interface EvalCaseRuntimeSpec {
   maxTurns?: number;
   backendPreview?: EvalCaseRuntimeBackendPreview;
+  appContext?: EvalCaseRuntimeAppContextSpec;
 }
 
 export interface FlowValidationSpec {
@@ -59,12 +81,57 @@ export interface FlowValidationSpec {
   }>;
 }
 
+export interface AppValidationSpec {
+  requiredFrontendPaths?: string[];
+  requiredFrontendFileContent?: Array<{
+    path: string;
+    includes: string[];
+  }>;
+  requiredBackendRunnableKeys?: string[];
+  requiredBackendRunnableTypes?: Array<{
+    key: string;
+    type: string;
+  }>;
+  requiredBackendRunnableContent?: Array<{
+    key: string;
+    includes: string[];
+  }>;
+  backendRunnableCountAtLeast?: number;
+  datatableCountAtLeast?: number;
+  datatableTableCountAtLeast?: number;
+  datatableTableCountExactly?: number;
+  requiredDatatables?: Array<{
+    schema: string;
+    table: string;
+    datatableName?: string;
+  }>;
+  requiredToolsUsed?: string[];
+  forbiddenAppContent?: string[];
+}
+
+export interface CliValidationSpec {
+  requiredSkills?: string[];
+  forbiddenSkills?: string[];
+  requiredSkillsBeforeFirstMutation?: string[];
+  requiredAssistantMentions?: string[];
+  forbiddenAssistantMentions?: string[];
+  orderedAssistantMentions?: string[];
+  requiredProposedCommands?: string[];
+  forbiddenProposedCommands?: string[];
+  orderedProposedCommands?: string[];
+  forbiddenExecutedCommands?: string[];
+  workspaceUnchanged?: boolean;
+}
+
+export type EvalValidationSpec = FlowValidationSpec | AppValidationSpec;
+
 export interface EvalCase {
   id: string;
   prompt: string;
   initialPath?: string;
   expectedPath?: string;
-  validate?: FlowValidationSpec;
+  validate?: EvalValidationSpec;
+  cliExpect?: CliValidationSpec;
   judgeChecklist?: string[];
   runtime?: EvalCaseRuntimeSpec;
 }
@@ -96,6 +163,29 @@ export interface BenchmarkTokenUsage {
   prompt: number;
   completion: number;
   total: number;
+}
+
+export interface CliToolInvocation {
+  tool: string;
+  input: Record<string, unknown>;
+  timestamp: number;
+}
+
+export interface CliWmillInvocation {
+  argv: string[];
+  cwd: string;
+  timestamp: string;
+}
+
+export interface CliTrace {
+  toolsUsed: CliToolInvocation[];
+  skillsInvoked: string[];
+  assistantMessageCount: number;
+  bashCommands: string[];
+  proposedCommands: string[];
+  executedWmillCommands: string[];
+  wmillInvocations: CliWmillInvocation[];
+  firstMutationToolIndex: number | null;
 }
 
 export interface ModeRunOutput<TActual> {
@@ -132,7 +222,7 @@ export interface ModeRunner<TInitial, TExpected, TActual> {
   run(
     prompt: string,
     initial: TInitial | undefined,
-    context: ModeRunContext
+    context: ModeRunContext,
   ): Promise<ModeRunOutput<TActual>>;
   validate(input: {
     evalCase: EvalCase;
@@ -186,6 +276,7 @@ export interface BenchmarkRunResult {
   gitSha: string | null;
   runs: number;
   runModel: string | null;
+  transport: FrontendEvalTransport | null;
   judgeModel: string | null;
   caseCount: number;
   attemptCount: number;

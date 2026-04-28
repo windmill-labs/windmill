@@ -53,11 +53,11 @@ use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
         AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
-        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING, EXPOSE_DEBUG_METRICS_SETTING,
-        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
@@ -66,7 +66,7 @@ use windmill_common::{
         POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
     },
     indexer::load_indexer_config,
     jwt::JWT_SECRET,
@@ -103,11 +103,11 @@ use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
     OtelTracingProxySettings, SameWorkerSender, WorkspaceRegistryMap, BUNFIG_INSTALL_SCOPES,
-    CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION,
-    KEEP_JOB_DIR, MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY,
-    NSJAIL_AVAILABLE, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UNSHARE_PATH, UV_INDEX_STRATEGY,
-    WORKSPACE_REGISTRIES,
+    BUN_INSTALL_MIN_RELEASE_AGE, CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR,
+    JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR, MAVEN_REPOS, MAVEN_SETTINGS_XML,
+    NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE, NUGET_CONFIG,
+    OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT,
+    POWERSHELL_REPO_URL, UNSHARE_PATH, UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY, WORKSPACE_REGISTRIES,
 };
 
 #[cfg(feature = "parquet")]
@@ -368,6 +368,8 @@ pub async fn initial_load(
         reload_extra_pip_index_url_setting(&conn).await;
         reload_pip_index_url_setting(&conn).await;
         reload_uv_index_strategy_setting(&conn).await;
+        reload_uv_exclude_newer_setting(&conn).await;
+        reload_bun_install_min_release_age_setting(&conn).await;
         reload_npm_config_registry_setting(&conn).await;
         reload_bunfig_install_scopes_setting(&conn).await;
         reload_npmrc_setting(&conn).await;
@@ -1588,6 +1590,26 @@ pub async fn reload_uv_index_strategy_setting(conn: &Connection) {
         UV_INDEX_STRATEGY_SETTING,
         "UV_INDEX_STRATEGY",
         UV_INDEX_STRATEGY.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_uv_exclude_newer_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        UV_EXCLUDE_NEWER_SETTING,
+        "UV_EXCLUDE_NEWER",
+        UV_EXCLUDE_NEWER.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_bun_install_min_release_age_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
+        "BUN_INSTALL_MIN_RELEASE_AGE",
+        BUN_INSTALL_MIN_RELEASE_AGE.clone(),
     )
     .await;
 }
@@ -3452,6 +3474,29 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             let worker_ping_stale = flow
                 .worker_last_ping
                 .map(|wp| (now - wp).num_seconds() > 60);
+            // Zombie flows between steps are, in practice, almost always the worker
+            // getting OOM-killed mid state-transition. Score the memory signal at
+            // the worker's last ping as a fraction of the cgroup limit, taking the
+            // larger of the cgroup-wide reading (`worker_memory_usage`) and the
+            // windmill process's jemalloc resident (`worker_wm_memory_usage`) — if
+            // only one is present, that value wins; if both are present, the larger
+            // is the more conservative (higher-signal) choice. If the pod restarted
+            // in-place, a replacement worker process comes up under a new windmill
+            // worker name; this flow's recorded worker name still points at the
+            // dead process whose last ping can be under 60s old, and the memory
+            // signal is what lets us catch that window.
+            let memory_pct: Option<f64> = flow.worker_memory_total.and_then(|total| {
+                if total <= 0 {
+                    return None;
+                }
+                let used = flow.worker_memory_usage.max(flow.worker_wm_memory_usage)?;
+                Some(used as f64 / total as f64)
+            });
+            let oom_strong = memory_pct.is_some_and(|p| p >= 0.85);
+            let oom_moderate = memory_pct.is_some_and(|p| p >= 0.60);
+            let mem_pct_str = memory_pct
+                .map(|p| format!("{:.1}% of container limit", (p * 100.0).min(100.0)))
+                .unwrap_or_else(|| "memory unknown at last ping".to_string());
             let worker_info = if let Some(worker_name) = flow.worker.as_deref() {
                 let mut s = format!("\nWorker handling the flow: {worker_name}");
                 match (flow.worker_group.as_deref(), flow.worker_version.as_deref()) {
@@ -3462,10 +3507,29 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                 }
                 if let Some(wp) = flow.worker_last_ping {
                     let age = (now - wp).num_seconds();
-                    let status = if worker_ping_stale.unwrap_or(false) {
-                        "APPEARS DEAD OR CRASHED — worker ping is stale"
-                    } else {
-                        "worker still pinging — likely deadlocked or blocking on the state transition"
+                    let status: String = match (
+                        worker_ping_stale.unwrap_or(false),
+                        oom_strong,
+                        oom_moderate,
+                    ) {
+                        (true, true, _) => format!(
+                            "OOM-KILLED — {mem_pct_str} at last ping, worker then stopped pinging"
+                        ),
+                        (true, false, true) => format!(
+                            "LIKELY OOM-KILLED — {mem_pct_str} at last ping, worker then stopped pinging"
+                        ),
+                        (true, false, false) => {
+                            "WORKER DIED — most likely OOM-killed (no strong memory evidence captured at last ping); less likely: crash, host failure, or network partition".to_string()
+                        }
+                        (false, true, _) => format!(
+                            "OOM-KILLED — {mem_pct_str} at last ping (a replacement worker process may have started in the same pod under a new windmill worker name; this alert references the dead process's record, which pinged just before being killed)"
+                        ),
+                        (false, false, true) => format!(
+                            "LIKELY OOM-KILLED — {mem_pct_str} at last ping (a replacement worker process may have started in the same pod under a new windmill worker name)"
+                        ),
+                        (false, false, false) => {
+                            "worker still pinging with healthy memory — likely deadlocked or blocking on the state transition".to_string()
+                        }
                     };
                     s.push_str(&format!("\nWorker last ping: {wp} ({age}s ago) — {status}"));
                     if let Some(cjid) = flow.worker_current_job_id {
@@ -3509,10 +3573,17 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                     .to_string()
             };
 
-            let hint = match worker_ping_stale {
-                Some(true) => "\nThe worker's own ping is stale — it likely crashed, was killed (OOM?), or lost network connectivity. Check worker logs, k8s/docker events, or host dmesg around the worker's last ping time.",
-                Some(false) => "\nThe worker is still pinging — it is likely deadlocked or stuck in a blocking call during the state transition. Capture a stack trace from the worker process (e.g. via SIGQUIT or a debugger).",
-                None => "",
+            let hint: String = match (worker_ping_stale, oom_moderate) {
+                (Some(_), true) => format!(
+                    "\nThis is almost certainly an OOM-kill: container memory at the worker's last ping was at {mem_pct_str}. Raise the worker memory limit (e.g. k8s `resources.limits.memory`) or reduce per-flow memory usage. Confirm via pod restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`)."
+                ),
+                (Some(true), false) => {
+                    "\nWorker stopped pinging and its last memory snapshot did not look high — in practice the overwhelmingly common cause here is still OOM-kill (memory may have spiked between the last ping and the kill, or never been reported). First check pod restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`). Less likely: host failure, network partition, or a panic — check worker logs / k8s events around the last ping time.".to_string()
+                }
+                (Some(false), false) => {
+                    "\nWorker is still pinging and memory looked healthy at its last ping — most likely a deadlock or blocking call during the state transition. Capture a stack trace (e.g. via SIGQUIT) from the worker process. As a sanity check, also verify pod restart count in case a replacement worker process in the same pod has silently taken over.".to_string()
+                }
+                (None, _) => String::new(),
             };
 
             let service_logs_info = match (flow.worker_instance.as_deref(), flow.worker_last_ping) {
@@ -3829,6 +3900,10 @@ pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
     };
 
     JWT_SECRET.store(std::sync::Arc::new(jwt_secret));
+
+    // The debug signing key is derived from JWT_SECRET, so re-derive it here so
+    // rotation propagates to /api/debug/* signing without requiring a restart.
+    windmill_api::reload_debug_signing_key().await;
 
     Ok(())
 }

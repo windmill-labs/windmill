@@ -198,6 +198,7 @@
 		diffBeforeFlow?: OpenFlow
 		currentInputSchema?: Record<string, any>
 		markRemovedAsShadowed?: boolean
+		controlsPosition?: 'top' | 'bottom'
 		outerDivClass?: string
 	}
 
@@ -271,6 +272,7 @@
 		onDuplicateMultiple = undefined,
 		onMoveMultiple = undefined,
 		movingIds = undefined,
+		controlsPosition = 'top',
 		outerDivClass = ''
 	}: Props = $props()
 
@@ -754,12 +756,16 @@
 		} else {
 			const minY = Math.min(...nodes.map((n) => n.position.y))
 			const maxBottom = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100))
-			height = Math.max(maxBottom - minY, minHeight)
+			const computed = maxBottom - minY
+			height = Math.max(Math.min(computed, maxHeight ?? computed), minHeight)
 		}
 	}
 
 	$effect(() => {
+		// Track both bounds — updateHeight() reads both, so missing one (as
+		// maxHeight was) leaves height stale when only that bound changes.
 		minHeight
+		maxHeight
 		untrack(() => updateHeight())
 	})
 
@@ -1180,7 +1186,7 @@
 					</div>
 				{:else}
 					<Controls
-						position="top-right"
+						position={controlsPosition === 'bottom' ? 'bottom-right' : 'top-right'}
 						orientation="horizontal"
 						showLock={false}
 						fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'note') }}

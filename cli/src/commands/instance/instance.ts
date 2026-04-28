@@ -1,4 +1,4 @@
-import { readFile, writeFile, readdir, mkdir, rm, stat } from "node:fs/promises";
+import { writeFile, readdir, mkdir, rm, stat } from "node:fs/promises";
 import { appendFile } from "node:fs/promises";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
@@ -26,6 +26,7 @@ import {
   pushInstanceGroups,
   pushInstanceUsers,
 } from "../user/user.ts";
+import { connectSlackInstance } from "./slack.ts";
 import {
   add as workspaceSetup,
   addWorkspace,
@@ -39,7 +40,7 @@ import {
   pushInstanceSettings,
   type SimplifiedSettings,
 } from "../../core/settings.ts";
-import { deepEqual } from "../../utils/utils.ts";
+import { deepEqual, readTextFile } from "../../utils/utils.ts";
 import { getActiveWorkspace } from "../workspace/workspace.ts";
 
 export interface Instance {
@@ -52,7 +53,7 @@ export interface Instance {
 export async function allInstances(): Promise<Instance[]> {
   try {
     const file = await getInstancesConfigFilePath();
-    const txt = await readFile(file, "utf-8");
+    const txt = await readTextFile(file);
     return txt
       .split("\n")
       .map((line) => {
@@ -658,7 +659,7 @@ export async function getActiveInstance(opts: {
     return opts.instance;
   }
   try {
-    return await readFile(await getActiveInstanceFilePath(), "utf-8");
+    return await readTextFile(await getActiveInstanceFilePath());
   } catch {
     return undefined;
   }
@@ -825,6 +826,18 @@ const command = new Command()
     "--instance <instance:string>",
     "Name of the instance, override the active instance",
   )
-  .action(getConfig as any);
+  .action(getConfig as any)
+  .command("connect-slack")
+  .description(
+    "Non-interactively connect Slack at the instance level using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: global_settings 'slack' row + encrypted f/slack_bot/global_bot_token variable and resource in the admins workspace."
+  )
+  .option("--bot-token <bot_token:string>", "Slack bot token (xoxb-...)", { required: true })
+  .option("--team-id <team_id:string>", "Slack team id", { required: true })
+  .option("--team-name <team_name:string>", "Slack team name", { required: true })
+  .option(
+    "--instance <instance:string>",
+    "Instance profile to connect against (defaults to the active instance)"
+  )
+  .action((opts: any) => connectSlackInstance(opts));
 
 export default command;

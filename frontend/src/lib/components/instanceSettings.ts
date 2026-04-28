@@ -388,6 +388,15 @@ export const settings: Record<string, Setting[]> = {
 			key: 'disable_password_login',
 			fieldType: 'boolean',
 			storage: 'setting'
+		},
+		{
+			label: 'Auto-login SSO provider',
+			description:
+				'If set, the login page redirects automatically to this provider. Use the OAuth provider key (e.g. "okta", "google") or "saml". The provider must be configured; otherwise the setting is ignored. Visit /user/login?no_sso=1 to bypass the redirect and fall back to the normal login form.',
+			key: 'auto_login_provider',
+			fieldType: 'text',
+			placeholder: 'okta',
+			storage: 'setting'
 		}
 	],
 	'DB Health': [],
@@ -499,6 +508,24 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hiddenIfEmpty: true
+		},
+		{
+			label: 'Minimum release age (uv / Python)',
+			description:
+				'Refuse to install Python packages younger than this many seconds. Protects against supply-chain attacks via freshly published versions. Wires to <code>uv pip --exclude-newer</code>.',
+			key: 'uv_exclude_newer',
+			fieldType: 'seconds',
+			placeholder: '604800',
+			storage: 'setting'
+		},
+		{
+			label: 'Minimum release age (bun / npm)',
+			description:
+				'Refuse to install npm packages younger than this many seconds. Protects against supply-chain attacks via freshly published versions. Sets <code>BUN_INSTALL_MINIMUM_RELEASE_AGE</code>.',
+			key: 'bun_install_min_release_age',
+			fieldType: 'seconds',
+			placeholder: '604800',
+			storage: 'setting'
 		},
 		{
 			label: 'Nuget Config',

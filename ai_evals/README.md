@@ -55,6 +55,7 @@ bun run cli -- run flow flow-test4-order-processing-loop --model opus
 bun run cli -- run flow flow-test0-sum-two-numbers --models haiku,opus,4o
 bun run cli -- run flow flow-test0-sum-two-numbers --runs 3 --verbose
 bun run cli -- run flow --record
+GEMINI_API_KEY=... bun run cli -- run app app-test1-counter-create --model gemini-pro --transport proxy
 WMILL_AI_EVAL_BACKEND_URL=http://127.0.0.1:8000 bun run cli -- run flow --backend-validation preview
 bun run cli -- run cli bun-hello-script
 ```
@@ -71,6 +72,7 @@ Public CLI surface:
 - `--output <path>`: custom result JSON path
 - `--model <alias>`: choose the model under test
 - `--models <a,b,c>`: run the same cases sequentially against several model aliases
+- `--transport <mode>`: frontend request transport (`direct` by default, `proxy` to exercise `/api/w/{workspace}/ai/proxy`)
 - `--verbose`: stream assistant output for frontend runs
 - `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl` for full-suite runs only
 - `--backend-validation <mode>`: optional backend smoke validation (`off` or `preview`) for `script` and `flow` evals
@@ -124,6 +126,16 @@ For `flow` mode, `validate` can express requirements such as:
 - required `results.*` reference validity
 - required module/code/input characteristics
 
+For `app` mode, `validate` can express narrow hard requirements such as:
+
+- required frontend file paths or backend runnable keys
+- minimum backend runnable counts
+- required backend runnable types
+- minimum datatable / datatable-table counts
+- specific required datatable tables
+
+App fixtures can also include an optional `datatables.json` file at the fixture root.
+
 For `flow` mode, an `initial` fixture can also include a benchmark workspace catalog of
 existing scripts and flows. That lets the real `search_workspace` and
 `get_runnable_details` tools discover reusable workspace runnables during evals.
@@ -145,6 +157,15 @@ Supported backend validation env vars:
 - `WMILL_AI_EVAL_KEEP_WORKSPACES=1`
 - `WMILL_AI_EVAL_WORKSPACE_PREFIX=ai-evals`
 
+Frontend proxy transport uses the same backend auth/workspace env vars.
+
+When `--transport proxy` is set:
+
+- `ai_evals` creates or reuses a backend workspace
+- it upserts a provider resource under `f/evals/ai/<provider>`
+- frontend requests go through `/api/w/{workspace}/ai/proxy`
+- result JSON and history records include `transport` so direct vs proxy runs stay distinguishable
+
 ## Results And Artifacts
 
 Every run writes:
@@ -161,7 +182,7 @@ If `--record` is used, the CLI also appends one compact JSON line to:
 
 Each recorded line contains:
 
-- run metadata (`createdAt`, `gitSha`, `mode`, `runModel`, `judgeModel`)
+- run metadata (`createdAt`, `gitSha`, `mode`, `runModel`, `transport`, `judgeModel`)
 - suite totals (`caseCount`, `attemptCount`, `passedAttempts`, `passRate`, `averageDurationMs`, `averageJudgeScore`)
 - average token usage (`averageTokenUsagePerAttempt`)
 - per-case metrics under `cases[]` (`averageDurationMs`, `averageJudgeScore`, `averageTokenUsagePerAttempt`, pass rate)
@@ -177,7 +198,7 @@ Typical artifacts by mode:
 - `flow`: `flow.json`
 - `script`: `script.json` plus the generated script file
 - `app`: `app.json` plus frontend/backend files
-- `cli`: `assistant-output.txt` plus generated workspace files
+- `cli`: `assistant-output.txt`, `trace.json`, `wmill-invocations.jsonl`, plus generated workspace files
 - backend-validated attempts also include `backend-preview.json`
 
 ## Layout
@@ -193,5 +214,6 @@ Typical artifacts by mode:
 
 - Frontend modes reuse the production frontend chat code through the Vitest bridge.
 - CLI mode creates an isolated workspace, writes the current checkout guidance into it, and benchmarks the real skills / `AGENTS.md` flow.
+- CLI mode now also records a structured trace of invoked skills, tool calls, proposed `wmill` commands, and any attempted `wmill` executions.
 - Frontend progress streams live while the benchmark is running.
 - Deterministic validators should stay focused on real correctness constraints, not one exact implementation shape.

@@ -348,9 +348,10 @@ async fn list_scripts(
             .unwrap_or(true))
         || authed.is_operator
     {
-        // only include scripts that have a main function
-        // do not hide scripts without main if preprocessor is in the kinds
-        sqlb.and_where("o.auto_kind IS NULL");
+        // only include scripts that have a runnable entrypoint. Use a
+        // deny-list: anything that isn't a 'lib' (library script without
+        // main) is callable, including future `auto_kind` values.
+        sqlb.and_where("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')");
     }
 
     if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
@@ -479,6 +480,7 @@ async fn create_snapshot_script(
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(query): Query<CreateScriptQuery>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, String)> {
     // TODO: Check for debouncing here as well.
@@ -500,6 +502,7 @@ async fn create_snapshot_script(
                 db.clone(),
                 user_db.clone(),
                 webhook.clone(),
+                query.skip_if_noop,
             )
             .await?;
             let mut nh = new_hash.to_string();
@@ -566,12 +569,23 @@ async fn list_paths_from_workspace_runnable(
     Ok(Json(runnables))
 }
 
+#[derive(Deserialize, Default, Clone, Copy)]
+struct CreateScriptQuery {
+    /// When set by the caller (currently only the CLI), the backend
+    /// short-circuits deploys whose content, lockfile, and metadata are
+    /// identical to the parent: no new version is inserted and the git
+    /// sync / promotion callbacks are suppressed.
+    #[serde(default)]
+    skip_if_noop: bool,
+}
+
 async fn create_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(query): Query<CreateScriptQuery>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -588,8 +602,16 @@ async fn create_script(
     let script_path = ns.path.clone();
     let email = authed.email.clone();
     let username = authed.username.clone();
-    let (hash, tx, hdm) =
-        create_script_internal(ns, w_id.clone(), authed, db.clone(), user_db, webhook).await?;
+    let (hash, tx, hdm) = create_script_internal(
+        ns,
+        w_id.clone(),
+        authed,
+        db.clone(),
+        user_db,
+        webhook,
+        query.skip_if_noop,
+    )
+    .await?;
     tx.commit().await?;
     if let Some(hdm) = hdm {
         // hdm is Some when no lock generation is needed (script is ready immediately).
@@ -639,6 +661,213 @@ impl HandleDeploymentMetadata {
     }
 }
 
+/// Returns true when `ns` is effectively identical to its `parent`: same
+/// path, content, lockfile, and all persisted metadata. Used by the deploy
+/// path to short-circuit no-op re-deploys and suppress the follow-on git
+/// sync / promotion callbacks.
+///
+/// ## How drift is prevented
+///
+/// `NewScript` grows over time. If a new field is added but not wired in
+/// here, a real change would be silently classified as a no-op and
+/// dropped. The exhaustive destructure below turns that into a *compile
+/// error*: every field of `NewScript` must either feed into a comparison
+/// or be explicitly opted out via `field: _` with a one-line rationale.
+///
+/// When adding a field to `NewScript`:
+/// 1. Add it to the destructure here. The compiler will refuse to build
+///    until you do.
+/// 2. Either add a `!=` comparison against `parent` below, or bind it to
+///    `_` and write why it shouldn't affect the no-op decision.
+/// 3. Don't forget `impl Hash for NewScript` in windmill-types.
+async fn is_noop_deploy_against_parent(
+    ns: &NewScript,
+    parent: &Script<ScriptRunnableSettingsHandle>,
+    db: &DB,
+) -> Result<bool> {
+    if parent.archived || parent.deleted {
+        return Ok(false);
+    }
+
+    // Compile-time drift guard — see the docstring above. The `ns.foo` bindings
+    // below shadow each field as `&T`; every binding must be referenced in a
+    // comparison (the compiler will warn on any that isn't), and every ignored
+    // field (`_`) carries its rationale inline.
+    let NewScript {
+        path,
+        // version-identity field — always differs between child and parent by design
+        parent_hash: _,
+        summary,
+        description,
+        content,
+        schema,
+        is_template,
+        lock,
+        language,
+        kind,
+        tag,
+        draft_only,
+        envs,
+        concurrency_settings,
+        debouncing_settings,
+        cache_ttl,
+        cache_ignore_s3_path,
+        dedicated_worker,
+        ws_error_handler_muted,
+        priority,
+        timeout,
+        delete_after_use,
+        delete_after_secs,
+        restart_unless_cancelled,
+        // per-deploy audit field — does not change what the script *is*
+        deployment_message: _,
+        visible_to_runner_only,
+        // derived from `content` at deploy time; content equality implies equality here
+        auto_kind: _,
+        codebase,
+        has_preprocessor,
+        on_behalf_of_email,
+        // caller-intent flag (permission preservation), not script state
+        preserve_on_behalf_of: _,
+        assets,
+        modules,
+        // caller-intent flag (auto-resolve parent), not script state
+        auto_parent: _,
+        labels,
+    } = ns;
+
+    if path != &parent.path {
+        return Ok(false);
+    }
+    if content != &parent.content {
+        return Ok(false);
+    }
+    if normalize_optional_text(lock.as_deref()) != normalize_optional_text(parent.lock.as_deref()) {
+        return Ok(false);
+    }
+    if summary != &parent.summary {
+        return Ok(false);
+    }
+    if description != &parent.description {
+        return Ok(false);
+    }
+    if language != &parent.language {
+        return Ok(false);
+    }
+    if std::mem::discriminant(kind.as_ref().unwrap_or(&ScriptKind::Script))
+        != std::mem::discriminant(&parent.kind)
+    {
+        return Ok(false);
+    }
+    if tag != &parent.tag {
+        return Ok(false);
+    }
+    if envs.as_deref().unwrap_or_default() != parent.envs.as_deref().unwrap_or_default() {
+        return Ok(false);
+    }
+    if labels != &parent.labels {
+        return Ok(false);
+    }
+    if cache_ttl != &parent.cache_ttl
+        || cache_ignore_s3_path != &parent.cache_ignore_s3_path
+        || dedicated_worker != &parent.dedicated_worker
+        || ws_error_handler_muted != &parent.ws_error_handler_muted
+        || priority != &parent.priority
+        || timeout != &parent.timeout
+        || delete_after_use != &parent.delete_after_use
+        || delete_after_secs != &parent.delete_after_secs
+        || restart_unless_cancelled != &parent.restart_unless_cancelled
+        || visible_to_runner_only != &parent.visible_to_runner_only
+        || has_preprocessor != &parent.has_preprocessor
+        || is_template.unwrap_or(false) != parent.is_template.unwrap_or(false)
+        || draft_only.unwrap_or(false) != parent.draft_only.unwrap_or(false)
+    {
+        return Ok(false);
+    }
+    if normalize_optional_text(codebase.as_deref())
+        != normalize_optional_text(parent.codebase.as_deref())
+    {
+        return Ok(false);
+    }
+    if on_behalf_of_email != &parent.on_behalf_of_email {
+        return Ok(false);
+    }
+    if !schema_opt_eq(schema.as_ref(), parent.schema.as_ref()) {
+        return Ok(false);
+    }
+    if !json_serialize_eq(assets, &parent.assets) {
+        return Ok(false);
+    }
+    if !modules_eq(modules.as_ref(), parent.modules.as_ref()) {
+        return Ok(false);
+    }
+
+    let (parent_debouncing, parent_concurrency) =
+        windmill_common::runnable_settings::prefetch_cached_from_handle(
+            parent.runnable_settings.runnable_settings_handle,
+            db,
+        )
+        .await?;
+    if concurrency_settings != &parent_concurrency {
+        return Ok(false);
+    }
+    if debouncing_settings != &parent_debouncing {
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+/// Treats `None` and `Some("")` as equivalent — matches how the insert path
+/// normalizes optional text fields like `lock` and `codebase`.
+fn normalize_optional_text(s: Option<&str>) -> &str {
+    s.unwrap_or("")
+}
+
+fn schema_opt_eq(a: Option<&Schema>, b: Option<&Schema>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(x), Some(y)) => {
+            match (
+                serde_json::from_str::<serde_json::Value>(x.0.get()),
+                serde_json::from_str::<serde_json::Value>(y.0.get()),
+            ) {
+                (Ok(xv), Ok(yv)) => xv == yv,
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+fn json_serialize_eq<T: Serialize>(a: &T, b: &T) -> bool {
+    match (serde_json::to_value(a), serde_json::to_value(b)) {
+        (Ok(av), Ok(bv)) => av == bv,
+        _ => false,
+    }
+}
+
+fn modules_eq(
+    a: Option<&HashMap<String, ScriptModule>>,
+    b: Option<&HashMap<String, ScriptModule>>,
+) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(x), Some(y)) => {
+            if x.len() != y.len() {
+                return false;
+            }
+            x.iter().all(|(k, v)| match y.get(k) {
+                Some(ov) => {
+                    v.content == ov.content && v.language == ov.language && v.lock == ov.lock
+                }
+                None => false,
+            })
+        }
+        _ => false,
+    }
+}
+
 async fn create_script_internal<'c>(
     mut ns: NewScript,
     w_id: String,
@@ -646,6 +875,7 @@ async fn create_script_internal<'c>(
     db: sqlx::Pool<Postgres>,
     user_db: UserDB,
     webhook: WebhookShared,
+    skip_if_noop: bool,
 ) -> Result<(
     ScriptHash,
     Transaction<'c, Postgres>,
@@ -822,6 +1052,24 @@ async fn create_script_internal<'c>(
             let ScriptWithStarred { script: ps, .. } =
                 get_script_by_hash_internal(&mut tx, &w_id, p_hash, None).await?;
 
+            // No-op detection (opt-in via `?skip_if_noop=true`, currently only
+            // passed by the CLI): when the new script is effectively identical
+            // to its parent (same path, content, lockfile, and metadata), skip
+            // creating a new version entirely. Returning `None` for the
+            // deployment-metadata handle also suppresses the follow-on git
+            // sync / promotion callbacks — the whole point is that idempotent
+            // CLI pushes must not produce phantom commits on the downstream
+            // git repository.
+            if skip_if_noop && is_noop_deploy_against_parent(&ns, &ps, &db).await? {
+                tracing::info!(
+                    workspace_id = %w_id,
+                    path = %ns.path,
+                    parent_hash = %p_hash.0,
+                    "Skipping no-op script deploy (identical to parent)"
+                );
+                return Ok((p_hash.clone(), tx, None));
+            }
+
             if ps.path != ns.path {
                 require_owner_of_path(&authed, &ps.path)?;
             }
@@ -884,6 +1132,7 @@ async fn create_script_internal<'c>(
             || ns.language == ScriptLang::Java
             || ns.language == ScriptLang::Ruby
             || ns.language == ScriptLang::Rlang
+            || ns.language == ScriptLang::Powershell
         // for related places search: ADD_NEW_LANG
     ) {
         Some(String::new())
@@ -2886,13 +3135,37 @@ struct CiTestResult {
     started_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+#[derive(FromRow)]
+struct CiTestResultWithPattern {
+    test_script_path: String,
+    tested_item_path: String,
+    job_id: Option<sqlx::types::Uuid>,
+    status: Option<String>,
+    started_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl From<CiTestResultWithPattern> for CiTestResult {
+    fn from(r: CiTestResultWithPattern) -> Self {
+        CiTestResult {
+            test_script_path: r.test_script_path,
+            job_id: r.job_id,
+            status: r.status,
+            started_at: r.started_at,
+        }
+    }
+}
+
 async fn get_ci_test_results(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, kind, path)): Path<(String, String, StripPath)>,
 ) -> JsonResult<Vec<CiTestResult>> {
     let path = path.to_path();
-    let results = sqlx::query_as!(
+    let expected_trigger = format!("{}/{}", kind, path);
+
+    // Exact matches — uses the primary ci_test_reference index.
+    // Job lookup is scoped by trigger so multi-target tests report the right job per target.
+    let exact = sqlx::query_as!(
         CiTestResult,
         r#"SELECT
             ctr.test_script_path,
@@ -2905,19 +3178,60 @@ async fn get_ci_test_results(
             WHERE workspace_id = $1
               AND runnable_path = ctr.test_script_path
               AND trigger_kind = 'ci_test'
+              AND trigger = $4
             ORDER BY created_at DESC
             LIMIT 1
         ) j ON true
         LEFT JOIN v2_job_completed jc ON jc.id = j.id
         WHERE ctr.workspace_id = $1
           AND ctr.tested_item_path = $2
-          AND ctr.tested_item_kind = $3"#,
+          AND ctr.tested_item_kind = $3
+          AND NOT ctr.has_wildcard"#,
         &w_id,
         path,
-        &kind
+        &kind,
+        &expected_trigger
     )
     .fetch_all(&db)
     .await?;
+
+    // Wildcard candidates — partial index; filter patterns in Rust.
+    let wildcard = sqlx::query_as!(
+        CiTestResultWithPattern,
+        r#"SELECT
+            ctr.test_script_path,
+            ctr.tested_item_path,
+            j.id as "job_id?",
+            COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
+            j.created_at as "started_at?"
+        FROM ci_test_reference ctr
+        LEFT JOIN LATERAL (
+            SELECT id, created_at FROM v2_job
+            WHERE workspace_id = $1
+              AND runnable_path = ctr.test_script_path
+              AND trigger_kind = 'ci_test'
+              AND trigger = $3
+            ORDER BY created_at DESC
+            LIMIT 1
+        ) j ON true
+        LEFT JOIN v2_job_completed jc ON jc.id = j.id
+        WHERE ctr.workspace_id = $1
+          AND ctr.tested_item_kind = $2
+          AND ctr.has_wildcard"#,
+        &w_id,
+        &kind,
+        &expected_trigger
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let mut results = exact;
+    results.extend(
+        wildcard
+            .into_iter()
+            .filter(|r| windmill_common::schema::ci_test_path_matches(path, &r.tested_item_path))
+            .map(CiTestResult::from),
+    );
 
     Ok(Json(results))
 }
@@ -2945,13 +3259,32 @@ async fn get_ci_test_results_batch(
         ));
     }
 
-    let mut result_map: HashMap<String, Vec<CiTestResult>> = HashMap::new();
+    // Initialize every requested key with an empty vec so the response shape matches input.
+    let mut result_map: HashMap<String, Vec<CiTestResult>> = req
+        .items
+        .iter()
+        .map(|it| (format!("{}:{}", it.kind, it.path), Vec::new()))
+        .collect();
 
+    // Group paths by kind so we can do one exact query + one wildcard query per distinct kind.
+    // Dedupe via HashSet so duplicate items in the input don't push matches multiple times.
+    let mut paths_by_kind: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
     for item in &req.items {
-        let results = sqlx::query_as!(
-            CiTestResult,
+        paths_by_kind
+            .entry(item.kind.clone())
+            .or_default()
+            .insert(item.path.clone());
+    }
+
+    for (kind, paths) in &paths_by_kind {
+        let paths_vec: Vec<String> = paths.iter().cloned().collect();
+        // Exact matches for all paths of this kind in one query.
+        // Trigger scoping ensures the job returned matches the requested target.
+        let exact = sqlx::query_as!(
+            CiTestResultWithPattern,
             r#"SELECT
                 ctr.test_script_path,
+                ctr.tested_item_path,
                 j.id as "job_id?",
                 COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
                 j.created_at as "started_at?"
@@ -2961,22 +3294,77 @@ async fn get_ci_test_results_batch(
                 WHERE workspace_id = $1
                   AND runnable_path = ctr.test_script_path
                   AND trigger_kind = 'ci_test'
+                  AND trigger = $3 || '/' || ctr.tested_item_path
                 ORDER BY created_at DESC
                 LIMIT 1
             ) j ON true
             LEFT JOIN v2_job_completed jc ON jc.id = j.id
             WHERE ctr.workspace_id = $1
-              AND ctr.tested_item_path = $2
-              AND ctr.tested_item_kind = $3"#,
+              AND ctr.tested_item_path = ANY($2::text[])
+              AND ctr.tested_item_kind = $3
+              AND NOT ctr.has_wildcard"#,
             &w_id,
-            &item.path,
-            &item.kind
+            &paths_vec[..],
+            kind
         )
         .fetch_all(&db)
         .await?;
 
-        let key = format!("{}:{}", item.kind, item.path);
-        result_map.insert(key, results);
+        for row in exact {
+            let key = format!("{}:{}", kind, row.tested_item_path);
+            if let Some(bucket) = result_map.get_mut(&key) {
+                bucket.push(row.into());
+            }
+        }
+
+        // Wildcard candidates for this kind — one row per (pattern, requested_path) pair so the
+        // LATERAL can scope the job lookup by the specific trigger.
+        let wildcard = sqlx::query!(
+            r#"SELECT
+                ctr.test_script_path as "test_script_path!",
+                ctr.tested_item_path as "tested_item_path!",
+                req.path as "requested_path!",
+                j.id as "job_id?",
+                COALESCE(jc.status::text, CASE WHEN j.id IS NOT NULL THEN 'running' ELSE NULL END) as "status?",
+                j.created_at as "started_at?"
+            FROM ci_test_reference ctr
+            CROSS JOIN unnest($3::text[]) AS req(path)
+            LEFT JOIN LATERAL (
+                SELECT id, created_at FROM v2_job
+                WHERE workspace_id = $1
+                  AND runnable_path = ctr.test_script_path
+                  AND trigger_kind = 'ci_test'
+                  AND trigger = $2 || '/' || req.path
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) j ON true
+            LEFT JOIN v2_job_completed jc ON jc.id = j.id
+            WHERE ctr.workspace_id = $1
+              AND ctr.tested_item_kind = $2
+              AND ctr.has_wildcard"#,
+            &w_id,
+            kind,
+            &paths_vec[..]
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in wildcard {
+            if windmill_common::schema::ci_test_path_matches(
+                &row.requested_path,
+                &row.tested_item_path,
+            ) {
+                let key = format!("{}:{}", kind, row.requested_path);
+                if let Some(bucket) = result_map.get_mut(&key) {
+                    bucket.push(CiTestResult {
+                        test_script_path: row.test_script_path,
+                        job_id: row.job_id,
+                        status: row.status,
+                        started_at: row.started_at,
+                    });
+                }
+            }
+        }
     }
 
     Ok(Json(result_map))

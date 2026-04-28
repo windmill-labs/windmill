@@ -10,14 +10,12 @@ import {
 	createGetRunnableDetailsTool,
 	type Tool
 } from '../shared'
-import { getDatatableSdkReference } from '$system_prompts'
 import { aiChatManager } from '../AIChatManager.svelte'
-import type {
-	ContextElement,
-	AppFrontendFileElement,
-	AppBackendRunnableElement,
-	AppCodeSelectionElement,
-	AppDatatableElement
+import {
+	formatAppDatatableContextTitle,
+	type ContextElement,
+	type AppCodeSelectionElement,
+	type AppDatatableElement
 } from '../context'
 
 // Backend runnable types
@@ -82,28 +80,12 @@ export interface InspectorElementInfo {
 	styles: Record<string, string>
 }
 
-/** Context about the currently selected file or runnable in the app editor */
+/** App editor context that is implicitly attached to app-mode AI messages. */
 export interface SelectedContext {
-	/** Type of selection: 'frontend' for frontend files, 'backend' for backend runnables, or 'none' if nothing is selected */
-	type: 'frontend' | 'backend' | 'none'
-	/** The path of the selected frontend file (when type is 'frontend') */
-	frontendPath?: string
-	/** The content of the selected frontend file */
-	frontendContent?: string
-	/** The key of the selected backend runnable (when type is 'backend') */
-	backendKey?: string
-	/** The configuration of the selected backend runnable */
-	backendRunnable?: BackendRunnable
 	/** Inspector-selected element info (when user has used the inspector tool) */
 	inspectorElement?: InspectorElementInfo
-	/** Whether the file/runnable selection is excluded from being sent to the AI prompt */
-	selectionExcluded?: boolean
-	/** Function to toggle whether the selection is excluded from the prompt */
-	toggleSelectionExcluded?: () => void
 	/** Function to clear the inspector selection */
 	clearInspector?: () => void
-	/** Function to clear the runnable selection (go back to frontend view) */
-	clearRunnable?: () => void
 	/** Code selection from the editor (either frontend or backend) */
 	codeSelection?: AppCodeSelectionElement
 	/** Function to clear the code selection */
@@ -161,13 +143,72 @@ export interface AppAIChatHelpers {
 
 // ============= Utility =============
 
-/** Maximum characters per file in get_files tool */
-const BATCH_FILE_SIZE_LIMIT = 2500
-
 /** Memoize a factory function - the factory is only called once, on first access */
 const memo = <T>(factory: () => T): (() => T) => {
 	let cached: T | undefined
 	return () => (cached ??= factory())
+}
+
+function countExactMatches(content: string, search: string): number {
+	if (search.length === 0) {
+		return 0
+	}
+
+	let count = 0
+	let index = 0
+
+	while ((index = content.indexOf(search, index)) !== -1) {
+		count += 1
+		index += search.length
+	}
+
+	return count
+}
+
+function replaceFirstExactMatch(content: string, search: string, replace: string): string {
+	const index = content.indexOf(search)
+	if (index === -1) {
+		return content
+	}
+
+	return content.slice(0, index) + replace + content.slice(index + search.length)
+}
+
+type AppPatchTarget =
+	| { type: 'frontend'; path: string }
+	| { type: 'backend'; path: string; key: string; extension: 'ts' | 'py' }
+
+function resolveAppPatchTarget(rawPath: string): AppPatchTarget {
+	const trimmedPath = rawPath.trim()
+	const backendMatch = trimmedPath.match(/^backend\/([^/]+)\/main\.(ts|py)$/)
+	if (backendMatch) {
+		return {
+			type: 'backend',
+			path: trimmedPath,
+			key: backendMatch[1],
+			extension: backendMatch[2] as 'ts' | 'py'
+		}
+	}
+
+	return {
+		type: 'frontend',
+		path: trimmedPath.startsWith('/') ? trimmedPath : `/${trimmedPath}`
+	}
+}
+
+function getBackendInlineScriptExtension(runnable: BackendRunnable): 'ts' | 'py' {
+	return runnable.inlineScript?.language === 'python3' ? 'py' : 'ts'
+}
+
+function getFileKind(path: string): string {
+	const filename = path.split('/').pop() ?? path
+	const extension = filename.includes('.') ? filename.split('.').pop() : undefined
+	return extension || 'unknown'
+}
+
+function getStaticInputKeys(runnable: BackendRunnable): string[] | undefined {
+	const keys = runnable.staticInputs ? Object.keys(runnable.staticInputs) : []
+	return keys.length > 0 ? keys : undefined
 }
 
 // ============= Frontend File Tools =============
@@ -202,6 +243,32 @@ const getSetFrontendFileToolDef = memo(() =>
 		getSetFrontendFileSchema(),
 		'set_frontend_file',
 		'Create or update a frontend file in the raw app. Returns lint diagnostics (errors and warnings).'
+	)
+)
+
+const getPatchFileSchema = memo(() =>
+	z.object({
+		path: z
+			.string()
+			.describe(
+				'Path of the file to patch. Use frontend paths like /index.tsx or inline backend paths like backend/listRecipes/main.ts.'
+			),
+		old_string: z.string().min(1).describe('Exact text to find in the current file content'),
+		new_string: z.string().describe('Replacement text'),
+		replace_all: z
+			.boolean()
+			.optional()
+			.default(false)
+			.describe(
+				'When true, replace every exact match. When false, old_string must match exactly once.'
+			)
+	})
+)
+const getPatchFileToolDef = memo(() =>
+	createToolDef(
+		getPatchFileSchema(),
+		'patch_file',
+		'Make a quick exact text edit in an existing frontend file or inline backend file. Prefer this for small localized changes instead of rewriting the whole file.'
 	)
 )
 
@@ -305,25 +372,88 @@ const getLintToolDef = memo(() =>
 	)
 )
 
-// ============= Combined Files Tool =============
+// ============= File Listing Tool =============
 
-const getGetFilesSchema = memo(() => z.object({}))
-const getGetFilesToolDef = memo(() =>
+interface AppFrontendFileMetadata {
+	path: string
+	size: number
+	kind: string
+}
+
+interface AppBackendRunnableMetadata {
+	key: string
+	name: string
+	type: BackendRunnableType
+	path?: string
+	language?: InlineScript['language']
+	contentSize?: number
+	staticInputKeys?: string[]
+}
+
+interface AppFilesMetadata {
+	frontend: AppFrontendFileMetadata[]
+	backend: AppBackendRunnableMetadata[]
+}
+
+const getListFilesSchema = memo(() => z.object({}))
+const getListFilesToolDef = memo(() =>
 	createToolDef(
-		getGetFilesSchema(),
-		'get_files',
-		'Get an overview of all files in the app. Content may be truncated for large apps - use get_frontend_file or get_backend_runnable for full content of specific files.'
+		getListFilesSchema(),
+		'list_files',
+		'List lightweight metadata for frontend files and backend runnables in the app. Does not include file or runnable content. Use get_frontend_file(path) or get_backend_runnable(key) to inspect specific content.'
 	)
 )
 
 // ============= Data Table Tools =============
 
-const getGetDatatablesSchema = memo(() => z.object({}))
-const getGetDatatablesToolDef = memo(() =>
+interface AppDatatableMetadata {
+	datatable_name: string
+	schemas: Record<string, string[]>
+	tableCount: number
+	error?: string
+}
+
+function summarizeDatatables(datatables: DataTableSchema[]): AppDatatableMetadata[] {
+	return datatables.map((datatable) => {
+		const schemas: Record<string, string[]> = {}
+		let tableCount = 0
+
+		for (const [schemaName, tables] of Object.entries(datatable.schemas)) {
+			const tableNames = Object.keys(tables)
+			schemas[schemaName] = tableNames
+			tableCount += tableNames.length
+		}
+
+		return {
+			datatable_name: datatable.datatable_name,
+			schemas,
+			tableCount,
+			...(datatable.error && { error: datatable.error })
+		}
+	})
+}
+
+const getListDatatablesSchema = memo(() => z.object({}))
+const getListDatatablesToolDef = memo(() =>
 	createToolDef(
-		getGetDatatablesSchema(),
-		'get_datatables',
-		'Get all datatables configured in this app with their full schemas. Returns datatable names, tables, and column definitions. Use this to understand the data layer available to the app.'
+		getListDatatablesSchema(),
+		'list_datatables',
+		'List datatables configured in the app with schema and table names only. Does not include column definitions. Use this directly for table-list or available-tables summaries. Only call get_datatable_table_schema when column names/types are required.'
+	)
+)
+
+const getGetDatatableTableSchemaSchema = memo(() =>
+	z.object({
+		datatable_name: z.string().describe('The datatable name to inspect, e.g. "main".'),
+		schema_name: z.string().describe('The schema name, e.g. "public".'),
+		table_name: z.string().describe('The table name to inspect.')
+	})
+)
+const getGetDatatableTableSchemaToolDef = memo(() =>
+	createToolDef(
+		getGetDatatableTableSchemaSchema(),
+		'get_datatable_table_schema',
+		'Get column definitions for one datatable table. Do not call this for row counts or table-list summaries; list_datatables is enough for those.'
 	)
 )
 
@@ -356,17 +486,6 @@ const getExecDatatableSqlToolDef = memo(() =>
 		'exec_datatable_sql',
 		'Execute a SQL query on a datatable. Use this to explore data, test queries, create tables, or make changes. When creating a new table, pass new_table to register it in the app for future use.',
 		{ strict: false }
-	)
-)
-
-// ============= Selected Context Tool =============
-
-const getGetSelectedContextSchema = memo(() => z.object({}))
-const getGetSelectedContextToolDef = memo(() =>
-	createToolDef(
-		getGetSelectedContextSchema(),
-		'get_selected_context',
-		'Get information about what is currently selected in the app editor. Returns the type of selection (frontend file or backend runnable) and the path/key of the selected item.'
 	)
 )
 
@@ -429,74 +548,39 @@ function formatLintResultResponse(message: string, lintResult: LintResult): stri
 // ============= Tools Array =============
 
 export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
-	// Combined files tool (with per-file truncation for large apps)
+	// Lightweight file/runnable metadata tool (no source contents)
 	{
-		def: getGetFilesToolDef(),
+		def: getListFilesToolDef(),
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Getting all files...' })
+			toolCallbacks.setToolStatus(toolId, { content: 'Listing files...' })
 			const files = helpers.getFiles()
-			const frontendCount = Object.keys(files.frontend).length
-			const backendCount = Object.keys(files.backend).length
-
-			// Truncate each file individually to BATCH_FILE_SIZE_LIMIT
-			let anyTruncated = false
-			const truncatedFiles: AppFiles = {
-				frontend: {},
-				backend: {}
-			}
-
-			for (const [path, content] of Object.entries(files.frontend)) {
-				if (content.length > BATCH_FILE_SIZE_LIMIT) {
-					truncatedFiles.frontend[path] =
-						content.slice(0, BATCH_FILE_SIZE_LIMIT) + '\n... [TRUNCATED]'
-					anyTruncated = true
-				} else {
-					truncatedFiles.frontend[path] = content
-				}
-			}
-
-			for (const [key, runnable] of Object.entries(files.backend)) {
-				const runnableCopy = { ...runnable }
-				if (runnableCopy.inlineScript?.content) {
-					const content = runnableCopy.inlineScript.content
-					if (content.length > BATCH_FILE_SIZE_LIMIT) {
-						runnableCopy.inlineScript = {
-							...runnableCopy.inlineScript,
-							content: content.slice(0, BATCH_FILE_SIZE_LIMIT) + '\n... [TRUNCATED]'
-						}
-						anyTruncated = true
+			const metadata: AppFilesMetadata = {
+				frontend: Object.entries(files.frontend).map(([path, content]) => ({
+					path,
+					size: content.length,
+					kind: getFileKind(path)
+				})),
+				backend: Object.entries(files.backend).map(([key, runnable]) => {
+					const staticInputKeys = getStaticInputKeys(runnable)
+					return {
+						key,
+						name: runnable.name,
+						type: runnable.type,
+						...(runnable.path && { path: runnable.path }),
+						...(runnable.inlineScript && {
+							language: runnable.inlineScript.language,
+							contentSize: runnable.inlineScript.content.length
+						}),
+						...(staticInputKeys && { staticInputKeys })
 					}
-				}
-				truncatedFiles.backend[key] = runnableCopy
+				})
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Retrieved ${frontendCount} frontend files and ${backendCount} backend runnables${anyTruncated ? ' (some truncated)' : ''}`
+				content: `Listed ${metadata.frontend.length} frontend files and ${metadata.backend.length} backend runnables`
 			})
 
-			let result = JSON.stringify(truncatedFiles, null, 2)
-			if (anyTruncated) {
-				result +=
-					'\n\nNote: Some file contents were truncated. Use get_frontend_file(path) or get_backend_runnable(key) to get full content.'
-			}
-
-			return result
-		}
-	},
-	// Selected context tool
-	{
-		def: getGetSelectedContextToolDef(),
-		fn: async ({ helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Getting selected context...' })
-			const context = helpers.getSelectedContext()
-			const statusMsg =
-				context.type === 'frontend'
-					? `Frontend file selected: ${context.frontendPath}`
-					: context.type === 'backend'
-						? `Backend runnable selected: ${context.backendKey}`
-						: 'No selection'
-			toolCallbacks.setToolStatus(toolId, { content: statusMsg })
-			return JSON.stringify(context, null, 2)
+			return JSON.stringify(metadata, null, 2)
 		}
 	},
 	// Frontend tools
@@ -542,6 +626,86 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 		streamArguments: true,
 		showDetails: true,
 		showFade: true
+	},
+	{
+		def: getPatchFileToolDef(),
+		streamArguments: true,
+		showDetails: true,
+		showFade: true,
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = getPatchFileSchema().parse(args)
+			const { old_string: oldString, new_string: newString, replace_all: replaceAll } = parsedArgs
+			const target = resolveAppPatchTarget(parsedArgs.path)
+			let currentContent = ''
+			let backendRunnable: BackendRunnable | undefined
+
+			if (target.type === 'frontend') {
+				if (target.path === '/wmill.d.ts') {
+					throw new Error("'/wmill.d.ts' is generated automatically. Edit backend runnables instead.")
+				}
+
+				const frontendContent = helpers.getFrontendFile(target.path)
+				if (frontendContent === undefined) {
+					throw new Error(`Frontend file '${target.path}' not found.`)
+				}
+				currentContent = frontendContent
+			} else {
+				backendRunnable = helpers.getBackendRunnable(target.key)
+				if (!backendRunnable) {
+					throw new Error(`Backend runnable '${target.key}' not found.`)
+				}
+				if (backendRunnable.type !== 'inline' || !backendRunnable.inlineScript) {
+					throw new Error(
+						`'${target.path}' points to backend runnable '${target.key}', but only inline runnables can be patched as files.`
+					)
+				}
+
+				const expectedExtension = getBackendInlineScriptExtension(backendRunnable)
+				if (target.extension !== expectedExtension) {
+					throw new Error(
+						`'${target.path}' does not match runnable '${target.key}' language. Use backend/${target.key}/main.${expectedExtension}.`
+					)
+				}
+
+				currentContent = backendRunnable.inlineScript.content ?? ''
+			}
+
+			const matchCount = countExactMatches(currentContent, oldString)
+			if (matchCount === 0) {
+				throw new Error('old_string was not found in the current file content.')
+			}
+			if (!replaceAll && matchCount !== 1) {
+				throw new Error(
+					`old_string matched ${matchCount} locations. Make it more specific or set replace_all to true.`
+				)
+			}
+
+			const updatedContent = replaceAll
+				? currentContent.split(oldString).join(newString)
+				: replaceFirstExactMatch(currentContent, oldString, newString)
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Patching '${target.path}'...`
+			})
+			const lintResult =
+				target.type === 'frontend'
+					? helpers.setFrontendFile(target.path, updatedContent)
+					: await helpers.setBackendRunnable(target.key, {
+							...backendRunnable!,
+							inlineScript: {
+								...backendRunnable!.inlineScript!,
+								content: updatedContent
+							}
+						})
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Patched '${target.path}'`,
+				result: 'Success'
+			})
+			return formatLintResultResponse(`Patched '${target.path}' successfully.`, lintResult)
+		},
+		preAction: ({ toolCallbacks, toolId }) => {
+			toolCallbacks.setToolStatus(toolId, { content: 'Patching file...' })
+		}
 	},
 	{
 		def: getDeleteFrontendFileToolDef(),
@@ -656,30 +820,78 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 	createSearchHubScriptsTool(false),
 	// Data table tools
 	{
-		def: getGetDatatablesToolDef(),
+		def: getListDatatablesToolDef(),
 		fn: async ({ helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Getting datatables...' })
+			toolCallbacks.setToolStatus(toolId, { content: 'Listing datatables...' })
 			try {
 				const datatables = await helpers.getDatatables()
 				if (datatables.length === 0) {
 					toolCallbacks.setToolStatus(toolId, { content: 'No datatables configured' })
 					return 'No datatables are configured in this app. Use the Data panel in the sidebar to add datatable references.'
 				}
-				const totalTables = datatables.reduce(
-					(acc, dt) =>
-						acc +
-						Object.values(dt.schemas).reduce(
-							(schemaAcc, tables) => schemaAcc + Object.keys(tables).length,
-							0
-						),
-					0
-				)
+				const metadata = summarizeDatatables(datatables)
+				const totalTables = metadata.reduce((acc, datatable) => acc + datatable.tableCount, 0)
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Found ${datatables.length} datatable(s) with ${totalTables} table(s)`
+					content: `Listed ${metadata.length} datatable(s) with ${totalTables} table(s)`
 				})
-				return JSON.stringify(datatables, null, 2)
+				return JSON.stringify(metadata, null, 2)
 			} catch (e) {
-				const errorMsg = `Error getting datatables: ${e instanceof Error ? e.message : String(e)}`
+				const errorMsg = `Error listing datatables: ${e instanceof Error ? e.message : String(e)}`
+				toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+				return errorMsg
+			}
+		}
+	},
+	{
+		def: getGetDatatableTableSchemaToolDef(),
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = getGetDatatableTableSchemaSchema().parse(args)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Getting schema for ${parsedArgs.datatable_name}.${parsedArgs.schema_name}.${parsedArgs.table_name}...`
+			})
+			try {
+				const datatables = await helpers.getDatatables()
+				const datatable = datatables.find(
+					(candidate) => candidate.datatable_name === parsedArgs.datatable_name
+				)
+				if (!datatable) {
+					const availableDatatables = datatables.map((candidate) => candidate.datatable_name)
+					const errorMsg = `Datatable '${parsedArgs.datatable_name}' not found. Available datatables: ${availableDatatables.join(', ') || 'none'}`
+					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+					return errorMsg
+				}
+
+				const schema = datatable.schemas[parsedArgs.schema_name]
+				if (!schema) {
+					const availableSchemas = Object.keys(datatable.schemas)
+					const errorMsg = `Schema '${parsedArgs.schema_name}' not found in datatable '${parsedArgs.datatable_name}'. Available schemas: ${availableSchemas.join(', ') || 'none'}`
+					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+					return errorMsg
+				}
+
+				const columns = schema[parsedArgs.table_name]
+				if (!columns) {
+					const availableTables = Object.keys(schema)
+					const errorMsg = `Table '${parsedArgs.table_name}' not found in '${parsedArgs.datatable_name}.${parsedArgs.schema_name}'. Available tables: ${availableTables.join(', ') || 'none'}`
+					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+					return errorMsg
+				}
+
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Retrieved schema for ${parsedArgs.schema_name}.${parsedArgs.table_name}`
+				})
+				return JSON.stringify(
+					{
+						datatable_name: parsedArgs.datatable_name,
+						schema_name: parsedArgs.schema_name,
+						table_name: parsedArgs.table_name,
+						columns
+					},
+					null,
+					2
+				)
+			} catch (e) {
+				const errorMsg = `Error getting table schema: ${e instanceof Error ? e.message : String(e)}`
 				toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
 				return errorMsg
 			}
@@ -794,8 +1006,9 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 ## Available Tools
 
 ### File Management
-- \`get_files()\`: Get an overview of all files (content may be truncated for large files)
+- \`list_files()\`: List lightweight metadata for frontend files and backend runnables. It does not include file or runnable content.
 - \`get_frontend_file(path)\`: Get full content of a specific frontend file
+- \`patch_file(path, old_string, new_string, replace_all?)\`: Make a quick exact text edit to an existing file. Use frontend paths like \`/index.tsx\` and inline backend paths like \`backend/listRecipes/main.ts\`.
 - \`set_frontend_file(path, content)\`: Create or update a frontend file. Returns lint diagnostics.
 - \`delete_frontend_file(path)\`: Delete a frontend file
 - \`get_backend_runnable(key)\`: Get full configuration of a specific backend runnable
@@ -805,13 +1018,23 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 ### Linting
 - \`lint()\`: Lint all files. Returns errors/warnings grouped by frontend/backend. Use this to check for issues after making changes.
 
+## Quick Edits with patch_file
+
+Use \`patch_file\` for small, localized edits when you can copy an exact snippet from the current file contents.
+
+- \`old_string\` must be copied exactly from the current file contents
+- Leave \`replace_all\` as false unless you intentionally want to update every exact match
+- Never patch \`/wmill.d.ts\`; it is generated automatically from backend runnables
+- Use \`set_frontend_file\` or \`set_backend_runnable\` instead for large rewrites, new files, or new runnables
+
 ### Discovery
 - \`search_workspace(query, type)\`: Search workspace scripts and flows
 - \`get_runnable_details(path, type)\`: Get details (summary, description, schema, content) of a specific script or flow
 - \`search_hub_scripts(query)\`: Search hub scripts
 
 ### Data Tables
-- \`get_datatables()\`: Get all datatables configured in the app with their schemas (tables, columns, types)
+- \`list_datatables()\`: List configured datatables with schema and table names only. Does not include columns. Use this directly for table-list or available-tables summaries.
+- \`get_datatable_table_schema(datatable_name, schema_name, table_name)\`: Get column definitions for one table. Do not call this for simple row counts or table-list summaries.
 - \`exec_datatable_sql(datatable_name, sql, new_table?)\`: Execute SQL query on a datatable. Use for data exploration or modifications. When creating a new table, pass \`new_table: { schema, name }\` to register it in the app.
 
 ## Data Storage with Data Tables
@@ -820,7 +1043,7 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 
 ### Key Principles
 
-1. **Always check existing tables first**: Use \`get_datatables()\` to see what tables are already available. If a suitable table exists, **always reuse it** rather than creating a new one.
+1. **Always check existing tables first**: Use \`list_datatables()\` to see what tables are already available. If a suitable table exists, **always reuse it** rather than creating a new one. For dashboards that only show available tables or row counts, \`list_datatables()\` is enough. Only call \`get_datatable_table_schema()\` for tables whose column names/types you need.
 
 2. **CRITICAL: Create tables ONLY via exec_datatable_sql tool**: When you need to create a new table, you MUST use the \`exec_datatable_sql\` tool with the \`new_table\` parameter. **NEVER** create tables inside backend runnables using SQL queries - this will not register the table properly and it won't be available for future use.
    \`\`\`
@@ -864,9 +1087,7 @@ def main(user_id: str):
     return user
 \`\`\`
 
-### Datatable Client API Reference
-
-${getDatatableSdkReference()}
+Use these examples for normal datatable access.
 
 ### Schema Modifications (DDL) - Use exec_datatable_sql tool ONLY
 
@@ -941,12 +1162,13 @@ When you are using the windmill-client, do not forget that as id for variables o
 
 ## Instructions
 
-1. Start with \`get_files()\` to get an overview of all frontend files and backend runnables (content may be truncated for large files)
-2. Use \`get_frontend_file(path)\` or \`get_backend_runnable(key)\` to get full content of specific files when needed
-3. Make changes using \`set_frontend_file\` and \`set_backend_runnable\`. These return lint diagnostics.
+1. Use the smallest context needed. If the target file or runnable is clear, inspect only that item with \`get_frontend_file(path)\` or \`get_backend_runnable(key)\`.
+2. Use \`list_files()\` only when the target is unclear or the request needs a broad app overview. \`list_files()\` returns metadata only, never file contents.
+3. For small localized edits, prefer \`patch_file\`. Use \`set_frontend_file\` and \`set_backend_runnable\` for larger rewrites, new files, or new runnables. These return lint diagnostics.
 4. Use \`lint()\` at the end to check for and fix any remaining errors
 
 When creating a new app, use \`search_workspace\` or \`search_hub_scripts\` to find existing scripts/flows to reuse.
+When the user mentions frontend files or backend runnables in context, only their identifiers are included. Use \`get_frontend_file\` or \`get_backend_runnable\` to inspect their contents before editing them or relying on implementation details.
 
 `
 
@@ -991,59 +1213,11 @@ export function prepareAppUserMessage(
 
 	// Check if we have any context to add
 	const hasSelectedContext =
-		selectedContext && (selectedContext.type !== 'none' || selectedContext.inspectorElement)
+		selectedContext && (selectedContext.inspectorElement || selectedContext.codeSelection)
 	const hasAdditionalContext = additionalContext && additionalContext.length > 0
 
 	if (hasSelectedContext || hasAdditionalContext) {
 		content += `## SELECTED CONTEXT:\n`
-
-		// Add frontend file context with content (unless excluded)
-		if (
-			selectedContext &&
-			selectedContext.type === 'frontend' &&
-			selectedContext.frontendPath &&
-			!selectedContext.selectionExcluded
-		) {
-			content += `The user is currently viewing the frontend file: **${selectedContext.frontendPath}**\n`
-			if (selectedContext.frontendContent) {
-				const truncatedContent =
-					selectedContext.frontendContent.length > MAX_CONTEXT_CONTENT_LENGTH
-						? selectedContext.frontendContent.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
-							'\n... [TRUNCATED]'
-						: selectedContext.frontendContent
-				content += `\n\`\`\`\n${truncatedContent}\n\`\`\`\n`
-			}
-		}
-
-		// Add backend runnable context with content (unless excluded)
-		if (
-			selectedContext &&
-			selectedContext.type === 'backend' &&
-			selectedContext.backendKey &&
-			!selectedContext.selectionExcluded
-		) {
-			content += `The user is currently viewing the backend runnable: **${selectedContext.backendKey}**\n`
-			if (selectedContext.backendRunnable) {
-				const runnable = selectedContext.backendRunnable
-				content += `- **Name**: ${runnable.name}\n`
-				content += `- **Type**: ${runnable.type}\n`
-				if (runnable.path) {
-					content += `- **Path**: ${runnable.path}\n`
-				}
-				if (runnable.inlineScript) {
-					const truncatedCode =
-						runnable.inlineScript.content.length > MAX_CONTEXT_CONTENT_LENGTH
-							? runnable.inlineScript.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
-								'\n... [TRUNCATED]'
-							: runnable.inlineScript.content
-					content += `- **Language**: ${runnable.inlineScript.language}\n`
-					content += `- **Code**:\n\`\`\`${runnable.inlineScript.language === 'bun' ? 'typescript' : 'python'}\n${truncatedCode}\n\`\`\`\n`
-				}
-				if (runnable.staticInputs && Object.keys(runnable.staticInputs).length > 0) {
-					content += `- **Static inputs**: ${JSON.stringify(runnable.staticInputs)}\n`
-				}
-			}
-		}
 
 		// Add inspector element context if available
 		if (selectedContext?.inspectorElement) {
@@ -1082,40 +1256,16 @@ export function prepareAppUserMessage(
 
 			for (const ctx of additionalContext) {
 				if (ctx.type === 'app_frontend_file') {
-					const fileCtx = ctx as AppFrontendFileElement
-					content += `\n**Frontend File: ${fileCtx.path}**\n`
-					const truncatedContent =
-						fileCtx.content.length > MAX_CONTEXT_CONTENT_LENGTH
-							? fileCtx.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + '\n... [TRUNCATED]'
-							: fileCtx.content
-					content += `\`\`\`\n${truncatedContent}\n\`\`\`\n`
+					content += `\n- Frontend file: ${ctx.path}\n`
 				} else if (ctx.type === 'app_backend_runnable') {
-					const runnableCtx = ctx as AppBackendRunnableElement
-					const runnable = runnableCtx.runnable
-					content += `\n**Backend Runnable: ${runnableCtx.key}**\n`
-					content += `- **Name**: ${runnable.name}\n`
-					content += `- **Type**: ${runnable.type}\n`
-					if (runnable.path) {
-						content += `- **Path**: ${runnable.path}\n`
-					}
-					if (runnable.inlineScript) {
-						const truncatedCode =
-							runnable.inlineScript.content.length > MAX_CONTEXT_CONTENT_LENGTH
-								? runnable.inlineScript.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
-									'\n... [TRUNCATED]'
-								: runnable.inlineScript.content
-						content += `- **Language**: ${runnable.inlineScript.language}\n`
-						content += `- **Code**:\n\`\`\`${runnable.inlineScript.language === 'bun' ? 'typescript' : 'python'}\n${truncatedCode}\n\`\`\`\n`
-					}
-					if (runnable.staticInputs && Object.keys(runnable.staticInputs).length > 0) {
-						content += `- **Static inputs**: ${JSON.stringify(runnable.staticInputs)}\n`
-					}
+					content += `\n- Backend runnable: ${ctx.key}\n`
 				} else if (ctx.type === 'app_datatable') {
 					const datatableCtx = ctx as AppDatatableElement
-					const tableRef =
-						datatableCtx.schemaName === 'public'
-							? `${datatableCtx.datatableName}/${datatableCtx.tableName}`
-							: `${datatableCtx.datatableName}/${datatableCtx.schemaName}:${datatableCtx.tableName}`
+					const tableRef = formatAppDatatableContextTitle(
+						datatableCtx.datatableName,
+						datatableCtx.schemaName,
+						datatableCtx.tableName
+					)
 					content += `\n**Table: ${tableRef}**\n`
 					content += `- **Datatable**: ${datatableCtx.datatableName}\n`
 					content += `- **Schema**: ${datatableCtx.schemaName}\n`

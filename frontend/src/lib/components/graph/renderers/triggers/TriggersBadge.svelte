@@ -6,6 +6,7 @@
 	import { type TriggerContext } from '$lib/components/triggers'
 	import { enterpriseLicense } from '$lib/stores'
 	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon, GoogleCloudIcon } from '$lib/components/icons'
+	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
 	import { Menu, Menubar, MeltButton, MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { twMerge } from 'tailwind-merge'
@@ -70,6 +71,7 @@
 			mqtt: { icon: MqttIcon, countKey: 'mqtt_count', disabled: !$enterpriseLicense },
 			sqs: { icon: AwsIcon, countKey: 'sqs_count', disabled: !$enterpriseLicense },
 			gcp: { icon: GoogleCloudIcon, countKey: 'gcp_count', disabled: !$enterpriseLicense },
+			azure: { icon: AzureIcon, countKey: 'azure_count', disabled: !$enterpriseLicense },
 			poll: { icon: SchedulePollIcon },
 			cli: { icon: Terminal },
 			nextcloud: { icon: NextcloudIcon, countKey: 'nextcloud_count' },
@@ -103,6 +105,7 @@
 		'mqtt',
 		'sqs',
 		'gcp',
+		'azure',
 		'email',
 		'poll',
 		'cli',

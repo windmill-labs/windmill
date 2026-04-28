@@ -53,6 +53,20 @@ pub fn workspaced_service() -> Router {
     Router::new()
 }
 
+#[cfg(not(feature = "private"))]
+pub async fn workspace_connect_slack() -> Result<http::status::StatusCode, error::Error> {
+    Err(error::Error::BadRequest(
+        "Slack only available on enterprise".to_string(),
+    ))
+}
+
+#[cfg(not(feature = "private"))]
+pub async fn connect_slack_instance() -> Result<http::status::StatusCode, error::Error> {
+    Err(error::Error::BadRequest(
+        "Slack only available on enterprise".to_string(),
+    ))
+}
+
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 pub use windmill_oauth::{AllClients, BasicClientsMap, ClientWithScopes};
 
@@ -92,11 +106,12 @@ pub struct TokenResponse {
 struct Logins {
     oauth: Vec<String>,
     saml: Option<String>,
+    auto_login: Option<String>,
 }
 #[cfg(not(feature = "private"))]
 async fn list_logins() -> error::JsonResult<Logins> {
     // Implementation is not open source
-    return Ok(Json(Logins { oauth: vec![], saml: None }));
+    return Ok(Json(Logins { oauth: vec![], saml: None, auto_login: None }));
 }
 
 #[allow(unused)]

@@ -32,7 +32,8 @@ export const SKILLS: SkillMetadata[] = [
   { name: "triggers", description: "MUST use when configuring triggers." },
   { name: "schedules", description: "MUST use when configuring schedules." },
   { name: "resources", description: "MUST use when managing resources." },
-  { name: "cli-commands", description: "MUST use when using the CLI." },
+  { name: "cli-commands", description: "MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`." },
+  { name: "preview", description: "MUST use when opening the Windmill dev page / visual preview of a flow, script, or app. Triggers on words like preview, open, navigate to, visualize, see the flow/app/script, and after writing a flow/script/app for visual verification." },
 ];
 
 // Skill content for each skill (loaded inline for bundling)
@@ -44,11 +45,36 @@ description: MUST use when writing Bash scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -109,11 +135,36 @@ description: MUST use when writing BigQuery queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -136,11 +187,36 @@ description: MUST use when writing Bun/TypeScript scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -803,11 +879,36 @@ description: MUST use when writing Bun Native scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -1468,11 +1569,36 @@ description: MUST use when writing C# scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -1525,11 +1651,36 @@ description: MUST use when writing Deno/TypeScript scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2196,11 +2347,36 @@ description: MUST use when writing DuckDB queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2263,11 +2439,36 @@ description: MUST use when writing Go scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2337,11 +2538,36 @@ description: MUST use when writing GraphQL queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2398,11 +2624,36 @@ description: MUST use when writing Java scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2452,11 +2703,36 @@ description: MUST use when writing MS SQL Server queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2479,11 +2755,36 @@ description: MUST use when writing MySQL queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -2506,11 +2807,36 @@ description: MUST use when writing Native TypeScript scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -3138,11 +3464,36 @@ description: MUST use when writing PHP scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -3211,11 +3562,36 @@ description: MUST use when writing PostgreSQL queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -3238,11 +3614,36 @@ description: MUST use when writing PowerShell scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -3309,11 +3710,36 @@ description: MUST use when writing Python scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -4135,11 +4561,36 @@ description: MUST use when writing R scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -4236,11 +4687,36 @@ description: MUST use when writing Rust scripts.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -4327,11 +4803,36 @@ description: MUST use when writing Snowflake queries.
 
 ## CLI Commands
 
-Place scripts in a folder. After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate .script.yaml and .lock files
-- \`wmill sync push\` - Deploy to Windmill
+Place scripts in a folder.
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill script preview <script_path>\` — **default when iterating on a local script.** Runs the local file without deploying.
+- \`wmill script run <path>\` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — generate \`.script.yaml\` and \`.lock\` files for the script you modified.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the script", "try it", "test it", "does it work" while there are **local edits to the script file**, use \`script preview\`. Do NOT push the script to then \`script run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`script run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local script being edited (you're just invoking an existing script).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to test, don't wait passively
+
+If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run \`wmill script preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the script in their original request, skip the offer and just execute \`wmill script preview <path> -d '<args>'\` directly — pick plausible args from the script's declared parameters. The shape varies by language: \`main(...)\` for code languages, the SQL dialect's own placeholder syntax (\`$1\` for PostgreSQL, \`?\` for MySQL/Snowflake, \`@P1\` for MSSQL, \`@name\` for BigQuery, etc.), positional \`$1\`, \`$2\`, … for Bash, \`param(...)\` for PowerShell.
+
+\`wmill script preview\` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+For a **visual** open-the-script-in-the-dev-page preview (rather than \`script preview\`'s run-and-print-result), use the \`preview\` skill.
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
@@ -4354,15 +4855,77 @@ description: MUST use when creating flows.
 
 # Windmill Flow Building Guide
 
-## CLI Commands
+## Creating a Flow
 
-Create a folder ending with \`{{FLOW_SUFFIX}}\` and add a \`flow.yaml\` file with the flow definition.
+**You — the AI agent — scaffold the flow yourself by running \`wmill flow new <path>\` with the right flags. Do NOT hand-create the folder + \`flow.yaml\`, and do NOT tell the user to "run \`wmill flow new\` and follow the prompts".**
+
+\`wmill flow new\` creates the folder with the correct suffix (\`{{FLOW_SUFFIX}}\` or \`.flow\` depending on the workspace's \`nonDottedPaths\` setting), writes a minimal \`flow.yaml\` shell, and prints Claude-specific next-step hints. Scaffolding by hand skips all of that and often picks the wrong suffix.
+
+### Step 1 — Gather path + summary by asking the user
+
+You need two things:
+
+1. **path** — the windmill path, e.g. \`f/folder/my_flow\` or \`u/username/my_flow\`.
+2. **summary** — a short description of the flow.
+
+If the user's request didn't supply both, ask for both in a single round-trip. Use whichever interactive question facility your runtime provides — a structured multi-choice tool if available, otherwise plain chat — and provide one or two example values for each (with an "Other" / free-form fallback). Do not guess paths or summaries.
+
+### Step 2 — Run the command yourself
+
+\`\`\`bash
+wmill flow new f/folder/my_flow --summary "Short description"
+\`\`\`
+
+Add \`--description "..."\` when the user provided a longer explanation worth preserving separately from the summary.
+
+### Step 3 — Fill in \`flow.yaml\`
+
+Open the generated \`flow.yaml\` (under the folder the command just created) and replace the empty \`value.modules\` + \`schema\` with the real flow definition.
+
 For rawscript modules, use \`!inline path/to/script.ts\` for the content key. {{INLINE_SCRIPT_NAMING}}
-After writing, tell the user they can run:
-- \`wmill generate-metadata\` - Generate lock files for the flow you modified
-- \`wmill sync push\` - Deploy to Windmill
 
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
+Once the flow has real content, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry) and the user should consent.
+
+### Anti-patterns to avoid
+
+- ❌ Hand-creating the \`{{FLOW_SUFFIX}}\` folder + \`flow.yaml\` instead of running \`wmill flow new\`. You'll miss the suffix-setting resolution, the default shape, and the Claude hints.
+- ❌ Telling the user to "run \`wmill flow new <path>\`" — you can and should run it yourself.
+- ❌ Inventing a path/summary instead of asking the user.
+
+## CLI Commands — running, previewing, deploying
+
+After writing, tell the user which command fits what they want to do:
+
+- \`wmill flow preview <flow_path>\` — **default when iterating on a local flow.** Runs the local \`flow.yaml\` against local inline scripts without deploying. Add \`--remote\` to use deployed workspace scripts for PathScript steps instead of local files.
+- \`wmill flow run <path>\` — runs the flow **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
+- \`wmill generate-metadata\` — regenerate stale \`.lock\` and \`.script.yaml\` files. By default it scans **scripts, flows, and apps** across the workspace; pass \`--skip-flows --skip-apps\` (or run from a subdirectory) to limit the scope when you only care about the flow you edited.
+- \`wmill sync push\` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+
+### Preview vs run — choose by intent, not habit
+
+If the user says "run the flow", "try it", "test it", "does it work" while there are **local edits to a \`flow.yaml\`**, use \`flow preview\`. Do NOT push the flow to then \`flow run\` it — pushing is a deploy, and deploying just to test overwrites the workspace version with untested changes.
+
+Only use \`flow run\` when:
+- The user explicitly says "run the deployed version" / "run what's on the server".
+- There is no local \`flow.yaml\` being edited (you're just invoking an existing flow).
+
+Only use \`sync push\` when:
+- The user explicitly asks to deploy, publish, push, or ship.
+- The preview has already validated the change and the user wants it in the workspace.
+
+### After writing — offer to run, don't wait passively
+
+This is about **programmatic execution** (\`wmill flow preview -d '<args>'\`), which actually runs the flow and has side effects. Visual preview (the \`preview\` skill) is offered separately — see "Visual preview" below.
+
+If the user hasn't already told you to run/test the flow, offer it as a one-sentence next step (e.g. "Want me to run \`wmill flow preview\` with sample args?"). Do not present a multi-option menu.
+
+If the user already asked to test/run/try the flow in their original request, skip the offer and just execute \`wmill flow preview <path> -d '<args>'\` directly — pick plausible args from the flow's input schema.
+
+\`wmill flow preview\` is safe to run yourself (it does not deploy). \`wmill sync push\` and \`wmill generate-metadata\` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+
+### Visual preview
+
+To open the flow visually in the dev page (graph + live reload), use the \`preview\` skill. Always **offer** it as a one-sentence next step (e.g. "Want me to open the visual preview?") rather than opening it automatically — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry under MCP-preview branches) the user should consent to. If the user already asked to see/preview/visualize the flow in their original request, skip the offer and just invoke the skill.
 
 ## OpenFlow Schema
 
@@ -4659,7 +5222,7 @@ Reference a specific resource using \`$res:\` prefix:
 
 ## OpenFlow Schema
 
-{"OpenFlow":{"type":"object","description":"Top-level flow definition containing metadata, configuration, and the flow structure","properties":{"summary":{"type":"string","description":"Short description of what this flow does"},"description":{"type":"string","description":"Detailed documentation for this flow"},"value":{"$ref":"#/components/schemas/FlowValue"},"schema":{"type":"object","description":"JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')"},"on_behalf_of_email":{"type":"string","description":"The flow will be run with the permissions of the user with this email."}},"required":["summary","value"]},"FlowValue":{"type":"object","description":"The flow structure containing modules and optional preprocessor/failure handlers","properties":{"modules":{"type":"array","description":"Array of steps that execute in sequence. Each step can be a script, subflow, loop, or branch","items":{"$ref":"#/components/schemas/FlowModule"}},"failure_module":{"description":"Special module that executes when the flow fails. Receives error object with message, name, stack, and step_id. Must have id 'failure'. Only supports script/rawscript types","$ref":"#/components/schemas/FlowModule"},"preprocessor_module":{"description":"Special module that runs before the first step on external triggers. Must have id 'preprocessor'. Only supports script/rawscript types. Cannot reference other step results","$ref":"#/components/schemas/FlowModule"},"same_worker":{"type":"boolean","description":"If true, all steps run on the same worker for better performance"},"concurrent_limit":{"type":"number","description":"Maximum number of concurrent executions of this flow"},"concurrency_key":{"type":"string","description":"Expression to group concurrent executions (e.g., by user ID)"},"concurrency_time_window_s":{"type":"number","description":"Time window in seconds for concurrent_limit"},"debounce_delay_s":{"type":"integer","description":"Delay in seconds to debounce flow executions"},"debounce_key":{"type":"string","description":"Expression to group debounced executions"},"debounce_args_to_accumulate":{"type":"array","description":"Arguments to accumulate across debounced executions","items":{"type":"string"}},"max_total_debouncing_time":{"type":"integer","description":"Maximum total time in seconds that a job can be debounced"},"max_total_debounces_amount":{"type":"integer","description":"Maximum number of times a job can be debounced"},"skip_expr":{"type":"string","description":"JavaScript expression to conditionally skip the entire flow"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for flow results"},"cache_ignore_s3_path":{"type":"boolean"},"delete_after_secs":{"type":"integer","description":"If set, delete the flow job's args, result and logs after this many seconds following job completion"},"flow_env":{"type":"object","description":"Environment variables available to all steps. Values can be strings, JSON values, or special references: '$var:path' (workspace variable) or '$res:path' (resource).","additionalProperties":{}},"priority":{"type":"number","description":"Execution priority (higher numbers run first)"},"early_return":{"type":"string","description":"JavaScript expression to return early from the flow"},"chat_input_enabled":{"type":"boolean","description":"Whether this flow accepts chat-style input"},"notes":{"type":"array","description":"Sticky notes attached to the flow","items":{"$ref":"#/components/schemas/FlowNote"}},"groups":{"type":"array","description":"Semantic groups of modules for organizational purposes","items":{"$ref":"#/components/schemas/FlowGroup"}}},"required":["modules"]},"Retry":{"type":"object","description":"Retry configuration for failed module executions","properties":{"constant":{"type":"object","description":"Retry with constant delay between attempts","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"seconds":{"type":"integer","description":"Seconds to wait between retries"}}},"exponential":{"type":"object","description":"Retry with exponential backoff (delay doubles each time)","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"multiplier":{"type":"integer","description":"Multiplier for exponential backoff"},"seconds":{"type":"integer","minimum":1,"description":"Initial delay in seconds"},"random_factor":{"type":"integer","minimum":0,"maximum":100,"description":"Random jitter percentage (0-100) to avoid thundering herd"}}},"retry_if":{"$ref":"#/components/schemas/RetryIf"}}},"FlowNote":{"type":"object","description":"A sticky note attached to a flow for documentation and annotation","properties":{"id":{"type":"string","description":"Unique identifier for the note"},"text":{"type":"string","description":"Content of the note"},"position":{"type":"object","description":"Position of the note in the flow editor","properties":{"x":{"type":"number","description":"X coordinate"},"y":{"type":"number","description":"Y coordinate"}},"required":["x","y"]},"size":{"type":"object","description":"Size of the note in the flow editor","properties":{"width":{"type":"number","description":"Width in pixels"},"height":{"type":"number","description":"Height in pixels"}},"required":["width","height"]},"color":{"type":"string","description":"Color of the note (e.g., \\"yellow\\", \\"#ffff00\\")"},"type":{"type":"string","enum":["free","group"],"description":"Type of note - 'free' for standalone notes, 'group' for notes that group other nodes"},"locked":{"type":"boolean","default":false,"description":"Whether the note is locked and cannot be edited or moved"},"contained_node_ids":{"type":"array","items":{"type":"string"},"description":"For group notes, the IDs of nodes contained within this group"}},"required":["id","text","color","type"]},"FlowGroup":{"type":"object","description":"A semantic group of flow modules for organizational purposes. Does not affect execution \\u2014 modules remain in their original position in the flow. Groups provide naming and collapsibility in the editor. Members are computed dynamically from all nodes on paths between start_id and end_id.","properties":{"summary":{"type":"string","description":"Display name for this group"},"note":{"type":"string","description":"Markdown note shown below the group header"},"autocollapse":{"type":"boolean","default":false,"description":"If true, this group is collapsed by default in the flow editor. UI hint only."},"start_id":{"type":"string","description":"ID of the first flow module in this group (topological entry point)"},"end_id":{"type":"string","description":"ID of the last flow module in this group (topological exit point)"},"color":{"type":"string","description":"Color for the group in the flow editor"}},"required":["start_id","end_id"]},"RetryIf":{"type":"object","description":"Conditional retry based on error or result","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables"}},"required":["expr"]},"StopAfterIf":{"type":"object","description":"Early termination condition for a module","properties":{"skip_if_stopped":{"type":"boolean","description":"If true, following steps are skipped when this condition triggers"},"expr":{"type":"string","description":"JavaScript expression evaluated after the module runs. Can use 'result' (step's result) or 'flow_input'. Return true to stop"},"error_message":{"type":"string","nullable":true,"description":"Custom error message when stopping with an error. Mutually exclusive with skip_if_stopped. If set to a non-empty string, the flow stops with this error. If empty string, a default error message is used. If null or omitted, no error is raised."}},"required":["expr"]},"FlowModule":{"type":"object","description":"A single step in a flow. Can be a script, subflow, loop, or branch","properties":{"id":{"type":"string","description":"Unique identifier for this step. Used to reference results via 'results.step_id'. Must be a valid identifier (alphanumeric, underscore, hyphen)"},"value":{"$ref":"#/components/schemas/FlowModuleValue"},"stop_after_if":{"description":"Early termination condition evaluated after this step completes","$ref":"#/components/schemas/StopAfterIf"},"stop_after_all_iters_if":{"description":"For loops only - early termination condition evaluated after all iterations complete","$ref":"#/components/schemas/StopAfterIf"},"skip_if":{"type":"object","description":"Conditionally skip this step based on previous results or flow inputs","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to skip. Can use 'flow_input' or 'results.<step_id>'"}},"required":["expr"]},"sleep":{"description":"Delay before executing this step (in seconds or as expression)","$ref":"#/components/schemas/InputTransform"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for this step's results"},"cache_ignore_s3_path":{"type":"boolean"},"timeout":{"description":"Maximum execution time in seconds (static value or expression)","$ref":"#/components/schemas/InputTransform"},"delete_after_secs":{"type":"integer","description":"If set, delete the step's args, result and logs after this many seconds following job completion"},"summary":{"type":"string","description":"Short description of what this step does"},"mock":{"type":"object","description":"Mock configuration for testing without executing the actual step","properties":{"enabled":{"type":"boolean","description":"If true, return mock value instead of executing"},"return_value":{"description":"Value to return when mocked"}}},"suspend":{"type":"object","description":"Configuration for approval/resume steps that wait for user input","properties":{"required_events":{"type":"integer","description":"Number of approvals required before continuing"},"timeout":{"type":"integer","description":"Timeout in seconds before auto-continuing or canceling"},"resume_form":{"type":"object","description":"Form schema for collecting input when resuming","properties":{"schema":{"type":"object","description":"JSON Schema for the resume form"}}},"user_auth_required":{"type":"boolean","description":"If true, only authenticated users can approve"},"user_groups_required":{"description":"Expression or list of groups that can approve","$ref":"#/components/schemas/InputTransform"},"self_approval_disabled":{"type":"boolean","description":"If true, the user who started the flow cannot approve"},"hide_cancel":{"type":"boolean","description":"If true, hide the cancel button on the approval form"},"continue_on_disapprove_timeout":{"type":"boolean","description":"If true, continue flow on timeout instead of canceling"}}},"priority":{"type":"number","description":"Execution priority for this step (higher numbers run first)"},"continue_on_error":{"type":"boolean","description":"If true, flow continues even if this step fails"},"retry":{"description":"Retry configuration if this step fails","$ref":"#/components/schemas/Retry"},"debouncing":{"description":"Debounce configuration for this step (EE only)","type":"object","properties":{"debounce_delay_s":{"type":"integer","description":"Delay in seconds to debounce this step's executions across flow runs"},"debounce_key":{"type":"string","description":"Expression to group debounced executions. Supports $workspace and $args[name]. Default: $workspace/flow/<flow_path>-<step_id>"},"debounce_args_to_accumulate":{"type":"array","description":"Array-type arguments to accumulate across debounced executions","items":{"type":"string"}},"max_total_debouncing_time":{"type":"integer","description":"Maximum total time in seconds before forced execution"},"max_total_debounces_amount":{"type":"integer","description":"Maximum number of debounces before forced execution"}}}},"required":["value","id"]},"InputTransform":{"description":"Maps input parameters for a step. Can be a static value or a JavaScript expression that references previous results or flow inputs","oneOf":[{"$ref":"#/components/schemas/StaticTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"StaticTransform":{"type":"object","description":"Static value passed directly to the step. Use for hardcoded values or resource references like '$res:path/to/resource'","properties":{"value":{"description":"The static value. For resources, use format '$res:path/to/resource'"},"type":{"type":"string","enum":["static"]}},"required":["type"]},"JavascriptTransform":{"type":"object","description":"JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside loops, use 'flow_input.iter.value' for the current iteration value","properties":{"expr":{"type":"string","description":"JavaScript expression returning the value. Available variables - results (object with all previous step results), flow_input (flow inputs), flow_input.iter (in loops)"},"type":{"type":"string","enum":["javascript"]}},"required":["expr","type"]},"AiTransform":{"type":"object","description":"Value resolved by the AI runtime for this input. The AI engine decides how to satisfy the parameter.","properties":{"type":{"type":"string","enum":["ai"]}},"required":["type"]},"AIProviderKind":{"type":"string","description":"Supported AI provider types","enum":["openai","azure_openai","anthropic","mistral","deepseek","googleai","groq","openrouter","togetherai","customai","aws_bedrock"]},"ProviderConfig":{"type":"object","description":"Complete AI provider configuration with resource reference and model selection","properties":{"kind":{"$ref":"#/components/schemas/AIProviderKind"},"resource":{"type":"string","description":"Resource reference in format '$res:{resource_path}' pointing to provider credentials"},"model":{"type":"string","description":"Model identifier (e.g., 'gpt-4', 'claude-3-opus-20240229', 'gemini-pro')"}},"required":["kind","resource","model"]},"StaticProviderTransform":{"type":"object","description":"Static provider configuration passed directly to the AI agent","properties":{"value":{"$ref":"#/components/schemas/ProviderConfig"},"type":{"type":"string","enum":["static"]}},"required":["type","value"]},"ProviderTransform":{"description":"Provider configuration - can be static (ProviderConfig), JavaScript expression, or AI-determined","oneOf":[{"$ref":"#/components/schemas/StaticProviderTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticProviderTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"MemoryOff":{"type":"object","description":"No conversation memory/context","properties":{"kind":{"type":"string","enum":["off"]}},"required":["kind"]},"MemoryAuto":{"type":"object","description":"Automatic context management","properties":{"kind":{"type":"string","enum":["auto"]},"context_length":{"type":"integer","description":"Maximum number of messages to retain in context"},"memory_id":{"type":"string","description":"Identifier for persistent memory across agent invocations"}},"required":["kind"]},"MemoryMessage":{"type":"object","description":"A single message in conversation history","properties":{"role":{"type":"string","enum":["user","assistant","system"]},"content":{"type":"string"}},"required":["role","content"]},"MemoryManual":{"type":"object","description":"Explicit message history","properties":{"kind":{"type":"string","enum":["manual"]},"messages":{"type":"array","items":{"$ref":"#/components/schemas/MemoryMessage"}}},"required":["kind","messages"]},"MemoryConfig":{"description":"Conversation memory configuration","oneOf":[{"$ref":"#/components/schemas/MemoryOff"},{"$ref":"#/components/schemas/MemoryAuto"},{"$ref":"#/components/schemas/MemoryManual"}],"discriminator":{"propertyName":"kind","mapping":{"off":"#/components/schemas/MemoryOff","auto":"#/components/schemas/MemoryAuto","manual":"#/components/schemas/MemoryManual"}}},"StaticMemoryTransform":{"type":"object","description":"Static memory configuration passed directly to the AI agent","properties":{"value":{"$ref":"#/components/schemas/MemoryConfig"},"type":{"type":"string","enum":["static"]}},"required":["type","value"]},"MemoryTransform":{"description":"Memory configuration - can be static (MemoryConfig), JavaScript expression, or AI-determined","oneOf":[{"$ref":"#/components/schemas/StaticMemoryTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticMemoryTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"FlowModuleValue":{"description":"The actual implementation of a flow step. Can be a script (inline or referenced), subflow, loop, branch, or special module type","oneOf":[{"$ref":"#/components/schemas/RawScript"},{"$ref":"#/components/schemas/PathScript"},{"$ref":"#/components/schemas/PathFlow"},{"$ref":"#/components/schemas/ForloopFlow"},{"$ref":"#/components/schemas/WhileloopFlow"},{"$ref":"#/components/schemas/BranchOne"},{"$ref":"#/components/schemas/BranchAll"},{"$ref":"#/components/schemas/Identity"},{"$ref":"#/components/schemas/AiAgent"}],"discriminator":{"propertyName":"type","mapping":{"rawscript":"#/components/schemas/RawScript","script":"#/components/schemas/PathScript","flow":"#/components/schemas/PathFlow","forloopflow":"#/components/schemas/ForloopFlow","whileloopflow":"#/components/schemas/WhileloopFlow","branchone":"#/components/schemas/BranchOne","branchall":"#/components/schemas/BranchAll","identity":"#/components/schemas/Identity","aiagent":"#/components/schemas/AiAgent"}}},"RawScript":{"type":"object","description":"Inline script with code defined directly in the flow. Use 'bun' as default language if unspecified. The script receives arguments from input_transforms","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"content":{"type":"string","description":"The script source code. Should export a 'main' function"},"language":{"type":"string","description":"Programming language for this script","enum":["deno","bun","python3","go","bash","powershell","postgresql","mysql","bigquery","snowflake","mssql","oracledb","graphql","nativets","php","rust","ansible","csharp","nu","java","ruby","rlang","duckdb"]},"path":{"type":"string","description":"Optional path for saving this script"},"lock":{"type":"string","description":"Lock file content for dependencies"},"type":{"type":"string","enum":["rawscript"]},"tag":{"type":"string","description":"Worker group tag for execution routing"},"concurrent_limit":{"type":"number","description":"Maximum concurrent executions of this script"},"concurrency_time_window_s":{"type":"number","description":"Time window for concurrent_limit"},"custom_concurrency_key":{"type":"string","description":"Custom key for grouping concurrent executions"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"},"assets":{"type":"array","description":"External resources this script accesses (S3 objects, resources, etc.)","items":{"type":"object","required":["path","kind"],"properties":{"path":{"type":"string","description":"Path to the asset"},"kind":{"type":"string","description":"Type of asset","enum":["s3object","resource","ducklake","datatable","volume"]},"access_type":{"type":"string","nullable":true,"description":"Access level for this asset","enum":["r","w","rw"]},"alt_access_type":{"type":"string","nullable":true,"description":"Alternative access level","enum":["r","w","rw"]}}}}},"required":["type","content","language","input_transforms"]},"PathScript":{"type":"object","description":"Reference to an existing script by path. Use this when calling a previously saved script instead of writing inline code","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the script in the workspace (e.g., 'f/scripts/send_email')"},"hash":{"type":"string","description":"Optional specific version hash of the script to use"},"type":{"type":"string","enum":["script"]},"tag_override":{"type":"string","description":"Override the script's default worker group tag"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"}},"required":["type","path","input_transforms"]},"PathFlow":{"type":"object","description":"Reference to an existing flow by path. Use this to call another flow as a subflow","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the subflow's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the flow in the workspace (e.g., 'f/flows/process_user')"},"type":{"type":"string","enum":["flow"]}},"required":["type","path","input_transforms"]},"ForloopFlow":{"type":"object","description":"Executes nested modules in a loop over an iterator. Inside the loop, use 'flow_input.iter.value' to access the current iteration value, and 'flow_input.iter.index' for the index. Supports parallel execution for better performance on I/O-bound operations","properties":{"modules":{"type":"array","description":"Steps to execute for each iteration. These can reference the iteration value via 'flow_input.iter.value'","items":{"$ref":"#/components/schemas/FlowModule"}},"iterator":{"description":"JavaScript expression that returns an array to iterate over. Can reference 'results.step_id' or 'flow_input'","$ref":"#/components/schemas/InputTransform"},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["forloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (faster for I/O-bound operations). Use with parallelism to control concurrency"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true. Limits resource usage. Can be static number or expression","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","iterator","skip_failures","type"]},"WhileloopFlow":{"type":"object","description":"Executes nested modules repeatedly while a condition is true. The loop checks the condition after each iteration. Use stop_after_if on modules to control loop termination","properties":{"modules":{"type":"array","description":"Steps to execute in each iteration. Use stop_after_if to control when the loop ends","items":{"$ref":"#/components/schemas/FlowModule"}},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["whileloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (use with caution in while loops)"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","skip_failures","type"]},"BranchOne":{"type":"object","description":"Conditional branching where only the first matching branch executes. Branches are evaluated in order, and the first one with a true expression runs. If no branches match, the default branch executes","properties":{"branches":{"type":"array","description":"Array of branches to evaluate in order. The first branch with expr evaluating to true executes","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch condition"},"expr":{"type":"string","description":"JavaScript expression that returns boolean. Can use 'results.step_id' or 'flow_input'. First true expr wins"},"modules":{"type":"array","description":"Steps to execute if this branch's expr is true","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules","expr"]}},"default":{"type":"array","description":"Steps to execute if no branch expressions match","items":{"$ref":"#/components/schemas/FlowModule"}},"type":{"type":"string","enum":["branchone"]}},"required":["branches","default","type"]},"BranchAll":{"type":"object","description":"Parallel branching where all branches execute simultaneously. Unlike BranchOne, all branches run regardless of conditions. Useful for executing independent tasks concurrently","properties":{"branches":{"type":"array","description":"Array of branches that all execute (either in parallel or sequentially)","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch's purpose"},"skip_failure":{"type":"boolean","description":"If true, failure in this branch doesn't fail the entire flow"},"modules":{"type":"array","description":"Steps to execute in this branch","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules"]}},"type":{"type":"string","enum":["branchall"]},"parallel":{"type":"boolean","description":"If true, all branches execute concurrently. If false, they execute sequentially"}},"required":["branches","type"]},"AgentTool":{"type":"object","description":"A tool available to an AI agent. Can be a flow module or an external MCP (Model Context Protocol) tool","properties":{"id":{"type":"string","description":"Unique identifier for this tool. Cannot contain spaces - use underscores instead (e.g., 'get_user_data' not 'get user data')"},"summary":{"type":"string","description":"Short description of what this tool does (shown to the AI)"},"value":{"$ref":"#/components/schemas/ToolValue"}},"required":["id","value"]},"ToolValue":{"description":"The implementation of a tool. Can be a flow module (script/flow) or an MCP tool reference","oneOf":[{"$ref":"#/components/schemas/FlowModuleTool"},{"$ref":"#/components/schemas/McpToolValue"},{"$ref":"#/components/schemas/WebsearchToolValue"}],"discriminator":{"propertyName":"tool_type","mapping":{"flowmodule":"#/components/schemas/FlowModuleTool","mcp":"#/components/schemas/McpToolValue","websearch":"#/components/schemas/WebsearchToolValue"}}},"FlowModuleTool":{"description":"A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module","allOf":[{"type":"object","properties":{"tool_type":{"type":"string","enum":["flowmodule"]}},"required":["tool_type"]},{"$ref":"#/components/schemas/FlowModuleValue"}]},"WebsearchToolValue":{"type":"object","description":"A tool implemented as a websearch tool. The AI can call this like any other websearch tool","properties":{"tool_type":{"type":"string","enum":["websearch"]}},"required":["tool_type"]},"McpToolValue":{"type":"object","description":"Reference to an external MCP (Model Context Protocol) tool. The AI can call tools from MCP servers","properties":{"tool_type":{"type":"string","enum":["mcp"]},"resource_path":{"type":"string","description":"Path to the MCP resource/server configuration"},"include_tools":{"type":"array","description":"Whitelist of specific tools to include from this MCP server","items":{"type":"string"}},"exclude_tools":{"type":"array","description":"Blacklist of tools to exclude from this MCP server","items":{"type":"string"}}},"required":["tool_type","resource_path"]},"AiAgent":{"type":"object","description":"AI agent step that can use tools to accomplish tasks. The agent receives inputs and can call any of its configured tools to complete the task","properties":{"input_transforms":{"type":"object","description":"Input parameters for the AI agent mapped to their values","properties":{"provider":{"$ref":"#/components/schemas/ProviderTransform"},"output_type":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Output format type.\\nValid values: 'text' (default) - plain text response, 'image' - image generation\\n"},"user_message":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"The user's prompt/message to the AI agent. Supports variable interpolation with flow.input syntax."},"system_prompt":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"System instructions that guide the AI's behavior, persona, and response style. Optional."},"streaming":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Boolean. If true, stream the AI response incrementally.\\nStreaming events include: token_delta, tool_call, tool_call_arguments, tool_execution, tool_result\\n"},"memory":{"$ref":"#/components/schemas/MemoryTransform"},"output_schema":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"JSON Schema object defining structured output format. Used when you need the AI to return data in a specific shape.\\nSupports standard JSON Schema properties: type, properties, required, items, enum, pattern, minLength, maxLength, minimum, maximum, etc.\\nExample: { type: 'object', properties: { name: { type: 'string' }, age: { type: 'integer' } }, required: ['name'] }\\n"},"user_attachments":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Array of file references (images or PDFs) for the AI agent.\\nFormat: Array<{ bucket: string, key: string }> - S3 object references\\nExample: [{ bucket: 'my-bucket', key: 'documents/report.pdf' }]\\n"},"max_completion_tokens":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Integer. Maximum number of tokens the AI will generate in its response.\\nRange: 1 to 4,294,967,295. Typical values: 256-4096 for most use cases.\\n"},"temperature":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Float. Controls randomness/creativity of responses.\\nRange: 0.0 to 2.0 (provider-dependent)\\n- 0.0 = deterministic, focused responses\\n- 0.7 = balanced (common default)\\n- 1.0+ = more creative/random\\n"}},"required":["provider","user_message","output_type"]},"tools":{"type":"array","description":"Array of tools the agent can use. The agent decides which tools to call based on the task","items":{"$ref":"#/components/schemas/AgentTool"}},"type":{"type":"string","enum":["aiagent"]},"parallel":{"type":"boolean","description":"If true, the agent can execute multiple tool calls in parallel"}},"required":["tools","type","input_transforms"]},"Identity":{"type":"object","description":"Pass-through module that returns its input unchanged. Useful for flow structure or as a placeholder","properties":{"type":{"type":"string","enum":["identity"]},"flow":{"type":"boolean","description":"If true, marks this as a flow identity (special handling)"}},"required":["type"]},"FlowStatus":{"type":"object","properties":{"step":{"type":"integer"},"modules":{"type":"array","items":{"$ref":"#/components/schemas/FlowStatusModule"}},"user_states":{"additionalProperties":true},"preprocessor_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"}]},"failure_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"},{"type":"object","properties":{"parent_module":{"type":"string"}}}]},"retry":{"type":"object","properties":{"fail_count":{"type":"integer"},"failed_jobs":{"type":"array","items":{"type":"string","format":"uuid"}}}}},"required":["step","modules","failure_module"]},"FlowStatusModule":{"type":"object","properties":{"type":{"type":"string","enum":["WaitingForPriorSteps","WaitingForEvents","WaitingForExecutor","InProgress","Success","Failure"]},"id":{"type":"string"},"job":{"type":"string","format":"uuid"},"count":{"type":"integer"},"progress":{"type":"integer"},"iterator":{"type":"object","properties":{"index":{"type":"integer"},"itered":{"type":"array","items":{}},"itered_len":{"type":"integer"},"args":{}}},"flow_jobs":{"type":"array","items":{"type":"string"}},"flow_jobs_success":{"type":"array","items":{"type":"boolean"}},"flow_jobs_duration":{"type":"object","properties":{"started_at":{"type":"array","items":{"type":"string"}},"duration_ms":{"type":"array","items":{"type":"integer"}}}},"branch_chosen":{"type":"object","properties":{"type":{"type":"string","enum":["branch","default"]},"branch":{"type":"integer"}},"required":["type"]},"branchall":{"type":"object","properties":{"branch":{"type":"integer"},"len":{"type":"integer"}},"required":["branch","len"]},"approvers":{"type":"array","items":{"type":"object","properties":{"resume_id":{"type":"integer"},"approver":{"type":"string"}},"required":["resume_id","approver"]}},"failed_retries":{"type":"array","items":{"type":"string","format":"uuid"}},"skipped":{"type":"boolean"},"agent_actions":{"type":"array","items":{"type":"object","oneOf":[{"type":"object","properties":{"job_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"type":{"type":"string","enum":["tool_call"]},"module_id":{"type":"string"}},"required":["job_id","function_name","type","module_id"]},{"type":"object","properties":{"call_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"resource_path":{"type":"string"},"type":{"type":"string","enum":["mcp_tool_call"]},"arguments":{"type":"object"}},"required":["call_id","function_name","resource_path","type"]},{"type":"object","properties":{"type":{"type":"string","enum":["web_search"]}},"required":["type"]},{"type":"object","properties":{"type":{"type":"string","enum":["message"]}},"required":["content","type"]}]}},"agent_actions_success":{"type":"array","items":{"type":"boolean"}}},"required":["type"]}}`,
+{"OpenFlow":{"type":"object","description":"Top-level flow definition containing metadata, configuration, and the flow structure","properties":{"summary":{"type":"string","description":"Short description of what this flow does"},"description":{"type":"string","description":"Detailed documentation for this flow"},"value":{"$ref":"#/components/schemas/FlowValue"},"schema":{"type":"object","description":"JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')"},"on_behalf_of_email":{"type":"string","description":"The flow will be run with the permissions of the user with this email."}},"required":["summary","value"]},"FlowValue":{"type":"object","description":"The flow structure containing modules and optional preprocessor/failure handlers","properties":{"modules":{"type":"array","description":"Array of steps that execute in sequence. Each step can be a script, subflow, loop, or branch","items":{"$ref":"#/components/schemas/FlowModule"}},"failure_module":{"description":"Special module that executes when the flow fails. Receives error object with message, name, stack, and step_id. Must have id 'failure'. Only supports script/rawscript types","$ref":"#/components/schemas/FlowModule"},"preprocessor_module":{"description":"Special module that runs before the first step on external triggers. Must have id 'preprocessor'. Only supports script/rawscript types. Cannot reference other step results","$ref":"#/components/schemas/FlowModule"},"same_worker":{"type":"boolean","description":"If true, all steps run on the same worker for better performance"},"concurrent_limit":{"type":"number","description":"Maximum number of concurrent executions of this flow"},"concurrency_key":{"type":"string","description":"Expression to group concurrent executions (e.g., by user ID)"},"concurrency_time_window_s":{"type":"number","description":"Time window in seconds for concurrent_limit"},"debounce_delay_s":{"type":"integer","description":"Delay in seconds to debounce flow executions"},"debounce_key":{"type":"string","description":"Expression to group debounced executions"},"debounce_args_to_accumulate":{"type":"array","description":"Arguments to accumulate across debounced executions","items":{"type":"string"}},"max_total_debouncing_time":{"type":"integer","description":"Maximum total time in seconds that a job can be debounced"},"max_total_debounces_amount":{"type":"integer","description":"Maximum number of times a job can be debounced"},"skip_expr":{"type":"string","description":"JavaScript expression to conditionally skip the entire flow"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for flow results"},"cache_ignore_s3_path":{"type":"boolean"},"delete_after_secs":{"type":"integer","description":"If set, delete the flow job's args, result and logs after this many seconds following job completion"},"flow_env":{"type":"object","description":"Environment variables available to all steps. Values can be strings, JSON values, or special references: '$var:path' (workspace variable) or '$res:path' (resource).","additionalProperties":{}},"priority":{"type":"number","description":"Execution priority (higher numbers run first)"},"early_return":{"type":"string","description":"JavaScript expression to return early from the flow"},"chat_input_enabled":{"type":"boolean","description":"Whether this flow accepts chat-style input"},"notes":{"type":"array","description":"Sticky notes attached to the flow","items":{"$ref":"#/components/schemas/FlowNote"}},"groups":{"type":"array","description":"Semantic groups of modules for organizational purposes","items":{"$ref":"#/components/schemas/FlowGroup"}}},"required":["modules"]},"Retry":{"type":"object","description":"Retry configuration for failed module executions","properties":{"constant":{"type":"object","description":"Retry with constant delay between attempts","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"seconds":{"type":"integer","description":"Seconds to wait between retries"}}},"exponential":{"type":"object","description":"Retry with exponential backoff (delay doubles each time)","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"multiplier":{"type":"integer","description":"Multiplier for exponential backoff"},"seconds":{"type":"integer","minimum":1,"description":"Initial delay in seconds"},"random_factor":{"type":"integer","minimum":0,"maximum":100,"description":"Random jitter percentage (0-100) to avoid thundering herd"}}},"retry_if":{"$ref":"#/components/schemas/RetryIf"}}},"FlowNote":{"type":"object","description":"A sticky note attached to a flow for documentation and annotation","properties":{"id":{"type":"string","description":"Unique identifier for the note"},"text":{"type":"string","description":"Content of the note"},"position":{"type":"object","description":"Position of the note in the flow editor","properties":{"x":{"type":"number","description":"X coordinate"},"y":{"type":"number","description":"Y coordinate"}},"required":["x","y"]},"size":{"type":"object","description":"Size of the note in the flow editor","properties":{"width":{"type":"number","description":"Width in pixels"},"height":{"type":"number","description":"Height in pixels"}},"required":["width","height"]},"color":{"type":"string","description":"Color of the note (e.g., \\"yellow\\", \\"#ffff00\\")"},"type":{"type":"string","enum":["free","group"],"description":"Type of note - 'free' for standalone notes, 'group' for notes that group other nodes"},"locked":{"type":"boolean","default":false,"description":"Whether the note is locked and cannot be edited or moved"},"contained_node_ids":{"type":"array","items":{"type":"string"},"description":"For group notes, the IDs of nodes contained within this group"}},"required":["id","text","color","type"]},"FlowGroup":{"type":"object","description":"A semantic group of flow modules for organizational purposes. Does not affect execution \\u2014 modules remain in their original position in the flow. Groups provide naming and collapsibility in the editor. Members are computed dynamically from all nodes on paths between start_id and end_id.","properties":{"summary":{"type":"string","description":"Display name for this group"},"note":{"type":"string","description":"Markdown note shown below the group header"},"autocollapse":{"type":"boolean","default":false,"description":"If true, this group is collapsed by default in the flow editor. UI hint only."},"start_id":{"type":"string","description":"ID of the first flow module in this group (topological entry point)"},"end_id":{"type":"string","description":"ID of the last flow module in this group (topological exit point)"},"color":{"type":"string","description":"Color for the group in the flow editor"}},"required":["start_id","end_id"]},"RetryIf":{"type":"object","description":"Conditional retry based on error or result","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables"}},"required":["expr"]},"StopAfterIf":{"type":"object","description":"Early termination condition for a module","properties":{"skip_if_stopped":{"type":"boolean","description":"If true, following steps are skipped when this condition triggers"},"expr":{"type":"string","description":"JavaScript expression evaluated after the module runs. Can use 'result' (step's result) or 'flow_input'. Return true to stop"},"error_message":{"type":"string","nullable":true,"description":"Custom error message when stopping with an error. Mutually exclusive with skip_if_stopped. If set to a non-empty string, the flow stops with this error. If empty string, a default error message is used. If null or omitted, no error is raised."}},"required":["expr"]},"FlowModule":{"type":"object","description":"A single step in a flow. Can be a script, subflow, loop, or branch","properties":{"id":{"type":"string","description":"Unique identifier for this step. Used to reference results via 'results.step_id'. Must be a valid identifier (alphanumeric, underscore, hyphen)"},"value":{"$ref":"#/components/schemas/FlowModuleValue"},"stop_after_if":{"description":"Early termination condition evaluated after this step completes","$ref":"#/components/schemas/StopAfterIf"},"stop_after_all_iters_if":{"description":"For loops only - early termination condition evaluated after all iterations complete","$ref":"#/components/schemas/StopAfterIf"},"skip_if":{"type":"object","description":"Conditionally skip this step based on previous results or flow inputs","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to skip. Can use 'flow_input' or 'results.<step_id>'"}},"required":["expr"]},"sleep":{"description":"Delay before executing this step (in seconds or as expression)","$ref":"#/components/schemas/InputTransform"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for this step's results"},"cache_ignore_s3_path":{"type":"boolean"},"timeout":{"description":"Maximum execution time in seconds (static value or expression)","$ref":"#/components/schemas/InputTransform"},"delete_after_secs":{"type":"integer","description":"If set, delete the step's args, result and logs after this many seconds following job completion"},"summary":{"type":"string","description":"Short description of what this step does"},"mock":{"type":"object","description":"Mock configuration for testing without executing the actual step","properties":{"enabled":{"type":"boolean","description":"If true, return mock value instead of executing"},"return_value":{"description":"Value to return when mocked"}}},"suspend":{"type":"object","description":"Configuration for approval/resume steps that wait for user input","properties":{"required_events":{"type":"integer","description":"Number of approvals required before continuing"},"timeout":{"type":"integer","description":"Timeout in seconds before auto-continuing or canceling"},"resume_form":{"type":"object","description":"Form schema for collecting input when resuming","properties":{"schema":{"type":"object","description":"JSON Schema for the resume form"}}},"user_auth_required":{"type":"boolean","description":"If true, only authenticated users can approve"},"user_groups_required":{"description":"Expression or list of groups that can approve","$ref":"#/components/schemas/InputTransform"},"self_approval_disabled":{"type":"boolean","description":"If true, the user who started the flow cannot approve"},"hide_cancel":{"type":"boolean","description":"If true, hide the cancel button on the approval form"},"continue_on_disapprove_timeout":{"type":"boolean","description":"If true, continue flow on timeout instead of canceling"}}},"priority":{"type":"number","description":"Execution priority for this step (higher numbers run first)"},"continue_on_error":{"type":"boolean","description":"If true, flow continues even if this step fails"},"retry":{"description":"Retry configuration if this step fails","$ref":"#/components/schemas/Retry"},"debouncing":{"description":"Debounce configuration for this step (EE only)","type":"object","properties":{"debounce_delay_s":{"type":"integer","description":"Delay in seconds to debounce this step's executions across flow runs"},"debounce_key":{"type":"string","description":"Expression to group debounced executions. Supports $workspace and $args[name]. Default: $workspace/flow/<flow_path>-<step_id>"},"debounce_args_to_accumulate":{"type":"array","description":"Array-type arguments to accumulate across debounced executions","items":{"type":"string"}},"max_total_debouncing_time":{"type":"integer","description":"Maximum total time in seconds before forced execution"},"max_total_debounces_amount":{"type":"integer","description":"Maximum number of debounces before forced execution"}}}},"required":["value","id"]},"InputTransform":{"description":"Maps input parameters for a step. Can be a static value or a JavaScript expression that references previous results or flow inputs","oneOf":[{"$ref":"#/components/schemas/StaticTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"StaticTransform":{"type":"object","description":"Static value passed directly to the step. Use for hardcoded values or resource references like '$res:path/to/resource'","properties":{"value":{"description":"The static value. For resources, use format '$res:path/to/resource'"},"type":{"type":"string","enum":["static"]}},"required":["type"]},"JavascriptTransform":{"type":"object","description":"JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside loops, use 'flow_input.iter.value' for the current iteration value","properties":{"expr":{"type":"string","description":"JavaScript expression returning the value. Available variables - results (object with all previous step results), flow_input (flow inputs), flow_input.iter (in loops)"},"type":{"type":"string","enum":["javascript"]}},"required":["expr","type"]},"AiTransform":{"type":"object","description":"Value resolved by the AI runtime for this input. The AI engine decides how to satisfy the parameter.","properties":{"type":{"type":"string","enum":["ai"]}},"required":["type"]},"AIProviderKind":{"type":"string","description":"Supported AI provider types","enum":["openai","azure_openai","anthropic","mistral","deepseek","googleai","groq","openrouter","togetherai","customai","aws_bedrock"]},"ProviderConfig":{"type":"object","description":"Complete AI provider configuration with resource reference and model selection","properties":{"kind":{"$ref":"#/components/schemas/AIProviderKind"},"resource":{"type":"string","description":"Resource reference in format '$res:{resource_path}' pointing to provider credentials"},"model":{"type":"string","description":"Model identifier (e.g., 'gpt-4', 'claude-3-opus-20240229', 'gemini-pro')"}},"required":["kind","resource","model"]},"StaticProviderTransform":{"type":"object","description":"Static provider configuration passed directly to the AI agent","properties":{"value":{"$ref":"#/components/schemas/ProviderConfig"},"type":{"type":"string","enum":["static"]}},"required":["type","value"]},"ProviderTransform":{"description":"Provider configuration - can be static (ProviderConfig), JavaScript expression, or AI-determined","oneOf":[{"$ref":"#/components/schemas/StaticProviderTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticProviderTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"MemoryOff":{"type":"object","description":"No conversation memory/context","properties":{"kind":{"type":"string","enum":["off"]}},"required":["kind"]},"MemoryAuto":{"type":"object","description":"Automatic context management","properties":{"kind":{"type":"string","enum":["auto"]},"context_length":{"type":"integer","description":"Maximum number of messages to retain in context"},"memory_id":{"type":"string","description":"Identifier for persistent memory across agent invocations"}},"required":["kind"]},"MemoryMessage":{"type":"object","description":"A single message in conversation history","properties":{"role":{"type":"string","enum":["user","assistant","system"]},"content":{"type":"string"}},"required":["role","content"]},"MemoryManual":{"type":"object","description":"Explicit message history","properties":{"kind":{"type":"string","enum":["manual"]},"messages":{"type":"array","items":{"$ref":"#/components/schemas/MemoryMessage"}}},"required":["kind","messages"]},"MemoryConfig":{"description":"Conversation memory configuration","oneOf":[{"$ref":"#/components/schemas/MemoryOff"},{"$ref":"#/components/schemas/MemoryAuto"},{"$ref":"#/components/schemas/MemoryManual"}],"discriminator":{"propertyName":"kind","mapping":{"off":"#/components/schemas/MemoryOff","auto":"#/components/schemas/MemoryAuto","manual":"#/components/schemas/MemoryManual"}}},"StaticMemoryTransform":{"type":"object","description":"Static memory configuration passed directly to the AI agent","properties":{"value":{"$ref":"#/components/schemas/MemoryConfig"},"type":{"type":"string","enum":["static"]}},"required":["type","value"]},"MemoryTransform":{"description":"Memory configuration - can be static (MemoryConfig), JavaScript expression, or AI-determined","oneOf":[{"$ref":"#/components/schemas/StaticMemoryTransform"},{"$ref":"#/components/schemas/JavascriptTransform"},{"$ref":"#/components/schemas/AiTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticMemoryTransform","javascript":"#/components/schemas/JavascriptTransform","ai":"#/components/schemas/AiTransform"}}},"FlowModuleValue":{"description":"The actual implementation of a flow step. Can be a script (inline or referenced), subflow, loop, branch, or special module type","oneOf":[{"$ref":"#/components/schemas/RawScript"},{"$ref":"#/components/schemas/PathScript"},{"$ref":"#/components/schemas/PathFlow"},{"$ref":"#/components/schemas/ForloopFlow"},{"$ref":"#/components/schemas/WhileloopFlow"},{"$ref":"#/components/schemas/BranchOne"},{"$ref":"#/components/schemas/BranchAll"},{"$ref":"#/components/schemas/Identity"},{"$ref":"#/components/schemas/AiAgent"}],"discriminator":{"propertyName":"type","mapping":{"rawscript":"#/components/schemas/RawScript","script":"#/components/schemas/PathScript","flow":"#/components/schemas/PathFlow","forloopflow":"#/components/schemas/ForloopFlow","whileloopflow":"#/components/schemas/WhileloopFlow","branchone":"#/components/schemas/BranchOne","branchall":"#/components/schemas/BranchAll","identity":"#/components/schemas/Identity","aiagent":"#/components/schemas/AiAgent"}}},"RawScript":{"type":"object","description":"Inline script with code defined directly in the flow. Use 'bun' as default language if unspecified. The script receives arguments from input_transforms","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"content":{"type":"string","description":"The script source code. Should export a 'main' function"},"language":{"type":"string","description":"Programming language for this script","enum":["deno","bun","python3","go","bash","powershell","postgresql","mysql","bigquery","snowflake","mssql","oracledb","graphql","nativets","php","rust","ansible","csharp","nu","java","ruby","rlang","duckdb"]},"path":{"type":"string","description":"Optional path for saving this script"},"lock":{"type":"string","description":"Lock file content for dependencies"},"type":{"type":"string","enum":["rawscript"]},"tag":{"type":"string","description":"Worker group tag for execution routing"},"concurrent_limit":{"type":"number","description":"Maximum concurrent executions of this script"},"concurrency_time_window_s":{"type":"number","description":"Time window for concurrent_limit"},"custom_concurrency_key":{"type":"string","description":"Custom key for grouping concurrent executions"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"},"assets":{"type":"array","description":"External resources this script accesses (S3 objects, resources, etc.)","items":{"type":"object","required":["path","kind"],"properties":{"path":{"type":"string","description":"Path to the asset"},"kind":{"type":"string","description":"Type of asset","enum":["s3object","resource","ducklake","datatable","volume"]},"access_type":{"type":"string","nullable":true,"description":"Access level for this asset","enum":["r","w","rw"]},"alt_access_type":{"type":"string","nullable":true,"description":"Alternative access level","enum":["r","w","rw"]}}}}},"required":["type","content","language","input_transforms"]},"PathScript":{"type":"object","description":"Reference to an existing script by path. Use this when calling a previously saved script instead of writing inline code","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the script in the workspace (e.g., 'f/scripts/send_email')"},"hash":{"type":"string","description":"Optional specific version hash of the script to use"},"type":{"type":"string","enum":["script"]},"tag_override":{"type":"string","description":"Override the script's default worker group tag"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"}},"required":["type","path","input_transforms"]},"PathFlow":{"type":"object","description":"Reference to an existing flow by path. Use this to call another flow as a subflow","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the subflow's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the flow in the workspace (e.g., 'f/flows/process_user')"},"type":{"type":"string","enum":["flow"]}},"required":["type","path","input_transforms"]},"ForloopFlow":{"type":"object","description":"Executes nested modules in a loop over an iterator. Inside the loop, use 'flow_input.iter.value' to access the current iteration value, and 'flow_input.iter.index' for the index. Supports parallel execution for better performance on I/O-bound operations","properties":{"modules":{"type":"array","description":"Steps to execute for each iteration. These can reference the iteration value via 'flow_input.iter.value'","items":{"$ref":"#/components/schemas/FlowModule"}},"iterator":{"description":"JavaScript expression that returns an array to iterate over. Can reference 'results.step_id' or 'flow_input'","$ref":"#/components/schemas/InputTransform"},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["forloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (faster for I/O-bound operations). Use with parallelism to control concurrency"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true. Limits resource usage. Can be static number or expression","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","iterator","skip_failures","type"]},"WhileloopFlow":{"type":"object","description":"Executes nested modules repeatedly while a condition is true. The loop checks the condition after each iteration. Use stop_after_if on modules to control loop termination","properties":{"modules":{"type":"array","description":"Steps to execute in each iteration. Use stop_after_if to control when the loop ends","items":{"$ref":"#/components/schemas/FlowModule"}},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["whileloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (use with caution in while loops)"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","skip_failures","type"]},"BranchOne":{"type":"object","description":"Conditional branching where only the first matching branch executes. Branches are evaluated in order, and the first one with a true expression runs. If no branches match, the default branch executes","properties":{"branches":{"type":"array","description":"Array of branches to evaluate in order. The first branch with expr evaluating to true executes","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch condition"},"expr":{"type":"string","description":"JavaScript expression that returns boolean. Can use 'results.step_id' or 'flow_input'. First true expr wins"},"modules":{"type":"array","description":"Steps to execute if this branch's expr is true","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules","expr"]}},"default":{"type":"array","description":"Steps to execute if no branch expressions match","items":{"$ref":"#/components/schemas/FlowModule"}},"type":{"type":"string","enum":["branchone"]}},"required":["branches","default","type"]},"BranchAll":{"type":"object","description":"Parallel branching where all branches execute simultaneously. Unlike BranchOne, all branches run regardless of conditions. Useful for executing independent tasks concurrently","properties":{"branches":{"type":"array","description":"Array of branches that all execute (either in parallel or sequentially)","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch's purpose"},"skip_failure":{"type":"boolean","description":"If true, failure in this branch doesn't fail the entire flow"},"modules":{"type":"array","description":"Steps to execute in this branch","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules"]}},"type":{"type":"string","enum":["branchall"]},"parallel":{"type":"boolean","description":"If true, all branches execute concurrently. If false, they execute sequentially"}},"required":["branches","type"]},"AgentTool":{"type":"object","description":"A tool available to an AI agent. Can be a flow module or an external MCP (Model Context Protocol) tool","properties":{"id":{"type":"string","description":"Unique identifier for this tool. Cannot contain spaces - use underscores instead (e.g., 'get_user_data' not 'get user data')"},"summary":{"type":"string","description":"Short description of what this tool does (shown to the AI)"},"value":{"$ref":"#/components/schemas/ToolValue"}},"required":["id","value"]},"ToolValue":{"description":"The implementation of a tool. Can be a flow module (script/flow) or an MCP tool reference","oneOf":[{"$ref":"#/components/schemas/FlowModuleTool"},{"$ref":"#/components/schemas/McpToolValue"},{"$ref":"#/components/schemas/WebsearchToolValue"}],"discriminator":{"propertyName":"tool_type","mapping":{"flowmodule":"#/components/schemas/FlowModuleTool","mcp":"#/components/schemas/McpToolValue","websearch":"#/components/schemas/WebsearchToolValue"}}},"FlowModuleTool":{"description":"A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module","allOf":[{"type":"object","properties":{"tool_type":{"type":"string","enum":["flowmodule"]}},"required":["tool_type"]},{"$ref":"#/components/schemas/FlowModuleValue"}]},"WebsearchToolValue":{"type":"object","description":"A tool implemented as a websearch tool. The AI can call this like any other websearch tool","properties":{"tool_type":{"type":"string","enum":["websearch"]}},"required":["tool_type"]},"McpToolValue":{"type":"object","description":"Reference to an external MCP (Model Context Protocol) tool. The AI can call tools from MCP servers","properties":{"tool_type":{"type":"string","enum":["mcp"]},"resource_path":{"type":"string","description":"Path to the MCP resource/server configuration"},"include_tools":{"type":"array","description":"Whitelist of specific tools to include from this MCP server","items":{"type":"string"}},"exclude_tools":{"type":"array","description":"Blacklist of tools to exclude from this MCP server","items":{"type":"string"}}},"required":["tool_type","resource_path"]},"AiAgent":{"type":"object","description":"AI agent step that can use tools to accomplish tasks. The agent receives inputs and can call any of its configured tools to complete the task","properties":{"input_transforms":{"type":"object","description":"Input parameters for the AI agent mapped to their values","properties":{"provider":{"$ref":"#/components/schemas/ProviderTransform"},"output_type":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Output format type.\\nValid values: 'text' (default) - plain text response, 'image' - image generation\\n"},"user_message":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"The user's prompt/message to the AI agent. Supports variable interpolation with flow.input syntax."},"system_prompt":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"System instructions that guide the AI's behavior, persona, and response style. Optional."},"streaming":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Boolean. If true, stream the AI response incrementally.\\nStreaming events include: token_delta, tool_call, tool_call_arguments, tool_execution, tool_result\\n"},"memory":{"$ref":"#/components/schemas/MemoryTransform"},"output_schema":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"JSON Schema object defining structured output format. Used when you need the AI to return data in a specific shape.\\nSupports standard JSON Schema properties: type, properties, required, items, enum, pattern, minLength, maxLength, minimum, maximum, etc.\\nExample: { type: 'object', properties: { name: { type: 'string' }, age: { type: 'integer' } }, required: ['name'] }\\n"},"user_attachments":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Array of file references (images or PDFs) for the AI agent.\\nFormat: Array<{ bucket: string, key: string }> - S3 object references\\nExample: [{ bucket: 'my-bucket', key: 'documents/report.pdf' }]\\n"},"max_completion_tokens":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Integer. Maximum number of tokens the AI will generate in its response.\\nRange: 1 to 4,294,967,295. Typical values: 256-4096 for most use cases.\\n"},"temperature":{"allOf":[{"$ref":"#/components/schemas/InputTransform"}],"description":"Float. Controls randomness/creativity of responses.\\nRange: 0.0 to 2.0 (provider-dependent)\\n- 0.0 = deterministic, focused responses\\n- 0.7 = balanced (common default)\\n- 1.0+ = more creative/random\\n"}},"required":["provider","user_message","output_type"]},"tools":{"type":"array","description":"Array of tools the agent can use. The agent decides which tools to call based on the task","items":{"$ref":"#/components/schemas/AgentTool"}},"type":{"type":"string","enum":["aiagent"]},"omit_output_from_conversation":{"type":"boolean","default":false,"description":"If true, this AI agent step does not persist its assistant or tool messages to the flow conversation when chat mode is enabled."},"parallel":{"type":"boolean","description":"If true, the agent can execute multiple tool calls in parallel"}},"required":["tools","type","input_transforms"]},"Identity":{"type":"object","description":"Pass-through module that returns its input unchanged. Useful for flow structure or as a placeholder","properties":{"type":{"type":"string","enum":["identity"]},"flow":{"type":"boolean","description":"If true, marks this as a flow identity (special handling)"}},"required":["type"]},"FlowStatus":{"type":"object","properties":{"step":{"type":"integer"},"modules":{"type":"array","items":{"$ref":"#/components/schemas/FlowStatusModule"}},"user_states":{"additionalProperties":true},"preprocessor_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"}]},"failure_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"},{"type":"object","properties":{"parent_module":{"type":"string"}}}]},"retry":{"type":"object","properties":{"fail_count":{"type":"integer"},"failed_jobs":{"type":"array","items":{"type":"string","format":"uuid"}}}}},"required":["step","modules","failure_module"]},"FlowStatusModule":{"type":"object","properties":{"type":{"type":"string","enum":["WaitingForPriorSteps","WaitingForEvents","WaitingForExecutor","InProgress","Success","Failure"]},"id":{"type":"string"},"job":{"type":"string","format":"uuid"},"count":{"type":"integer"},"progress":{"type":"integer"},"iterator":{"type":"object","properties":{"index":{"type":"integer"},"itered":{"type":"array","items":{}},"itered_len":{"type":"integer"},"args":{}}},"flow_jobs":{"type":"array","items":{"type":"string"}},"flow_jobs_success":{"type":"array","items":{"type":"boolean"}},"flow_jobs_duration":{"type":"object","properties":{"started_at":{"type":"array","items":{"type":"string"}},"duration_ms":{"type":"array","items":{"type":"integer"}}}},"branch_chosen":{"type":"object","properties":{"type":{"type":"string","enum":["branch","default"]},"branch":{"type":"integer"}},"required":["type"]},"branchall":{"type":"object","properties":{"branch":{"type":"integer"},"len":{"type":"integer"}},"required":["branch","len"]},"approvers":{"type":"array","items":{"type":"object","properties":{"resume_id":{"type":"integer"},"approver":{"type":"string"}},"required":["resume_id","approver"]}},"failed_retries":{"type":"array","items":{"type":"string","format":"uuid"}},"skipped":{"type":"boolean"},"agent_actions":{"type":"array","items":{"type":"object","oneOf":[{"type":"object","properties":{"job_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"type":{"type":"string","enum":["tool_call"]},"module_id":{"type":"string"}},"required":["job_id","function_name","type","module_id"]},{"type":"object","properties":{"call_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"resource_path":{"type":"string"},"type":{"type":"string","enum":["mcp_tool_call"]},"arguments":{"type":"object"}},"required":["call_id","function_name","resource_path","type"]},{"type":"object","properties":{"type":{"type":"string","enum":["web_search"]}},"required":["type"]},{"type":"object","properties":{"type":{"type":"string","enum":["message"]}},"required":["content","type"]}]}},"agent_actions_success":{"type":"array","items":{"type":"boolean"}}},"required":["type"]}}`,
   "raw-app": `---
 name: raw-app
 description: MUST use when creating raw apps.
@@ -4671,11 +5234,70 @@ Raw apps let you build custom frontends with React, Svelte, or Vue that connect 
 
 ## Creating a Raw App
 
+**You — the AI agent — create the app yourself by running \`wmill app new\` with the right flags. Do NOT tell the user to "run \`wmill app new\` and follow the prompts" or wait for them to do it.** The bare \`wmill app new\` is an interactive wizard that hangs waiting for stdin in any non-TTY context (which includes you). Always pass flags.
+
+### Step 1 — Gather the three required values by asking the user
+
+You need three things to run the command:
+
+1. **summary** — a short description of the app
+2. **path** — the windmill path, e.g. \`f/folder/my_app\` or \`u/username/my_app\`
+3. **framework** — one of \`react19\` (recommended), \`react18\`, \`svelte5\`, \`vue\`
+
+If the user's request did not supply *every* one of these explicitly, ask. Do not guess values, do not invent paths, do not pick a framework on the user's behalf, do not "just use react19 because it's the default".
+
+Use whichever interactive question facility your runtime provides — a structured multi-choice tool if available, otherwise plain chat — and group all missing fields into a single round-trip so the user answers them at once:
+
+- For \`framework\` — multiple-choice with the four allowed values; mark \`react19\` as \`(Recommended)\` and put it first.
+- For \`summary\` and \`path\` — provide one or two example values as multiple-choice options (the user can pick "Other" to type a free-form answer).
+
+Only proceed once you have concrete values for all three. If the user replies with something ambiguous, ask again rather than guessing.
+
+### Step 2 — Run the command yourself
+
+Once you have summary + path + framework, run it:
+
+\`\`\`bash
+wmill app new \\
+  --summary "Customer dashboard" \\
+  --path f/sales/dashboard \\
+  --framework react19
+\`\`\`
+
+That's the minimum. The datatable wizard and the "Open in Claude Desktop?" prompt are skipped silently because passing any of \`--summary\`/\`--path\`/\`--framework\` puts the command in non-interactive mode.
+
+### Optional flags
+
+Layer these in only when the user asked for them:
+
+| Flag | When to add it |
+|---|---|
+| \`--datatable <name>\` | The user wants this app wired to a specific Windmill datatable. Without it, the app is created with no datatable. |
+| \`--schema <name>\` | Together with \`--datatable\`. Creates the schema with \`CREATE SCHEMA IF NOT EXISTS\` if it doesn't already exist. |
+| \`--overwrite\` | The target directory already exists and the user said it's OK to replace. Without it, non-interactive mode aborts with an error so you don't clobber existing work. |
+| \`--no-open-in-desktop\` | Already implied in non-interactive mode; only needed if you're somehow running interactively. |
+
+### Step 3 — Offer the visual preview
+
+After \`wmill app new\` and any initial edits to \`App.tsx\` / \`index.tsx\`, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry when an embedded preview tool is in play) the user should consent to.
+
+For apps the preview command runs from the app folder (\`cd <app_path>__raw_app && wmill app dev …\`); the \`preview\` skill picks the proxy vs direct branch based on whether the runtime exposes a tool that can embed a localhost URL. If the user already asked to see/preview/visualize the app in their original request, skip the offer and just invoke the skill.
+
+### Anti-patterns to avoid
+
+- ❌ Running \`wmill app new\` with no flags (the prompt will hang).
+- ❌ Telling the user to "run \`wmill app new\` and follow the prompts" — that's a step backwards from what you can do directly.
+- ❌ Inventing a path/summary/framework instead of asking the user.
+- ❌ Defaulting to \`react19\` because the user didn't say — even sensible defaults must be confirmed.
+- ❌ Passing \`--overwrite\` automatically when the directory exists — confirm with the user first.
+
+### Interactive (only when a human is at the terminal)
+
 \`\`\`bash
 wmill app new
 \`\`\`
 
-This interactive command creates a complete app structure with your choice of frontend framework (React, Svelte, or Vue).
+This is the wizard. It only works when run by a human in a real terminal. Don't call it this way from an agent.
 
 ## App Structure
 
@@ -4899,12 +5521,13 @@ data:
 
 ## CLI Commands
 
-Tell the user they can run these commands (do NOT run them yourself):
+\`wmill app new\` is the exception: you run it yourself, with flags, per the "Creating a Raw App" section above.
+
+For everything else, tell the user which command fits their intent and let them run it — these touch the workspace or local lock files, and the user should consent each time:
 
 | Command | Description |
 |---------|-------------|
-| \`wmill app new\` | Create a new raw app interactively |
-| \`wmill app dev\` | Start dev server with live reload |
+| \`wmill app dev\` | Start dev server with live reload (see the \`preview\` skill for the full open-the-app-in-the-IDE-pane procedure). |
 | \`wmill app generate-agents\` | Refresh AGENTS.md and DATATABLES.md |
 | \`wmill generate-metadata\` | Generate lock files for backend runnables |
 | \`wmill sync push\` | Deploy app to Windmill |
@@ -5253,7 +5876,7 @@ wmill sync push
 `,
   "cli-commands": `---
 name: cli-commands
-description: MUST use when using the CLI.
+description: MUST use when using the CLI, including debugging job failures and inspecting run history via \`wmill job\`.
 ---
 
 # Windmill CLI Commands
@@ -5293,6 +5916,13 @@ app related commands
 - \`app lint [app_folder:string]\` - Lint a raw app folder to validate structure and buildability
   - \`--fix\` - Attempt to fix common issues (not implemented yet)
 - \`app new\` - create a new raw app from a template
+  - \`--summary <summary:string>\` - App summary (short description). Skips the prompt when provided. Triggers non-interactive mode.
+  - \`--path <path:string>\` - App path (e.g., f/folder/my_app or u/username/my_app). Skips the prompt when provided. Triggers non-interactive mode.
+  - \`--framework <framework:string>\` - Framework template: react19 | react18 | svelte5 | vue. Skips the prompt when provided. Triggers non-interactive mode.
+  - \`--datatable <datatable:string>\` - Datatable to wire up. Without this flag in non-interactive mode, no datatable is configured.
+  - \`--schema <schema:string>\` - Schema to use with --datatable. Created (CREATE SCHEMA IF NOT EXISTS) if it doesn't already exist.
+  - \`--overwrite\` - Overwrite the target directory if it already exists, without prompting.
+  - \`--no-open-in-desktop\` - Do not prompt to open the new app in Claude Desktop.
 - \`app generate-agents [app_folder:string]\` - regenerate AGENTS.md and DATATABLES.md from remote workspace
 - \`app set-permissioned-as <path:string> <email:string>\` - Set the on_behalf_of_email for an app (requires admin or wm_deployers group)
 
@@ -5329,10 +5959,13 @@ workspace dependencies related commands
 
 ### dev
 
-Launch a dev server that watches for local file changes and auto-pushes them to the remote workspace. Provides live reload for scripts and flows during development.
+Watch local file changes and live-reload the dev page for preview. Does NOT deploy to the remote workspace — use wmill sync push for that.
 
 **Options:**
-- \`--includes <pattern...:string>\` - Filter paths givena glob pattern or path
+- \`--includes <pattern...:string>\` - Filter paths given a glob pattern or path
+- \`--proxy-port <port:number>\` - Port for a localhost reverse proxy to the remote Windmill server
+- \`--path <path:string>\` - Watch a specific windmill path (e.g., u/admin/my_script or f/my_flow)
+- \`--no-open\` - Do not open the browser automatically
 
 ### docs
 
@@ -5519,6 +6152,11 @@ sync local with a remote instance or the opposite (push or pull)
   - \`-o, --output-file <file:string>\` - Write YAML to a file instead of stdout
   - \`--show-secrets\` - Include sensitive fields (license key, JWT secret) without prompting
   - \`--instance <instance:string>\` - Name of the instance, override the active instance
+- \`instance connect-slack\`
+  - \`--bot-token <bot_token:string>\` - Slack bot token (xoxb-...)
+  - \`--team-id <team_id:string>\` - Slack team id
+  - \`--team-name <team_name:string>\` - Slack team name
+  - \`--instance <instance:string>\` - Instance profile to connect against (defaults to the active instance)
 
 ### job
 
@@ -5760,12 +6398,12 @@ trigger related commands
   - \`--json\` - Output as JSON (for piping to jq)
 - \`trigger get <path:string>\` - get a trigger's details
   - \`--json\` - Output as JSON (for piping to jq)
-  - \`--kind <kind:string>\` - Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email). Recommended for faster lookup
+  - \`--kind <kind:string>\` - Trigger kind (http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email). Recommended for faster lookup
 - \`trigger new <path:string>\` - create a new trigger locally
-  - \`--kind <kind:string>\` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)
+  - \`--kind <kind:string>\` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)
 - \`trigger push <file_path:string> <remote_path:string>\` - push a local trigger spec. This overrides any remote versions.
 - \`trigger set-permissioned-as <path:string> <email:string>\` - Set the email (run-as user) for a trigger (requires admin or wm_deployers group)
-  - \`--kind <kind:string>\` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, email)
+  - \`--kind <kind:string>\` - Trigger kind (required: http, websocket, kafka, nats, postgres, mqtt, sqs, gcp, azure, email)
 
 ### user
 
@@ -5867,12 +6505,229 @@ workspace related commands
   - \`--exclude <items:string>\` - Comma-separated kind:path items to exclude
   - \`--preserve-on-behalf-of\` - Preserve original on_behalf_of/permissioned_as values
   - \`-y --yes\` - Non-interactive mode (deploy without prompts)
+- \`workspace connect-slack\` - Non-interactively connect Slack to the active workspace using a pre-minted bot token (xoxb-...). Produces the same artifacts as the UI OAuth flow: workspace_settings fields, g/slack group, f/slack_bot folder, and the encrypted bot token variable + resource at f/slack_bot/bot_token.
+  - \`--bot-token <bot_token:string>\` - Slack bot token (xoxb-...)
+  - \`--team-id <team_id:string>\` - Slack team id
+  - \`--team-name <team_name:string>\` - Slack team name
+- \`workspace disconnect-slack\`
 
+`,
+  "preview": `---
+name: preview
+description: MUST use when opening the Windmill dev page / visual preview of a flow, script, or app. Triggers on words like preview, open, navigate to, visualize, see the flow/app/script, and after writing a flow/script/app for visual verification.
+---
+
+# Windmill Preview Workflow
+
+Use this skill any time the user wants to **see**, **open**, **navigate to**, **visualize**, or **preview** a flow, script, or app — and any time you've just finished writing one and want to offer visual verification.
+
+The Windmill dev page renders the flow graph / script editor, lets the user step through steps, and live-reloads on every save. It runs locally via \`wmill dev\` and is reached on a localhost port.
+
+## Two independent decisions
+
+### 1. Mode: proxy or direct?
+
+\`wmill dev\` runs in two modes; pick by asking what kind of URL whatever will display the preview needs.
+
+- **Proxy** (\`--proxy-port <port>\`) — exposes the dev page on \`http://localhost:<port>/\`. Use it when the embedder you'll hand the URL to **only accepts localhost URLs** (most in-IDE / in-chat preview embedders do, because they sandbox cross-origin loads).
+- **Direct** (default) — the user's browser loads the dev page from the remote workspace's HTTPS URL; the local \`wmill dev\` only runs the WebSocket back-channel for live reload. Use it when the URL will be opened in a regular browser tab.
+
+Default to **direct** unless you have a specific embedder that needs localhost.
+
+### 2. Who starts the server?
+
+- **You start it** in the background. Spawn \`wmill dev …\` (or \`wmill app dev …\`) yourself, capture the URL it prints, do whatever's next (open a tab, hand the URL to an embedder).
+- **The runtime starts it from \`.claude/launch.json\`.** Some runtimes (currently the Claude Desktop / Claude Code MCP preview integration — tools prefixed with \`mcp__Claude_Preview__\`) can read a \`launch.json\` configuration and launch the dev server on demand when you invoke their preview tool. **Only take this path if you actually have such a tool** — otherwise nothing reads the file and \`wmill dev\` never starts.
+
+The two decisions compose. The common cases:
+
+| Embedder | Needs localhost? | launch.json runtime? | What to do |
+|---|---|---|---|
+| Regular browser tab | No | n/a | Direct mode, you start it, give URL to user |
+| IDE / chat preview pane that takes any URL | No | No | Direct mode, you start it, point the embedder at the printed URL |
+| IDE / chat preview pane that only accepts localhost | Yes | No | Proxy mode, you start it, point the embedder at \`http://localhost:<port>/\` |
+| Claude Desktop / Code MCP preview | Yes | Yes | Proxy mode, write a \`launch.json\` entry, invoke the MCP tool |
+
+Never start the proxy "just in case" — it adds the localhost hop for no benefit when no embedder needs it.
+
+## Starting the server yourself
+
+Use this when no \`launch.json\`-aware runtime is available, regardless of mode.
+
+For flows / scripts:
+\`\`\`bash
+# Direct mode — gives you the remote dev-page URL
+wmill dev --path <wmill_path> --no-open
+
+# Proxy mode — gives you a localhost URL that 302s to the remote dev page
+wmill dev --proxy-port 4000 --path <wmill_path> --no-open
+\`\`\`
+
+For apps:
+\`\`\`bash
+cd <app_path>__raw_app && wmill app dev --no-open --port 4000
+\`\`\`
+
+Each command prints the URL on stdout. Line shapes differ:
+
+- \`wmill dev --no-open\` (direct) prints \`Go to <url>\` with the full remote URL (workspace, token, path baked in).
+- \`wmill dev --proxy-port\` prints \`Dev proxy listening on http://localhost:<port>\` — the URL to hand to an embedder is \`http://localhost:<port>/\`.
+- \`wmill app dev --no-open\` prints \`🚀 Dev server running at <url>\` — the local app server.
+
+Capture the URL with a loose match (the first \`https?://…\` token after startup) and either hand it to your embedder or relay it to the user: *"Preview is running — open \`<url>\` in your browser."* Don't construct the URL yourself; you don't have the workspace ID or auth token.
+
+These commands are long-running — start them in the background, don't block waiting.
+
+## Letting \`launch.json\` start the server (Claude Desktop / Code MCP only)
+
+Take this path when **and only when** an \`mcp__Claude_Preview__*\` MCP tool is exposed in your tool list. Skip it otherwise — without an MCP tool reading the file, \`wmill dev\` never starts.
+
+**Each flow / script / app gets its own named entry** in the user's \`.claude/launch.json\` so multiple previews coexist without colliding — each entry pins a different port + path. Never reuse a generic "windmill" entry for different targets.
+
+### Step 1 — Reuse or add a per-target entry in \`.claude/launch.json\`
+
+Convention: name the entry \`windmill: <wmill_path>\` (e.g. \`windmill: f/test/my_flow\`).
+
+- **Entry already exists** → reuse it; note its \`port\` for the next step.
+- **Not there** → add one. Pick a port not already taken by another entry (start at 4000 and bump). Shape:
+
+For flows / scripts:
+\`\`\`json
+{
+  "name": "windmill: f/test/my_flow",
+  "runtimeExecutable": "bash",
+  "runtimeArgs": ["-c", "wmill dev --proxy-port \${PORT:-4000} --path f/test/my_flow --no-open"],
+  "port": 4000,
+  "autoPort": true
+}
+\`\`\`
+
+For apps (\`*__raw_app/\`), \`wmill app dev\` is the equivalent — runs from the app folder, no \`--path\`:
+\`\`\`json
+{
+  "name": "windmill: f/test/my_app",
+  "runtimeExecutable": "bash",
+  "runtimeArgs": ["-c", "cd f/test/my_app__raw_app && wmill app dev --no-open --port \${PORT:-4001}"],
+  "port": 4001,
+  "autoPort": true
+}
+\`\`\`
+
+If \`.claude/launch.json\` doesn't exist yet, create it with the standard shell \`{ "version": "0.0.1", "configurations": [...] }\`.
+
+### Step 2 — Invoke the MCP preview tool
+
+Point it at the entry you just added/found. Use \`http://localhost:<port>/\` as the URL — the proxy's redirect at \`/\` is what appends the workspace ID, the auth token, and the path. Do **NOT** construct a \`/dev?...\` URL yourself.
+
+The MCP tool launches the configuration on demand, so you don't need to start the \`wmill dev\` process manually.
+
+## Non-visual alternative
+
+If the user wants a programmatic test rather than a visual one:
+- Flow: \`wmill flow preview <path> -d '<args>'\`
+- Script: \`wmill script preview <path> -d '<args>'\`
+
+Both print the job result, are safe to run yourself, and don't deploy.
+
+## Anti-patterns to avoid
+
+- ❌ Writing a \`.claude/launch.json\` entry when no \`mcp__Claude_Preview__*\` tool is in your tool list. Nothing will read the file; the server never starts. Spawn \`wmill dev\` yourself instead.
+- ❌ Starting the proxy when no embedder needs a localhost URL. Direct mode is the right choice — the proxy is overhead with no purpose.
+- ❌ Reusing a single generic \`launch.json\` entry for every preview target. Each flow/script/app gets its own named entry on its own port — that's how multiple sessions coexist without one preview clobbering another.
+- ❌ Mutating an existing entry's \`--path\` to retarget it. Add a new entry instead.
+- ❌ Constructing \`http://localhost:<port>/dev?path=<X>\` yourself. The proxy's \`/\` redirect is what appends the workspace ID and auth token; bypassing it gives a broken page. Always use \`http://localhost:<port>/\`.
+- ❌ Starting \`wmill dev\` in the foreground (you'll hang). Always background.
+- ❌ Listing both "open in IDE pane" and "open in browser" as a menu — pick one based on context.
 `,
 };
 
 // YAML schema content for triggers and schedules
 export const SCHEMAS: Record<string, string> = {
+  "azure_trigger": `type: object
+properties:
+  script_path:
+    type: string
+    description: Path to the script or flow to execute when triggered
+  permissioned_as:
+    type: string
+    description: The user or group this trigger runs as (permissioned_as)
+  is_flow:
+    type: boolean
+    description: True if script_path points to a flow, false if it points to a script
+  labels:
+    type: array
+    items:
+      type: string
+  azure_resource_path:
+    type: string
+  azure_mode:
+    type: string
+    enum:
+    - basic_push
+    - namespace_push
+    - namespace_pull
+    description: Azure Event Grid trigger mode.
+  scope_resource_id:
+    type: string
+    description: ARM resource ID of the topic (basic) or namespace (namespace modes).
+  topic_name:
+    type: string
+    description: Topic name within the namespace (namespace modes only).
+  subscription_name:
+    type: string
+  event_type_filters:
+    type: array
+    items:
+      type: string
+  error_handler_path:
+    type: string
+  error_handler_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  retry:
+    type: object
+    properties:
+      constant:
+        type: object
+        description: Retry with constant delay between attempts
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          seconds:
+            type: integer
+            description: Seconds to wait between retries
+      exponential:
+        type: object
+        description: Retry with exponential backoff (delay doubles each time)
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          multiplier:
+            type: integer
+            description: Multiplier for exponential backoff
+          seconds:
+            type: integer
+            minimum: 1
+            description: Initial delay in seconds
+          random_factor:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: Random jitter percentage (0-100) to avoid thundering herd
+      retry_if:
+        $ref: '#/components/schemas/RetryIf'
+    description: Retry configuration for failed module executions
+required:
+- script_path
+- permissioned_as
+- is_flow
+- azure_resource_path
+- azure_mode
+- scope_resource_id
+- subscription_name
+`,
   "gcp_trigger": `type: object
 properties:
   script_path:
@@ -6807,6 +7662,7 @@ export const SCHEMA_MAPPINGS: Record<string, SchemaMapping[]> = {
     { name: "MqttTrigger", schemaKey: "mqtt_trigger", filePattern: "*.mqtt_trigger.yaml" },
     { name: "SqsTrigger", schemaKey: "sqs_trigger", filePattern: "*.sqs_trigger.yaml" },
     { name: "GcpTrigger", schemaKey: "gcp_trigger", filePattern: "*.gcp_trigger.yaml" },
+    { name: "AzureTrigger", schemaKey: "azure_trigger", filePattern: "*.azure_trigger.yaml" },
   ],
   "schedules": [
     { name: "Schedule", schemaKey: "schedule", filePattern: "*.schedule.yaml" },

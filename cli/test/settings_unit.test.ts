@@ -210,4 +210,61 @@ describe("migrateToGroupedFormat", () => {
     expect(result.slack_name).toBe("my-team");
     expect(result.slack_command_script).toBe("u/admin/slack_handler");
   });
+
+  // error_handler / success_handler: null must round-trip through migration so
+  // that `wmill sync push` can forward it to the backend as a "clear remote"
+  // signal. Before this fix, null fell through the truthy-object + string
+  // branches and ended up as undefined, making an explicit `error_handler: null`
+  // in settings.yaml a no-op under the universal "omit = clear" rule.
+  test("preserves explicit null error_handler", () => {
+    const result = migrateToGroupedFormat({ name: "ws", error_handler: null });
+    expect(result.error_handler).toBeNull();
+    expect("error_handler" in result).toBe(true);
+  });
+
+  test("preserves explicit null success_handler", () => {
+    const result = migrateToGroupedFormat({ name: "ws", success_handler: null });
+    expect(result.success_handler).toBeNull();
+    expect("success_handler" in result).toBe(true);
+  });
+
+  test("preserves both null handlers alongside a populated handler", () => {
+    const result = migrateToGroupedFormat({
+      name: "ws",
+      error_handler: { path: "u/admin/err", muted_on_cancel: false },
+      success_handler: null,
+    });
+    expect(result.error_handler).toEqual({
+      path: "u/admin/err",
+      muted_on_cancel: false,
+    });
+    expect(result.success_handler).toBeNull();
+  });
+
+  // slack_oauth_client_id / slack_oauth_client_secret are the workspace-level
+  // OAuth override. Pull always emits them (null when DB is NULL), and push
+  // forwards whatever is in YAML — both present upserts, anything else deletes.
+  test("copies slack_oauth_client_id / _secret through (populated)", () => {
+    const result = migrateToGroupedFormat({
+      name: "ws",
+      slack_oauth_client_id: "1234567890.1234567890",
+      slack_oauth_client_secret: "abcdef0123456789",
+    });
+    expect(result.slack_oauth_client_id).toBe("1234567890.1234567890");
+    expect(result.slack_oauth_client_secret).toBe("abcdef0123456789");
+  });
+
+  test("copies slack_oauth_client_id / _secret through (null)", () => {
+    const result = migrateToGroupedFormat({
+      name: "ws",
+      slack_oauth_client_id: null,
+      slack_oauth_client_secret: null,
+    });
+    // migrateToGroupedFormat only copies fields that are `!== undefined`;
+    // null is a valid value and must flow through so the push comparison sees
+    // "local is null, remote is null → equal" instead of treating absence as
+    // "not in YAML".
+    expect(result.slack_oauth_client_id).toBeNull();
+    expect(result.slack_oauth_client_secret).toBeNull();
+  });
 });

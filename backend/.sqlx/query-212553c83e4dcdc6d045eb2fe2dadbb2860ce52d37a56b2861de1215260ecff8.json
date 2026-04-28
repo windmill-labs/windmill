@@ -37,7 +37,8 @@
                 "nextcloud",
                 "google",
                 "ci_test",
-                "github"
+                "github",
+                "azure"
               ]
             }
           }
@@ -73,7 +74,8 @@
                 "nextcloud",
                 "google",
                 "ci_test",
-                "github"
+                "github",
+                "azure"
               ]
             }
           }

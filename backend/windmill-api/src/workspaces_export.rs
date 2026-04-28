@@ -23,6 +23,7 @@ use crate::{apps::AppWithLastVersion, db::DB, folders::Folder};
             feature = "kafka",
             feature = "sqs_trigger",
             feature = "gcp_trigger",
+            feature = "azure_trigger",
             feature = "nats",
             feature = "smtp",
         ),
@@ -237,6 +238,13 @@ where
             if !preserve_extra_perms && obj.contains_key("extra_perms") {
                 obj.remove("extra_perms");
             }
+            if obj
+                .get("default_permissioned_as")
+                .and_then(|v| v.as_array())
+                .is_some_and(|a| a.is_empty())
+            {
+                obj.remove("default_permissioned_as");
+            }
 
             serde_json::to_string_pretty(&obj).ok()
         })
@@ -270,9 +278,11 @@ struct SimplifiedSettings {
     webhook: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     deploy_to: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Always serialize (including as `null`) so that `wmill sync pull` emits
+    // these fields in settings.yaml unconditionally. Makes round-trip
+    // bijective: YAML is the source of truth, absence/null = "clear remote",
+    // mirroring every other workspace setting.
     error_handler: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     success_handler: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ai_config: Option<serde_json::Value>,
@@ -299,6 +309,9 @@ struct SimplifiedSettings {
     slack_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     slack_command_script: Option<String>,
+    // Always serialize (see note above on error_handler / success_handler).
+    slack_oauth_client_id: Option<String>,
+    slack_oauth_client_secret: Option<String>,
 }
 
 // V1 format: Legacy flat format for backward compatibility (matches main branch exactly)
@@ -364,6 +377,8 @@ struct SettingsRow {
     slack_team_id: Option<String>,
     slack_name: Option<String>,
     slack_command_script: Option<String>,
+    slack_oauth_client_id: Option<String>,
+    slack_oauth_client_secret: Option<String>,
 }
 
 pub(crate) async fn tarball_workspace(
@@ -761,6 +776,23 @@ pub(crate) async fn tarball_workspace(
             }
         }
 
+        #[cfg(all(feature = "enterprise", feature = "azure_trigger", feature = "private"))]
+        {
+            use crate::triggers::azure::AzureTrigger;
+            let handler = AzureTrigger;
+            let azure_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+
+            for trigger in azure_triggers {
+                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                archive
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.azure_trigger.json", trigger.base.path),
+                    )
+                    .await?;
+            }
+        }
+
         #[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
         {
             use crate::triggers::nats::NatsTrigger;
@@ -973,7 +1005,9 @@ pub(crate) async fn tarball_workspace(
                  datatable,
                  slack_team_id,
                  slack_name,
-                 slack_command_script
+                 slack_command_script,
+                 slack_oauth_client_id,
+                 slack_oauth_client_secret
              FROM workspace_settings
              LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
              WHERE workspace_id = $1"#,
@@ -1003,6 +1037,8 @@ pub(crate) async fn tarball_workspace(
                 slack_team_id: row.slack_team_id.clone(),
                 slack_name: row.slack_name.clone(),
                 slack_command_script: row.slack_command_script.clone(),
+                slack_oauth_client_id: row.slack_oauth_client_id.clone(),
+                slack_oauth_client_secret: row.slack_oauth_client_secret.clone(),
             };
             serde_json::to_value(settings)
                 .map(|v| serde_json::to_string_pretty(&v).ok())
