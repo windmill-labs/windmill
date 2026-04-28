@@ -15,13 +15,11 @@ pub struct McpToolSource {
     pub resource_path: String,
 }
 
-use crate::ai_providers::{empty_string_as_none, AIProvider};
-use windmill_common::{
-    db::DB,
-    error::Error,
-    flow_status::AgentAction,
-    flows::FlowModule,
+use crate::{
+    ai_google::sanitize_schema_for_google,
+    ai_providers::{empty_string_as_none, AIProvider},
 };
+use windmill_common::{db::DB, error::Error, flow_status::AgentAction, flows::FlowModule};
 use windmill_parser::Typ;
 use windmill_types::s3::S3Object;
 
@@ -802,51 +800,20 @@ impl OpenAPISchema {
     /// Sanitizes this schema for Google AI's API by removing unsupported fields.
     /// See https://github.com/windmill-labs/windmill/issues/7759
     pub fn sanitize_for_google(&mut self) {
-        self.schema_url = None;
-        self.default = None;
-        self.exclusive_minimum = None;
-        self.exclusive_maximum = None;
-        self.r#const = None;
-        self.multiple_of = None;
-
-        // Recursively sanitize nested schemas
-        if let Some(ref mut items) = self.items {
-            items.sanitize_for_google();
-        }
-
-        if let Some(ref mut properties) = self.properties {
-            for prop in properties.values_mut() {
-                prop.sanitize_for_google();
+        let mut schema_value = match serde_json::to_value(&*self) {
+            Ok(value) => value,
+            Err(err) => {
+                tracing::error!("Failed to serialize OpenAPISchema for Google AI: {err}");
+                return;
             }
-        }
+        };
 
-        if let Some(ref mut one_of) = self.one_of {
-            for schema in one_of.iter_mut() {
-                schema.sanitize_for_google();
-            }
-        }
+        sanitize_schema_for_google(&mut schema_value);
 
-        if let Some(ref mut any_of) = self.any_of {
-            for schema in any_of.iter_mut() {
-                schema.sanitize_for_google();
-            }
-        }
-
-        if let Some(ref mut all_of) = self.all_of {
-            for schema in all_of.iter_mut() {
-                schema.sanitize_for_google();
-            }
-        }
-
-        if let Some(ref mut defs) = self.defs {
-            for schema in defs.values_mut() {
-                schema.sanitize_for_google();
-            }
-        }
-
-        if let Some(ref mut definitions) = self.definitions {
-            for schema in definitions.values_mut() {
-                schema.sanitize_for_google();
+        match serde_json::from_value(schema_value) {
+            Ok(schema) => *self = schema,
+            Err(err) => {
+                tracing::error!("Failed to deserialize sanitized Google AI OpenAPISchema: {err}");
             }
         }
     }
@@ -1608,6 +1575,43 @@ mod tests {
         schema.sanitize_for_google();
 
         assert!(schema.multiple_of.is_none(), "multipleOf should be removed");
+    }
+
+    #[test]
+    fn test_sanitize_for_google_removes_additional_properties() {
+        let nested = OpenAPISchema {
+            r#type: Some(SchemaType::Single("object".to_string())),
+            additional_properties: Some(AdditionalProperties::Bool(true)),
+            ..Default::default()
+        };
+
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("object".to_string())),
+            additional_properties: Some(AdditionalProperties::Schema(Box::new(OpenAPISchema {
+                r#type: Some(SchemaType::Single("string".to_string())),
+                default: Some(serde_json::json!("fallback")),
+                ..Default::default()
+            }))),
+            properties: Some(
+                vec![("nested".to_string(), Box::new(nested))]
+                    .into_iter()
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+
+        schema.sanitize_for_google();
+
+        assert!(
+            schema.additional_properties.is_none(),
+            "root additionalProperties should be removed"
+        );
+
+        let nested = schema.properties.as_ref().unwrap().get("nested").unwrap();
+        assert!(
+            nested.additional_properties.is_none(),
+            "nested additionalProperties should be removed"
+        );
     }
 
     #[test]
