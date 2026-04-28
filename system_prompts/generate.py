@@ -559,6 +559,16 @@ def generate_cli_commands_markdown(cli_data: dict) -> str:
 
                 md += "\n"
 
+            # Per-command annotations after the subcommand list
+            if cmd['name'] == 'variable':
+                md += (
+                    "**⚠ Secret variables:** `variable push` assumes the `value` field in the "
+                    "YAML is already encrypted ciphertext. To push a plaintext secret, pass "
+                    "`--plain-secrets` (available on `variable push` and `sync push`) so the server "
+                    "encrypts it on receipt. `variable add <value> <path>` always encrypts "
+                    "server-side and is the safest way to create a plaintext secret from the CLI.\n\n"
+                )
+
     return md
 
 
