@@ -59,6 +59,7 @@ import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { runChatLoop } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
+import type { WorkspaceMutationTarget } from './workspaceTools'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -224,6 +225,25 @@ class AIChatManager {
 		}
 	}
 
+	private getScriptWorkspaceMutationTarget = (): WorkspaceMutationTarget => {
+		return {
+			kind: 'script',
+			path: this.scriptEditorOptions?.path,
+			deployed: !!this.scriptEditorOptions?.path && this.scriptEditorOptions.lastDeployedCode !== undefined
+		}
+	}
+
+	private getFlowWorkspaceMutationTarget = (): WorkspaceMutationTarget => {
+		return {
+			kind: 'flow',
+			path: this.flowOptions?.path,
+			deployed:
+				!!this.flowOptions?.path &&
+				!!this.flowOptions.lastDeployedFlow &&
+				!this.flowOptions.lastDeployedFlow.draft_only
+		}
+	}
+
 	changeMode(
 		mode: AIMode,
 		pendingPrompt?: string,
@@ -252,6 +272,7 @@ class AIChatManager {
 						args: this.scriptEditorOptions?.args ?? {}
 					}
 				},
+				getWorkspaceMutationTarget: this.getScriptWorkspaceMutationTarget,
 				applyCode: (code: string, opts?: ReviewChangesOpts) => {
 					this.scriptEditorApplyCode?.(code, opts)
 				},
@@ -273,7 +294,10 @@ class AIChatManager {
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.systemMessage.content
 			this.tools = [...flowTools]
-			this.helpers = this.flowAiChatHelpers
+			this.helpers = {
+				...(this.flowAiChatHelpers ?? {}),
+				getWorkspaceMutationTarget: this.getFlowWorkspaceMutationTarget
+			}
 		} else if (mode === AIMode.NAVIGATOR) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareNavigatorSystemMessage(customPrompt)

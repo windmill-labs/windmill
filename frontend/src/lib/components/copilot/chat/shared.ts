@@ -457,6 +457,8 @@ async function callTool<T>({
 	return tool.fn({ args, workspace, helpers, toolCallbacks, toolId })
 }
 
+type MaybePromise<T> = T | Promise<T>
+
 export async function processToolCall<T>({
 	tools,
 	toolCall,
@@ -473,6 +475,28 @@ export async function processToolCall<T>({
 	try {
 		const args = JSON.parse(toolCall.function.arguments || '{}')
 		const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
+		const workspaceId = workspace ?? get(workspaceStore) ?? ''
+
+		const validationError = await tool?.validateBeforeConfirmation?.({
+			args,
+			workspace: workspaceId,
+			helpers
+		})
+		if (validationError) {
+			toolCallbacks.setToolStatus(toolCall.id, {
+				content: validationError,
+				parameters: args,
+				isLoading: false,
+				error: validationError,
+				needsConfirmation: false,
+				showDetails: tool?.showDetails
+			})
+			return {
+				role: 'tool' as const,
+				tool_call_id: toolCall.id,
+				content: validationError
+			}
+		}
 
 		// Check if tool requires confirmation
 		const needsConfirmation = tool?.requiresConfirmation
@@ -518,7 +542,7 @@ export async function processToolCall<T>({
 				tools,
 				functionName: toolCall.function.name,
 				args,
-				workspace: workspace ?? get(workspaceStore) ?? '',
+				workspace: workspaceId,
 				helpers,
 				toolCallbacks,
 				toolId: toolCall.id
@@ -566,6 +590,11 @@ export interface Tool<T> {
 		toolId: string
 	}) => Promise<string>
 	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
+	validateBeforeConfirmation?: (p: {
+		args: any
+		workspace: string
+		helpers: T
+	}) => MaybePromise<string | undefined>
 	setSchema?: (helpers: any) => Promise<void>
 	requiresConfirmation?: boolean
 	confirmationMessage?: string

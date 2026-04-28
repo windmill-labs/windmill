@@ -27,6 +27,7 @@ import {
 } from './workspaceToolsZod'
 import { z } from 'zod'
 import { createToolDef, type Tool } from './shared'
+import { emptyString } from '$lib/utils'
 
 type TriggerKind = keyof typeof triggerRequestSchemas
 
@@ -42,6 +43,24 @@ type TriggerRequestByKind = {
 	azure: AzureTriggerData
 }
 type TriggerRequestBody = TriggerRequestByKind[TriggerKind]
+
+export type WorkspaceMutationTarget = {
+	kind: 'script' | 'flow'
+	path?: string
+	deployed?: boolean
+}
+
+type WorkspaceMutationHelpers = {
+	getWorkspaceMutationTarget?: () => WorkspaceMutationTarget
+}
+
+function validateWorkspaceMutationTarget(helpers: unknown): string | undefined {
+	const target = (helpers as WorkspaceMutationHelpers | undefined)?.getWorkspaceMutationTarget?.()
+	if (!target || (!emptyString(target.path) && target.deployed)) {
+		return undefined
+	}
+	return `the ${target.kind} needs to be deployed before doing this action`
+}
 
 const createScheduleToolDef = createToolDef(
 	scheduleRequestSchema,
@@ -161,6 +180,7 @@ const createScheduleTool: Tool<any> = {
 	requiresConfirmation: true,
 	confirmationMessage: 'Create schedule',
 	showDetails: true,
+	validateBeforeConfirmation: ({ helpers }) => validateWorkspaceMutationTarget(helpers),
 	fn: async ({ args, workspace, toolCallbacks, toolId }) => {
 		const requestBody = parseWithExplicitErrors(
 			scheduleRequestSchema as z.ZodType<NewSchedule>,
@@ -210,6 +230,7 @@ const createTriggerTool: Tool<any> = {
 	requiresConfirmation: true,
 	confirmationMessage: 'Create trigger',
 	showDetails: true,
+	validateBeforeConfirmation: ({ helpers }) => validateWorkspaceMutationTarget(helpers),
 	fn: async ({ args, workspace, toolCallbacks, toolId }) => {
 		const parsedArgs = parseWithExplicitErrors(createTriggerToolSchema, args, 'Trigger')
 		const triggerConfig = triggerConfigs[parsedArgs.kind]
