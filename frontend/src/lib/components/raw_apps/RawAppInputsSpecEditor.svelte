@@ -205,7 +205,14 @@
 			<div class="flex flex-row items-center gap-1">
 				<Toggle
 					size="xs"
-					bind:checked={componentInput.sensitive}
+					checked={Boolean(componentInput.sensitive)}
+					on:change={(e) => {
+						if (e.detail) {
+							componentInput.sensitive = true
+						} else {
+							delete componentInput.sensitive
+						}
+					}}
 					textClass="!text-tertiary"
 					options={{
 						right: 'sensitive'
