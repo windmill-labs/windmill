@@ -60,8 +60,7 @@ function getWorkspaceMutationTarget(helpers: unknown): WorkspaceMutationTarget |
 	return (helpers as WorkspaceMutationHelpers | undefined)?.getWorkspaceMutationTarget?.()
 }
 
-function validateWorkspaceMutationTarget(helpers: unknown): string | undefined {
-	const target = getWorkspaceMutationTarget(helpers)
+function getWorkspaceMutationTargetError(target: WorkspaceMutationTarget | undefined): string | undefined {
 	if (!target) {
 		return 'the script or flow needs to be deployed before doing this action'
 	}
@@ -71,11 +70,21 @@ function validateWorkspaceMutationTarget(helpers: unknown): string | undefined {
 	return `the ${target.kind} needs to be deployed before doing this action`
 }
 
-function getWorkspaceMutationTargetFields(helpers: unknown): Pick<NewSchedule, 'script_path' | 'is_flow'> {
+function validateWorkspaceMutationTarget(helpers: unknown): string | undefined {
+	return getWorkspaceMutationTargetError(getWorkspaceMutationTarget(helpers))
+}
+
+function requireWorkspaceMutationTarget(helpers: unknown): WorkspaceMutationTarget & { path: string } {
 	const target = getWorkspaceMutationTarget(helpers)
-	if (!target?.path) {
-		throw new Error('the script or flow needs to be deployed before doing this action')
+	const error = getWorkspaceMutationTargetError(target)
+	if (error) {
+		throw new Error(error)
 	}
+	return target as WorkspaceMutationTarget & { path: string }
+}
+
+function getWorkspaceMutationTargetFields(helpers: unknown): Pick<NewSchedule, 'script_path' | 'is_flow'> {
+	const target = requireWorkspaceMutationTarget(helpers)
 	return {
 		script_path: target.path,
 		is_flow: target.kind === 'flow'
@@ -185,14 +194,27 @@ function parseWithExplicitErrors<T>(schema: z.ZodType<T>, value: unknown, label:
 }
 
 function formatApiError(error: any): string {
+	const bodyMessage =
+		error?.body?.error?.message ??
+		error?.body?.message ??
+		(typeof error?.body?.error === 'string' ? error.body.error : undefined)
 	const body =
-		typeof error?.body === 'string'
+		bodyMessage ??
+		(typeof error?.body === 'string'
 			? error.body
 			: error?.body !== undefined
-				? JSON.stringify(error.body)
-				: undefined
+				? stringifyErrorBody(error.body)
+				: undefined)
 	const message = body || error?.message || String(error)
 	return error?.status ? `HTTP ${error.status}: ${message}` : message
+}
+
+function stringifyErrorBody(body: unknown): string {
+	try {
+		return JSON.stringify(body)
+	} catch {
+		return String(body)
+	}
 }
 
 function setToolError(toolCallbacks: ToolCallbacks, toolId: string, error: unknown): string {

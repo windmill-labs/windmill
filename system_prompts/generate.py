@@ -758,6 +758,12 @@ def _apply_zod_metadata(expr: str, schema: dict) -> str:
 def _json_schema_to_zod(schema: dict, indent: int = 0) -> str:
     schema = schema or {}
 
+    if 'oneOf' in schema:
+        raise ValueError('Unsupported oneOf in workspace tool Zod schema generation')
+
+    if 'allOf' in schema:
+        raise ValueError('Unsupported allOf in workspace tool Zod schema generation')
+
     if 'anyOf' in schema:
         expr = "z.union([{}])".format(
             ', '.join(_json_schema_to_zod(item, indent) for item in schema['anyOf'])

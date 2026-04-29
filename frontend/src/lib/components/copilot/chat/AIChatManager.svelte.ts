@@ -74,6 +74,10 @@ export enum AIMode {
 	ASK = 'ask'
 }
 
+function isWorkspacePath(path: string | undefined): path is string {
+	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
+}
+
 class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
@@ -226,10 +230,12 @@ class AIChatManager {
 	}
 
 	private getScriptWorkspaceMutationTarget = (): WorkspaceMutationTarget => {
+		const path = this.scriptEditorOptions?.path
+		const workspacePath = isWorkspacePath(path) ? path : undefined
 		return {
 			kind: 'script',
-			path: this.scriptEditorOptions?.path,
-			deployed: !!this.scriptEditorOptions?.path && this.scriptEditorOptions.lastDeployedCode !== undefined
+			path: workspacePath,
+			deployed: workspacePath !== undefined && this.scriptEditorOptions?.lastDeployedCode !== undefined
 		}
 	}
 
