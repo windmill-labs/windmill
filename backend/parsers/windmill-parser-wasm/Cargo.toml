@@ -12,7 +12,7 @@ resolver = "2"
 members = ["."]
 
 [workspace.package]
-version = "1.693.0"
+version = "1.693.1"
 edition = "2021"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 
