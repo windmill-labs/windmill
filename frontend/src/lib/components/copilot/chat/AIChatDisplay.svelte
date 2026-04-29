@@ -19,6 +19,9 @@
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import AvailableContextList from './AvailableContextList.svelte'
+	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import AIChatInput from './AIChatInput.svelte'
@@ -173,9 +176,9 @@
 			</div>
 		{/if}
 		<div
-			class="rounded-2xl border border-light bg-surface shadow-sm transition-all focus-within:shadow-md focus-within:border-gray-300 dark:focus-within:border-gray-600"
+			class="rounded-xl border border-light bg-surface shadow-sm transition-all focus-within:shadow-md focus-within:border-gray-300 dark:focus-within:border-gray-600"
 		>
-			<div class="px-1 pt-0.5">
+			<div class="px-1 pt-1">
 				<AIChatInput
 					bind:this={aiChatInput}
 					bind:selectedContext
@@ -194,6 +197,43 @@
 							<Markdown md={disabledMessage} />
 						</div>
 					{:else}
+						{#if aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW || aiChatManager.mode === AIMode.APP}
+							<Popover>
+								{#snippet trigger()}
+									<div
+										class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
+										title="Add context"
+									>
+										@
+									</div>
+								{/snippet}
+								{#snippet content({ close })}
+									{#if aiChatManager.mode === AIMode.APP}
+										<AppAvailableContextList
+											{availableContext}
+											{selectedContext}
+											onSelect={(element) => {
+												aiChatInput?.addContextToSelection(element)
+												close()
+											}}
+										/>
+									{:else}
+										<AvailableContextList
+											{availableContext}
+											{selectedContext}
+											onSelect={(element) => {
+												aiChatInput?.addContextToSelection(element)
+												close()
+											}}
+											onSelectWorkspaceItem={(element) => {
+												aiChatInput?.addContextToSelection(element)
+												close()
+											}}
+										/>
+									{/if}
+								{/snippet}
+							</Popover>
+						{/if}
 						<ChatMode />
 						{#if aiChatManager.mode === AIMode.APP}
 							<DatatableCreationPolicy />
@@ -278,26 +318,22 @@
 				</div>
 
 				{#if !disabled}
-					<button
-						type="button"
-						aria-label={aiChatManager.loading ? 'Stop' : 'Send'}
-						title={aiChatManager.loading ? 'Stop' : 'Send'}
-						class="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+					<Button
+						variant="subtle"
+						size="xs"
+						iconOnly
+						startIcon={{ icon: aiChatManager.loading ? Square : ArrowUp }}
 						disabled={!aiChatManager.loading && !aiChatInput?.hasContent()}
-						onclick={() => {
+						title={aiChatManager.loading ? 'Stop' : 'Send'}
+						btnClasses="!rounded-full !w-7 !h-7"
+						on:click={() => {
 							if (aiChatManager.loading) {
 								cancel()
 							} else {
 								aiChatInput?.triggerSend()
 							}
 						}}
-					>
-						{#if aiChatManager.loading}
-							<Square class="w-3 h-3" />
-						{:else}
-							<ArrowUp class="w-3.5 h-3.5" strokeWidth={2.5} />
-						{/if}
-					</button>
+					/>
 				{/if}
 			</div>
 		</div>

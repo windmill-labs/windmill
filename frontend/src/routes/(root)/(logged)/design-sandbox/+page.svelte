@@ -235,7 +235,7 @@
 		     than being its own root view. -->
 		<Pane size={50} minSize={30} class="flex flex-col min-h-0 p-2 pl-0">
 			<div
-				class="flex-1 min-h-0 rounded-xl border border-light bg-surface overflow-hidden shadow-sm"
+				class="flex-1 min-h-0 rounded-md border border-light bg-surface overflow-hidden shadow-sm"
 			>
 				<FlowWrapper
 					disableAi

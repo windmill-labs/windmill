@@ -1,6 +1,4 @@
 <script lang="ts">
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import AvailableContextList from './AvailableContextList.svelte'
 	import AppAvailableContextList from './AppAvailableContextList.svelte'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import ContextTextarea from './ContextTextarea.svelte'
@@ -109,7 +107,7 @@
 		}
 	}
 
-	function addContextToSelection(contextElement: ContextElement) {
+	export function addContextToSelection(contextElement: ContextElement) {
 		if (!selectedContext || !availableContext) return
 
 		const alreadySelected = selectedContext.find(
@@ -371,30 +369,8 @@
 
 <div use:clickOutside class="relative">
 	{#if aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW}
-		{#if showContext}
+		{#if showContext && selectedContext && selectedContext.length > 0}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
-				<Popover>
-					{#snippet trigger()}
-						<div
-							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-							>@</div
-						>
-					{/snippet}
-					{#snippet content({ close })}
-						<AvailableContextList
-							{availableContext}
-							{selectedContext}
-							onSelect={(element) => {
-								addContextToSelection(element)
-								close()
-							}}
-							onSelectWorkspaceItem={(element) => {
-								addContextToSelection(element)
-								close()
-							}}
-						/>
-					{/snippet}
-				</Popover>
 				{#each selectedContext as element}
 					<ContextElementBadge
 						contextElement={element}
@@ -426,26 +402,8 @@
 			{onKeyDown}
 		/>
 	{:else if aiChatManager.mode === AIMode.APP}
-		{#if showContext}
+		{#if showContext && selectedContext && selectedContext.length > 0}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
-				<Popover>
-					{#snippet trigger()}
-						<div
-							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-							>@</div
-						>
-					{/snippet}
-					{#snippet content({ close })}
-						<AppAvailableContextList
-							{availableContext}
-							{selectedContext}
-							onSelect={(element) => {
-								addContextToSelection(element)
-								close()
-							}}
-						/>
-					{/snippet}
-				</Popover>
 				{#each selectedContext as element (element.type + '-' + element.title)}
 					<ContextElementBadge
 						contextElement={element}
@@ -486,7 +444,7 @@
 						sendRequest()
 					}
 				}}
-				rows={3}
+				rows={2}
 				placeholder={modePlaceholder}
 				class="resize-none"
 				{disabled}
@@ -532,7 +490,7 @@
 						sendRequest()
 					}
 				}}
-				rows={3}
+				rows={2}
 				placeholder={modePlaceholder}
 				class="resize-none"
 				{disabled}
