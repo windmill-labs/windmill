@@ -243,17 +243,18 @@ const createScheduleTool: Tool<any> = {
 			})
 			try {
 				const result = await ScheduleService.createSchedule({ workspace, requestBody })
-				toolCallbacks.setToolStatus(toolId, {
-					content: `Created schedule "${requestBody.path}"`,
-					result
-				})
-				return JSON.stringify({
+				const toolResult = {
 					success: true,
 					path: requestBody.path,
 					target_path: requestBody.script_path,
 					target_kind: requestBody.is_flow ? 'flow' : 'script',
-					result
+					backend_result: result
+				}
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Created schedule "${requestBody.path}"`,
+					result: toolResult
 				})
+				return JSON.stringify(toolResult)
 			} catch (error) {
 				throw new Error(`Failed to create schedule "${requestBody.path}": ${formatApiError(error)}`)
 			}
@@ -288,18 +289,19 @@ const createTriggerTool: Tool<any> = {
 			})
 			try {
 				const result = await triggerConfig.create({ workspace, requestBody } as never)
-				toolCallbacks.setToolStatus(toolId, {
-					content: `Created ${triggerConfig.label} "${requestBody.path}"`,
-					result
-				})
-				return JSON.stringify({
+				const toolResult = {
 					success: true,
 					kind: parsedArgs.kind,
 					path: requestBody.path,
 					target_path: requestBody.script_path,
 					target_kind: requestBody.is_flow ? 'flow' : 'script',
-					result
+					backend_result: result
+				}
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Created ${triggerConfig.label} "${requestBody.path}"`,
+					result: toolResult
 				})
+				return JSON.stringify(toolResult)
 			} catch (error) {
 				throw new Error(
 					`Failed to create ${triggerConfig.label} "${requestBody.path}": ${formatApiError(error)}`

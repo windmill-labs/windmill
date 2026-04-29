@@ -223,11 +223,15 @@ describe('processToolCall', () => {
 		const { createWorkspaceMutationTools } = await import('./workspaceTools')
 		const workspaceMutationTools = createWorkspaceMutationTools()
 
+		gen.ScheduleService.previewSchedule.mockReset()
+		gen.ScheduleService.createSchedule.mockReset()
+		gen.HttpTriggerService.createHttpTrigger.mockReset()
 		gen.ScheduleService.previewSchedule.mockResolvedValue({})
 		gen.ScheduleService.createSchedule.mockResolvedValue('schedule-created')
 		gen.HttpTriggerService.createHttpTrigger.mockResolvedValue('trigger-created')
 
-		await processToolCall({
+		const scheduleSetToolStatus = vi.fn()
+		const scheduleResult = await processToolCall({
 			tools: workspaceMutationTools,
 			toolCall: {
 				id: 'call_5',
@@ -251,7 +255,7 @@ describe('processToolCall', () => {
 			},
 			workspace: 'test-workspace',
 			toolCallbacks: {
-				setToolStatus: vi.fn(),
+				setToolStatus: scheduleSetToolStatus,
 				removeToolStatus: vi.fn(),
 				requestConfirmation: vi.fn().mockResolvedValue(true)
 			}
@@ -264,8 +268,30 @@ describe('processToolCall', () => {
 				is_flow: false
 			})
 		})
+		expect(scheduleSetToolStatus).toHaveBeenCalledWith(
+			'call_5',
+			expect.objectContaining({
+				result: expect.objectContaining({
+					success: true,
+					path: 'f/schedules/current',
+					target_path: 'f/scripts/current',
+					target_kind: 'script',
+					backend_result: 'schedule-created'
+				})
+			})
+		)
+		expect(JSON.parse(scheduleResult.content as string)).toEqual(
+			expect.objectContaining({
+				success: true,
+				path: 'f/schedules/current',
+				target_path: 'f/scripts/current',
+				target_kind: 'script',
+				backend_result: 'schedule-created'
+			})
+		)
 
-		await processToolCall({
+		const triggerSetToolStatus = vi.fn()
+		const triggerResult = await processToolCall({
 			tools: workspaceMutationTools,
 			toolCall: {
 				id: 'call_6',
@@ -293,7 +319,7 @@ describe('processToolCall', () => {
 			},
 			workspace: 'test-workspace',
 			toolCallbacks: {
-				setToolStatus: vi.fn(),
+				setToolStatus: triggerSetToolStatus,
 				removeToolStatus: vi.fn(),
 				requestConfirmation: vi.fn().mockResolvedValue(true)
 			}
@@ -306,6 +332,29 @@ describe('processToolCall', () => {
 				is_flow: true
 			})
 		})
+		expect(triggerSetToolStatus).toHaveBeenCalledWith(
+			'call_6',
+			expect.objectContaining({
+				result: expect.objectContaining({
+					success: true,
+					kind: 'http',
+					path: 'f/triggers/current',
+					target_path: 'f/flows/current',
+					target_kind: 'flow',
+					backend_result: 'trigger-created'
+				})
+			})
+		)
+		expect(JSON.parse(triggerResult.content as string)).toEqual(
+			expect.objectContaining({
+				success: true,
+				kind: 'http',
+				path: 'f/triggers/current',
+				target_path: 'f/flows/current',
+				target_kind: 'flow',
+				backend_result: 'trigger-created'
+			})
+		)
 	})
 
 	it('surfaces workspace mutation tool execution errors to the user', async () => {
