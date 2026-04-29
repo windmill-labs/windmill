@@ -7,6 +7,7 @@
 	import type { Item } from '$lib/utils'
 	import type { MenubarMenuElements, createDropdownMenu } from '@melt-ui/svelte'
 	import { Tooltip } from './meltComponents'
+	import DropdownSubmenuItem from './DropdownSubmenuItem.svelte'
 
 	interface Props {
 		item: Item
@@ -47,38 +48,44 @@
 		use:melt={$subMenu}
 		class="z-[6000] bg-surface-tertiary dark:border w-48 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"
 	>
-		{#each subItems as subItem}
+		{#each subItems as subItem (subItem.id ?? subItem.displayName)}
 			{#if subItem.separatorTop}
 				<div class="my-1 border-t border-border-light"></div>
 			{/if}
-			<MenuItem
-				onClick={(e) => subItem?.action?.(e)}
-				href={subItem?.href}
-				target={subItem?.hrefTarget}
-				disabled={subItem?.disabled}
-				class={twMerge(
-					'px-4 py-2 text-primary font-normal hover:bg-surface-hover cursor-pointer text-xs transition-colors w-full',
-					'data-[highlighted]:bg-surface-hover',
-					'flex flex-row gap-2 items-center rounded-sm',
-					subItem?.disabled && 'text-disabled cursor-not-allowed'
-				)}
-				item={meltItem}
-			>
-				{#if subItem.icon}
-					<subItem.icon size={14} color={subItem.iconColor} class="shrink-0" />
-				{/if}
-				<p title={subItem.displayName} class="truncate grow min-w-0 whitespace-nowrap text-left">
-					{subItem.displayName}
-				</p>
-				{@render subItem.extra?.()}
-				{#if subItem.tooltip}
-					<Tooltip>
-						{#snippet text()}
-							{subItem.tooltip}
-						{/snippet}
-					</Tooltip>
-				{/if}
-			</MenuItem>
+			{#if subItem.submenuItems && subItem.submenuItems.length > 0}
+				<!-- Recursive: render another DropdownSubmenuItem so the cascade
+				     can go arbitrarily deep (e.g. kind > folder > item). -->
+				<DropdownSubmenuItem item={subItem} {builders} {meltItem} />
+			{:else}
+				<MenuItem
+					onClick={(e) => subItem?.action?.(e)}
+					href={subItem?.href}
+					target={subItem?.hrefTarget}
+					disabled={subItem?.disabled}
+					class={twMerge(
+						'px-4 py-2 text-primary font-normal hover:bg-surface-hover cursor-pointer text-xs transition-colors w-full',
+						'data-[highlighted]:bg-surface-hover',
+						'flex flex-row gap-2 items-center rounded-sm',
+						subItem?.disabled && 'text-disabled cursor-not-allowed'
+					)}
+					item={meltItem}
+				>
+					{#if subItem.icon}
+						<subItem.icon size={14} color={subItem.iconColor} class="shrink-0" />
+					{/if}
+					<p title={subItem.displayName} class="truncate grow min-w-0 whitespace-nowrap text-left">
+						{subItem.displayName}
+					</p>
+					{@render subItem.extra?.()}
+					{#if subItem.tooltip}
+						<Tooltip>
+							{#snippet text()}
+								{subItem.tooltip}
+							{/snippet}
+						</Tooltip>
+					{/if}
+				</MenuItem>
+			{/if}
 		{/each}
 	</div>
 {/if}

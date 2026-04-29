@@ -59,10 +59,9 @@
 		CheckCircle,
 		RefreshCw,
 		CheckCheck,
-		Disc,
-		ChevronRight,
-		Workflow
+		Disc
 	} from 'lucide-svelte'
+	import ResourceBreadcrumb from './ResourceBreadcrumb.svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
@@ -623,15 +622,6 @@
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
-
-	// Breadcrumb derivations for the flow header (replaces SummaryPathDisplay).
-	const breadcrumbParts = $derived(($pathStore ?? '').split('/').filter(Boolean))
-	const breadcrumbFolder = $derived(
-		breadcrumbParts.length > 1 ? breadcrumbParts.slice(0, -1).join('/') : ''
-	)
-	const breadcrumbLeaf = $derived(
-		breadcrumbParts.length > 0 ? breadcrumbParts[breadcrumbParts.length - 1] : 'untitled'
-	)
 	const captureOn = writable<boolean>(false)
 	const showCaptureHint = writable<boolean | undefined>(undefined)
 	const flowInputEditorStateStore = writable<FlowInputEditorState>({
@@ -1160,20 +1150,8 @@
 			<div
 				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
-				<div class="flex w-full gap-1.5 items-center min-w-0 text-xs">
-					<Workflow class="w-3.5 h-3.5 text-secondary shrink-0" />
-					<span class="text-secondary shrink-0">Flows</span>
-					{#if breadcrumbFolder}
-						<ChevronRight class="w-3 h-3 text-secondary opacity-60 shrink-0" />
-						<span class="text-secondary truncate font-mono">{breadcrumbFolder}</span>
-					{/if}
-					<ChevronRight class="w-3 h-3 text-secondary opacity-60 shrink-0" />
-					<span
-						class="font-medium text-primary truncate"
-						title={flowStore.val.summary || breadcrumbLeaf}
-					>
-						{flowStore.val.summary || breadcrumbLeaf}
-					</span>
+				<div class="flex w-full items-center min-w-0">
+					<ResourceBreadcrumb kind="flow" path={$pathStore} summary={flowStore.val.summary} />
 				</div>
 
 				<div class="gap-4 flex-row hidden md:flex whitespace-nowrap">
