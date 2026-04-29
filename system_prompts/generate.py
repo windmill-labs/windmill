@@ -1152,7 +1152,7 @@ def extract_wac_py_sdk(py_content: str) -> str:
         return ''
 
     md = "## Python Workflow-as-Code API (wmill)\n\n"
-    md += "Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel`\n\n"
+    md += "Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, TaskError`\n\n"
     md += "```python\n"
     md += "\n\n".join(declarations)
     md += "\n```\n"

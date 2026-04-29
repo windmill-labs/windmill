@@ -5941,6 +5941,7 @@ import {
   sleep,
   waitForApproval,
   getResumeUrls,
+  parallel,
   workflow,
 } from "windmill-client";
 
@@ -5957,7 +5958,7 @@ export const main = workflow(async (x: string) => {
 Python:
 
 \`\`\`python
-from wmill import task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, workflow
+from wmill import task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, workflow
 
 @task()
 async def process(x: str) -> str:
@@ -6091,7 +6092,7 @@ approval = await wait_for_approval(timeout=3600)
 
 Let task errors fail the workflow unless the user asks for recovery logic.
 
-Python: \`except Exception\` is safe around WAC calls because internal suspension inherits from \`BaseException\`. Avoid bare \`except:\` in workflow code.
+Python: \`except Exception\` is safe around WAC calls because internal suspension inherits from \`BaseException\`. Avoid bare \`except:\` in workflow code. If the user asks for recovery logic around failed child work, catch \`TaskError\` from \`wmill\` for task failures.
 
 TypeScript: avoid broad \`try/catch\` around WAC SDK calls. The SDK uses an internal suspension error during initial dispatch; catching it can break workflow suspension. If a broad catch is unavoidable, rethrow internal suspension errors before handling business errors.
 
@@ -6194,7 +6195,7 @@ export async function parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R>
 
 ## Python Workflow-as-Code API (wmill)
 
-Import: \`from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel\`
+Import: \`from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, TaskError\`
 
 \`\`\`python
 # Raised when a WAC task step failed.

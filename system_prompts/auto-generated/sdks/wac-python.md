@@ -1,6 +1,6 @@
 ## Python Workflow-as-Code API (wmill)
 
-Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel`
+Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, TaskError`
 
 ```python
 # Raised when a WAC task step failed.
