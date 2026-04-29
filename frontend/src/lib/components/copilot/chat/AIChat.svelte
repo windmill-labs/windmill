@@ -5,7 +5,6 @@
 	import { dbSchemas, userStore, workspaceStore } from '$lib/stores'
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import { base } from '$lib/base'
-	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
 	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 
@@ -53,8 +52,6 @@
 		aiChatManager.sendRequest(options)
 	}
 
-	const historyManager = aiChatManager.historyManager
-
 	let aiChatDisplay: AIChatDisplay | undefined = $state(undefined)
 
 	$effect(() => {
@@ -80,20 +77,8 @@
 	}}
 />
 
-{#snippet headerLeft()}
-	<HideButton
-		hidden={false}
-		direction="right"
-		panelName="AI"
-		shortcut="L"
-		size="md"
-		on:click={() => aiChatManager.toggleOpen()}
-	/>
-{/snippet}
-
 <AIChatDisplay
 	bind:this={aiChatDisplay}
-	pastChats={historyManager.getPastChats()}
 	bind:selectedContext={
 		() => aiChatManager.contextManager.getSelectedContext(),
 		(sc) => aiChatManager.contextManager.setSelectedContext(sc)
@@ -113,16 +98,8 @@
 				}
 			]
 		: aiChatManager.displayMessages}
-	saveAndClear={aiChatManager.saveAndClear}
-	deletePastChat={(id) => {
-		historyManager.deletePastChat(id)
-	}}
-	loadPastChat={(id) => {
-		aiChatManager.loadPastChat(id)
-	}}
 	cancel={aiChatManager.cancel}
 	askAi={aiChatManager.askAi}
-	{headerLeft}
 	hasDiff={aiChatManager.scriptEditorOptions &&
 		!!aiChatManager.scriptEditorOptions.lastDeployedCode &&
 		aiChatManager.scriptEditorOptions.lastDeployedCode !== aiChatManager.scriptEditorOptions.code}

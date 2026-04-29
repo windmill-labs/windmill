@@ -85,6 +85,19 @@
 		}
 	]
 
+	// Realistic-sounding past-chat titles for the sidebar history. Just titles + ids
+	// because the sidebar snippet only reads those two fields.
+	const fakePastChats = [
+		{ id: 'mock_1', title: 'Daily user re-engagement flow' },
+		{ id: 'mock_2', title: 'Sync Stripe customers to Postgres' },
+		{ id: 'mock_3', title: 'Weekly usage report email' },
+		{ id: 'mock_4', title: 'Migrate S3 bucket to GCS' },
+		{ id: 'mock_5', title: 'Slack alert on failed deploys' },
+		{ id: 'mock_6', title: 'Parse CSV uploads into Postgres' },
+		{ id: 'mock_7', title: 'Generate signed download URLs' },
+		{ id: 'mock_8', title: 'Onboarding webhook handler' }
+	]
+
 	function applyMocks() {
 		// Pretend Windmill AI is enabled with an Anthropic model so the chat input is active.
 		copilotInfo.set({
@@ -96,6 +109,11 @@
 		})
 		aiChatManager.mode = AIMode.FLOW
 		aiChatManager.displayMessages = fakeMessages
+
+		// Patch getPastChats so the sidebar's "AI chat" history shows the mock titles
+		// without writing anything to IndexedDB (keeps the real workspace history clean).
+		// Cast to any because savedChats / pastChats are private fields on HistoryManager.
+		;(aiChatManager.historyManager as any).getPastChats = () => fakePastChats
 	}
 
 	// The parent (logged) layout always renders its AiChatLayout (right-side chat).

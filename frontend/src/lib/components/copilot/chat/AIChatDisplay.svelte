@@ -1,22 +1,18 @@
 <script lang="ts">
 	import AIChatMessage from './AIChatMessage.svelte'
-	import { type Snippet } from 'svelte'
 	import {
 		ArrowUp,
 		CheckIcon,
 		Code2,
 		FileCode,
-		HistoryIcon,
 		Loader2,
 		MousePointer2,
-		Plus,
 		Square,
 		TextSelect,
 		X,
 		XIcon
 	} from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { type DisplayMessage } from './shared'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
@@ -31,35 +27,23 @@
 
 	let {
 		messages,
-		pastChats,
 		hasDiff,
 		diffMode = false, // todo: remove default
 		selectedContext = $bindable([]), // todo: remove default
 		availableContext = [], // todo: remove default
-		loadPastChat,
-		deletePastChat,
-		saveAndClear,
 		cancel,
 		askAi = () => {}, // todo: remove default,
-		headerLeft,
-		headerRight,
 		disabled = false,
 		disabledMessage = '',
 		suggestions = []
 	}: {
 		messages: DisplayMessage[]
-		pastChats: { id: string; title: string }[]
 		hasDiff?: boolean
 		diffMode: boolean
 		selectedContext: ContextElement[]
 		availableContext: ContextElement[]
-		loadPastChat: (id: string) => void
-		deletePastChat: (id: string) => void
-		saveAndClear: () => void
 		cancel: () => void
 		askAi?: (instructions: string, options?: { withCode?: boolean; withDiff?: boolean }) => void
-		headerLeft?: Snippet
-		headerRight?: Snippet
 		disabled?: boolean
 		disabledMessage?: string
 		suggestions?: string[]
@@ -113,80 +97,6 @@
 </script>
 
 <div class="flex flex-col h-full">
-	<div
-		class="flex flex-row items-center justify-between gap-2 p-2 border-b border-gray-200 dark:border-gray-600"
-	>
-		<div class="flex flex-row items-center gap-2">
-			{@render headerLeft?.()}
-			<p class="text-sm font-semibold">Chat</p>
-		</div>
-		<div class="flex flex-row items-center gap-2">
-			<Popover>
-				{#snippet trigger()}
-					<Button
-						on:click={() => {}}
-						title="History"
-						size="md"
-						btnClasses="!p-1"
-						startIcon={{ icon: HistoryIcon }}
-						iconOnly
-						variant="border"
-						color="light"
-						propagateEvent
-					/>
-				{/snippet}
-				{#snippet content({ close })}
-					<div class="p-1 overflow-y-auto max-h-[300px]">
-						{#if pastChats.length === 0}
-							<div class="text-center text-primary text-xs">No history</div>
-						{:else}
-							<div class="flex flex-col">
-								{#each pastChats as chat}
-									<button
-										class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1"
-										onclick={() => {
-											loadPastChat(chat.id)
-											close()
-										}}
-									>
-										<div
-											class="text-xs font-medium w-48 text-ellipsis overflow-hidden whitespace-nowrap flex-1"
-											title={chat.title}
-										>
-											{chat.title}
-										</div>
-										<Button
-											iconOnly
-											size="xs2"
-											btnClasses="!p-1"
-											variant="default"
-											startIcon={{ icon: X }}
-											on:click={() => {
-												deletePastChat(chat.id)
-											}}
-										/>
-									</button>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				{/snippet}
-			</Popover>
-			<Button
-				title="New chat"
-				on:click={() => {
-					saveAndClear()
-				}}
-				size="md"
-				btnClasses="!p-1"
-				startIcon={{ icon: Plus }}
-				iconOnly
-				variant="border"
-				color="light"
-			/>
-			{@render headerRight?.()}
-		</div>
-	</div>
 	{#if messages.length === 0}
 		<span class="text-2xs text-gray-500 dark:text-gray-400 text-center px-2 my-2"
 			>You can use {getModifierKey()}L to open or close this chat, and {getModifierKey()}K in the

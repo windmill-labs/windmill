@@ -49,7 +49,7 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
-	import { ArrowLeft, Search, WandSparkles } from 'lucide-svelte'
+	import { ArrowLeft, Plus, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
@@ -463,6 +463,49 @@
 	globalDbManagerDrawer.val = useDbManagerUriState()
 </script>
 
+{#snippet chatHistorySection({ isCollapsed: collapsed }: { isCollapsed: boolean })}
+	<div class="pt-3 flex flex-col">
+		<div class="flex flex-row items-center justify-between px-2 mb-1">
+			<div
+				class="text-secondary text-[0.5rem] uppercase transition-opacity"
+				class:opacity-0={collapsed}
+			>
+				AI chat
+			</div>
+			<button
+				type="button"
+				title="New chat"
+				class="p-0.5 rounded text-secondary hover:bg-surface-hover hover:text-primary transition-colors"
+				onclick={() => {
+					aiChatManager.saveAndClear()
+					goto('/design-sandbox')
+				}}
+			>
+				<Plus class="w-3.5 h-3.5" />
+			</button>
+		</div>
+		{#if !collapsed}
+			<div class="flex flex-col gap-1.5 max-h-48 overflow-y-auto">
+				{#each aiChatManager.historyManager.getPastChats() as chat (chat.id)}
+					<button
+						type="button"
+						class="text-left text-2xs font-normal px-2 py-1.5 rounded hover:bg-surface-hover transition-colors truncate"
+						title={chat.title}
+						onclick={() => {
+							aiChatManager.loadPastChat(chat.id)
+							goto('/design-sandbox')
+						}}
+					>
+						{chat.title}
+					</button>
+				{:else}
+					<div class="text-2xs font-normal text-secondary px-2 py-1.5 italic">No past chats</div>
+				{/each}
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
 <svelte:window bind:innerWidth />
 
 <UserSettings bind:this={userSettings} showMcpMode={true} />
@@ -576,6 +619,7 @@
 											iconClasses="!text-ai"
 											shortcut={`${getModifierKey()}L`}
 										/>
+										{@render chatHistorySection({ isCollapsed: false })}
 									</div>
 
 									<SidebarContent
@@ -655,6 +699,7 @@
 									iconClasses="!text-ai"
 									shortcut={`${getModifierKey()}L`}
 								/>
+								{@render chatHistorySection({ isCollapsed })}
 							</div>
 
 							<SidebarContent
@@ -768,6 +813,7 @@
 									iconClasses="!text-ai"
 									shortcut={`${getModifierKey()}L`}
 								/>
+								{@render chatHistorySection({ isCollapsed })}
 							</div>
 
 							<SidebarContent
