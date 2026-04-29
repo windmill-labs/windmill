@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$SCRIPT_DIR/.."
 GENERATED_DIR="$SCRIPT_DIR/auto-generated"
-CLI_SKILLS="$ROOT_DIR/cli/src/guidance/skills.ts"
+CLI_SKILLS="$ROOT_DIR/cli/src/guidance/skills.gen.ts"
 FRONTEND_WORKSPACE_TOOL_ZOD="$ROOT_DIR/frontend/src/lib/components/copilot/chat/workspaceToolsZod.gen.ts"
 
 # Snapshot current state

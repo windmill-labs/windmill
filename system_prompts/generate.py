@@ -1695,7 +1695,7 @@ export function getDatatableSdkReference(): string {
         .replace("my_flow__flow", "my_flow{{FLOW_SUFFIX}}")
         .replace("my_app__raw_app/", "my_app{{RAW_APP_SUFFIX}}/")
     )
-    (CLI_GUIDANCE_DIR / "skills.ts").write_text(skills_ts)
+    (CLI_GUIDANCE_DIR / "skills.gen.ts").write_text(skills_ts)
 
     print(f"\nGenerated files:")
     print(f"  - auto-generated/sdks/typescript.md")
@@ -1708,7 +1708,7 @@ export function getDatatableSdkReference(): string {
     print(f"  - auto-generated/skills/ ({len(skills)} skills)")
     print(f"  - auto-generated/schemas/ ({len(schema_yaml_content)} schema files)")
     print(f"\nGenerated for CLI:")
-    print(f"  - cli/src/guidance/skills.ts")
+    print(f"  - cli/src/guidance/skills.gen.ts")
 
     if args.plugin_dir:
         generate_plugin_skills(args.plugin_dir, skills, schema_yaml_content)
