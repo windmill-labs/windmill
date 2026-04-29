@@ -47,7 +47,7 @@ export function buildDataTableWhitelist(refs: DataTableRef[]): DataTableWhitelis
 		if (!tables.has(ref.datatable)) {
 			tables.set(ref.datatable, new Map())
 		}
-		const schemaKey = ref.schema || 'public'
+		const schemaKey = ref.schema ?? 'public'
 		const schemaMap = tables.get(ref.datatable)!
 		if (!schemaMap.has(schemaKey)) {
 			schemaMap.set(schemaKey, new Set())
@@ -76,7 +76,7 @@ export function isDatatableTableAllowed(
 		return true
 	}
 
-	return whitelist.tables.get(datatableName)?.get(schemaName || 'public')?.has(tableName) ?? false
+	return whitelist.tables.get(datatableName)?.get(schemaName ?? 'public')?.has(tableName) ?? false
 }
 
 /**

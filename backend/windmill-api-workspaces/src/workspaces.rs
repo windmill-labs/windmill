@@ -1724,15 +1724,42 @@ fn compact_column_type(
         compact.push('?');
     }
     if let Some(default) = column_default {
-        let short_default = if default.len() > 30 {
-            format!("{}...", &default[..27])
-        } else {
-            default
-        };
         compact.push('=');
-        compact.push_str(&short_default);
+        compact.push_str(&truncate_column_default(default));
     }
     compact
+}
+
+fn truncate_column_default(default: String) -> String {
+    const MAX_DEFAULT_CHARS: usize = 30;
+    const TRUNCATED_DEFAULT_CHARS: usize = 27;
+
+    if default.chars().count() > MAX_DEFAULT_CHARS {
+        format!(
+            "{}...",
+            default
+                .chars()
+                .take(TRUNCATED_DEFAULT_CHARS)
+                .collect::<String>()
+        )
+    } else {
+        default
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_column_type_truncates_multibyte_defaults_safely() {
+        let default = "é".repeat(31);
+
+        assert_eq!(
+            compact_column_type("text".to_string(), "NO".to_string(), Some(default)),
+            format!("text={}...", "é".repeat(27))
+        );
+    }
 }
 
 /// Resolve a source string to PgDatabase credentials with user-scoped permission checks.

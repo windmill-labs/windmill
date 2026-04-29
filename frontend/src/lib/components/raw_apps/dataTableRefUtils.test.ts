@@ -27,4 +27,11 @@ describe('datatable whitelist helpers', () => {
 		expect(isDatatableTableAllowed(whitelist, 'main', 'analytics', 'events')).toBe(true)
 		expect(isDatatableTableAllowed(whitelist, 'main', 'public', 'orders')).toBe(false)
 	})
+
+	it('does not treat an explicit empty schema as public', () => {
+		const whitelist = buildDataTableWhitelist([{ datatable: 'main', schema: '', table: 'users' }])
+
+		expect(isDatatableTableAllowed(whitelist, 'main', '', 'users')).toBe(true)
+		expect(isDatatableTableAllowed(whitelist, 'main', 'public', 'users')).toBe(false)
+	})
 })
