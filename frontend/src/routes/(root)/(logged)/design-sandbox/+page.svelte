@@ -14,6 +14,7 @@
 		previewModalState,
 		closePreviewModal
 	} from '$lib/components/copilot/chat/previewModalState.svelte'
+	import { MessageSquare } from 'lucide-svelte'
 
 	// Fake conversation: user asks the assistant to build a 3-step user-engagement flow.
 	const fakeMessages: DisplayMessage[] = [
@@ -203,23 +204,49 @@
 	let customUi: FlowBuilderWhitelabelCustomUi = {
 		aiAgent: true
 	}
+
+	// Conversation title shown in the chat topbar. Derived from the first user
+	// message in the current chat, truncated. Falls back to a placeholder while
+	// the chat is empty.
+	const conversationTitle = $derived.by(() => {
+		const firstUser = aiChatManager.displayMessages.find((m) => m.role === 'user')
+		if (!firstUser) return 'New conversation'
+		const text = firstUser.content.trim()
+		const truncated = text.length > 60 ? text.slice(0, 60).trimEnd() + '…' : text
+		return truncated
+	})
 </script>
 
 <div class="h-full w-full flex flex-col min-h-0">
-	<Splitpanes horizontal={false} class="flex-1 min-h-0">
-		<Pane size={50} minSize={20} class="flex flex-col min-h-0 border-r border-light">
-			<AIChat />
+	<Splitpanes horizontal={false} class="design-sandbox-splitpanes flex-1 min-h-0">
+		<Pane size={50} minSize={20} class="flex flex-col min-h-0">
+			<div class="flex flex-row items-center gap-2 px-3 h-12 bg-surface shrink-0">
+				<MessageSquare class="w-3.5 h-3.5 text-secondary shrink-0" />
+				<span class="text-xs font-medium text-primary truncate" title={conversationTitle}>
+					{conversationTitle}
+				</span>
+			</div>
+			<div class="flex-1 min-h-0">
+				<AIChat />
+			</div>
 		</Pane>
-		<Pane size={50} minSize={30} class="flex flex-col min-h-0">
-			<FlowWrapper
-				disableAi
-				pathStoreInit="u/admin/sandbox_flow"
-				{customUi}
-				selectedId={undefined}
-				newFlow
-				{flowStore}
-				{flowStateStore}
-			/>
+		<!-- The right pane is a contained, padded card to make it visually
+		     clear that the flow view "belongs to" the chat on the left rather
+		     than being its own root view. -->
+		<Pane size={50} minSize={30} class="flex flex-col min-h-0 p-2 pl-0">
+			<div
+				class="flex-1 min-h-0 rounded-xl border border-light bg-surface overflow-hidden shadow-sm"
+			>
+				<FlowWrapper
+					disableAi
+					pathStoreInit="u/admin/sandbox_flow"
+					{customUi}
+					selectedId={undefined}
+					newFlow
+					{flowStore}
+					{flowStateStore}
+				/>
+			</div>
 		</Pane>
 	</Splitpanes>
 </div>
@@ -245,3 +272,17 @@
 		<ScheduleEditorInner bind:this={scheduleEditor} useDrawer={false} />
 	</div>
 </Modal2>
+
+<style>
+	/* Hide the visible splitpanes divider while keeping the hit area so the
+	   panel is still resizable. Scoped to this page via the wrapper class. */
+	:global(.design-sandbox-splitpanes > .splitpanes__splitter) {
+		background-color: transparent !important;
+		background-image: none !important;
+		border: none !important;
+	}
+	:global(.design-sandbox-splitpanes > .splitpanes__splitter::before),
+	:global(.design-sandbox-splitpanes > .splitpanes__splitter::after) {
+		display: none !important;
+	}
+</style>
