@@ -9611,6 +9611,131 @@ paths:
                 items:
                   $ref: "#/components/schemas/ListableRawApp"
 
+  /w/{workspace}/shared_ui/get:
+    get:
+      summary: get the workspace shared UI folder (full content)
+      operationId: getSharedUi
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: shared UI content
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - files
+                  - version
+                  - edited_at
+                  - edited_by
+                properties:
+                  files:
+                    type: object
+                    additionalProperties:
+                      type: string
+                  version:
+                    type: integer
+                    format: int64
+                  edited_at:
+                    type: string
+                    format: date-time
+                  edited_by:
+                    type: string
+
+  /w/{workspace}/shared_ui/list:
+    get:
+      summary: list paths/sizes of the workspace shared UI folder
+      operationId: listSharedUi
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: shared UI listing
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - paths
+                  - sizes
+                  - version
+                  - edited_at
+                  - edited_by
+                properties:
+                  paths:
+                    type: array
+                    items:
+                      type: string
+                  sizes:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                      format: int64
+                  version:
+                    type: integer
+                    format: int64
+                  edited_at:
+                    type: string
+                    format: date-time
+                  edited_by:
+                    type: string
+
+  /w/{workspace}/shared_ui/version:
+    get:
+      summary: get the current version of the workspace shared UI folder
+      operationId: getSharedUiVersion
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: shared UI version
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - version
+                properties:
+                  version:
+                    type: integer
+                    format: int64
+
+  /w/{workspace}/shared_ui:
+    put:
+      summary: replace the workspace shared UI folder (admin only)
+      operationId: updateSharedUi
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - files
+              properties:
+                files:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
       summary: get raw app data by
