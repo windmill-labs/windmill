@@ -244,6 +244,11 @@ jobs:
           RUST_LOG_STYLE: never
           CARGO_NET_GIT_FETCH_WITH_CLI: true
           CARGO_BUILD_JOBS: 12
+          # Tests' poll-time stack frames (deep nested async fn chains in
+          # debug builds) reach ~1.8MB, leaving very thin headroom on the
+          # default 2MB thread stack. 4MB gives ~2x buffer against flaky
+          # overflows under parallel-test contention.
+          RUST_MIN_STACK: 4194304
           WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: 1
           WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1
           WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1
