@@ -307,4 +307,122 @@ describe('processToolCall', () => {
 			})
 		})
 	})
+
+	it('surfaces workspace mutation tool execution errors to the user', async () => {
+		const gen = (await import('$lib/gen')) as any
+		const { processToolCall } = await import('./shared')
+		const { createWorkspaceMutationTools } = await import('./workspaceTools')
+		const workspaceMutationTools = createWorkspaceMutationTools()
+
+		gen.ScheduleService.previewSchedule.mockReset()
+		gen.ScheduleService.createSchedule.mockReset()
+		gen.HttpTriggerService.createHttpTrigger.mockReset()
+		gen.ScheduleService.previewSchedule.mockRejectedValue(new Error('backend rejected schedule'))
+
+		const scheduleSetToolStatus = vi.fn()
+		const scheduleError = 'Invalid schedule or timezone: backend rejected schedule'
+		const scheduleResult = await processToolCall({
+			tools: workspaceMutationTools,
+			toolCall: {
+				id: 'call_7',
+				type: 'function',
+				function: {
+					name: 'create_schedule',
+					arguments: JSON.stringify({
+						path: 'f/schedules/current',
+						schedule: '0 0 12 * * *',
+						timezone: 'UTC',
+						args: null
+					})
+				}
+			},
+			helpers: {
+				getWorkspaceMutationTarget: () => ({
+					kind: 'script',
+					path: 'f/scripts/current',
+					deployed: true
+				})
+			},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: scheduleSetToolStatus,
+				removeToolStatus: vi.fn(),
+				requestConfirmation: vi.fn().mockResolvedValue(true)
+			}
+		})
+
+		expect(scheduleSetToolStatus).toHaveBeenCalledWith(
+			'call_7',
+			expect.objectContaining({
+				content: scheduleError,
+				error: scheduleError,
+				isLoading: false
+			})
+		)
+		expect(scheduleResult.content).toBe(`Error while calling tool: ${scheduleError}`)
+		expect(scheduleSetToolStatus).not.toHaveBeenCalledWith(
+			'call_7',
+			expect.objectContaining({
+				error: 'An error occurred while calling the tool'
+			})
+		)
+
+		gen.ScheduleService.previewSchedule.mockResolvedValue({})
+		gen.HttpTriggerService.createHttpTrigger.mockRejectedValue(
+			new Error('backend rejected trigger')
+		)
+
+		const triggerSetToolStatus = vi.fn()
+		const triggerError =
+			'Failed to create HTTP trigger "f/triggers/current": backend rejected trigger'
+		const triggerResult = await processToolCall({
+			tools: workspaceMutationTools,
+			toolCall: {
+				id: 'call_8',
+				type: 'function',
+				function: {
+					name: 'create_trigger',
+					arguments: JSON.stringify({
+						kind: 'http',
+						path: 'f/triggers/current',
+						config: {
+							route_path: 'api/current',
+							http_method: 'post',
+							authentication_method: 'none',
+							is_static_website: false
+						}
+					})
+				}
+			},
+			helpers: {
+				getWorkspaceMutationTarget: () => ({
+					kind: 'flow',
+					path: 'f/flows/current',
+					deployed: true
+				})
+			},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: triggerSetToolStatus,
+				removeToolStatus: vi.fn(),
+				requestConfirmation: vi.fn().mockResolvedValue(true)
+			}
+		})
+
+		expect(triggerSetToolStatus).toHaveBeenCalledWith(
+			'call_8',
+			expect.objectContaining({
+				content: triggerError,
+				error: triggerError,
+				isLoading: false
+			})
+		)
+		expect(triggerResult.content).toBe(`Error while calling tool: ${triggerError}`)
+		expect(triggerSetToolStatus).not.toHaveBeenCalledWith(
+			'call_8',
+			expect.objectContaining({
+				error: 'An error occurred while calling the tool'
+			})
+		)
+	})
 })

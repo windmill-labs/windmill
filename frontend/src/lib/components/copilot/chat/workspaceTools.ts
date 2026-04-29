@@ -26,7 +26,7 @@ import {
 	triggerRequestSchemas
 } from './workspaceToolsZod'
 import { z } from 'zod'
-import { createToolDef, type Tool } from './shared'
+import { createToolDef, type Tool, type ToolCallbacks } from './shared'
 import { emptyString } from '$lib/utils'
 
 type TriggerKind = keyof typeof triggerRequestSchemas
@@ -195,6 +195,17 @@ function formatApiError(error: any): string {
 	return error?.status ? `HTTP ${error.status}: ${message}` : message
 }
 
+function setToolError(toolCallbacks: ToolCallbacks, toolId: string, error: unknown): string {
+	const errorMessage = error instanceof Error ? error.message : String(error)
+	toolCallbacks.setToolStatus(toolId, {
+		content: errorMessage,
+		error: errorMessage,
+		isLoading: false,
+		needsConfirmation: false
+	})
+	return `Error while calling tool: ${errorMessage}`
+}
+
 const createScheduleTool: Tool<any> = {
 	def: createScheduleToolDef,
 	requiresConfirmation: true,
@@ -202,48 +213,52 @@ const createScheduleTool: Tool<any> = {
 	showDetails: true,
 	validateBeforeConfirmation: ({ helpers }) => validateWorkspaceMutationTarget(helpers),
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-		const requestBody = parseWithExplicitErrors(
-			scheduleRequestSchema as z.ZodType<NewSchedule>,
-			{
-				...args,
-				...getWorkspaceMutationTargetFields(helpers)
-			},
-			'Schedule'
-		)
-
-		toolCallbacks.setToolStatus(toolId, {
-			content: `Validating schedule "${requestBody.path}"...`
-		})
 		try {
-			await ScheduleService.previewSchedule({
-				requestBody: {
-					schedule: requestBody.schedule,
-					timezone: requestBody.timezone,
-					cron_version: requestBody.cron_version ?? undefined
-				}
-			})
-		} catch (error) {
-			throw new Error(`Invalid schedule or timezone: ${formatApiError(error)}`)
-		}
+			const requestBody = parseWithExplicitErrors(
+				scheduleRequestSchema as z.ZodType<NewSchedule>,
+				{
+					...args,
+					...getWorkspaceMutationTargetFields(helpers)
+				},
+				'Schedule'
+			)
 
-		toolCallbacks.setToolStatus(toolId, {
-			content: `Creating schedule "${requestBody.path}"...`
-		})
-		try {
-			const result = await ScheduleService.createSchedule({ workspace, requestBody })
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Created schedule "${requestBody.path}"`,
-				result
+				content: `Validating schedule "${requestBody.path}"...`
 			})
-			return JSON.stringify({
-				success: true,
-				path: requestBody.path,
-				target_path: requestBody.script_path,
-				target_kind: requestBody.is_flow ? 'flow' : 'script',
-				result
+			try {
+				await ScheduleService.previewSchedule({
+					requestBody: {
+						schedule: requestBody.schedule,
+						timezone: requestBody.timezone,
+						cron_version: requestBody.cron_version ?? undefined
+					}
+				})
+			} catch (error) {
+				throw new Error(`Invalid schedule or timezone: ${formatApiError(error)}`)
+			}
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Creating schedule "${requestBody.path}"...`
 			})
+			try {
+				const result = await ScheduleService.createSchedule({ workspace, requestBody })
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Created schedule "${requestBody.path}"`,
+					result
+				})
+				return JSON.stringify({
+					success: true,
+					path: requestBody.path,
+					target_path: requestBody.script_path,
+					target_kind: requestBody.is_flow ? 'flow' : 'script',
+					result
+				})
+			} catch (error) {
+				throw new Error(`Failed to create schedule "${requestBody.path}": ${formatApiError(error)}`)
+			}
 		} catch (error) {
-			throw new Error(`Failed to create schedule "${requestBody.path}": ${formatApiError(error)}`)
+			return setToolError(toolCallbacks, toolId, error)
 		}
 	}
 }
@@ -255,39 +270,43 @@ const createTriggerTool: Tool<any> = {
 	showDetails: true,
 	validateBeforeConfirmation: ({ helpers }) => validateWorkspaceMutationTarget(helpers),
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
-		const parsedArgs = parseWithExplicitErrors(createTriggerToolSchema, args, 'Trigger')
-		const triggerConfig = triggerConfigs[parsedArgs.kind]
-		const requestBody = parseWithExplicitErrors(
-			triggerConfig.requestSchema as z.ZodType<TriggerRequestBody>,
-			{
-				...parsedArgs.config,
-				path: parsedArgs.path,
-				...getWorkspaceMutationTargetFields(helpers)
-			},
-			triggerConfig.label
-		)
-
-		toolCallbacks.setToolStatus(toolId, {
-			content: `Creating ${triggerConfig.label} "${requestBody.path}"...`
-		})
 		try {
-			const result = await triggerConfig.create({ workspace, requestBody } as never)
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Created ${triggerConfig.label} "${requestBody.path}"`,
-				result
-			})
-			return JSON.stringify({
-				success: true,
-				kind: parsedArgs.kind,
-				path: requestBody.path,
-				target_path: requestBody.script_path,
-				target_kind: requestBody.is_flow ? 'flow' : 'script',
-				result
-			})
-		} catch (error) {
-			throw new Error(
-				`Failed to create ${triggerConfig.label} "${requestBody.path}": ${formatApiError(error)}`
+			const parsedArgs = parseWithExplicitErrors(createTriggerToolSchema, args, 'Trigger')
+			const triggerConfig = triggerConfigs[parsedArgs.kind]
+			const requestBody = parseWithExplicitErrors(
+				triggerConfig.requestSchema as z.ZodType<TriggerRequestBody>,
+				{
+					...parsedArgs.config,
+					path: parsedArgs.path,
+					...getWorkspaceMutationTargetFields(helpers)
+				},
+				triggerConfig.label
 			)
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Creating ${triggerConfig.label} "${requestBody.path}"...`
+			})
+			try {
+				const result = await triggerConfig.create({ workspace, requestBody } as never)
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Created ${triggerConfig.label} "${requestBody.path}"`,
+					result
+				})
+				return JSON.stringify({
+					success: true,
+					kind: parsedArgs.kind,
+					path: requestBody.path,
+					target_path: requestBody.script_path,
+					target_kind: requestBody.is_flow ? 'flow' : 'script',
+					result
+				})
+			} catch (error) {
+				throw new Error(
+					`Failed to create ${triggerConfig.label} "${requestBody.path}": ${formatApiError(error)}`
+				)
+			}
+		} catch (error) {
+			return setToolError(toolCallbacks, toolId, error)
 		}
 	}
 }
