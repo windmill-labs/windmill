@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.693.1](https://github.com/windmill-labs/windmill/compare/v1.693.0...v1.693.1) (2026-04-29)
+
+
+### Bug Fixes
+
+* include labels when loading flow with draft for editing ([#8981](https://github.com/windmill-labs/windmill/issues/8981)) ([485d1d1](https://github.com/windmill-labs/windmill/commit/485d1d1e3785b5ed7e5f1a5ee127c0fed15fba3e)), closes [#8963](https://github.com/windmill-labs/windmill/issues/8963)
+
 ## [1.693.0](https://github.com/windmill-labs/windmill/compare/v1.692.0...v1.693.0) (2026-04-29)
 
 
