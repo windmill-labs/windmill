@@ -14,6 +14,7 @@ async function createWorkspaceFork(
     createWorkspaceName: string | undefined;
     color: string | undefined;
     datatableBehavior: string | undefined;
+    forkTriggers: boolean | undefined;
     yes: boolean | undefined;
   },
   workspaceName: string | undefined,
@@ -231,6 +232,7 @@ async function createWorkspaceFork(
         name: opts.createWorkspaceName ?? trueWorkspaceId,
         color: forkColor,
         forked_datatables: forkedDatatables,
+        fork_triggers: opts.forkTriggers ?? false,
       },
     });
 
