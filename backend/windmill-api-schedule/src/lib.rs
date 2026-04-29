@@ -855,6 +855,35 @@ pub async fn set_enabled(
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
+
+    // Block enabling a schedule in a fork when the parent has the same path
+    // enabled, unless force=true. Two enabled crons fire in lockstep; for
+    // schedules there's no namespacing fix (Phase 3 doesn't help cron) — the
+    // user has to confirm or point the script at fork-only side effects.
+    if payload.enabled && !payload.force {
+        let parent_id: Option<String> = sqlx::query_scalar!(
+            "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+            &w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+        if let Some(parent_id) = parent_id {
+            let parent_enabled: Option<bool> = sqlx::query_scalar!(
+                "SELECT enabled FROM schedule WHERE workspace_id = $1 AND path = $2",
+                &parent_id,
+                path,
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+            if parent_enabled == Some(true) {
+                return Err(Error::BadRequest(format!(
+                    "fork-conflict:schedule:{}",
+                    parent_id
+                )));
+            }
+        }
+    }
     // email is still written for backwards compat with old workers that don't know about permissioned_as
     let schedule_o = sqlx::query_as!(
         Schedule,
@@ -1281,6 +1310,11 @@ pub use windmill_queue::schedule::clear_schedule;
 #[derive(Deserialize)]
 pub struct SetEnabled {
     pub enabled: bool,
+    /// Bypass the parent-state warning when enabling a schedule in a fork
+    /// whose parent has the same path enabled. The frontend sets this after
+    /// the user confirms the duplicate-firing dialog.
+    #[serde(default)]
+    pub force: bool,
 }
 
 // #[derive(Deserialize)]

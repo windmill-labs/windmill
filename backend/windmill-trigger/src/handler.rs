@@ -750,6 +750,47 @@ async fn exists_trigger<T: TriggerCrud>(
 #[derive(serde::Deserialize)]
 struct SetTriggerModePayload {
     mode: TriggerMode,
+    /// When true, bypass the parent-state warning that would otherwise reject
+    /// enabling a trigger that's already enabled in the parent workspace.
+    /// The frontend sets this after the user confirms the duplicate-execution
+    /// dialog. See windmill-trigger/src/handler.rs::set_trigger_mode for the
+    /// full check.
+    #[serde(default)]
+    force: bool,
+}
+
+/// Returns true when this workspace is a fork *and* the parent workspace has
+/// the same trigger path enabled. Used to gate enabling a trigger in a fork
+/// behind an explicit `force=true` confirmation, since two enabled listeners
+/// for the same upstream resource will compete for events.
+async fn parent_trigger_enabled(
+    tx: &mut PgConnection,
+    table_name: &str,
+    workspace_id: &str,
+    path: &str,
+) -> Result<Option<String>> {
+    let parent: Option<String> =
+        sqlx::query_scalar("SELECT parent_workspace_id FROM workspace WHERE id = $1")
+            .bind(workspace_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
+    let Some(parent_id) = parent else {
+        return Ok(None);
+    };
+    let enabled: Option<bool> = sqlx::query_scalar(&format!(
+        "SELECT mode = 'enabled'::TRIGGER_MODE FROM {} WHERE workspace_id = $1 AND path = $2",
+        table_name
+    ))
+    .bind(&parent_id)
+    .bind(path)
+    .fetch_optional(&mut *tx)
+    .await?;
+    Ok(if enabled == Some(true) {
+        Some(parent_id)
+    } else {
+        None
+    })
 }
 
 async fn set_trigger_mode<T: TriggerCrud>(
@@ -764,6 +805,25 @@ async fn set_trigger_mode<T: TriggerCrud>(
     check_scopes(&authed, || format!("{}:write", T::scope_domain_name()))?;
 
     let mut tx = user_db.begin(&authed).await?;
+
+    // Block enabling a trigger in a fork when the parent has the same path
+    // enabled, unless the caller passes force=true. Until Phase 3 ships
+    // namespacing of listener identifiers, two enabled listeners for the same
+    // kafka group / postgres slot / etc. would split or steal events from
+    // each other. Suspended is treated as "not actively listening" so we let
+    // it through.
+    if payload.mode == TriggerMode::Enabled && !payload.force {
+        if let Some(parent_id) =
+            parent_trigger_enabled(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?
+        {
+            return Err(Error::BadRequest(format!(
+                "fork-conflict:{}:{}",
+                T::TRIGGER_TYPE,
+                parent_id
+            )));
+        }
+    }
+
     let updated = handler
         .set_trigger_mode(&authed, &mut *tx, &workspace_id, path, &payload.mode)
         .await?;
