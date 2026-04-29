@@ -32,8 +32,10 @@
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import {
+		buildDataTableWhitelist,
 		parseDataTableRef,
 		formatDataTableRef,
+		isDatatableTableAllowed,
 		type RawAppData,
 		DEFAULT_DATA
 	} from './dataTableRefUtils'
@@ -78,6 +80,7 @@
 
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
+	let dataTableWhitelist = $derived(buildDataTableWhitelist(dataTableRefsObjects))
 
 	type DataTableTablesMetadata = {
 		datatable_name: string
@@ -98,61 +101,31 @@
 		}
 	}
 
-	function getWhitelistedDatatableNames(): Set<string> {
-		return new Set(dataTableRefsObjects.map((ref) => ref.datatable))
-	}
-
-	function getWhitelistedTables(): Map<string, Map<string, Set<string>>> {
-		const whitelistedTables = new Map<string, Map<string, Set<string>>>()
-		for (const ref of dataTableRefsObjects) {
-			if (!ref.table) continue
-			if (!whitelistedTables.has(ref.datatable)) {
-				whitelistedTables.set(ref.datatable, new Map())
-			}
-			const schemaKey = ref.schema || 'public'
-			const schemaMap = whitelistedTables.get(ref.datatable)!
-			if (!schemaMap.has(schemaKey)) {
-				schemaMap.set(schemaKey, new Set())
-			}
-			schemaMap.get(schemaKey)!.add(ref.table)
-		}
-		return whitelistedTables
-	}
-
 	function isDatatableTableWhitelisted(
 		datatableName: string,
 		schemaName: string,
 		tableName: string
 	): boolean {
-		const whitelistedDatatables = getWhitelistedDatatableNames()
-		if (whitelistedDatatables.size === 0) {
-			return true
-		}
-
-		return (
-			getWhitelistedTables()
-				.get(datatableName)
-				?.get(schemaName || 'public')
-				?.has(tableName) ?? false
-		)
+		return isDatatableTableAllowed(dataTableWhitelist, datatableName, schemaName, tableName)
 	}
 
 	function filterDatatableTables(allTables: DataTableTablesMetadata[]): AppDatatableMetadata[] {
-		const whitelistedDatatables = getWhitelistedDatatableNames()
-
-		if (whitelistedDatatables.size === 0) {
+		if (dataTableWhitelist.datatables.size === 0) {
 			return allTables.map(withTableCount)
 		}
 
-		const whitelistedTables = getWhitelistedTables()
-
 		const results: AppDatatableMetadata[] = []
 		for (const datatable of allTables) {
-			if (!whitelistedDatatables.has(datatable.datatable_name)) {
+			if (!dataTableWhitelist.datatables.has(datatable.datatable_name)) {
 				continue
 			}
 
-			const allowedTables = whitelistedTables.get(datatable.datatable_name)
+			if (dataTableWhitelist.allTablesDatatables.has(datatable.datatable_name)) {
+				results.push(withTableCount(datatable))
+				continue
+			}
+
+			const allowedTables = dataTableWhitelist.tables.get(datatable.datatable_name)
 			if (!allowedTables) {
 				results.push(
 					withTableCount({
@@ -597,7 +570,7 @@
 			},
 			getAvailableDatatableNames: (): string[] => {
 				// Get unique datatable names from dataTableRefs
-				return [...new Set(dataTableRefsObjects.map((ref) => ref.datatable))]
+				return [...dataTableWhitelist.datatables]
 			},
 			execDatatableSql: async (
 				datatableName: string,

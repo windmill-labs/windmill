@@ -1707,6 +1707,7 @@ async fn get_datatable_table_columns(
 }
 
 fn is_system_pg_schema(schema_name: &str) -> bool {
+    // Match the datatable listing filter: PostgreSQL reserves pg_* schemas for system use.
     matches!(
         schema_name,
         "information_schema" | "pg_toast" | "pg_catalog"

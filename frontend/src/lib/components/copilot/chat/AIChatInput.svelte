@@ -12,6 +12,7 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { tick, untrack } from 'svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -137,11 +138,18 @@
 			aiChatManager.mode === AIMode.APP &&
 			aiChatManager.appAiChatHelpers
 		) {
+			const appAiChatHelpers = aiChatManager.appAiChatHelpers
+			appAiChatHelpers.addTableToWhitelist(
+				contextElement.datatableName,
+				contextElement.schemaName,
+				contextElement.tableName
+			)
+
 			if (!contextElement.columns) {
 				try {
 					contextToAdd = {
 						...contextElement,
-						columns: await aiChatManager.appAiChatHelpers.getDatatableTableSchema(
+						columns: await appAiChatHelpers.getDatatableTableSchema(
 							contextElement.datatableName,
 							contextElement.schemaName,
 							contextElement.tableName
@@ -149,14 +157,20 @@
 					}
 				} catch (e) {
 					console.error('Failed to load datatable table schema:', e)
+					sendUserToast(
+						'Failed to load datatable table schema',
+						true,
+						[],
+						e instanceof Error ? e.message : String(e)
+					)
 				}
 			}
-			aiChatManager.appAiChatHelpers.addTableToWhitelist(
-				contextElement.datatableName,
-				contextElement.schemaName,
-				contextElement.tableName
-			)
 		}
+
+		const duplicateAfterAwait = selectedContext.find(
+			(c) => c.type === contextToAdd.type && c.title === contextToAdd.title
+		)
+		if (duplicateAfterAwait) return
 
 		selectedContext = [...selectedContext, contextToAdd]
 	}
