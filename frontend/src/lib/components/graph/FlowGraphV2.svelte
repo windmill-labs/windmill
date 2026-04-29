@@ -1180,7 +1180,7 @@
 					</div>
 				{:else}
 					<Controls
-						position="top-right"
+						position="bottom-right"
 						orientation="horizontal"
 						showLock={false}
 						fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'note') }}

@@ -4,6 +4,7 @@
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
+	import { PanelRightClose, PanelRightOpen } from 'lucide-svelte'
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
 	import type { FlowEditorContext } from './types'
 
@@ -98,6 +99,10 @@
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
 
+	// The right-side settings/inspector panel can be collapsed to give the flow
+	// graph the full width. Collapsed by default — the panel is opt-in.
+	let panelCollapsed = $state(true)
+
 	export function isNodeVisible(nodeId: string): boolean {
 		return flowModuleSchemaMap?.isNodeVisible(nodeId) ?? false
 	}
@@ -143,8 +148,21 @@
 	}}
 >
 	<Splitpanes>
-		<Pane size={50} minSize={15} class="h-full relative z-0">
+		<Pane size={panelCollapsed ? 100 : 50} minSize={15} class="h-full relative z-0">
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
+				<button
+					type="button"
+					title={panelCollapsed ? 'Show settings panel' : 'Hide settings panel'}
+					aria-label={panelCollapsed ? 'Show settings panel' : 'Hide settings panel'}
+					onclick={() => (panelCollapsed = !panelCollapsed)}
+					class="absolute top-2 right-2 z-20 inline-flex items-center justify-center w-7 h-7 rounded-md border border-gray-200 dark:border-gray-700 bg-surface hover:bg-surface-hover text-secondary hover:text-primary transition-colors"
+				>
+					{#if panelCollapsed}
+						<PanelRightOpen class="w-4 h-4" />
+					{:else}
+						<PanelRightClose class="w-4 h-4" />
+					{/if}
+				</button>
 				{#if loading}
 					<div class="p-2 pt-10">
 						{#each new Array(6) as _}
@@ -190,34 +208,36 @@
 				{/if}
 			</div>
 		</Pane>
-		<Pane class="relative z-10" size={50} minSize={20}>
-			{#if loading}
-				<div class="w-full h-full">
-					<div class="block m-auto pt-40 w-10">
-						<WindmillIcon height="40px" width="40px" spin="fast" />
+		{#if !panelCollapsed}
+			<Pane class="relative z-10" size={50} minSize={20}>
+				{#if loading}
+					<div class="w-full h-full">
+						<div class="block m-auto pt-40 w-10">
+							<WindmillIcon height="40px" width="40px" spin="fast" />
+						</div>
 					</div>
-				</div>
-			{:else}
-				<FlowEditorPanel
-					{disabledFlowInputs}
-					{newFlow}
-					{savedFlow}
-					enableAi={!disableAi}
-					on:applyArgs
-					on:testWithArgs
-					{onDeployTrigger}
-					{forceTestTab}
-					{highlightArg}
-					{onTestFlow}
-					{job}
-					{isOwner}
-					{suspendStatus}
-					onOpenDetails={onOpenPreview}
-					{previewOpen}
-					{flowModuleSchemaMap}
-				/>
-			{/if}
-		</Pane>
+				{:else}
+					<FlowEditorPanel
+						{disabledFlowInputs}
+						{newFlow}
+						{savedFlow}
+						enableAi={!disableAi}
+						on:applyArgs
+						on:testWithArgs
+						{onDeployTrigger}
+						{forceTestTab}
+						{highlightArg}
+						{onTestFlow}
+						{job}
+						{isOwner}
+						{suspendStatus}
+						onOpenDetails={onOpenPreview}
+						{previewOpen}
+						{flowModuleSchemaMap}
+					/>
+				{/if}
+			</Pane>
+		{/if}
 		{#if !disableAi}
 			<FlowAIChat {flowModuleSchemaMap} {onTestFlow} />
 		{/if}
