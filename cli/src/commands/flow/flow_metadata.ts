@@ -34,6 +34,33 @@ import { DoubleLinkedDependencyTree } from "../../utils/dependency_tree.ts";
 import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 
 const TOP_HASH = "__flow_hash";
+
+/**
+ * Check if a flow folder is up-to-date against the lockfile.
+ *
+ * The top hash is `sha256(JSON.stringify(sortedPerFileHashes))`. Older CLI
+ * versions hashed `JSON.stringify(perFileHashes)` without sorting keys, so
+ * lockfile entries written before that fix won't match. As a backwards-compat
+ * fallback, if the top hash mismatches we accept the entry as up-to-date when
+ * every per-file hash matches individually — that's enough to prove no file
+ * content changed.
+ */
+async function isFlowDirectlyStale(
+  folder: string,
+  hashes: Record<string, string>,
+  conf: Awaited<ReturnType<typeof readLockfile>>,
+): Promise<boolean> {
+  if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
+    return false;
+  }
+  const fileEntries = Object.entries(hashes).filter(([k]) => k !== TOP_HASH);
+  if (fileEntries.length === 0) return true;
+  for (const [k, h] of fileEntries) {
+    if (!(await checkifMetadataUptodate(folder, h, conf, k))) return true;
+  }
+  return false;
+}
+
 async function generateFlowHash(
   rawWorkspaceDependencies: Record<string, string>,
   folder: string,
@@ -72,6 +99,7 @@ export async function generateFlowLockInternal(
   workspace: Workspace,
   opts: GlobalOptions & {
     defaultTs?: "bun" | "deno";
+    rehashOnly?: boolean;
   },
   justUpdateMetadataLock?: boolean,
   noStaleMessage?: boolean,
@@ -100,6 +128,17 @@ export async function generateFlowLockInternal(
   let filteredDeps: Record<string, string> = {};
   const conf = await readLockfile();
 
+  // Rehash-only fast path: write canonical per-file + top hashes from disk,
+  // no backend trip, no flow.yaml/inline_script rewrite.
+  if (opts.rehashOnly) {
+    const hashes = await generateFlowHash({}, folder, opts.defaultTs);
+    await clearGlobalLock(folder);
+    for (const [k, v] of Object.entries(hashes)) {
+      await updateMetadataGlobalLock(folder, v, k);
+    }
+    return;
+  }
+
   if (tree) {
     if (dryRun) {
       const inlineScriptPaths: string[] = [];
@@ -122,7 +161,7 @@ export async function generateFlowLockInternal(
       }
 
       const hashes = await generateFlowHash({}, folder, opts.defaultTs);
-      const isDirectlyStale = !(await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH));
+      const isDirectlyStale = await isFlowDirectlyStale(folder, hashes, conf);
 
       await tree.addNode(folderNormalized, "", "bun", "", inlineScriptPaths, "flow", folderNormalized, folder, isDirectlyStale);
       return;
@@ -134,7 +173,7 @@ export async function generateFlowLockInternal(
     filteredDeps = await filterWorkspaceDependenciesForFlow(flowValue.value as FlowValue, rawWorkspaceDependencies, folder);
 
     const hashes = await generateFlowHash(filteredDeps, folder, opts.defaultTs);
-    const isDirectlyStale = !(await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH));
+    const isDirectlyStale = await isFlowDirectlyStale(folder, hashes, conf);
 
     if (!isDirectlyStale) {
       if (!noStaleMessage) {

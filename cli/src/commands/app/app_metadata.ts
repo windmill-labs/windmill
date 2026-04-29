@@ -57,6 +57,29 @@ type AppFile = RawAppFile | NormalAppFile;
 /**
  * Generates a hash for all inline scripts in an app directory
  */
+/**
+ * Check if an app folder is up-to-date against the lockfile.
+ *
+ * Mirrors the flow staleness check: when the top hash mismatches (e.g. due to
+ * the legacy unsorted-keys top-hash formula), accept the entry if every
+ * per-file hash still matches individually.
+ */
+async function isAppDirectlyStale(
+  appFolder: string,
+  hashes: Record<string, string>,
+  conf: Awaited<ReturnType<typeof readLockfile>>,
+): Promise<boolean> {
+  if (await checkifMetadataUptodate(appFolder, hashes[TOP_HASH], conf, TOP_HASH)) {
+    return false;
+  }
+  const fileEntries = Object.entries(hashes).filter(([k]) => k !== TOP_HASH);
+  if (fileEntries.length === 0) return true;
+  for (const [k, h] of fileEntries) {
+    if (!(await checkifMetadataUptodate(appFolder, h, conf, k))) return true;
+  }
+  return false;
+}
+
 async function generateAppHash(
   rawReqs: Record<string, string> | undefined,
   folder: string,
@@ -122,6 +145,7 @@ export async function generateAppLocksInternal(
   workspace: Workspace,
   opts: GlobalOptions & {
     defaultTs?: "bun" | "deno";
+    rehashOnly?: boolean;
   },
   justUpdateMetadataLock?: boolean,
   noStaleMessage?: boolean,
@@ -150,11 +174,21 @@ export async function generateAppLocksInternal(
   let filteredDeps: Record<string, string> = {};
   const conf = await readLockfile();
 
+  // Rehash-only fast path: write canonical hashes from disk, skip backend.
+  if (opts.rehashOnly) {
+    const hashes = await generateAppHash({}, appFolder, rawApp, opts.defaultTs);
+    await clearGlobalLock(appFolder);
+    for (const [k, v] of Object.entries(hashes)) {
+      await updateMetadataGlobalLock(appFolder, v, k);
+    }
+    return;
+  }
+
   // Tree-based dependency tracking
   if (tree) {
     if (dryRun) {
       const hashes = await generateAppHash({}, appFolder, rawApp, opts.defaultTs);
-      const isDirectlyStale = !(await checkifMetadataUptodate(appFolder, hashes[TOP_HASH], conf, TOP_HASH));
+      const isDirectlyStale = await isAppDirectlyStale(appFolder, hashes, conf);
 
       // For raw apps in new format, runnables are in separate files under backend/
       let treeAppValue = structuredClone(appValue);
@@ -206,7 +240,7 @@ export async function generateAppLocksInternal(
     filteredDeps = await filterWorkspaceDependenciesForApp(appValue, rawWorkspaceDependencies, appFolder);
 
     const hashes = await generateAppHash(filteredDeps, appFolder, rawApp, opts.defaultTs);
-    const isDirectlyStale = !(await checkifMetadataUptodate(appFolder, hashes[TOP_HASH], conf, TOP_HASH));
+    const isDirectlyStale = await isAppDirectlyStale(appFolder, hashes, conf);
 
     if (!isDirectlyStale) {
       if (!noStaleMessage) {

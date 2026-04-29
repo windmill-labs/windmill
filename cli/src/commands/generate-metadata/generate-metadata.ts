@@ -37,6 +37,130 @@ interface StaleItem {
   staleReason?: string;
 }
 
+/**
+ * Walks all local scripts/flows/apps (or those under `folder`) and writes
+ * canonical hashes to wmill-lock.yaml from disk content. No backend round-trip,
+ * no yaml/lock rewrites. Stub workspace + opts are passed through to handlers
+ * since the rehash-only fast path returns before any backend call.
+ */
+export async function rehashOnly(
+  opts: GlobalOptions & SyncOptions & { defaultTs?: "bun" | "deno" },
+  folder?: string,
+  rehashFilter?: { missingOnly?: boolean },
+): Promise<{ scripts: number; flows: number; apps: number }> {
+  const codebases = await listSyncCodebases(opts);
+  const ignore = await ignoreF(opts);
+  const counts = { scripts: 0, flows: 0, apps: 0 };
+  const folderFilter = folder?.replaceAll("\\", "/").replace(/\/$/, "");
+  const inFilter = (p: string) =>
+    !folderFilter ||
+    p === folderFilter ||
+    p.startsWith(folderFilter + "/") ||
+    p.startsWith(folderFilter + SEP);
+
+  const conf = rehashFilter?.missingOnly ? await readLockfile() : undefined;
+  const hasEntry = (key: string, subpath?: string): boolean => {
+    if (!conf?.locks) return false;
+    const fullKey = subpath ? `${key}+${subpath}` : key;
+    if (conf.locks[fullKey] !== undefined) return true;
+    if (conf.locks["./" + fullKey] !== undefined) return true;
+    return false;
+  };
+  const skipIfExisting = (remotePath: string, subpath?: string): boolean =>
+    !!rehashFilter?.missingOnly && hasEntry(remotePath, subpath);
+
+  // Scripts
+  const scriptElems = await elementsToMap(
+    await FSFSElement(process.cwd(), codebases, false),
+    (p, isD) =>
+      (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+      ignore(p, isD) ||
+      isFolderResourcePathAnyFormat(p) ||
+      (isScriptModulePath(p) && !isModuleEntryPoint(p)),
+    false,
+    {},
+  );
+  const stubWorkspace = {} as any;
+  const rehashOpts = { ...opts, rehashOnly: true } as any;
+  for (const e of Object.keys(scriptElems)) {
+    if (!inFilter(e)) continue;
+    if (rehashFilter?.missingOnly) {
+      // Quick existence check using the same path-derivation as the handler.
+      const remotePath = isModuleEntryPoint(e)
+        ? e.substring(0, e.lastIndexOf(SEP)).replaceAll(SEP, "/")
+        : e.substring(0, e.indexOf(".")).replaceAll(SEP, "/");
+      if (skipIfExisting(remotePath) || skipIfExisting(remotePath, "__script_hash")) continue;
+    }
+    try {
+      await generateScriptMetadataInternal(
+        e, stubWorkspace, rehashOpts, false, true, {}, codebases, false,
+      );
+      counts.scripts++;
+    } catch (err) {
+      log.warn(`Skipping ${e}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  // Flows
+  const flowFolders = Object.keys(
+    await elementsToMap(
+      await FSFSElement(process.cwd(), [], true),
+      (p, isD) =>
+        ignore(p, isD) ||
+        (!isD && !p.endsWith(SEP + "flow.yaml") && !p.endsWith(SEP + "flow.json")),
+      false,
+      {},
+    ),
+  ).map((x) => x.substring(0, x.lastIndexOf(SEP)));
+  for (const f of flowFolders) {
+    if (!inFilter(f)) continue;
+    if (rehashFilter?.missingOnly) {
+      const folderNormalized = f.replaceAll(SEP, "/");
+      if (skipIfExisting(folderNormalized, "__flow_hash")) continue;
+    }
+    try {
+      await generateFlowLockInternal(f, false, stubWorkspace, rehashOpts, false, true);
+      counts.flows++;
+    } catch (err) {
+      log.warn(`Skipping ${f}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  // Apps
+  const appElems = await elementsToMap(
+    await FSFSElement(process.cwd(), [], true),
+    (p, isD) =>
+      ignore(p, isD) ||
+      (!isD && !p.endsWith(SEP + "raw_app.yaml") && !p.endsWith(SEP + "app.yaml")),
+    false,
+    {},
+  );
+  for (const p of Object.keys(appElems)) {
+    const appFolder = p.substring(0, p.lastIndexOf(SEP));
+    if (!inFilter(appFolder)) continue;
+    const rawApp = p.endsWith(SEP + "raw_app.yaml");
+    if (rehashFilter?.missingOnly) {
+      const folderNormalized = appFolder.replaceAll(SEP, "/");
+      if (skipIfExisting(folderNormalized, "__flow_hash")) continue;
+    }
+    try {
+      await generateAppLocksInternal(appFolder, rawApp, false, stubWorkspace, rehashOpts, false, true);
+      counts.apps++;
+    } catch (err) {
+      log.warn(`Skipping ${appFolder}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  if (counts.scripts + counts.flows + counts.apps > 0 || !rehashFilter?.missingOnly) {
+    log.info(
+      `Rehashed ${colors.bold(String(counts.scripts))} script(s), ` +
+      `${colors.bold(String(counts.flows))} flow(s), ` +
+      `${colors.bold(String(counts.apps))} app(s) from disk.`,
+    );
+  }
+  return counts;
+}
+
 async function generateMetadata(
   opts: GlobalOptions & {
     yes?: boolean;
@@ -47,11 +171,22 @@ async function generateMetadata(
     skipFlows?: boolean;
     skipApps?: boolean;
     strictFolderBoundaries?: boolean;
+    rehashOnly?: boolean;
   } & SyncOptions,
   folder?: string
 ) {
   if (folder === "") {
     folder = undefined;
+  }
+
+  // --rehash-only takes a separate code path: trust on-disk content, write
+  // canonical hashes to wmill-lock.yaml, no backend trips, no yaml/lock
+  // rewrites. Useful to bootstrap missing lockfile entries or migrate v2
+  // legacy hashes to v3 canonical form (without bumping the version — use
+  // `wmill lock upgrade` for that).
+  if (opts.rehashOnly) {
+    opts = await mergeConfigWithConfigFile(opts);
+    return await rehashOnly(opts, folder);
   }
 
   const workspace = await resolveWorkspace(opts);
@@ -458,6 +593,7 @@ const command = new Command()
   .option("--skip-flows", "Skip processing flows")
   .option("--skip-apps", "Skip processing apps")
   .option("--strict-folder-boundaries", "Only update items inside the specified folder (requires folder argument)")
+  .option("--rehash-only", "Trust on-disk content; rewrite wmill-lock.yaml hashes without backend trips or yaml/lock rewrites. Useful for bootstrapping missing entries.")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which files to include"

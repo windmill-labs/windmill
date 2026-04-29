@@ -3,7 +3,7 @@ import { sep as SEP } from "node:path";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../core/log.ts";
 import { stringify as yamlStringify } from "yaml";
-import { yamlParseFile } from "./yaml.ts";
+import { yamlParseFile, yamlParseContent } from "./yaml.ts";
 import { writeFile, stat, rm, readdir } from "node:fs/promises";
 import { readFileSync, existsSync, readdirSync, statSync, mkdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
@@ -186,6 +186,7 @@ export async function generateScriptMetadataInternal(
     lockOnly?: boolean | undefined;
     schemaOnly?: boolean | undefined;
     defaultTs?: "bun" | "deno";
+    rehashOnly?: boolean | undefined;
   },
   dryRun: boolean,
   noStaleMessage: boolean,
@@ -231,6 +232,13 @@ export async function generateScriptMetadataInternal(
   // In tree mode, workspace deps are tracked via the tree — exclude from hash
   const depsForHash = tree ? {} : filteredRawWorkspaceDependencies;
   let hash = await generateScriptHash(depsForHash, scriptContent, metadataContent);
+  // Pre-canonical formulas. Accepted as backwards-compat fallbacks so entries
+  // written by older CLIs (v2 lockfiles) don't show as false-positive stale on
+  // first run after upgrade. v3 lockfiles are guaranteed canonical so we skip.
+  const conf = await readLockfile();
+  const legacyHashes = isLegacyLockfile(conf)
+    ? await generateScriptHashLegacyVariants(depsForHash, scriptContent, metadataContent)
+    : [];
 
   // Compute per-module hashes for stale detection (like flow inline scripts)
   let moduleHashes: Record<string, string> = {};
@@ -242,15 +250,32 @@ export async function generateScriptMetadataInternal(
   const hasModuleHashes = Object.keys(moduleHashes).length > 0;
 
   // If modules exist, combine main script hash + module hashes into a meta-hash
-  let checkHash = hash;
+  let checkHash: string | string[] = hash;
   let checkSubpath: string | undefined;
   if (hasModuleHashes) {
     const sortedEntries = Object.entries(moduleHashes).sort(([a], [b]) => a.localeCompare(b));
     checkHash = await generateHash(hash + JSON.stringify(sortedEntries));
     checkSubpath = SCRIPT_TOP_HASH;
+  } else {
+    checkHash = [hash, ...legacyHashes];
   }
 
-  const conf = await readLockfile();
+  // Rehash-only fast path: trust on-disk content, write canonical hashes
+  // straight to the lockfile, skip staleness check and any backend trip.
+  if (opts.rehashOnly) {
+    if (hasModuleHashes) {
+      const sortedEntries = Object.entries(moduleHashes).sort(([a], [b]) => a.localeCompare(b));
+      const metaHash = await generateHash(hash + JSON.stringify(sortedEntries));
+      await clearGlobalLock(remotePath);
+      await updateMetadataGlobalLock(remotePath, metaHash, SCRIPT_TOP_HASH);
+      for (const [modulePath, moduleHash] of Object.entries(moduleHashes)) {
+        await updateMetadataGlobalLock(remotePath, moduleHash, modulePath);
+      }
+    } else {
+      await updateMetadataGlobalLock(remotePath, hash);
+    }
+    return;
+  }
 
   // Use checkHash (includes module hashes) so module changes are detected as stale
   const isDirectlyStale = !(await checkifMetadataUptodate(remotePath, checkHash, conf, checkSubpath));
@@ -1129,32 +1154,55 @@ export async function parseMetadataFile(
   };
 }
 
-interface Lock {
-  version?: "v2";
+export type LockVersion = "v2" | "v3";
+
+export interface Lock {
+  version?: LockVersion;
   locks?: { [path: string]: string | { [subpath: string]: string } };
 }
 
 const WMILL_LOCKFILE = "wmill-lock.yaml";
+const CURRENT_LOCK_VERSION: LockVersion = "v3";
+
+let _v2NudgeShown = false;
+function maybeShowV2Nudge(conf: Lock | undefined) {
+  if (_v2NudgeShown) return;
+  if (conf?.version === "v2") {
+    _v2NudgeShown = true;
+    log.info(
+      colors.gray(
+        `Tip: wmill-lock.yaml is v2. Run \`wmill lock upgrade\` to migrate to v3 ` +
+        `and skip backwards-compat hashing on every check.`
+      )
+    );
+  }
+}
 const SCRIPT_TOP_HASH = "__script_hash";
 
 /**
- * Normalizes a path to use Linux separators (forward slashes).
- * This ensures wmill-lock.yaml is portable across Windows and Linux.
+ * Normalizes a path to use Linux separators (forward slashes) and strips a
+ * leading "./" prefix. Forward slashes ensure wmill-lock.yaml is portable
+ * across Windows and Linux; stripping "./" collapses entries from older CLIs
+ * that joined paths against the current directory before storing.
  */
 export function normalizeLockPath(p: string): string {
-  return p.replace(/\\/g, "/");
+  let n = p.replace(/\\/g, "/");
+  if (n.startsWith("./")) n = n.slice(2);
+  return n;
 }
 
 export async function readLockfile(): Promise<Lock> {
   try {
     const read = await yamlParseFile(WMILL_LOCKFILE);
     if (typeof read == "object" && read != null) {
-      return read as Lock;
+      const conf = read as Lock;
+      maybeShowV2Nudge(conf);
+      return conf;
     } else {
       throw new Error("Invalid lockfile");
     }
   } catch {
-    const lock = { locks: {}, version: "v2" as const };
+    const lock: Lock = { locks: {}, version: CURRENT_LOCK_VERSION };
     await writeFile(WMILL_LOCKFILE, yamlStringify(lock, yamlOptions), "utf-8");
     log.info(colors.green("wmill-lock.yaml created"));
 
@@ -1170,9 +1218,15 @@ function v2LockPath(path: string, subpath?: string) {
     return normalizedPath;
   }
 }
+export function isLegacyLockfile(conf: Lock | undefined): boolean {
+  // v2 lockfiles may contain pre-canonical hashes from older CLI versions.
+  // v3 lockfiles are guaranteed canonical so the legacy fallback is unneeded.
+  return conf?.version === "v2";
+}
+
 export async function checkifMetadataUptodate(
   path: string,
-  hash: string,
+  hash: string | string[],
   conf: Lock | undefined,
   subpath?: string
 ) {
@@ -1182,15 +1236,59 @@ export async function checkifMetadataUptodate(
   if (!conf.locks) {
     return false;
   }
-  const isV2 = conf?.version == "v2";
+  const isFlatKeyed = conf?.version === "v2" || conf?.version === "v3";
 
-  if (isV2) {
-    const current = conf.locks?.[v2LockPath(path, subpath)];
-    return current == hash;
+  // Older CLIs sometimes wrote entries with a leading "./" prefix; some
+  // lockfiles even contain both forms with different stale values. Collect
+  // every candidate value and accept the entry as up-to-date if any matches.
+  const candidates: (string | undefined)[] = [];
+  if (isFlatKeyed) {
+    const key = v2LockPath(path, subpath);
+    const v1 = conf.locks?.[key];
+    const v2 = conf.locks?.["./" + key];
+    if (typeof v1 === "string") candidates.push(v1);
+    if (typeof v2 === "string") candidates.push(v2);
   } else {
-    const obj = conf.locks?.[path];
-    const current = subpath && typeof obj == "object" ? obj?.[subpath] : obj;
-    return current == hash;
+    for (const p of [path, "./" + path]) {
+      const obj = conf.locks?.[p];
+      const v = subpath && typeof obj == "object" ? obj?.[subpath] : obj;
+      if (typeof v === "string") candidates.push(v);
+    }
+  }
+  const accepted = Array.isArray(hash) ? hash : [hash];
+  return candidates.some((c) => accepted.includes(c!));
+}
+
+/**
+ * Recursively sorts object keys so JSON.stringify yields deterministic output.
+ * Arrays preserve order (their order is semantic).
+ */
+function deepSortKeys(value: any): any {
+  if (Array.isArray(value)) return value.map(deepSortKeys);
+  if (value && typeof value === "object") {
+    return Object.keys(value)
+      .sort()
+      .reduce((acc, k) => {
+        acc[k] = deepSortKeys(value[k]);
+        return acc;
+      }, {} as Record<string, any>);
+  }
+  return value;
+}
+
+/**
+ * Canonical form of a metadata YAML/JSON document. Returns a stable string
+ * representation that ignores formatting drift (key order, quoting, indent,
+ * yaml-lib version differences) so staleness hashes survive cosmetic rewrites.
+ *
+ * Falls back to the raw content if parsing fails.
+ */
+export function canonicalizeMetadata(content: string): string {
+  try {
+    const parsed = yamlParseContent("<metadata>", content);
+    return JSON.stringify(deepSortKeys(parsed));
+  } catch {
+    return content;
   }
 }
 
@@ -1200,8 +1298,38 @@ export async function generateScriptHash(
   newMetadataContent: string
 ) {
   return await generateHash(
-    JSON.stringify(rawWorkspaceDependencies) + scriptContent + newMetadataContent
+    JSON.stringify(rawWorkspaceDependencies) +
+      scriptContent +
+      canonicalizeMetadata(newMetadataContent)
   );
+}
+
+/**
+ * Pre-canonical script hash formulas. Used as backwards-compat fallbacks when
+ * comparing against entries written by older CLI versions. We accept both:
+ *   - raw bytes: older CLI hashed the metadata file as-is
+ *   - yaml round-trip: older CLI re-serialized via yamlStringify before hashing
+ * Not used for new writes — new writes use the canonical (deep-sorted JSON)
+ * form so hashes stay stable across yaml-lib version drift.
+ */
+export async function generateScriptHashLegacyVariants(
+  rawWorkspaceDependencies: Record<string, string>,
+  scriptContent: string,
+  newMetadataContent: string
+): Promise<string[]> {
+  const depsStr = JSON.stringify(rawWorkspaceDependencies);
+  const variants: string[] = [
+    await generateHash(depsStr + scriptContent + newMetadataContent),
+  ];
+  try {
+    const parsed = yamlParseContent("<metadata>", newMetadataContent);
+    variants.push(
+      await generateHash(depsStr + scriptContent + yamlStringify(parsed, yamlOptions))
+    );
+  } catch {
+    // ignore — raw-bytes variant already pushed
+  }
+  return variants;
 }
 
 async function computeModuleHashes(
@@ -1249,17 +1377,19 @@ export async function clearGlobalLock(path: string): Promise<void> {
   if (!conf?.locks) {
     conf.locks = {};
   }
-  const isV2 = conf?.version == "v2";
+  const isFlatKeyed = conf?.version === "v2" || conf?.version === "v3";
 
-  if (isV2) {
-    // Remove the specific v2 lock entry
+  if (isFlatKeyed) {
+    // Remove the specific flat-keyed lock entry. Match both the canonical
+    // form and the legacy "./"-prefixed form so duplicate entries left over
+    // from older CLIs get cleaned up alongside the canonical write.
     const key = v2LockPath(path);
+    const legacyKey = "./" + key;
     if (conf.locks) {
       Object.keys(conf.locks).forEach((k) => {
-        if (conf.locks) {
-          if (k.startsWith(key)) {
-            delete conf.locks[k];
-          }
+        if (!conf.locks) return;
+        if (k.startsWith(key) || k.startsWith(legacyKey)) {
+          delete conf.locks[k];
         }
       });
     }
@@ -1280,9 +1410,9 @@ export async function updateMetadataGlobalLock(
   if (!conf?.locks) {
     conf.locks = {};
   }
-  const isV2 = conf?.version == "v2";
+  const isFlatKeyed = conf?.version === "v2" || conf?.version === "v3";
 
-  if (isV2) {
+  if (isFlatKeyed) {
     conf.locks[v2LockPath(path, subpath)] = hash;
   } else {
     if (subpath) {
