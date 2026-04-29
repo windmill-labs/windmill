@@ -207,7 +207,7 @@
 					size="xs"
 					bind:checked={componentInput.sensitive}
 					options={{
-						right: 'sensitive (encrypt in job args)'
+						right: 'sensitive'
 					}}
 				/>
 				<Lock size={12} class="text-tertiary" />
