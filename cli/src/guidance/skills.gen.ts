@@ -4853,7 +4853,7 @@ name: write-flow
 description: MUST use when creating flows.
 ---
 
-# Windmill Flow Building Guide
+# Windmill Flow CLI Guide
 
 ## Creating a Flow
 
@@ -4926,6 +4926,9 @@ If the user already asked to test/run/try the flow in their original request, sk
 ### Visual preview
 
 To open the flow visually in the dev page (graph + live reload), use the \`preview\` skill. Always **offer** it as a one-sentence next step (e.g. "Want me to open the visual preview?") rather than opening it automatically — opening the dev page has side effects (browser window, possibly a \`launch.json\` entry under MCP-preview branches) the user should consent to. If the user already asked to see/preview/visualize the flow in their original request, skip the offer and just invoke the skill.
+
+
+# Windmill Flow Building Guide
 
 ## OpenFlow Schema
 

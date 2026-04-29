@@ -1162,6 +1162,7 @@ def generate_skills(
     languages: dict[str, str],
     ts_sdk_md: str,
     py_sdk_md: str,
+    flow_cli: str,
     flow_base: str,
     openflow_content: str,
     cli_commands: str,
@@ -1178,7 +1179,7 @@ def generate_skills(
     # Read base files for additional skills
     base_dir = SCRIPT_DIR / "base"
     base_content = {
-        'flow': f"{flow_base}\n\n{openflow_content}",
+        'flow': f"{flow_cli}\n\n{flow_base}\n\n{openflow_content}",
         'raw_app': read_markdown_file(base_dir / "raw-app.md"),
         'triggers': read_markdown_file(base_dir / "triggers.md"),
         'schedules': read_markdown_file(base_dir / "schedules.md"),
@@ -1524,6 +1525,7 @@ def main():
 
     script_base = read_markdown_file(base_dir / "script-base.md")
     flow_base = read_markdown_file(base_dir / "flow-base.md")
+    flow_cli = read_markdown_file(base_dir / "flow-cli.md")
     flow_chat_special_modules = read_markdown_file(base_dir / "flow-chat-special-modules.md")
 
     # Read language files
@@ -1673,6 +1675,7 @@ export function getDatatableSdkReference(): string {
         languages=languages,
         ts_sdk_md=ts_sdk_md,
         py_sdk_md=py_sdk_md,
+        flow_cli=flow_cli,
         flow_base=flow_base,
         cli_commands=cli_commands,
         openflow_content=openflow_content,

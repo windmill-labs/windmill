@@ -10340,6 +10340,12 @@ paths:
                   type: array
                   items:
                     type: string
+                force_viewer_sensitive_inputs:
+                  type: array
+                  items:
+                    type: string
+                force_viewer_delete_after_secs:
+                  type: integer
                 run_query_params:
                   type: object
                   description: Runnable query parameters
