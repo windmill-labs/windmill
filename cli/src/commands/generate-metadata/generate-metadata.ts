@@ -141,7 +141,7 @@ export async function rehashOnly(
     const rawApp = p.endsWith(SEP + "raw_app.yaml");
     if (rehashFilter?.missingOnly) {
       const folderNormalized = appFolder.replaceAll(SEP, "/");
-      if (skipIfExisting(folderNormalized, "__flow_hash")) continue;
+      if (skipIfExisting(folderNormalized, "__app_hash")) continue;
     }
     try {
       await generateAppLocksInternal(appFolder, rawApp, false, stubWorkspace, rehashOpts, false, true);
