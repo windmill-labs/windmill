@@ -112,7 +112,7 @@
 				aiChatManager.disableAutomaticScroll()
 			}}
 		>
-			<div class="flex flex-col" bind:clientHeight={height}>
+			<div class="flex flex-col w-full max-w-xl mx-auto px-2" bind:clientHeight={height}>
 				{#each messages as message, messageIndex}
 					<AIChatMessage
 						{message}

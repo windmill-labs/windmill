@@ -8,6 +8,12 @@
 	import { copilotInfo } from '$lib/aiStore'
 	import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
+	import ScheduleEditorInner from '$lib/components/triggers/schedules/ScheduleEditorInner.svelte'
+	import {
+		previewModalState,
+		closePreviewModal
+	} from '$lib/components/copilot/chat/previewModalState.svelte'
 
 	// Fake conversation: user asks the assistant to build a 3-step user-engagement flow.
 	const fakeMessages: DisplayMessage[] = [
@@ -72,16 +78,6 @@
 			parameters: { cron: '0 9 * * 1-5', timezone: 'Europe/Paris' },
 			result: { ok: true, schedule_id: 'sched_001' },
 			showDetails: false
-		},
-		{
-			role: 'tool',
-			tool_call_id: 'tool_edit_c',
-			toolName: 'edit_step',
-			content: 'Updated `Notify` to reference `user.name`',
-			parameters: { id: 'c', diff: '- {{ user.first_name }}\n+ {{ user.name }}' },
-			result: { ok: true },
-			showDetails: false,
-			isLoading: true
 		}
 	]
 
@@ -124,6 +120,23 @@
 		// loadCopilot() in the parent layout is async and may overwrite our mock once
 		// it resolves — re-apply after a beat to be safe for design preview.
 		setTimeout(applyMocks, 1500)
+	})
+
+	// Real schedule used by the schedule preview modal. The path must exist in the
+	// workspace — ScheduleEditorInner.openEdit fetches it via ScheduleService.getSchedule.
+	// Synthesizing a `defaultCfg` instead leaves too many fields undefined and crashes
+	// downstream sub-components (Path, ErrorOrRecoveryHandler, etc.).
+	const SANDBOX_SCHEDULE_PATH = 'u/guilhempw/fake_flow_schedule'
+	const SANDBOX_SCHEDULE_IS_FLOW = true
+
+	let scheduleEditor: ScheduleEditorInner | undefined = $state(undefined)
+
+	// When the schedule modal opens (kind = 'schedule'), load the real schedule so
+	// the editor populates fully (cron, timezone, runnable, handlers, etc.).
+	$effect(() => {
+		if (previewModalState.kind === 'schedule' && scheduleEditor) {
+			scheduleEditor.openEdit(SANDBOX_SCHEDULE_PATH, SANDBOX_SCHEDULE_IS_FLOW)
+		}
 	})
 
 	// Minimal fake flow with a few modules so the editor has something to show.
@@ -210,3 +223,25 @@
 		</Pane>
 	</Splitpanes>
 </div>
+
+<!-- Centered modal triggered by clicking a schedule preview card. Hosts
+     ScheduleEditorInner inline (no Drawer) so the user sees the same form
+     fields as on the schedule page. Two-way bind on isOpen syncs the modal's
+     internal close (X / esc / outside-click) back to the shared state. -->
+<Modal2
+	title={`Edit schedule ${SANDBOX_SCHEDULE_PATH}`}
+	fixedWidth="lg"
+	fixedHeight="xl"
+	contentClasses="overflow-y-auto"
+	target="body"
+	bind:isOpen={
+		() => previewModalState.kind === 'schedule',
+		(v) => {
+			if (!v) closePreviewModal()
+		}
+	}
+>
+	<div class="w-full">
+		<ScheduleEditorInner bind:this={scheduleEditor} useDrawer={false} />
+	</div>
+</Modal2>
