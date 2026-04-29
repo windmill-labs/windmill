@@ -702,7 +702,7 @@ WORKSPACE_TOOL_ZOD_OUTPUT_PATH = (
     / 'components'
     / 'copilot'
     / 'chat'
-    / 'workspaceToolsZod.ts'
+    / 'workspaceToolsZod.gen.ts'
 )
 
 
@@ -879,7 +879,7 @@ def generate_workspace_tool_zod_schemas(backend_schemas: dict, openflow_schemas:
     lines.append("")
 
     WORKSPACE_TOOL_ZOD_OUTPUT_PATH.write_text("\n".join(lines))
-    print("  Generated workspaceToolsZod.ts")
+    print("  Generated workspaceToolsZod.gen.ts")
 
 
 # =============================================================================

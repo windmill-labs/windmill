@@ -10,7 +10,7 @@ on:
       - "backend/windmill-api/openapi.yaml"
       - "cli/src/main.ts"
       - "cli/src/commands/**"
-      - "frontend/src/lib/components/copilot/chat/workspaceToolsZod.ts"
+      - "frontend/src/lib/components/copilot/chat/workspaceToolsZod.gen.ts"
   pull_request:
     paths:
       - "system_prompts/**"
@@ -20,7 +20,7 @@ on:
       - "backend/windmill-api/openapi.yaml"
       - "cli/src/main.ts"
       - "cli/src/commands/**"
-      - "frontend/src/lib/components/copilot/chat/workspaceToolsZod.ts"
+      - "frontend/src/lib/components/copilot/chat/workspaceToolsZod.gen.ts"
 
 jobs:
   check-freshness:

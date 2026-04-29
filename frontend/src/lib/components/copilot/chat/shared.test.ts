@@ -55,7 +55,7 @@ vi.mock('@leeoniya/ufuzzy', () => ({
 describe('createToolDef', () => {
 	it('builds the create_trigger schema without top-level composition', async () => {
 		const { createToolDef } = await import('./shared')
-		const { createTriggerToolSchema } = await import('./workspaceToolsZod')
+		const { createTriggerToolSchema } = await import('./workspaceToolsZod.gen')
 		const toolDef = createToolDef(createTriggerToolSchema, 'create_trigger', 'Create a trigger')
 
 		const parameters = toolDef.function.parameters as any

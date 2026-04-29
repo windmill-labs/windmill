@@ -37,7 +37,7 @@ import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
 import { createInlineScriptSession, type InlineScriptSession } from './inlineScriptsUtils'
 import { validateFlowGroups, type FlowGroup, type FlowJsonUpdateResult } from './helperUtils'
-import { flowModuleSchema, flowModulesSchema } from './openFlowZod'
+import { flowModuleSchema, flowModulesSchema } from './openFlowZod.gen'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
 import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
 

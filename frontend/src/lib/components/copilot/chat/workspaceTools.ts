@@ -24,7 +24,7 @@ import {
 	createTriggerToolSchema,
 	scheduleRequestSchema,
 	triggerRequestSchemas
-} from './workspaceToolsZod'
+} from './workspaceToolsZod.gen'
 import { z } from 'zod'
 import { createToolDef, type Tool, type ToolCallbacks } from './shared'
 import { emptyString } from '$lib/utils'
