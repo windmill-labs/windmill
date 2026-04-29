@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeAiGuidanceFiles } from "../src/guidance/writer.ts";
 
+const SKILL_TARGET_ROOTS = [".claude", ".agents"] as const;
+
 async function withTempDir(fn: (tempDir: string) => Promise<void>): Promise<void> {
   const tempDir = await mkdtemp(join(tmpdir(), "wmill_guidance_writer_"));
   try {
@@ -27,7 +29,9 @@ async function writeSkill(
 describe("writeAiGuidanceFiles", () => {
   test("preserves custom skills when refreshing generated guidance", async () => {
     await withTempDir(async (tempDir) => {
-      const skillsDir = join(tempDir, ".claude", "skills");
+      const skillsDirs = SKILL_TARGET_ROOTS.map((root) =>
+        join(tempDir, root, "skills")
+      );
       const customSkillContent = `---
 name: custom-skill
 description: Custom skill
@@ -37,25 +41,39 @@ Preserve me.
 `;
       const staleGeneratedContent = "stale generated skill";
 
-      const customSkillPath = await writeSkill(skillsDir, "custom-skill", customSkillContent);
-      const generatedSkillPath = await writeSkill(skillsDir, "write-flow", staleGeneratedContent);
+      const customSkillPaths = await Promise.all(
+        skillsDirs.map((skillsDir) =>
+          writeSkill(skillsDir, "custom-skill", customSkillContent)
+        )
+      );
+      const generatedSkillPaths = await Promise.all(
+        skillsDirs.map((skillsDir) =>
+          writeSkill(skillsDir, "write-flow", staleGeneratedContent)
+        )
+      );
 
       await writeAiGuidanceFiles({
         targetDir: tempDir,
         overwriteProjectGuidance: false,
       });
 
-      expect(await readFile(customSkillPath, "utf8")).toBe(customSkillContent);
+      for (const customSkillPath of customSkillPaths) {
+        expect(await readFile(customSkillPath, "utf8")).toBe(customSkillContent);
+      }
 
-      const generatedSkillContent = await readFile(generatedSkillPath, "utf8");
-      expect(generatedSkillContent).not.toBe(staleGeneratedContent);
-      expect(generatedSkillContent).toContain("name: write-flow");
+      for (const generatedSkillPath of generatedSkillPaths) {
+        const generatedSkillContent = await readFile(generatedSkillPath, "utf8");
+        expect(generatedSkillContent).not.toBe(staleGeneratedContent);
+        expect(generatedSkillContent).toContain("name: write-flow");
+      }
     });
   });
 
   test("preserves custom skills when copying a skill bundle from source", async () => {
     await withTempDir(async (tempDir) => {
-      const skillsDir = join(tempDir, ".claude", "skills");
+      const skillsDirs = SKILL_TARGET_ROOTS.map((root) =>
+        join(tempDir, root, "skills")
+      );
       const customSkillContent = `---
 name: custom-skill
 description: Custom skill
@@ -78,16 +96,20 @@ description: Bundle only skill
 Copied from source bundle.
 `;
 
-      const customSkillPath = await writeSkill(skillsDir, "custom-skill", customSkillContent);
-      const existingGeneratedSkillPath = await writeSkill(skillsDir, "write-flow", "old content");
+      const customSkillPaths = await Promise.all(
+        skillsDirs.map((skillsDir) =>
+          writeSkill(skillsDir, "custom-skill", customSkillContent)
+        )
+      );
+      const existingGeneratedSkillPaths = await Promise.all(
+        skillsDirs.map((skillsDir) =>
+          writeSkill(skillsDir, "write-flow", "old content")
+        )
+      );
       const sourceSkillsDir = join(tempDir, "source-skills");
 
       await writeSkill(sourceSkillsDir, "write-flow", sourceSkillContent);
-      const bundleOnlySkillPath = await writeSkill(
-        sourceSkillsDir,
-        "bundle-only",
-        bundleOnlySkillContent
-      );
+      await writeSkill(sourceSkillsDir, "bundle-only", bundleOnlySkillContent);
 
       await writeAiGuidanceFiles({
         targetDir: tempDir,
@@ -95,11 +117,17 @@ Copied from source bundle.
         skillsSourcePath: sourceSkillsDir,
       });
 
-      expect(await readFile(customSkillPath, "utf8")).toBe(customSkillContent);
-      expect(await readFile(existingGeneratedSkillPath, "utf8")).toBe(sourceSkillContent);
-      expect(await readFile(bundleOnlySkillPath.replace(sourceSkillsDir, skillsDir), "utf8")).toBe(
-        bundleOnlySkillContent
-      );
+      for (const customSkillPath of customSkillPaths) {
+        expect(await readFile(customSkillPath, "utf8")).toBe(customSkillContent);
+      }
+      for (const existingGeneratedSkillPath of existingGeneratedSkillPaths) {
+        expect(await readFile(existingGeneratedSkillPath, "utf8")).toBe(sourceSkillContent);
+      }
+      for (const skillsDir of skillsDirs) {
+        expect(await readFile(join(skillsDir, "bundle-only", "SKILL.md"), "utf8")).toBe(
+          bundleOnlySkillContent
+        );
+      }
     });
   });
 

@@ -53,11 +53,11 @@ use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
         AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
-        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING, EXPOSE_DEBUG_METRICS_SETTING,
-        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
@@ -66,7 +66,7 @@ use windmill_common::{
         POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING,
         REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING, UV_INDEX_STRATEGY_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
     },
     indexer::load_indexer_config,
     jwt::JWT_SECRET,
@@ -103,11 +103,11 @@ use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
     OtelTracingProxySettings, SameWorkerSender, WorkspaceRegistryMap, BUNFIG_INSTALL_SCOPES,
-    CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR, JOB_DEFAULT_TIMEOUT, JOB_ISOLATION,
-    KEEP_JOB_DIR, MAVEN_REPOS, MAVEN_SETTINGS_XML, NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY,
-    NSJAIL_AVAILABLE, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, UNSHARE_PATH, UV_INDEX_STRATEGY,
-    WORKSPACE_REGISTRIES,
+    BUN_INSTALL_MIN_RELEASE_AGE, CARGO_REGISTRIES, INSTANCE_PYTHON_VERSION, JAVA_HOME_DIR,
+    JOB_DEFAULT_TIMEOUT, JOB_ISOLATION, KEEP_JOB_DIR, MAVEN_REPOS, MAVEN_SETTINGS_XML,
+    NO_DEFAULT_MAVEN, NPMRC, NPM_CONFIG_REGISTRY, NSJAIL_AVAILABLE, NUGET_CONFIG,
+    OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT,
+    POWERSHELL_REPO_URL, UNSHARE_PATH, UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY, WORKSPACE_REGISTRIES,
 };
 
 #[cfg(feature = "parquet")]
@@ -368,6 +368,8 @@ pub async fn initial_load(
         reload_extra_pip_index_url_setting(&conn).await;
         reload_pip_index_url_setting(&conn).await;
         reload_uv_index_strategy_setting(&conn).await;
+        reload_uv_exclude_newer_setting(&conn).await;
+        reload_bun_install_min_release_age_setting(&conn).await;
         reload_npm_config_registry_setting(&conn).await;
         reload_bunfig_install_scopes_setting(&conn).await;
         reload_npmrc_setting(&conn).await;
@@ -1588,6 +1590,26 @@ pub async fn reload_uv_index_strategy_setting(conn: &Connection) {
         UV_INDEX_STRATEGY_SETTING,
         "UV_INDEX_STRATEGY",
         UV_INDEX_STRATEGY.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_uv_exclude_newer_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        UV_EXCLUDE_NEWER_SETTING,
+        "UV_EXCLUDE_NEWER",
+        UV_EXCLUDE_NEWER.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_bun_install_min_release_age_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
+        "BUN_INSTALL_MIN_RELEASE_AGE",
+        BUN_INSTALL_MIN_RELEASE_AGE.clone(),
     )
     .await;
 }

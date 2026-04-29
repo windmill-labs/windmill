@@ -34,6 +34,7 @@ export const WMILL_INIT_AI_AGENTS_SOURCE_ENV = "WMILL_INIT_AI_AGENTS_SOURCE";
 export const WMILL_INIT_AI_CLAUDE_SOURCE_ENV = "WMILL_INIT_AI_CLAUDE_SOURCE";
 
 const CLAUDE_MD_DEFAULT = "Instructions are in @AGENTS.md\n";
+const SKILL_TARGET_ROOTS = [".claude", ".agents"] as const;
 
 export async function writeAiGuidanceFiles(
   options: WriteAiGuidanceOptions
@@ -86,27 +87,31 @@ async function copySkillsFromSource(
   targetDir: string,
   skillsSourcePath: string
 ): Promise<ResolvedSkillMetadata[]> {
-  const skillsDir = await ensureSkillsDirectory(targetDir);
-  await copyDirectoryContents(skillsSourcePath, skillsDir);
-  return await readSkillMetadataFromDirectory(skillsDir);
+  const skillsDirs = await ensureSkillsDirectories(targetDir);
+  await Promise.all(
+    skillsDirs.map((skillsDir) => copyDirectoryContents(skillsSourcePath, skillsDir))
+  );
+  return await readSkillMetadataFromDirectory(skillsDirs[0]);
 }
 
 async function writeGeneratedSkills(
   targetDir: string,
   nonDottedPaths: boolean
 ): Promise<ResolvedSkillMetadata[]> {
-  const skillsDir = await ensureSkillsDirectory(targetDir);
+  const skillsDirs = await ensureSkillsDirectories(targetDir);
 
   await Promise.all(
-    SKILLS.map(async (skill) => {
-      const skillDir = join(skillsDir, skill.name);
-      await mkdir(skillDir, { recursive: true });
-      await writeFile(
-        join(skillDir, "SKILL.md"),
-        renderGeneratedSkillContent(skill.name, nonDottedPaths),
-        "utf8"
-      );
-    })
+    skillsDirs.flatMap((skillsDir) =>
+      SKILLS.map(async (skill) => {
+        const skillDir = join(skillsDir, skill.name);
+        await mkdir(skillDir, { recursive: true });
+        await writeFile(
+          join(skillDir, "SKILL.md"),
+          renderGeneratedSkillContent(skill.name, nonDottedPaths),
+          "utf8"
+        );
+      })
+    )
   );
 
   return SKILLS.map((skill) => ({
@@ -122,10 +127,14 @@ function getGeneratedSkillMetadata(): ResolvedSkillMetadata[] {
   }));
 }
 
-async function ensureSkillsDirectory(targetDir: string): Promise<string> {
-  const skillsDir = join(targetDir, ".claude", "skills");
-  await mkdir(skillsDir, { recursive: true });
-  return skillsDir;
+async function ensureSkillsDirectories(targetDir: string): Promise<string[]> {
+  const skillsDirs = SKILL_TARGET_ROOTS.map((root) =>
+    join(targetDir, root, "skills")
+  );
+  await Promise.all(
+    skillsDirs.map((skillsDir) => mkdir(skillsDir, { recursive: true }))
+  );
+  return skillsDirs;
 }
 
 async function copyDirectoryContents(sourceDir: string, targetDir: string): Promise<void> {

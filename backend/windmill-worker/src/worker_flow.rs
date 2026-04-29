@@ -4485,6 +4485,44 @@ fn insert_iter_arg(
     args.insert(desired_key, value);
 }
 
+/// If the parent flow is a restart whose `nested` chain applies to the child about
+/// to be spawned for `module_id` at iteration/branch `iter_index` (None for non-loop
+/// containers), returns a `RestartedFlow` payload to use instead of the freshly-built
+/// one. The semantics:
+/// - `restarted_from.step_id` must equal `module_id`
+/// - For loop/branchall containers, `restarted_from.branch_or_iteration_n` is the
+///   0-based index of the iteration to restart at, and must equal `iter_index`
+/// - For BranchOne / Subflow (single-child), `iter_index` is None and
+///   `branch_or_iteration_n` is None or 0
+fn nested_restart_payload(
+    flow_status: &FlowStatus,
+    module_id: &str,
+    iter_index: Option<usize>,
+) -> Option<JobPayload> {
+    let restarted_from = flow_status.restarted_from.as_ref()?;
+    if restarted_from.step_id != module_id {
+        return None;
+    }
+    let n = restarted_from.branch_or_iteration_n.unwrap_or(0);
+    let matches = match iter_index {
+        Some(i) => i == n,
+        None => n == 0,
+    };
+    if !matches {
+        return None;
+    }
+    let nested = restarted_from.nested.as_ref()?;
+    let nested = (**nested).clone();
+    Some(JobPayload::RestartedFlow {
+        completed_job_id: nested.flow_job_id,
+        step_id: nested.step_id,
+        branch_or_iteration_n: nested.branch_or_iteration_n,
+        flow_version: nested.flow_version,
+        branch_chosen: nested.branch_chosen,
+        nested: nested.nested,
+    })
+}
+
 fn payload_from_modules<'a>(
     mut modules: Vec<FlowModule>,
     modules_node: Option<FlowNodeId>,
@@ -4583,7 +4621,7 @@ async fn compute_next_flow_transform(
     match module.get_value()? {
         FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
         FlowModuleValue::Flow { path, .. } => {
-            let payload = flow_to_payload(
+            let mut payload = flow_to_payload(
                 path,
                 delete_after_use,
                 delete_after_secs,
@@ -4591,6 +4629,9 @@ async fn compute_next_flow_transform(
                 db,
             )
             .await?;
+            if let Some(nested) = nested_restart_payload(status, &module.id, None) {
+                payload.payload = nested;
+            }
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(payload),
                 NextStatus::NextStep,
@@ -4855,59 +4896,76 @@ async fn compute_next_flow_transform(
             }
         }
         FlowModuleValue::BranchOne { branches, default, default_node } => {
-            let branch = match status_module {
-                FlowStatusModule::WaitingForPriorSteps { .. }
-                | FlowStatusModule::WaitingForEvents { .. }
-                | FlowStatusModule::WaitingForExecutor { .. } => {
-                    let mut branch_chosen = BranchChosen::Default;
-                    let idcontext = get_transform_context(&flow_job, previous_id, &status);
-                    let mut predicate_err: Option<Error> = None;
-                    for (i, b) in branches.iter().enumerate() {
-                        let pred_res = compute_bool_from_expr(
-                            &b.expr,
-                            arc_flow_job_args.clone(),
-                            flow_env,
-                            arc_last_job_result.clone(),
-                            None,
-                            Some(&idcontext),
-                            Some(client),
-                            Some((resumes.clone(), resume.clone(), approvers.clone())),
-                            None,
-                        )
-                        .await;
-                        if let Err(e) = &pred_res {
-                            append_predicate_error_to_root_logs(
-                                db,
-                                root_flow_id_for(flow_job),
-                                &flow_job.workspace_id,
-                                Some(&module.id),
-                                &format!("branchone branch {i}"),
+            // Branch lock for nested restart: if this BranchOne is the target of a
+            // nested restart, reuse the branch that was originally chosen instead of
+            // re-evaluating predicates. The lock is opt-in via `restarted_from.nested`
+            // being set, so plain top-level "restart at this BranchOne" still re-evaluates.
+            let locked_branch = status.restarted_from.as_ref().and_then(|rf| {
+                if rf.step_id == module.id && rf.nested.is_some() {
+                    rf.branch_chosen.clone()
+                } else {
+                    None
+                }
+            });
+            let branch = if let Some(branch) = locked_branch {
+                branch
+            } else {
+                match status_module {
+                    FlowStatusModule::WaitingForPriorSteps { .. }
+                    | FlowStatusModule::WaitingForEvents { .. }
+                    | FlowStatusModule::WaitingForExecutor { .. } => {
+                        let mut branch_chosen = BranchChosen::Default;
+                        let idcontext = get_transform_context(&flow_job, previous_id, &status);
+                        let mut predicate_err: Option<Error> = None;
+                        for (i, b) in branches.iter().enumerate() {
+                            let pred_res = compute_bool_from_expr(
                                 &b.expr,
-                                e,
+                                arc_flow_job_args.clone(),
+                                flow_env,
+                                arc_last_job_result.clone(),
+                                None,
+                                Some(&idcontext),
+                                Some(client),
+                                Some((resumes.clone(), resume.clone(), approvers.clone())),
+                                None,
                             )
                             .await;
-                        }
-                        let pred = match pred_res {
-                            Ok(p) => p,
-                            Err(e) => {
-                                predicate_err = Some(e);
+                            if let Err(e) = &pred_res {
+                                append_predicate_error_to_root_logs(
+                                    db,
+                                    root_flow_id_for(flow_job),
+                                    &flow_job.workspace_id,
+                                    Some(&module.id),
+                                    &format!("branchone branch {i}"),
+                                    &b.expr,
+                                    e,
+                                )
+                                .await;
+                            }
+                            let pred = match pred_res {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    predicate_err = Some(e);
+                                    break;
+                                }
+                            };
+
+                            if pred {
+                                branch_chosen = BranchChosen::Branch { branch: i };
                                 break;
                             }
-                        };
-
-                        if pred {
-                            branch_chosen = BranchChosen::Branch { branch: i };
-                            break;
                         }
+                        if let Some(e) = predicate_err {
+                            return Ok(NextFlowTransform::StepFailure {
+                                error: error_to_value(&e),
+                            });
+                        }
+                        branch_chosen
                     }
-                    if let Some(e) = predicate_err {
-                        return Ok(NextFlowTransform::StepFailure { error: error_to_value(&e) });
-                    }
-                    branch_chosen
+                    _ => Err(Error::BadRequest(format!(
+                        "Unrecognized module status for BranchOne {status_module:?}"
+                    )))?,
                 }
-                _ => Err(Error::BadRequest(format!(
-                    "Unrecognized module status for BranchOne {status_module:?}"
-                )))?,
             };
 
             let (modules, modules_node, branch_idx) = match branch {
@@ -4923,7 +4981,7 @@ async fn compute_next_flow_transform(
                     })?,
             };
 
-            let Some(payload) = payload_from_modules(
+            let Some(mut payload) = payload_from_modules(
                 modules,
                 modules_node,
                 flow.failure_module.as_ref(),
@@ -4934,6 +4992,9 @@ async fn compute_next_flow_transform(
             ) else {
                 return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: Some(branch) });
             };
+            if let Some(nested) = nested_restart_payload(status, &module.id, None) {
+                payload = nested;
+            }
 
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
@@ -5085,6 +5146,16 @@ async fn next_loop_iteration(
 ) -> Result<NextFlowTransform, Error> {
     let inner_path = || format!("{}/loop-{}", flow_job.runnable_path(), ns.index);
     if is_simple {
+        // Note on nested-restart and the is_simple fast path: the swap that the
+        // non-simple path applies (see below) is intentionally NOT mirrored here.
+        // `is_simple_modules` requires the body to be a single `script` /
+        // `rawscript` / `flowscript` module (see `FlowModule::is_simple`); none of
+        // those produce a flow-kind child job. Any nested-restart chain targeting
+        // a leaf inside such an iteration is rejected by `resolve_nested_restart`
+        // at the API layer (the leaf's container isn't a flow). Even if a chain
+        // reached here via direct `JobPayload::RawFlow.restarted_from` use, the
+        // resulting `JobPayload::RestartedFlow` would fail to resolve at push time
+        // (script kind isn't a flow kind). So no swap is meaningful here.
         let mut value = modules[0].get_value()?;
         let simple_input_transforms = match &mut value {
             FlowModuleValue::Script { input_transforms, .. }
@@ -5103,7 +5174,7 @@ async fn next_loop_iteration(
         ));
     }
 
-    let Some(payload) = payload_from_modules(
+    let Some(mut payload) = payload_from_modules(
         modules,
         modules_node,
         flow.failure_module.as_ref(),
@@ -5114,6 +5185,9 @@ async fn next_loop_iteration(
     ) else {
         return Ok(NextFlowTransform::EmptyInnerFlows { branch_chosen: None });
     };
+    if let Some(nested) = nested_restart_payload(status, &module.id, Some(ns.index)) {
+        payload = nested;
+    }
 
     Ok(NextFlowTransform::Continue(
         ContinuePayload::SingleJob(JobPayloadWithTag {

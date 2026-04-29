@@ -351,11 +351,15 @@ pub fn parse_python_signature(
         }
     };
 
+    // Mirror the runtime detector `is_wac_v2_py` in `windmill-worker/src/wac_executor.rs`:
+    // a wmill import + an `@workflow` decorator is sufficient. `@task` is optional —
+    // a workflow that only uses inline `step()` calls still goes through the WAC runner,
+    // and labelling it as `wac` here is what aligns the editor badge with execution.
+    let is_wac_v2 = (code.contains("@workflow") || code.contains("workflow("))
+        && (code.contains("import wmill") || code.contains("from wmill"));
+
     // Check if main function was found
     if params.is_none() {
-        let is_wac_v2 = (code.contains("@workflow") || code.contains("workflow("))
-            && (code.contains("@task") || code.contains("task("))
-            && (code.contains("import wmill") || code.contains("from wmill"));
         return Ok(MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -476,7 +480,11 @@ pub fn parse_python_signature(
                     }
                 })
                 .collect(),
-            auto_kind: None,
+            auto_kind: if is_wac_v2 {
+                Some("wac".to_string())
+            } else {
+                None
+            },
             has_preprocessor: Some(has_preprocessor),
             ..Default::default()
         })
@@ -485,7 +493,9 @@ pub fn parse_python_signature(
             star_args: false,
             star_kwargs: false,
             args: vec![],
-            auto_kind: if params.is_none() {
+            auto_kind: if is_wac_v2 {
+                Some("wac".to_string())
+            } else if params.is_none() {
                 Some("lib".to_string())
             } else {
                 None
@@ -759,7 +769,7 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -825,7 +835,7 @@ def main(test1: str,
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -886,7 +896,7 @@ def main(test1: str,
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -931,7 +941,7 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -963,7 +973,7 @@ def main(test1: DynSelect_foo): return
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -988,7 +998,7 @@ def hello(): return
                 args: vec![],
                 auto_kind: Some("lib".to_string()),
                 has_preprocessor: Some(false),
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1017,10 +1027,48 @@ def main(): return
                 args: vec![],
                 auto_kind: None,
                 has_preprocessor: Some(true),
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_wac_step_only() -> anyhow::Result<()> {
+        // A WAC script that uses inline step() instead of @task should still be
+        // detected as auto_kind = "wac" — the runtime path treats @task as
+        // optional, and the editor badge needs to match.
+        let code = r#"
+from wmill import workflow, step
+
+@workflow
+async def main(x: str):
+    return await step("k", lambda: x.upper())
+"#;
+        let sig = parse_python_signature(code, None, false)?;
+        assert_eq!(sig.auto_kind, Some("wac".to_string()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_wac_main_decorator() -> anyhow::Result<()> {
+        // Reproducer for issue #8945: a workflow-as-code script using the
+        // standard `@workflow async def main(...)` template must be detected
+        // as auto_kind = "wac", not None.
+        let code = r#"
+from wmill import task, workflow
+
+@task()
+async def process(x: str) -> str:
+    return x
+
+@workflow
+async def main(x: str):
+    return await process(x)
+"#;
+        let sig = parse_python_signature(code, None, false)?;
+        assert_eq!(sig.auto_kind, Some("wac".to_string()));
         Ok(())
     }
 
@@ -1083,7 +1131,7 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
-                            ..Default::default()
+                ..Default::default()
             }
         );
 
@@ -1133,7 +1181,7 @@ def main(a: str, b: Optional[str], c: str | None): return
                 ],
                 auto_kind: None,
                 has_preprocessor: Some(false),
-                            ..Default::default()
+                ..Default::default()
             }
         );
 

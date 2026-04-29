@@ -13,7 +13,12 @@
 	import WorkerHostname from '$lib/components/WorkerHostname.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { getRelevantFields, getTriggerInfo, type FieldConfig } from './JobDetailFieldConfig'
+	import {
+		getRelevantFields,
+		getTriggerInfo,
+		isFlowVersionHash,
+		type FieldConfig
+	} from './JobDetailFieldConfig'
 	import { flowPathToHref } from '$lib/scripts'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
@@ -91,7 +96,8 @@
 			case 'run_id':
 				return truncateRev(fullValue, 8)
 			case 'script_hash':
-				return truncateHash(fullValue.toString())
+				// truncateHash drops leading digits of a decimal version id; skip it.
+				return isFlowVersionHash(job) ? fullValue.toString() : truncateHash(fullValue.toString())
 			case 'parent_job':
 				return truncateRev(fullValue, 6)
 			case 'schedule_path':
@@ -280,7 +286,15 @@
 		<a
 			{href}
 			class="flex items-center gap-1 min-w-0 text-primary"
-			title={config.field === 'script_hash' ? `Script hash: ${fullValue}` : fullValue}
+			title={config.field === 'script_hash'
+				? `${
+						job.job_kind === 'appdependencies'
+							? 'App version'
+							: isFlowVersionHash(job)
+								? 'Flow version'
+								: 'Script hash'
+					}: ${fullValue}`
+				: fullValue}
 		>
 			<span class="truncate flex-shrink min-w-0">{displayValue}</span>
 			<ExternalLink size={12} class="flex-shrink-0" />

@@ -142,7 +142,7 @@ use crate::{
     worker_utils::ping_job_status,
     PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
     PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
-    UV_INDEX_STRATEGY,
+    UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY,
 };
 use windmill_common::client::AuthedClient;
 
@@ -231,6 +231,7 @@ pub async fn uv_pip_compile(
 
     let uv_index_strategy = UV_INDEX_STRATEGY.read().await.clone();
     let uv_index_strategy = uv_index_strategy.as_deref().unwrap_or("unsafe-best-match");
+    let uv_exclude_newer = (*UV_EXCLUDE_NEWER.read().await).map(|secs| format!("{}s", secs));
 
     let py_version_str = py_version.clone().to_string();
     // Include python version to requirements.in
@@ -242,8 +243,12 @@ pub async fn uv_pip_compile(
     let requirements = replace_pip_secret(conn, w_id, &requirements, worker_name, job_id).await?;
 
     let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
+    let exclude_newer_suffix = uv_exclude_newer
+        .as_deref()
+        .map(|v| format!("-en{}", v))
+        .unwrap_or_default();
     let req_hash = format!(
-        "py-{}-{uv_index_strategy}{ws_suffix}",
+        "py-{}-{uv_index_strategy}{exclude_newer_suffix}{ws_suffix}",
         calculate_hash(&requirements)
     );
 
@@ -332,6 +337,9 @@ pub async fn uv_pip_compile(
         }
         if *NATIVE_CERT {
             args.extend(["--native-tls"]);
+        }
+        if let Some(exclude_newer) = uv_exclude_newer.as_deref() {
+            args.extend(["--exclude-newer", exclude_newer]);
         }
         tracing::debug!("uv args: {:?}", args);
 
@@ -675,6 +683,7 @@ pub async fn handle_python_job(
         spread,
         main_name,
         pre_spread,
+        wac_pre_spread,
     ) = prepare_wrapper(
         job_dir,
         job.flow_step_id.as_deref(),
@@ -721,6 +730,32 @@ pub async fn handle_python_job(
 
     let main_override = main_name.unwrap_or_else(|| "main".to_string());
     let res_to_json_body = python_res_to_json_body(postprocessor);
+    // Indented at 4 spaces so it can be inlined inside the wrapper's
+    // `try:` block — preprocessor failures route through the same error
+    // serializer as workflow failures.
+    let wac_preprocessor = if let Some(pre_spread) = wac_pre_spread.as_ref() {
+        format!(
+            r#"if not hasattr(inner_script, 'preprocessor') or not callable(inner_script.preprocessor):
+        raise ValueError("preprocessor function is missing")
+    pre_args = {{}}
+    {pre_spread}
+    for k, v in list(pre_args.items()):
+        if v == '<function call>':
+            del pre_args[k]
+    _pre_result = inner_script.preprocessor(**pre_args)
+    if hasattr(_pre_result, '__await__'):
+        import asyncio
+        _pre_result = asyncio.run(_pre_result)
+    kwargs = _pre_result if _pre_result is not None else {{}}
+    _pre_json = json.dumps(kwargs, separators=(',', ':'), default=str)
+    with open("args.json", 'w') as f:
+        f.write(_pre_json)
+    sys.stdout.write("wm_res[preprocessed_args]:" + _pre_json + "\n")
+    sys.stdout.flush()"#
+        )
+    } else {
+        "".to_string()
+    };
     let wrapper_content: String = if is_wac_v2 {
         format!(
             r#"
@@ -737,29 +772,28 @@ from wmill.client import _run_workflow
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
 {transforms}
-args = kwargs
 
 with open("checkpoint.json") as f:
     checkpoint = json.load(f, strict=False)
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
-# Find the @workflow-decorated function
-workflow_fn = None
-for name in dir(inner_script):
-    obj = getattr(inner_script, name)
-    if callable(obj) and getattr(obj, '_is_workflow', False):
-        workflow_fn = obj
-        break
-
-if workflow_fn is None:
-    raise ValueError("No @workflow function found in script")
-
-for k, v in list(args.items()):
-    if v == '<function call>':
-        del args[k]
-
 try:
+    {wac_preprocessor}
+    args = kwargs
+    for k, v in list(args.items()):
+        if v == '<function call>':
+            del args[k]
+
+    workflow_fn = None
+    for name in dir(inner_script):
+        obj = getattr(inner_script, name)
+        if callable(obj) and getattr(obj, '_is_workflow', False):
+            workflow_fn = obj
+            break
+    if workflow_fn is None:
+        raise ValueError("No @workflow function found in script")
+
     output = _run_workflow(workflow_fn, checkpoint, args)
     if isinstance(output, dict) and output.get("type") == "complete":
         print("")
@@ -1069,7 +1103,11 @@ mount {{
     // Box::pin to avoid bloating handle_python_job's async state machine (stack overflow).
     if is_wac_v2 {
         return Box::pin(crate::bun_executor::handle_wac_v2_output(
-            result, job, conn, modules,
+            result,
+            job,
+            conn,
+            modules,
+            new_args.as_ref(),
         ))
         .await;
     }
@@ -1079,12 +1117,12 @@ mount {{
 
 /// Generate Python code to spread preprocessor args from `kwargs` into `pre_args`.
 /// The `indent` parameter controls the join separator for multi-arg spreads.
-fn python_preprocessor_spread(sig: windmill_parser::MainArgSignature, indent: &str) -> String {
+fn python_preprocessor_spread(sig: &windmill_parser::MainArgSignature, indent: &str) -> String {
     if sig.star_kwargs {
         "pre_args = kwargs".to_string()
     } else {
         sig.args
-            .into_iter()
+            .iter()
             .map(|x| {
                 let name = &x.name;
                 if x.default.is_none() {
@@ -1208,7 +1246,7 @@ pub fn compute_py_codegen(content: &str, script_path: &str) -> PyScriptCodegen {
             .join("\n    ")
     };
 
-    let pre_spread = pre_sig.map(|sig| python_preprocessor_spread(sig, "    "));
+    let pre_spread = pre_sig.map(|sig| python_preprocessor_spread(&sig, "    "));
 
     let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
 
@@ -1479,6 +1517,7 @@ async fn prepare_wrapper(
     String,
     Option<String>,
     Option<String>,
+    Option<String>,
 )> {
     let main_override = job_script_entrypoint_override.as_deref();
     let apply_preprocessor =
@@ -1614,7 +1653,14 @@ async fn prepare_wrapper(
             .join("\n    ")
     };
 
-    let pre_spread = pre_sig.map(|sig| python_preprocessor_spread(sig, "        "));
+    let pre_spread = pre_sig
+        .as_ref()
+        .map(|sig| python_preprocessor_spread(sig, "        "));
+    // 4-space indent for the WAC wrapper, where the preprocessor block is
+    // injected inside the `try:` body so failures get serialized to result.json.
+    let wac_pre_spread = pre_sig
+        .as_ref()
+        .map(|sig| python_preprocessor_spread(sig, "    "));
 
     let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
 
@@ -1629,6 +1675,7 @@ async fn prepare_wrapper(
         spread,
         main_override.map(ToString::to_string),
         pre_spread,
+        wac_pre_spread,
     ))
 }
 
@@ -1862,6 +1909,8 @@ async fn spawn_uv_install(
     let uv_index_strategy = uv_index_strategy_guard
         .as_deref()
         .unwrap_or("unsafe-best-match");
+    let uv_exclude_newer = (*UV_EXCLUDE_NEWER.read().await).map(|secs| format!("{}s", secs));
+    let uv_exclude_newer = uv_exclude_newer.as_deref();
 
     if is_sandboxing_enabled() {
         tracing::info!(
@@ -1897,6 +1946,9 @@ async fn spawn_uv_install(
         vars.push(("REQ", &req));
         vars.push(("TARGET", venv_p));
         vars.push(("UV_INDEX_STRATEGY", uv_index_strategy));
+        if let Some(v) = uv_exclude_newer {
+            vars.push(("UV_EXCLUDE_NEWER", v));
+        }
 
         std::fs::create_dir_all(venv_p)?;
         let nsjail_proto = format!("{req}.config.proto");
@@ -1967,6 +2019,9 @@ async fn spawn_uv_install(
             url.split(",").for_each(|url| {
                 command_args.extend(["--extra-index-url", url]);
             });
+        }
+        if let Some(v) = uv_exclude_newer {
+            command_args.extend(["--exclude-newer", v]);
         }
 
         let mut envs = vec![("PATH", PATH_ENV.as_str())];

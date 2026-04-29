@@ -43,11 +43,13 @@ use crate::common::{
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sql_s3_input::fetch_s3object_as_json_text;
 use crate::sql_utils::remove_comments;
 use crate::MAX_RESULT_SIZE;
 use bytes::Buf;
 use lazy_static::lazy_static;
 use windmill_common::client::AuthedClient;
+use windmill_types::s3::S3Object;
 
 lazy_static! {
     pub static ref CONNECTION_CACHE: Arc<Mutex<Option<(String, tokio_postgres::Client)>>> =
@@ -281,7 +283,7 @@ pub async fn do_postgresql(
     parent_runnable_path: Option<String>,
     run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
-    let pg_args = build_args_values(job, client, conn).await?;
+    let mut pg_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
 
@@ -385,8 +387,13 @@ pub async fn do_postgresql(
         new_client = Some(new_pg_connection(&database, use_iam_auth, conn.as_sql()).await?);
     }
 
-    let (sig, typed_schema) = parse_pgsql_sig_with_typed_schema(&query)
+    let (mut sig, typed_schema) = parse_pgsql_sig_with_typed_schema(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?;
+
+    // Materialize any `(s3object)` args into JSON text and rebind them as `jsonb` so
+    // `otyp_to_pg_type` picks the right binding. Must run before the param map is
+    // built below.
+    materialize_s3object_args(&mut sig.args, &mut pg_args, client, &job.workspace_id).await?;
 
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
@@ -582,6 +589,52 @@ async fn is_most_used_conn(database_string: &str) -> bool {
 async fn increment_connection_counter(database_string: &str) {
     let mut counter_map = CONNECTION_COUNTER.write().await;
     *counter_map.entry(database_string.to_string()).or_insert(0) += 1;
+}
+
+/// For each `(s3object)` arg in `sig_args`: download the referenced file, decode it
+/// to JSON text, then rewrite the arg to bind as `jsonb`. Mutates `args_map` in place
+/// so the existing bind path picks up the materialized payload.
+async fn materialize_s3object_args(
+    sig_args: &mut [Arg],
+    args_map: &mut HashMap<String, Value>,
+    client: &AuthedClient,
+    workspace_id: &str,
+) -> error::Result<()> {
+    for arg in sig_args.iter_mut() {
+        if arg.otyp.as_deref() != Some("s3object") {
+            continue;
+        }
+        let raw = args_map.remove(&arg.name).unwrap_or(Value::Null);
+        if matches!(raw, Value::Null) {
+            return Err(Error::BadRequest(format!(
+                "Missing S3Object value for arg `{}`",
+                arg.name
+            )));
+        }
+        let s3_obj: S3Object = serde_json::from_value(raw).map_err(|e| {
+            Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
+        })?;
+        let json_text = fetch_s3object_as_json_text(client, workspace_id, &s3_obj)
+            .await
+            .map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Failed to fetch S3 object for arg `{}`: {e}",
+                    arg.name
+                ))
+            })?;
+        // Parse to a Value so `convert_val`'s Array/Object → JSONB branches bind it
+        // correctly. A bare String would mismatch the JSONB param type.
+        let parsed: Value = serde_json::from_str(&json_text).map_err(|e| {
+            Error::ExecutionErr(format!(
+                "S3 object for arg `{}` is not valid JSON after decoding: {e}",
+                arg.name
+            ))
+        })?;
+        args_map.insert(arg.name.clone(), parsed);
+        arg.otyp = Some("jsonb".to_string());
+        arg.typ = Typ::Object(windmill_parser::ObjectType::new(None, Some(vec![])));
+    }
+    Ok(())
 }
 
 /// Parse a date string in formats produced by chrono's Display or JS frontends.

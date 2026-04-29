@@ -2559,6 +2559,7 @@ export async function pull(
         false,
       );
     }
+
     if (tracker.apps.length > 0) {
       log.info(
         colors.gray(

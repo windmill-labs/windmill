@@ -733,6 +733,12 @@ export async function bootstrap(
   const metadataFile = getMetadataFileName("flow", "yaml");
   const flowYamlPath = `${flowDirFullPath}/${metadataFile}`;
   writeFileSync(flowYamlPath, newFlowDefinitionYaml, { flag: "wx", encoding: "utf-8" });
+
+  log.info(colors.green(`Created flow at ${flowDirFullPath}`));
+
+  log.info("");
+  log.info(colors.bold("To preview this flow:"));
+  log.info(colors.gray(`  wmill dev --path ${flowPath}`));
 }
 
 async function history(
