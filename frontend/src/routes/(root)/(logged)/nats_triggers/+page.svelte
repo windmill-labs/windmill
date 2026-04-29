@@ -16,6 +16,7 @@
 		storeLocalSetting,
 		removeTriggerKindIfUnused
 	} from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -105,11 +106,15 @@
 
 	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
-			await NatsTriggerService.setNatsTriggerMode({
-				path,
-				workspace: $workspaceStore!,
-				requestBody: { mode }
-			})
+			await withForkConflictRetry(
+					(force) =>
+						NatsTriggerService.setNatsTriggerMode({
+							path,
+							workspace: $workspaceStore!,
+							requestBody: { mode, force }
+						}),
+					'NATS trigger'
+			)
 		} catch (err) {
 			sendUserToast(
 				`Cannot ` +

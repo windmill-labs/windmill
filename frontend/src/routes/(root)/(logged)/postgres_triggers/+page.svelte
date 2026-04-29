@@ -17,6 +17,7 @@
 		removeTriggerKindIfUnused,
 		capitalize
 	} from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -112,11 +113,15 @@
 
 	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
-			await PostgresTriggerService.setPostgresTriggerMode({
-				path,
-				workspace: $workspaceStore!,
-				requestBody: { mode }
-			})
+			await withForkConflictRetry(
+					(force) =>
+						PostgresTriggerService.setPostgresTriggerMode({
+							path,
+							workspace: $workspaceStore!,
+							requestBody: { mode, force }
+						}),
+					'postgres trigger'
+			)
 			sendUserToast(`${capitalize(mode)} postgres trigger ${path}`)
 		} catch (err) {
 			sendUserToast(`Cannot change postgres trigger mode: ${err.body}`, true)

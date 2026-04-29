@@ -17,6 +17,7 @@
 		removeTriggerKindIfUnused,
 		capitalize
 	} from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -99,11 +100,15 @@
 
 	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
-			await WebsocketTriggerService.setWebsocketTriggerMode({
-				path,
-				workspace: $workspaceStore!,
-				requestBody: { mode }
-			})
+			await withForkConflictRetry(
+					(force) =>
+						WebsocketTriggerService.setWebsocketTriggerMode({
+							path,
+							workspace: $workspaceStore!,
+							requestBody: { mode, force }
+						}),
+					'websocket trigger'
+			)
 			sendUserToast(`${capitalize(mode)} websocket trigger ${path}`)
 		} catch (err) {
 			sendUserToast(

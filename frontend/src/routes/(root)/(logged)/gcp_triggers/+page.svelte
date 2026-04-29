@@ -17,6 +17,7 @@
 		storeLocalSetting,
 		removeTriggerKindIfUnused
 	} from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -113,11 +114,15 @@
 
 	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
-			await GcpTriggerService.setGcpTriggerMode({
-				path,
-				workspace: $workspaceStore!,
-				requestBody: { mode }
-			})
+			await withForkConflictRetry(
+					(force) =>
+						GcpTriggerService.setGcpTriggerMode({
+							path,
+							workspace: $workspaceStore!,
+							requestBody: { mode, force }
+						}),
+					'GCP Pub/Sub trigger'
+			)
 		} catch (err) {
 			sendUserToast(
 				`Cannot ${mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend'} GCP Pub/Sub trigger: ${err.body}`,

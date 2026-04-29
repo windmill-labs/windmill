@@ -8,6 +8,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -304,11 +305,15 @@
 	async function handleToggleMode(newMode: TriggerMode) {
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			await MqttTriggerService.setMqttTriggerMode({
-				path: initialPath,
-				workspace: $workspaceStore ?? '',
-				requestBody: { mode: newMode }
-			})
+			await withForkConflictRetry(
+					(force) =>
+						MqttTriggerService.setMqttTriggerMode({
+							path: initialPath,
+							workspace: $workspaceStore ?? '',
+							requestBody: { mode: newMode, force }
+						}),
+					'MQTT trigger'
+			)
 			sendUserToast(`${capitalize(newMode)} MQTT trigger ${initialPath}`)
 
 			onUpdate?.(initialPath)

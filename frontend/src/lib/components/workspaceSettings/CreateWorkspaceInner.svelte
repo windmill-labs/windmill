@@ -56,6 +56,7 @@
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
+	let forkTriggers = $state(false)
 
 	function generateRandomColor() {
 		const randomColor =
@@ -208,7 +209,8 @@
 					id: prefixed_id,
 					name,
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-					forked_datatables: forkedDatatables
+					forked_datatables: forkedDatatables,
+					fork_triggers: forkTriggers
 				}
 			})
 		} catch (e) {
@@ -507,6 +509,15 @@
 						forkCreationLoading = false
 					}}
 				/>
+				<Label label="Clone triggers and schedules">
+					<span class="text-xs text-secondary">
+						Copy every trigger and schedule from the parent into this fork. They start
+						<span class="font-semibold">disabled</span> — re-enable the ones you need to test. Enabling
+						something the parent already runs will require an explicit confirmation since two listeners
+						can compete for the same upstream events.
+					</span>
+					<Toggle bind:checked={forkTriggers} options={{ right: 'Clone' }} />
+				</Label>
 			{/if}
 			{#if !automateUsernameCreation}
 				<Label label="Your username in that workspace">

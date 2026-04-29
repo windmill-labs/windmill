@@ -23,6 +23,7 @@
 		generateRandomString,
 		sendUserToast
 	} from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Pipette, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -408,11 +409,15 @@
 	async function handleToggleMode(newMode: TriggerMode) {
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			await HttpTriggerService.setHttpTriggerMode({
-				path: initialPath,
-				workspace: $workspaceStore ?? '',
-				requestBody: { mode: newMode }
-			})
+			await withForkConflictRetry(
+					(force) =>
+						HttpTriggerService.setHttpTriggerMode({
+							path: initialPath,
+							workspace: $workspaceStore ?? '',
+							requestBody: { mode: newMode, force }
+						}),
+					'HTTP trigger'
+			)
 			sendUserToast(`${capitalize(newMode)} HTTP trigger ${initialPath}`)
 
 			onUpdate(initialPath)

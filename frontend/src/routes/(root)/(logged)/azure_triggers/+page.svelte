@@ -17,6 +17,7 @@
 		storeLocalSetting,
 		removeTriggerKindIfUnused
 	} from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -113,11 +114,15 @@
 
 	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
-			await AzureTriggerService.setAzureTriggerMode({
-				path,
-				workspace: $workspaceStore!,
-				requestBody: { mode }
-			})
+			await withForkConflictRetry(
+					(force) =>
+						AzureTriggerService.setAzureTriggerMode({
+							path,
+							workspace: $workspaceStore!,
+							requestBody: { mode, force }
+						}),
+					'Azure trigger'
+			)
 		} catch (err) {
 			sendUserToast(
 				`Cannot ${mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend'} Azure Event Grid trigger: ${err.body}`,

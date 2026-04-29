@@ -37,6 +37,7 @@
 	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
@@ -629,11 +630,15 @@
 	async function handleToggleEnabled(nEnabled: boolean) {
 		enabled = nEnabled
 		if (!trigger?.draftConfig) {
-			await ScheduleService.setScheduleEnabled({
-				path: initialPath,
-				workspace: $workspaceStore ?? '',
-				requestBody: { enabled: nEnabled }
-			})
+			await withForkConflictRetry(
+				(force) =>
+					ScheduleService.setScheduleEnabled({
+						path: initialPath,
+						workspace: $workspaceStore ?? '',
+						requestBody: { enabled: nEnabled, force }
+					}),
+				'schedule'
+			)
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
 			onUpdate?.(initialPath)
 		}

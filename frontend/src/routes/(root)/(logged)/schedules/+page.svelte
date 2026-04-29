@@ -6,6 +6,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
@@ -142,11 +143,15 @@
 
 	async function setScheduleEnabled(path: string, enabled: boolean): Promise<void> {
 		try {
-			await ScheduleService.setScheduleEnabled({
-				path,
-				workspace: $workspaceStore!,
-				requestBody: { enabled }
-			})
+			await withForkConflictRetry(
+					(force) =>
+						ScheduleService.setScheduleEnabled({
+							path,
+							workspace: $workspaceStore!,
+							requestBody: { enabled, force }
+						}),
+					'schedule'
+			)
 			loadSchedules()
 		} catch (err) {
 			sendUserToast(`Cannot ` + (enabled ? 'enable' : 'disable') + ` schedule: ${err.body}`, true)

@@ -5,6 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import {
@@ -265,11 +266,15 @@
 	async function handleToggleMode(newMode: TriggerMode) {
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			await AzureTriggerService.setAzureTriggerMode({
-				path: initialPath,
-				workspace: $workspaceStore ?? '',
-				requestBody: { mode: newMode }
-			})
+			await withForkConflictRetry(
+					(force) =>
+						AzureTriggerService.setAzureTriggerMode({
+							path: initialPath,
+							workspace: $workspaceStore ?? '',
+							requestBody: { mode: newMode, force }
+						}),
+					'Azure trigger'
+			)
 			sendUserToast(`${capitalize(newMode)} Azure trigger ${initialPath}`)
 			onUpdate?.(initialPath)
 		}
