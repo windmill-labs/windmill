@@ -206,6 +206,7 @@
 				<Toggle
 					size="xs"
 					bind:checked={componentInput.sensitive}
+					textClass="!text-tertiary"
 					options={{
 						right: 'sensitive'
 					}}
