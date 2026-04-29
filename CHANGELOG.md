@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.693.0](https://github.com/windmill-labs/windmill/compare/v1.692.0...v1.693.0) (2026-04-29)
+
+
+### Features
+
+* add ai chat schedule and trigger tools ([#8961](https://github.com/windmill-labs/windmill/issues/8961)) ([b883f9a](https://github.com/windmill-labs/windmill/commit/b883f9a9d2e38a5981860de268fa6227cdd645de))
+* add delete_after_secs and sensitive_inputs for raw app runnables ([#8975](https://github.com/windmill-labs/windmill/issues/8975)) ([1169d9b](https://github.com/windmill-labs/windmill/commit/1169d9bfd315e43194f9e5a2bc55af843476ef68))
+* add min release age instance settings for bun and uv ([#8956](https://github.com/windmill-labs/windmill/issues/8956)) ([1d279e7](https://github.com/windmill-labs/windmill/commit/1d279e7a1e77fd183bb0c99d2430cfd9dc0a617c))
+* edit scopes on existing API tokens ([#8967](https://github.com/windmill-labs/windmill/issues/8967)) ([e9e72fb](https://github.com/windmill-labs/windmill/commit/e9e72fbbf83363ba1426b3dde3d657de02ba50b3))
+* OTEL span status on failed jobs + Python stderr severity classification ([#8918](https://github.com/windmill-labs/windmill/issues/8918)) ([cec8484](https://github.com/windmill-labs/windmill/commit/cec84849b9aea92d355dd346546969027c603498))
+* support restart from steps inside BranchOne, ForLoop, Subflow ([#8955](https://github.com/windmill-labs/windmill/issues/8955)) ([c956428](https://github.com/windmill-labs/windmill/commit/c95642863e366c106d529a57540a75df9480397c))
+* support S3Object input args in native SQL scripts ([#8954](https://github.com/windmill-labs/windmill/issues/8954)) ([c0eeea9](https://github.com/windmill-labs/windmill/commit/c0eeea9c833f9be3981389a19d0964400fd2bda8))
+* workspace-shared ui/ folder reusable across raw apps ([#8974](https://github.com/windmill-labs/windmill/issues/8974)) ([de0b6b1](https://github.com/windmill-labs/windmill/commit/de0b6b15285612ef00b94e332dcb203aed88f2cc))
+
+
+### Bug Fixes
+
+* **cli:** debounce wmill dev flow round-trip 200ms ([#8977](https://github.com/windmill-labs/windmill/issues/8977)) ([5861dca](https://github.com/windmill-labs/windmill/commit/5861dcad589df99f57e730d8d9cdb3eabc3424e4))
+* prevent React app editor from overwriting files on theme switch ([#8965](https://github.com/windmill-labs/windmill/issues/8965)) ([70b90c4](https://github.com/windmill-labs/windmill/commit/70b90c41dc28d1a850bce69836cde920c1404c3b))
+* show skipped label on flow progress bar ([#8973](https://github.com/windmill-labs/windmill/issues/8973)) ([8627d3c](https://github.com/windmill-labs/windmill/commit/8627d3c5aeabfac12a9f06211f8e7db020e758f9))
+* split flow prompts for frontend chat ([#8968](https://github.com/windmill-labs/windmill/issues/8968)) ([4098793](https://github.com/windmill-labs/windmill/commit/4098793db22249c5b4467c2adb72131407f5d6d3))
+* strip additionalProperties from google schemas ([#8964](https://github.com/windmill-labs/windmill/issues/8964)) ([77d9a53](https://github.com/windmill-labs/windmill/commit/77d9a534235a1ff8cbfcdb037a65735db987e2fe))
+
+
+### Performance Improvements
+
+* optimize datatable app chat schemas ([#8960](https://github.com/windmill-labs/windmill/issues/8960)) ([34b549c](https://github.com/windmill-labs/windmill/commit/34b549cfe2e2e060561eabe369a99cfb4d9c9568))
+
 ## [1.692.0](https://github.com/windmill-labs/windmill/compare/v1.691.1...v1.692.0) (2026-04-27)
 
 
