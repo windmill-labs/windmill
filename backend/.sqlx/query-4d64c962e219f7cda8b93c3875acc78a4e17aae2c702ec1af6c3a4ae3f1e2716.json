@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO nats_trigger (\n            path, nats_resource_path, subjects, stream_name, consumer_name,\n            use_jetstream, script_path, is_flow, workspace_id, edited_by, edited_at,\n            extra_perms, server_id, last_server_ping, error, error_handler_path,\n            error_handler_args, retry, mode, permissioned_as, labels\n        )\n        SELECT\n            path, nats_resource_path, subjects, stream_name, consumer_name,\n            use_jetstream, script_path, is_flow, $1, edited_by, edited_at,\n            extra_perms, NULL, NULL, NULL, error_handler_path,\n            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels\n        FROM nats_trigger WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4d64c962e219f7cda8b93c3875acc78a4e17aae2c702ec1af6c3a4ae3f1e2716"
+}
