@@ -115,7 +115,7 @@
 		currentStepId = newCurrentStepId
 		isWaitingForEvents = newIsWaitingForEvents
 		isCanceled = job?.canceled || false
-		isSkipped = Boolean(job?.['is_skipped'] && !('running' in job && job.running))
+		isSkipped = 'is_skipped' in job && Boolean(job.is_skipped)
 	}
 
 	export function reset() {
