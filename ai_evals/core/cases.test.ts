@@ -182,4 +182,24 @@ describe("loadCases", () => {
       forbiddenExecutedCommands: ["^wmill generate-metadata", "^wmill sync push"],
     });
   });
+
+  it("loads tool expectations for workspace mutation cases", async () => {
+    const scriptCases = await loadCases("script");
+    const caseEntry = scriptCases.find(
+      (entry) => entry.id === "script-test2-create-current-script-schedule"
+    );
+
+    expect(caseEntry?.toolExpect).toEqual({
+      requiredToolsUsed: ["create_schedule"],
+      toolCallArgs: [
+        {
+          tool: "create_schedule",
+          field: "path",
+          stringStartsWithAnyOf: ["f/", "u/"],
+          stringMustNotStartWithAnyOf: ["schedules/"],
+        },
+      ],
+    });
+    expect(caseEntry?.skipJudge).toBe(true);
+  });
 });

@@ -16,6 +16,7 @@ Usage:
 
 import argparse
 import ast
+import copy
 import json
 import re
 import shutil
@@ -664,6 +665,224 @@ def generate_schema_files(cli_schemas: dict[str, dict]) -> dict[str, str]:
 
 
 # =============================================================================
+# Workspace Tool Zod Schema Generation
+# =============================================================================
+
+
+WORKSPACE_TOOL_ZOD_SCHEMAS = [
+    ('NewSchedule', 'scheduleRequestSchema'),
+    ('NewHttpTrigger', 'httpTriggerRequestSchema'),
+    ('NewWebsocketTrigger', 'websocketTriggerRequestSchema'),
+    ('NewKafkaTrigger', 'kafkaTriggerRequestSchema'),
+    ('NewNatsTrigger', 'natsTriggerRequestSchema'),
+    ('NewPostgresTrigger', 'postgresTriggerRequestSchema'),
+    ('NewMqttTrigger', 'mqttTriggerRequestSchema'),
+    ('NewSqsTrigger', 'sqsTriggerRequestSchema'),
+    ('GcpTriggerData', 'gcpTriggerRequestSchema'),
+    ('AzureTriggerData', 'azureTriggerRequestSchema'),
+]
+
+WORKSPACE_TOOL_TRIGGER_SCHEMAS = [
+    ('http', 'httpTriggerRequestSchema'),
+    ('websocket', 'websocketTriggerRequestSchema'),
+    ('kafka', 'kafkaTriggerRequestSchema'),
+    ('nats', 'natsTriggerRequestSchema'),
+    ('postgres', 'postgresTriggerRequestSchema'),
+    ('mqtt', 'mqttTriggerRequestSchema'),
+    ('sqs', 'sqsTriggerRequestSchema'),
+    ('gcp', 'gcpTriggerRequestSchema'),
+    ('azure', 'azureTriggerRequestSchema'),
+]
+
+WORKSPACE_TOOL_ZOD_OUTPUT_PATH = (
+    SCRIPT_DIR.parent
+    / 'frontend'
+    / 'src'
+    / 'lib'
+    / 'components'
+    / 'copilot'
+    / 'chat'
+    / 'workspaceToolsZod.gen.ts'
+)
+
+
+def _resolve_schema_refs(schema: dict, backend_schemas: dict, openflow_schemas: dict, seen: tuple[str, ...] = ()) -> dict:
+    """Resolve OpenAPI refs so json-schema-to-zod emits concrete enums/objects."""
+    if isinstance(schema, list):
+        return [_resolve_schema_refs(item, backend_schemas, openflow_schemas, seen) for item in schema]
+
+    if not isinstance(schema, dict):
+        return schema
+
+    if '$ref' in schema:
+        ref = schema['$ref']
+        ref_name = ref.split('/')[-1]
+        if ref_name in seen:
+            return {'type': 'object'}
+
+        source = openflow_schemas if 'openflow.openapi.yaml' in ref or ref_name not in backend_schemas else backend_schemas
+        ref_schema = source.get(ref_name)
+        if not ref_schema:
+            return {'type': 'object'}
+
+        resolved = _resolve_schema_refs(copy.deepcopy(ref_schema), backend_schemas, openflow_schemas, (*seen, ref_name))
+        for key, value in schema.items():
+            if key != '$ref':
+                resolved[key] = _resolve_schema_refs(value, backend_schemas, openflow_schemas, seen)
+        return resolved
+
+    return {
+        key: _resolve_schema_refs(value, backend_schemas, openflow_schemas, seen)
+        for key, value in schema.items()
+    }
+
+
+def _ts_string(value: str) -> str:
+    return json.dumps(value)
+
+
+def _zod_literal(value) -> str:
+    return json.dumps(value)
+
+
+def _apply_zod_metadata(expr: str, schema: dict) -> str:
+    if schema.get('description'):
+        expr += f".describe({_ts_string(schema['description'])})"
+    if schema.get('nullable'):
+        expr += ".nullable()"
+    if 'default' in schema:
+        expr += f".default({_zod_literal(schema['default'])})"
+    return expr
+
+
+def _json_schema_to_zod(schema: dict, indent: int = 0) -> str:
+    schema = schema or {}
+
+    if 'oneOf' in schema:
+        raise ValueError('Unsupported oneOf in workspace tool Zod schema generation')
+
+    if 'allOf' in schema:
+        raise ValueError('Unsupported allOf in workspace tool Zod schema generation')
+
+    if 'anyOf' in schema:
+        expr = "z.union([{}])".format(
+            ', '.join(_json_schema_to_zod(item, indent) for item in schema['anyOf'])
+        )
+        return _apply_zod_metadata(expr, schema)
+
+    if 'enum' in schema:
+        enum_values = ', '.join(_zod_literal(value) for value in schema['enum'])
+        expr = f"z.enum([{enum_values}])"
+        return _apply_zod_metadata(expr, schema)
+
+    schema_type = schema.get('type')
+
+    if schema_type == 'string':
+        expr = 'z.string()'
+        if schema.get('format') == 'date-time':
+            expr += '.datetime({ offset: true })'
+    elif schema_type == 'boolean':
+        expr = 'z.boolean()'
+    elif schema_type in ('number', 'integer'):
+        expr = 'z.number()'
+        if schema_type == 'integer':
+            expr += '.int()'
+        if 'minimum' in schema:
+            expr += f".gte({_zod_literal(schema['minimum'])})"
+        if 'maximum' in schema:
+            expr += f".lte({_zod_literal(schema['maximum'])})"
+    elif schema_type == 'array':
+        expr = f"z.array({_json_schema_to_zod(schema.get('items', {}), indent)})"
+    elif schema_type == 'object' or schema.get('properties') is not None or schema.get('additionalProperties') is not None:
+        properties = schema.get('properties') or {}
+        if not properties and schema.get('additionalProperties'):
+            expr = 'z.record(z.string(), z.any())'
+        else:
+            required = set(schema.get('required') or [])
+            prop_lines = []
+            child_indent = '\t' * (indent + 1)
+            closing_indent = '\t' * indent
+            for key, value in properties.items():
+                prop_expr = _json_schema_to_zod(value, indent + 1)
+                if key not in required:
+                    prop_expr += '.optional()'
+                prop_lines.append(f"{child_indent}{_ts_string(key)}: {prop_expr}")
+            if prop_lines:
+                expr = "z.object({\n" + ",\n".join(prop_lines) + f"\n{closing_indent}}})"
+            else:
+                expr = 'z.object({})'
+    else:
+        expr = 'z.any()'
+
+    return _apply_zod_metadata(expr, schema)
+
+
+def generate_workspace_tool_zod_schemas(backend_schemas: dict, openflow_schemas: dict) -> None:
+    """Generate Zod schemas used by frontend AI chat workspace mutation tools."""
+    print("Generating workspace tool Zod schemas...")
+
+    missing = [schema_name for schema_name, _ in WORKSPACE_TOOL_ZOD_SCHEMAS if schema_name not in backend_schemas]
+    if missing:
+        print(f"  Warning: Missing schemas for workspace tool Zod generation: {', '.join(missing)}")
+        return
+
+    trigger_path_description = (
+        backend_schemas.get('NewHttpTrigger', {})
+        .get('properties', {})
+        .get('path', {})
+        .get('description')
+        or "The new trigger's Windmill path"
+    )
+
+    lines = [
+        "// Auto-generated by generate.py - DO NOT EDIT",
+        "",
+        "import { z } from 'zod'",
+        "",
+    ]
+
+    for schema_name, export_name in WORKSPACE_TOOL_ZOD_SCHEMAS:
+        schema = _resolve_schema_refs(
+            copy.deepcopy(backend_schemas[schema_name]),
+            backend_schemas,
+            openflow_schemas,
+        )
+        lines.append(f"export const {export_name} = {_json_schema_to_zod(schema)}")
+        lines.append("")
+
+    lines.extend([
+        "export const triggerRequestSchemas = {",
+        *[
+            f"\t{kind}: {schema_name},"
+            for kind, schema_name in WORKSPACE_TOOL_TRIGGER_SCHEMAS
+        ],
+        "} as const",
+        "",
+        f"const triggerPathSchema = z.string().min(1).describe({_ts_string(trigger_path_description)})",
+        "",
+        "export const createTriggerToolSchema = z.object({",
+        "\tkind: z.enum([",
+        *[
+            f"\t\t{_ts_string(kind)},"
+            for kind, _ in WORKSPACE_TOOL_TRIGGER_SCHEMAS
+        ],
+        "\t]),",
+        "\tpath: triggerPathSchema,",
+        "\tconfig: z.union([",
+    ])
+    for kind, schema_name in WORKSPACE_TOOL_TRIGGER_SCHEMAS:
+        lines.append(f"\t\t{schema_name}.omit({{ path: true, script_path: true, is_flow: true }}),")
+    lines.extend([
+        "\t])",
+        "})",
+    ])
+    lines.append("")
+
+    WORKSPACE_TOOL_ZOD_OUTPUT_PATH.write_text("\n".join(lines))
+    print("  Generated workspaceToolsZod.gen.ts")
+
+
+# =============================================================================
 # Datatable SDK Extraction
 # =============================================================================
 
@@ -943,6 +1162,7 @@ def generate_skills(
     languages: dict[str, str],
     ts_sdk_md: str,
     py_sdk_md: str,
+    flow_cli: str,
     flow_base: str,
     openflow_content: str,
     cli_commands: str,
@@ -959,7 +1179,7 @@ def generate_skills(
     # Read base files for additional skills
     base_dir = SCRIPT_DIR / "base"
     base_content = {
-        'flow': f"{flow_base}\n\n{openflow_content}",
+        'flow': f"{flow_cli}\n\n{flow_base}\n\n{openflow_content}",
         'raw_app': read_markdown_file(base_dir / "raw-app.md"),
         'triggers': read_markdown_file(base_dir / "triggers.md"),
         'schedules': read_markdown_file(base_dir / "schedules.md"),
@@ -1305,6 +1525,7 @@ def main():
 
     script_base = read_markdown_file(base_dir / "script-base.md")
     flow_base = read_markdown_file(base_dir / "flow-base.md")
+    flow_cli = read_markdown_file(base_dir / "flow-cli.md")
     flow_chat_special_modules = read_markdown_file(base_dir / "flow-chat-special-modules.md")
 
     # Read language files
@@ -1323,6 +1544,7 @@ def main():
     # Extract schemas from backend OpenAPI for CLI format documentation
     print("Extracting backend OpenAPI schemas...")
     cli_schemas = {}
+    backend_schemas = {}
     if BACKEND_OPENAPI_PATH.exists():
         backend_openapi_raw = BACKEND_OPENAPI_PATH.read_text()
         backend_openapi = yaml.safe_load(backend_openapi_raw)
@@ -1351,6 +1573,7 @@ def main():
 
     # Generate standalone schema files for triggers and schedules
     schema_yaml_content = generate_schema_files(cli_schemas)
+    generate_workspace_tool_zod_schemas(backend_schemas, openflow_schemas)
 
     # Assemble prompts for export
     prompts = {
@@ -1452,6 +1675,7 @@ export function getDatatableSdkReference(): string {
         languages=languages,
         ts_sdk_md=ts_sdk_md,
         py_sdk_md=py_sdk_md,
+        flow_cli=flow_cli,
         flow_base=flow_base,
         cli_commands=cli_commands,
         openflow_content=openflow_content,
@@ -1474,7 +1698,7 @@ export function getDatatableSdkReference(): string {
         .replace("my_flow__flow", "my_flow{{FLOW_SUFFIX}}")
         .replace("my_app__raw_app/", "my_app{{RAW_APP_SUFFIX}}/")
     )
-    (CLI_GUIDANCE_DIR / "skills.ts").write_text(skills_ts)
+    (CLI_GUIDANCE_DIR / "skills.gen.ts").write_text(skills_ts)
 
     print(f"\nGenerated files:")
     print(f"  - auto-generated/sdks/typescript.md")
@@ -1487,7 +1711,7 @@ export function getDatatableSdkReference(): string {
     print(f"  - auto-generated/skills/ ({len(skills)} skills)")
     print(f"  - auto-generated/schemas/ ({len(schema_yaml_content)} schema files)")
     print(f"\nGenerated for CLI:")
-    print(f"  - cli/src/guidance/skills.ts")
+    print(f"  - cli/src/guidance/skills.gen.ts")
 
     if args.plugin_dir:
         generate_plugin_skills(args.plugin_dir, skills, schema_yaml_content)

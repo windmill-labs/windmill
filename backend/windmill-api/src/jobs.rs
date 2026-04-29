@@ -4122,6 +4122,214 @@ pub struct RestartFlowRequestBody {
     step_id: String,
     branch_or_iteration_n: Option<usize>,
     flow_version: Option<i64>,
+    /// Optional path of additional steps to descend into AFTER `step_id`. Each entry
+    /// represents one level of nesting inside the spawned child of the previous level's
+    /// container (BranchOne / ForLoop iteration / Subflow). When non-empty, the actual
+    /// restart point is the LAST entry's `step_id`; intermediate entries identify the
+    /// containers along the way.
+    #[serde(default)]
+    nested_path: Vec<NestedRestartStep>,
+}
+
+#[cfg(feature = "enterprise")]
+#[derive(Deserialize)]
+pub struct NestedRestartStep {
+    step_id: String,
+    /// For ForLoop / sequential BranchAll containers: the 0-based iteration
+    /// (or branch) index to restart at. Iterations `0..n-1` are preserved,
+    /// iteration `n` is the restart target. Defaults to `0` when omitted.
+    /// Unused for BranchOne / Subflow containers.
+    branch_or_iteration_n: Option<usize>,
+}
+
+/// Walks the `nested_path` against the original execution to:
+/// - validate each step exists and was executed
+/// - resolve the child job UUID at each level
+/// - capture `branch_chosen` for BranchOne containers (so the worker can lock branch
+///   evaluation and reuse the originally-taken path)
+///
+/// Returns `(top_branch_chosen, nested_chain)`:
+/// - `top_branch_chosen`: locked branch for the TOP-level container if it is a
+///   BranchOne, else None
+/// - `nested_chain`: the `RestartedFrom` to embed under the top-level run's
+///   `restarted_from.nested` (None when `nested_path` is empty)
+#[cfg(feature = "enterprise")]
+async fn resolve_nested_restart(
+    db: &DB,
+    workspace_id: &str,
+    parent_job_id: Uuid,
+    parent_step_id: &str,
+    parent_branch_or_iteration_n: Option<usize>,
+    nested_path: Vec<NestedRestartStep>,
+    parent_flow_version: Option<i64>,
+) -> error::Result<(
+    Option<windmill_common::flow_status::BranchChosen>,
+    Option<Box<RestartedFrom>>,
+)> {
+    use windmill_common::flow_status::BranchChosen;
+    use windmill_common::flows::FlowModuleValue;
+
+    let row = sqlx::query!(
+        "SELECT
+            j.runnable_id AS \"runnable_id: ScriptHash\",
+            j.kind AS \"job_kind!: JobKind\",
+            COALESCE(c.flow_status, c.workflow_as_code_status) AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+            j.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\"
+        FROM v2_job_completed c JOIN v2_job j USING (id)
+        WHERE j.id = $1 AND j.workspace_id = $2",
+        parent_job_id,
+        workspace_id,
+    )
+    .fetch_optional(db)
+    .await?
+    .with_context(|| {
+        format!(
+            "completed job {} not found while resolving nested restart path",
+            parent_job_id
+        )
+    })?;
+
+    let flow_data = if let Some(version) = parent_flow_version {
+        cache::flow::fetch_version(db, version).await?
+    } else {
+        cache::job::fetch_flow(db, &row.job_kind, row.runnable_id)
+            .or_else(|_| cache::job::fetch_preview_flow(db, &parent_job_id, row.raw_flow))
+            .await?
+    };
+    let flow_value = flow_data.value();
+    let flow_status: FlowStatus = row
+        .flow_status
+        .as_ref()
+        .and_then(|v| serde_json::from_str::<FlowStatus>(v.get()).ok())
+        .ok_or_else(|| {
+            Error::internal_err(format!(
+                "Unable to parse flow status for job {}",
+                parent_job_id
+            ))
+        })?;
+
+    let parent_status_module = flow_status
+        .modules
+        .iter()
+        .find(|m| m.id() == parent_step_id)
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "step '{}' not found in original run for job {}",
+                parent_step_id, parent_job_id
+            ))
+        })?;
+    let parent_module_def = flow_value
+        .modules
+        .iter()
+        .find(|m| m.id == parent_step_id)
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "step '{}' not found in flow definition for job {}",
+                parent_step_id, parent_job_id
+            ))
+        })?;
+
+    // Leaf level: validation is done (`parent_step_id` exists), no chain to
+    // build below. Return early so the caller's `nested_path.last()` step is
+    // confirmed to actually exist before we queue the restart job.
+    if nested_path.is_empty() {
+        return Ok((None, None));
+    }
+
+    let parent_module_value = parent_module_def.get_value()?;
+    let (child_job_id, parent_branch_chosen): (Uuid, Option<BranchChosen>) =
+        match parent_module_value {
+            FlowModuleValue::BranchOne { .. } => {
+                let job = parent_status_module.job().ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "BranchOne step '{}' has no child job in original run",
+                        parent_step_id
+                    ))
+                })?;
+                (job, parent_status_module.branch_chosen())
+            }
+            FlowModuleValue::Flow { .. } => {
+                let job = parent_status_module.job().ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "Subflow step '{}' has no child job in original run",
+                        parent_step_id
+                    ))
+                })?;
+                (job, None)
+            }
+            FlowModuleValue::ForloopFlow { parallel, .. } => {
+                if parallel {
+                    return Err(Error::BadRequest(format!(
+                        "Restart inside a parallel ForLoop is not supported (step '{}')",
+                        parent_step_id
+                    )));
+                }
+                // 0-based iteration to restart at; absent ⟹ iteration 0.
+                // Iterations 0..n-1 are preserved (matching existing top-level semantics).
+                let n = parent_branch_or_iteration_n.unwrap_or(0);
+                let flow_jobs = parent_status_module.flow_jobs().ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "ForLoop step '{}' has no recorded iterations in original run",
+                        parent_step_id
+                    ))
+                })?;
+                let job = flow_jobs.get(n).copied().ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "ForLoop step '{}' has only {} iterations; cannot restart at iteration {}",
+                        parent_step_id,
+                        flow_jobs.len(),
+                        n
+                    ))
+                })?;
+                (job, None)
+            }
+            FlowModuleValue::BranchAll { .. } => {
+                return Err(Error::BadRequest(format!(
+                    "Restart inside a BranchAll step ('{}') is not supported",
+                    parent_step_id
+                )));
+            }
+            FlowModuleValue::WhileloopFlow { .. } => {
+                return Err(Error::BadRequest(format!(
+                    "Restart inside a WhileLoop step ('{}') is not supported",
+                    parent_step_id
+                )));
+            }
+            _ => {
+                return Err(Error::BadRequest(format!(
+                    "step '{}' is not a container (BranchOne / sequential ForLoop / Subflow); cannot have a nested restart",
+                    parent_step_id
+                )));
+            }
+        };
+
+    let mut iter = nested_path.into_iter();
+    let head = iter.next().unwrap();
+    let rest: Vec<NestedRestartStep> = iter.collect();
+    let head_step_id = head.step_id;
+    let head_branch_or_iteration_n = head.branch_or_iteration_n;
+
+    let (child_branch_chosen, deeper_nested) = Box::pin(resolve_nested_restart(
+        db,
+        workspace_id,
+        child_job_id,
+        &head_step_id,
+        head_branch_or_iteration_n,
+        rest,
+        None,
+    ))
+    .await?;
+
+    let nested_chain = RestartedFrom {
+        flow_job_id: child_job_id,
+        step_id: head_step_id,
+        branch_or_iteration_n: head_branch_or_iteration_n,
+        flow_version: None,
+        branch_chosen: child_branch_chosen,
+        nested: deeper_nested,
+    };
+
+    Ok((parent_branch_chosen, Some(Box::new(nested_chain))))
 }
 
 #[cfg(feature = "enterprise")]
@@ -4131,9 +4339,12 @@ pub async fn restart_flow(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Query(run_query): Query<RunJobQuery>,
-    Json(RestartFlowRequestBody { step_id, branch_or_iteration_n, flow_version }): Json<
-        RestartFlowRequestBody,
-    >,
+    Json(RestartFlowRequestBody {
+        step_id,
+        branch_or_iteration_n,
+        flow_version,
+        nested_path,
+    }): Json<RestartFlowRequestBody>,
 ) -> error::Result<(StatusCode, String)> {
     check_license_key_valid().await?;
 
@@ -4166,6 +4377,17 @@ pub async fn restart_flow(
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
+    let (top_branch_chosen, nested_chain) = resolve_nested_restart(
+        &db,
+        &w_id,
+        job_id,
+        &step_id,
+        branch_or_iteration_n,
+        nested_path,
+        flow_version,
+    )
+    .await?;
+
     let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into());
 
     let (uuid, tx) = push(
@@ -4177,6 +4399,8 @@ pub async fn restart_flow(
             step_id,
             branch_or_iteration_n,
             flow_version,
+            branch_chosen: top_branch_chosen,
+            nested: nested_chain,
         },
         push_args,
         &authed.username,

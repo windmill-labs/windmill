@@ -3996,6 +3996,55 @@ paths:
                 items:
                   $ref: "#/components/schemas/DataTableSchema"
 
+  /w/{workspace}/workspaces/list_datatable_tables:
+    get:
+      summary: list tables of all connected Datatables
+      operationId: listDataTableTables
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: table metadata of all datatables
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DataTableTables"
+
+  /w/{workspace}/workspaces/get_datatable_table_schema:
+    get:
+      summary: get one Datatable table schema
+      operationId: getDataTableTableSchema
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: schema_name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: table_name
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: schema of one datatable table
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataTableTableSchema"
+
   /w/{workspace}/workspaces/edit_ducklake_config:
     post:
       summary: edit ducklake settings
@@ -9611,6 +9660,131 @@ paths:
                 items:
                   $ref: "#/components/schemas/ListableRawApp"
 
+  /w/{workspace}/shared_ui/get:
+    get:
+      summary: get the workspace shared UI folder (full content)
+      operationId: getSharedUi
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: shared UI content
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - files
+                  - version
+                  - edited_at
+                  - edited_by
+                properties:
+                  files:
+                    type: object
+                    additionalProperties:
+                      type: string
+                  version:
+                    type: integer
+                    format: int64
+                  edited_at:
+                    type: string
+                    format: date-time
+                  edited_by:
+                    type: string
+
+  /w/{workspace}/shared_ui/list:
+    get:
+      summary: list paths/sizes of the workspace shared UI folder
+      operationId: listSharedUi
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: shared UI listing
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - paths
+                  - sizes
+                  - version
+                  - edited_at
+                  - edited_by
+                properties:
+                  paths:
+                    type: array
+                    items:
+                      type: string
+                  sizes:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                      format: int64
+                  version:
+                    type: integer
+                    format: int64
+                  edited_at:
+                    type: string
+                    format: date-time
+                  edited_by:
+                    type: string
+
+  /w/{workspace}/shared_ui/version:
+    get:
+      summary: get the current version of the workspace shared UI folder
+      operationId: getSharedUiVersion
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: shared UI version
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - version
+                properties:
+                  version:
+                    type: integer
+                    format: int64
+
+  /w/{workspace}/shared_ui:
+    put:
+      summary: replace the workspace shared UI folder (admin only)
+      operationId: updateSharedUi
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - files
+              properties:
+                files:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
       summary: get raw app data by
@@ -10291,6 +10465,12 @@ paths:
                   type: array
                   items:
                     type: string
+                force_viewer_sensitive_inputs:
+                  type: array
+                  items:
+                    type: string
+                force_viewer_delete_after_secs:
+                  type: integer
                 run_query_params:
                   type: object
                   description: Runnable query parameters
@@ -10598,13 +10778,27 @@ paths:
               properties:
                 step_id:
                   type: string
-                  description: step id to restart the flow from
+                  description: top-level step id to restart the flow from (or the outermost container when restarting at a nested step)
                 branch_or_iteration_n:
                   type: integer
-                  description: for branchall or loop, the iteration at which the flow should restart (optional)
+                  description: for branchall or loop at the top level, the iteration at which the flow should restart (optional)
                 flow_version:
                   type: integer
                   description: specific flow version to use for restart (optional, uses current version if not specified)
+                nested_path:
+                  type: array
+                  description: path of additional steps to descend into AFTER `step_id`. Each entry represents one level of nesting inside the spawned child of the previous level's container (BranchOne / sequential ForLoop iteration / Subflow). When non-empty, the actual restart point is the LAST entry's step_id.
+                  items:
+                    type: object
+                    required:
+                      - step_id
+                    properties:
+                      step_id:
+                        type: string
+                        description: step id at this nesting level
+                      branch_or_iteration_n:
+                        type: integer
+                        description: for ForLoop containers, the iteration to restart at (0-based; iterations 0..n-1 are preserved)
 
       responses:
         "201":
@@ -22881,7 +23075,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this schedule
+          description: The unique Windmill path for this schedule. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`.
         edited_by:
           type: string
           description: Username of the last person who edited this schedule
@@ -23042,7 +23236,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this schedule
+          description: The unique Windmill path for this schedule. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`.
         schedule:
           type: string
           description: Cron expression with 6 fields (seconds, minutes, hours, day of month, month, day of week). Example '0 0 12 * * *' for daily at noon
@@ -23275,7 +23469,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when triggered
@@ -23528,7 +23722,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when triggered
@@ -23626,7 +23820,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when triggered
@@ -23856,7 +24050,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -23944,7 +24138,7 @@ components:
           description: The WebSocket URL to connect to (can be a static URL or computed by a runnable)
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24160,7 +24354,7 @@ components:
           description: MQTT protocol version ('v3' or 'v5')
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24224,7 +24418,7 @@ components:
           description: MQTT protocol version ('v3' or 'v5')
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24361,7 +24555,7 @@ components:
           $ref: "#/components/schemas/PushConfig"
         path:
           type: string
-          description: "The unique path identifier for this trigger."
+          description: "The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path."
         script_path:
           type: string
           description: "Path to the script or flow to execute when a message is received."
@@ -24531,6 +24725,7 @@ components:
             type: string
         path:
           type: string
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
         is_flow:
@@ -24707,7 +24902,7 @@ components:
           description: Array of SQS message attribute names to include with each message
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24763,7 +24958,7 @@ components:
           description: Array of SQS message attribute names to include with each message
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24925,7 +25120,7 @@ components:
           description: Name of the PostgreSQL publication to subscribe to for change data capture
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when database changes are detected
@@ -24977,7 +25172,7 @@ components:
           description: Name of the PostgreSQL publication to subscribe to for change data capture
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when database changes are detected
@@ -25096,7 +25291,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -25219,7 +25414,7 @@ components:
           description: "When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint."
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -25309,7 +25504,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -25389,7 +25584,7 @@ components:
           description: Array of NATS subjects to subscribe to
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -26032,8 +26227,21 @@ components:
           type: string
         branch_or_iteration_n:
           type: integer
+          description: 0-based iteration index for ForLoop / branch index for BranchAll. Iterations 0..n-1 are preserved; iteration n is restarted.
         flow_version:
           type: integer
+        branch_chosen:
+          description: For BranchOne nested restart — the branch that was originally chosen, used to lock branch evaluation.
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [default, branch]
+            branch:
+              type: integer
+        nested:
+          $ref: "#/components/schemas/RestartedFrom"
+          description: When set, the worker spawns the child for `step_id` as a `RestartedFlow` against `nested.flow_job_id` instead of fresh-launching it.
 
     Policy:
       type: object
@@ -26449,6 +26657,39 @@ components:
                 description: "Compact type: 'type[?][=default]' where ? means nullable"
         error:
           type: string
+
+    DataTableTables:
+      type: object
+      required: [datatable_name, schemas]
+      properties:
+        datatable_name:
+          type: string
+        schemas:
+          type: object
+          description: "Hierarchical metadata: schema_name -> table_names"
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        error:
+          type: string
+
+    DataTableTableSchema:
+      type: object
+      required: [datatable_name, schema_name, table_name, columns]
+      properties:
+        datatable_name:
+          type: string
+        schema_name:
+          type: string
+        table_name:
+          type: string
+        columns:
+          type: object
+          description: "Columns in this table: column_name -> compact_type"
+          additionalProperties:
+            type: string
+            description: "Compact type: 'type[?][=default]' where ? means nullable"
 
     DynamicInputData:
       type: object

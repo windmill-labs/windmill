@@ -1340,7 +1340,9 @@ pub fn create_span_with_name(
         trigger_kind = field::Empty,
         trigger = field::Empty,
         script_hash = field::Empty,
-        otel.name = field::Empty
+        otel.name = field::Empty,
+        otel.status_code = field::Empty,
+        otel.status_description = field::Empty,
     );
 
     let rj = arc_job.flow_innermost_root_job.unwrap_or(arc_job.id);
@@ -1378,6 +1380,47 @@ pub fn create_span_with_name(
 
     windmill_common::otel_oss::set_span_parent(&span, &rj);
     span
+}
+
+/// Max characters of an error message copied into the `otel.status_description`
+/// span attribute. Prevents a single verbose failure from blowing up the span
+/// payload on OTLP exporters.
+const STATUS_DESCRIPTION_MAX_LEN: usize = 512;
+
+/// Record `otel.status_code` / `otel.status_description` on the current span
+/// when a job fails. Called from inside the `.instrument(job_span)` future so
+/// that `Span::current()` resolves to the `"job"` span created by
+/// `create_span_with_name`.
+///
+/// On `Ok(true)` the fields are left unset, which `tracing-opentelemetry`
+/// maps to `Status::Unset` (semantically equivalent to OK per OTel spec).
+pub(crate) fn record_job_span_status(result: &windmill_common::error::Result<bool>) {
+    let description = match result {
+        Ok(true) => return,
+        Ok(false) => "job already completed by another worker".to_string(),
+        Err(err) => truncate_description(&err.to_string()),
+    };
+    let span = tracing::Span::current();
+    span.record("otel.status_code", "ERROR");
+    span.record("otel.status_description", description.as_str());
+}
+
+/// Cap an error description at `STATUS_DESCRIPTION_MAX_LEN` bytes, appending
+/// an ellipsis when truncated. The cut is rounded down to the nearest UTF-8
+/// codepoint boundary so the result is always valid UTF-8. Always returns an
+/// owned `String` so callers don't have to juggle `Cow` lifetimes.
+pub(crate) fn truncate_description(s: &str) -> String {
+    if s.len() <= STATUS_DESCRIPTION_MAX_LEN {
+        return s.to_string();
+    }
+    let mut end = STATUS_DESCRIPTION_MAX_LEN;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut truncated = String::with_capacity(end + 3);
+    truncated.push_str(&s[..end]);
+    truncated.push('…');
+    truncated
 }
 
 /// Build the per-job `LogContext` that gets seeded at the top of job
@@ -2825,28 +2868,33 @@ pub async fn run_worker(
 
                     let job_result = windmill_common::log_context::with_log_context(
                         log_ctx,
-                        handle_queued_job(
-                            arc_job.clone(),
-                            raw_code,
-                            raw_lock,
-                            raw_flow,
-                            parent_runnable_path,
-                            &conn,
-                            &authed_client,
-                            hostname,
-                            &worker_name,
-                            &worker_dir,
-                            &job_dir,
-                            Some(same_worker_tx.clone()),
-                            base_internal_url,
-                            job_completed_tx.clone(),
-                            &mut occupancy_metrics,
-                            &mut killpill_rx2,
-                            precomputed_bundle,
-                            flow_runners,
-                            #[cfg(feature = "benchmark")]
-                            &mut bench,
-                        )
+                        async {
+                            let result = handle_queued_job(
+                                arc_job.clone(),
+                                raw_code,
+                                raw_lock,
+                                raw_flow,
+                                parent_runnable_path,
+                                &conn,
+                                &authed_client,
+                                hostname,
+                                &worker_name,
+                                &worker_dir,
+                                &job_dir,
+                                Some(same_worker_tx.clone()),
+                                base_internal_url,
+                                job_completed_tx.clone(),
+                                &mut occupancy_metrics,
+                                &mut killpill_rx2,
+                                precomputed_bundle,
+                                flow_runners,
+                                #[cfg(feature = "benchmark")]
+                                &mut bench,
+                            )
+                            .await;
+                            record_job_span_status(&result);
+                            result
+                        }
                         .instrument(span),
                     )
                     .await;

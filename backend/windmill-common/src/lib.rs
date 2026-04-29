@@ -199,7 +199,6 @@ lazy_static::lazy_static! {
     pub static ref OTEL_TRACING_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_TRACING").is_ok());
     pub static ref OTEL_LOGS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_LOGS").is_ok());
 
-
     pub static ref METRICS_DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
     pub static ref CRITICAL_ALERT_MUTE_UI_ENABLED: AtomicBool = AtomicBool::new(false);
@@ -383,6 +382,71 @@ async fn metrics() -> Result<String, Error> {
 #[cfg(feature = "prometheus")]
 async fn reset() -> () {
     todo!()
+}
+
+/// Parse the canonical Python `logging.basicConfig()` line format
+/// `LEVELNAME:logger.name:message` and return the corresponding tracing level.
+///
+/// Returns `None` for lines that don't match — tracebacks, raw `print` to
+/// stderr, third-party tools with custom formats — leaving those to the caller's
+/// default (typically `tracing::error!`).
+pub fn classify_python_logging_line(line: &str) -> Option<tracing::Level> {
+    let (level, rest) = line.split_once(':')?;
+    if !rest.contains(':') {
+        return None;
+    }
+    match level {
+        "CRITICAL" | "ERROR" => Some(tracing::Level::ERROR),
+        "WARNING" => Some(tracing::Level::WARN),
+        "INFO" => Some(tracing::Level::INFO),
+        "DEBUG" => Some(tracing::Level::DEBUG),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod classify_python_logging_line_tests {
+    use super::classify_python_logging_line;
+    use tracing::Level;
+
+    #[test]
+    fn matches_python_levels() {
+        assert_eq!(
+            classify_python_logging_line("WARNING:dlt.normalize:msg"),
+            Some(Level::WARN)
+        );
+        assert_eq!(
+            classify_python_logging_line("INFO:app:hello"),
+            Some(Level::INFO)
+        );
+        assert_eq!(
+            classify_python_logging_line("ERROR:a:b"),
+            Some(Level::ERROR)
+        );
+        assert_eq!(
+            classify_python_logging_line("CRITICAL:a:b"),
+            Some(Level::ERROR)
+        );
+        assert_eq!(
+            classify_python_logging_line("DEBUG:a:b"),
+            Some(Level::DEBUG)
+        );
+    }
+
+    #[test]
+    fn rejects_non_python_format() {
+        assert_eq!(
+            classify_python_logging_line("Traceback (most recent call last):"),
+            None
+        );
+        assert_eq!(
+            classify_python_logging_line("WARNING:no-second-colon"),
+            None
+        );
+        assert_eq!(classify_python_logging_line("warning:lowercase:msg"), None);
+        assert_eq!(classify_python_logging_line("plain stderr text"), None);
+        assert_eq!(classify_python_logging_line(""), None);
+    }
 }
 
 #[derive(Serialize, Debug)]

@@ -17,11 +17,12 @@ import {
 } from "./fileHelpers";
 import { runEval } from "../shared";
 import type { ModeRunContext } from "../../../../core/types";
-import type { TokenUsage } from "../shared/types";
+import type { TokenUsage, ToolCallDetail } from "../shared/types";
 import type { FrontendEvalTransport } from "../../../../core/frontendTransport";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
 
 export interface FlowFixture {
+  path?: string;
   value?: {
     modules?: FlowModule[];
     preprocessor_module?: FlowModule;
@@ -37,6 +38,7 @@ export interface FlowEvalResult {
   assistantMessageCount: number;
   toolCallCount: number;
   toolsUsed: string[];
+  toolCallDetails: ToolCallDetail[];
   tokenUsage: TokenUsage;
 }
 
@@ -67,6 +69,7 @@ export async function runFlowEval(
     options?.initialFlow?.value?.failure_module,
     workspaceRoot,
     options?.workspaceFixtures,
+    options?.initialFlow?.path,
   );
 
   try {
@@ -111,6 +114,7 @@ export async function runFlowEval(
       assistantMessageCount: rawResult.iterations,
       toolCallCount: rawResult.toolCallsCount,
       toolsUsed: rawResult.toolsCalled,
+      toolCallDetails: rawResult.toolCallDetails,
       tokenUsage: rawResult.tokenUsage,
     };
   } finally {

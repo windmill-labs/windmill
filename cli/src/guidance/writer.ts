@@ -8,7 +8,7 @@ import {
   SKILLS,
   SKILL_CONTENT,
   type SkillMetadata,
-} from "./skills.ts";
+} from "./skills.gen.ts";
 
 type ResolvedSkillMetadata = SkillMetadata & {
   directoryName: string;

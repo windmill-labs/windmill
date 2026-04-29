@@ -453,6 +453,12 @@ pub enum JobPayload {
         step_id: String,
         branch_or_iteration_n: Option<usize>,
         flow_version: Option<i64>,
+        /// Optional locked branch for BranchOne nested restart at the top level of this run.
+        branch_chosen: Option<crate::flow_status::BranchChosen>,
+        /// Optional nested restart chain. When Some, the worker for the spawned flow,
+        /// upon reaching `step_id`, should spawn the inner child as a `RestartedFlow`
+        /// using this chain rather than fresh-launching it.
+        nested: Option<Box<crate::flow_status::RestartedFrom>>,
     },
     RawFlow {
         value: FlowValue,

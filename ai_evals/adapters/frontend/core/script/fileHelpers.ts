@@ -2,6 +2,7 @@ import { mkdir, rm, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import type { ScriptLang } from '../../../../../frontend/src/lib/gen/types.gen'
 import type { ScriptChatHelpers } from '../../../../../frontend/src/lib/components/copilot/chat/script/core'
+import type { WorkspaceMutationTarget } from '../../../../../frontend/src/lib/components/copilot/chat/workspaceTools'
 import { buildScriptLintResult } from './preview'
 import { registerBenchmarkWorkspace, unregisterBenchmarkWorkspace } from '../../mockBackend'
 
@@ -10,6 +11,10 @@ export interface ScriptEvalState {
 	lang: ScriptLang | 'bunnative'
 	path: string
 	args: Record<string, any>
+}
+
+function toRunnablePath(filePath: string): string {
+	return filePath.replace(/\.[^/.]+$/, '')
 }
 
 export async function createScriptFileHelpers(
@@ -55,12 +60,19 @@ export async function createScriptFileHelpers(
 	const getLintErrors: NonNullable<ScriptChatHelpers['getLintErrors']> = () =>
 		buildScriptLintResult(script.code, script.lang)
 
-	const helpers: ScriptChatHelpers = {
+	const helpers: ScriptChatHelpers & {
+		getWorkspaceMutationTarget: () => WorkspaceMutationTarget
+	} = {
 		getScriptOptions: () => ({
 			code: script.code,
 			lang: script.lang,
 			path: script.path,
 			args: structuredClone(script.args)
+		}),
+		getWorkspaceMutationTarget: () => ({
+			kind: 'script',
+			path: script.path ? toRunnablePath(script.path) : undefined,
+			deployed: Boolean(script.path)
 		}),
 		applyCode,
 		getLintErrors

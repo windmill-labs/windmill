@@ -15,7 +15,6 @@
 		canWrite,
 		computeSharableHash,
 		copyToClipboard,
-		emptyString,
 		encodeState,
 		getHubFlowIdFromPath,
 		isHubFlowPath,
@@ -87,6 +86,7 @@
 	import { page } from '$app/state'
 	import { twMerge } from 'tailwind-merge'
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
+	import { useNestedRestartState } from '$lib/components/useNestedRestartState.svelte'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { buildForkEditUrl } from '$lib/utils/editInFork'
@@ -100,9 +100,22 @@
 	let viewTab: 'logs' | 'code' | 'stats' | 'assets' | 'traces' = $state('logs')
 	let selectedJobStep: string | undefined = $state(undefined)
 
-	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
-	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = $state('single')
-	let restartBranchNames: [number, string][] = []
+	// Mirror of the graph's per-module display state (selected iteration of each
+	// ForLoop, etc.). Drives both the iteration pre-fill and the iteration-count
+	// selectors in the restart popup.
+	let graphModuleStates: Record<string, import('$lib/components/graph').GraphModuleState> = $state(
+		{}
+	)
+	let expandedSubflows: Record<
+		string,
+		{ modules: import('$lib/gen').FlowModule[]; groups?: any[] }
+	> = $state({})
+	const restart = useNestedRestartState({
+		selectedJobStep: () => selectedJobStep,
+		job: () => job,
+		graphModuleStates: () => graphModuleStates,
+		expandedSubflows: () => expandedSubflows
+	})
 
 	let testIsLoading = $state(false)
 	let jobLoader: JobLoader | undefined = $state(undefined)
@@ -167,27 +180,6 @@
 			}
 		})
 		initView()
-	}
-
-	function onSelectedJobStepChange() {
-		if (selectedJobStep !== undefined && job?.flow_status?.modules !== undefined) {
-			selectedJobStepIsTopLevel =
-				job?.flow_status?.modules.map((m) => m.id).indexOf(selectedJobStep) >= 0
-			let moduleDefinition = job?.raw_flow?.modules.find((m) => m.id == selectedJobStep)
-			if (moduleDefinition?.value.type == 'forloopflow') {
-				selectedJobStepType = 'forloop'
-			} else if (moduleDefinition?.value.type == 'branchall') {
-				selectedJobStepType = 'branchall'
-				moduleDefinition?.value.branches.forEach((branch, idx) => {
-					restartBranchNames.push([
-						idx,
-						emptyString(branch.summary) ? `Branch #${idx}` : branch.summary!
-					])
-				})
-			} else {
-				selectedJobStepType = 'single'
-			}
-		}
 	}
 
 	let persistentScriptDefinition: Script | undefined = $state(undefined)
@@ -395,9 +387,6 @@
 	})
 	$effect(() => {
 		$workspaceStore && page.params.run && jobLoader && untrack(() => onRunsPageChangeWithLoader())
-	})
-	$effect(() => {
-		selectedJobStep !== undefined && untrack(() => onSelectedJobStepChange())
 	})
 	$effect(() => {
 		job && untrack(() => onJobLoaded())
@@ -633,12 +622,17 @@
 					startIcon={{ icon: Calendar }}>Edit schedule</Button
 				>
 			{/if}
-			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && selectedJobStepIsTopLevel && job.id}
+			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && (restart.topLevelRestartable || restart.nestedRestartSupported) && job.id}
 				<FlowRestartButton
 					jobId={job.id}
 					{selectedJobStep}
-					{selectedJobStepType}
-					{restartBranchNames}
+					selectedJobStepType={restart.selectedJobStepType}
+					restartBranchNames={restart.restartBranchNames}
+					nestedPath={restart.nestedRestartSupported ? restart.nestedRestartPath : undefined}
+					nestedTopStepId={restart.nestedRestartTopStepId}
+					nestedTopBranchOrIterationN={restart.nestedRestartTopBranchOrIterationN}
+					presetIterationN={restart.topLevelLoopIteration}
+					iterationCounts={restart.iterationCounts}
 					onRestartComplete={(newJobId) => {
 						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
 					}}
@@ -921,6 +915,8 @@
 						bind:selectedJobStep
 						bind:suspendStatus
 						bind:isOwner
+						bind:localModuleStates={graphModuleStates}
+						bind:expandedSubflows
 					/>
 				{:else}
 					<Skeleton layout={[[5]]} />

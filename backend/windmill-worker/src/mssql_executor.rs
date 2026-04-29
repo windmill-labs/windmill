@@ -28,7 +28,9 @@ use crate::common::{
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sql_s3_input::fetch_s3object_as_json_text;
 use windmill_common::client::AuthedClient;
+use windmill_types::s3::S3Object;
 
 use serde::Deserializer;
 
@@ -71,7 +73,7 @@ pub async fn do_mssql(
     job_dir: &str,
     parent_runnable_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
-    let mssql_args = build_args_values(job, authed_client, conn).await?;
+    let mut mssql_args = build_args_values(job, authed_client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
     let s3 = parse_s3_mode(&query)?
@@ -218,6 +220,33 @@ pub async fn do_mssql(
     let sig = parse_mssql_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
+
+    // Materialize any `(s3object)` args into JSON text. tiberius binds the resulting
+    // String as nvarchar(max), which is exactly the input type for `OPENJSON(@P)`.
+    for arg in sig.iter() {
+        if arg.otyp.as_deref() != Some("s3object") {
+            continue;
+        }
+        let raw = mssql_args.remove(&arg.name).unwrap_or(Value::Null);
+        if matches!(raw, Value::Null) {
+            return Err(Error::BadRequest(format!(
+                "Missing S3Object value for arg `{}`",
+                arg.name
+            )));
+        }
+        let s3_obj: S3Object = serde_json::from_value(raw).map_err(|e| {
+            Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
+        })?;
+        let json_text = fetch_s3object_as_json_text(authed_client, &job.workspace_id, &s3_obj)
+            .await
+            .map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Failed to fetch S3 object for arg `{}`: {e}",
+                    arg.name
+                ))
+            })?;
+        mssql_args.insert(arg.name.clone(), Value::String(json_text));
+    }
 
     let reserved_variables =
         get_reserved_variables(job, &authed_client.token, conn, parent_runnable_path).await?;

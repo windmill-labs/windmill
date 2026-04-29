@@ -4,6 +4,7 @@ import type { FlowModule, InputTransform } from '../../../../../frontend/src/lib
 import type { ExtendedOpenFlow } from '../../../../../frontend/src/lib/components/flows/types'
 import type { FlowAIChatHelpers } from '../../../../../frontend/src/lib/components/copilot/chat/flow/core'
 import type { ScriptLintResult } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
+import type { WorkspaceMutationTarget } from '../../../../../frontend/src/lib/components/copilot/chat/workspaceTools'
 import {
 	createInlineScriptSession
 } from '../../../../../frontend/src/lib/components/copilot/chat/flow/inlineScriptsUtils'
@@ -38,7 +39,8 @@ export async function createFlowFileHelpers(
 	initialPreprocessorModule?: FlowModule,
 	initialFailureModule?: FlowModule,
 	workspaceRoot?: string,
-	workspaceFixtures?: FlowWorkspaceFixtures
+	workspaceFixtures?: FlowWorkspaceFixtures,
+	currentFlowPath?: string
 ): Promise<{
 	helpers: FlowAIChatHelpers
 	getFlow: () => ExtendedOpenFlow
@@ -97,10 +99,17 @@ export async function createFlowFileHelpers(
 		return result
 	}
 
-	const helpers: FlowAIChatHelpers = {
+	const helpers: FlowAIChatHelpers & {
+		getWorkspaceMutationTarget: () => WorkspaceMutationTarget
+	} = {
 		getFlowAndSelectedId: () => ({ flow, selectedId: '' }),
 		getRootModules: () => flow.value.modules,
 		inlineScriptSession,
+		getWorkspaceMutationTarget: () => ({
+			kind: 'flow',
+			path: currentFlowPath,
+			deployed: Boolean(currentFlowPath)
+		}),
 		setSnapshot: () => {},
 		revertToSnapshot: () => {},
 		setCode: async (id: string, code: string) => {

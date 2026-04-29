@@ -27,8 +27,23 @@ export async function updateRawAppPolicy(
 
 type RunnableWithInlineScript = RunnableWithFields & {
 	inlineScript?: InlineScript & { language: ScriptLang }
+	delete_after_secs?: number
 }
 export type Runnable = RunnableWithInlineScript | undefined
+
+function extraFields(
+	runnable: RunnableWithInlineScript,
+	fields: Record<string, any>
+): Partial<Pick<TriggerableV2, 'delete_after_secs' | 'sensitive_inputs'>> {
+	const out: Partial<Pick<TriggerableV2, 'delete_after_secs' | 'sensitive_inputs'>> = {}
+	if (typeof runnable.delete_after_secs === 'number' && runnable.delete_after_secs >= 0)
+		out.delete_after_secs = runnable.delete_after_secs
+	const sensitive_inputs = Object.entries(fields)
+		.map(([k, v]) => (v['sensitive'] ? k : undefined))
+		.filter(Boolean) as string[]
+	if (sensitive_inputs.length > 0) out.sensitive_inputs = sensitive_inputs
+	return out
+}
 
 async function processRunnable(
 	id: string,
@@ -50,7 +65,8 @@ async function processRunnable(
 			{
 				static_inputs: staticInputs,
 				one_of_inputs: {},
-				allow_user_resources: allowUserResources
+				allow_user_resources: allowUserResources,
+				...extraFields(runnable, fields)
 			}
 		]
 	} else if (isRunnableByPath(runnable)) {
@@ -60,7 +76,8 @@ async function processRunnable(
 			{
 				static_inputs: staticInputs,
 				one_of_inputs: {},
-				allow_user_resources: allowUserResources
+				allow_user_resources: allowUserResources,
+				...extraFields(runnable, fields)
 			}
 		]
 	}

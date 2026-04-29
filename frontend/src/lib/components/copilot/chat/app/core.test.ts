@@ -93,7 +93,8 @@ function createHelpers(overrides: Partial<AppAIChatHelpers> = {}): AppAIChatHelp
 		snapshot: () => 1,
 		revertToSnapshot: () => undefined,
 		lint: () => EMPTY_LINT_RESULT,
-		getDatatables: async () => [],
+		listDatatableTables: async () => [],
+		getDatatableTableSchema: async () => ({}),
 		getAvailableDatatableNames: () => [],
 		execDatatableSql: async () => ({ success: true }),
 		addTableToWhitelist: () => undefined,
@@ -195,18 +196,14 @@ describe('app datatable tools', () => {
 			args: {},
 			workspace: 'test-workspace',
 			helpers: createHelpers({
-				getDatatables: async () => [
+				listDatatableTables: async () => [
 					{
 						datatable_name: 'main',
 						schemas: {
-							public: {
-								users: { id: 'int4', email: 'text' },
-								orders: { id: 'int4', total: 'numeric' }
-							},
-							analytics: {
-								events: { id: 'int4', payload: 'jsonb' }
-							}
-						}
+							public: ['users', 'orders'],
+							analytics: ['events']
+						},
+						tableCount: 3
 					}
 				]
 			}),
@@ -240,17 +237,7 @@ describe('app datatable tools', () => {
 			},
 			workspace: 'test-workspace',
 			helpers: createHelpers({
-				getDatatables: async () => [
-					{
-						datatable_name: 'main',
-						schemas: {
-							public: {
-								users: { id: 'int4', email: 'text' },
-								orders: { id: 'int4', total: 'numeric' }
-							}
-						}
-					}
-				]
+				getDatatableTableSchema: async () => ({ id: 'int4', email: 'text' })
 			}),
 			toolCallbacks: createToolCallbacks(),
 			toolId: 'tool-get-table-schema'
@@ -287,7 +274,10 @@ describe('app patch_file tool', () => {
 			toolId: 'tool-1'
 		})
 
-		expect(setFrontendFile).toHaveBeenCalledWith('/index.tsx', 'export const title = "Hello cookbook"\n')
+		expect(setFrontendFile).toHaveBeenCalledWith(
+			'/index.tsx',
+			'export const title = "Hello cookbook"\n'
+		)
 		expect(result).toContain("Patched '/index.tsx' successfully.")
 	})
 

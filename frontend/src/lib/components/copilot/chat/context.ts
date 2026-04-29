@@ -12,7 +12,7 @@ import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 import type { ScriptLang, Script, OpenFlow } from '$lib/gen/types.gen'
 import { type DBSchema } from '$lib/stores'
 import { type Change } from 'diff'
-import type { BackendRunnable, DataTableSchema, SelectedContext } from './app/core'
+import type { AppDatatableMetadata, BackendRunnable, SelectedContext } from './app/core'
 
 export const ContextIconMap = {
 	code: Code,
@@ -136,8 +136,8 @@ export interface AppDatatableElement {
 	tableName: string
 	/** Title for display (e.g., "main/public:users" or "main/users") */
 	title: string
-	/** The table columns: column_name -> compact_type */
-	columns: Record<string, string>
+	/** The table columns: column_name -> compact_type. Loaded only when a table is explicitly selected. */
+	columns?: Record<string, string>
 }
 
 export function createAppSelectedContext(options: SelectedContext = {}): SelectedContext {
@@ -184,7 +184,7 @@ export function createAppDatatableContextElement(
 	datatableName: string,
 	schemaName: string,
 	tableName: string,
-	columns: Record<string, string>
+	columns?: Record<string, string>
 ): AppDatatableElement {
 	return {
 		type: 'app_datatable',
@@ -197,7 +197,7 @@ export function createAppDatatableContextElement(
 }
 
 export function flattenDatatablesToAppContextElements(
-	datatables: DataTableSchema[]
+	datatables: AppDatatableMetadata[]
 ): AppDatatableElement[] {
 	return datatables.flatMap((datatable) => {
 		if (datatable.error) {
@@ -205,13 +205,8 @@ export function flattenDatatablesToAppContextElements(
 		}
 
 		return Object.entries(datatable.schemas).flatMap(([schemaName, tables]) =>
-			Object.entries(tables).map(([tableName, columns]) =>
-				createAppDatatableContextElement(
-					datatable.datatable_name,
-					schemaName,
-					tableName,
-					columns
-				)
+			tables.map((tableName) =>
+				createAppDatatableContextElement(datatable.datatable_name, schemaName, tableName)
 			)
 		)
 	})

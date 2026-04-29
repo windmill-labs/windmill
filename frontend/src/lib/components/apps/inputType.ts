@@ -71,6 +71,7 @@ export type UserInput<U> = {
 	type: 'user'
 	value: U | undefined
 	allowUserResources?: boolean
+	sensitive?: boolean
 }
 
 // Input can be uploaded with a file selector
