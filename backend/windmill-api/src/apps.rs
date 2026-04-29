@@ -54,7 +54,10 @@ use windmill_common::{
     cache::{self, future::FutureCachedExt},
     db::{DbWithOptAuthed, UserDB},
     error::{to_anyhow, Error, JsonResult, Result},
-    jobs::{get_payload_tag_from_prefixed_path, schedule_job_deletion, JobPayload, RawCode},
+    jobs::{
+        get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
+        JobPayload, RawCode,
+    },
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
@@ -1990,6 +1993,8 @@ pub struct ExecuteApp {
     pub force_viewer_static_fields: Option<StaticFields>,
     pub force_viewer_one_of_fields: Option<OneOfFields>,
     pub force_viewer_allow_user_resources: Option<AllowUserResources>,
+    pub force_viewer_sensitive_inputs: Option<Vec<String>>,
+    pub force_viewer_delete_after_secs: Option<i32>,
     /// Runnable query parameters (e.g., memory_id for chat-enabled flows)
     pub run_query_params: Option<RunJobQuery>,
 }
@@ -2103,6 +2108,8 @@ async fn execute_component(
             force_viewer_static_fields: Some(static_inputs),
             force_viewer_one_of_fields,
             force_viewer_allow_user_resources,
+            force_viewer_sensitive_inputs,
+            force_viewer_delete_after_secs,
             ..
         } => (
             &Policy { execution_mode: ExecutionMode::Viewer, ..Default::default() },
@@ -2110,8 +2117,8 @@ async fn execute_component(
                 static_inputs,
                 one_of_inputs: force_viewer_one_of_fields.unwrap_or_default(),
                 allow_user_resources: force_viewer_allow_user_resources.unwrap_or_default(),
-                delete_after_secs: None,
-                sensitive_inputs: Vec::new(),
+                delete_after_secs: force_viewer_delete_after_secs,
+                sensitive_inputs: force_viewer_sensitive_inputs.unwrap_or_default(),
             },
         ),
         // 2. "run" mode.
@@ -2237,9 +2244,8 @@ async fn execute_component(
     let (username, permissioned_as, email) =
         get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
-    let resolved_delete_secs = policy_triggerables
-        .delete_after_secs
-        .filter(|secs| *secs >= 0);
+    let resolved_delete_secs =
+        resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
 
     let (args, job_id) = build_args(
         policy,
@@ -2330,7 +2336,9 @@ async fn execute_component(
     tx.commit().await?;
 
     if let Some(secs) = resolved_delete_secs {
-        schedule_job_deletion(&db, uuid, &w_id, secs).await?;
+        if let Err(e) = schedule_job_deletion(&db, uuid, &w_id, secs).await {
+            tracing::error!("Failed to schedule deletion for app job {uuid} after {secs}s: {e:#}");
+        }
     }
 
     Ok(uuid.to_string())
