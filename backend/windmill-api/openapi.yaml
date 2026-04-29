@@ -22881,7 +22881,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique Windmill path for this schedule. Must start with `u/<user>/` or `f/<folder>/`.
+          description: The unique Windmill path for this schedule. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`.
         edited_by:
           type: string
           description: Username of the last person who edited this schedule
@@ -23042,7 +23042,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique Windmill path for this schedule. Must start with `u/<user>/` or `f/<folder>/`.
+          description: The unique Windmill path for this schedule. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`.
         schedule:
           type: string
           description: Cron expression with 6 fields (seconds, minutes, hours, day of month, month, day of week). Example '0 0 12 * * *' for daily at noon
@@ -23275,7 +23275,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when triggered
@@ -23528,7 +23528,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when triggered
@@ -23626,7 +23626,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when triggered
@@ -23856,7 +23856,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -23944,7 +23944,7 @@ components:
           description: The WebSocket URL to connect to (can be a static URL or computed by a runnable)
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24160,7 +24160,7 @@ components:
           description: MQTT protocol version ('v3' or 'v5')
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24224,7 +24224,7 @@ components:
           description: MQTT protocol version ('v3' or 'v5')
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24361,7 +24361,7 @@ components:
           $ref: "#/components/schemas/PushConfig"
         path:
           type: string
-          description: "The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path."
+          description: "The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path."
         script_path:
           type: string
           description: "Path to the script or flow to execute when a message is received."
@@ -24531,7 +24531,7 @@ components:
             type: string
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
         is_flow:
@@ -24708,7 +24708,7 @@ components:
           description: Array of SQS message attribute names to include with each message
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24764,7 +24764,7 @@ components:
           description: Array of SQS message attribute names to include with each message
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24926,7 +24926,7 @@ components:
           description: Name of the PostgreSQL publication to subscribe to for change data capture
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when database changes are detected
@@ -24978,7 +24978,7 @@ components:
           description: Name of the PostgreSQL publication to subscribe to for change data capture
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when database changes are detected
@@ -25097,7 +25097,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -25220,7 +25220,7 @@ components:
           description: "When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint."
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -25310,7 +25310,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -25390,7 +25390,7 @@ components:
           description: Array of NATS subjects to subscribe to
         path:
           type: string
-          description: The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received

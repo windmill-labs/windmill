@@ -3,7 +3,7 @@
 import { z } from 'zod'
 
 export const scheduleRequestSchema = z.object({
-	"path": z.string().describe("The unique Windmill path for this schedule. Must start with `u/<user>/` or `f/<folder>/`."),
+	"path": z.string().describe("The unique Windmill path for this schedule. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`."),
 	"schedule": z.string().describe("Cron expression with 6 fields (seconds, minutes, hours, day of month, month, day of week). Example '0 0 12 * * *' for daily at noon"),
 	"timezone": z.string().describe("IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')"),
 	"script_path": z.string().describe("Path to the script or flow to execute when triggered"),
@@ -48,7 +48,7 @@ export const scheduleRequestSchema = z.object({
 })
 
 export const httpTriggerRequestSchema = z.object({
-	"path": z.string().describe("The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path."),
+	"path": z.string().describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path."),
 	"script_path": z.string().describe("Path to the script or flow to execute when triggered"),
 	"route_path": z.string().describe("The URL route path that will trigger this endpoint (e.g., 'api/myendpoint'). Must NOT start with a /."),
 	"workspaced_route": z.boolean().describe("If true, the route includes the workspace ID in the path").optional(),
@@ -92,7 +92,7 @@ export const httpTriggerRequestSchema = z.object({
 })
 
 export const websocketTriggerRequestSchema = z.object({
-	"path": z.string().describe("The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path."),
+	"path": z.string().describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path."),
 	"script_path": z.string().describe("Path to the script or flow to execute when a message is received"),
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
 	"url": z.string().describe("The WebSocket URL to connect to (can be a static URL or computed by a runnable)"),
@@ -142,7 +142,7 @@ export const websocketTriggerRequestSchema = z.object({
 })
 
 export const kafkaTriggerRequestSchema = z.object({
-	"path": z.string().describe("The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path."),
+	"path": z.string().describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path."),
 	"script_path": z.string().describe("Path to the script or flow to execute when a message is received"),
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
 	"kafka_resource_path": z.string().describe("Path to the Kafka resource containing connection configuration"),
@@ -179,7 +179,7 @@ export const kafkaTriggerRequestSchema = z.object({
 })
 
 export const natsTriggerRequestSchema = z.object({
-	"path": z.string().describe("The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path."),
+	"path": z.string().describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path."),
 	"script_path": z.string().describe("Path to the script or flow to execute when a message is received"),
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
 	"nats_resource_path": z.string().describe("Path to the NATS resource containing connection configuration"),
@@ -213,7 +213,7 @@ export const natsTriggerRequestSchema = z.object({
 export const postgresTriggerRequestSchema = z.object({
 	"replication_slot_name": z.string().describe("Name of the PostgreSQL logical replication slot to use").optional(),
 	"publication_name": z.string().describe("Name of the PostgreSQL publication to subscribe to for change data capture").optional(),
-	"path": z.string().describe("The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path."),
+	"path": z.string().describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path."),
 	"script_path": z.string().describe("Path to the script or flow to execute when database changes are detected"),
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
@@ -267,7 +267,7 @@ export const mqttTriggerRequestSchema = z.object({
 		"session_expiry_interval": z.number().optional()
 	}).describe("MQTT v5 specific configuration (clean_start, topic_alias_maximum, session_expiry_interval)").nullable().optional(),
 	"client_version": z.enum(["v3", "v5"]).describe("MQTT protocol version ('v3' or 'v5')").nullable().optional(),
-	"path": z.string().describe("The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path."),
+	"path": z.string().describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path."),
 	"script_path": z.string().describe("Path to the script or flow to execute when a message is received"),
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
@@ -298,7 +298,7 @@ export const sqsTriggerRequestSchema = z.object({
 	"aws_auth_resource_type": z.enum(["oidc", "credentials"]).describe("Authentication type - 'credentials' for access key/secret, 'oidc' for OpenID Connect"),
 	"aws_resource_path": z.string().describe("Path to the AWS resource containing credentials or OIDC configuration"),
 	"message_attributes": z.array(z.string()).describe("Array of SQS message attribute names to include with each message").nullable().optional(),
-	"path": z.string().describe("The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path."),
+	"path": z.string().describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path."),
 	"script_path": z.string().describe("Path to the script or flow to execute when a message is received"),
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
@@ -335,7 +335,7 @@ export const gcpTriggerRequestSchema = z.object({
 		"audience": z.string().describe("The audience claim for OIDC tokens used in push authentication.").optional(),
 		"authenticate": z.boolean().describe("If true, push messages will include OIDC authentication tokens.")
 	}).describe("Configuration for push delivery mode.").nullable().optional(),
-	"path": z.string().describe("The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path."),
+	"path": z.string().describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path."),
 	"script_path": z.string().describe("Path to the script or flow to execute when a message is received."),
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script."),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
@@ -371,7 +371,7 @@ export const azureTriggerRequestSchema = z.object({
 	"subscription_name": z.string(),
 	"base_endpoint": z.string().describe("Base URL for push delivery endpoints (push modes only).").optional(),
 	"event_type_filters": z.array(z.string()).optional(),
-	"path": z.string().describe("The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path."),
+	"path": z.string().describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path."),
 	"script_path": z.string(),
 	"is_flow": z.boolean(),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
@@ -409,7 +409,7 @@ export const triggerRequestSchemas = {
 	azure: azureTriggerRequestSchema,
 } as const
 
-const triggerPathSchema = z.string().min(1).describe("The unique Windmill path for this trigger. Must start with `u/<user>/` or `f/<folder>/`. This is the trigger object path, not the HTTP route path.")
+const triggerPathSchema = z.string().min(1).describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.")
 
 export const createTriggerToolSchema = z.object({
 	kind: z.enum([
