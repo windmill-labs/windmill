@@ -159,6 +159,17 @@
 		}
 	}
 
+	export function triggerSend() {
+		if (disabled) {
+			return
+		}
+		onSendRequest ? onSendRequest(instructions) : sendRequest()
+	}
+
+	export function hasContent(): boolean {
+		return instructions.trim().length > 0
+	}
+
 	$effect(() => {
 		if (editingMessageIndex !== null) {
 			focusInput()
@@ -364,29 +375,25 @@
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
 				<Popover>
 					{#snippet trigger()}
-									
-							<div
-								class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-								>@</div
-							>
-						
-									{/snippet}
+						<div
+							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
+							>@</div
+						>
+					{/snippet}
 					{#snippet content({ close })}
-									
-							<AvailableContextList
-								{availableContext}
-								{selectedContext}
-								onSelect={(element) => {
-									addContextToSelection(element)
-									close()
-								}}
-								onSelectWorkspaceItem={(element) => {
-									addContextToSelection(element)
-									close()
-								}}
-							/>
-						
-									{/snippet}
+						<AvailableContextList
+							{availableContext}
+							{selectedContext}
+							onSelect={(element) => {
+								addContextToSelection(element)
+								close()
+							}}
+							onSelectWorkspaceItem={(element) => {
+								addContextToSelection(element)
+								close()
+							}}
+						/>
+					{/snippet}
 				</Popover>
 				{#each selectedContext as element}
 					<ContextElementBadge
@@ -423,25 +430,21 @@
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
 				<Popover>
 					{#snippet trigger()}
-											
-							<div
-								class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-								>@</div
-							>
-						
-											{/snippet}
+						<div
+							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
+							>@</div
+						>
+					{/snippet}
 					{#snippet content({ close })}
-											
-							<AppAvailableContextList
-								{availableContext}
-								{selectedContext}
-								onSelect={(element) => {
-									addContextToSelection(element)
-									close()
-								}}
-							/>
-						
-											{/snippet}
+						<AppAvailableContextList
+							{availableContext}
+							{selectedContext}
+							onSelect={(element) => {
+								addContextToSelection(element)
+								close()
+							}}
+						/>
+					{/snippet}
 				</Popover>
 				{#each selectedContext as element (element.type + '-' + element.title)}
 					<ContextElementBadge

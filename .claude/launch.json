@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "3100"],
+      "port": 3100,
+      "cwd": "frontend",
+      "env": {
+        "REMOTE": "https://app.windmill.dev"
+      }
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "cargo",
+      "runtimeArgs": ["run"],
+      "port": 8000,
+      "cwd": "backend"
+    },
+    {
+      "name": "multiplayer",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3002,
+      "cwd": "multiplayer"
+    }
+  ]
+}

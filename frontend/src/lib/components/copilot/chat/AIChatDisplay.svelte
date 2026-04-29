@@ -2,6 +2,7 @@
 	import AIChatMessage from './AIChatMessage.svelte'
 	import { type Snippet } from 'svelte'
 	import {
+		ArrowUp,
 		CheckIcon,
 		Code2,
 		FileCode,
@@ -122,58 +123,54 @@
 		<div class="flex flex-row items-center gap-2">
 			<Popover>
 				{#snippet trigger()}
-							
-						<Button
-							on:click={() => {}}
-							title="History"
-							size="md"
-							btnClasses="!p-1"
-							startIcon={{ icon: HistoryIcon }}
-							iconOnly
-							variant="border"
-							color="light"
-							propagateEvent
-						/>
-					
-							{/snippet}
+					<Button
+						on:click={() => {}}
+						title="History"
+						size="md"
+						btnClasses="!p-1"
+						startIcon={{ icon: HistoryIcon }}
+						iconOnly
+						variant="border"
+						color="light"
+						propagateEvent
+					/>
+				{/snippet}
 				{#snippet content({ close })}
-							
-						<div class="p-1 overflow-y-auto max-h-[300px]">
-							{#if pastChats.length === 0}
-								<div class="text-center text-primary text-xs">No history</div>
-							{:else}
-								<div class="flex flex-col">
-									{#each pastChats as chat}
-										<button
-											class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1"
-											onclick={() => {
-												loadPastChat(chat.id)
-												close()
-											}}
+					<div class="p-1 overflow-y-auto max-h-[300px]">
+						{#if pastChats.length === 0}
+							<div class="text-center text-primary text-xs">No history</div>
+						{:else}
+							<div class="flex flex-col">
+								{#each pastChats as chat}
+									<button
+										class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1"
+										onclick={() => {
+											loadPastChat(chat.id)
+											close()
+										}}
+									>
+										<div
+											class="text-xs font-medium w-48 text-ellipsis overflow-hidden whitespace-nowrap flex-1"
+											title={chat.title}
 										>
-											<div
-												class="text-xs font-medium w-48 text-ellipsis overflow-hidden whitespace-nowrap flex-1"
-												title={chat.title}
-											>
-												{chat.title}
-											</div>
-											<Button
-												iconOnly
-												size="xs2"
-												btnClasses="!p-1"
-												variant="default"
-												startIcon={{ icon: X }}
-												on:click={() => {
-													deletePastChat(chat.id)
-												}}
-											/>
-										</button>
-									{/each}
-								</div>
-							{/if}
-						</div>
-					
-							{/snippet}
+											{chat.title}
+										</div>
+										<Button
+											iconOnly
+											size="xs2"
+											btnClasses="!p-1"
+											variant="default"
+											startIcon={{ icon: X }}
+											on:click={() => {
+												deletePastChat(chat.id)
+											}}
+										/>
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/snippet}
 			</Popover>
 			<Button
 				title="New chat"
@@ -224,7 +221,7 @@
 		</div>
 	{/if}
 
-	<div class:border-t={messages.length > 0} class="relative">
+	<div class="relative px-2 pb-2 pt-1 w-full max-w-xl mx-auto">
 		{#if aiChatManager.loading}
 			<div class="absolute -top-10 w-full flex flex-row justify-center">
 				<Button
@@ -265,28 +262,28 @@
 				</Button>
 			</div>
 		{/if}
-		<div class="px-2">
-			<AIChatInput
-				bind:this={aiChatInput}
-				bind:selectedContext
-				{availableContext}
-				{disabled}
-				isFirstMessage={messages.length === 0}
-			/>
-			<div
-				class={`flex flex-row ${
-					aiChatManager.mode === 'script' && hasDiff ? 'justify-between' : 'justify-end'
-				} items-center`}
-			>
-				{#if aiChatManager.mode === 'script' && hasDiff}
-					<ChatQuickActions {askAi} {diffMode} />
-				{/if}
-				{#if disabled}
-					<div class="text-primary text-xs my-2 px-2">
-						<Markdown md={disabledMessage} />
-					</div>
-				{:else}
-					<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center">
+		<div
+			class="rounded-2xl border border-light bg-surface shadow-sm transition-all focus-within:shadow-md focus-within:border-gray-300 dark:focus-within:border-gray-600"
+		>
+			<div class="px-1 pt-0.5">
+				<AIChatInput
+					bind:this={aiChatInput}
+					bind:selectedContext
+					{availableContext}
+					{disabled}
+					isFirstMessage={messages.length === 0}
+				/>
+			</div>
+			<div class="flex flex-row items-center justify-between gap-2 px-2 pb-1.5 pt-0.5">
+				<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
+					{#if aiChatManager.mode === 'script' && hasDiff}
+						<ChatQuickActions {askAi} {diffMode} />
+					{/if}
+					{#if disabled}
+						<div class="text-primary text-xs px-1">
+							<Markdown md={disabledMessage} />
+						</div>
+					{:else}
 						<ChatMode />
 						{#if aiChatManager.mode === AIMode.APP}
 							<DatatableCreationPolicy />
@@ -367,12 +364,35 @@
 								</div>
 							{/if}
 						{/if}
-					</div>
+					{/if}
+				</div>
+
+				{#if !disabled}
+					<button
+						type="button"
+						aria-label={aiChatManager.loading ? 'Stop' : 'Send'}
+						title={aiChatManager.loading ? 'Stop' : 'Send'}
+						class="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+						disabled={!aiChatManager.loading && !aiChatInput?.hasContent()}
+						onclick={() => {
+							if (aiChatManager.loading) {
+								cancel()
+							} else {
+								aiChatInput?.triggerSend()
+							}
+						}}
+					>
+						{#if aiChatManager.loading}
+							<Square class="w-3 h-3" />
+						{:else}
+							<ArrowUp class="w-3.5 h-3.5" strokeWidth={2.5} />
+						{/if}
+					</button>
 				{/if}
 			</div>
 		</div>
 		{#if (aiChatManager.mode === AIMode.NAVIGATOR || aiChatManager.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
-			<div class="px-2 mt-4">
+			<div class="mt-4">
 				<div class="flex flex-col gap-2">
 					{#each suggestions as suggestion}
 						<Button
