@@ -45,6 +45,7 @@ use windmill_common::scripts::ScriptRunnableSettingsHandle;
 use windmill_common::utils::require_admin;
 use windmill_common::variables::decrypt;
 use windmill_common::worker::WINDMILL_DIR;
+use windmill_common::workspaces::WM_FORK_PREFIX;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
@@ -116,6 +117,26 @@ pub fn is_none_or_false(val: &Option<bool>) -> bool {
     match val {
         Some(val) => !val,
         None => true,
+    }
+}
+
+/// Returns the keys to strip from trigger/schedule serialization when the
+/// source workspace is a fork. Stripping these keys avoids propagating
+/// fork-local operational state (enabled flag, runtime listener identifiers)
+/// back to the parent workspace through the git-sync round-trip.
+fn fork_trigger_ignore_keys(w_id: &str) -> Option<Vec<&'static str>> {
+    if w_id.starts_with(WM_FORK_PREFIX) {
+        Some(vec!["mode", "enabled"])
+    } else {
+        None
+    }
+}
+
+fn fork_schedule_ignore_keys(w_id: &str) -> Option<Vec<&'static str>> {
+    if w_id.starts_with(WM_FORK_PREFIX) {
+        Some(vec!["enabled"])
+    } else {
+        None
     }
 }
 
@@ -682,8 +703,11 @@ pub(crate) async fn tarball_workspace(
         .fetch_all(&mut *tx)
         .await?;
 
+        let schedule_ignore_keys = fork_schedule_ignore_keys(&w_id);
         for schedule in schedules {
-            let app_str = &to_string_without_metadata(&schedule, false, None).unwrap();
+            let app_str =
+                &to_string_without_metadata(&schedule, false, schedule_ignore_keys.clone())
+                    .unwrap();
             archive
                 .write_to_archive(&app_str, &format!("{}.schedule.json", schedule.path))
                 .await?;
@@ -691,6 +715,27 @@ pub(crate) async fn tarball_workspace(
     }
 
     if include_triggers.unwrap_or(false) {
+        #[cfg(any(
+            feature = "http_trigger",
+            feature = "websocket",
+            feature = "postgres_trigger",
+            feature = "mqtt_trigger",
+            feature = "native_trigger",
+            all(
+                feature = "enterprise",
+                any(
+                    feature = "kafka",
+                    feature = "sqs_trigger",
+                    feature = "gcp_trigger",
+                    feature = "azure_trigger",
+                    feature = "nats",
+                    feature = "smtp",
+                ),
+                feature = "private"
+            )
+        ))]
+        let trigger_ignore_keys = fork_trigger_ignore_keys(&w_id);
+
         #[cfg(feature = "http_trigger")]
         {
             use crate::triggers::http::HttpTrigger;
@@ -698,7 +743,9 @@ pub(crate) async fn tarball_workspace(
             let http_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in http_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -715,7 +762,9 @@ pub(crate) async fn tarball_workspace(
             let websocket_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in websocket_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -732,7 +781,9 @@ pub(crate) async fn tarball_workspace(
             let kafka_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in kafka_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -749,7 +800,9 @@ pub(crate) async fn tarball_workspace(
             let sqs_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in sqs_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -766,7 +819,9 @@ pub(crate) async fn tarball_workspace(
             let gcp_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in gcp_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -783,7 +838,9 @@ pub(crate) async fn tarball_workspace(
             let azure_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in azure_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -801,7 +858,8 @@ pub(crate) async fn tarball_workspace(
 
             for trigger in nats_triggers {
                 let trigger_str: &String =
-                    &to_string_without_metadata(&trigger, false, None).unwrap();
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -818,7 +876,9 @@ pub(crate) async fn tarball_workspace(
             let postgres_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in postgres_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -835,7 +895,9 @@ pub(crate) async fn tarball_workspace(
             let mqtt_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in mqtt_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -852,7 +914,9 @@ pub(crate) async fn tarball_workspace(
             let email_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in email_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -872,11 +936,16 @@ pub(crate) async fn tarball_workspace(
                     list_native_triggers(&mut *tx, &w_id, service_name, None, None, None, None)
                         .await?;
 
+                let mut native_ignore_keys = vec!["webhook_token_hash"];
+                if let Some(ref extra) = trigger_ignore_keys {
+                    native_ignore_keys.extend_from_slice(extra);
+                }
+
                 for trigger in native_triggers {
                     let trigger_str = &to_string_without_metadata(
                         &trigger,
                         false,
-                        Some(vec!["webhook_token_hash"]),
+                        Some(native_ignore_keys.clone()),
                     )
                     .unwrap();
                     archive

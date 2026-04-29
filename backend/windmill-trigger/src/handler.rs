@@ -557,7 +557,7 @@ async fn update_trigger<T: TriggerCrud>(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((workspace_id, path)): Path<(String, StripPath)>,
-    Json(edit_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
+    Json(mut edit_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || {
@@ -573,6 +573,24 @@ async fn update_trigger<T: TriggerCrud>(
         .await?;
 
     let mut tx = user_db.begin(&authed).await?;
+
+    // When the request omits `mode`/`enabled`, preserve the existing DB value
+    // instead of falling back to the BaseTriggerData default (Enabled). This
+    // keeps fork→parent git-sync round-trips from flipping the parent's
+    // operational state — see fork_trigger_ignore_keys in workspaces_export.rs.
+    if edit_trigger.base.is_mode_unspecified() {
+        let existing_mode: Option<TriggerMode> = sqlx::query_scalar(&format!(
+            "SELECT mode FROM {} WHERE workspace_id = $1 AND path = $2",
+            T::TABLE_NAME
+        ))
+        .bind(&workspace_id)
+        .bind(path)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(m) = existing_mode {
+            edit_trigger.base.set_mode(m);
+        }
+    }
 
     let new_path = edit_trigger.base.path.to_string();
     let labels = edit_trigger.base.labels.clone();
