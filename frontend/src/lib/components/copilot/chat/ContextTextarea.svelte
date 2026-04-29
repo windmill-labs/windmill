@@ -315,7 +315,7 @@
 		onkeydown={handleKeyDown}
 		bind:value
 		use:autosize
-		rows={2}
+		rows={1}
 		oninput={handleInput}
 		onblur={() => {
 			setTimeout(() => {
@@ -372,7 +372,9 @@
 <style>
 	.textarea-input {
 		padding: 0.25rem;
-		border: 1px solid transparent;
+		border: none !important;
+		outline: none !important;
+		box-shadow: none !important;
 		border-radius: 0.75rem; /* matches rounded-xl */
 		font-family: inherit;
 		font-size: 0.75rem;
@@ -381,5 +383,11 @@
 		word-break: break-words;
 		width: 100%;
 		min-height: 1.75rem;
+	}
+	.textarea-input:focus,
+	.textarea-input:focus-visible {
+		border: none !important;
+		outline: none !important;
+		box-shadow: none !important;
 	}
 </style>

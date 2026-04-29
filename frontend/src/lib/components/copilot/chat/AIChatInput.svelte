@@ -444,7 +444,7 @@
 						sendRequest()
 					}
 				}}
-				rows={2}
+				rows={1}
 				placeholder={modePlaceholder}
 				class="resize-none"
 				{disabled}
@@ -490,7 +490,7 @@
 						sendRequest()
 					}
 				}}
-				rows={2}
+				rows={1}
 				placeholder={modePlaceholder}
 				class="resize-none"
 				{disabled}

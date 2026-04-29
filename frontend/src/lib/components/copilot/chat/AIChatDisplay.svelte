@@ -176,9 +176,9 @@
 			</div>
 		{/if}
 		<div
-			class="rounded-xl border border-light bg-surface shadow-sm transition-all focus-within:shadow-md focus-within:border-gray-300 dark:focus-within:border-gray-600"
+			class="rounded-xl border border-light bg-surface-input shadow-sm transition-all focus-within:shadow-md focus-within:border-gray-300 dark:focus-within:border-gray-600"
 		>
-			<div class="px-1 pt-1">
+			<div class="px-2 pt-2">
 				<AIChatInput
 					bind:this={aiChatInput}
 					bind:selectedContext
@@ -187,7 +187,7 @@
 					isFirstMessage={messages.length === 0}
 				/>
 			</div>
-			<div class="flex flex-row items-center justify-between gap-2 px-2 pb-1.5 pt-0.5">
+			<div class="flex flex-row items-center justify-between gap-2 px-3 pb-2 pt-1">
 				<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
 					{#if aiChatManager.mode === 'script' && hasDiff}
 						<ChatQuickActions {askAi} {diffMode} />
@@ -200,12 +200,15 @@
 						{#if aiChatManager.mode === AIMode.SCRIPT || aiChatManager.mode === AIMode.FLOW || aiChatManager.mode === AIMode.APP}
 							<Popover>
 								{#snippet trigger()}
-									<div
-										class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
+									<Button
+										variant="subtle"
+										size="xs"
 										title="Add context"
+										btnClasses="!px-1.5 !py-0.5 font-mono"
+										nonCaptureEvent
 									>
 										@
-									</div>
+									</Button>
 								{/snippet}
 								{#snippet content({ close })}
 									{#if aiChatManager.mode === AIMode.APP}
