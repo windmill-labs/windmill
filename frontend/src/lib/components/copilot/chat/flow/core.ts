@@ -1318,8 +1318,8 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 **Resources & Schema:**
 - **Search resource types** → \`resource_type\`
 - **Get database schema** → \`get_db_schema\`
-- **Create a schedule for the current flow** → \`create_schedule\` (include \`script_path\` and \`is_flow\`)
-- **Create a trigger for the current flow** → \`create_trigger\` (include \`script_path\` and \`is_flow\`)
+- **Create a schedule for the current flow** → \`create_schedule\`
+- **Create a trigger for the current flow** → \`create_trigger\`
 
 ## Quick Edits with patch_flow_json
 
