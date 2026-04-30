@@ -395,6 +395,36 @@ pub async fn in_test_worker<Fut: std::future::Future>(
     res
 }
 
+/// Run an async test body on a freshly-spawned OS thread with a large stack
+/// and a fresh current-thread tokio runtime. Use this for tests whose async
+/// chain (e.g. nested `in_test_worker` -> `run_until_complete` ->
+/// `windmill_queue::push`) blows the default 2 MB test-thread stack in debug
+/// builds, where `async fn` state machines are unoptimized and `Box::pin` at
+/// the call site only moves *future state* to the heap, not the synchronous
+/// poll-time stack frames composed along the chain.
+///
+/// The chain contains `?Send` futures (trait objects), so `tokio::spawn`
+/// is not viable; `std::thread::spawn` sidesteps the shared-stack issue.
+pub fn run_in_isolated_thread<F, Fut, R>(f: F) -> R
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = R>,
+    R: Send + 'static,
+{
+    std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build current-thread runtime");
+            rt.block_on(f())
+        })
+        .expect("spawn isolated test thread")
+        .join()
+        .expect("isolated test thread panicked")
+}
+
 pub fn spawn_test_worker(
     conn: &Connection,
     port: u16,

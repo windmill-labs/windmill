@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.692.0
+  version: 1.693.3
   title: Windmill API
 
   contact:
@@ -3027,9 +3027,51 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkspaceInvite"
 
+  /w/{workspace}/workspaces/get_public_settings:
+    get:
+      summary: get public settings
+      description: Returns the subset of workspace settings safe to expose to any workspace member. The full settings struct is admin-only via `getSettings`.
+      operationId: getPublicSettings
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workspace_id:
+                    type: string
+                  slack_name:
+                    type: string
+                  slack_team_id:
+                    type: string
+                  teams_team_id:
+                    type: string
+                  teams_team_name:
+                    type: string
+                  teams_team_guid:
+                    type: string
+                  large_file_storage:
+                    $ref: "#/components/schemas/LargeFileStorage"
+                  datatable:
+                    $ref: "#/components/schemas/DataTableSettings"
+                  deploy_ui:
+                    $ref: "#/components/schemas/WorkspaceDeployUISettings"
+                  mute_critical_alerts:
+                    type: boolean
+                required:
+                  - workspace_id
+
   /w/{workspace}/workspaces/get_settings:
     get:
-      summary: get settings
+      summary: get settings (admin only)
+      description: Returns the full workspace settings including admin-managed integration credentials. Admin-only — non-admin callers should use `getPublicSettings`.
       operationId: getSettings
       tags:
         - workspace
@@ -4829,6 +4871,39 @@ paths:
       responses:
         "200":
           description: delete token
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/tokens/update_scopes/{token_prefix}:
+    post:
+      summary: update scopes of an existing token (owner only)
+      operationId: updateTokenScopes
+      tags:
+        - user
+      parameters:
+        - name: token_prefix
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new scopes (null or omitted = full access)
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                  nullable: true
+      responses:
+        "200":
+          description: scopes updated
           content:
             text/plain:
               schema:
@@ -18618,6 +18693,15 @@ paths:
           required: true
           schema:
             type: string
+        - name: marker_file
+          description: |
+            If provided, the folder is only considered to exist when this exact
+            sentinel file is present under file_key. Lets callers distinguish a
+            fully populated folder from a partial upload.
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: S3 folder existence check result
@@ -22362,6 +22446,8 @@ components:
           items:
             type: string
         email:
+          type: string
+        workspace_id:
           type: string
       required:
         - token_prefix

@@ -1079,6 +1079,306 @@ def _indent_body(body: str) -> str:
 
 
 # =============================================================================
+# Workflow-as-Code SDK Extraction
+# =============================================================================
+
+
+WAC_TS_FUNCTIONS = [
+    'getResumeUrls',
+    'task',
+    'taskScript',
+    'taskFlow',
+    'workflow',
+    'step',
+    'sleep',
+    'waitForApproval',
+    'parallel',
+]
+
+WAC_PY_FUNCTIONS = [
+    'get_resume_urls',
+    'task',
+    'task_script',
+    'task_flow',
+    'workflow',
+    'step',
+    'sleep',
+    'wait_for_approval',
+    'parallel',
+]
+
+
+def _extract_ts_angle_params(content: str, start_pos: int) -> tuple[str, int]:
+    """Extract TypeScript generic parameters, ignoring arrow `=>` tokens."""
+    if start_pos >= len(content) or content[start_pos] != '<':
+        return '', start_pos
+
+    depth = 0
+    i = start_pos
+    quote: str | None = None
+    while i < len(content):
+        char = content[i]
+        prev = content[i - 1] if i > 0 else ''
+
+        if quote:
+            if char == '\\':
+                i += 2
+                continue
+            if char == quote:
+                quote = None
+            i += 1
+            continue
+
+        if char in ('"', "'", '`'):
+            quote = char
+        elif char == '<':
+            depth += 1
+        elif char == '>' and prev != '=':
+            depth -= 1
+            if depth == 0:
+                return content[start_pos:i + 1], i + 1
+        i += 1
+
+    return '', -1
+
+
+def _render_ts_jsdoc(jsdoc_raw: str | None) -> str:
+    if not jsdoc_raw:
+        return ''
+
+    docstring = clean_jsdoc(jsdoc_raw)
+    if not docstring:
+        return ''
+
+    lines = ["/**"]
+    for line in docstring.split('\n'):
+        lines.append(f" * {line}" if line else " *")
+    lines.append(" */")
+    return '\n'.join(lines)
+
+
+def _extract_ts_interface(content: str, name: str) -> str:
+    pattern = re.compile(
+        r'(?:(/\*\*(?:[^*]|\*(?!/))*\*/)\s*)?'
+        rf'export\s+interface\s+{re.escape(name)}\s*',
+        re.MULTILINE
+    )
+    match = pattern.search(content)
+    if not match:
+        return ''
+
+    try:
+        brace_start = content.index('{', match.end() - 1)
+    except ValueError:
+        return ''
+
+    body, end = extract_balanced(content, brace_start, '{', '}')
+    if end == -1:
+        return ''
+
+    parts = []
+    jsdoc = _render_ts_jsdoc(match.group(1))
+    if jsdoc:
+        parts.append(jsdoc)
+    parts.append(f"export interface {name} {{\n{_indent_body(body)}\n}}")
+    return '\n'.join(parts)
+
+
+def _extract_ts_exported_function(content: str, name: str) -> str:
+    pattern = re.compile(
+        r'(?:(/\*\*(?:[^*]|\*(?!/))*\*/)\s*)?'
+        rf'export\s+(async\s+)?function\s+{re.escape(name)}\s*',
+        re.MULTILINE
+    )
+    match = pattern.search(content)
+    if not match:
+        return ''
+
+    jsdoc_raw, is_async = match.groups()
+    pos = match.end()
+    while pos < len(content) and content[pos] in ' \t\n':
+        pos += 1
+
+    generic = ''
+    if pos < len(content) and content[pos] == '<':
+        generic, pos = _extract_ts_angle_params(content, pos)
+        if pos == -1:
+            return ''
+        while pos < len(content) and content[pos] in ' \t\n':
+            pos += 1
+
+    if pos >= len(content) or content[pos] != '(':
+        return ''
+
+    params, paren_end = extract_balanced(content, pos, '(', ')')
+    if paren_end == -1:
+        return ''
+
+    return_type, _ = extract_return_type(content, paren_end + 1)
+    async_prefix = 'async ' if is_async else ''
+    signature = f"export {async_prefix}function {name}{generic}({clean_params(params)})"
+    if return_type:
+        signature += f": {clean_params(return_type)}"
+
+    parts = []
+    jsdoc = _render_ts_jsdoc(jsdoc_raw)
+    if jsdoc:
+        parts.append(jsdoc)
+    parts.append(signature)
+    return '\n'.join(parts)
+
+
+def extract_wac_ts_sdk(ts_content: str) -> str:
+    """Extract Workflow-as-Code API signatures from the TypeScript SDK."""
+    if not ts_content:
+        return ''
+
+    declarations = []
+    task_options = _extract_ts_interface(ts_content, 'TaskOptions')
+    if task_options:
+        declarations.append(task_options)
+
+    for function_name in WAC_TS_FUNCTIONS:
+        signature = _extract_ts_exported_function(ts_content, function_name)
+        if signature:
+            declarations.append(signature)
+        else:
+            print(f"  Warning: TypeScript WAC function '{function_name}' not found")
+
+    if not declarations:
+        return ''
+
+    md = "## TypeScript Workflow-as-Code API (windmill-client)\n\n"
+    md += 'Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getResumeUrls, parallel } from "windmill-client"`\n\n'
+    md += "```typescript\n"
+    md += "\n\n".join(declarations)
+    md += "\n```\n"
+    return md
+
+
+def _format_py_params_exact(node, skip_self: bool = False) -> str:
+    """Format Python parameters from AST, preserving bare * for keyword-only args."""
+    params = []
+    args = node.args
+
+    positional = list(args.posonlyargs) + list(args.args)
+    num_defaults = len(args.defaults)
+    num_positional = len(positional)
+
+    for i, arg in enumerate(positional):
+        if skip_self and arg.arg == 'self':
+            continue
+        param_str = arg.arg
+        if arg.annotation:
+            param_str += f": {ast.unparse(arg.annotation)}"
+        default_idx = i - (num_positional - num_defaults)
+        if default_idx >= 0:
+            param_str += f" = {ast.unparse(args.defaults[default_idx])}"
+        params.append(param_str)
+
+    if args.vararg:
+        vararg_str = f"*{args.vararg.arg}"
+        if args.vararg.annotation:
+            vararg_str += f": {ast.unparse(args.vararg.annotation)}"
+        params.append(vararg_str)
+    elif args.kwonlyargs:
+        params.append('*')
+
+    for i, arg in enumerate(args.kwonlyargs):
+        param_str = arg.arg
+        if arg.annotation:
+            param_str += f": {ast.unparse(arg.annotation)}"
+        if args.kw_defaults[i] is not None:
+            param_str += f" = {ast.unparse(args.kw_defaults[i])}"
+        params.append(param_str)
+
+    if args.kwarg:
+        kwarg_str = f"**{args.kwarg.arg}"
+        if args.kwarg.annotation:
+            kwarg_str += f": {ast.unparse(args.kwarg.annotation)}"
+        params.append(kwarg_str)
+
+    return ', '.join(params)
+
+
+def _render_py_docstring(docstring: str, indent: str = '') -> str:
+    if not docstring:
+        return ''
+    return '\n'.join(f"{indent}# {line}" if line else f"{indent}#" for line in docstring.split('\n'))
+
+
+def _extract_py_function_signature(tree: ast.Module, name: str) -> str:
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            docstring = ast.get_docstring(node) or ''
+            params = _format_py_params_exact(node)
+            return_ann = f" -> {ast.unparse(node.returns)}" if node.returns else ''
+            async_prefix = 'async ' if isinstance(node, ast.AsyncFunctionDef) else ''
+            parts = []
+            rendered_docstring = _render_py_docstring(docstring)
+            if rendered_docstring:
+                parts.append(rendered_docstring)
+            parts.append(f"{async_prefix}def {node.name}({params}){return_ann}")
+            return '\n'.join(parts)
+    return ''
+
+
+def _extract_py_class_signature(tree: ast.Module, name: str) -> str:
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == name:
+            parts = []
+            docstring = _render_py_docstring(ast.get_docstring(node) or '')
+            if docstring:
+                parts.append(docstring)
+            bases = f"({', '.join(ast.unparse(base) for base in node.bases)})" if node.bases else ''
+            parts.append(f"class {node.name}{bases}:")
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == '__init__':
+                    init_docstring = _render_py_docstring(ast.get_docstring(item) or '', indent='    ')
+                    if init_docstring:
+                        parts.append(init_docstring)
+                    params = _format_py_params_exact(item)
+                    parts.append(f"    def __init__({params})")
+                    break
+            return '\n'.join(parts)
+    return ''
+
+
+def extract_wac_py_sdk(py_content: str) -> str:
+    """Extract Workflow-as-Code API signatures from the Python SDK."""
+    if not py_content:
+        return ''
+
+    try:
+        tree = ast.parse(py_content)
+    except SyntaxError as e:
+        print(f"  Warning: Could not parse Python SDK for WAC extraction: {e}")
+        return ''
+
+    declarations = []
+    task_error = _extract_py_class_signature(tree, 'TaskError')
+    if task_error:
+        declarations.append(task_error)
+
+    for function_name in WAC_PY_FUNCTIONS:
+        signature = _extract_py_function_signature(tree, function_name)
+        if signature:
+            declarations.append(signature)
+        else:
+            print(f"  Warning: Python WAC function '{function_name}' not found")
+
+    if not declarations:
+        return ''
+
+    md = "## Python Workflow-as-Code API (wmill)\n\n"
+    md += "Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, TaskError`\n\n"
+    md += "```python\n"
+    md += "\n\n".join(declarations)
+    md += "\n```\n"
+    return md
+
+
+# =============================================================================
 # Skill Generation
 # =============================================================================
 
@@ -1146,6 +1446,13 @@ SKILL_DEFINITIONS = [
         'content_key': 'resources',
     },
     {
+        'name': 'write-workflow-as-code',
+        'description': 'MUST use when writing or modifying Windmill Workflow-as-Code scripts using workflow, task, step, sleep, approvals, taskScript, taskFlow, task_script, or task_flow.',
+        'content_key': 'workflow_as_code',
+        'intro_key': 'wac_cli',
+        'sdk_content_key': 'wac',
+    },
+    {
         'name': 'cli-commands',
         'description': 'MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`.',
         'content_key': 'cli_commands',
@@ -1162,6 +1469,8 @@ def generate_skills(
     languages: dict[str, str],
     ts_sdk_md: str,
     py_sdk_md: str,
+    wac_ts_md: str,
+    wac_py_md: str,
     flow_cli: str,
     flow_base: str,
     openflow_content: str,
@@ -1184,6 +1493,7 @@ def generate_skills(
         'triggers': read_markdown_file(base_dir / "triggers.md"),
         'schedules': read_markdown_file(base_dir / "schedules.md"),
         'resources': read_markdown_file(base_dir / "resources.md"),
+        'workflow_as_code': read_markdown_file(base_dir / "workflow-as-code.md"),
         'cli_commands': cli_commands,
         'preview': read_markdown_file(base_dir / "preview.md"),
     }
@@ -1224,6 +1534,18 @@ For a **visual** open-the-script-in-the-dev-page preview (rather than `script pr
 
 Use `wmill resource-type list --schema` to discover available resource types."""
 
+    wac_cli_intro = f"""{script_cli_intro}
+
+Workflow-as-Code files use the normal script CLI workflow. There are no separate WAC deploy commands."""
+
+    intro_content = {
+        'wac_cli': wac_cli_intro,
+    }
+
+    extra_sdk_content = {
+        'wac': "\n\n".join(filter(None, [wac_ts_md, wac_py_md])),
+    }
+
     skills_generated = []
 
     # Generate script skills for each language
@@ -1238,18 +1560,18 @@ Use `wmill resource-type list --schema` to discover available resource types."""
         skill_dir.mkdir(parents=True, exist_ok=True)
 
         # Determine which SDK to include
-        sdk_content = ''
+        language_sdk_content = ''
         if lang_key in TS_SDK_LANGUAGES:
-            sdk_content = ts_sdk_md
+            language_sdk_content = ts_sdk_md
         elif lang_key in PY_SDK_LANGUAGES:
-            sdk_content = py_sdk_md
+            language_sdk_content = py_sdk_md
 
         skill_content = generate_skill_content(
             skill_name=skill_name,
             description=metadata['description'],
             intro=script_cli_intro,
             content=lang_content,
-            sdk_content=sdk_content
+            sdk_content=language_sdk_content
         )
 
         (skill_dir / "SKILL.md").write_text(skill_content)
@@ -1273,8 +1595,9 @@ Use `wmill resource-type list --schema` to discover available resource types."""
         skill_content = generate_skill_content(
             skill_name=skill_name,
             description=skill_def['description'],
-            intro="",
-            content=content
+            intro=intro_content.get(skill_def.get('intro_key', ''), ''),
+            content=content,
+            sdk_content=extra_sdk_content.get(skill_def.get('sdk_content_key', ''), '')
         )
 
         (skill_dir / "SKILL.md").write_text(skill_content)
@@ -1518,6 +1841,13 @@ def main():
     (OUTPUT_SDKS_DIR / "datatable-typescript.md").write_text(datatable_ts_md)
     (OUTPUT_SDKS_DIR / "datatable-python.md").write_text(datatable_py_md)
 
+    # Extract Workflow-as-Code SDK docs (for WAC skills and prompt helpers)
+    print("Extracting Workflow-as-Code SDK docs...")
+    wac_ts_md = extract_wac_ts_sdk(ts_content)
+    wac_py_md = extract_wac_py_sdk(py_content)
+    (OUTPUT_SDKS_DIR / "wac-typescript.md").write_text(wac_ts_md)
+    (OUTPUT_SDKS_DIR / "wac-python.md").write_text(wac_py_md)
+
     # Read base prompts
     print("Assembling complete prompts...")
     base_dir = SCRIPT_DIR / "base"
@@ -1525,6 +1855,7 @@ def main():
 
     script_base = read_markdown_file(base_dir / "script-base.md")
     flow_base = read_markdown_file(base_dir / "flow-base.md")
+    workflow_as_code_base = read_markdown_file(base_dir / "workflow-as-code.md")
     flow_cli = read_markdown_file(base_dir / "flow-cli.md")
     flow_chat_special_modules = read_markdown_file(base_dir / "flow-chat-special-modules.md")
 
@@ -1580,11 +1911,14 @@ def main():
         # Base prompts
         'SCRIPT_BASE': script_base,
         'FLOW_BASE': flow_base,
+        'WORKFLOW_AS_CODE_BASE': workflow_as_code_base,
         'FLOW_CHAT_SPECIAL_MODULES': flow_chat_special_modules,
 
         # SDKs
         'SDK_TYPESCRIPT': ts_sdk_md,
         'SDK_PYTHON': py_sdk_md,
+        'WAC_SDK_TYPESCRIPT': wac_ts_md,
+        'WAC_SDK_PYTHON': wac_py_md,
 
         # Datatable-specific SDK docs (for app mode)
         'DATATABLE_SDK_TYPESCRIPT': datatable_ts_md,
@@ -1666,6 +2000,15 @@ export function getDatatableSdkReference(): string {
     prompts.DATATABLE_SDK_PYTHON
   ].filter(Boolean).join('\\n\\n');
 }
+
+// Helper to combine prompts for Workflow-as-Code scripts
+export function getWorkflowAsCodePrompt(): string {
+  return [
+    prompts.WORKFLOW_AS_CODE_BASE,
+    prompts.WAC_SDK_TYPESCRIPT,
+    prompts.WAC_SDK_PYTHON
+  ].filter(Boolean).join('\\n\\n');
+}
 """
     (OUTPUT_GENERATED_DIR / "index.ts").write_text(index_content)
 
@@ -1675,6 +2018,8 @@ export function getDatatableSdkReference(): string {
         languages=languages,
         ts_sdk_md=ts_sdk_md,
         py_sdk_md=py_sdk_md,
+        wac_ts_md=wac_ts_md,
+        wac_py_md=wac_py_md,
         flow_cli=flow_cli,
         flow_base=flow_base,
         cli_commands=cli_commands,
@@ -1703,6 +2048,8 @@ export function getDatatableSdkReference(): string {
     print(f"\nGenerated files:")
     print(f"  - auto-generated/sdks/typescript.md")
     print(f"  - auto-generated/sdks/python.md")
+    print(f"  - auto-generated/sdks/wac-typescript.md")
+    print(f"  - auto-generated/sdks/wac-python.md")
     print(f"  - auto-generated/cli/cli-commands.md (auto-generated from CLI source)")
     print(f"  - auto-generated/prompts.ts")
     print(f"  - auto-generated/index.ts")

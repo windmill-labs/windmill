@@ -259,11 +259,11 @@ pub async fn require_admin_or_devops(
 fn instance_name(hostname: &str) -> String {
     hostname
         .replace(" ", "")
+        .replace('_', "")
         .split("-")
         .last()
         .unwrap()
         .to_ascii_lowercase()
-        .to_string()
 }
 
 const DEFAULT_WORKER_SUFFIX_LEN: usize = 5;

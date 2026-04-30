@@ -135,6 +135,10 @@ pub fn global_service() -> Router {
         .route("/username_info/{user}", get(get_instance_username_info))
         .route("/tokens/create", post(create_token))
         .route("/tokens/delete/{token_prefix}", delete(delete_token))
+        .route(
+            "/tokens/update_scopes/{token_prefix}",
+            post(update_token_scopes),
+        )
         .route("/tokens/list", get(list_tokens))
         .route("/tokens/impersonate", post(impersonate))
         .route("/usage", get(get_usage))
@@ -292,6 +296,7 @@ pub struct TruncatedToken {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub last_used_at: chrono::DateTime<chrono::Utc>,
     pub scopes: Option<Vec<String>>,
+    pub workspace_id: Option<String>,
 }
 
 // NewToken is re-exported from windmill-api-auth above
@@ -2243,7 +2248,7 @@ async fn list_tokens(
         sqlx::query_as!(
             TruncatedToken,
             "SELECT label, token_prefix, expiration, created_at, \
-             last_used_at, scopes FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
+             last_used_at, scopes, workspace_id FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
              ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             email,
             per_page as i64,
@@ -2255,7 +2260,7 @@ async fn list_tokens(
         sqlx::query_as!(
             TruncatedToken,
             "SELECT label, token_prefix, expiration, created_at, \
-            last_used_at, scopes FROM token WHERE email = $1
+            last_used_at, scopes, workspace_id FROM token WHERE email = $1
             ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             email,
             per_page as i64,
@@ -2303,6 +2308,55 @@ async fn delete_token(
         tokens_deleted,
         token_prefix
     ))
+}
+
+#[derive(Deserialize)]
+struct UpdateTokenScopesRequest {
+    scopes: Option<Vec<String>>,
+}
+
+async fn update_token_scopes(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Path(token_prefix): Path<String>,
+    Json(req): Json<UpdateTokenScopesRequest>,
+) -> Result<String> {
+    let mut tx = db.begin().await?;
+
+    let updated: Option<String> = sqlx::query_scalar!(
+        "UPDATE token SET scopes = $1
+           WHERE email = $2 AND token_prefix = $3
+           RETURNING token_prefix",
+        req.scopes.as_deref(),
+        &authed.email,
+        &token_prefix,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let prefix = updated.ok_or_else(|| {
+        Error::NotFound(format!(
+            "token {token_prefix} not found or not owned by user"
+        ))
+    })?;
+
+    let scopes_json = serde_json::to_string(&req.scopes).unwrap_or_default();
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.token.update_scopes",
+        ActionKind::Update,
+        &"global",
+        Some(&prefix),
+        Some([("scopes", scopes_json.as_str())].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    windmill_api_auth::invalidate_token_from_cache(&prefix);
+
+    Ok(format!("updated scopes for token {prefix}"))
 }
 
 async fn leave_workspace(

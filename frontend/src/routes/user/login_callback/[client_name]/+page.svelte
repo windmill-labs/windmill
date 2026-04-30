@@ -21,15 +21,13 @@
 	let state = page.url.searchParams.get('state') ?? undefined
 
 	onMount(async () => {
-		// const closeCookie = getAndDeleteCookie('close')
-		// console.log('closeCookie', closeCookie)
 		const rawRd = localStorage.getItem('rd')
 		if (rawRd) {
 			localStorage.removeItem('rd')
 		}
 		const rd = rawRd?.startsWith('http') && !isValidLogoutRedirect(rawRd) ? null : rawRd
-		const cookieCloseUponLogin = getCookie('close') == 'true'
-		const closeUponLogin = cookieCloseUponLogin ?? localStorage.getItem('closeUponLogin') == 'true'
+		const closeUponLogin =
+			getCookie('close') == 'true' || localStorage.getItem('closeUponLogin') == 'true'
 		if (error) {
 			sendUserToast(`Error trying to login with ${clientName} ${error}`, true)
 			if (closeUponLogin) {

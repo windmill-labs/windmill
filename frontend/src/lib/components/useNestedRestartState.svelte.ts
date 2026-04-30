@@ -91,8 +91,8 @@ export function useNestedRestartState(opts: {
 			return
 		}
 
-		selectedJobStepIsTopLevel =
-			job.flow_status.modules.findIndex((m) => m.id === selectedJobStep) >= 0
+		const isTopLevel = job.flow_status.modules.findIndex((m) => m.id === selectedJobStep) >= 0
+		selectedJobStepIsTopLevel = isTopLevel
 		const moduleDefinition = job.raw_flow?.modules.find((m) => m.id === selectedJobStep)
 		if (moduleDefinition?.value.type === 'forloopflow') {
 			selectedJobStepType = 'forloop'
@@ -107,7 +107,10 @@ export function useNestedRestartState(opts: {
 			selectedJobStepType = 'single'
 		}
 
-		if (selectedJobStepIsTopLevel) return
+		// Read from the local — reading the `$state` we just wrote would register
+		// it as a dependency of this effect, causing `effect_update_depth_exceeded`
+		// because each write would reschedule the effect.
+		if (isTopLevel) return
 
 		// Inline-expanded subflow: id is `subflow:outerStep:[innerSubflow:...]<leaf>`.
 		// The graph adds the `subflow:` prefix only for subflow expansions, so each

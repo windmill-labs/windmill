@@ -94,7 +94,7 @@
 	async function loadForkedDatatables() {
 		if (!$workspaceStore) return
 		try {
-			const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore })
+			const settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore })
 			const datatables = settings.datatable?.datatables ?? {}
 			forkedDatatables = Object.entries(datatables)
 				.filter(([_, dt]) => dt.forked_from != null)
