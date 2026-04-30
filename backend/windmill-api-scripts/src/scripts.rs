@@ -1220,7 +1220,9 @@ async fn create_script_internal<'c>(
     // bare `// materialize` marker is the opt-in signal for pipeline
     // membership; parsed writes tell us what is produced (we don't record
     // them in auto_kind itself).
-    let (is_materializer, pipeline_triggers) = parse_pipeline_annotations(&ns.content);
+    let pipeline_annotations = parse_pipeline_annotations(&ns.content);
+    let is_materializer = pipeline_annotations.is_materializer;
+    let pipeline_triggers = pipeline_annotations.triggers;
     let auto_kind = if is_materializer {
         Some("materializer".to_string())
     } else if ci_test_refs.is_some() {

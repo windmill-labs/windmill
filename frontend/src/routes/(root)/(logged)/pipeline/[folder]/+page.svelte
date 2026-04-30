@@ -58,7 +58,7 @@
 	const DEFAULT_PATH_SUFFIX = 'new_materializer'
 	// Default cron for top + materializers (pipeline roots). Every hour is a
 	// sane middle ground between batch and real-time; users edit the
-	// `// on schedule "..."` line in the editor before saving if they want
+	// `// schedule "..."` line in the editor before saving if they want
 	// something different. Per-asset materializers don't get a schedule by
 	// default — they inherit their trigger from the upstream asset.
 	const DEFAULT_SCHEDULE_CRON = '0 * * * *'
@@ -210,10 +210,11 @@
 	// comments up top discourages the user more than it helps.
 	function materializerHeader(language: ScriptLang, sources: DraftTriggerSource[]): string {
 		const p = commentPrefix(language)
-		const onLines = sources.map((s) => {
+		const triggerLines = sources.map((s) => {
 			switch (s.kind) {
 				case 'schedule':
-					return `${p} on schedule "${s.cron}"`
+					// Schedule is a top-level annotation, not under `on`.
+					return `${p} schedule "${s.cron}"`
 				case 'asset':
 					return `${p} on ${s.ref}`
 				default:
@@ -224,15 +225,20 @@
 		})
 		const lines = [
 			`${p} materialize`,
-			...onLines,
+			...triggerLines,
 			`${p}`,
 			`${p} This script is a pipeline materializer.`,
 			`${p}   - Reads and writes detected in the code become the lineage edges`,
 			`${p}     shown in the pipeline graph (no extra declaration needed).`,
 			`${p}   - The \`${p} materialize\` marker opts it into the pipeline.`,
-			`${p}   - \`${p} on <asset|schedule "cron"|<kind> <path>>\` declares trigger edges.`,
-			`${p}     Supported trigger kinds: schedule, webhook, email, kafka, mqtt,`,
+			`${p}   - \`${p} schedule "<cron>"\` declares an inline cron trigger.`,
+			`${p}   - \`${p} on <asset|<kind> <path>>\` declares an event-based trigger.`,
+			`${p}     Supported trigger kinds: webhook, email, kafka, mqtt,`,
 			`${p}     nats, postgres, sqs, gcp.`,
+			`${p}   - \`${p} partitioned daily tz="UTC"\` (or hourly/weekly/monthly/dynamic)`,
+			`${p}     declares partitioned output. Use \`{partition}\` in asset URIs to`,
+			`${p}     reference the current partition value at runtime.`,
+			`${p}   - \`${p} freshness 1h\` declares an SLA / active backstop.`,
 			`${p}`,
 			`${p} Put your logic inside \`main\`. Whatever you return is the script's`,
 			`${p} output; writes to assets (e.g. s3://, datatable://, ducklake://,`,
@@ -357,7 +363,14 @@
 		const extraTriggers: AssetGraphResponse['triggers'] = []
 
 		for (const [path, d] of drafts) {
-			runnables.push({ path, usage_kind: 'script', is_materializer: true })
+			const parsed = parsePipelineAnnotations(d.script.content)
+			runnables.push({
+				path,
+				usage_kind: 'script',
+				is_materializer: true,
+				partition_kind: parsed.partition?.kind,
+				freshness: parsed.freshness?.duration
+			})
 			const out = d.outputAsset
 			const hasAsset = assets.some((a) => a.kind === out.kind && a.path === out.path)
 			if (!hasAsset) assets.push({ kind: out.kind, path: out.path })
@@ -373,7 +386,6 @@
 			// so the graph stays stable when the user clicks off this draft.
 			// Live annotations (below) take over for the currently-open draft
 			// so keystroke edits still update in real time.
-			const parsed = parsePipelineAnnotations(d.script.content)
 			for (const cron of parsed.schedules) {
 				extraTriggers.push({
 					trigger_kind: 'schedule',

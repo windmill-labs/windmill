@@ -14,6 +14,13 @@ export interface AssetGraphRunnableNode {
 	// visual state; unrelated to what the script actually writes (that's
 	// parsed separately into lineage edges).
 	is_materializer?: boolean
+	// Partition kind (`daily` | `hourly` | `weekly` | `monthly` | `dynamic`)
+	// surfaced from `// partitioned <kind>` for the badge — full PartitionSpec
+	// would carry tz/format/start; here we just need the label.
+	partition_kind?: 'daily' | 'hourly' | 'weekly' | 'monthly' | 'dynamic'
+	// Raw `// freshness <duration>` value, e.g. "1h", "30m". Surfaced for
+	// the badge; the runtime parses it as needed.
+	freshness?: string
 }
 
 // Lineage edge from parsed r/w usages — informational only, not the

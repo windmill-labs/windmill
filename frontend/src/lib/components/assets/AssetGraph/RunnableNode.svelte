@@ -1,12 +1,18 @@
 <script lang="ts">
 	import { Handle, Position } from '@xyflow/svelte'
-	import { Code2, GitBranch, Sparkles } from 'lucide-svelte'
+	import { Code2, GitBranch, Layers, Sparkles, Timer } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { GraphUsageKind } from './types'
 	import { NODE } from '$lib/components/graph/util'
 
 	interface Props {
-		data: { runnable_kind: GraphUsageKind; path: string; is_materializer?: boolean }
+		data: {
+			runnable_kind: GraphUsageKind
+			path: string
+			is_materializer?: boolean
+			partition_kind?: 'daily' | 'hourly' | 'weekly' | 'monthly' | 'dynamic'
+			freshness?: string
+		}
 	}
 	let { data }: Props = $props()
 
@@ -31,6 +37,24 @@
 			<span class="text-3xs uppercase tracking-wide text-tertiary truncate">{label}</span>
 			<span class="text-2xs font-mono text-emphasis truncate">{data.path}</span>
 		</div>
+		{#if data.partition_kind}
+			<div
+				class="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 mr-1 rounded-sm bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"
+				title={`// partitioned ${data.partition_kind}`}
+			>
+				<Layers size={10} />
+				<span class="text-3xs leading-none">{data.partition_kind}</span>
+			</div>
+		{/if}
+		{#if data.freshness}
+			<div
+				class="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 mr-1 rounded-sm bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
+				title={`// freshness ${data.freshness}`}
+			>
+				<Timer size={10} />
+				<span class="text-3xs leading-none">{data.freshness}</span>
+			</div>
+		{/if}
 		{#if data.is_materializer}
 			<div
 				class="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 mr-1.5 rounded-sm bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300"

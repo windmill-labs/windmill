@@ -135,7 +135,9 @@
 				data: {
 					runnable_kind: r.usage_kind,
 					path: r.path,
-					is_materializer: r.is_materializer ?? false
+					is_materializer: r.is_materializer ?? false,
+					partition_kind: r.partition_kind,
+					freshness: r.freshness
 				}
 			})
 		}

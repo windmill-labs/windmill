@@ -1,6 +1,15 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+// Token recognized inside declared asset URIs that the runtime substitutes
+// with the current partition value (e.g. `s3://lake/{partition}.parquet`
+// becomes `s3://lake/2024-04-29.parquet` when materialized for that day).
+// Substitution is the parser's job only at lineage/graph time — at runtime
+// the materializer worker performs the actual replacement before emitting
+// asset signals. Kept as a single well-known token so the parser never
+// has to guess which `{...}` placeholders are partition variables.
+pub const PARTITION_TOKEN: &str = "{partition}";
+
 #[derive(Serialize, PartialEq, Clone, Copy, Debug)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum AssetUsageAccessType {
@@ -53,12 +62,25 @@ pub struct ParseAssetsOutput {
     // parser-detected `w`/`rw` usages in `assets` are the outputs.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub is_materializer: bool,
-    // `// on <trigger-spec>` annotations — execution DAG edges. Each is an
-    // independent OR (any fires the script). Empty = script has no
-    // automatic triggers (still runnable manually / via existing cron
-    // triggers).
+    // Trigger annotations — execution DAG edges. Each is an independent OR
+    // (any fires the script). Empty = script has no automatic triggers
+    // (still runnable manually / via existing cron triggers). Includes both
+    // top-level `// schedule "..."` and `// on <kind> ...` forms.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub triggers: Vec<TriggerSpec>,
+    // `// partitioned <kind> [opts]` — declares that this materializer
+    // produces partitioned output. The runtime resolves `{partition}` in
+    // declared output URIs to the current partition value before signaling
+    // downstream consumers. At most one per script.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub partition: Option<PartitionSpec>,
+    // `// freshness <duration>` — SLA stating the asset must be at most
+    // `duration` old. Active backstop: when no other trigger has fired the
+    // materializer within the window, a watchdog re-runs it. Distinct from
+    // schedule (which is producer cadence); freshness is consumer SLA and
+    // applies regardless of which trigger last fired.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub freshness: Option<FreshnessSpec>,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -83,6 +105,54 @@ pub enum TriggerSpec {
     Postgres { path: String },
     Sqs { path: String },
     Gcp { path: String },
+}
+
+// Partitioning declaration for a materializer. `daily`/`hourly`/`weekly`/
+// `monthly` are time-based with the runtime supplying the current
+// partition value derived from the trigger context (schedule fire time,
+// freshness window, manual run arg). `dynamic` extracts the value from the
+// triggering payload via JSONPath — used for per-tenant / per-shard /
+// per-event-id pipelines where the partition key isn't a wall-clock value.
+#[derive(Serialize, Debug, PartialEq, Clone)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum PartitionKind {
+    Daily,
+    Hourly,
+    Weekly,
+    Monthly,
+    Dynamic { key: String },
+}
+
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct PartitionSpec {
+    #[serde(flatten)]
+    pub kind: PartitionKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tz: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    // ISO-8601 (e.g. "2024-01-01") or kind-specific start anchor. Older
+    // partitions before this anchor are not backfilled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start: Option<String>,
+}
+
+// Freshness SLA. The duration is kept as a raw string ("1h", "30m", "2d")
+// and validated downstream — the parser deliberately doesn't bind to a
+// specific duration crate so the annotation grammar stays parser-light.
+#[derive(Serialize, Debug, PartialEq, Clone)]
+pub struct FreshnessSpec {
+    pub duration: String,
+}
+
+// All pipeline-level annotations parsed off a script's source. Returned by
+// `parse_pipeline_annotations` and forwarded into `ParseAssetsOutput`.
+#[derive(Default, Debug, PartialEq, Clone)]
+pub struct PipelineAnnotations {
+    pub is_materializer: bool,
+    pub triggers: Vec<TriggerSpec>,
+    pub partition: Option<PartitionSpec>,
+    pub freshness: Option<FreshnessSpec>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -190,18 +260,93 @@ pub const ASSET_KINDS: &[(&str, AssetKind)] = &[
     ("volume://", AssetKind::Volume),
 ];
 
+// Strip an optional surrounding pair of double or single quotes. Returns
+// the inner string if quoted, or `None` otherwise. Used by the annotation
+// parser for cron expressions and key=value option values.
+fn unquote(s: &str) -> Option<&str> {
+    s.strip_prefix('"')
+        .and_then(|r| r.strip_suffix('"'))
+        .or_else(|| s.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')))
+}
+
+// Tokenize a `key=value [key="quoted value"] ...` option string. Bare
+// values run until the next whitespace; quoted values consume until the
+// matching quote. Malformed pairs (missing `=` or empty key) are skipped
+// rather than aborting the whole annotation.
+fn parse_kv_opts(s: &str) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let mut chars = s.chars().peekable();
+    loop {
+        while chars.peek().map_or(false, |c| c.is_whitespace()) {
+            chars.next();
+        }
+        if chars.peek().is_none() {
+            break;
+        }
+        let mut key = String::new();
+        while let Some(&c) = chars.peek() {
+            if c == '=' || c.is_whitespace() {
+                break;
+            }
+            key.push(c);
+            chars.next();
+        }
+        if chars.peek() != Some(&'=') || key.is_empty() {
+            // Malformed — skip until next whitespace to recover.
+            while chars.peek().map_or(false, |c| !c.is_whitespace()) {
+                chars.next();
+            }
+            continue;
+        }
+        chars.next(); // consume '='
+        let value = match chars.peek().copied() {
+            Some(q @ ('"' | '\'')) => {
+                chars.next();
+                let mut v = String::new();
+                while let Some(&c) = chars.peek() {
+                    chars.next();
+                    if c == q {
+                        break;
+                    }
+                    v.push(c);
+                }
+                v
+            }
+            _ => {
+                let mut v = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c.is_whitespace() {
+                        break;
+                    }
+                    v.push(c);
+                    chars.next();
+                }
+                v
+            }
+        };
+        out.insert(key, value);
+    }
+    out
+}
+
 // Scan raw source for pipeline annotations. Language-agnostic: any line
 // whose first non-whitespace tokens are a comment prefix (`//`, `#`, or
-// `--`) followed by either:
-//   - bare `materialize` (no arguments)  → is_materializer = true
-//   - `on <trigger-spec>`                 → one TriggerSpec entry
+// `--`) followed by one of the recognized keywords:
+//   - `materialize`              → opt-in marker (no args)
+//   - `schedule "<cron>"`        → top-level inline cron schedule
+//   - `on <trigger-spec>`        → asset / native trigger edge
+//   - `partitioned <kind> [opts]` → partition declaration
+//   - `freshness <duration>`     → SLA / active backstop
 //
 // Trailing content on a `// materialize` line (beyond whitespace) is ignored
 // so the old `// materialize s3://foo` style is forward-compatible: the
 // bare marker still fires even if users have stale per-asset arguments.
-pub fn parse_pipeline_annotations(code: &str) -> (bool, Vec<TriggerSpec>) {
-    let mut is_materializer = false;
-    let mut triggers: Vec<TriggerSpec> = vec![];
+//
+// `partition` and `freshness` use first-write-wins; if multiple lines
+// declare them, the first one is kept (last would be reasonable too, but
+// first matches the file-top convention developers follow).
+pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
+    let mut out = PipelineAnnotations::default();
 
     for raw_line in code.lines() {
         let line = raw_line.trim_start();
@@ -220,7 +365,46 @@ pub fn parse_pipeline_annotations(code: &str) -> (bool, Vec<TriggerSpec>) {
             // Bare marker: must be end-of-line, whitespace, or nothing.
             // Rejects `materializer`, `materialized`, etc.
             if after_kw.is_empty() || after_kw.starts_with(|c: char| c.is_whitespace()) {
-                is_materializer = true;
+                out.is_materializer = true;
+            }
+            continue;
+        }
+
+        if let Some(after_kw) = rest.strip_prefix("schedule") {
+            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
+                continue;
+            }
+            let after = after_kw.trim();
+            if let Some(cron) = unquote(after) {
+                if !cron.trim().is_empty() {
+                    let trig = TriggerSpec::Schedule { cron: cron.to_string() };
+                    if !out.triggers.contains(&trig) {
+                        out.triggers.push(trig);
+                    }
+                }
+            }
+            continue;
+        }
+
+        if let Some(after_kw) = rest.strip_prefix("partitioned") {
+            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
+                continue;
+            }
+            if out.partition.is_none() {
+                if let Some(spec) = parse_partitioned_spec(after_kw.trim()) {
+                    out.partition = Some(spec);
+                }
+            }
+            continue;
+        }
+
+        if let Some(after_kw) = rest.strip_prefix("freshness") {
+            if !after_kw.starts_with(|c: char| c.is_whitespace()) {
+                continue;
+            }
+            let dur = after_kw.trim();
+            if !dur.is_empty() && out.freshness.is_none() {
+                out.freshness = Some(FreshnessSpec { duration: dur.to_string() });
             }
             continue;
         }
@@ -234,35 +418,55 @@ pub fn parse_pipeline_annotations(code: &str) -> (bool, Vec<TriggerSpec>) {
                 continue;
             }
             if let Some(trig) = parse_trigger_spec(spec_text) {
-                if !triggers.contains(&trig) {
-                    triggers.push(trig);
+                if !out.triggers.contains(&trig) {
+                    out.triggers.push(trig);
                 }
             }
         }
     }
 
-    (is_materializer, triggers)
+    out
+}
+
+// Parse a `// partitioned <kind> [opts]` right-hand side. Recognized kinds:
+// `daily`, `hourly`, `weekly`, `monthly` (with optional tz/format/start),
+// and `dynamic key="<jsonpath>"` (plus optional format).
+fn parse_partitioned_spec(s: &str) -> Option<PartitionSpec> {
+    let mut split = s.splitn(2, char::is_whitespace);
+    let kind_word = split.next()?;
+    let opts_str = split.next().unwrap_or("");
+    let opts = parse_kv_opts(opts_str);
+    let kind = match kind_word {
+        "daily" => PartitionKind::Daily,
+        "hourly" => PartitionKind::Hourly,
+        "weekly" => PartitionKind::Weekly,
+        "monthly" => PartitionKind::Monthly,
+        "dynamic" => {
+            let key = opts.get("key")?.clone();
+            if key.is_empty() {
+                return None;
+            }
+            PartitionKind::Dynamic { key }
+        }
+        _ => return None,
+    };
+    Some(PartitionSpec {
+        kind,
+        tz: opts.get("tz").cloned(),
+        format: opts.get("format").cloned(),
+        start: opts.get("start").cloned(),
+    })
 }
 
 // Parse a single `on <spec>` right-hand side. Accepted forms:
-//   schedule "<cron expr>"
 //   <kind> <trigger-path>           — where <kind> is one of
 //     webhook | email | kafka | mqtt | nats | postgres | sqs | gcp
 //   <asset-path-with-prefix>        (e.g. s3://bucket/key, $res:f/foo)
+//
+// Note: `on schedule "..."` is no longer accepted — schedule moved to a
+// top-level `// schedule "..."` annotation. The `Schedule` TriggerSpec
+// variant is still produced, just from a different keyword.
 fn parse_trigger_spec(s: &str) -> Option<TriggerSpec> {
-    if let Some(rest) = s.strip_prefix("schedule") {
-        let rest = rest.trim_start();
-        // Accept either double or single quotes around the cron expression.
-        let cron = rest
-            .strip_prefix('"')
-            .and_then(|r| r.strip_suffix('"'))
-            .or_else(|| rest.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')))?;
-        if cron.trim().is_empty() {
-            return None;
-        }
-        return Some(TriggerSpec::Schedule { cron: cron.to_string() });
-    }
-
     // `<kind> <path>` — delegate to a tiny table so the annotation set
     // stays in lockstep with `TriggerSpec`.
     type Ctor = fn(String) -> TriggerSpec;
@@ -299,49 +503,64 @@ mod pipeline_annotation_tests {
 
     #[test]
     fn bare_materialize_marker() {
-        let (is_m, triggers) = parse_pipeline_annotations("// materialize\nconsole.log('hi')");
-        assert!(is_m);
-        assert!(triggers.is_empty());
+        let out = parse_pipeline_annotations("// materialize\nconsole.log('hi')");
+        assert!(out.is_materializer);
+        assert!(out.triggers.is_empty());
     }
 
     #[test]
     fn bare_materialize_with_trailing_noise_still_fires() {
         // Forward-compat with old `// materialize s3://foo` style.
-        let (is_m, _) = parse_pipeline_annotations("// materialize s3://legacy");
-        assert!(is_m);
+        let out = parse_pipeline_annotations("// materialize s3://legacy");
+        assert!(out.is_materializer);
     }
 
     #[test]
     fn rejects_materializer_keyword_variants() {
-        let (is_m, _) = parse_pipeline_annotations("// materializer\n# materialized");
-        assert!(!is_m);
+        let out = parse_pipeline_annotations("// materializer\n# materialized");
+        assert!(!out.is_materializer);
     }
 
     #[test]
-    fn on_schedule() {
-        let (_, triggers) = parse_pipeline_annotations("// on schedule \"0 */6 * * *\"");
-        assert_eq!(triggers.len(), 1);
+    fn top_level_schedule() {
+        let out = parse_pipeline_annotations("// schedule \"0 */6 * * *\"");
+        assert_eq!(out.triggers.len(), 1);
         assert_eq!(
-            triggers[0],
+            out.triggers[0],
             TriggerSpec::Schedule { cron: "0 */6 * * *".to_string() }
         );
     }
 
     #[test]
+    fn top_level_schedule_single_quotes_and_other_prefixes() {
+        let out = parse_pipeline_annotations("# schedule '0 0 * * *'\n-- schedule \"@daily\"");
+        assert_eq!(out.triggers.len(), 2);
+    }
+
+    #[test]
+    fn rejects_on_schedule_form() {
+        // The old `on schedule "..."` form is no longer recognized — the
+        // `on` branch tries `schedule` as a native trigger kind and falls
+        // through.
+        let out = parse_pipeline_annotations("// on schedule \"0 0 * * *\"");
+        assert!(out.triggers.is_empty());
+    }
+
+    #[test]
     fn on_asset_ts_py_sql() {
         let code = "// on s3://a/b\n# on datatable://main\n-- on $res:f/foo";
-        let (_, triggers) = parse_pipeline_annotations(code);
-        assert_eq!(triggers.len(), 3);
+        let out = parse_pipeline_annotations(code);
+        assert_eq!(out.triggers.len(), 3);
         assert!(matches!(
-            triggers[0],
+            out.triggers[0],
             TriggerSpec::Asset { asset_kind: AssetKind::S3Object, .. }
         ));
         assert!(matches!(
-            triggers[1],
+            out.triggers[1],
             TriggerSpec::Asset { asset_kind: AssetKind::DataTable, .. }
         ));
         assert!(matches!(
-            triggers[2],
+            out.triggers[2],
             TriggerSpec::Asset { asset_kind: AssetKind::Resource, .. }
         ));
     }
@@ -349,21 +568,102 @@ mod pipeline_annotation_tests {
     #[test]
     fn on_deduplicates() {
         let code = "// on s3://a/b\n# on s3://a/b";
-        let (_, triggers) = parse_pipeline_annotations(code);
-        assert_eq!(triggers.len(), 1);
+        let out = parse_pipeline_annotations(code);
+        assert_eq!(out.triggers.len(), 1);
     }
 
     #[test]
     fn rejects_unknown_trigger_spec() {
-        let (_, triggers) = parse_pipeline_annotations("// on unknown://nope\n# on schedule");
-        assert!(triggers.is_empty());
+        let out = parse_pipeline_annotations("// on unknown://nope\n# schedule");
+        assert!(out.triggers.is_empty());
+    }
+
+    #[test]
+    fn partitioned_daily() {
+        let code = "// partitioned daily tz=\"UTC\" format=\"YYYY-MM-DD\" start=\"2024-01-01\"";
+        let out = parse_pipeline_annotations(code);
+        let p = out.partition.expect("partition");
+        assert_eq!(p.kind, PartitionKind::Daily);
+        assert_eq!(p.tz.as_deref(), Some("UTC"));
+        assert_eq!(p.format.as_deref(), Some("YYYY-MM-DD"));
+        assert_eq!(p.start.as_deref(), Some("2024-01-01"));
+    }
+
+    #[test]
+    fn partitioned_hourly_minimal() {
+        let out = parse_pipeline_annotations("// partitioned hourly");
+        let p = out.partition.expect("partition");
+        assert_eq!(p.kind, PartitionKind::Hourly);
+        assert!(p.tz.is_none());
+    }
+
+    #[test]
+    fn partitioned_dynamic_requires_key() {
+        let out = parse_pipeline_annotations("// partitioned dynamic");
+        assert!(out.partition.is_none());
+        let out = parse_pipeline_annotations("// partitioned dynamic key=\"$.tenant_id\"");
+        let p = out.partition.expect("partition");
+        assert_eq!(
+            p.kind,
+            PartitionKind::Dynamic { key: "$.tenant_id".to_string() }
+        );
+    }
+
+    #[test]
+    fn partitioned_first_wins() {
+        let code = "// partitioned daily tz=\"UTC\"\n// partitioned hourly";
+        let out = parse_pipeline_annotations(code);
+        let p = out.partition.expect("partition");
+        assert_eq!(p.kind, PartitionKind::Daily);
+    }
+
+    #[test]
+    fn partitioned_unknown_kind_is_skipped() {
+        let out = parse_pipeline_annotations("// partitioned bogus");
+        assert!(out.partition.is_none());
+    }
+
+    #[test]
+    fn freshness_basic() {
+        let out = parse_pipeline_annotations("// freshness 1h");
+        assert_eq!(out.freshness.unwrap().duration, "1h");
+    }
+
+    #[test]
+    fn freshness_first_wins() {
+        let out = parse_pipeline_annotations("// freshness 1h\n# freshness 30m");
+        assert_eq!(out.freshness.unwrap().duration, "1h");
     }
 
     #[test]
     fn combined() {
-        let code = "// materialize\n// on s3://in.csv\n// on schedule \"0 0 * * *\"";
-        let (is_m, triggers) = parse_pipeline_annotations(code);
-        assert!(is_m);
-        assert_eq!(triggers.len(), 2);
+        let code = concat!(
+            "// materialize\n",
+            "// schedule \"0 0 * * *\"\n",
+            "// on s3://in.csv\n",
+            "// partitioned daily tz=\"UTC\"\n",
+            "// freshness 2h\n"
+        );
+        let out = parse_pipeline_annotations(code);
+        assert!(out.is_materializer);
+        assert_eq!(out.triggers.len(), 2);
+        assert!(out.partition.is_some());
+        assert_eq!(out.freshness.unwrap().duration, "2h");
+    }
+
+    #[test]
+    fn kv_opts_quoted_with_spaces() {
+        let m = parse_kv_opts("a=\"hello world\" b=plain c='single quoted'");
+        assert_eq!(m.get("a").unwrap(), "hello world");
+        assert_eq!(m.get("b").unwrap(), "plain");
+        assert_eq!(m.get("c").unwrap(), "single quoted");
+    }
+
+    #[test]
+    fn kv_opts_malformed_recovers() {
+        let m = parse_kv_opts("garbage a=ok =alone b=fine");
+        assert_eq!(m.get("a").unwrap(), "ok");
+        assert_eq!(m.get("b").unwrap(), "fine");
+        assert!(m.get("garbage").is_none());
     }
 }

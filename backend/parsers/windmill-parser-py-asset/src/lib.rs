@@ -28,11 +28,13 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
         }
     }
 
-    let (is_materializer, triggers) = parse_pipeline_annotations(input);
+    let pipeline = parse_pipeline_annotations(input);
     Ok(ParseAssetsOutput {
         assets: merge_assets(assets_finder.assets),
-        is_materializer,
-        triggers,
+        is_materializer: pipeline.is_materializer,
+        triggers: pipeline.triggers,
+        partition: pipeline.partition,
+        freshness: pipeline.freshness,
         ..Default::default()
     })
 }

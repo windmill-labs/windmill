@@ -38,12 +38,14 @@ pub fn parse_assets(code: &str) -> anyhow::Result<ParseAssetsOutput> {
     let mut assets_finder =
         AssetsFinder { assets: vec![], sql_queries: vec![], var_identifiers: HashMap::new() };
     assets_finder.visit_module_items(&ast);
-    let (is_materializer, triggers) = parse_pipeline_annotations(code);
+    let pipeline = parse_pipeline_annotations(code);
     Ok(ParseAssetsOutput {
         assets: merge_assets(assets_finder.assets),
         sql_queries: assets_finder.sql_queries,
-        is_materializer,
-        triggers,
+        is_materializer: pipeline.is_materializer,
+        triggers: pipeline.triggers,
+        partition: pipeline.partition,
+        freshness: pipeline.freshness,
     })
 }
 
