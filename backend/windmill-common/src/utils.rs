@@ -259,7 +259,7 @@ pub async fn require_admin_or_devops(
 fn instance_name(hostname: &str) -> String {
     hostname
         .replace(" ", "")
-        .replace('_', "-")
+        .replace('_', "")
         .split("-")
         .last()
         .unwrap()
