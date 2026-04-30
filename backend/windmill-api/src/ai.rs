@@ -8,18 +8,18 @@ use axum::routing::get;
 use axum::Json;
 use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router};
 use futures::StreamExt;
-use http::{HeaderMap, Method};
+use http::{HeaderMap, HeaderValue, Method};
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use std::collections::HashMap;
 use std::time::Duration;
-use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
+use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::db::UserDB;
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
@@ -227,6 +227,23 @@ async fn resolve_var(
         (Some(udb), Some(auth)) => Ok(get_variable_or_self_as(path, db, udb, auth, w_id).await?),
         _ => Ok(get_variable_or_self(path, db, w_id).await?),
     }
+}
+
+/// Build an HTTP header value with a clear error message identifying which
+/// header is malformed. Trims surrounding whitespace because workspace
+/// variables (api keys, tokens) are commonly copy-pasted with trailing
+/// newlines that would otherwise produce reqwest's opaque
+/// "builder error: failed to parse header value".
+fn try_header_value(header_name: &str, value: &str) -> Result<HeaderValue> {
+    HeaderValue::from_str(value.trim()).map_err(|_| {
+        Error::BadRequest(format!(
+            "Invalid value for HTTP header '{}': it contains characters that cannot be sent in an HTTP header \
+             (e.g. newline, embedded whitespace, or non-ASCII byte). If this value comes from a workspace variable \
+             or AI resource (api key, organization id, custom header), check it for stray whitespace, embedded \
+             newlines, or non-ASCII characters.",
+            header_name
+        ))
+    })
 }
 
 impl AIRequestConfig {
@@ -452,42 +469,63 @@ impl AIRequestConfig {
             request = request.header("anthropic-beta", "context-1m-2025-08-07");
         }
 
-        // Add authentication headers
+        // Add authentication headers. Header values come from workspace variables
+        // and are validated here so the error names which header is malformed,
+        // instead of surfacing reqwest's opaque deferred builder error on .send().
         if let Some(api_key) = self.api_key {
+            let api_key = api_key.trim();
             if is_azure {
-                request = request.header("api-key", api_key.clone())
+                request = request.header("api-key", try_header_value("api-key", api_key)?);
             } else if is_google_ai {
                 // Note: GoogleAI requests are intercepted earlier (see the GoogleAI
                 // handler block above) and never reach this code path. This branch
                 // is kept as a safety net for the standard Gemini API auth format.
-                request = request.header("x-goog-api-key", api_key.clone())
+                request = request.header(
+                    "x-goog-api-key",
+                    try_header_value("x-goog-api-key", api_key)?,
+                );
             } else {
-                request = request.header("authorization", format!("Bearer {}", api_key.clone()))
+                request = request.header(
+                    "authorization",
+                    try_header_value("authorization", &format!("Bearer {}", api_key))?,
+                );
             }
             // For standard Anthropic API, also add X-API-Key header (but not for Vertex AI)
             if is_anthropic && !is_anthropic_vertex {
-                request = request.header("X-API-Key", api_key);
+                request = request.header("X-API-Key", try_header_value("X-API-Key", api_key)?);
             }
         }
 
         if let Some(access_token) = self.access_token {
-            request = request.header("authorization", format!("Bearer {}", access_token))
+            request = request.header(
+                "authorization",
+                try_header_value("authorization", &format!("Bearer {}", access_token.trim()))?,
+            );
         }
 
         request = request.body(body);
 
         if let Some(org_id) = self.organization_id {
-            request = request.header("OpenAI-Organization", org_id);
+            request = request.header(
+                "OpenAI-Organization",
+                try_header_value("OpenAI-Organization", &org_id)?,
+            );
         }
 
         // Apply custom headers from AI_HTTP_HEADERS environment variable
         for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-            request = request.header(header_name.as_str(), header_value.as_str());
+            request = request.header(
+                header_name.as_str(),
+                try_header_value(header_name, header_value)?,
+            );
         }
 
         // Apply custom headers from the resource
         for (header_name, header_value) in &self.custom_headers {
-            request = request.header(header_name.as_str(), header_value.as_str());
+            request = request.header(
+                header_name.as_str(),
+                try_header_value(header_name, header_value)?,
+            );
         }
 
         Ok(request)
