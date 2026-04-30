@@ -1,3 +1,5 @@
+import { forkConflictModal } from '$lib/stores'
+
 /**
  * The backend rejects "enable" requests on triggers/schedules in a fork when
  * the parent workspace has the same path enabled. The error body is shaped as
@@ -22,8 +24,20 @@ export function detectForkConflict(e: unknown): ForkConflict | null {
 }
 
 /**
- * Catches a fork-conflict error from `fn(false)`, asks the user to confirm,
- * and retries with `fn(true)` when accepted. Re-throws every other error.
+ * Opens the global ForkConflictModal and awaits the user's choice. Resolves
+ * to true when the user clicks "Enable anyway", false when they cancel or
+ * dismiss.
+ */
+function askForkConflictConfirm(kind: string, kindLabel: string, parentWorkspaceId: string) {
+	return new Promise<boolean>((resolve) => {
+		forkConflictModal.val = { kind, kindLabel, parentWorkspaceId, resolve }
+	})
+}
+
+/**
+ * Catches a fork-conflict error from `fn(false)`, shows the confirmation
+ * dialog, and retries with `fn(true)` when the user accepts. Re-throws every
+ * other error.
  *
  * `kindLabel` is shown to the user — pass a friendly name like "kafka trigger"
  * or "schedule" so the dialog reads naturally.
@@ -37,11 +51,10 @@ export async function withForkConflictRetry<T>(
 	} catch (e) {
 		const conflict = detectForkConflict(e)
 		if (!conflict) throw e
-		const proceed = window.confirm(
-			`This ${kindLabel} is also enabled in the parent workspace ` +
-				`(${conflict.parentWorkspaceId}). Both will run at the same time and may ` +
-				`compete for the same upstream events or duplicate side effects.\n\n` +
-				`Enable in this fork anyway?`
+		const proceed = await askForkConflictConfirm(
+			conflict.kind,
+			kindLabel,
+			conflict.parentWorkspaceId
 		)
 		if (!proceed) {
 			throw new Error(
