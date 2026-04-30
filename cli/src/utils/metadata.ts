@@ -232,13 +232,6 @@ export async function generateScriptMetadataInternal(
   // In tree mode, workspace deps are tracked via the tree — exclude from hash
   const depsForHash = tree ? {} : filteredRawWorkspaceDependencies;
   let hash = await generateScriptHash(depsForHash, scriptContent, metadataContent);
-  // Pre-canonical formulas. Accepted as backwards-compat fallbacks so entries
-  // written by older CLIs (v2 lockfiles) don't show as false-positive stale on
-  // first run after upgrade. v3 lockfiles are guaranteed canonical so we skip.
-  const conf = await readLockfile();
-  const legacyHashes = isLegacyLockfile(conf)
-    ? await generateScriptHashLegacyVariants(depsForHash, scriptContent, metadataContent)
-    : [];
 
   // Compute per-module hashes for stale detection (like flow inline scripts)
   let moduleHashes: Record<string, string> = {};
@@ -249,19 +242,10 @@ export async function generateScriptMetadataInternal(
   }
   const hasModuleHashes = Object.keys(moduleHashes).length > 0;
 
-  // If modules exist, combine main script hash + module hashes into a meta-hash
-  let checkHash: string | string[] = hash;
-  let checkSubpath: string | undefined;
-  if (hasModuleHashes) {
-    const sortedEntries = Object.entries(moduleHashes).sort(([a], [b]) => a.localeCompare(b));
-    checkHash = await generateHash(hash + JSON.stringify(sortedEntries));
-    checkSubpath = SCRIPT_TOP_HASH;
-  } else {
-    checkHash = [hash, ...legacyHashes];
-  }
-
   // Rehash-only fast path: trust on-disk content, write canonical hashes
   // straight to the lockfile, skip staleness check and any backend trip.
+  // Short-circuit before computing the legacy fallback hashes since we never
+  // use them on this path.
   if (opts.rehashOnly) {
     if (hasModuleHashes) {
       const sortedEntries = Object.entries(moduleHashes).sort(([a], [b]) => a.localeCompare(b));
@@ -275,6 +259,25 @@ export async function generateScriptMetadataInternal(
       await updateMetadataGlobalLock(remotePath, hash);
     }
     return;
+  }
+
+  // Pre-canonical formulas. Accepted as backwards-compat fallbacks so entries
+  // written by older CLIs (v2 lockfiles) don't show as false-positive stale on
+  // first run after upgrade. v3 lockfiles are guaranteed canonical so we skip.
+  const conf = await readLockfile();
+  const legacyHashes = isLegacyLockfile(conf)
+    ? await generateScriptHashLegacyVariants(depsForHash, scriptContent, metadataContent)
+    : [];
+
+  // If modules exist, combine main script hash + module hashes into a meta-hash
+  let checkHash: string | string[] = hash;
+  let checkSubpath: string | undefined;
+  if (hasModuleHashes) {
+    const sortedEntries = Object.entries(moduleHashes).sort(([a], [b]) => a.localeCompare(b));
+    checkHash = await generateHash(hash + JSON.stringify(sortedEntries));
+    checkSubpath = SCRIPT_TOP_HASH;
+  } else {
+    checkHash = [hash, ...legacyHashes];
   }
 
   // Use checkHash (includes module hashes) so module changes are detected as stale
@@ -1165,6 +1168,14 @@ const WMILL_LOCKFILE = "wmill-lock.yaml";
 const CURRENT_LOCK_VERSION: LockVersion = "v3";
 
 let _v2NudgeShown = false;
+/**
+ * Call to suppress the v2 nudge for the rest of the current process — used by
+ * `wmill lock upgrade` so the user doesn't see a "run lock upgrade" tip while
+ * lock upgrade is the command they're already running.
+ */
+export function suppressV2Nudge(): void {
+  _v2NudgeShown = true;
+}
 function maybeShowV2Nudge(conf: Lock | undefined) {
   if (_v2NudgeShown) return;
   if (conf?.version === "v2") {
@@ -1383,12 +1394,19 @@ export async function clearGlobalLock(path: string): Promise<void> {
     // Remove the specific flat-keyed lock entry. Match both the canonical
     // form and the legacy "./"-prefixed form so duplicate entries left over
     // from older CLIs get cleaned up alongside the canonical write.
+    // Match exactly `key` or `key+<subpath>` (and the same for the legacy
+    // "./"-prefixed form). The "+" separator boundary is critical: a plain
+    // startsWith("f/foo") would also match "f/foobar+..." entries belonging
+    // to a sibling script.
     const key = v2LockPath(path);
     const legacyKey = "./" + key;
     if (conf.locks) {
       Object.keys(conf.locks).forEach((k) => {
         if (!conf.locks) return;
-        if (k.startsWith(key) || k.startsWith(legacyKey)) {
+        if (
+          k === key || k.startsWith(key + "+") ||
+          k === legacyKey || k.startsWith(legacyKey + "+")
+        ) {
           delete conf.locks[k];
         }
       });

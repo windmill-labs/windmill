@@ -11,7 +11,6 @@ import {
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   readLockfile,
-  checkifMetadataUptodate,
 } from "../../utils/metadata.ts";
 import { generateFlowLockInternal, FlowLocksResult } from "../flow/flow_metadata.ts";
 import { generateAppLocksInternal, getAppFolders, AppLocksResult } from "../app/app_metadata.ts";
