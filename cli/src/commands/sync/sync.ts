@@ -2594,31 +2594,6 @@ export async function pull(
       );
     }
 
-    // Auto-fill missing lockfile entries for items that exist on disk but
-    // weren't in the change tracker (i.e. unchanged items that have never been
-    // indexed). Keeps wmill-lock.yaml complete without requiring the user to
-    // run `wmill generate-metadata --rehash-only` or `wmill lock upgrade`
-    // manually for first-time bootstrap.
-    try {
-      const { rehashOnly } = await import("../generate-metadata/generate-metadata.ts");
-      const filled = await rehashOnly(opts as any, undefined, { missingOnly: true });
-      const total = filled.scripts + filled.flows + filled.apps;
-      if (total > 0) {
-        log.info(
-          colors.gray(
-            `Auto-filled ${total} missing lockfile entr${total === 1 ? "y" : "ies"} ` +
-            `(${filled.scripts} script, ${filled.flows} flow, ${filled.apps} app) from disk.`,
-          ),
-        );
-      }
-    } catch (e) {
-      log.warn(
-        colors.yellow(
-          `Could not auto-fill missing lockfile entries: ${e instanceof Error ? e.message : e}`,
-        ),
-      );
-    }
-
     if (opts.jsonOutput) {
       const result = {
         success: true,
@@ -2660,6 +2635,32 @@ export async function pull(
     );
   }
 
+  // Auto-fill missing lockfile entries for items that exist on disk but have
+  // no entry yet (e.g. flows/apps that predate lockfile maintenance). Runs
+  // regardless of whether the pull had changes from the backend so a no-op
+  // pull still bootstraps the lockfile. Silent on a complete lockfile (just
+  // dict lookups, no hashing).
+  if (!opts.jsonOutput) {
+    try {
+      const { rehashOnly } = await import("../generate-metadata/generate-metadata.ts");
+      const filled = await rehashOnly(opts as any, undefined, { missingOnly: true });
+      const total = filled.scripts + filled.flows + filled.apps;
+      if (total > 0) {
+        log.info(
+          colors.gray(
+            `Auto-filled ${total} missing lockfile entr${total === 1 ? "y" : "ies"} ` +
+            `(${filled.scripts} script, ${filled.flows} flow, ${filled.apps} app) from disk.`,
+          ),
+        );
+      }
+    } catch (e) {
+      log.warn(
+        colors.yellow(
+          `Could not auto-fill missing lockfile entries: ${e instanceof Error ? e.message : e}`,
+        ),
+      );
+    }
+  }
 }
 
 function prettyChanges(
