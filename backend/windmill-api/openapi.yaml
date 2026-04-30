@@ -18651,6 +18651,15 @@ paths:
           required: true
           schema:
             type: string
+        - name: marker_file
+          description: |
+            If provided, the folder is only considered to exist when this exact
+            sentinel file is present under file_key. Lets callers distinguish a
+            fully populated folder from a partial upload.
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: S3 folder existence check result
