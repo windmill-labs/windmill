@@ -263,7 +263,7 @@ fn instance_name(hostname: &str) -> String {
         .last()
         .unwrap()
         .to_ascii_lowercase()
-        .to_string()
+        .replace('_', "-")
 }
 
 const DEFAULT_WORKER_SUFFIX_LEN: usize = 5;
