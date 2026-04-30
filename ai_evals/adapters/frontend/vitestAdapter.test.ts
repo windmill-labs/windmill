@@ -40,6 +40,9 @@ vi.mock('$lib/gen', async () => {
 		hasBenchmarkWorkspace,
 		listBenchmarkFlows,
 		listBenchmarkScripts,
+		createBenchmarkHttpTrigger,
+		createBenchmarkSchedule,
+		previewBenchmarkSchedule,
 		runBenchmarkFlowByPath,
 		runBenchmarkScriptPreview
 	} = await import('./mockBackend')
@@ -137,6 +140,20 @@ vi.mock('$lib/gen', async () => {
 				}
 				return actual.JobService.getJob(data)
 			}
+		}),
+		ScheduleService: wrapService(actual.ScheduleService, {
+			previewSchedule: async (data: { requestBody?: Record<string, unknown> }) =>
+				previewBenchmarkSchedule(data),
+			createSchedule: async (data: { workspace: string; requestBody: Record<string, unknown> }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? createBenchmarkSchedule(data)
+					: actual.ScheduleService.createSchedule(data)
+		}),
+		HttpTriggerService: wrapService(actual.HttpTriggerService, {
+			createHttpTrigger: async (data: { workspace: string; requestBody: Record<string, unknown> }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? createBenchmarkHttpTrigger(data)
+					: actual.HttpTriggerService.createHttpTrigger(data)
 		})
 	}
 })

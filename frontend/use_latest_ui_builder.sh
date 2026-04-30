@@ -7,7 +7,7 @@ else
   IS_MAC=false
 fi
 
-cd ../../windmill-code-ui-builder
+cd ~/windmill-code-ui-builder
 HASH=$(git rev-parse --short HEAD)
 HASH=${HASH::-1}
 

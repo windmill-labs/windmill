@@ -59,6 +59,7 @@ import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { runChatLoop } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
+import type { WorkspaceMutationTarget } from './workspaceTools'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -71,6 +72,10 @@ export enum AIMode {
 	NAVIGATOR = 'navigator',
 	API = 'API',
 	ASK = 'ask'
+}
+
+function isWorkspacePath(path: string | undefined): path is string {
+	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
 }
 
 class AIChatManager {
@@ -224,6 +229,27 @@ class AIChatManager {
 		}
 	}
 
+	private getScriptWorkspaceMutationTarget = (): WorkspaceMutationTarget => {
+		const path = this.scriptEditorOptions?.path
+		const workspacePath = isWorkspacePath(path) ? path : undefined
+		return {
+			kind: 'script',
+			path: workspacePath,
+			deployed: workspacePath !== undefined && this.scriptEditorOptions?.lastDeployedCode !== undefined
+		}
+	}
+
+	private getFlowWorkspaceMutationTarget = (): WorkspaceMutationTarget => {
+		return {
+			kind: 'flow',
+			path: this.flowOptions?.path,
+			deployed:
+				!!this.flowOptions?.path &&
+				!!this.flowOptions.lastDeployedFlow &&
+				!this.flowOptions.lastDeployedFlow.draft_only
+		}
+	}
+
 	changeMode(
 		mode: AIMode,
 		pendingPrompt?: string,
@@ -252,6 +278,7 @@ class AIChatManager {
 						args: this.scriptEditorOptions?.args ?? {}
 					}
 				},
+				getWorkspaceMutationTarget: this.getScriptWorkspaceMutationTarget,
 				applyCode: (code: string, opts?: ReviewChangesOpts) => {
 					this.scriptEditorApplyCode?.(code, opts)
 				},
@@ -273,7 +300,10 @@ class AIChatManager {
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.systemMessage.content
 			this.tools = [...flowTools]
-			this.helpers = this.flowAiChatHelpers
+			this.helpers = {
+				...(this.flowAiChatHelpers ?? {}),
+				getWorkspaceMutationTarget: this.getFlowWorkspaceMutationTarget
+			}
 		} else if (mode === AIMode.NAVIGATOR) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareNavigatorSystemMessage(customPrompt)
@@ -1043,7 +1073,7 @@ class AIChatManager {
 		}
 
 		try {
-			const datatables = await this.appAiChatHelpers.getDatatables()
+			const datatables = await this.appAiChatHelpers.listDatatableTables()
 			this.cachedDatatables = flattenDatatablesToAppContextElements(datatables)
 		} catch (err) {
 			console.error('Failed to refresh datatables:', err)

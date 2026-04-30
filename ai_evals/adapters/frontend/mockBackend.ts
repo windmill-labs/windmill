@@ -227,6 +227,60 @@ export function runBenchmarkFlowByPath(input: {
 	})
 }
 
+export function previewBenchmarkSchedule(input: {
+	requestBody?: Record<string, unknown>
+}): Record<string, unknown> {
+	const schedule = input.requestBody?.schedule
+	if (typeof schedule !== 'string' || schedule.trim().split(/\s+/).length !== 6) {
+		throw new Error(`schedule must use a six-field cron expression, got ${JSON.stringify(schedule)}`)
+	}
+
+	return {
+		next_runs: ['1970-01-02T00:00:00.000Z']
+	}
+}
+
+export function createBenchmarkSchedule(input: {
+	workspace: string
+	requestBody: Record<string, unknown>
+}): Record<string, unknown> {
+	assertBenchmarkWorkspacePath('schedule', input.requestBody.path)
+	assertBenchmarkWorkspacePath('target', input.requestBody.script_path)
+	return {
+		path: input.requestBody.path,
+		target_path: input.requestBody.script_path,
+		is_flow: input.requestBody.is_flow,
+		mocked: true
+	}
+}
+
+export function createBenchmarkHttpTrigger(input: {
+	workspace: string
+	requestBody: Record<string, unknown>
+}): Record<string, unknown> {
+	assertBenchmarkWorkspacePath('trigger', input.requestBody.path)
+	assertBenchmarkWorkspacePath('target', input.requestBody.script_path)
+	if (
+		typeof input.requestBody.route_path === 'string' &&
+		input.requestBody.route_path.startsWith('/')
+	) {
+		throw new Error(`HTTP trigger route_path must not start with /, got "${input.requestBody.route_path}"`)
+	}
+	return {
+		path: input.requestBody.path,
+		target_path: input.requestBody.script_path,
+		route_path: input.requestBody.route_path,
+		is_flow: input.requestBody.is_flow,
+		mocked: true
+	}
+}
+
+function assertBenchmarkWorkspacePath(label: string, value: unknown): void {
+	if (typeof value !== 'string' || (!value.startsWith('f/') && !value.startsWith('u/'))) {
+		throw new Error(`${label} path must start with f/ or u/, got ${JSON.stringify(value)}`)
+	}
+}
+
 function buildBenchmarkScriptHash(path: string): string {
 	return `benchmark:${path}`
 }

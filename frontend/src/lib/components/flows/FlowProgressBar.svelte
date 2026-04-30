@@ -33,13 +33,15 @@
 	let isWaitingForEvents = $state(false)
 	let isCanceled = $state(false)
 	let isScheduled = $state(false)
+	let isSkipped = $state(false)
 
 	let progressBar = $state<ProgressBar | undefined>(undefined)
 
 	function updateJobProgress(job: Job) {
 		// Check if job is scheduled for later
-		const isJobScheduled = Boolean('running' in job && 'scheduled_for' in job &&
-			job.scheduled_for && forLater(job.scheduled_for))
+		const isJobScheduled = Boolean(
+			'running' in job && 'scheduled_for' in job && job.scheduled_for && forLater(job.scheduled_for)
+		)
 		isScheduled = isJobScheduled
 
 		const modules = job?.flow_status?.modules
@@ -113,6 +115,7 @@
 		currentStepId = newCurrentStepId
 		isWaitingForEvents = newIsWaitingForEvents
 		isCanceled = job?.canceled || false
+		isSkipped = 'is_skipped' in job && Boolean(job.is_skipped)
 	}
 
 	export function reset() {
@@ -126,6 +129,7 @@
 		isWaitingForEvents = false
 		isCanceled = false
 		isScheduled = false
+		isSkipped = false
 	}
 	$effect(() => {
 		job && updateJobProgress(job)
@@ -149,4 +153,5 @@
 	{isWaitingForEvents}
 	{isCanceled}
 	{isScheduled}
+	{isSkipped}
 />

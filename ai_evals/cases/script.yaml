@@ -9,3 +9,51 @@
     - uses the existing `name` input
     - returns a plain greeting string
     - does not wrap the result in an object or array
+
+- id: script-test2-create-current-script-schedule
+  prompt: |-
+    Update the current Bun script so it takes the existing `name` input and returns a plain greeting string like `Hello, Alice!`.
+    Also create an enabled daily schedule named `greet_user_daily` for the current script.
+    It should run every day at 09:00 UTC and pass `{ "name": "Alice" }` as args.
+    Do not ask me for the script path.
+  initial: ai_evals/fixtures/frontend/script/initial/test1_empty_bun.json
+  expected: ai_evals/fixtures/frontend/script/expected/test1_greet_user.json
+  toolExpect:
+    requiredToolsUsed:
+      - create_schedule
+    toolCallArgs:
+      - tool: create_schedule
+        field: path
+        stringStartsWithAnyOf:
+          - f/
+          - u/
+        stringMustNotStartWithAnyOf:
+          - schedules/
+  skipJudge: true
+  judgeChecklist:
+    - uses the existing `name` input
+    - returns a plain greeting string
+
+- id: script-test3-create-current-script-http-trigger
+  prompt: |-
+    Update the current Bun script so it takes the existing `name` input and returns a plain greeting string like `Hello, Alice!`.
+    Also create a public POST HTTP endpoint named `greet_user_webhook` for the current script.
+    Use route path `ai-evals/greet-user` and no authentication.
+    Do not ask me for the script path.
+  initial: ai_evals/fixtures/frontend/script/initial/test1_empty_bun.json
+  expected: ai_evals/fixtures/frontend/script/expected/test1_greet_user.json
+  toolExpect:
+    requiredToolsUsed:
+      - create_trigger
+    toolCallArgs:
+      - tool: create_trigger
+        field: path
+        stringStartsWithAnyOf:
+          - f/
+          - u/
+        stringMustNotStartWithAnyOf:
+          - schedules/
+  skipJudge: true
+  judgeChecklist:
+    - uses the existing `name` input
+    - returns a plain greeting string

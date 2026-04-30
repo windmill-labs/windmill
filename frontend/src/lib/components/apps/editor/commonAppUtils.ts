@@ -14,6 +14,8 @@ export type TriggerableV2 = {
 	static_inputs: Record<string, any>
 	one_of_inputs?: Record<string, any[] | undefined>
 	allow_user_resources?: string[]
+	delete_after_secs?: number
+	sensitive_inputs?: string[]
 }
 
 export async function hash(message) {

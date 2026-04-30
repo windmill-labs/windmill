@@ -24,6 +24,7 @@ import {
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
+import { pullSharedUi, pushSharedUi } from "../shared_ui.ts";
 
 import {
   exts,
@@ -1920,6 +1921,11 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
   if (p.endsWith(SEP)) {
     return false;
   }
+  // The `ui/` folder is workspace-shared frontend components for raw apps.
+  // It's pushed/pulled separately from the diff machinery (see pushSharedUi/pullSharedUi).
+  if (p.startsWith("ui" + SEP)) {
+    return true;
+  }
   if (isDirectory) {
     return (
       !p.startsWith("u" + SEP) &&
@@ -1966,6 +1972,7 @@ export const isWhitelisted = (p: string) => {
     p == "u" ||
     p == "f" ||
     p == "g" ||
+    p == "ui" ||
     p == "users" ||
     p == "groups" ||
     p == "dependencies"
@@ -2634,6 +2641,11 @@ export async function pull(
     );
   }
 
+  try {
+    await pullSharedUi(workspace.workspaceId);
+  } catch (e) {
+    log.warn(`Failed to pull shared UI folder: ${e}`);
+  }
 }
 
 function prettyChanges(
@@ -3926,6 +3938,11 @@ export async function push(
         await Promise.race(pool);
       }
     }
+    try {
+      await pushSharedUi(workspace.workspaceId);
+    } catch (e) {
+      log.warn(`Failed to push shared UI folder: ${e}`);
+    }
     if (opts.jsonOutput) {
       const result = {
         success: true,
@@ -3964,14 +3981,21 @@ export async function push(
         ),
       );
     }
-  } else if (opts.jsonOutput) {
-    console.log(
-      JSON.stringify(
-        { success: true, message: "No changes to push", total: 0 },
-        null,
-        2,
-      ),
-    );
+  } else {
+    try {
+      await pushSharedUi(workspace.workspaceId);
+    } catch (e) {
+      log.warn(`Failed to push shared UI folder: ${e}`);
+    }
+    if (opts.jsonOutput) {
+      console.log(
+        JSON.stringify(
+          { success: true, message: "No changes to push", total: 0 },
+          null,
+          2,
+        ),
+      );
+    }
   }
 }
 

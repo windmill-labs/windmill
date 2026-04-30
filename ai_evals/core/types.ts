@@ -123,6 +123,23 @@ export interface CliValidationSpec {
   workspaceUnchanged?: boolean;
 }
 
+export interface ToolCallDetail {
+  name: string;
+  arguments: unknown;
+}
+
+export interface ToolCallArgumentRule {
+  tool: string;
+  field: string;
+  stringStartsWithAnyOf?: string[];
+  stringMustNotStartWithAnyOf?: string[];
+}
+
+export interface ToolValidationSpec {
+  requiredToolsUsed?: string[];
+  toolCallArgs?: ToolCallArgumentRule[];
+}
+
 export type EvalValidationSpec = FlowValidationSpec | AppValidationSpec;
 
 export interface EvalCase {
@@ -131,8 +148,10 @@ export interface EvalCase {
   initialPath?: string;
   expectedPath?: string;
   validate?: EvalValidationSpec;
+  toolExpect?: ToolValidationSpec;
   cliExpect?: CliValidationSpec;
   judgeChecklist?: string[];
+  skipJudge?: boolean;
   runtime?: EvalCaseRuntimeSpec;
 }
 
@@ -195,6 +214,7 @@ export interface ModeRunOutput<TActual> {
   assistantMessageCount: number;
   toolCallCount: number;
   toolsUsed: string[];
+  toolCallDetails?: ToolCallDetail[];
   skillsInvoked: string[];
   tokenUsage?: BenchmarkTokenUsage | null;
 }
@@ -251,6 +271,7 @@ export interface BenchmarkAttemptResult {
   assistantMessageCount: number;
   toolCallCount: number;
   toolsUsed: string[];
+  toolCallDetails?: ToolCallDetail[];
   skillsInvoked: string[];
   checks: BenchmarkCheck[];
   judgeScore: number | null;

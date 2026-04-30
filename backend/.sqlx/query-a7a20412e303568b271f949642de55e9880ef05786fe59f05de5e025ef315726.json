@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token SET scopes = $1\n           WHERE email = $2 AND token_prefix = $3\n           RETURNING token_prefix",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "token_prefix",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a7a20412e303568b271f949642de55e9880ef05786fe59f05de5e025ef315726"
+}

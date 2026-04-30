@@ -13,7 +13,7 @@ import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/com
 import { createScriptFileHelpers, type ScriptEvalState } from "./fileHelpers";
 import { runEval } from "../shared";
 import type { ModeRunContext } from "../../../../core/types";
-import type { TokenUsage } from "../shared/types";
+import type { TokenUsage, ToolCallDetail } from "../shared/types";
 import type { FrontendEvalTransport } from "../../../../core/frontendTransport";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
 
@@ -24,6 +24,7 @@ export interface ScriptEvalResult {
   assistantMessageCount: number;
   toolCallCount: number;
   toolsUsed: string[];
+  toolCallDetails: ToolCallDetail[];
   tokenUsage: TokenUsage;
 }
 
@@ -111,6 +112,7 @@ export async function runScriptEval(
       assistantMessageCount: rawResult.iterations,
       toolCallCount: rawResult.toolCallsCount,
       toolsUsed: rawResult.toolsCalled,
+      toolCallDetails: rawResult.toolCallDetails,
       tokenUsage: rawResult.tokenUsage,
     };
   } finally {
