@@ -44,6 +44,9 @@
 	import Button from './common/button/Button.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
+	import DiffEditor from './DiffEditor.svelte'
+	import Drawer from './common/drawer/Drawer.svelte'
+	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import ScheduleEditor from './triggers/schedules/ScheduleEditor.svelte'
 	import RouteEditor from './triggers/http/RouteEditor.svelte'
@@ -74,6 +77,7 @@
 	} from './OnBehalfOfSelector.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
+	import { orderedJsonStringify } from '$lib/utils'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import DeploymentRequestPanel from './deploymentRequest/DeploymentRequestPanel.svelte'
 	import { userStore } from '$lib/stores'
@@ -551,6 +555,7 @@
 			}))
 		const triggerItems = forkTriggers
 			.filter((t) => {
+				if (!isTriggerRelevantForDirection(t, mergeIntoParent)) return false
 				const key = getTriggerKey(t)
 				return deploymentStatus[key]?.status !== 'deployed'
 			})
@@ -573,6 +578,20 @@
 		isFlow: boolean
 		enabled?: boolean
 		extraLabel?: string
+		/** Raw row as returned by the listX endpoint, used to detect changes
+		 * between the fork and parent workspaces. */
+		raw?: any
+		/** True only when both workspaces have the trigger and the relevant
+		 * fields differ. False when the trigger only exists on one side. */
+		hasChanges?: boolean
+		/** Source value for this row in a diff view (raw object from the
+		 * workspace whose state we'd push). */
+		sourceRaw?: any
+		/** Target value (the row that would be overwritten). */
+		targetRaw?: any
+		/** "new" when only in source, "modified" when both differ,
+		 * "deleted-in-source" when only in target. */
+		changeKind?: 'new' | 'modified' | 'deleted-in-source'
 	}
 
 	let ciTestResults = $state<Record<string, CiTestResult[]>>({})
@@ -695,7 +714,8 @@
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
 				enabled: item.enabled,
-				extraLabel: item.schedule
+				extraLabel: item.schedule,
+				raw: item
 			})
 		},
 		routes: {
@@ -721,7 +741,8 @@
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
 				enabled: item.mode === 'enabled',
-				extraLabel: item.url
+				extraLabel: item.url,
+				raw: item
 			})
 		},
 		kafka: {
@@ -734,7 +755,8 @@
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
 				enabled: item.mode === 'enabled',
-				extraLabel: item.topics?.join(', ')
+				extraLabel: item.topics?.join(', '),
+				raw: item
 			})
 		},
 		postgres: {
@@ -746,7 +768,8 @@
 				triggerKind: 'postgres',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.mode === 'enabled'
+				enabled: item.mode === 'enabled',
+				raw: item
 			})
 		},
 		nats: {
@@ -759,7 +782,8 @@
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
 				enabled: item.mode === 'enabled',
-				extraLabel: item.subjects?.join(', ')
+				extraLabel: item.subjects?.join(', '),
+				raw: item
 			})
 		},
 		mqtt: {
@@ -771,7 +795,8 @@
 				triggerKind: 'mqtt',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.mode === 'enabled'
+				enabled: item.mode === 'enabled',
+				raw: item
 			})
 		},
 		sqs: {
@@ -784,7 +809,8 @@
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
 				enabled: item.mode === 'enabled',
-				extraLabel: item.queue_url
+				extraLabel: item.queue_url,
+				raw: item
 			})
 		},
 		gcp: {
@@ -797,7 +823,8 @@
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
 				enabled: item.mode === 'enabled',
-				extraLabel: item.topic_id
+				extraLabel: item.topic_id,
+				raw: item
 			})
 		},
 		azure: {
@@ -810,7 +837,8 @@
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
 				enabled: item.mode === 'enabled',
-				extraLabel: item.topic_name ?? item.scope_resource_id
+				extraLabel: item.topic_name ?? item.scope_resource_id,
+				raw: item
 			})
 		},
 		emails: {
@@ -828,27 +856,122 @@
 					item.workspaced_local_part,
 					currentWorkspaceId,
 					emailDomain ?? ''
-				)
+				),
+				raw: item
 			})
 		}
 	} as const
 
 	let emailDomain = $state<string | undefined>(undefined)
 
+	/**
+	 * Fields that should not count as a "change" between the parent and the
+	 * fork. Mode/enabled are forced to 'disabled'/false on clone and stripped
+	 * by the fork-export filter; the rest are runtime state or per-row
+	 * metadata that always diverges. Comparing without these matches the
+	 * semantics of "is this trigger configured the same way?" rather than
+	 * "are these two rows byte-identical?".
+	 */
+	const TRIGGER_COMPARE_IGNORE = new Set([
+		'workspace_id',
+		'mode',
+		'enabled',
+		'edited_at',
+		'edited_by',
+		'last_server_ping',
+		'server_id',
+		'error',
+		'extra_perms',
+		'permissioned_as'
+	])
+
+	function stripIgnoredFields(row: any): any {
+		if (!row || typeof row !== 'object') return row
+		const out: Record<string, any> = {}
+		for (const [k, v] of Object.entries(row)) {
+			if (!TRIGGER_COMPARE_IGNORE.has(k)) out[k] = v
+		}
+		return out
+	}
+
+	function rowsHaveSameConfig(a: any, b: any): boolean {
+		return (
+			orderedJsonStringify(stripIgnoredFields(a)) === orderedJsonStringify(stripIgnoredFields(b))
+		)
+	}
+
 	async function fetchAllTriggers() {
 		try {
 			emailDomain = await getEmailDomain()
-			const entries = Object.values(triggerServices)
+			const entries = Object.entries(triggerServices) as Array<
+				[TriggerKind, (typeof triggerServices)[keyof typeof triggerServices]]
+			>
+			// Fetch fork + parent in parallel for each kind. Either side may
+			// fail (e.g. permission denied on parent) — fall back to empty.
 			const results = await Promise.allSettled(
-				entries.map(async (svc) => {
-					const items = await svc.list(currentWorkspaceId)
-					return items.map(svc.normalize)
+				entries.map(async ([kind, svc]) => {
+					const [forkItems, parentItems] = await Promise.all([
+						svc.list(currentWorkspaceId).catch(() => [] as any[]),
+						svc.list(parentWorkspaceId).catch(() => [] as any[])
+					])
+					const byPath = new Map<string, { fork?: any; parent?: any }>()
+					for (const item of forkItems) {
+						byPath.set(item.path, { fork: item })
+					}
+					for (const item of parentItems) {
+						const entry = byPath.get(item.path) ?? {}
+						entry.parent = item
+						byPath.set(item.path, entry)
+					}
+					const merged: ForkTrigger[] = []
+					for (const [path, entry] of byPath) {
+						const sourceItem = entry.fork ?? entry.parent
+						const normalized = svc.normalize(sourceItem)
+						let changeKind: ForkTrigger['changeKind']
+						let hasChanges = false
+						if (entry.fork && !entry.parent) {
+							changeKind = 'new'
+						} else if (!entry.fork && entry.parent) {
+							changeKind = 'deleted-in-source'
+						} else if (entry.fork && entry.parent) {
+							hasChanges = !rowsHaveSameConfig(entry.fork, entry.parent)
+							if (hasChanges) changeKind = 'modified'
+						}
+						merged.push({
+							...normalized,
+							raw: sourceItem,
+							hasChanges,
+							changeKind,
+							sourceRaw: entry.fork,
+							targetRaw: entry.parent,
+							path
+						})
+					}
+					return merged
 				})
 			)
 			forkTriggers = results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
 		} catch (e) {
 			console.error('Failed to fetch fork triggers:', e)
 			forkTriggers = []
+		}
+	}
+
+	/**
+	 * Triggers worth showing in the merge UI given the current direction.
+	 * - "Deploy to parent": rows that exist in fork and either don't exist in
+	 *   parent or have config differences.
+	 * - "Update current" (pull from parent): mirror.
+	 * Triggers that exist on both sides with identical config are filtered
+	 * out — they would generate a no-op deploy and only add noise.
+	 */
+	function isTriggerRelevantForDirection(t: ForkTrigger, deployingToParent: boolean): boolean {
+		const existsInFork = !!t.sourceRaw
+		const existsInParent = !!t.targetRaw
+		if (deployingToParent) {
+			return existsInFork && (!existsInParent || !!t.hasChanges)
+		} else {
+			return existsInParent && (!existsInFork || !!t.hasChanges)
 		}
 	}
 
@@ -880,6 +1003,38 @@
 	function getTriggerDisplayName(triggerKind: TriggerKind): string {
 		const triggerType = triggerKindToTriggerType(triggerKind)
 		return triggerType ? triggerDisplayNamesMap[triggerType] : triggerKind
+	}
+
+	let triggerDiffOpen = $state(false)
+	let triggerDiffPayload = $state<
+		| {
+				kindLabel: string
+				path: string
+				originalLabel: string
+				modifiedLabel: string
+				original: string
+				modified: string
+		  }
+		| undefined
+	>(undefined)
+
+	function openTriggerDiff(t: ForkTrigger) {
+		// `sourceRaw` is the fork row, `targetRaw` is the parent row regardless
+		// of direction (set in fetchAllTriggers). The diff reads from the
+		// destination (left) to the source (right), matching the deploy arrow.
+		const sourceWorkspace = mergeIntoParent ? currentWorkspaceId : parentWorkspaceId
+		const targetWorkspace = mergeIntoParent ? parentWorkspaceId : currentWorkspaceId
+		const fromRow = mergeIntoParent ? t.sourceRaw : t.targetRaw
+		const toRow = mergeIntoParent ? t.targetRaw : t.sourceRaw
+		triggerDiffPayload = {
+			kindLabel: getTriggerDisplayName(t.triggerKind),
+			path: t.path,
+			originalLabel: `${targetWorkspace} (target)`,
+			modifiedLabel: `${sourceWorkspace} (source)`,
+			original: orderedJsonStringify(stripIgnoredFields(toRow ?? {}), 2) ?? '{}',
+			modified: orderedJsonStringify(stripIgnoredFields(fromRow ?? {}), 2) ?? '{}'
+		}
+		triggerDiffOpen = true
 	}
 
 	// Fetch triggers when workspace is available
@@ -1120,7 +1275,19 @@
 					{#if item.trigger}
 						{@const t = item.trigger as ForkTrigger}
 						{@const key = item.key}
-						<Badge color="indigo" size="xs">Fork-only</Badge>
+						{#if t.changeKind === 'new'}
+							<Badge
+								title={mergeIntoParent
+									? `Only exists in '${currentWorkspaceId}'`
+									: `Only exists in '${parentWorkspaceId}'`}
+								color="indigo"
+								size="xs">New</Badge
+							>
+						{:else if t.changeKind === 'modified'}
+							<Badge title="Configuration differs from the other workspace" color="yellow" size="xs"
+								>Modified</Badge
+							>
+						{/if}
 						{#if t.isFlow}
 							<Badge color="blue" size="xs">flow</Badge>
 						{/if}
@@ -1133,6 +1300,16 @@
 							</Badge>
 						{/if}
 						{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
+							{#if t.changeKind === 'modified'}
+								<Button
+									size="xs"
+									variant="subtle"
+									startIcon={{ icon: DiffIcon }}
+									onclick={() => openTriggerDiff(t)}
+								>
+									Diff
+								</Button>
+							{/if}
 							<Button
 								size="xs"
 								variant="subtle"
@@ -1350,6 +1527,44 @@
 			'{triggerToDelete.path}'?
 		{/if}
 	</ConfirmationModal>
+
+	<Drawer bind:open={triggerDiffOpen} size="900px">
+		<DrawerContent
+			title={triggerDiffPayload
+				? `${triggerDiffPayload.kindLabel} ${triggerDiffPayload.path}`
+				: 'Trigger diff'}
+			on:close={() => (triggerDiffOpen = false)}
+		>
+			{#if triggerDiffPayload}
+				<div class="flex flex-col gap-2 h-full">
+					<div class="text-xs text-secondary flex gap-3">
+						<span
+							><span class="text-tertiary">Original (target):</span>
+							{triggerDiffPayload.originalLabel}</span
+						>
+						<span
+							><span class="text-tertiary">Modified (source):</span>
+							{triggerDiffPayload.modifiedLabel}</span
+						>
+					</div>
+					<p class="text-2xs text-tertiary">
+						Runtime fields (mode, enabled, server_id, last_server_ping, edited_at, edited_by) are
+						stripped from the diff — those don't propagate through git-sync.
+					</p>
+					<div class="flex-1 min-h-[400px] border rounded">
+						<DiffEditor
+							open={triggerDiffOpen}
+							defaultLang="json"
+							defaultOriginal={triggerDiffPayload.original}
+							defaultModified={triggerDiffPayload.modified}
+							readOnly
+							inlineDiff={false}
+						/>
+					</div>
+				</div>
+			{/if}
+		</DrawerContent>
+	</Drawer>
 {:else}
 	<div class="flex items-center justify-center h-full">
 		<div class="text-gray-500">No comparison data available</div>
