@@ -220,7 +220,7 @@ where
         }
 
         if is_scoped_token {
-            return Err(Error::NotAuthorized(format!(
+            return Err(Error::PermissionDenied(format!(
                 "Required scope: {}",
                 required_scope.as_string()
             )));

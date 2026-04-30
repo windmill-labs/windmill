@@ -89,9 +89,17 @@ export async function requireLogin(
       if (isApiError) {
         const status = (error as { status?: number }).status;
         const body = (error as { body?: unknown }).body;
-        const bodyStr = typeof body === "object" && body !== null
+        let bodyStr = typeof body === "object" && body !== null
           ? JSON.stringify(body)
           : String(body ?? "").trim();
+        // Strip backend source-file refs like "(flows.rs:1400)" or
+        // "@scopes.rs:509" from the surfaced message — same pattern used in
+        // main.ts for ApiError display.
+        bodyStr = bodyStr.replace(/\s*[@(]\w+\.rs:\d+[:\d]*\)?/g, "");
+        // The backend's `Error::PermissionDenied` formats with a
+        // "Permission denied: " prefix; the new CLI message also leads with
+        // that phrase, so strip it from the body to avoid duplication.
+        bodyStr = bodyStr.replace(/^(Permission denied|Not authorized): /, "");
         if (status === 403) {
           // 403 means the token authenticated but lacks scope — re-issuing
           // won't help. Keep this distinct from the 401 message so the user
