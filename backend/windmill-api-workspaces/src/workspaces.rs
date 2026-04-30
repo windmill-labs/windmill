@@ -401,12 +401,6 @@ struct CreateWorkspaceFork {
     /// forked workspace's datatable config to point to the new database.
     #[serde(default)]
     forked_datatables: Vec<ForkedDatatableInfo>,
-    /// When true, clone every trigger and schedule from the parent workspace
-    /// (always with mode='disabled'/enabled=false). The user re-enables what
-    /// they need; warnings on enable cover the parent-conflict case. When
-    /// false (default), the fork starts trigger-empty — same as today.
-    #[serde(default)]
-    fork_triggers: bool,
 }
 
 #[derive(Deserialize)]
@@ -3797,11 +3791,12 @@ async fn clone_workspace_data(
 }
 
 /// Clone every trigger and schedule from the parent workspace, forcing
-/// `mode='disabled'` / `enabled=false`. Called only when the fork-creation
-/// request opts in via `fork_triggers=true`. Listener identifiers
+/// `mode='disabled'` / `enabled=false`. Always runs at fork creation —
+/// disabled rows have no side effects, so cloning them is safe and lets
+/// users re-enable selectively in the fork. Listener identifiers
 /// (group_id, replication_slot_name, subscription_name, …) are copied
 /// verbatim — the runtime suffix that prevents the fork from competing with
-/// the parent ships in a follow-up PR (see Phase 3).
+/// the parent ships in a follow-up PR.
 async fn clone_triggers_and_schedules(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -4864,13 +4859,12 @@ async fn create_workspace_fork(
 
     sqlx::query!(
         "INSERT INTO workspace
-            (id, name, owner, parent_workspace_id, fork_triggers)
-            VALUES ($1, $2, $3, $4, $5)",
+            (id, name, owner, parent_workspace_id)
+            VALUES ($1, $2, $3, $4)",
         forked_id,
         nw.name,
         authed.email,
         parent_workspace_id,
-        nw.fork_triggers,
     )
     .execute(&mut *tx)
     .await?;
@@ -4901,12 +4895,11 @@ async fn create_workspace_fork(
     // Clone all data from the parent workspace using Rust implementation
     clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id).await?;
 
-    // Optionally clone triggers and schedules. Always with mode='disabled' /
-    // enabled=false — the user re-enables in the fork, with warnings if the
-    // parent has the same path enabled (see Phase 4).
-    if nw.fork_triggers {
-        clone_triggers_and_schedules(&mut tx, &parent_workspace_id, &forked_id).await?;
-    }
+    // Clone triggers and schedules unconditionally, always with mode='disabled' /
+    // enabled=false. Disabled rows have no side effects (no listener
+    // attaches, no cron fires) so this is safe by construction. The user
+    // re-enables in the fork, with parent-conflict warnings on enable.
+    clone_triggers_and_schedules(&mut tx, &parent_workspace_id, &forked_id).await?;
 
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {

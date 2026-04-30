@@ -772,10 +772,6 @@ const command = new Command()
     "--datatable-behavior <behavior:string>",
     "How to handle datatables: skip, schema_only, or schema_and_data (default: interactive prompt)"
   )
-  .option(
-    "--fork-triggers",
-    "Clone every trigger and schedule from the parent into the fork (always disabled). Defaults to off."
-  )
   .option("-y --yes", "Skip interactive prompts (defaults datatable behavior to 'skip')")
   .action(createWorkspaceFork as any)
   .command("delete-fork")

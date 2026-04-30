@@ -11,27 +11,22 @@ fork need special handling for two reasons:
    parent through git sync. If the fork sets a trigger to `disabled`, that
    value would otherwise overwrite the parent's `enabled` state on merge.
 
-## Default behavior — `fork_triggers = false`
+## Cloning model — always cloned, always disabled
 
-Forks created without opting in start trigger-empty. The fork has no rows in
-any `*_trigger` table or in `schedule`. This is the safest default: nothing
-in the fork can compete with the parent or alter the parent's state on merge.
-
-## Opt-in cloning — `fork_triggers = true`
-
-When the user ticks "Clone triggers and schedules" (UI) or passes
-`--fork-triggers` (CLI), fork creation also runs `clone_triggers_and_schedules`
-which copies every row from each `*_trigger` table and from `schedule` into
-the fork. Two invariants apply:
+Fork creation always runs `clone_triggers_and_schedules`. Every row in each
+`*_trigger` table and in `schedule` is copied from the parent into the fork
+with two invariants:
 
 - **Always disabled.** The clone forces `mode='disabled'::TRIGGER_MODE` on
   triggers and `enabled=false` on schedules, regardless of the parent's
-  state. The user re-enables manually in the fork.
-- **Listener identifiers copied verbatim.** Stored values for
-  `group_id`, `replication_slot_name`, `subscription_name`, `client_id`,
+  state. Disabled rows have **no side effects** — no listener attaches to
+  the upstream, no cron fires — so this clone is safe by construction.
+  The user re-enables manually in the fork.
+- **Listener identifiers copied verbatim.** Stored values for `group_id`,
+  `replication_slot_name`, `subscription_name`, `client_id`,
   `consumer_name`, etc. are copied 1:1. Until the runtime-suffix work
-  ships (see below), this means enabling a cloned listener in the fork
-  would compete with the parent.
+  ships (see below), enabling a cloned listener in the fork would compete
+  with the parent — the conflict warning below catches that case.
 
 `native_trigger` (Nextcloud, Google Drive, GitHub) is intentionally **not
 cloned**. Those triggers manage external webhook state we don't want
@@ -65,8 +60,9 @@ fork-conflict:<kind>:<parent_workspace_id>
 ```
 
 The frontend's `withForkConflictRetry` helper detects this prefix, asks the
-user to confirm via a dialog, and re-issues the call with `force: true` if
-the user agrees. The CLI sees the raw error.
+user to confirm via a dialog (a `ConfirmationModal` mounted at the logged
+layout root, driven by the `forkConflictModal` store), and re-issues the
+call with `force: true` if the user agrees. The CLI sees the raw error.
 
 This warning is the *durable* solution for trigger kinds where the conflict
 cannot be eliminated:
@@ -80,7 +76,22 @@ cannot be eliminated:
 For the kinds that *can* be auto-namespaced (see below), the warning is the
 short-term placeholder until that work lands.
 
-## Future work — runtime listener suffix (Phase 3)
+## Merge UI behavior
+
+The merge UI (`CompareWorkspaces.svelte`) lists triggers and schedules
+side-by-side from both workspaces, computes a per-row change check that
+ignores runtime fields (`mode`, `enabled`, `server_id`, `last_server_ping`,
+`edited_at`/`edited_by`, `extra_perms`, `permissioned_as`), and only shows
+rows that differ in actual config. A fresh clone (only `mode` differs) is
+filtered out.
+
+Triggers and schedules are **never auto-selected** in the default deploy /
+update selection — only diff items (scripts/flows/apps/etc.) are. The user
+opts in by clicking individual trigger rows. This keeps a routine
+`Deploy to parent` flow from accidentally pushing trigger config the fork
+hasn't intentionally changed.
+
+## Future work — runtime listener suffix
 
 A follow-up PR will append a fork-specific suffix to the upstream identifier
 at runtime for the kinds that support it:
@@ -95,8 +106,7 @@ at runtime for the kinds that support it:
 | GCP Pub/Sub (CreateNew) | `subscription_id` | `manage_google_subscription` creates the suffixed sub. |
 
 The suffix is invisible in the stored row and never reaches the parent on
-merge — the merge-direction filter strips identifier columns too.
-
-`Phase 3` also adds cleanup-on-fork-delete hooks for the upstream resources
+merge — the merge-direction filter strips identifier columns too. The
+follow-up also adds cleanup-on-fork-delete hooks for the upstream resources
 (Azure / GCP / Postgres publication) so deleted forks don't leak external
 state.
