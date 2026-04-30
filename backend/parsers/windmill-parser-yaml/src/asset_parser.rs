@@ -43,7 +43,7 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
     let pipeline = parse_pipeline_annotations(input);
     Ok(ParseAssetsOutput {
         assets: merge_assets(assets),
-        is_materializer: pipeline.is_materializer,
+        in_pipeline: pipeline.in_pipeline,
         triggers: pipeline.triggers,
         partition: pipeline.partition,
         freshness: pipeline.freshness,

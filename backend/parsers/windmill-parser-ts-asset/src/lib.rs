@@ -42,7 +42,7 @@ pub fn parse_assets(code: &str) -> anyhow::Result<ParseAssetsOutput> {
     Ok(ParseAssetsOutput {
         assets: merge_assets(assets_finder.assets),
         sql_queries: assets_finder.sql_queries,
-        is_materializer: pipeline.is_materializer,
+        in_pipeline: pipeline.in_pipeline,
         triggers: pipeline.triggers,
         partition: pipeline.partition,
         freshness: pipeline.freshness,

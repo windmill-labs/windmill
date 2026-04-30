@@ -10,10 +10,10 @@ export interface AssetGraphAssetNode {
 export interface AssetGraphRunnableNode {
 	path: string
 	usage_kind: GraphUsageKind
-	// Script has `// materialize` annotation. Drives the pipeline-member
+	// Script has `// pipeline` annotation. Drives the pipeline-member
 	// visual state; unrelated to what the script actually writes (that's
 	// parsed separately into lineage edges).
-	is_materializer?: boolean
+	in_pipeline?: boolean
 	// Partition kind (`daily` | `hourly` | `weekly` | `monthly` | `dynamic`)
 	// surfaced from `// partitioned <kind>` for the badge — full PartitionSpec
 	// would carry tz/format/start; here we just need the label.
@@ -21,6 +21,10 @@ export interface AssetGraphRunnableNode {
 	// Raw `// freshness <duration>` value, e.g. "1h", "30m". Surfaced for
 	// the badge; the runtime parses it as needed.
 	freshness?: string
+	// Synthesized by the page from a local draft; the script doesn't exist
+	// in the DB yet. Drives a dashed/lower-opacity rendering to mirror how
+	// unsaved triggers are styled — visually distinct from persisted nodes.
+	unsaved?: boolean
 }
 
 // Lineage edge from parsed r/w usages — informational only, not the

@@ -40,7 +40,7 @@
 		// Pipeline-wide + node shown at the top of the graph. Picking any
 		// kind from the menu invokes this one callback with the chosen
 		// trigger source — the page uses it to seed the draft's annotation.
-		onAddMaterializer?: (
+		onAddPipelineScript?: (
 			language: import('$lib/gen').ScriptLang,
 			path: string,
 			source:
@@ -53,20 +53,32 @@
 		// Folder-scoped prefix shown as a read-only chip in the insert menu
 		// path input (e.g. `f/{folder}/`). Shared across top + and per-asset +.
 		pathPrefix?: string
-		// Seeded editable suffix (e.g. `new_materializer`).
+		// Seeded editable suffix (e.g. `new_pipeline_script`).
 		defaultPathSuffix?: string
 		// Default cron expression seeded into the top + template.
 		defaultScheduleCron?: string
+		// Page-supplied dispatch for the per-asset run button. Receives the
+		// producer (kind/path/unsaved) and returns the new job id. The page
+		// implements the unsaved branch by calling runScriptPreview with the
+		// locally-cached draft content so users can run drafts before
+		// deployment. Without this callback, the per-asset run button is
+		// hidden.
+		onRunProducer?: (producer: {
+			kind: 'script' | 'flow'
+			path: string
+			unsaved?: boolean
+		}) => Promise<string | undefined>
 	}
 	let {
 		graph,
 		selection,
 		onselect,
 		onAddScriptForAsset,
-		onAddMaterializer,
+		onAddPipelineScript,
 		pathPrefix = '',
 		defaultPathSuffix = '',
-		defaultScheduleCron = ''
+		defaultScheduleCron = '',
+		onRunProducer
 	}: Props = $props()
 
 	const ADD_NODE_ID = '__add__'
@@ -100,18 +112,41 @@
 		}> = []
 		const edges: BuiltEdge[] = []
 
-		const hasAddNode = onAddMaterializer != null
+		const hasAddNode = onAddPipelineScript != null
 		if (hasAddNode) {
 			nodes.push({
 				id: ADD_NODE_ID,
 				type: 'add',
 				data: {
-					onAddMaterializer: onAddMaterializer!,
+					onAddPipelineScript: onAddPipelineScript!,
 					pathPrefix,
 					defaultPathSuffix,
 					defaultScheduleCron
 				}
 			})
+		}
+
+		// Producers per asset, derived from write/rw edges. Used by the
+		// asset node to surface a "Run" button on hover/select that fires
+		// the upstream script(s). Drafts are *included* (with `unsaved:
+		// true`) so the button is visible even before the producer is
+		// deployed — the click handler shows a "Save first" toast in that
+		// case rather than 404'ing. Hiding the button entirely for unsaved
+		// producers made the affordance vanish whenever the user only had
+		// drafts in scope, which is the common case in a fresh pipeline.
+		const producersByAsset = new Map<
+			string,
+			Array<{ kind: 'script' | 'flow'; path: string; unsaved?: boolean }>
+		>()
+		for (const e of g.edges ?? []) {
+			const access = e.access_type ?? 'r'
+			if (access !== 'w' && access !== 'rw') continue
+			const key = `${e.asset_kind}:${e.asset_path}`
+			const list = producersByAsset.get(key) ?? []
+			if (!list.some((p) => p.kind === e.runnable_kind && p.path === e.runnable_path)) {
+				list.push({ kind: e.runnable_kind, path: e.runnable_path, unsaved: e.unsaved })
+			}
+			producersByAsset.set(key, list)
 		}
 
 		for (const a of g.assets) {
@@ -124,7 +159,9 @@
 					path: a.path,
 					onAddScript: onAddScriptForAsset,
 					pathPrefix,
-					defaultPathSuffix
+					defaultPathSuffix,
+					producers: producersByAsset.get(`${a.kind}:${a.path}`) ?? [],
+					onRunProducer
 				}
 			})
 		}
@@ -135,9 +172,10 @@
 				data: {
 					runnable_kind: r.usage_kind,
 					path: r.path,
-					is_materializer: r.is_materializer ?? false,
+					in_pipeline: r.in_pipeline ?? false,
 					partition_kind: r.partition_kind,
-					freshness: r.freshness
+					freshness: r.freshness,
+					unsaved: r.unsaved ?? false
 				}
 			})
 		}
@@ -167,7 +205,7 @@
 		}
 
 		// Non-asset triggers (schedule + native) are rendered as source nodes
-		// above the materializer. Nodes are deduplicated per (kind, ref)
+		// above the pipeline script. Nodes are deduplicated per (kind, ref)
 		// tuple so a single schedule/webhook shared across multiple scripts
 		// shows as one node with N outgoing edges. A trigger node is
 		// considered unsaved if every attachment referencing it is unsaved.

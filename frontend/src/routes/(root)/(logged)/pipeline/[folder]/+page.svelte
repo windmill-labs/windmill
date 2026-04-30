@@ -26,7 +26,7 @@
 		NetworkIcon,
 		RefreshCw
 	} from 'lucide-svelte'
-	import { OpenAPI, type AssetKind, type Script, type ScriptLang } from '$lib/gen'
+	import { JobService, OpenAPI, type AssetKind, type Script, type ScriptLang } from '$lib/gen'
 	import { initialCode } from '$lib/script_helpers'
 	import { resource } from 'runed'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -55,11 +55,11 @@
 	// on the left the user can't delete, plus an editable suffix seeded
 	// with a placeholder name.
 	let pathPrefix = $derived(`f/${folder}/`)
-	const DEFAULT_PATH_SUFFIX = 'new_materializer'
-	// Default cron for top + materializers (pipeline roots). Every hour is a
-	// sane middle ground between batch and real-time; users edit the
+	const DEFAULT_PATH_SUFFIX = 'new_pipeline_script'
+	// Default cron for top + pipeline scripts (pipeline roots). Every hour is
+	// a sane middle ground between batch and real-time; users edit the
 	// `// schedule "..."` line in the editor before saving if they want
-	// something different. Per-asset materializers don't get a schedule by
+	// something different. Asset-triggered scripts don't get a schedule by
 	// default — they inherit their trigger from the upstream asset.
 	const DEFAULT_SCHEDULE_CRON = '0 * * * *'
 
@@ -146,7 +146,7 @@
 	}>({
 		scriptPath: undefined,
 		annotations: {
-			isMaterializer: false,
+			inPipeline: false,
 			triggerAssets: [],
 			schedules: [],
 			nativeTriggers: []
@@ -205,10 +205,12 @@
 				path: string | undefined
 		  }
 
-	// Short "how to author a materializer" doc block prepended to every new
-	// draft. Kept terse because the editor mounts it on-screen — a wall of
-	// comments up top discourages the user more than it helps.
-	function materializerHeader(language: ScriptLang, sources: DraftTriggerSource[]): string {
+	// Annotation block prepended to every new draft. Pipeline scripts opt in
+	// with `// pipeline` (strict — keyword on its own line) plus zero or
+	// more trigger declarations. We deliberately don't include a doc block
+	// here: it's noise on the editor canvas and the annotation grammar is
+	// documented in /docs.
+	function pipelineHeader(language: ScriptLang, sources: DraftTriggerSource[]): string {
 		const p = commentPrefix(language)
 		const triggerLines = sources.map((s) => {
 			switch (s.kind) {
@@ -223,61 +225,106 @@
 					return `${p} on ${s.kind} ${s.path ?? '<trigger-path>'}`
 			}
 		})
-		const lines = [
-			`${p} materialize`,
-			...triggerLines,
-			`${p}`,
-			`${p} This script is a pipeline materializer.`,
-			`${p}   - Reads and writes detected in the code become the lineage edges`,
-			`${p}     shown in the pipeline graph (no extra declaration needed).`,
-			`${p}   - The \`${p} materialize\` marker opts it into the pipeline.`,
-			`${p}   - \`${p} schedule "<cron>"\` declares an inline cron trigger.`,
-			`${p}   - \`${p} on <asset|<kind> <path>>\` declares an event-based trigger.`,
-			`${p}     Supported trigger kinds: webhook, email, kafka, mqtt,`,
-			`${p}     nats, postgres, sqs, gcp.`,
-			`${p}   - \`${p} partitioned daily tz="UTC"\` (or hourly/weekly/monthly/dynamic)`,
-			`${p}     declares partitioned output. Use \`{partition}\` in asset URIs to`,
-			`${p}     reference the current partition value at runtime.`,
-			`${p}   - \`${p} freshness 1h\` declares an SLA / active backstop.`,
-			`${p}`,
-			`${p} Put your logic inside \`main\`. Whatever you return is the script's`,
-			`${p} output; writes to assets (e.g. s3://, datatable://, ducklake://,`,
-			`${p} volume://) go through the usual Windmill helpers.`,
-			''
-		]
-		return lines.join('\n')
+		return [`${p} pipeline`, ...triggerLines, ''].join('\n')
 	}
 
-	// Per-language boilerplate that declares the output asset URI at module
-	// scope. Two reasons:
-	//   1. The string literal is where the backend parser picks up the write
-	//      on deploy — reproducing the same asset → runnable edge the
-	//      frontend draft overlay shows while unsaved.
-	//   2. Gives the user a named variable to reference when filling in
-	//      `main`, instead of a magic string deep in the body.
-	function outputAssetSnippet(language: ScriptLang, uri: string): string {
-		const p = commentPrefix(language)
-		const note = `${p} Output of this materializer — write to this path inside \`main\`.`
+	// Minimal pipeline-script body per language. No user-facing args (pipeline
+	// scripts are fired by triggers, not invoked interactively); the runtime
+	// auto-fills partition/context fields when applicable. The output URI is
+	// declared as a module-scope literal so the backend asset parser sees the
+	// write on deploy and the graph stays in sync.
+	function pipelineBody(language: ScriptLang, outputAssetUri?: string): string {
+		const out = outputAssetUri
 		switch (language) {
 			case 'python3':
-				return `${note}\nOUTPUT = "${uri}"\n\n`
+				return [
+					out ? `OUT = "${out}"\n` : '',
+					'def main():',
+					'    # Read inputs and write to OUT.',
+					'    pass',
+					''
+				].join('\n')
+			case 'bun':
+			case 'deno':
+				return [
+					out ? `const OUT = "${out}"\n` : '',
+					'export async function main() {',
+					'    // Read inputs and write to OUT.',
+					'}',
+					''
+				].join('\n')
 			case 'postgresql':
 			case 'mysql':
 			case 'bigquery':
 			case 'snowflake':
 			case 'mssql':
 			case 'oracledb':
+				return [
+					out ? `-- writes to: ${out}` : '',
+					"-- Read with FROM 's3://...', write with INSERT / COPY.",
+					'SELECT 1;',
+					''
+				]
+					.filter(Boolean)
+					.join('\n')
 			case 'duckdb':
-				// SQL has no variable scope we can reliably reuse; drop a
-				// referenceable comment the parser still finds inside strings.
-				return `${note}\n${p}   ${uri}\n\n`
+				return [
+					out ? `-- writes to: ${out}` : '',
+					'-- Read with read_parquet/read_csv on s3:// paths;',
+					"-- write with COPY (...) TO 's3://...'.",
+					'SELECT 1;',
+					''
+				]
+					.filter(Boolean)
+					.join('\n')
 			case 'bash':
+				return [out ? `OUT="${out}"\n` : '', '# Read inputs and write to "$OUT".', 'true', ''].join(
+					'\n'
+				)
 			case 'powershell':
+				return [out ? `$OUT = "${out}"\n` : '', '# Read inputs and write to $OUT.', ''].join('\n')
 			case 'nu':
+				return [out ? `let OUT = "${out}"\n` : '', '# Read inputs and write to $OUT.', ''].join(
+					'\n'
+				)
+			case 'go':
+				return [
+					'package inner',
+					'',
+					out ? `const OUT = "${out}"\n` : '',
+					'func main() (interface{}, error) {',
+					'    // Read inputs and write to OUT.',
+					'    return nil, nil',
+					'}',
+					''
+				].join('\n')
+			case 'rust':
+				return [
+					out ? `const OUT: &str = "${out}";\n` : '',
+					'fn main() -> anyhow::Result<()> {',
+					'    // Read inputs and write to OUT.',
+					'    Ok(())',
+					'}',
+					''
+				].join('\n')
 			case 'ansible':
-				return `${note}\nOUTPUT="${uri}"\n\n`
+				return [
+					'---',
+					out ? `# writes to: ${out}` : '',
+					'- name: Pipeline play',
+					'  hosts: localhost',
+					'  tasks: []',
+					''
+				]
+					.filter(Boolean)
+					.join('\n')
 			default:
-				return `${note}\nconst OUTPUT = "${uri}"\n\n`
+				// Conservative fallback for languages without a hand-rolled
+				// minimal template — windmill ships a default body that we
+				// can use rather than ship something broken. Only loses the
+				// argless guarantee for these languages; users can trim args
+				// themselves.
+				return initialCode(language as any, 'script', 'script')
 		}
 	}
 
@@ -287,12 +334,9 @@
 		sources: DraftTriggerSource[],
 		outputAssetUri?: string
 	): Script {
-		// Reuse the language-specific main() boilerplate Windmill already
-		// ships with so every language produces a usable function signature.
-		const body = initialCode(language as any, 'script', 'script')
-		const header = materializerHeader(language, sources)
-		const output = outputAssetUri ? outputAssetSnippet(language, outputAssetUri) : ''
-		const content = header + output + body
+		const header = pipelineHeader(language, sources)
+		const body = pipelineBody(language, outputAssetUri)
+		const content = header + body
 		// Cast through unknown: the Script generated type has many readonly
 		// deployment fields (hash, created_*) that we don't care about for a
 		// local draft. The details pane only reads path/language/content/schema.
@@ -367,9 +411,10 @@
 			runnables.push({
 				path,
 				usage_kind: 'script',
-				is_materializer: true,
+				in_pipeline: true,
 				partition_kind: parsed.partition?.kind,
-				freshness: parsed.freshness?.duration
+				freshness: parsed.freshness?.duration,
+				unsaved: true
 			})
 			const out = d.outputAsset
 			const hasAsset = assets.some((a) => a.kind === out.kind && a.path === out.path)
@@ -513,6 +558,31 @@
 			? { kind: 'runnable', runnable_kind: 'script', path: activeDraftPath }
 			: selection
 	)
+
+	// Bumped after every successful run dispatch so AssetRunsPanel re-fetches
+	// the listing immediately — the new (preview or script) job appears in
+	// the history popover without waiting on its 3 s poll tick.
+	let runsRefreshKey = $state(0)
+
+	// Producers (write/rw edges) for the currently-selected asset, derived
+	// from `graphWithDraft.edges`. Threaded into the details pane so the
+	// runs panel can list jobs for the right scripts. We include drafts —
+	// running a draft via runScriptPreview creates a `preview`-kind job at
+	// the same path, which the panel's listing query picks up.
+	let selectionProducers = $derived.by(() => {
+		const sel = selection
+		if (!sel || sel.kind !== 'asset') return []
+		return graphWithDraft.edges
+			.filter((e) => {
+				const access = e.access_type ?? 'r'
+				return (
+					(access === 'w' || access === 'rw') &&
+					e.asset_kind === sel.asset_kind &&
+					e.asset_path === sel.path
+				)
+			})
+			.map((e) => ({ kind: e.runnable_kind, path: e.runnable_path, unsaved: e.unsaved }))
+	})
 
 	// Folder-picker modal state. Opens from the folder selector button when
 	// there are no other pipelines to switch to, or from the "Choose another
@@ -712,14 +782,50 @@
 								const ref = `${ASSET_PREFIX[asset.kind]}${asset.path}`
 								openMaterializerDraft(language, scriptPath, [{ kind: 'asset', ref }])
 							}}
-							onAddMaterializer={(language, scriptPath, source) =>
+							onAddPipelineScript={(language, scriptPath, source) =>
 								openMaterializerDraft(language, scriptPath, [source])}
+							onRunProducer={async (producer) => {
+								// Saved scripts go through runScriptByPath; drafts
+								// have no DB row yet, so dispatch to runScriptPreview
+								// with the locally-cached content/language. Keeping
+								// this dispatch in the page (rather than the canvas
+								// or AssetNode) so the asset-graph components stay
+								// stateless wrt drafts. Bump runsRefreshKey on
+								// success so the runs panel picks up the new job
+								// immediately — its background poll only kicks in
+								// for already-listed in-flight jobs.
+								if (!$workspaceStore || producer.kind !== 'script') return undefined
+								let jobId: string | undefined
+								if (producer.unsaved) {
+									const draft = drafts.get(producer.path)
+									if (!draft?.script.content || !draft.script.language) return undefined
+									jobId = await JobService.runScriptPreview({
+										workspace: $workspaceStore,
+										requestBody: {
+											content: draft.script.content,
+											language: draft.script.language,
+											path: producer.path,
+											args: {}
+										}
+									})
+								} else {
+									jobId = await JobService.runScriptByPath({
+										workspace: $workspaceStore,
+										path: producer.path,
+										requestBody: {}
+									})
+								}
+								if (jobId) runsRefreshKey++
+								return jobId
+							}}
 						/>
 					</Pane>
 					{#if (selection || activeDraft) && $workspaceStore}
 						<Pane size={40} minSize={25}>
 							<AssetGraphDetailsPane
 								selection={activeDraft ? undefined : selection}
+								selectionProducers={activeDraft ? [] : selectionProducers}
+								{runsRefreshKey}
 								draftScript={activeDraft?.script}
 								workspace={$workspaceStore}
 								onAnnotationsChange={(scriptPath, annotations) => {
@@ -734,7 +840,7 @@
 									liveAnnotations = {
 										scriptPath: undefined,
 										annotations: {
-											isMaterializer: false,
+											inPipeline: false,
 											triggerAssets: [],
 											schedules: [],
 											nativeTriggers: []
@@ -746,6 +852,26 @@
 								}}
 								onDraftSaved={async (savedPath) => {
 									discardDraft(savedPath)
+									await graphRes.refetch()
+								}}
+								onScriptRenamed={async (oldPath, newPath) => {
+									// Repoint the selection at the new path before the
+									// graph refetches so the pane stays focused on the
+									// same script. Order matters: update selection
+									// first, then refetch — otherwise the resource
+									// driving the pane would briefly resolve to nothing.
+									if (selection?.kind === 'runnable' && selection.path === oldPath) {
+										selection = { ...selection, path: newPath }
+									}
+									await graphRes.refetch()
+								}}
+								onScriptRemoved={async (removedPath) => {
+									// Drop the selection (the script is gone) and
+									// refetch so the runnable node disappears from
+									// the canvas.
+									if (selection?.kind === 'runnable' && selection.path === removedPath) {
+										selection = undefined
+									}
 									await graphRes.refetch()
 								}}
 							/>

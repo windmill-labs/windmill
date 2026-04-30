@@ -72,7 +72,7 @@
 	type TableApp = TableItem<ListableApp, 'app'>
 	type TableRawApp = TableItem<ListableRawApp, 'raw_app'>
 
-	// Folders with ≥1 materializer script (auto_kind='materializer'). Used by
+	// Folders with ≥1 pipeline script (auto_kind='pipeline'). Used by
 	// TreeView to surface a "Pipeline" entry inside those folders. Cheap
 	// thanks to the partial index on script.auto_kind.
 	let pipelineFoldersRes = resource(

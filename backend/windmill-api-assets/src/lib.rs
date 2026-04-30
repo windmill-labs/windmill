@@ -389,10 +389,10 @@ struct GraphAssetNode {
 struct GraphRunnableNode {
     path: String,
     usage_kind: AssetUsageKind,
-    // True iff the script was deployed with `// materialize` — drives the
+    // True iff the script was deployed with `// pipeline` — drives the
     // pipeline-member visual state on the frontend.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
-    is_materializer: bool,
+    in_pipeline: bool,
 }
 
 // Lineage edge from parsed r/w usages. One per (runnable, asset, access_type)
@@ -538,13 +538,13 @@ async fn asset_graph(
     .fetch_all(&mut *tx)
     .await?;
 
-    // Which scripts in scope are pipeline members (have `// materialize`).
-    let materializer_paths = sqlx::query!(
+    // Which scripts in scope are pipeline members (have `// pipeline`).
+    let pipeline_member_paths = sqlx::query!(
         r#"
         SELECT path AS "path!"
         FROM script
         WHERE workspace_id = $1
-          AND auto_kind = 'materializer'
+          AND auto_kind = 'pipeline'
           AND archived = false
           AND deleted = false
           AND ($2::text IS NULL OR path LIKE $2)
@@ -557,18 +557,18 @@ async fn asset_graph(
 
     tx.commit().await?;
 
-    let materializer_script_paths: std::collections::HashSet<String> =
-        materializer_paths.into_iter().map(|r| r.path).collect();
+    let pipeline_member_script_paths: std::collections::HashSet<String> =
+        pipeline_member_paths.into_iter().map(|r| r.path).collect();
 
     let mut edges = Vec::with_capacity(rows.len());
     let mut asset_set: std::collections::HashSet<(AssetKind, String)> = Default::default();
     let mut runnable_set: std::collections::HashSet<(AssetUsageKind, String)> = Default::default();
 
-    // Every materializer in scope goes into the graph, even when the parser
+    // Every pipeline member in scope goes into the graph, even when the parser
     // didn't detect any asset r/w and the script has no triggers yet. Without
-    // this, a freshly-saved materializer whose template body hasn't been
+    // this, a freshly-saved pipeline script whose template body hasn't been
     // filled in would vanish from the pipeline view on graph refetch.
-    for path in &materializer_script_paths {
+    for path in &pipeline_member_script_paths {
         runnable_set.insert((AssetUsageKind::Script, path.clone()));
     }
 
@@ -666,9 +666,9 @@ async fn asset_graph(
     let mut runnables: Vec<GraphRunnableNode> = runnable_set
         .into_iter()
         .map(|(usage_kind, path)| {
-            let is_materializer =
-                usage_kind == AssetUsageKind::Script && materializer_script_paths.contains(&path);
-            GraphRunnableNode { path, usage_kind, is_materializer }
+            let in_pipeline = usage_kind == AssetUsageKind::Script
+                && pipeline_member_script_paths.contains(&path);
+            GraphRunnableNode { path, usage_kind, in_pipeline }
         })
         .collect();
     runnables.sort_by(|a, b| a.path.cmp(&b.path));
@@ -684,11 +684,11 @@ async fn asset_graph(
 // ------------------------------------------------------------------
 // GET /w/:workspace/assets/pipelines
 // ------------------------------------------------------------------
-// Distinct folder names that contain at least one materializer script
-// (auto_kind='materializer'). Used by the pipeline-editor folder picker
-// and the "Pipeline" entry in folder views. Keyed by the partial index
-// on `script (workspace_id, path) WHERE auto_kind='materializer' ...`
-// so this is effectively O(matches).
+// Distinct folder names that contain at least one pipeline-member script
+// (auto_kind='pipeline'). Used by the pipeline-editor folder picker and
+// the "Pipeline" entry in folder views. Keyed by the partial index on
+// `script (workspace_id, path) WHERE auto_kind='pipeline' ...` so this
+// is effectively O(matches).
 
 #[derive(Serialize, Debug)]
 struct PipelineFolder {
@@ -709,7 +709,7 @@ async fn list_pipeline_folders(
             COUNT(*) AS "script_count!"
         FROM script
         WHERE workspace_id = $1
-          AND auto_kind = 'materializer'
+          AND auto_kind = 'pipeline'
           AND archived = false
           AND deleted = false
           AND path LIKE 'f/%'

@@ -44,8 +44,9 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 use windmill_common::{
     assets::{
         clear_script_triggers, clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
-        insert_script_trigger, insert_static_asset_usage, parse_pipeline_annotations,
-        trigger_spec_to_row, AssetUsageKind, AssetWithAltAccessType,
+        delete_managed_pipeline_schedule, insert_script_trigger, insert_static_asset_usage,
+        parse_pipeline_annotations, reconcile_pipeline_schedule, trigger_spec_to_row,
+        AssetUsageKind, AssetWithAltAccessType, TriggerSpec,
     },
     error::{self, to_anyhow},
     min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
@@ -1216,15 +1217,15 @@ async fn create_script_internal<'c>(
 
     let ci_test_refs =
         windmill_common::schema::parse_ci_test_annotation(&ns.content, &lang.as_comment_lit());
-    // `materializer` wins over `test` and any client-supplied auto_kind. The
-    // bare `// materialize` marker is the opt-in signal for pipeline
+    // `pipeline` wins over `test` and any client-supplied auto_kind. The
+    // bare `// pipeline` marker is the opt-in signal for pipeline
     // membership; parsed writes tell us what is produced (we don't record
     // them in auto_kind itself).
     let pipeline_annotations = parse_pipeline_annotations(&ns.content);
-    let is_materializer = pipeline_annotations.is_materializer;
+    let in_pipeline = pipeline_annotations.in_pipeline;
     let pipeline_triggers = pipeline_annotations.triggers;
-    let auto_kind = if is_materializer {
-        Some("materializer".to_string())
+    let auto_kind = if in_pipeline {
+        Some("pipeline".to_string())
     } else if ci_test_refs.is_some() {
         Some("test".to_string())
     } else {
@@ -1551,6 +1552,29 @@ async fn create_script_internal<'c>(
         )
         .await?;
     }
+
+    // Phase 4 reconciliation: a `// schedule "<cron>"` annotation creates or
+    // updates a managed schedule row that fires this script on the given
+    // cron. Removing the annotation deletes the managed row. Manual
+    // schedules at the same path are untouched (see
+    // `reconcile_pipeline_schedule` for the conflict policy). First-write
+    // wins if multiple `// schedule` lines are declared.
+    let pipeline_cron: Option<&str> = pipeline_triggers.iter().find_map(|t| match t {
+        TriggerSpec::Schedule { cron } => Some(cron.as_str()),
+        _ => None,
+    });
+    let permissioned_as_for_schedule = username_to_permissioned_as(&authed.username);
+    reconcile_pipeline_schedule(
+        &mut *tx,
+        &w_id,
+        &ns.path,
+        false, // is_flow — scripts only for now
+        &authed.email,
+        &authed.username,
+        &permissioned_as_for_schedule,
+        pipeline_cron,
+    )
+    .await?;
 
     let permissioned_as = username_to_permissioned_as(&authed.username);
     if let Some(parent_hash) = ns.parent_hash {
@@ -2454,6 +2478,11 @@ async fn archive_script_by_path(
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
     clear_static_asset_usage(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    // Pipeline event hygiene: an archived script must not be triggered by
+    // anything. Wipe declared `// on ...` edges (asset-event subscribers
+    // look these up) and drop any managed schedule we auto-created.
+    clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    delete_managed_pipeline_schedule(&mut *tx, &w_id, path).await?;
 
     audit_log(
         &mut *tx,
@@ -2531,6 +2560,11 @@ async fn archive_script_by_hash(
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
+    // Pipeline event hygiene: archived scripts must not be triggered by
+    // anything. Wipe declared `// on ...` edges and drop any managed
+    // schedule.
+    clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
+    delete_managed_pipeline_schedule(&mut *tx, &w_id, &script.path).await?;
 
     audit_log(
         &mut *tx,
@@ -2591,6 +2625,12 @@ async fn delete_script_by_hash(
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
 
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
+    // Pipeline event hygiene: a deleted script must not be triggered by
+    // anything. Wipe declared `// on ...` edges and drop any managed
+    // schedule. Idempotent — safe even if the script was never a pipeline
+    // member.
+    clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
+    delete_managed_pipeline_schedule(&mut *tx, &w_id, &script.path).await?;
 
     audit_log(
         &mut *tx,
@@ -2713,6 +2753,13 @@ async fn delete_script_by_path(
     )
     .execute(&mut *tx)
     .await?;
+
+    // Pipeline event hygiene: a deleted script must not be triggered by
+    // anything. Wipe declared `// on ...` edges and drop any managed
+    // schedule. Idempotent — safe even if the script was never a pipeline
+    // member.
+    clear_script_triggers(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    delete_managed_pipeline_schedule(&mut *tx, &w_id, path).await?;
 
     if !query.keep_captures.unwrap_or(false) {
         sqlx::query!(

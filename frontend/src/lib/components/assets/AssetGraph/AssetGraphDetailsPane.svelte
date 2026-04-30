@@ -7,18 +7,33 @@
 	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { formatAssetKind } from '$lib/components/assets/lib'
-	import { Code2, ExternalLink, GitBranch, Loader2, Save, Trash2, X } from 'lucide-svelte'
+	import {
+		AlertTriangle,
+		Code2,
+		ExternalLink,
+		GitBranch,
+		Loader2,
+		Save,
+		Trash2,
+		X
+	} from 'lucide-svelte'
 	import { inferArgs } from '$lib/infer'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import type { AssetGraphSelection } from './types'
 	import { parsePipelineAnnotations, type PipelineAnnotations } from './parsePipelineAnnotations'
+	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
+	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
+	import AssetRunsPanel from './AssetRunsPanel.svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { fade } from 'svelte/transition'
+	import { userStore } from '$lib/stores'
 
 	interface Props {
 		// Regular selection — loads the script by path for inline editing.
 		selection?: AssetGraphSelection | undefined
 		// Pre-built draft script not yet persisted. Takes precedence over
 		// `selection` when present. Used by the pipeline + menu so a new
-		// materializer opens inline instead of navigating to /scripts/add.
+		// pipeline script opens inline instead of navigating to /scripts/add.
 		draftScript?: Script | undefined
 		workspace: string
 		onclose: () => void
@@ -33,6 +48,27 @@
 		// canvas can overlay unsaved schedule / trigger nodes in real time.
 		// Fires whenever the script content changes.
 		onAnnotationsChange?: (scriptPath: string | undefined, annotations: PipelineAnnotations) => void
+		// Called after the user moves/renames a persisted script via the
+		// summary/path popover. The page repoints `selection` at `newPath`
+		// and refetches the graph so the runnable node label updates.
+		onScriptRenamed?: (oldPath: string, newPath: string) => void
+		// Called after the user archives or deletes a persisted script. The
+		// page should drop the selection (the script no longer exists in
+		// the active graph) and refetch.
+		onScriptRemoved?: (path: string) => void
+		// Producers of the currently selected asset (script/flow paths that
+		// write to it). Used by the runs panel to list job history. Pulled
+		// from the graph by the parent page rather than re-derived here so
+		// drafts stay consistent with what the canvas already shows.
+		selectionProducers?: Array<{
+			kind: 'script' | 'flow'
+			path: string
+			unsaved?: boolean
+		}>
+		// Bumped by the parent after dispatching a run so the runs panel
+		// re-fetches the listing immediately (rather than waiting on its
+		// background poll tick).
+		runsRefreshKey?: any
 	}
 	let {
 		selection,
@@ -41,7 +77,11 @@
 		onclose,
 		onDraftSaved,
 		onDiscard,
-		onAnnotationsChange
+		onAnnotationsChange,
+		onScriptRenamed,
+		onScriptRemoved,
+		selectionProducers = [],
+		runsRefreshKey
 	}: Props = $props()
 
 	// When `draftScript` is provided we bypass the fetch entirely and edit
@@ -72,6 +112,50 @@
 	let saving = $state(false)
 	let isDraft = $derived(draftScript != undefined)
 
+	// Single trash-bin button opens one modal that exposes both Archive
+	// (always available) and Delete permanently (admin-only). Archive is
+	// the default destructive action; delete is reserved for irrecoverable
+	// cleanup. Modal is lifted from ConfirmationModal's structure but
+	// hand-rolled here because we need *two* confirm buttons, not one.
+	let removeOpen = $state(false)
+	let removing = $state(false)
+	let canHardDelete = $derived(!!($userStore?.is_admin || $userStore?.is_super_admin))
+
+	async function archive() {
+		if (!script || !script.hash) return
+		removing = true
+		try {
+			await ScriptService.archiveScriptByHash({ workspace, hash: script.hash })
+			sendUserToast('Script archived')
+			const removedPath = script.path
+			removeOpen = false
+			onScriptRemoved?.(removedPath)
+		} catch (e: any) {
+			sendUserToast(`Could not archive: ${e.body ?? e.message}`, true)
+		} finally {
+			removing = false
+		}
+	}
+
+	async function deleteScript() {
+		if (!script || !script.path) return
+		removing = true
+		try {
+			// Path-based delete drops every version at the path. The hash-based
+			// equivalent only soft-deletes the active row; for a "delete" the
+			// user is asking for, the path-based call is the right semantic.
+			await ScriptService.deleteScriptByPath({ workspace, path: script.path })
+			sendUserToast('Script deleted')
+			const removedPath = script.path
+			removeOpen = false
+			onScriptRemoved?.(removedPath)
+		} catch (e: any) {
+			sendUserToast(`Could not delete: ${e.body ?? e.message}`, true)
+		} finally {
+			removing = false
+		}
+	}
+
 	// Live-parse the editor buffer so the page can render unsaved schedule /
 	// trigger nodes on the canvas. Parsed TS output mirrors the Rust
 	// `parse_pipeline_annotations` used at deploy time.
@@ -79,7 +163,7 @@
 		script
 			? parsePipelineAnnotations(script.content ?? '')
 			: {
-					isMaterializer: false,
+					inPipeline: false,
 					triggerAssets: [],
 					schedules: [],
 					nativeTriggers: []
@@ -142,7 +226,7 @@
 				<Code2 size={16} class="shrink-0 text-emerald-700 dark:text-emerald-400" />
 				<div class="flex flex-col min-w-0">
 					<span class="text-3xs uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-						Draft materializer
+						Draft pipeline script
 					</span>
 					<span class="text-xs font-mono truncate" title={script.path}>{script.path}</span>
 				</div>
@@ -160,10 +244,25 @@
 				</div>
 			{:else if selection?.kind === 'runnable' && selection.runnable_kind === 'script'}
 				<Code2 size={16} class="shrink-0 text-emerald-700 dark:text-emerald-400" />
-				<div class="flex flex-col min-w-0">
-					<span class="text-3xs uppercase tracking-wide text-tertiary">Script</span>
-					<span class="text-xs font-mono truncate" title={selection.path}>{selection.path}</span>
-				</div>
+				<!-- Mirrors the rename UX from /scripts/get/[hash]: clicking the
+				     path/summary opens an inline popover that calls
+				     updateItemPathAndSummary. We forward `onSaved` upward so
+				     the parent page can repoint its selection and refetch the
+				     graph. Bound to the local `script` state so summary edits
+				     reflect immediately without waiting on the resource. -->
+				<SummaryPathDisplay
+					summary={script?.summary ?? ''}
+					path={selection.path}
+					labels={script?.labels ?? []}
+					kind="script"
+					onSaved={(newPath) => {
+						const oldPath = selection?.kind === 'runnable' ? selection.path : ''
+						if (script) {
+							script.path = newPath
+						}
+						onScriptRenamed?.(oldPath, newPath)
+					}}
+				/>
 			{:else if selection?.kind === 'runnable' && selection.runnable_kind === 'flow'}
 				<GitBranch size={16} class="shrink-0 text-emerald-700 dark:text-emerald-400" />
 				<div class="flex flex-col min-w-0">
@@ -183,16 +282,20 @@
 					title="Discard draft"
 				/>
 			{/if}
-			{#if isScriptView && script}
+			<!-- Action order, left → right: trash, external link, save, close.
+			     Save sits closest to Close so the primary commit action is
+			     anchored at the right edge of the bar; trash lives at the
+			     far left so destructive ops are visually separated from
+			     navigation/commit. Mirrors the draft Discard placement. -->
+			{#if !isDraft && isScriptView && script?.hash}
 				<Button
-					variant="accent"
+					variant="subtle"
 					unifiedSize="sm"
-					startIcon={{ icon: Save }}
-					onclick={save}
-					disabled={saving}
-				>
-					{saving ? 'Saving…' : isDraft ? 'Create' : 'Save'}
-				</Button>
+					startIcon={{ icon: Trash2 }}
+					onclick={() => (removeOpen = true)}
+					iconOnly
+					title="Archive or delete"
+				/>
 			{/if}
 			{#if !isDraft && selection?.kind === 'runnable'}
 				<Button
@@ -207,6 +310,17 @@
 					title="Open in full editor"
 				/>
 			{/if}
+			{#if isScriptView && script}
+				<Button
+					variant="accent"
+					unifiedSize="sm"
+					startIcon={{ icon: Save }}
+					onclick={save}
+					disabled={saving}
+				>
+					{saving ? 'Saving…' : isDraft ? 'Create' : 'Save'}
+				</Button>
+			{/if}
 			<Button
 				variant="subtle"
 				unifiedSize="sm"
@@ -220,9 +334,25 @@
 
 	<div class="flex-1 min-h-0 relative">
 		{#if selection?.kind === 'asset' && !isDraft}
-			<div class="p-3 text-xs text-secondary">
-				Asset details. Use the producer/consumer arrows in the graph to navigate.
-			</div>
+			{#if selection.asset_kind === 's3object'}
+				<!-- Vertical split: S3 contents on top, runs detail (with
+				     popover-driven history) on the bottom. Both visible at
+				     once so users can correlate "what's in the file" with
+				     "which run produced it" without flipping tabs. The
+				     splitter lets users grow whichever pane matters more. -->
+				<Splitpanes horizontal class="!h-full">
+					<Pane size={55} minSize={20}>
+						<S3FilePreview fileKey={selection.path} showMetadata class="h-full" />
+					</Pane>
+					<Pane size={45} minSize={20}>
+						<AssetRunsPanel producers={selectionProducers} refreshKey={runsRefreshKey} />
+					</Pane>
+				</Splitpanes>
+			{:else}
+				<div class="p-3 text-xs text-secondary">
+					Asset details. Use the producer/consumer arrows in the graph to navigate.
+				</div>
+			{/if}
 		{:else if selection?.kind === 'runnable' && selection.runnable_kind === 'flow' && !isDraft}
 			<div class="p-3 text-xs text-secondary">
 				Flows are not editable inline. Use the open-in-editor button above.
@@ -268,3 +398,91 @@
 		{/if}
 	</div>
 </div>
+
+{#if removeOpen}
+	<!-- Single combined modal. Archive is the always-available default;
+	     Delete shows only for workspace/super admins because it's
+	     irreversible from the UI. Layout mirrors ConfirmationModal so the
+	     two confirmation surfaces feel consistent. -->
+	<div
+		transition:fade={{ duration: 100 }}
+		class="fixed top-0 bottom-0 left-0 right-0 z-[9999]"
+		role="dialog"
+	>
+		<div class="fixed inset-0 bg-gray-500 bg-opacity-75"></div>
+		<div class="fixed inset-0 z-10 overflow-y-auto">
+			<div class="flex min-h-full items-center justify-center p-4">
+				<div
+					class="relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl sm:my-8 sm:w-full sm:max-w-lg sm:p-6"
+				>
+					<div class="flex">
+						<div
+							class="flex h-12 w-12 items-center justify-center rounded-full bg-red-100 dark:bg-red-800/50"
+						>
+							<AlertTriangle class="text-red-500 dark:text-red-400" />
+						</div>
+						<div class="ml-4 flex-1">
+							<h3 class="text-lg font-medium text-primary">Archive or delete this script?</h3>
+							<div class="mt-2 text-sm text-secondary flex flex-col gap-2">
+								<p>
+									<span class="font-mono text-xs">{script?.path ?? ''}</span>
+								</p>
+								<p>
+									<span class="font-medium">Archive</span> removes the script from the pipeline graph
+									and stops every trigger from firing it (schedule, webhook, asset event, …). History
+									is preserved and the script can be unarchived later.
+								</p>
+								{#if canHardDelete}
+									<p>
+										<span class="font-medium text-red-700 dark:text-red-400">Delete</span> permanently
+										drops every version and draft at this path. Restorable by a workspace admin from
+										the trashbin within 3 days, otherwise irrecoverable.
+									</p>
+								{/if}
+							</div>
+						</div>
+					</div>
+					<div class="flex items-center gap-2 flex-row-reverse mt-4">
+						<Button
+							disabled={removing}
+							onclick={archive}
+							variant="accent"
+							color="red"
+							size="sm"
+							destructive
+						>
+							{#if removing}
+								<Loader2 class="animate-spin" />
+							{/if}
+							<span class="min-w-20">Archive</span>
+						</Button>
+						<Button
+							disabled={removing}
+							onclick={() => (removeOpen = false)}
+							variant="default"
+							size="sm"
+						>
+							Cancel
+						</Button>
+						{#if canHardDelete}
+							<!-- Sits at the far left of the row (flex-row-reverse) to
+							     visually separate the irreversible option from the
+							     safer Archive. No flex-1 wrapper — the button sizes
+							     to its label. -->
+							<Button
+								disabled={removing}
+								onclick={deleteScript}
+								variant="contained"
+								color="red"
+								size="sm"
+								destructive
+							>
+								Delete permanently
+							</Button>
+						{/if}
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+{/if}

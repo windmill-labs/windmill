@@ -36,7 +36,7 @@
 		// in onPick is `pathPrefix + suffix`.
 		pathPrefix?: string
 		// Default suffix seeded into the editable input when the user
-		// reaches the path stage (e.g. `new_materializer`).
+		// reaches the path stage (e.g. `new_pipeline_script`).
 		defaultPathSuffix?: string
 		onPick: (pick: PipelineInsertPick) => void
 		trigger: import('svelte').Snippet
@@ -93,7 +93,7 @@
 
 	// Short random slug appended to the default suffix so that opening the
 	// menu twice in a row seeds two distinct paths — otherwise creating
-	// multiple materializers in the same folder collides on the same
+	// multiple pipeline scripts in the same folder collides on the same
 	// `f/<folder>/<suffix>` and they all become revisions of one script.
 	function shortSlug(len = 4): string {
 		const a = 'abcdefghijklmnopqrstuvwxyz0123456789'
@@ -104,7 +104,7 @@
 
 	async function handleLanguageClick(lang: SupportedLanguage) {
 		selectedLanguage = lang
-		const base = defaultPathSuffix || 'materializer'
+		const base = defaultPathSuffix || 'pipeline_script'
 		pathSuffix = `${base}_${shortSlug()}`
 		stage = 'path'
 		// Focus the suffix input so the user can just start typing a name.
@@ -252,7 +252,7 @@
 									bind:value={pathSuffix}
 									onkeydown={(e) => handlePathKeydown(e, close)}
 									class="flex-1 min-w-0 px-2 py-1.5 text-sm font-mono bg-transparent focus:outline-none"
-									placeholder="my_materializer"
+									placeholder="my_script"
 								/>
 							</div>
 							<span class="text-2xs text-tertiary">Press Enter to create</span>

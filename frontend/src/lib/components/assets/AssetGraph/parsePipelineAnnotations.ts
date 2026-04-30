@@ -5,6 +5,10 @@ import type { NativeTriggerKind } from './types'
 // `parse_pipeline_annotations`, ported to TS so the pipeline editor can
 // reflect annotation edits live before deploy. Keep the two implementations
 // behaviorally identical — any divergence means the graph preview lies.
+//
+// `// pipeline` is intentionally strict (keyword must be alone on the line):
+// the word "pipeline" is common enough in casual prose that requiring it to
+// be the only content is the cheapest way to keep false-positives out.
 
 const COMMENT_PREFIXES = ['//', '--', '#'] as const
 
@@ -56,7 +60,7 @@ export type FreshnessSpec = {
 }
 
 export type PipelineAnnotations = {
-	isMaterializer: boolean
+	inPipeline: boolean
 	triggerAssets: PipelineTriggerAsset[]
 	schedules: string[] // raw cron expressions, in insertion order
 	nativeTriggers: PipelineNativeTrigger[]
@@ -188,8 +192,9 @@ function stripCommentPrefix(line: string): string | undefined {
 }
 
 // Try to consume `<keyword>` as a complete word from `inner`. Returns the
-// trailing text after the keyword if it matched, undefined otherwise. This
-// avoids `materializer` matching `materialize` etc.
+// trailing text after the keyword if it matched, undefined otherwise.
+// Avoids `partitioned` matching `partition`, `kafkalike` matching `kafka`,
+// etc.
 function consumeKeyword(inner: string, kw: string): string | undefined {
 	if (!inner.startsWith(kw)) return undefined
 	const after = inner.slice(kw.length)
@@ -199,7 +204,7 @@ function consumeKeyword(inner: string, kw: string): string | undefined {
 
 export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 	const out: PipelineAnnotations = {
-		isMaterializer: false,
+		inPipeline: false,
 		triggerAssets: [],
 		schedules: [],
 		nativeTriggers: []
@@ -210,8 +215,10 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 		if (rest === undefined) continue
 		const inner = rest.trimStart()
 
-		if (consumeKeyword(inner, 'materialize') !== undefined) {
-			out.isMaterializer = true
+		const afterPipeline = consumeKeyword(inner, 'pipeline')
+		if (afterPipeline !== undefined) {
+			// Strict — keyword must be alone on the line.
+			if (afterPipeline.trim() === '') out.inPipeline = true
 			continue
 		}
 

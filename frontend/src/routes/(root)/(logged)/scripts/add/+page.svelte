@@ -34,12 +34,12 @@
 	const wacParam = page.url.searchParams.get('wac')
 	const importParam = page.url.searchParams.get('import')
 	// Pipeline opt-in marker. Any truthy value prefills `<comment-prefix>
-	// materialize` at the top of the new script so the bare marker fires on
+	// pipeline` at the top of the new script so the bare marker fires on
 	// deploy. ScriptBuilder's initialCode path only runs when content is
 	// empty, so this survives.
-	const materializeParam = page.url.searchParams.get('materialize')
+	const pipelineParam = page.url.searchParams.get('pipeline')
 	// Optional `// on <asset>` trigger. Value is the full asset-syntax string
-	// (e.g. s3://bucket/key) — written verbatim after the `materialize` line.
+	// (e.g. s3://bucket/key) — written verbatim after the `pipeline` line.
 	const onAssetParam = page.url.searchParams.get('on_asset')
 
 	let initialArgs = urlArgs ? decodeState(urlArgs) : (get(initialArgsStore) ?? {})
@@ -84,13 +84,13 @@
 		}
 	}
 
-	// Compose the prefix block for a new pipeline script: bare `// materialize`
+	// Compose the prefix block for a new pipeline script: bare `// pipeline`
 	// marker plus optional `// on <ref>` trigger. Placed at the very top so
 	// comments precede any language-specific preamble the builder injects.
 	function pipelinePreamble(lang: ScriptLang): string {
 		const p = commentPrefix(lang)
 		const lines: string[] = []
-		if (materializeParam) lines.push(`${p} materialize`)
+		if (pipelineParam) lines.push(`${p} pipeline`)
 		if (onAssetParam) lines.push(`${p} on ${onAssetParam}`)
 		return lines.length ? lines.join('\n') + '\n' : ''
 	}

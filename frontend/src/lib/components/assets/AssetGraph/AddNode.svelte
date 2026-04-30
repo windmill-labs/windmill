@@ -15,15 +15,15 @@
 	import type { ScriptLang } from '$lib/gen'
 	import type { NativeTriggerKind } from './types'
 
-	// Each left-column kind is just "materializer triggered by <trigger
+	// Each left-column kind is just "pipeline script triggered by <trigger
 	// source>". id === the SCRIPT_TRIGGER_KIND value, so the handler can
-	// dispatch on it uniformly. Asset-triggered materializers are not in
-	// this menu; those live under the per-asset + inside the graph.
+	// dispatch on it uniformly. Asset-triggered scripts are not in this
+	// menu; those live under the per-asset + inside the graph.
 	type KindId = 'schedule' | NativeTriggerKind
 
 	interface Props {
 		data: {
-			onAddMaterializer: (
+			onAddPipelineScript: (
 				language: ScriptLang,
 				path: string,
 				source:
@@ -55,7 +55,7 @@
 		if (!pick.language || !pick.path) return
 		const kindId = pick.kindId as KindId
 		if (kindId === 'schedule') {
-			data.onAddMaterializer(pick.language as ScriptLang, pick.path, {
+			data.onAddPipelineScript(pick.language as ScriptLang, pick.path, {
 				kind: 'schedule',
 				cron: data.defaultScheduleCron
 			})
@@ -64,7 +64,7 @@
 			// trigger path themselves in the editor (or configure it in the
 			// trigger's own UI). We seed the annotation with an empty ref
 			// the user replaces.
-			data.onAddMaterializer(pick.language as ScriptLang, pick.path, {
+			data.onAddPipelineScript(pick.language as ScriptLang, pick.path, {
 				kind: kindId,
 				path: undefined
 			})
@@ -77,7 +77,7 @@
 		{
 			id: 'schedule',
 			label: 'On schedule',
-			description: 'Cron-driven materializer',
+			description: 'Cron-driven pipeline script',
 			icon: Clock,
 			pickLanguage: true
 		},

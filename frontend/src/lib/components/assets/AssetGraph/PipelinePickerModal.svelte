@@ -113,7 +113,7 @@
 								<span class="font-mono text-sm">f/{p.folder}</span>
 								<span class="text-2xs text-tertiary">
 									{p.script_count}
-									{p.script_count === 1 ? 'materializer' : 'materializers'}
+									{p.script_count === 1 ? 'script' : 'scripts'}
 								</span>
 							</button>
 						{/each}

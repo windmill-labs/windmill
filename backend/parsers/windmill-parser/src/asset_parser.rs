@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 // with the current partition value (e.g. `s3://lake/{partition}.parquet`
 // becomes `s3://lake/2024-04-29.parquet` when materialized for that day).
 // Substitution is the parser's job only at lineage/graph time — at runtime
-// the materializer worker performs the actual replacement before emitting
+// the pipeline worker performs the actual replacement before emitting
 // asset signals. Kept as a single well-known token so the parser never
 // has to guess which `{...}` placeholders are partition variables.
 pub const PARTITION_TOKEN: &str = "{partition}";
@@ -56,27 +56,29 @@ pub struct SqlQueryDetails {
 pub struct ParseAssetsOutput {
     pub assets: Vec<ParseAssetsResult>,
     pub sql_queries: Vec<SqlQueryDetails>,
-    // Bare `// materialize` (or `#` / `--`) anywhere in the source — opt-in
-    // marker that sets auto_kind='materializer' and includes the script in
-    // its folder's pipeline. Does NOT declare what is materialized: the
-    // parser-detected `w`/`rw` usages in `assets` are the outputs.
+    // Bare `// pipeline` (or `#` / `--`) on its own line — opt-in marker
+    // that sets auto_kind='pipeline' and includes the script in its
+    // folder's pipeline. Pipeline membership is broader than
+    // materialization: scripts that only assert/notify/clean up are
+    // members too. Outputs (when present) come from parser-detected
+    // `w`/`rw` usages in `assets`, not from this marker.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
-    pub is_materializer: bool,
+    pub in_pipeline: bool,
     // Trigger annotations — execution DAG edges. Each is an independent OR
     // (any fires the script). Empty = script has no automatic triggers
     // (still runnable manually / via existing cron triggers). Includes both
     // top-level `// schedule "..."` and `// on <kind> ...` forms.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub triggers: Vec<TriggerSpec>,
-    // `// partitioned <kind> [opts]` — declares that this materializer
+    // `// partitioned <kind> [opts]` — declares that this pipeline script
     // produces partitioned output. The runtime resolves `{partition}` in
     // declared output URIs to the current partition value before signaling
     // downstream consumers. At most one per script.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub partition: Option<PartitionSpec>,
-    // `// freshness <duration>` — SLA stating the asset must be at most
+    // `// freshness <duration>` — SLA stating outputs must be at most
     // `duration` old. Active backstop: when no other trigger has fired the
-    // materializer within the window, a watchdog re-runs it. Distinct from
+    // script within the window, a watchdog re-runs it. Distinct from
     // schedule (which is producer cadence); freshness is consumer SLA and
     // applies regardless of which trigger last fired.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -107,7 +109,7 @@ pub enum TriggerSpec {
     Gcp { path: String },
 }
 
-// Partitioning declaration for a materializer. `daily`/`hourly`/`weekly`/
+// Partitioning declaration for a pipeline script. `daily`/`hourly`/`weekly`/
 // `monthly` are time-based with the runtime supplying the current
 // partition value derived from the trigger context (schedule fire time,
 // freshness window, manual run arg). `dynamic` extracts the value from the
@@ -149,7 +151,7 @@ pub struct FreshnessSpec {
 // `parse_pipeline_annotations` and forwarded into `ParseAssetsOutput`.
 #[derive(Default, Debug, PartialEq, Clone)]
 pub struct PipelineAnnotations {
-    pub is_materializer: bool,
+    pub in_pipeline: bool,
     pub triggers: Vec<TriggerSpec>,
     pub partition: Option<PartitionSpec>,
     pub freshness: Option<FreshnessSpec>,
@@ -332,15 +334,16 @@ fn parse_kv_opts(s: &str) -> BTreeMap<String, String> {
 // Scan raw source for pipeline annotations. Language-agnostic: any line
 // whose first non-whitespace tokens are a comment prefix (`//`, `#`, or
 // `--`) followed by one of the recognized keywords:
-//   - `materialize`              → opt-in marker (no args)
+//   - `pipeline`                 → opt-in marker (must be alone on the line)
 //   - `schedule "<cron>"`        → top-level inline cron schedule
 //   - `on <trigger-spec>`        → asset / native trigger edge
 //   - `partitioned <kind> [opts]` → partition declaration
 //   - `freshness <duration>`     → SLA / active backstop
 //
-// Trailing content on a `// materialize` line (beyond whitespace) is ignored
-// so the old `// materialize s3://foo` style is forward-compatible: the
-// bare marker still fires even if users have stale per-asset arguments.
+// `// pipeline` is intentionally strict — only whitespace allowed after the
+// keyword. Without that constraint, casual prose like `// pipeline broken
+// on staging` would false-positive (the word "pipeline" is far more common
+// in normal comments than "materialize" was).
 //
 // `partition` and `freshness` use first-write-wins; if multiple lines
 // declare them, the first one is kept (last would be reasonable too, but
@@ -361,11 +364,11 @@ pub fn parse_pipeline_annotations(code: &str) -> PipelineAnnotations {
         };
         let rest = rest.trim_start();
 
-        if let Some(after_kw) = rest.strip_prefix("materialize") {
-            // Bare marker: must be end-of-line, whitespace, or nothing.
-            // Rejects `materializer`, `materialized`, etc.
-            if after_kw.is_empty() || after_kw.starts_with(|c: char| c.is_whitespace()) {
-                out.is_materializer = true;
+        if let Some(after_kw) = rest.strip_prefix("pipeline") {
+            // Strict: keyword must be the only content on the line. Rejects
+            // `pipeline broken`, `pipelines`, `pipeline-related`, etc.
+            if after_kw.trim().is_empty() {
+                out.in_pipeline = true;
             }
             continue;
         }
@@ -502,23 +505,29 @@ mod pipeline_annotation_tests {
     use super::*;
 
     #[test]
-    fn bare_materialize_marker() {
-        let out = parse_pipeline_annotations("// materialize\nconsole.log('hi')");
-        assert!(out.is_materializer);
+    fn bare_pipeline_marker() {
+        let out = parse_pipeline_annotations("// pipeline\nconsole.log('hi')");
+        assert!(out.in_pipeline);
         assert!(out.triggers.is_empty());
     }
 
     #[test]
-    fn bare_materialize_with_trailing_noise_still_fires() {
-        // Forward-compat with old `// materialize s3://foo` style.
-        let out = parse_pipeline_annotations("// materialize s3://legacy");
-        assert!(out.is_materializer);
+    fn pipeline_marker_strict_grammar_rejects_trailing_words() {
+        // Strict — the word "pipeline" is common in casual prose, so trailing
+        // content disqualifies the line. Trailing whitespace alone is fine.
+        let out = parse_pipeline_annotations(
+            "// pipeline broken on staging\n# pipeline this through grep\n-- pipeline_v2",
+        );
+        assert!(!out.in_pipeline);
+
+        let out = parse_pipeline_annotations("// pipeline   \n");
+        assert!(out.in_pipeline);
     }
 
     #[test]
-    fn rejects_materializer_keyword_variants() {
-        let out = parse_pipeline_annotations("// materializer\n# materialized");
-        assert!(!out.is_materializer);
+    fn rejects_pipeline_keyword_variants() {
+        let out = parse_pipeline_annotations("// pipelines\n# pipelined\n-- pipeline-foo");
+        assert!(!out.in_pipeline);
     }
 
     #[test]
@@ -638,14 +647,14 @@ mod pipeline_annotation_tests {
     #[test]
     fn combined() {
         let code = concat!(
-            "// materialize\n",
+            "// pipeline\n",
             "// schedule \"0 0 * * *\"\n",
             "// on s3://in.csv\n",
             "// partitioned daily tz=\"UTC\"\n",
             "// freshness 2h\n"
         );
         let out = parse_pipeline_annotations(code);
-        assert!(out.is_materializer);
+        assert!(out.in_pipeline);
         assert_eq!(out.triggers.len(), 2);
         assert!(out.partition.is_some());
         assert_eq!(out.freshness.unwrap().duration, "2h");

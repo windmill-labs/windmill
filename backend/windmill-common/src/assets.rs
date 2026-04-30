@@ -103,6 +103,98 @@ pub async fn clear_script_triggers<'e>(
     Ok(())
 }
 
+// Reconcile a managed schedule for a pipeline script based on its parsed
+// `// schedule "<cron>"` annotation. Idempotent: each call brings the
+// `schedule` row in line with the annotation as of *this* deploy.
+//
+// The schedule lives at the same path as the runnable. `managed_by_runnable_path`
+// disambiguates auto-created rows from user-managed ones — only managed
+// rows are updated or removed by reconciliation; manually-created schedules
+// at the same path are left alone (the annotation is silently ignored).
+//
+// Pass `cron = None` when the annotation has been removed → drops the
+// managed row. Pass `cron = Some(...)` to upsert.
+pub async fn reconcile_pipeline_schedule<'e>(
+    executor: impl PgExecutor<'e>,
+    workspace_id: &str,
+    runnable_path: &str,
+    is_flow: bool,
+    email: &str,
+    edited_by: &str,
+    permissioned_as: &str,
+    cron: Option<&str>,
+) -> error::Result<()> {
+    match cron {
+        Some(cron) => {
+            // Upsert. ON CONFLICT only updates rows that are already managed
+            // (the WHERE clause guards against trampling user-created
+            // schedules that happen to live at the runnable's path).
+            sqlx::query!(
+                r#"
+                INSERT INTO schedule (
+                    workspace_id, path, schedule, timezone, edited_by, script_path,
+                    is_flow, enabled, email, permissioned_as,
+                    ws_error_handler_muted, no_flow_overlap, cron_version,
+                    managed_by_runnable_path
+                )
+                VALUES ($1, $2, $3, 'UTC', $4, $2, $5, true, $6, $7, false, false, 'v2', $2)
+                ON CONFLICT (workspace_id, path) DO UPDATE
+                SET schedule = EXCLUDED.schedule,
+                    edited_at = now(),
+                    edited_by = EXCLUDED.edited_by,
+                    managed_by_runnable_path = EXCLUDED.managed_by_runnable_path
+                WHERE schedule.managed_by_runnable_path = EXCLUDED.managed_by_runnable_path
+                   OR schedule.managed_by_runnable_path IS NULL AND schedule.script_path = EXCLUDED.script_path
+                "#,
+                workspace_id,
+                runnable_path,
+                cron,
+                edited_by,
+                is_flow,
+                email,
+                permissioned_as,
+            )
+            .execute(executor)
+            .await?;
+        }
+        None => {
+            // Drop any prior managed schedule for this runnable. Manual
+            // schedules at the same path keep `managed_by_runnable_path =
+            // NULL` and are unaffected.
+            sqlx::query!(
+                r#"DELETE FROM schedule
+                   WHERE workspace_id = $1
+                     AND managed_by_runnable_path = $2"#,
+                workspace_id,
+                runnable_path,
+            )
+            .execute(executor)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+// Drop the managed schedule (if any) for a runnable that's been deleted.
+// Equivalent to `reconcile_pipeline_schedule(..., None)` but exposed
+// separately so script-delete sites can call it without parsing annotations.
+pub async fn delete_managed_pipeline_schedule<'e>(
+    executor: impl PgExecutor<'e>,
+    workspace_id: &str,
+    runnable_path: &str,
+) -> error::Result<()> {
+    sqlx::query!(
+        r#"DELETE FROM schedule
+           WHERE workspace_id = $1
+             AND managed_by_runnable_path = $2"#,
+        workspace_id,
+        runnable_path,
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
 // Insert a single trigger declaration. Caller is expected to wipe first.
 pub async fn insert_script_trigger<'e>(
     executor: impl PgExecutor<'e>,
