@@ -14,21 +14,24 @@
 	interface Props {
 		workspaceId: string
 		scope: string
+		initialScope?: string
 	}
 
-	let { workspaceId, scope = $bindable() }: Props = $props()
+	let { workspaceId, scope = $bindable(), initialScope }: Props = $props()
 
-	let selectedMode = $state<'favorites' | 'all' | 'folder' | 'custom'>('favorites')
-	let selectedFolders = $state<string[]>([])
+	const parsedInitial = parseInitialScope(initialScope)
+
+	let selectedMode = $state<'favorites' | 'all' | 'folder' | 'custom'>(parsedInitial.mode)
+	let selectedFolders = $state<string[]>(parsedInitial.folders)
 	let allFolders = $state<string[]>([])
 	let loadingFolders = $state(false)
 	let folderNamesCache = new Map<string, string[]>()
-	let selectedScripts = $state<string[]>([])
-	let selectedFlows = $state<string[]>([])
-	let selectedEndpoints = $state<string[]>([])
-	let customScriptPatterns = $state<string>('')
-	let customFlowPatterns = $state<string>('')
-	let newMcpApps = $state<string[]>([])
+	let selectedScripts = $state<string[]>(parsedInitial.scripts)
+	let selectedFlows = $state<string[]>(parsedInitial.flows)
+	let selectedEndpoints = $state<string[]>(parsedInitial.endpoints)
+	let customScriptPatterns = $state<string>(parsedInitial.scriptPatterns)
+	let customFlowPatterns = $state<string>(parsedInitial.flowPatterns)
+	let newMcpApps = $state<string[]>(parsedInitial.hubApps)
 
 	let allScripts = $state<string[]>([])
 	let allFlows = $state<string[]>([])
@@ -45,6 +48,101 @@
 			.split(',')
 			.map((p) => p.trim())
 			.filter((p) => p.length > 0)
+	}
+
+	type ParsedScope = {
+		mode: 'favorites' | 'all' | 'folder' | 'custom'
+		folders: string[]
+		scripts: string[]
+		flows: string[]
+		endpoints: string[]
+		scriptPatterns: string
+		flowPatterns: string
+		hubApps: string[]
+	}
+
+	function parseInitialScope(input: string | undefined): ParsedScope {
+		const empty: ParsedScope = {
+			mode: 'favorites',
+			folders: [],
+			scripts: [],
+			flows: [],
+			endpoints: [],
+			scriptPatterns: '',
+			flowPatterns: '',
+			hubApps: []
+		}
+		if (!input) return empty
+
+		const parts = input.split(/\s+/).filter((p) => p.length > 0)
+		if (parts.length === 0) return empty
+
+		const byKind: Record<string, string[]> = {}
+		let mode: ParsedScope['mode'] = 'custom'
+		const hubApps: string[] = []
+
+		for (const part of parts) {
+			if (part === 'mcp:favorites') {
+				mode = 'favorites'
+			} else if (part === 'mcp:all') {
+				mode = 'all'
+			} else if (part.startsWith('mcp:hub:')) {
+				hubApps.push(...parsePatterns(part.slice('mcp:hub:'.length)))
+			} else if (part.startsWith('mcp:scripts:')) {
+				byKind.scripts = parsePatterns(part.slice('mcp:scripts:'.length))
+			} else if (part.startsWith('mcp:flows:')) {
+				byKind.flows = parsePatterns(part.slice('mcp:flows:'.length))
+			} else if (part.startsWith('mcp:endpoints:')) {
+				byKind.endpoints = parsePatterns(part.slice('mcp:endpoints:'.length))
+			}
+		}
+
+		// Detect folder mode: scripts and flows are exclusively `f/X/*` patterns
+		// for the same set of folders, and endpoints is exactly `*`.
+		const folderRe = /^f\/([^/]+)\/\*$/
+		const scriptFolders = (byKind.scripts ?? []).map((p) => p.match(folderRe)?.[1])
+		const flowFolders = (byKind.flows ?? []).map((p) => p.match(folderRe)?.[1])
+		const allScriptsAreFolders = scriptFolders.length > 0 && scriptFolders.every((f) => !!f)
+		const allFlowsAreFolders = flowFolders.length > 0 && flowFolders.every((f) => !!f)
+		const sameFolders =
+			allScriptsAreFolders &&
+			allFlowsAreFolders &&
+			scriptFolders.length === flowFolders.length &&
+			scriptFolders.every((f, i) => f === flowFolders[i])
+		const endpointsIsAll = byKind.endpoints?.length === 1 && byKind.endpoints[0] === '*'
+
+		if (mode !== 'favorites' && mode !== 'all' && sameFolders && endpointsIsAll) {
+			return {
+				mode: 'folder',
+				folders: scriptFolders.filter((f): f is string => !!f),
+				scripts: [],
+				flows: [],
+				endpoints: [],
+				scriptPatterns: '',
+				flowPatterns: '',
+				hubApps
+			}
+		}
+
+		if (mode === 'favorites' || mode === 'all') {
+			return { ...empty, mode, hubApps }
+		}
+
+		// Custom mode: split each list into "selectable" entries (later filtered
+		// against allScripts/allFlows once loaded) and free-form patterns.
+		// We can't know yet which are real paths vs wildcard patterns, so pass
+		// everything as patterns; once allScripts/allFlows load, $effect will
+		// move matching entries into selectedScripts/selectedFlows.
+		return {
+			mode: 'custom',
+			folders: [],
+			scripts: [],
+			flows: [],
+			endpoints: byKind.endpoints ?? [],
+			scriptPatterns: (byKind.scripts ?? []).join(','),
+			flowPatterns: (byKind.flows ?? []).join(','),
+			hubApps
+		}
 	}
 
 	// Compute scope string from selections
@@ -112,9 +210,9 @@
 		try {
 			loadingFolders = true
 			const excludedFolders = ['app_groups', 'app_custom', 'app_themes']
-			const names = (
-				await FolderService.listFolderNames({ workspace })
-			).filter((x) => !excludedFolders.includes(x))
+			const names = (await FolderService.listFolderNames({ workspace })).filter(
+				(x) => !excludedFolders.includes(x)
+			)
 			folderNamesCache.set(workspace, names)
 			allFolders = names
 		} catch {
@@ -259,6 +357,36 @@
 		if (selectedMode === 'custom' && workspaceId) {
 			loadAllScriptsAndFlows(workspaceId)
 		}
+	})
+
+	// One-shot: once allScripts/allFlows are loaded, split the
+	// initial pattern text into known paths (selectedScripts/Flows) vs
+	// remaining wildcards/unknowns (kept in pattern textbox).
+	let initialSplitDone = $state(false)
+	$effect(() => {
+		if (initialSplitDone || selectedMode !== 'custom') return
+		if (allScripts.length === 0 && allFlows.length === 0) return
+
+		const scriptSet = new Set(allScripts)
+		const flowSet = new Set(allFlows)
+
+		const scriptParts = parsePatterns(customScriptPatterns)
+		const knownScripts = scriptParts.filter((p) => scriptSet.has(p))
+		const remainingScripts = scriptParts.filter((p) => !scriptSet.has(p))
+
+		const flowParts = parsePatterns(customFlowPatterns)
+		const knownFlows = flowParts.filter((p) => flowSet.has(p))
+		const remainingFlows = flowParts.filter((p) => !flowSet.has(p))
+
+		if (knownScripts.length > 0) {
+			selectedScripts = [...new Set([...selectedScripts, ...knownScripts])]
+			customScriptPatterns = remainingScripts.join(',')
+		}
+		if (knownFlows.length > 0) {
+			selectedFlows = [...new Set([...selectedFlows, ...knownFlows])]
+			customFlowPatterns = remainingFlows.join(',')
+		}
+		initialSplitDone = true
 	})
 
 	const warning = $derived(

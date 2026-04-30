@@ -5,10 +5,11 @@
 	import { UserService, type TruncatedToken } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import CreateToken from './CreateToken.svelte'
+	import EditTokenScopesModal from './EditTokenScopesModal.svelte'
 	import Button from '../common/button/Button.svelte'
 	import Badge from '../common/badge/Badge.svelte'
 	import Alert from '../common/alert/Alert.svelte'
-	import { Trash } from 'lucide-svelte'
+	import { Pen, Trash } from 'lucide-svelte'
 
 	// --- Props ---
 	interface Props {
@@ -33,6 +34,10 @@
 	let tokens = $state<TruncatedToken[]>([])
 	let tokenPage = $state(1)
 	let newTokenLabel = $state<string | undefined>(untrack(() => defaultNewTokenLabel))
+	let editingToken = $state<
+		{ prefix: string; scopes: string[] | undefined; workspaceId: string | undefined } | undefined
+	>(undefined)
+	let editModalOpen = $state(false)
 
 	$effect(() => {
 		listTokens()
@@ -97,6 +102,19 @@
 		listTokens()
 	}
 
+	function handleEditClick(
+		tokenPrefix: string,
+		tokenScopes: string[] | undefined,
+		tokenWorkspaceId: string | undefined
+	) {
+		editingToken = {
+			prefix: tokenPrefix,
+			scopes: tokenScopes,
+			workspaceId: tokenWorkspaceId
+		}
+		editModalOpen = true
+	}
+
 	async function listTokens(): Promise<void> {
 		tokens = await UserService.listTokens({
 			excludeEphemeral: true,
@@ -123,7 +141,11 @@
 	</div>
 	{#if expiringSoonCount > 0}
 		<div class="mb-2">
-			<Alert type="warning" title="{expiringSoonCount} token{expiringSoonCount > 1 ? 's' : ''} expiring within 7 days" size="xs" />
+			<Alert
+				type="warning"
+				title="{expiringSoonCount} token{expiringSoonCount > 1 ? 's' : ''} expiring within 7 days"
+				size="xs"
+			/>
 		</div>
 	{/if}
 	<CreateToken
@@ -136,20 +158,19 @@
 	/>
 	<div class="overflow-auto grow min-h-64 max-h-2/3">
 		<TableCustom>
-
 			{#snippet headerRow()}
-						<tr >
+				<tr>
 					<th>Prefix</th>
 					<th>Label</th>
 					<th>Expiration</th>
 					<th>Scopes</th>
 					<th></th>
 				</tr>
-					{/snippet}
+			{/snippet}
 			{#snippet body()}
 				<tbody>
 					{#if tokens && tokens.length > 0}
-						{#each tokens as { token_prefix, expiration, label, scopes } (token_prefix)}
+						{#each tokens as { token_prefix, expiration, label, scopes, workspace_id } (token_prefix)}
 							{@const badge = expirationBadge(expiration, label)}
 							<tr>
 								<td class="w-32 text-xs text-primary">{token_prefix}****</td>
@@ -166,15 +187,29 @@
 									class="min-w-0 max-w-48 truncate text-xs text-secondary"
 									title={scopes?.join(', ') ?? ''}>{scopes?.join(', ') ?? ''}</td
 								>
-								<td class="w-16 text-center">
-									<Button
-										variant="subtle"
-										destructive
-										on:click={() => handleDeleteClick(token_prefix)}
-										size="xs"
-										startIcon={{ icon: Trash }}
-										iconOnly
-									/>
+								<td class="w-24 text-center">
+									<div class="flex items-center justify-center gap-1">
+										<Button
+											variant="subtle"
+											on:click={() =>
+												handleEditClick(
+													token_prefix,
+													scopes ?? undefined,
+													workspace_id ?? undefined
+												)}
+											size="xs"
+											startIcon={{ icon: Pen }}
+											iconOnly
+										/>
+										<Button
+											variant="subtle"
+											destructive
+											on:click={() => handleDeleteClick(token_prefix)}
+											size="xs"
+											startIcon={{ icon: Trash }}
+											iconOnly
+										/>
+									</div>
 								</td>
 							</tr>
 						{/each}
@@ -198,3 +233,11 @@
 		</div>
 	</div>
 </div>
+
+<EditTokenScopesModal
+	bind:open={editModalOpen}
+	tokenPrefix={editingToken?.prefix}
+	initialScopes={editingToken?.scopes}
+	tokenWorkspaceId={editingToken?.workspaceId}
+	onSaved={listTokens}
+/>

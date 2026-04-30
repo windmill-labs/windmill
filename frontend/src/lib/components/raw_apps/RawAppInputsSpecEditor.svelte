@@ -6,7 +6,7 @@
 
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { Loader2, Pen, User, Shield } from 'lucide-svelte'
+	import { Loader2, Pen, User, Shield, Lock } from 'lucide-svelte'
 
 	import Toggle from '$lib/components/Toggle.svelte'
 	import StaticInputEditor from '../apps/editor/settingsPanel/inputEditor/StaticInputEditor.svelte'
@@ -17,10 +17,22 @@
 
 	// Build ctx properties with current user's actual values
 	let ctxProperties = $derived([
-		{ value: 'username', label: 'Username', subtitle: `string — "${$userStore?.username ?? 'unknown'}"` },
+		{
+			value: 'username',
+			label: 'Username',
+			subtitle: `string — "${$userStore?.username ?? 'unknown'}"`
+		},
 		{ value: 'email', label: 'Email', subtitle: `string — "${$userStore?.email ?? 'unknown'}"` },
-		{ value: 'groups', label: 'Groups', subtitle: `string[] — ${JSON.stringify($userStore?.groups ?? [])}` },
-		{ value: 'workspace', label: 'Workspace', subtitle: `string — "${$workspaceStore ?? 'unknown'}"` },
+		{
+			value: 'groups',
+			label: 'Groups',
+			subtitle: `string[] — ${JSON.stringify($userStore?.groups ?? [])}`
+		},
+		{
+			value: 'workspace',
+			label: 'Workspace',
+			subtitle: `string — "${$workspaceStore ?? 'unknown'}"`
+		},
 		{ value: 'author', label: 'Author', subtitle: `string — "${$userStore?.email ?? 'unknown'}"` }
 	])
 
@@ -131,7 +143,13 @@
 						{#snippet children({ item })}
 							<ToggleButton {item} value="user" icon={User} iconOnly tooltip="User Input" />
 							<ToggleButton {item} value="static" icon={Pen} iconOnly tooltip="Static" />
-							<ToggleButton {item} value="ctx" icon={Shield} iconOnly tooltip="Context (secure backend value)" />
+							<ToggleButton
+								{item}
+								value="ctx"
+								icon={Shield}
+								iconOnly
+								tooltip="Context (secure backend value)"
+							/>
 						{/snippet}
 					</ToggleButtonGroup>
 				{/if}
@@ -180,6 +198,31 @@
 				<Tooltip
 					>Apps are executed on behalf of publishers. If you want to accept resources from user, you
 					need to enable this (potentially dangerous!)</Tooltip
+				>
+			</div>
+		{/if}
+		{#if componentInput?.type === 'user'}
+			<div class="flex flex-row items-center gap-1">
+				<Toggle
+					size="xs"
+					checked={Boolean(componentInput.sensitive)}
+					on:change={(e) => {
+						if (e.detail) {
+							componentInput.sensitive = true
+						} else {
+							delete componentInput.sensitive
+						}
+					}}
+					textClass="!text-tertiary"
+					options={{
+						right: 'sensitive'
+					}}
+				/>
+				<Lock size={12} class="text-tertiary" />
+				<Tooltip
+					>The value is encrypted before being stored in the job's args, so it is not exposed in
+					plaintext to anyone with read access to the job. The script still receives the decrypted
+					value at runtime.</Tooltip
 				>
 			</div>
 		{/if}

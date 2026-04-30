@@ -417,10 +417,12 @@ export async function pushRawApp(
       ? "index.ts"
       : "index.tsx";
     const entryPoint = localPath + entryFile;
+    const sharedUiDir = path.join(process.cwd(), "ui");
     return await createBundle({
       entryPoint: entryPoint,
       production: true,
       minify: true,
+      sharedUiDir,
     });
   }
   // Build the value object, including data if present

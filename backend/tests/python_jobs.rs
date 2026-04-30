@@ -985,33 +985,42 @@ async def main(item: str, qty: int, email: str):
 "#
     .to_string();
 
-    // WAC requires at least 2 workers (parent + task sub-jobs)
-    let db = &db;
-    in_test_worker(
-        db,
-        async move {
-            let job = Box::pin(
-                RunJob::from(JobPayload::Code(RawCode {
-                    language: ScriptLang::Python3,
-                    content,
-                    ..RawCode::default()
-                }))
-                .arg("item", json!("widget"))
-                .arg("qty", json!(5))
-                .arg("email", json!("test@example.com"))
-                .run_until_complete(db, false, port),
-            )
-            .await;
+    // WAC requires at least 2 workers (parent + task sub-jobs).
+    //
+    // Run the heavy `in_test_worker` chain on an isolated OS thread with a
+    // larger stack: the deep nested async chain (test -> in_test_worker ->
+    // run_until_complete -> windmill_queue::push -> ...) composes into one
+    // synchronous poll-stack frame that exceeds the default 2 MB test-thread
+    // stack in debug builds. `Box::pin` at the call site only moves future
+    // *state* to the heap; it can't shrink poll-time stack frames.
+    let db = db.clone();
+    run_in_isolated_thread(move || async move {
+        in_test_worker(
+            &db,
+            async {
+                let job = Box::pin(
+                    RunJob::from(JobPayload::Code(RawCode {
+                        language: ScriptLang::Python3,
+                        content,
+                        ..RawCode::default()
+                    }))
+                    .arg("item", json!("widget"))
+                    .arg("qty", json!(5))
+                    .arg("email", json!("test@example.com"))
+                    .run_until_complete(&db, false, port),
+                )
+                .await;
 
-            let result = job.json_result().unwrap();
-            assert_eq!(result["item"], json!("widget"));
-            assert_eq!(result["qty"], json!(5));
-            assert_eq!(result["email"], json!("test@example.com"));
-            assert_eq!(result["greeting"], json!("hello widget x5"));
-        },
-        port,
-    )
-    .await;
+                let result = job.json_result().unwrap();
+                assert_eq!(result["item"], json!("widget"));
+                assert_eq!(result["qty"], json!(5));
+                assert_eq!(result["email"], json!("test@example.com"));
+                assert_eq!(result["greeting"], json!("hello widget x5"));
+            },
+            port,
+        )
+        .await;
+    });
     Ok(())
 }
 
