@@ -3,7 +3,7 @@ import { sep as SEP } from "node:path";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../core/log.ts";
 import { stringify as yamlStringify } from "yaml";
-import { yamlParseFile, yamlParseContent } from "./yaml.ts";
+import { yamlParseFile } from "./yaml.ts";
 import { writeFile, stat, rm, readdir } from "node:fs/promises";
 import { readFileSync, existsSync, readdirSync, statSync, mkdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
@@ -261,22 +261,15 @@ export async function generateScriptMetadataInternal(
     return;
   }
 
-  // Pre-canonical formula. Accepted as backwards-compat fallback so v2
-  // lockfile entries written by older CLIs don't show as false-positive stale.
   const conf = await readLockfile();
-  const legacyHash = await generateScriptHashLegacy(
-    depsForHash, scriptContent, metadataContent,
-  );
 
   // If modules exist, combine main script hash + module hashes into a meta-hash
-  let checkHash: string | string[] = hash;
+  let checkHash = hash;
   let checkSubpath: string | undefined;
   if (hasModuleHashes) {
     const sortedEntries = Object.entries(moduleHashes).sort(([a], [b]) => a.localeCompare(b));
     checkHash = await generateHash(hash + JSON.stringify(sortedEntries));
     checkSubpath = SCRIPT_TOP_HASH;
-  } else {
-    checkHash = [hash, legacyHash];
   }
 
   // Use checkHash (includes module hashes) so module changes are detected as stale
@@ -1218,7 +1211,7 @@ function v2LockPath(path: string, subpath?: string) {
 }
 export async function checkifMetadataUptodate(
   path: string,
-  hash: string | string[],
+  hash: string,
   conf: Lock | undefined,
   subpath?: string
 ) {
@@ -1231,57 +1224,18 @@ export async function checkifMetadataUptodate(
   const isFlatKeyed = conf?.version === "v2";
 
   // Older CLIs sometimes wrote entries with a leading "./" prefix; some
-  // lockfiles even contain both forms with different stale values. Collect
-  // every candidate value and accept the entry as up-to-date if any matches.
-  const candidates: (string | undefined)[] = [];
+  // lockfiles even contain both forms with different stale values. Accept
+  // either form so duplicate-key drift doesn't cause false positives.
   if (isFlatKeyed) {
     const key = v2LockPath(path, subpath);
-    const v1 = conf.locks?.[key];
-    const v2 = conf.locks?.["./" + key];
-    if (typeof v1 === "string") candidates.push(v1);
-    if (typeof v2 === "string") candidates.push(v2);
-  } else {
-    for (const p of [path, "./" + path]) {
-      const obj = conf.locks?.[p];
-      const v = subpath && typeof obj == "object" ? obj?.[subpath] : obj;
-      if (typeof v === "string") candidates.push(v);
-    }
+    return conf.locks?.[key] === hash || conf.locks?.["./" + key] === hash;
   }
-  const accepted = Array.isArray(hash) ? hash : [hash];
-  return candidates.some((c) => accepted.includes(c!));
-}
-
-/**
- * Recursively sorts object keys so JSON.stringify yields deterministic output.
- * Arrays preserve order (their order is semantic).
- */
-function deepSortKeys(value: any): any {
-  if (Array.isArray(value)) return value.map(deepSortKeys);
-  if (value && typeof value === "object") {
-    return Object.keys(value)
-      .sort()
-      .reduce((acc, k) => {
-        acc[k] = deepSortKeys(value[k]);
-        return acc;
-      }, {} as Record<string, any>);
+  for (const p of [path, "./" + path]) {
+    const obj = conf.locks?.[p];
+    const v = subpath && typeof obj == "object" ? obj?.[subpath] : obj;
+    if (v === hash) return true;
   }
-  return value;
-}
-
-/**
- * Canonical form of a metadata YAML/JSON document. Returns a stable string
- * representation that ignores formatting drift (key order, quoting, indent,
- * yaml-lib version differences) so staleness hashes survive cosmetic rewrites.
- *
- * Falls back to the raw content if parsing fails.
- */
-export function canonicalizeMetadata(content: string): string {
-  try {
-    const parsed = yamlParseContent("<metadata>", content);
-    return JSON.stringify(deepSortKeys(parsed));
-  } catch {
-    return content;
-  }
+  return false;
 }
 
 export async function generateScriptHash(
@@ -1290,34 +1244,7 @@ export async function generateScriptHash(
   newMetadataContent: string
 ) {
   return await generateHash(
-    JSON.stringify(rawWorkspaceDependencies) +
-      scriptContent +
-      canonicalizeMetadata(newMetadataContent)
-  );
-}
-
-/**
- * Pre-canonical script hash formula (raw on-disk bytes). Accepted as a
- * backwards-compat fallback so v2 lockfile entries written by older CLIs
- * (which hashed the raw metadata file as-is) don't show up as false-positive
- * stale on first run after upgrade. Not used for new writes — new writes use
- * the canonical (deep-sorted JSON) form so hashes stay stable across yaml-lib
- * version drift.
- *
- * The narrower yaml-round-trip variant (where past CLI re-stringified before
- * hashing) was considered and dropped: it adds ~150ms per generate-metadata
- * run on a 300-script repo, only catches mixed-writer pre-migration entries,
- * and is itself fragile to future yaml-lib changes. Users with affected
- * entries get a clear "content changed" stale and can fix with
- * `wmill generate-metadata --rehash-only`.
- */
-export async function generateScriptHashLegacy(
-  rawWorkspaceDependencies: Record<string, string>,
-  scriptContent: string,
-  newMetadataContent: string
-): Promise<string> {
-  return await generateHash(
-    JSON.stringify(rawWorkspaceDependencies) + scriptContent + newMetadataContent,
+    JSON.stringify(rawWorkspaceDependencies) + scriptContent + newMetadataContent
   );
 }
 

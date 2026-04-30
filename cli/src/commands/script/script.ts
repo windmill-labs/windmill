@@ -26,7 +26,6 @@ import { Workspace } from "../workspace/workspace.ts";
 import {
   checkifMetadataUptodate,
   generateScriptHash,
-  generateScriptHashLegacy,
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   parseMetadataFile,
@@ -109,23 +108,14 @@ export function isFlowInlineScriptPath(filePath: string): boolean {
 }
 
 type PushOptions = GlobalOptions & { message?: string };
-/**
- * Compute the canonical staleness hash plus a raw-bytes legacy hash, so the
- * "metadata appears stale" warning doesn't mis-fire on v2 lockfile entries
- * written by older CLIs (which used the raw-bytes formula). Caller passes the
- * array to `checkifMetadataUptodate` and accepts a match against either.
- */
 export async function computePushMetadataHash(
   filePath: string,
   content: string
-): Promise<string[]> {
+): Promise<string> {
   const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
   const metadataWithType = await parseMetadataFile(remotePath, undefined);
   const metadataContent = await readTextFile(metadataWithType.path);
-  return [
-    await generateScriptHash({}, content, metadataContent),
-    await generateScriptHashLegacy({}, content, metadataContent),
-  ];
+  return await generateScriptHash({}, content, metadataContent);
 }
 
 async function push(opts: PushOptions, filePath: string) {
@@ -153,14 +143,14 @@ async function push(opts: PushOptions, filePath: string) {
   try {
     const content = await readTextFile(filePath);
     const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
-    const contentHashes = await computePushMetadataHash(filePath, content);
+    const contentHash = await computePushMetadataHash(filePath, content);
     const conf = await readLockfile();
     const hasLockEntry = conf.locks && (conf.locks[remotePath] !== undefined || conf.locks[`${remotePath}.ts`] !== undefined);
     if (!hasLockEntry) {
       log.warn(colors.yellow(
         `No metadata generated yet for ${filePath}. Run 'wmill generate-metadata' to generate schema and lock.`
       ));
-    } else if (!(await checkifMetadataUptodate(remotePath, contentHashes, conf))) {
+    } else if (!(await checkifMetadataUptodate(remotePath, contentHash, conf))) {
       log.warn(colors.yellow(
         `Metadata for ${filePath} appears stale (content changed since last 'wmill generate-metadata').\n` +
         `The schema and lock may not match the current code. Consider running 'wmill generate-metadata' first.`
