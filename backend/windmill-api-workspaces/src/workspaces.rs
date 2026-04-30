@@ -674,6 +674,11 @@ async fn get_settings(
 
     if !authed.is_admin {
         settings.slack_oauth_client_secret = None;
+        // git_app_installations holds GitHub App JWTs and cached installation
+        // tokens used by git-sync. The cached installation_token is refreshed on
+        // each git-sync action and is valid for ~55 minutes, so a value read here
+        // is essentially always live. It must not be exposed to non-admins.
+        settings.git_app_installations = None;
     }
     Ok(Json(settings))
 }
