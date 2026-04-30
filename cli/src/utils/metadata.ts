@@ -261,10 +261,10 @@ export async function generateScriptMetadataInternal(
     return;
   }
 
-  // Pre-canonical formulas. Accepted as backwards-compat fallbacks so entries
-  // written by older CLIs don't show as false-positive stale on first run.
+  // Pre-canonical formula. Accepted as backwards-compat fallback so v2
+  // lockfile entries written by older CLIs don't show as false-positive stale.
   const conf = await readLockfile();
-  const legacyHashes = await generateScriptHashLegacyVariants(
+  const legacyHash = await generateScriptHashLegacy(
     depsForHash, scriptContent, metadataContent,
   );
 
@@ -276,7 +276,7 @@ export async function generateScriptMetadataInternal(
     checkHash = await generateHash(hash + JSON.stringify(sortedEntries));
     checkSubpath = SCRIPT_TOP_HASH;
   } else {
-    checkHash = [hash, ...legacyHashes];
+    checkHash = [hash, legacyHash];
   }
 
   // Use checkHash (includes module hashes) so module changes are detected as stale
@@ -1297,31 +1297,28 @@ export async function generateScriptHash(
 }
 
 /**
- * Pre-canonical script hash formulas. Used as backwards-compat fallbacks when
- * comparing against entries written by older CLI versions. We accept both:
- *   - raw bytes: older CLI hashed the metadata file as-is
- *   - yaml round-trip: older CLI re-serialized via yamlStringify before hashing
- * Not used for new writes — new writes use the canonical (deep-sorted JSON)
- * form so hashes stay stable across yaml-lib version drift.
+ * Pre-canonical script hash formula (raw on-disk bytes). Accepted as a
+ * backwards-compat fallback so v2 lockfile entries written by older CLIs
+ * (which hashed the raw metadata file as-is) don't show up as false-positive
+ * stale on first run after upgrade. Not used for new writes — new writes use
+ * the canonical (deep-sorted JSON) form so hashes stay stable across yaml-lib
+ * version drift.
+ *
+ * The narrower yaml-round-trip variant (where past CLI re-stringified before
+ * hashing) was considered and dropped: it adds ~150ms per generate-metadata
+ * run on a 300-script repo, only catches mixed-writer pre-migration entries,
+ * and is itself fragile to future yaml-lib changes. Users with affected
+ * entries get a clear "content changed" stale and can fix with
+ * `wmill generate-metadata --rehash-only`.
  */
-export async function generateScriptHashLegacyVariants(
+export async function generateScriptHashLegacy(
   rawWorkspaceDependencies: Record<string, string>,
   scriptContent: string,
   newMetadataContent: string
-): Promise<string[]> {
-  const depsStr = JSON.stringify(rawWorkspaceDependencies);
-  const variants: string[] = [
-    await generateHash(depsStr + scriptContent + newMetadataContent),
-  ];
-  try {
-    const parsed = yamlParseContent("<metadata>", newMetadataContent);
-    variants.push(
-      await generateHash(depsStr + scriptContent + yamlStringify(parsed, yamlOptions))
-    );
-  } catch {
-    // ignore — raw-bytes variant already pushed
-  }
-  return variants;
+): Promise<string> {
+  return await generateHash(
+    JSON.stringify(rawWorkspaceDependencies) + scriptContent + newMetadataContent,
+  );
 }
 
 async function computeModuleHashes(
