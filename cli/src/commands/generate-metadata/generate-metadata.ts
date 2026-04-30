@@ -37,12 +37,6 @@ interface StaleItem {
 }
 
 /**
- * Walks all local scripts/flows/apps (or those under `folder`) and writes
- * canonical hashes to wmill-lock.yaml from disk content. No backend round-trip,
- * no yaml/lock rewrites. Stub workspace + opts are passed through to handlers
- * since the rehash-only fast path returns before any backend call.
- */
-/**
  * Categorize a flat list of file paths into scripts / flow folders / app
  * file paths. Used to derive item lists from a precomputed FS map (e.g.
  * sync pull's change-tracker output) without re-walking the filesystem.
@@ -72,6 +66,12 @@ function categorizeLocalFiles(
   return { scripts, flowFolders: [...flowFolderSet], appPaths };
 }
 
+/**
+ * Walks all local scripts/flows/apps (or those under `folder`) and writes
+ * canonical hashes to wmill-lock.yaml from disk content. No backend round-trip,
+ * no yaml/lock rewrites. Stub workspace + opts are passed through to handlers
+ * since the rehash-only fast path returns before any backend call.
+ */
 export async function rehashOnly(
   opts: GlobalOptions & SyncOptions & { defaultTs?: "bun" | "deno" },
   folder?: string,
@@ -80,19 +80,33 @@ export async function rehashOnly(
   const codebases = await listSyncCodebases(opts);
   const ignore = await ignoreF(opts);
   const counts = { scripts: 0, flows: 0, apps: 0 };
-  const folderFilter = folder?.replaceAll("\\", "/").replace(/\/$/, "");
-  const inFilter = (p: string) =>
-    !folderFilter ||
-    p === folderFilter ||
-    p.startsWith(folderFilter + "/") ||
-    p.startsWith(folderFilter + SEP);
+  const folderFilter = folder
+    ?.replaceAll("\\", "/")
+    .replace(/^\.\//, "")
+    .replace(/\/$/, "");
+  const inFilter = (p: string) => {
+    if (!folderFilter) return true;
+    const n = p.replaceAll("\\", "/");
+    return n === folderFilter || n.startsWith(folderFilter + "/");
+  };
 
   const conf = rehashFilter?.missingOnly ? await readLockfile() : undefined;
+  const isFlatKeyed = conf?.version === "v2";
   const hasEntry = (key: string, subpath?: string): boolean => {
     if (!conf?.locks) return false;
-    const fullKey = subpath ? `${key}+${subpath}` : key;
-    if (conf.locks[fullKey] !== undefined) return true;
-    if (conf.locks["./" + fullKey] !== undefined) return true;
+    if (isFlatKeyed) {
+      const fullKey = subpath ? `${key}+${subpath}` : key;
+      return (
+        conf.locks[fullKey] !== undefined ||
+        conf.locks["./" + fullKey] !== undefined
+      );
+    }
+    for (const p of [key, "./" + key]) {
+      const obj = conf.locks[p];
+      if (obj === undefined) continue;
+      if (!subpath) return true;
+      if (typeof obj === "object" && obj?.[subpath] !== undefined) return true;
+    }
     return false;
   };
   const skipIfExisting = (remotePath: string, subpath?: string): boolean =>
