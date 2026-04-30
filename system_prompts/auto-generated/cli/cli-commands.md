@@ -168,6 +168,7 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
 - `--skip-flows` - Skip processing flows
 - `--skip-apps` - Skip processing apps
 - `--strict-folder-boundaries` - Only update items inside the specified folder (requires folder argument)
+- `--rehash-only` - Trust on-disk content; rewrite wmill-lock.yaml hashes without backend trips or yaml/lock rewrites. Useful for bootstrapping missing entries.
 - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which files to include
 - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which files to exclude
 
@@ -318,6 +319,14 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 - `--fail-on-warn` - Exit with code 1 when warnings are emitted
 - `--locks-required` - Fail if scripts or flow inline scripts that need locks have no locks
 - `-w, --watch` - Watch for file changes and re-lint automatically
+
+### lock
+
+Manage wmill-lock.yaml
+
+**Subcommands:**
+
+- `lock upgrade`
 
 ### queues
 
