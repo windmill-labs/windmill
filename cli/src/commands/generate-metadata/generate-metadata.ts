@@ -42,10 +42,40 @@ interface StaleItem {
  * no yaml/lock rewrites. Stub workspace + opts are passed through to handlers
  * since the rehash-only fast path returns before any backend call.
  */
+/**
+ * Categorize a flat list of file paths into scripts / flow folders / app
+ * file paths. Used to derive item lists from a precomputed FS map (e.g.
+ * sync pull's change-tracker output) without re-walking the filesystem.
+ */
+function categorizeLocalFiles(
+  paths: Iterable<string>,
+): { scripts: string[]; flowFolders: string[]; appPaths: string[] } {
+  const scripts: string[] = [];
+  const flowFolderSet = new Set<string>();
+  const appPaths: string[] = [];
+  for (const p of paths) {
+    if (p.endsWith(SEP + "flow.yaml") || p.endsWith(SEP + "flow.json")) {
+      flowFolderSet.add(p.substring(0, p.lastIndexOf(SEP)));
+    } else if (
+      p.endsWith(SEP + "raw_app.yaml") ||
+      p.endsWith(SEP + "app.yaml")
+    ) {
+      appPaths.push(p);
+    } else if (
+      exts.some((ext) => p.endsWith(ext)) &&
+      !isFolderResourcePathAnyFormat(p) &&
+      !(isScriptModulePath(p) && !isModuleEntryPoint(p))
+    ) {
+      scripts.push(p);
+    }
+  }
+  return { scripts, flowFolders: [...flowFolderSet], appPaths };
+}
+
 export async function rehashOnly(
   opts: GlobalOptions & SyncOptions & { defaultTs?: "bun" | "deno" },
   folder?: string,
-  rehashFilter?: { missingOnly?: boolean },
+  rehashFilter?: { missingOnly?: boolean; localFiles?: Iterable<string> },
 ): Promise<{ scripts: number; flows: number; apps: number }> {
   const codebases = await listSyncCodebases(opts);
   const ignore = await ignoreF(opts);
@@ -68,20 +98,62 @@ export async function rehashOnly(
   const skipIfExisting = (remotePath: string, subpath?: string): boolean =>
     !!rehashFilter?.missingOnly && hasEntry(remotePath, subpath);
 
-  // Scripts
-  const scriptElems = await elementsToMap(
-    await FSFSElement(process.cwd(), codebases, false),
-    (p, isD) =>
-      (!isD && !exts.some((ext) => p.endsWith(ext))) ||
-      ignore(p, isD) ||
-      isFolderResourcePathAnyFormat(p) ||
-      (isScriptModulePath(p) && !isModuleEntryPoint(p)),
-    false,
-    {},
-  );
+  // Either reuse a precomputed file list from the caller (e.g. sync pull's
+  // change-tracker) or do three separate FS walks here.
+  let scriptPaths: string[];
+  let flowFolders: string[];
+  let appPaths: { folder: string; rawApp: boolean }[];
+
+  if (rehashFilter?.localFiles) {
+    const cat = categorizeLocalFiles(rehashFilter.localFiles);
+    scriptPaths = cat.scripts;
+    flowFolders = cat.flowFolders;
+    appPaths = cat.appPaths.map((p) => ({
+      folder: p.substring(0, p.lastIndexOf(SEP)),
+      rawApp: p.endsWith(SEP + "raw_app.yaml"),
+    }));
+  } else {
+    const scriptElems = await elementsToMap(
+      await FSFSElement(process.cwd(), codebases, false),
+      (p, isD) =>
+        (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+        ignore(p, isD) ||
+        isFolderResourcePathAnyFormat(p) ||
+        (isScriptModulePath(p) && !isModuleEntryPoint(p)),
+      false,
+      {},
+    );
+    scriptPaths = Object.keys(scriptElems);
+
+    flowFolders = Object.keys(
+      await elementsToMap(
+        await FSFSElement(process.cwd(), [], true),
+        (p, isD) =>
+          ignore(p, isD) ||
+          (!isD && !p.endsWith(SEP + "flow.yaml") && !p.endsWith(SEP + "flow.json")),
+        false,
+        {},
+      ),
+    ).map((x) => x.substring(0, x.lastIndexOf(SEP)));
+
+    const appElems = await elementsToMap(
+      await FSFSElement(process.cwd(), [], true),
+      (p, isD) =>
+        ignore(p, isD) ||
+        (!isD && !p.endsWith(SEP + "raw_app.yaml") && !p.endsWith(SEP + "app.yaml")),
+      false,
+      {},
+    );
+    appPaths = Object.keys(appElems).map((p) => ({
+      folder: p.substring(0, p.lastIndexOf(SEP)),
+      rawApp: p.endsWith(SEP + "raw_app.yaml"),
+    }));
+  }
+
   const stubWorkspace = {} as any;
   const rehashOpts = { ...opts, rehashOnly: true } as any;
-  for (const e of Object.keys(scriptElems)) {
+
+  for (const e of scriptPaths) {
     if (!inFilter(e)) continue;
     if (rehashFilter?.missingOnly) {
       // Quick existence check using the same path-derivation as the handler.
@@ -100,17 +172,6 @@ export async function rehashOnly(
     }
   }
 
-  // Flows
-  const flowFolders = Object.keys(
-    await elementsToMap(
-      await FSFSElement(process.cwd(), [], true),
-      (p, isD) =>
-        ignore(p, isD) ||
-        (!isD && !p.endsWith(SEP + "flow.yaml") && !p.endsWith(SEP + "flow.json")),
-      false,
-      {},
-    ),
-  ).map((x) => x.substring(0, x.lastIndexOf(SEP)));
   for (const f of flowFolders) {
     if (!inFilter(f)) continue;
     if (rehashFilter?.missingOnly) {
@@ -125,19 +186,8 @@ export async function rehashOnly(
     }
   }
 
-  // Apps
-  const appElems = await elementsToMap(
-    await FSFSElement(process.cwd(), [], true),
-    (p, isD) =>
-      ignore(p, isD) ||
-      (!isD && !p.endsWith(SEP + "raw_app.yaml") && !p.endsWith(SEP + "app.yaml")),
-    false,
-    {},
-  );
-  for (const p of Object.keys(appElems)) {
-    const appFolder = p.substring(0, p.lastIndexOf(SEP));
+  for (const { folder: appFolder, rawApp } of appPaths) {
     if (!inFilter(appFolder)) continue;
-    const rawApp = p.endsWith(SEP + "raw_app.yaml");
     if (rehashFilter?.missingOnly) {
       const folderNormalized = appFolder.replaceAll(SEP, "/");
       if (skipIfExisting(folderNormalized, "__app_hash")) continue;

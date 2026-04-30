@@ -1162,7 +1162,11 @@ const CURRENT_LOCK_VERSION: LockVersion = "v2";
 // lockfile was written by a newer CLI; we refuse to touch it rather than
 // silently fall through to a legacy code path (the bug that 1.692.0 had with
 // the proposed v3 marker).
-const KNOWN_LOCK_VERSIONS: readonly string[] = ["v2"];
+// Real v1 lockfiles never had a version field (it was added with v2). The
+// "v1" string is included here only to be lenient about manual edits that
+// label a v1 lockfile explicitly — the downstream isFlatKeyed check ensures
+// it still goes through the legacy nested-key path.
+const KNOWN_LOCK_VERSIONS: readonly string[] = ["v1", "v2"];
 const SCRIPT_TOP_HASH = "__script_hash";
 
 /**
