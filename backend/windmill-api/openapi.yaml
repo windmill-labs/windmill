@@ -3027,9 +3027,51 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkspaceInvite"
 
+  /w/{workspace}/workspaces/get_public_settings:
+    get:
+      summary: get public settings
+      description: Returns the subset of workspace settings safe to expose to any workspace member. The full settings struct is admin-only via `getSettings`.
+      operationId: getPublicSettings
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workspace_id:
+                    type: string
+                  slack_name:
+                    type: string
+                  slack_team_id:
+                    type: string
+                  teams_team_id:
+                    type: string
+                  teams_team_name:
+                    type: string
+                  teams_team_guid:
+                    type: string
+                  large_file_storage:
+                    $ref: "#/components/schemas/LargeFileStorage"
+                  datatable:
+                    $ref: "#/components/schemas/DataTableSettings"
+                  deploy_ui:
+                    $ref: "#/components/schemas/WorkspaceDeployUISettings"
+                  mute_critical_alerts:
+                    type: boolean
+                required:
+                  - workspace_id
+
   /w/{workspace}/workspaces/get_settings:
     get:
-      summary: get settings
+      summary: get settings (admin only)
+      description: Returns the full workspace settings including admin-managed integration credentials. Admin-only — non-admin callers should use `getPublicSettings`.
       operationId: getSettings
       tags:
         - workspace
