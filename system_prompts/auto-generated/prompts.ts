@@ -2069,14 +2069,6 @@ Validate Windmill flow, schedule, and trigger YAML files in a directory
 - \`--locks-required\` - Fail if scripts or flow inline scripts that need locks have no locks
 - \`-w, --watch\` - Watch for file changes and re-lint automatically
 
-### lock
-
-Manage wmill-lock.yaml
-
-**Subcommands:**
-
-- \`lock upgrade\`
-
 ### queues
 
 List all queues with their metrics

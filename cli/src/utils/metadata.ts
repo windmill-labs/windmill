@@ -262,12 +262,11 @@ export async function generateScriptMetadataInternal(
   }
 
   // Pre-canonical formulas. Accepted as backwards-compat fallbacks so entries
-  // written by older CLIs (v2 lockfiles) don't show as false-positive stale on
-  // first run after upgrade. v3 lockfiles are guaranteed canonical so we skip.
+  // written by older CLIs don't show as false-positive stale on first run.
   const conf = await readLockfile();
-  const legacyHashes = isLegacyLockfile(conf)
-    ? await generateScriptHashLegacyVariants(depsForHash, scriptContent, metadataContent)
-    : [];
+  const legacyHashes = await generateScriptHashLegacyVariants(
+    depsForHash, scriptContent, metadataContent,
+  );
 
   // If modules exist, combine main script hash + module hashes into a meta-hash
   let checkHash: string | string[] = hash;
@@ -1157,7 +1156,7 @@ export async function parseMetadataFile(
   };
 }
 
-export type LockVersion = "v2" | "v3";
+export type LockVersion = "v2";
 
 export interface Lock {
   version?: LockVersion;
@@ -1165,29 +1164,12 @@ export interface Lock {
 }
 
 const WMILL_LOCKFILE = "wmill-lock.yaml";
-const CURRENT_LOCK_VERSION: LockVersion = "v3";
-
-let _v2NudgeShown = false;
-/**
- * Call to suppress the v2 nudge for the rest of the current process — used by
- * `wmill lock upgrade` so the user doesn't see a "run lock upgrade" tip while
- * lock upgrade is the command they're already running.
- */
-export function suppressV2Nudge(): void {
-  _v2NudgeShown = true;
-}
-function maybeShowV2Nudge(conf: Lock | undefined) {
-  if (_v2NudgeShown) return;
-  if (conf?.version === "v2") {
-    _v2NudgeShown = true;
-    log.info(
-      colors.gray(
-        `Tip: wmill-lock.yaml is v2. Run \`wmill lock upgrade\` to migrate to v3 ` +
-        `and skip backwards-compat hashing on every check.`
-      )
-    );
-  }
-}
+const CURRENT_LOCK_VERSION: LockVersion = "v2";
+// Versions this CLI knows how to read/write. An unknown value indicates the
+// lockfile was written by a newer CLI; we refuse to touch it rather than
+// silently fall through to a legacy code path (the bug that 1.692.0 had with
+// the proposed v3 marker).
+const KNOWN_LOCK_VERSIONS: readonly string[] = ["v2"];
 const SCRIPT_TOP_HASH = "__script_hash";
 
 /**
@@ -1203,22 +1185,27 @@ export function normalizeLockPath(p: string): string {
 }
 
 export async function readLockfile(): Promise<Lock> {
+  let parsed: unknown;
   try {
-    const read = await yamlParseFile(WMILL_LOCKFILE);
-    if (typeof read == "object" && read != null) {
-      const conf = read as Lock;
-      maybeShowV2Nudge(conf);
-      return conf;
-    } else {
-      throw new Error("Invalid lockfile");
-    }
+    parsed = await yamlParseFile(WMILL_LOCKFILE);
   } catch {
     const lock: Lock = { locks: {}, version: CURRENT_LOCK_VERSION };
     await writeFile(WMILL_LOCKFILE, yamlStringify(lock, yamlOptions), "utf-8");
     log.info(colors.green("wmill-lock.yaml created"));
-
     return lock;
   }
+  if (typeof parsed != "object" || parsed == null) {
+    throw new Error("wmill-lock.yaml is malformed (expected an object)");
+  }
+  const conf = parsed as Lock;
+  if (conf.version != null && !KNOWN_LOCK_VERSIONS.includes(conf.version)) {
+    throw new Error(
+      `wmill-lock.yaml is at unknown version "${conf.version}". This was ` +
+      `written by a newer wmill CLI; please upgrade with \`wmill upgrade\`. ` +
+      `Refusing to operate to avoid corrupting the lockfile.`,
+    );
+  }
+  return conf;
 }
 
 function v2LockPath(path: string, subpath?: string) {
@@ -1229,12 +1216,6 @@ function v2LockPath(path: string, subpath?: string) {
     return normalizedPath;
   }
 }
-export function isLegacyLockfile(conf: Lock | undefined): boolean {
-  // v2 lockfiles may contain pre-canonical hashes from older CLI versions.
-  // v3 lockfiles are guaranteed canonical so the legacy fallback is unneeded.
-  return conf?.version === "v2";
-}
-
 export async function checkifMetadataUptodate(
   path: string,
   hash: string | string[],
@@ -1247,7 +1228,7 @@ export async function checkifMetadataUptodate(
   if (!conf.locks) {
     return false;
   }
-  const isFlatKeyed = conf?.version === "v2" || conf?.version === "v3";
+  const isFlatKeyed = conf?.version === "v2";
 
   // Older CLIs sometimes wrote entries with a leading "./" prefix; some
   // lockfiles even contain both forms with different stale values. Collect
@@ -1388,7 +1369,7 @@ export async function clearGlobalLock(path: string): Promise<void> {
   if (!conf?.locks) {
     conf.locks = {};
   }
-  const isFlatKeyed = conf?.version === "v2" || conf?.version === "v3";
+  const isFlatKeyed = conf?.version === "v2";
 
   if (isFlatKeyed) {
     // Remove the specific flat-keyed lock entry. Match both the canonical
@@ -1428,7 +1409,7 @@ export async function updateMetadataGlobalLock(
   if (!conf?.locks) {
     conf.locks = {};
   }
-  const isFlatKeyed = conf?.version === "v2" || conf?.version === "v3";
+  const isFlatKeyed = conf?.version === "v2";
 
   if (isFlatKeyed) {
     conf.locks[v2LockPath(path, subpath)] = hash;
