@@ -51,6 +51,93 @@ lazy_static::lazy_static! {
 const NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT: &str = include_str!("../nsjail/run.ansible.config.proto");
 const WINDMILL_ANSIBLE_PASSWORD_FILENAME: &str = ".windmill.ansible_vault_password_file";
 
+const DELEGATE_GIT_REPO_TARGET: &str = "delegate_git_repository";
+
+lazy_static::lazy_static! {
+    static ref TEMPLATE_RE: regex::Regex = regex::Regex::new(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}").unwrap();
+}
+
+/// Substitute `{{ arg_name }}` placeholders with values from `args`.
+/// Strings are used raw; numbers/bools are stringified. Other types are rejected.
+fn interpolate_template(
+    template: &str,
+    args: Option<&HashMap<String, Box<RawValue>>>,
+    field_name: &str,
+) -> error::Result<String> {
+    let mut last_err: Option<error::Error> = None;
+    let result = TEMPLATE_RE.replace_all(template, |caps: &regex::Captures| {
+        let name = &caps[1];
+        let raw = args.and_then(|a| a.get(name));
+        let Some(raw) = raw else {
+            last_err = Some(error::Error::BadRequest(format!(
+                "`{}` references `{{{{ {} }}}}` but no such argument was provided",
+                field_name, name
+            )));
+            return String::new();
+        };
+        let json: serde_json::Value = match serde_json::from_str(raw.get()) {
+            Ok(v) => v,
+            Err(e) => {
+                last_err = Some(error::Error::BadRequest(format!(
+                    "`{}` could not parse argument `{}` as JSON: {e}",
+                    field_name, name
+                )));
+                return String::new();
+            }
+        };
+        match json {
+            serde_json::Value::String(s) => s,
+            serde_json::Value::Number(n) => n.to_string(),
+            serde_json::Value::Bool(b) => b.to_string(),
+            serde_json::Value::Null => {
+                last_err = Some(error::Error::BadRequest(format!(
+                    "`{}` references `{{{{ {} }}}}` but the argument is null",
+                    field_name, name
+                )));
+                String::new()
+            }
+            _ => {
+                last_err = Some(error::Error::BadRequest(format!(
+                    "`{}` references `{{{{ {} }}}}` but the argument is not a primitive (string/number/bool)",
+                    field_name, name
+                )));
+                String::new()
+            }
+        }
+    });
+    if let Some(e) = last_err {
+        return Err(e);
+    }
+    Ok(result.into_owned())
+}
+
+/// Reject absolute paths and `..` segments to prevent escaping the cloned repo directory.
+fn validate_relative_path(path: &str, field_name: &str) -> error::Result<()> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(error::Error::BadRequest(format!(
+            "`{}` resolved to an empty path",
+            field_name
+        )));
+    }
+    let p = std::path::Path::new(trimmed);
+    if p.is_absolute() {
+        return Err(error::Error::BadRequest(format!(
+            "`{}` must be a relative path inside the cloned repo, got: {}",
+            field_name, trimmed
+        )));
+    }
+    for component in p.components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            return Err(error::Error::BadRequest(format!(
+                "`{}` must not contain `..` segments, got: {}",
+                field_name, trimmed
+            )));
+        }
+    }
+    Ok(())
+}
+
 async fn clone_repo(
     repo: &GitRepo,
     job_dir: &str,
@@ -439,6 +526,35 @@ pub async fn install_galaxy_collections(
     )
     .await;
 
+    run_galaxy_install_from_requirements(
+        "requirements.yml",
+        job_dir,
+        job_id,
+        worker_name,
+        w_id,
+        mem_peak,
+        canceled_by,
+        conn,
+        occupancy_metrics,
+        git_ssh_cmd,
+    )
+    .await
+}
+
+/// Run `ansible-galaxy role install -r <path>` then `ansible-galaxy collection install -r <path>`.
+/// `requirements_path` is relative to `job_dir`.
+async fn run_galaxy_install_from_requirements(
+    requirements_path: &str,
+    job_dir: &str,
+    job_id: &Uuid,
+    worker_name: &str,
+    w_id: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    conn: &Connection,
+    occupancy_metrics: &mut OccupancyMetrics,
+    git_ssh_cmd: &str,
+) -> anyhow::Result<()> {
     let mut galaxy_roles_cmd = Command::new(ANSIBLE_GALAXY_PATH.as_str());
     galaxy_roles_cmd
         .current_dir(job_dir)
@@ -451,7 +567,7 @@ pub async fn install_galaxy_collections(
             "role",
             "install",
             "-r",
-            "requirements.yml",
+            requirements_path,
             "-p",
             "./roles",
         ])
@@ -489,7 +605,7 @@ pub async fn install_galaxy_collections(
             "collection",
             "install",
             "-r",
-            "requirements.yml",
+            requirements_path,
             "-p",
             "./",
         ])
@@ -515,6 +631,82 @@ pub async fn install_galaxy_collections(
         None,
     )
     .await?;
+
+    Ok(())
+}
+
+/// Look for `requirements.yml`, `collections/requirements.yml`, and `roles/requirements.yml`
+/// inside a cloned repo (relative to `job_dir`) and run ansible-galaxy install on each one found.
+async fn install_requirements_from_cloned_repo(
+    repo_target: &str,
+    job_dir: &str,
+    job_id: &Uuid,
+    worker_name: &str,
+    w_id: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    conn: &Connection,
+    occupancy_metrics: &mut OccupancyMetrics,
+    git_ssh_cmd: &str,
+) -> anyhow::Result<()> {
+    let candidates = [
+        "requirements.yml",
+        "requirements.yaml",
+        "collections/requirements.yml",
+        "collections/requirements.yaml",
+        "roles/requirements.yml",
+        "roles/requirements.yaml",
+    ];
+    let mut found: Vec<String> = vec![];
+    for candidate in candidates {
+        let abs = std::path::Path::new(job_dir)
+            .join(repo_target)
+            .join(candidate);
+        if abs.is_file() {
+            found.push(format!("{}/{}", repo_target, candidate));
+        }
+    }
+
+    if found.is_empty() {
+        append_logs(
+            job_id,
+            w_id,
+            format!(
+                "\nNo requirements.yml found in `{}`, skipping repo dependency install.\n",
+                repo_target
+            ),
+            conn,
+        )
+        .await;
+        return Ok(());
+    }
+
+    append_logs(
+        job_id,
+        w_id,
+        format!(
+            "\n\n--- INSTALLING REPO REQUIREMENTS ({}) ---\n",
+            found.join(", ")
+        ),
+        conn,
+    )
+    .await;
+
+    for path in &found {
+        run_galaxy_install_from_requirements(
+            path,
+            job_dir,
+            job_id,
+            worker_name,
+            w_id,
+            mem_peak,
+            canceled_by,
+            conn,
+            occupancy_metrics,
+            git_ssh_cmd,
+        )
+        .await?;
+    }
 
     Ok(())
 }
@@ -882,13 +1074,21 @@ pub async fn handle_ansible_job(
     };
     write_file(job_dir, "result.json", "")?;
 
-    let cmd_options: Vec<String> = reqs
-        .as_ref()
-        .map(|r| r.options.clone())
-        .map(|r| get_cmd_options(r))
-        .unwrap_or_default();
+    let cmd_options: Vec<String> = if let Some(r) = reqs.as_ref() {
+        let mut opts = r.options.clone();
+        if let Some(limit) = opts.limit.as_ref() {
+            opts.limit = Some(interpolate_template(
+                limit,
+                interpolated_args.as_ref(),
+                "options.limit",
+            )?);
+        }
+        get_cmd_options(opts)
+    } else {
+        vec![]
+    };
 
-    let inventories: Vec<String> = reqs
+    let mut inventories: Vec<String> = reqs
         .as_ref()
         .map(|x| -> Result<Vec<String>, _> {
             let mut ret: Vec<String> = x
@@ -938,6 +1138,44 @@ pub async fn handle_ansible_job(
         .await?;
 
         if let Some(delegated_git_repo) = r.delegate_to_git_repo.as_ref() {
+            let interpolated_playbook = delegated_git_repo
+                .playbook
+                .as_ref()
+                .map(|p| -> error::Result<String> {
+                    let p = interpolate_template(
+                        p,
+                        interpolated_args.as_ref(),
+                        "delegate_to_git_repo.playbook",
+                    )?;
+                    validate_relative_path(&p, "delegate_to_git_repo.playbook")?;
+                    Ok(p)
+                })
+                .transpose()?;
+            let interpolated_commit = delegated_git_repo
+                .commit
+                .as_ref()
+                .map(|c| {
+                    interpolate_template(
+                        c,
+                        interpolated_args.as_ref(),
+                        "delegate_to_git_repo.commit",
+                    )
+                })
+                .transpose()?;
+            let interpolated_inventories_location = delegated_git_repo
+                .inventories_location
+                .as_ref()
+                .map(|p| -> error::Result<String> {
+                    let p = interpolate_template(
+                        p,
+                        interpolated_args.as_ref(),
+                        "delegate_to_git_repo.inventories_location",
+                    )?;
+                    validate_relative_path(&p, "delegate_to_git_repo.inventories_location")?;
+                    Ok(p)
+                })
+                .transpose()?;
+
             let serde_json::Value::Object(git_repo_resource) = client
                 .get_resource_value_interpolated::<serde_json::Value>(
                     &delegated_git_repo.resource,
@@ -974,11 +1212,11 @@ pub async fn handle_ansible_job(
             let branch = Some(git_repo_resource.get("branch").and_then(|s| s.as_str()).map(|s| s.to_string())
                 .ok_or(anyhow!("Failed to get branch from git repo resource, please check that the resource has the correct type (git_repository)"))?).filter(|s| !s.is_empty());
 
-            let target_path = "delegate_git_repository".to_string();
+            let target_path = DELEGATE_GIT_REPO_TARGET.to_string();
 
             let repo = GitRepo {
                 url: secret_url,
-                commit: delegated_git_repo.commit.clone(),
+                commit: interpolated_commit.clone(),
                 branch,
                 target_path,
             };
@@ -989,7 +1227,7 @@ pub async fn handle_ansible_job(
                 conn,
             )
             .await;
-            if let Some(commit) = delegated_git_repo.commit.as_ref() {
+            if let Some(commit) = interpolated_commit.as_ref() {
                 clone_repo_without_history(
                     &repo,
                     commit,
@@ -1033,12 +1271,29 @@ pub async fn handle_ansible_job(
             )
             .await;
 
-            playbook_override = Some(
-                delegated_git_repo
-                    .playbook
-                    .as_ref()
-                    .map(|p| format!("{}/{}", &repo.target_path, p)),
-            );
+            playbook_override =
+                Some(interpolated_playbook.map(|p| format!("{}/{}", &repo.target_path, p)));
+
+            if let Some(inv) = interpolated_inventories_location {
+                inventories.push("-i".to_string());
+                inventories.push(format!("{}/{}", &repo.target_path, inv));
+            }
+
+            if delegated_git_repo.install_requirements {
+                install_requirements_from_cloned_repo(
+                    &repo.target_path,
+                    job_dir,
+                    &job.id,
+                    worker_name,
+                    &job.workspace_id,
+                    mem_peak,
+                    canceled_by,
+                    conn,
+                    occupancy_metrics,
+                    git_ssh_cmd,
+                )
+                .await?;
+            }
         }
 
         if playbook_override.clone().flatten().is_none() && playbook.is_empty() {
@@ -1322,6 +1577,11 @@ fn get_cmd_options(r: windmill_parser_yaml::AnsiblePlaybookOptions) -> Vec<Strin
         ret.push("--force-handlers".to_string());
     }
 
+    if let Some(limit) = r.limit {
+        ret.push("--limit".to_string());
+        ret.push(limit);
+    }
+
     ret
 }
 
@@ -1446,4 +1706,77 @@ async fn get_resource_or_variable_content(
         }
         ResourceOrVariablePath::Variable(p) => client.get_variable_value(&p).await?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args_from_json(v: serde_json::Value) -> HashMap<String, Box<RawValue>> {
+        let serde_json::Value::Object(map) = v else {
+            panic!("expected object");
+        };
+        map.into_iter()
+            .map(|(k, v)| (k, RawValue::from_string(v.to_string()).unwrap()))
+            .collect()
+    }
+
+    #[test]
+    fn test_interpolate_template_string() {
+        let args = args_from_json(serde_json::json!({"playbook": "site.yml"}));
+        let out =
+            interpolate_template("playbooks/{{ playbook }}", Some(&args), "playbook").unwrap();
+        assert_eq!(out, "playbooks/site.yml");
+    }
+
+    #[test]
+    fn test_interpolate_template_number_and_bool() {
+        let args = args_from_json(serde_json::json!({"n": 42, "b": true}));
+        let out = interpolate_template("{{ n }}-{{ b }}", Some(&args), "x").unwrap();
+        assert_eq!(out, "42-true");
+    }
+
+    #[test]
+    fn test_interpolate_template_no_placeholders() {
+        let out = interpolate_template("plain.yml", None, "playbook").unwrap();
+        assert_eq!(out, "plain.yml");
+    }
+
+    #[test]
+    fn test_interpolate_template_missing_arg_errors() {
+        let args = args_from_json(serde_json::json!({}));
+        let err = interpolate_template("{{ missing }}", Some(&args), "playbook").unwrap_err();
+        assert!(err.to_string().contains("missing"));
+    }
+
+    #[test]
+    fn test_interpolate_template_object_arg_errors() {
+        let args = args_from_json(serde_json::json!({"o": {"k": "v"}}));
+        let err = interpolate_template("{{ o }}", Some(&args), "x").unwrap_err();
+        assert!(err.to_string().contains("not a primitive"));
+    }
+
+    #[test]
+    fn test_validate_relative_path_ok() {
+        validate_relative_path("playbooks/site.yml", "playbook").unwrap();
+        validate_relative_path("./site.yml", "playbook").unwrap();
+        validate_relative_path("a/b/c.yml", "playbook").unwrap();
+    }
+
+    #[test]
+    fn test_validate_relative_path_rejects_absolute() {
+        assert!(validate_relative_path("/etc/passwd", "playbook").is_err());
+    }
+
+    #[test]
+    fn test_validate_relative_path_rejects_parent_dir() {
+        assert!(validate_relative_path("../escape.yml", "playbook").is_err());
+        assert!(validate_relative_path("a/../../escape.yml", "playbook").is_err());
+    }
+
+    #[test]
+    fn test_validate_relative_path_rejects_empty() {
+        assert!(validate_relative_path("", "playbook").is_err());
+        assert!(validate_relative_path("   ", "playbook").is_err());
+    }
 }
