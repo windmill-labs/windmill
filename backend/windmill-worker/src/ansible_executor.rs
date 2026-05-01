@@ -653,7 +653,9 @@ async fn install_requirements_from_cloned_repo(
         "requirements.yml",
         "requirements.yaml",
         "collections/requirements.yml",
+        "collections/requirements.yaml",
         "roles/requirements.yml",
+        "roles/requirements.yaml",
     ];
     let mut found: Vec<String> = vec![];
     for candidate in candidates {

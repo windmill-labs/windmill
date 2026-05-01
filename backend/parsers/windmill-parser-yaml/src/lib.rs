@@ -1022,7 +1022,7 @@ delegate_to_git_repo:
 "#;
         let (_, reqs, _) = parse_ansible_reqs(p).unwrap();
         let d = reqs.unwrap().delegate_to_git_repo.unwrap();
-        assert_eq!(d.install_requirements, false);
+        assert!(!d.install_requirements);
         assert_eq!(d.playbook.as_deref(), Some("site.yml"));
     }
 
@@ -1041,7 +1041,7 @@ delegate_to_git_repo:
 "#;
         let (_, reqs, _) = parse_ansible_reqs(p).unwrap();
         let d = reqs.unwrap().delegate_to_git_repo.unwrap();
-        assert_eq!(d.install_requirements, true);
+        assert!(d.install_requirements);
         assert_eq!(d.playbook.as_deref(), Some("{{ playbook_name }}"));
         assert_eq!(
             d.inventories_location.as_deref(),
