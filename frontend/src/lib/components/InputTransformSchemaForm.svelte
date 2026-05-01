@@ -82,7 +82,7 @@
 	async function checkS3Storage() {
 		try {
 			if ($workspaceStore) {
-				const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore })
+				const settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore })
 				s3StorageConfigured = settings.large_file_storage?.s3_resource_path !== undefined
 			}
 		} catch (error) {

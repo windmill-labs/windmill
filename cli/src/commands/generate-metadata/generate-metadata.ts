@@ -11,18 +11,17 @@ import {
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   readLockfile,
-  checkifMetadataUptodate,
 } from "../../utils/metadata.ts";
 import { generateFlowLockInternal, FlowLocksResult } from "../flow/flow_metadata.ts";
-import { generateAppLocksInternal, getAppFolders, AppLocksResult } from "../app/app_metadata.ts";
+import { generateAppLocksInternal, AppLocksResult } from "../app/app_metadata.ts";
 import {
   elementsToMap,
   FSFSElement,
   ignoreF,
 } from "../sync/sync.ts";
 import { exts } from "../script/script.ts";
-import { isFolderResourcePathAnyFormat, isScriptModulePath, isModuleEntryPoint } from "../../utils/resource_folders.ts";
-import { listSyncCodebases } from "../../utils/codebase.ts";
+import { isFolderResourcePathAnyFormat, isScriptModulePath, isModuleEntryPoint, scriptPathToRemotePath } from "../../utils/resource_folders.ts";
+import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
 import {
   DoubleLinkedDependencyTree,
   uploadScripts,
@@ -35,6 +34,233 @@ interface StaleItem {
   folder: string;
   isRawApp?: boolean;
   staleReason?: string;
+}
+
+/**
+ * FS walk helpers — shared between the regular `generate-metadata` flow and
+ * the `generate-metadata rehash` subcommand. Each returns the filtered list
+ * of items in scope (scripts / flow folders / app items).
+ */
+async function walkLocalScripts(
+  codebases: SyncCodebase[],
+  ignore: (p: string, isD: boolean) => boolean,
+): Promise<string[]> {
+  const elems = await elementsToMap(
+    await FSFSElement(process.cwd(), codebases, false),
+    (p, isD) =>
+      (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+      ignore(p, isD) ||
+      isFolderResourcePathAnyFormat(p) ||
+      (isScriptModulePath(p) && !isModuleEntryPoint(p)),
+    false,
+    {},
+  );
+  return Object.keys(elems);
+}
+
+async function walkLocalFlowFolders(
+  ignore: (p: string, isD: boolean) => boolean,
+): Promise<string[]> {
+  const elems = await elementsToMap(
+    await FSFSElement(process.cwd(), [], true),
+    (p, isD) =>
+      ignore(p, isD) ||
+      (!isD && !p.endsWith(SEP + "flow.yaml") && !p.endsWith(SEP + "flow.json")),
+    false,
+    {},
+  );
+  return Object.keys(elems).map((x) => x.substring(0, x.lastIndexOf(SEP)));
+}
+
+async function walkLocalAppItems(
+  ignore: (p: string, isD: boolean) => boolean,
+): Promise<{ folder: string; rawApp: boolean }[]> {
+  const elems = await elementsToMap(
+    await FSFSElement(process.cwd(), [], true),
+    (p, isD) =>
+      ignore(p, isD) ||
+      (!isD && !p.endsWith(SEP + "raw_app.yaml") && !p.endsWith(SEP + "app.yaml")),
+    false,
+    {},
+  );
+  return Object.keys(elems).map((p) => ({
+    folder: p.substring(0, p.lastIndexOf(SEP)),
+    rawApp: p.endsWith(SEP + "raw_app.yaml"),
+  }));
+}
+
+/**
+ * Categorize a flat list of file paths into scripts / flow folders / app
+ * file paths. Used to derive item lists from a precomputed FS map (e.g.
+ * sync pull's change-tracker output) without re-walking the filesystem.
+ *
+ * Caller invariant: the provided paths are expected to already be filtered
+ * by the user-level ignore predicate (`ignoreF(opts)`). This function does
+ * NOT re-apply ignore patterns — it only filters by file *kind* (script vs
+ * flow vs app). Sync pull's localMap satisfies this since `elementsToMap`
+ * was called with the same `ignoreF`.
+ */
+function categorizeLocalFiles(
+  paths: Iterable<string>,
+): { scripts: string[]; flowFolders: string[]; appPaths: string[] } {
+  const scripts: string[] = [];
+  const flowFolderSet = new Set<string>();
+  const appPaths: string[] = [];
+  for (const p of paths) {
+    if (p.endsWith(SEP + "flow.yaml") || p.endsWith(SEP + "flow.json")) {
+      flowFolderSet.add(p.substring(0, p.lastIndexOf(SEP)));
+    } else if (
+      p.endsWith(SEP + "raw_app.yaml") ||
+      p.endsWith(SEP + "app.yaml")
+    ) {
+      appPaths.push(p);
+    } else if (
+      exts.some((ext) => p.endsWith(ext)) &&
+      !isFolderResourcePathAnyFormat(p) &&
+      !(isScriptModulePath(p) && !isModuleEntryPoint(p))
+    ) {
+      scripts.push(p);
+    }
+  }
+  return { scripts, flowFolders: [...flowFolderSet], appPaths };
+}
+
+/**
+ * Walks all local scripts/flows/apps (or those under `folder`) and writes
+ * canonical hashes to wmill-lock.yaml from disk content. No backend round-trip,
+ * no yaml/lock rewrites. Stub workspace + opts are passed through to handlers
+ * since the rehash-only fast path returns before any backend call.
+ */
+export async function rehashOnly(
+  opts: GlobalOptions & SyncOptions & { defaultTs?: "bun" | "deno" },
+  folder?: string,
+  rehashFilter?: {
+    missingOnly?: boolean;
+    localFiles?: Iterable<string>;
+    skipScripts?: boolean;
+    skipFlows?: boolean;
+    skipApps?: boolean;
+  },
+): Promise<{ scripts: number; flows: number; apps: number }> {
+  const codebases = await listSyncCodebases(opts);
+  const ignore = await ignoreF(opts);
+  const counts = { scripts: 0, flows: 0, apps: 0 };
+  const folderFilter = folder
+    ?.replaceAll("\\", "/")
+    .replace(/^\.\//, "")
+    .replace(/\/$/, "");
+  const inFilter = (p: string) => {
+    if (!folderFilter) return true;
+    const n = p.replaceAll("\\", "/");
+    return n === folderFilter || n.startsWith(folderFilter + "/");
+  };
+
+  const conf = rehashFilter?.missingOnly ? await readLockfile() : undefined;
+  const isFlatKeyed = conf?.version === "v2";
+  const hasEntry = (key: string, subpath?: string): boolean => {
+    if (!conf?.locks) return false;
+    if (isFlatKeyed) {
+      const fullKey = subpath ? `${key}+${subpath}` : key;
+      return (
+        conf.locks[fullKey] !== undefined ||
+        conf.locks["./" + fullKey] !== undefined
+      );
+    }
+    for (const p of [key, "./" + key]) {
+      const obj = conf.locks[p];
+      if (obj === undefined) continue;
+      if (!subpath) return true;
+      if (typeof obj === "object" && obj?.[subpath] !== undefined) return true;
+    }
+    return false;
+  };
+  const skipIfExisting = (remotePath: string, subpath?: string): boolean =>
+    !!rehashFilter?.missingOnly && hasEntry(remotePath, subpath);
+
+  // Either reuse a precomputed file list from the caller (e.g. sync pull's
+  // change-tracker) or do three separate FS walks here.
+  let scriptPaths: string[];
+  let flowFolders: string[];
+  let appPaths: { folder: string; rawApp: boolean }[];
+
+  if (rehashFilter?.localFiles) {
+    const cat = categorizeLocalFiles(rehashFilter.localFiles);
+    scriptPaths = cat.scripts;
+    flowFolders = cat.flowFolders;
+    appPaths = cat.appPaths.map((p) => ({
+      folder: p.substring(0, p.lastIndexOf(SEP)),
+      rawApp: p.endsWith(SEP + "raw_app.yaml"),
+    }));
+  } else {
+    scriptPaths = await walkLocalScripts(codebases, ignore);
+    flowFolders = await walkLocalFlowFolders(ignore);
+    appPaths = await walkLocalAppItems(ignore);
+  }
+
+  const stubWorkspace = {} as any;
+  const rehashOpts = { ...opts, rehashOnly: true } as any;
+
+  if (!rehashFilter?.skipScripts) {
+    for (const e of scriptPaths) {
+      // Filter against the derived remote path so a folder argument like
+      // `f/foo` matches both flat (`f/foo.ts`) and folder-layout
+      // (`f/foo__mod/script.ts`) scripts uniformly.
+      const remotePath = scriptPathToRemotePath(e);
+      if (!inFilter(remotePath)) continue;
+      if (rehashFilter?.missingOnly) {
+        if (skipIfExisting(remotePath) || skipIfExisting(remotePath, "__script_hash")) continue;
+      }
+      try {
+        await generateScriptMetadataInternal(
+          e, stubWorkspace, rehashOpts, false, true, {}, codebases, false,
+        );
+        counts.scripts++;
+      } catch (err) {
+        log.warn(`Skipping ${e}: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+  }
+
+  if (!rehashFilter?.skipFlows) {
+    for (const f of flowFolders) {
+      if (!inFilter(f)) continue;
+      if (rehashFilter?.missingOnly) {
+        const folderNormalized = f.replaceAll(SEP, "/");
+        if (skipIfExisting(folderNormalized, "__flow_hash")) continue;
+      }
+      try {
+        await generateFlowLockInternal(f, false, stubWorkspace, rehashOpts, false, true);
+        counts.flows++;
+      } catch (err) {
+        log.warn(`Skipping ${f}: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+  }
+
+  if (!rehashFilter?.skipApps) {
+    for (const { folder: appFolder, rawApp } of appPaths) {
+      if (!inFilter(appFolder)) continue;
+      if (rehashFilter?.missingOnly) {
+        const folderNormalized = appFolder.replaceAll(SEP, "/");
+        if (skipIfExisting(folderNormalized, "__app_hash")) continue;
+      }
+      try {
+        await generateAppLocksInternal(appFolder, rawApp, false, stubWorkspace, rehashOpts, false, true);
+        counts.apps++;
+      } catch (err) {
+        log.warn(`Skipping ${appFolder}: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+  }
+
+  if (counts.scripts + counts.flows + counts.apps > 0 || !rehashFilter?.missingOnly) {
+    log.info(
+      `Rehashed ${colors.bold(String(counts.scripts))} script(s), ` +
+      `${colors.bold(String(counts.flows))} flow(s), ` +
+      `${colors.bold(String(counts.apps))} app(s) from disk.`,
+    );
+  }
+  return counts;
 }
 
 async function generateMetadata(
@@ -85,22 +311,7 @@ async function generateMetadata(
 
   // === Collect stale scripts ===
   if (!skipScripts) {
-    // TODO: run elementsToMap only once but for all runnable types.
-    const scriptElems = await elementsToMap(
-      await FSFSElement(process.cwd(), codebases, false),
-      (p, isD) => {
-        return (
-          (!isD && !exts.some((ext) => p.endsWith(ext))) ||
-          ignore(p, isD) ||
-          isFolderResourcePathAnyFormat(p) ||
-          (isScriptModulePath(p) && !isModuleEntryPoint(p))
-        );
-      },
-      false,
-      {}
-    );
-
-    for (const e of Object.keys(scriptElems)) {
+    for (const e of await walkLocalScripts(codebases, ignore)) {
       await generateScriptMetadataInternal(
         e,
         workspace,
@@ -117,23 +328,7 @@ async function generateMetadata(
 
   // === Collect stale flows ===
   if (!skipFlows) {
-    const flowElems = Object.keys(
-      await elementsToMap(
-        await FSFSElement(process.cwd(), [], true),
-        (p, isD) => {
-          return (
-            ignore(p, isD) ||
-            (!isD &&
-              !p.endsWith(SEP + "flow.yaml") &&
-              !p.endsWith(SEP + "flow.json"))
-          );
-        },
-        false,
-        {}
-      )
-    ).map((x) => x.substring(0, x.lastIndexOf(SEP)));
-
-    for (const flowFolder of flowElems) {
+    for (const flowFolder of await walkLocalFlowFolders(ignore)) {
       await generateFlowLockInternal(
         flowFolder,
         true, // dryRun - populate tree
@@ -148,40 +343,10 @@ async function generateMetadata(
 
   // === Collect stale apps ===
   if (!skipApps) {
-    const elems = await elementsToMap(
-      await FSFSElement(process.cwd(), [], true),
-      (p, isD) => {
-        return (
-          ignore(p, isD) ||
-          (!isD &&
-            !p.endsWith(SEP + "raw_app.yaml") &&
-            !p.endsWith(SEP + "app.yaml"))
-        );
-      },
-      false,
-      {}
-    );
-
-    const rawAppFolders = getAppFolders(elems, "raw_app.yaml");
-    const appFolders = getAppFolders(elems, "app.yaml");
-
-    for (const appFolder of rawAppFolders) {
+    for (const { folder: appFolder, rawApp } of await walkLocalAppItems(ignore)) {
       await generateAppLocksInternal(
         appFolder,
-        true, // rawApp
-        true, // dryRun - populate tree
-        workspace,
-        opts,
-        false,
-        true, // noStaleMessage
-        tree
-      );
-    }
-
-    for (const appFolder of appFolders) {
-      await generateAppLocksInternal(
-        appFolder,
-        false, // rawApp
+        rawApp,
         true, // dryRun - populate tree
         workspace,
         opts,
@@ -447,6 +612,23 @@ async function generateMetadata(
   }
 }
 
+async function rehashCommand(
+  opts: GlobalOptions & SyncOptions & {
+    skipScripts?: boolean;
+    skipFlows?: boolean;
+    skipApps?: boolean;
+  },
+  folder?: string,
+) {
+  if (folder === "") folder = undefined;
+  opts = await mergeConfigWithConfigFile(opts);
+  await rehashOnly(opts, folder, {
+    skipScripts: opts.skipScripts,
+    skipFlows: opts.skipFlows,
+    skipApps: opts.skipApps,
+  });
+}
+
 const command = new Command()
   .description("Generate metadata (locks, schemas) for all scripts, flows, and apps")
   .arguments("[folder:string]")
@@ -466,6 +648,28 @@ const command = new Command()
     "-e --excludes <patterns:file[]>",
     "Comma separated patterns to specify which files to exclude"
   )
-  .action(generateMetadata as any);
+  .action(generateMetadata as any)
+  .command(
+    "rehash",
+    new Command()
+      .description(
+        "Trust on-disk content; rewrite wmill-lock.yaml hashes without backend " +
+        "trips or yaml/lock rewrites. Useful for bootstrapping missing lockfile " +
+        "entries or recovering from older-CLI hash drift."
+      )
+      .arguments("[folder:string]")
+      .option("--skip-scripts", "Skip processing scripts")
+      .option("--skip-flows", "Skip processing flows")
+      .option("--skip-apps", "Skip processing apps")
+      .option(
+        "-i --includes <patterns:file[]>",
+        "Comma separated patterns to specify which files to include"
+      )
+      .option(
+        "-e --excludes <patterns:file[]>",
+        "Comma separated patterns to specify which files to exclude"
+      )
+      .action(rehashCommand as any),
+  );
 
 export default command;

@@ -129,6 +129,70 @@
     - does not duplicate the greeting logic in a new inline script
     - wires the name input into the reused script
 
+- id: wac-typescript-order-workflow
+  prompt: |-
+    Create a Windmill Workflow-as-Code TypeScript script at `f/evals/order_workflow.ts`.
+    It should take an `orderId` string, load the order in a durable task, checkpoint a processing timestamp with `step`, and return `{ orderId, processedAt, status }`.
+  cliExpect:
+    requiredSkills:
+      - write-workflow-as-code
+    requiredSkillsBeforeFirstMutation:
+      - write-workflow-as-code
+    forbiddenSkills:
+      - write-flow
+      - write-script-bun
+      - write-script-python3
+  judgeChecklist:
+    - creates the requested TypeScript WAC script at f/evals/order_workflow.ts
+    - uses the Workflow-as-Code SDK from windmill-client
+    - wraps the entrypoint with workflow
+    - uses a durable task for loading the order
+    - uses step to checkpoint the processing timestamp
+    - does not create an OpenFlow flow.yaml or flow folder
+
+- id: wac-python-approval-workflow
+  prompt: |-
+    Create a Windmill Workflow-as-Code Python script at `f/evals/approval_workflow.py`.
+    It should take a `request_id` string, prepare an approval summary in a task, create resume URLs inside a durable step, wait for approval, and return the approval result.
+  cliExpect:
+    requiredSkills:
+      - write-workflow-as-code
+    requiredSkillsBeforeFirstMutation:
+      - write-workflow-as-code
+    forbiddenSkills:
+      - write-flow
+      - write-script-bun
+      - write-script-python3
+  judgeChecklist:
+    - creates the requested Python WAC script at f/evals/approval_workflow.py
+    - imports Workflow-as-Code helpers from wmill
+    - decorates an async entrypoint with @workflow
+    - uses @task for the approval summary work
+    - gets resume URLs inside step before waiting for approval
+    - uses wait_for_approval
+    - does not create an OpenFlow flow.yaml or flow folder
+
+- id: wac-not-openflow-disambiguation
+  prompt: |-
+    Create this as Workflow-as-Code, not an OpenFlow YAML flow: a TypeScript script at `f/evals/fanout_workflow.ts`.
+    It should take an array of customer IDs, process each customer with a WAC task, run the independent customer tasks in parallel, and return the collected results.
+  cliExpect:
+    requiredSkills:
+      - write-workflow-as-code
+    requiredSkillsBeforeFirstMutation:
+      - write-workflow-as-code
+    forbiddenSkills:
+      - write-flow
+      - write-script-bun
+      - write-script-python3
+  judgeChecklist:
+    - creates the requested TypeScript script at f/evals/fanout_workflow.ts
+    - treats the request as Workflow-as-Code rather than an OpenFlow flow
+    - uses workflow for the script entrypoint
+    - uses task for each customer processing unit
+    - runs independent customer tasks in parallel
+    - does not create a flow folder or flow.yaml
+
 - id: cli-job-debug-guidance
   prompt: |-
     A Windmill job failed.

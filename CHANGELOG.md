@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.693.4](https://github.com/windmill-labs/windmill/compare/v1.693.3...v1.693.4) (2026-04-30)
+
+
+### Bug Fixes
+
+* **cli:** pin wasm parser versions in published package.json ([#8993](https://github.com/windmill-labs/windmill/issues/8993)) ([7c227ec](https://github.com/windmill-labs/windmill/commit/7c227ece0d546ef0f521a963f927e4c913011e8e))
+
+## [1.693.3](https://github.com/windmill-labs/windmill/compare/v1.693.2...v1.693.3) (2026-04-30)
+
+
+### Bug Fixes
+
+* avoid named prepared statements in datatable/PG executor ([#8988](https://github.com/windmill-labs/windmill/issues/8988)) ([7bdfc0e](https://github.com/windmill-labs/windmill/commit/7bdfc0ea0636a93a893ab5f9f58a590e6a0b7be8))
+* improve raw app builder queue behavior for bigger apps ([e7deaf9](https://github.com/windmill-labs/windmill/commit/e7deaf988254eebbf99febc8a644622c9f809bd8))
+* sanitize underscores in agent worker suffix ([#8992](https://github.com/windmill-labs/windmill/issues/8992)) ([568d9cc](https://github.com/windmill-labs/windmill/commit/568d9cc8a086178314e15e3c27fb55ff4817f5cd))
+* **workspaces:** split get_settings into admin-only + public endpoint ([#8990](https://github.com/windmill-labs/windmill/issues/8990)) ([4483d0c](https://github.com/windmill-labs/windmill/commit/4483d0cab91e8a9df026b09c7908291f3fbbfd63))
+
+## [1.693.2](https://github.com/windmill-labs/windmill/compare/v1.693.1...v1.693.2) (2026-04-30)
+
+
+### Bug Fixes
+
+* avoid effect_update_depth_exceeded when clicking flow node on runs page ([#8986](https://github.com/windmill-labs/windmill/issues/8986)) ([3ebfc2b](https://github.com/windmill-labs/windmill/commit/3ebfc2b0af38f7eb17774de08a214d7813e07952))
+* OAuth popup login reliability + auto-login Safari edge cases ([#8971](https://github.com/windmill-labs/windmill/issues/8971)) ([3c3c034](https://github.com/windmill-labs/windmill/commit/3c3c03455d68fde982937787992e20c3f8eeeaaf))
+
 ## [1.693.1](https://github.com/windmill-labs/windmill/compare/v1.693.0...v1.693.1) (2026-04-29)
 
 

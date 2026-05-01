@@ -363,7 +363,7 @@
 	async function loadCriticalAlertsMuted() {
 		let g_muted = true
 		const ws_muted =
-			(await WorkspaceService.getSettings({ workspace: $workspaceStore! })).mute_critical_alerts ||
+			(await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })).mute_critical_alerts ||
 			false
 
 		if ($superadmin) {

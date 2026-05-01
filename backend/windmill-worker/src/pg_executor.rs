@@ -139,13 +139,17 @@ fn do_postgresql_inner<'a>(
     skip_collect: bool,
     first_row_only: bool,
     s3: Option<S3ModeWorkerData>,
-    typed_schema: bool,
     job_id: Uuid,
     workspace_id: &'a str,
     log_conn: &'a Connection,
 ) -> error::Result<BoxFuture<'a, error::Result<Vec<Box<RawValue>>>>> {
     let mut query_params = vec![];
-    let mut param_types = vec![];
+    let mut param_types: Vec<Type> = vec![];
+    // Try to resolve a Postgres Type for every arg (using parser-supplied otyp,
+    // which defaults to "text" for inferred args). If we succeed for all, we can
+    // send the query as an unnamed prepared statement and avoid named statements
+    // entirely — see the dispatch comment below.
+    let mut all_types_resolved = true;
 
     let arg_indices = parse_pg_statement_arg_indices(&query);
 
@@ -163,8 +167,14 @@ fn do_postgresql_inner<'a>(
             let typ = &arg.typ;
             let param = convert_val(value, arg_t, typ)?;
             query_params.push(param);
-            if typed_schema {
-                param_types.push(otyp_to_pg_type(arg_t)?);
+            if all_types_resolved {
+                match otyp_to_pg_type(arg_t) {
+                    Ok(t) => param_types.push(t),
+                    Err(_) => {
+                        all_types_resolved = false;
+                        param_types.clear();
+                    }
+                }
             }
             i += 1;
         }
@@ -173,12 +183,15 @@ fn do_postgresql_inner<'a>(
     let result_f = async move {
         let mut res: Vec<Box<serde_json::value::RawValue>> = vec![];
 
-        // Use query_typed_raw (unnamed prepared statement) when all param types are
-        // resolved. This avoids named prepared statements ("s0", "s1", ...) which break
-        // with transaction-mode connection poolers (e.g. PgBouncer/Supabase) since the
-        // prepare and query can land on different backend connections.
-        // Fall back to prepare + query_raw for custom/unsupported types.
-        let rows = if typed_schema {
+        // Always prefer query_typed_raw (unnamed prepared statement). It is sent as
+        // a single Parse+Bind+Execute+Sync round-trip, so it survives transaction-mode
+        // connection poolers (PgBouncer/Supabase pooler/RDS Proxy) where named
+        // statements ("s0", "s1", ...) can be reported missing because the prepare
+        // and the execute land on different backend connections. Fall back to
+        // prepare + query_raw only when an arg has a type unsupported by
+        // otyp_to_pg_type (e.g. custom enum, geometry, …) — in that case we lose
+        // pooler safety, but the query at least runs against a direct connection.
+        let rows = if all_types_resolved {
             let typed_params = query_params
                 .iter()
                 .zip(param_types.iter())
@@ -387,7 +400,7 @@ pub async fn do_postgresql(
         new_client = Some(new_pg_connection(&database, use_iam_auth, conn.as_sql()).await?);
     }
 
-    let (mut sig, typed_schema) = parse_pgsql_sig_with_typed_schema(&query)
+    let (mut sig, _) = parse_pgsql_sig_with_typed_schema(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?;
 
     // Materialize any `(s3object)` args into JSON text and rebind them as `jsonb` so
@@ -470,7 +483,6 @@ pub async fn do_postgresql(
                     && i < queries.len() - 1,
                 collection_strategy.collect_first_row_only(),
                 s3.clone(),
-                typed_schema,
                 job.id,
                 &job.workspace_id,
                 conn,

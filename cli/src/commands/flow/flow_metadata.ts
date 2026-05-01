@@ -34,6 +34,39 @@ import { DoubleLinkedDependencyTree } from "../../utils/dependency_tree.ts";
 import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 
 const TOP_HASH = "__flow_hash";
+
+/**
+ * Check if a flow folder is up-to-date against the lockfile.
+ *
+ * The top hash is `sha256(JSON.stringify(sortedPerFileHashes))`. Older CLI
+ * versions hashed `JSON.stringify(perFileHashes)` without sorting keys, so
+ * lockfile entries written before that fix won't match. As a backwards-compat
+ * fallback, if the top hash mismatches we accept the entry as up-to-date when
+ * every per-file hash matches individually — that's enough to prove no file
+ * content changed.
+ *
+ * Known false-negative: on a legacy lockfile, *removing* a step leaves the
+ * remaining per-file hashes matching, so this returns "up-to-date" even
+ * though the flow shape changed. Self-heals on the next push (which writes
+ * the modern top hash). Acceptable trade-off vs. the alternative — false
+ * positives from the unrecoverable legacy top-hash formula.
+ */
+async function isFlowDirectlyStale(
+  folder: string,
+  hashes: Record<string, string>,
+  conf: Awaited<ReturnType<typeof readLockfile>>,
+): Promise<boolean> {
+  if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
+    return false;
+  }
+  const fileEntries = Object.entries(hashes).filter(([k]) => k !== TOP_HASH);
+  if (fileEntries.length === 0) return true;
+  for (const [k, h] of fileEntries) {
+    if (!(await checkifMetadataUptodate(folder, h, conf, k))) return true;
+  }
+  return false;
+}
+
 async function generateFlowHash(
   rawWorkspaceDependencies: Record<string, string>,
   folder: string,
@@ -72,6 +105,7 @@ export async function generateFlowLockInternal(
   workspace: Workspace,
   opts: GlobalOptions & {
     defaultTs?: "bun" | "deno";
+    rehashOnly?: boolean;
   },
   justUpdateMetadataLock?: boolean,
   noStaleMessage?: boolean,
@@ -80,6 +114,24 @@ export async function generateFlowLockInternal(
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
   }
+
+  // Rehash-only fast path: write canonical per-file + top hashes from disk,
+  // no backend trip, no flow.yaml/inline_script rewrite. Short-circuit before
+  // yamlParseFile / extractInlineScriptsForFlows / readLockfile since none of
+  // those are needed — generateFlowHash walks the folder itself.
+  // Uses empty workspace deps `{}` to match the tree-mode dryRun and write
+  // paths (the modern default). A subsequent legacy non-tree push would
+  // see a deps-included hash mismatch — but legacy non-tree mode is opt-in
+  // and not the recommended workflow.
+  if (opts.rehashOnly) {
+    const hashes = await generateFlowHash({}, folder, opts.defaultTs);
+    await clearGlobalLock(folder);
+    for (const [k, v] of Object.entries(hashes)) {
+      await updateMetadataGlobalLock(folder, v, k);
+    }
+    return;
+  }
+
   const remote_path = extractNameFromFolder(folder.replaceAll(SEP, "/"), "flow");
   if (!justUpdateMetadataLock && !noStaleMessage) {
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
@@ -122,7 +174,7 @@ export async function generateFlowLockInternal(
       }
 
       const hashes = await generateFlowHash({}, folder, opts.defaultTs);
-      const isDirectlyStale = !(await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH));
+      const isDirectlyStale = await isFlowDirectlyStale(folder, hashes, conf);
 
       await tree.addNode(folderNormalized, "", "bun", "", inlineScriptPaths, "flow", folderNormalized, folder, isDirectlyStale);
       return;
@@ -134,7 +186,7 @@ export async function generateFlowLockInternal(
     filteredDeps = await filterWorkspaceDependenciesForFlow(flowValue.value as FlowValue, rawWorkspaceDependencies, folder);
 
     const hashes = await generateFlowHash(filteredDeps, folder, opts.defaultTs);
-    const isDirectlyStale = !(await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH));
+    const isDirectlyStale = await isFlowDirectlyStale(folder, hashes, conf);
 
     if (!isDirectlyStale) {
       if (!noStaleMessage) {

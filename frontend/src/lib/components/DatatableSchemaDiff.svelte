@@ -229,7 +229,7 @@
 		error = undefined
 		diffs = []
 		try {
-			const forkSettings = await WorkspaceService.getSettings({
+			const forkSettings = await WorkspaceService.getPublicSettings({
 				workspace: currentWorkspaceId
 			})
 			const datatables = forkSettings.datatable?.datatables ?? {}
@@ -364,7 +364,7 @@
 			const { schemaName, tableName } = drawerChange
 			const newTableDef = sourceSchema[schemaName]?.[tableName]
 
-			const forkSettings = await WorkspaceService.getSettings({
+			const forkSettings = await WorkspaceService.getPublicSettings({
 				workspace: currentWorkspaceId
 			})
 			const datatableConfig = forkSettings.datatable ?? { datatables: {} }
