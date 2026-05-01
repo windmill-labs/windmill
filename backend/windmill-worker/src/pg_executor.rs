@@ -145,10 +145,14 @@ fn do_postgresql_inner<'a>(
 ) -> error::Result<BoxFuture<'a, error::Result<Vec<Box<RawValue>>>>> {
     let mut query_params = vec![];
     let mut param_types: Vec<Type> = vec![];
-    // Try to resolve a Postgres Type for every arg (using parser-supplied otyp,
-    // which defaults to "text" for inferred args). If we succeed for all, we can
-    // send the query as an unnamed prepared statement and avoid named statements
-    // entirely — see the dispatch comment below.
+    // Track whether every arg has a resolvable Postgres type. We need *both*
+    // the parser-supplied otyp to be in `otyp_to_pg_type`'s map (so the arg
+    // isn't a custom enum / extension type) *and* convert_val to produce a
+    // (binding, type) pair that the encoder can actually serialize. If both
+    // hold for every arg, we send the query as an unnamed prepared statement
+    // (query_typed_raw) — see the dispatch comment below. Otherwise we fall
+    // back to prepare + query_raw and let the server resolve the parameter
+    // types from the SQL context.
     let mut all_types_resolved = true;
 
     let arg_indices = parse_pg_statement_arg_indices(&query);
@@ -165,15 +169,20 @@ fn do_postgresql_inner<'a>(
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?;
             let typ = &arg.typ;
-            let param = convert_val(value, arg_t, typ)?;
+            let (param, natural_type) = convert_val(value, arg_t, typ)?;
             query_params.push(param);
             if all_types_resolved {
-                match otyp_to_pg_type(arg_t) {
-                    Ok(t) => param_types.push(t),
-                    Err(_) => {
-                        all_types_resolved = false;
-                        param_types.clear();
-                    }
+                if otyp_to_pg_type(arg_t).is_ok() {
+                    // The Type comes from convert_val (paired with the binding's
+                    // concrete Rust type) rather than from `otyp_to_pg_type(arg_t)`
+                    // — this prevents the parser-default "text" otyp from
+                    // forcing an assertion that the encoder can't satisfy
+                    // (e.g. Value::Bool with parser-defaulted text → Type::TEXT
+                    // on a Box<bool>).
+                    param_types.push(natural_type);
+                } else {
+                    all_types_resolved = false;
+                    param_types.clear();
                 }
             }
             i += 1;
@@ -728,74 +737,128 @@ fn map_as_single_type<T>(
     }
 }
 
+/// A boxed `ToSql` value paired with the Postgres `Type` that matches its
+/// concrete Rust type. Returned by `convert_val` / `convert_vec_val` so the
+/// dispatch in `do_postgresql_inner` always asserts the type that the encoder
+/// can actually produce — never a parser-derived guess that drifts from the
+/// runtime binding.
+type ConvertedParam = (Box<dyn ToSql + Sync + Send>, Type);
+
 fn convert_vec_val(
     vec: Option<&Vec<Value>>,
     arg_t: &String,
-) -> windmill_common::error::Result<Box<dyn ToSql + Sync + Send>> {
+) -> windmill_common::error::Result<ConvertedParam> {
     match arg_t.as_str() {
-        "bool" | "boolean" => Ok(Box::new(map_as_single_type(vec, |v| v.as_bool())?)),
-        "char" | "character" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_i64().map(|x| x as i8)
-        })?)),
-        "smallint" | "smallserial" | "int2" | "serial2" => {
-            Ok(Box::new(map_as_single_type(vec, |v| {
-                v.as_i64().map(|x| x as i16)
-            })?))
-        }
-        "int" | "integer" | "int4" | "serial" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_i64().map(|x| x as i32)
-        })?)),
-        "numeric" | "decimal" => Ok(Box::new(map_as_single_type(vec, |v| {
-            if v.is_i64() {
-                Decimal::from_i64(v.as_i64().unwrap())
-            } else if v.is_f64() {
-                Decimal::from_f64(v.as_f64().unwrap())
-            } else {
-                None
-            }
-        })?)),
-        "oid" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_u64().map(|x| x as u32)
-        })?)),
-        "bigint" | "bigserial" | "int8" | "serial8" => {
-            Ok(Box::new(map_as_single_type(vec, |v| {
-                v.as_u64().map(|x| x as i64)
-            })?))
-        }
-        "real" | "float4" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_f64().map(|x| x as f32)
-        })?)),
-        "double" | "double precision" | "float8" => {
-            Ok(Box::new(map_as_single_type(vec, |v| v.as_f64())?))
-        }
-        "uuid" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().map(|x| Uuid::parse_str(x).ok()).flatten()
-        })?)),
-        "date" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().and_then(|x| parse_naive_date(x).ok())
-        })?)),
-        "time" | "timetz" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().and_then(|x| parse_naive_time(x).ok())
-        })?)),
-        "timestamp" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().and_then(|x| parse_naive_datetime(x).ok())
-        })?)),
-        "timestamptz" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().and_then(|x| parse_datetime_utc(x).ok())
-        })?)),
-        "jsonb" | "json" => Ok(Box::new(
-            vec.map(|v| v.clone().into_iter().map(Some).collect_vec()),
+        "bool" | "boolean" => Ok((
+            Box::new(map_as_single_type(vec, |v| v.as_bool())?),
+            Type::BOOL_ARRAY,
         )),
-        "bytea" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().map(|x| {
-                engine::general_purpose::STANDARD
-                    .decode(x)
-                    .unwrap_or(vec![])
-            })
-        })?)),
-        "text" | "varchar" => Ok(Box::new(map_as_single_type(vec, |v| {
-            v.as_str().map(|x| x.to_string())
-        })?)),
+        "char" | "character" => Ok((
+            Box::new(map_as_single_type(vec, |v| v.as_i64().map(|x| x as i8))?),
+            Type::CHAR_ARRAY,
+        )),
+        "smallint" | "smallserial" | "int2" | "serial2" => Ok((
+            Box::new(map_as_single_type(vec, |v| v.as_i64().map(|x| x as i16))?),
+            Type::INT2_ARRAY,
+        )),
+        "int" | "integer" | "int4" | "serial" => Ok((
+            Box::new(map_as_single_type(vec, |v| v.as_i64().map(|x| x as i32))?),
+            Type::INT4_ARRAY,
+        )),
+        "numeric" | "decimal" => Ok((
+            Box::new(map_as_single_type(vec, |v| {
+                if v.is_i64() {
+                    Decimal::from_i64(v.as_i64().unwrap())
+                } else if v.is_f64() {
+                    Decimal::from_f64(v.as_f64().unwrap())
+                } else {
+                    None
+                }
+            })?),
+            Type::NUMERIC_ARRAY,
+        )),
+        "oid" => Ok((
+            Box::new(map_as_single_type(vec, |v| v.as_u64().map(|x| x as u32))?),
+            Type::OID_ARRAY,
+        )),
+        "bigint" | "bigserial" | "int8" | "serial8" => Ok((
+            Box::new(map_as_single_type(vec, |v| v.as_u64().map(|x| x as i64))?),
+            Type::INT8_ARRAY,
+        )),
+        "real" | "float4" => Ok((
+            Box::new(map_as_single_type(vec, |v| v.as_f64().map(|x| x as f32))?),
+            Type::FLOAT4_ARRAY,
+        )),
+        "double" | "double precision" | "float8" => Ok((
+            Box::new(map_as_single_type(vec, |v| v.as_f64())?),
+            Type::FLOAT8_ARRAY,
+        )),
+        "uuid" => Ok((
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_str().map(|x| Uuid::parse_str(x).ok()).flatten()
+            })?),
+            Type::UUID_ARRAY,
+        )),
+        "date" => Ok((
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_str().and_then(|x| parse_naive_date(x).ok())
+            })?),
+            Type::DATE_ARRAY,
+        )),
+        "time" => Ok((
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_str().and_then(|x| parse_naive_time(x).ok())
+            })?),
+            Type::TIME_ARRAY,
+        )),
+        "timetz" => Ok((
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_str().and_then(|x| parse_naive_time(x).ok())
+            })?),
+            Type::TIMETZ_ARRAY,
+        )),
+        "timestamp" => Ok((
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_str().and_then(|x| parse_naive_datetime(x).ok())
+            })?),
+            Type::TIMESTAMP_ARRAY,
+        )),
+        "timestamptz" => Ok((
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_str().and_then(|x| parse_datetime_utc(x).ok())
+            })?),
+            Type::TIMESTAMPTZ_ARRAY,
+        )),
+        "jsonb" => Ok((
+            Box::new(vec.map(|v| v.clone().into_iter().map(Some).collect_vec())),
+            Type::JSONB_ARRAY,
+        )),
+        "json" => Ok((
+            Box::new(vec.map(|v| v.clone().into_iter().map(Some).collect_vec())),
+            Type::JSON_ARRAY,
+        )),
+        "bytea" => Ok((
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_str().map(|x| {
+                    engine::general_purpose::STANDARD
+                        .decode(x)
+                        .unwrap_or(vec![])
+                })
+            })?),
+            Type::BYTEA_ARRAY,
+        )),
+        "varchar" | "character varying" => Ok((
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_str().map(|x| x.to_string())
+            })?),
+            Type::VARCHAR_ARRAY,
+        )),
+        "text" => Ok((
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_str().map(|x| x.to_string())
+            })?),
+            Type::TEXT_ARRAY,
+        )),
         _ => Err(anyhow::anyhow!("Unsupported JSON array type"))?,
     }
 }
@@ -804,7 +867,7 @@ fn convert_val(
     value: &Value,
     arg_t: &String,
     typ: &Typ,
-) -> windmill_common::error::Result<Box<dyn ToSql + Sync + Send>> {
+) -> windmill_common::error::Result<ConvertedParam> {
     match value {
         Value::Array(vec) if arg_t.ends_with("[]") => {
             let arg_t = arg_t.trim_end_matches("[]").to_string();
@@ -815,29 +878,49 @@ fn convert_val(
             convert_vec_val(None, &arg_t)
         }
         Value::Null => match arg_t.as_str() {
-            "bool" | "boolean" => Ok(Box::new(None::<bool>)),
-            "char" | "character" => Ok(Box::new(None::<i8>)),
-            "smallint" | "smallserial" | "int2" | "serial2" => Ok(Box::new(None::<i16>)),
-            "int" | "integer" | "int4" | "serial" => Ok(Box::new(None::<i32>)),
-            "numeric" | "decimal" => Ok(Box::new(None::<Decimal>)),
-            "oid" => Ok(Box::new(None::<u32>)),
-            "bigint" | "bigserial" | "int8" | "serial8" => Ok(Box::new(None::<i64>)),
-            "real" | "float4" => Ok(Box::new(None::<f32>)),
-            "double" | "double precision" | "float8" => Ok(Box::new(None::<f64>)),
-            "uuid" => Ok(Box::new(None::<Uuid>)),
-            "date" => Ok(Box::new(None::<chrono::NaiveDate>)),
-            "time" | "timetz" => Ok(Box::new(None::<chrono::NaiveTime>)),
-            "timestamp" => Ok(Box::new(None::<chrono::NaiveDateTime>)),
-            "timestamptz" => Ok(Box::new(None::<chrono::DateTime<Utc>>)),
-            "jsonb" | "json" => Ok(Box::new(None::<Option<Value>>)),
-            "bytea" => Ok(Box::new(None::<Vec<u8>>)),
-            "text" | "varchar" => Ok(Box::new(None::<String>)),
-            _ => Err(anyhow::anyhow!("Unsupported JSON null type"))?,
+            "bool" | "boolean" => Ok((Box::new(None::<bool>), Type::BOOL)),
+            "char" | "character" => Ok((Box::new(None::<i8>), Type::CHAR)),
+            "smallint" | "smallserial" | "int2" | "serial2" => {
+                Ok((Box::new(None::<i16>), Type::INT2))
+            }
+            "int" | "integer" | "int4" | "serial" => Ok((Box::new(None::<i32>), Type::INT4)),
+            "numeric" | "decimal" => Ok((Box::new(None::<Decimal>), Type::NUMERIC)),
+            "oid" => Ok((Box::new(None::<u32>), Type::OID)),
+            "bigint" | "bigserial" | "int8" | "serial8" => Ok((Box::new(None::<i64>), Type::INT8)),
+            "real" | "float4" => Ok((Box::new(None::<f32>), Type::FLOAT4)),
+            "double" | "double precision" | "float8" => Ok((Box::new(None::<f64>), Type::FLOAT8)),
+            "uuid" => Ok((Box::new(None::<Uuid>), Type::UUID)),
+            "date" => Ok((Box::new(None::<chrono::NaiveDate>), Type::DATE)),
+            "time" => Ok((Box::new(None::<chrono::NaiveTime>), Type::TIME)),
+            // chrono's NaiveTime has no timezone, so its ToSql impl only
+            // accepts TIME. We assert TIME and rely on Postgres' implicit
+            // assignment cast time → timetz at the use site.
+            "timetz" => Ok((Box::new(None::<chrono::NaiveTime>), Type::TIME)),
+            "timestamp" => Ok((Box::new(None::<chrono::NaiveDateTime>), Type::TIMESTAMP)),
+            "timestamptz" => Ok((Box::new(None::<chrono::DateTime<Utc>>), Type::TIMESTAMPTZ)),
+            "jsonb" => Ok((Box::new(None::<Value>), Type::JSONB)),
+            "json" => Ok((Box::new(None::<Value>), Type::JSON)),
+            "bytea" => Ok((Box::new(None::<Vec<u8>>), Type::BYTEA)),
+            "varchar" | "character varying" => Ok((Box::new(None::<String>), Type::VARCHAR)),
+            "text" => Ok((Box::new(None::<String>), Type::TEXT)),
+            // Unrecognised arg_t — bind as TEXT NULL; the dispatch will fall
+            // back to prepare + query_raw so the server resolves the actual
+            // column type (custom enums / extension types).
+            _ => Ok((Box::new(None::<String>), Type::TEXT)),
         },
-        Value::Bool(b) => Ok(Box::new(b.clone())),
-        Value::Number(n) if matches!(typ, Typ::Str(_)) => Ok(Box::new(n.to_string())),
+        // Bool / Number: bind as BOOL / INT8 / FLOAT8 even when arg_t resolves
+        // to a text-like type (parser-default "text", or an explicit `(text)`
+        // declaration). Postgres has implicit assignment casts bool→text and
+        // int→text, so a text column still accepts the raw type — and binding
+        // as TEXT here would either wrongly assert a type the encoder can't
+        // produce (parser-default case) or wrongly coerce when the underlying
+        // column isn't actually text (e.g. `INSERT INTO bool_col VALUES ($1)`
+        // with parser-defaulted text otyp).
+        Value::Bool(_) if arg_t == "jsonb" => Ok((Box::new(value.clone()), Type::JSONB)),
+        Value::Bool(_) if arg_t == "json" => Ok((Box::new(value.clone()), Type::JSON)),
+        Value::Bool(b) => Ok((Box::new(b.clone()), Type::BOOL)),
         Value::Number(n) if arg_t == "char" && n.is_i64() => {
-            Ok(Box::new(n.as_i64().unwrap() as i8))
+            Ok((Box::new(n.as_i64().unwrap() as i8), Type::CHAR))
         }
         Value::Number(n)
             if (arg_t == "smallint"
@@ -846,31 +929,33 @@ fn convert_val(
                 || arg_t == "serial2")
                 && n.is_i64() =>
         {
-            Ok(Box::new(n.as_i64().unwrap() as i16))
+            Ok((Box::new(n.as_i64().unwrap() as i16), Type::INT2))
         }
         Value::Number(n)
             if (arg_t == "int" || arg_t == "integer" || arg_t == "int4" || arg_t == "serial")
                 && n.is_i64() =>
         {
-            Ok(Box::new(n.as_i64().unwrap() as i32))
+            Ok((Box::new(n.as_i64().unwrap() as i32), Type::INT4))
         }
         Value::Number(n) if (arg_t == "real" || arg_t == "float4") && n.as_f64().is_some() => {
-            Ok(Box::new(n.as_f64().unwrap() as f32))
+            Ok((Box::new(n.as_f64().unwrap() as f32), Type::FLOAT4))
         }
         Value::Number(n)
             if (arg_t == "double" || arg_t == "double precision" || arg_t == "float8")
                 && n.as_f64().is_some() =>
         {
-            Ok(Box::new(n.as_f64().unwrap()))
+            Ok((Box::new(n.as_f64().unwrap()), Type::FLOAT8))
         }
-        Value::Number(n) if (arg_t == "numeric" || arg_t == "decimal") && n.is_i64() => Ok(
+        Value::Number(n) if (arg_t == "numeric" || arg_t == "decimal") && n.is_i64() => Ok((
             Box::new(Decimal::from_i64(n.as_i64().unwrap()).unwrap_or_default()),
-        ),
-        Value::Number(n) if (arg_t == "numeric" || arg_t == "decimal") && n.is_f64() => Ok(
+            Type::NUMERIC,
+        )),
+        Value::Number(n) if (arg_t == "numeric" || arg_t == "decimal") && n.is_f64() => Ok((
             Box::new(Decimal::from_f64(n.as_f64().unwrap()).unwrap_or_default()),
-        ),
+            Type::NUMERIC,
+        )),
         Value::Number(n) if arg_t == "oid" && n.is_u64() => {
-            Ok(Box::new(n.as_u64().unwrap() as u32))
+            Ok((Box::new(n.as_u64().unwrap() as u32), Type::OID))
         }
         Value::Number(n)
             if (arg_t == "bigint"
@@ -879,11 +964,11 @@ fn convert_val(
                 || arg_t == "serial8")
                 && n.is_u64() =>
         {
-            Ok(Box::new(n.as_u64().unwrap() as i64))
+            Ok((Box::new(n.as_u64().unwrap() as i64), Type::INT8))
         }
-        Value::Number(n) if n.is_i64() => Ok(Box::new(n.as_i64().unwrap())),
-        Value::Number(n) => Ok(Box::new(n.as_f64().unwrap())),
-        Value::String(s) if arg_t == "uuid" => Ok(Box::new(Uuid::parse_str(s)?)),
+        Value::Number(n) if n.is_i64() => Ok((Box::new(n.as_i64().unwrap()), Type::INT8)),
+        Value::Number(n) => Ok((Box::new(n.as_f64().unwrap()), Type::FLOAT8)),
+        Value::String(s) if arg_t == "uuid" => Ok((Box::new(Uuid::parse_str(s)?), Type::UUID)),
         Value::String(s)
             if arg_t == "smallint"
                 || arg_t == "smallserial"
@@ -891,14 +976,14 @@ fn convert_val(
                 || arg_t == "serial2" =>
         {
             s.parse::<i16>()
-                .map(|n| Box::new(n) as Box<dyn ToSql + Sync + Send>)
+                .map(|n| (Box::new(n) as Box<dyn ToSql + Sync + Send>, Type::INT2))
                 .map_err(|e| anyhow::anyhow!("Cannot parse '{s}' as smallint: {e}").into())
         }
         Value::String(s)
             if arg_t == "int" || arg_t == "integer" || arg_t == "int4" || arg_t == "serial" =>
         {
             s.parse::<i32>()
-                .map(|n| Box::new(n) as Box<dyn ToSql + Sync + Send>)
+                .map(|n| (Box::new(n) as Box<dyn ToSql + Sync + Send>, Type::INT4))
                 .map_err(|e| anyhow::anyhow!("Cannot parse '{s}' as integer: {e}").into())
         }
         Value::String(s)
@@ -908,49 +993,79 @@ fn convert_val(
                 || arg_t == "serial8" =>
         {
             s.parse::<i64>()
-                .map(|n| Box::new(n) as Box<dyn ToSql + Sync + Send>)
+                .map(|n| (Box::new(n) as Box<dyn ToSql + Sync + Send>, Type::INT8))
                 .map_err(|e| anyhow::anyhow!("Cannot parse '{s}' as bigint: {e}").into())
         }
         Value::String(s) if arg_t == "date" => {
             let date = parse_naive_date(s)
                 .map_err(|e| Error::ExecutionErr(format!("Cannot parse '{s}' as date: {e}")))?;
-            Ok(Box::new(date))
+            Ok((Box::new(date), Type::DATE))
         }
-        Value::String(s) if arg_t == "time" || arg_t == "timetz" => {
+        Value::String(s) if arg_t == "time" => {
             let time = parse_naive_time(s)
                 .map_err(|e| Error::ExecutionErr(format!("Cannot parse '{s}' as time: {e}")))?;
-            Ok(Box::new(time))
+            Ok((Box::new(time), Type::TIME))
+        }
+        Value::String(s) if arg_t == "timetz" => {
+            let time = parse_naive_time(s)
+                .map_err(|e| Error::ExecutionErr(format!("Cannot parse '{s}' as time: {e}")))?;
+            // See the timetz Null arm — assert TIME, server casts to TIMETZ.
+            Ok((Box::new(time), Type::TIME))
         }
         Value::String(s) if arg_t == "timestamp" => {
             let datetime = parse_naive_datetime(s).map_err(|e| {
                 Error::ExecutionErr(format!("Cannot parse '{s}' as timestamp: {e}"))
             })?;
-            Ok(Box::new(datetime))
+            Ok((Box::new(datetime), Type::TIMESTAMP))
         }
         Value::String(s) if arg_t == "timestamptz" => {
             let datetime = parse_datetime_utc(s).map_err(|e| {
                 Error::ExecutionErr(format!("Cannot parse '{s}' as timestamptz: {e}"))
             })?;
-            Ok(Box::new(datetime))
+            Ok((Box::new(datetime), Type::TIMESTAMPTZ))
         }
         Value::String(s) if arg_t == "bytea" => {
             let bytes = engine::general_purpose::STANDARD
                 .decode(s)
                 .unwrap_or(vec![]);
-            Ok(Box::new(bytes))
+            Ok((Box::new(bytes), Type::BYTEA))
         }
-        Value::Array(_) if arg_t == "jsonb" || arg_t == "json" => Ok(Box::new(value.clone())),
-        Value::Object(_) if arg_t == "text" || arg_t == "varchar" => {
-            Ok(Box::new(serde_json::to_string(value).map_err(|err| {
+        Value::String(s) if arg_t == "varchar" || arg_t == "character varying" => {
+            Ok((Box::new(s.clone()), Type::VARCHAR))
+        }
+        // For arg_t in (json, jsonb): bind a JSON-encodable Value with the
+        // matching pg type. Falling through to TEXT here would assert TEXT
+        // and break query_typed_raw's encoder check.
+        Value::Array(_) if arg_t == "jsonb" => Ok((Box::new(value.clone()), Type::JSONB)),
+        Value::Array(_) if arg_t == "json" => Ok((Box::new(value.clone()), Type::JSON)),
+        Value::Array(_) if matches!(typ, Typ::Str(_)) => {
+            let s = serde_json::to_string(value).map_err(|err| {
                 Error::ExecutionErr(format!("Failed to convert JSON to text: {}", err))
-            })?))
+            })?;
+            let t = if arg_t == "varchar" {
+                Type::VARCHAR
+            } else {
+                Type::TEXT
+            };
+            Ok((Box::new(s), t))
         }
-        Value::Object(_) => Ok(Box::new(value.clone())),
-        Value::String(s) => Ok(Box::new(s.clone())),
-        _ => Err(Error::ExecutionErr(format!(
-            "Unsupported type in query: {:?} and signature {arg_t:?}",
-            value
-        ))),
+        // Default for arrays without a [] suffix: bind as JSONB.
+        Value::Array(_) => Ok((Box::new(value.clone()), Type::JSONB)),
+        Value::Object(_) if arg_t == "json" => Ok((Box::new(value.clone()), Type::JSON)),
+        Value::Object(_) if arg_t == "varchar" || arg_t == "character varying" => Ok((
+            Box::new(serde_json::to_string(value).map_err(|err| {
+                Error::ExecutionErr(format!("Failed to convert JSON to text: {}", err))
+            })?),
+            Type::VARCHAR,
+        )),
+        Value::Object(_) if arg_t == "text" || matches!(typ, Typ::Str(_)) => Ok((
+            Box::new(serde_json::to_string(value).map_err(|err| {
+                Error::ExecutionErr(format!("Failed to convert JSON to text: {}", err))
+            })?),
+            Type::TEXT,
+        )),
+        Value::Object(_) => Ok((Box::new(value.clone()), Type::JSONB)),
+        Value::String(s) => Ok((Box::new(s.clone()), Type::TEXT)),
     }
 }
 
@@ -1343,5 +1458,629 @@ mod tests {
         let serialized = original.to_string();
         let parsed = parse_naive_time(&serialized).unwrap();
         assert_eq!(original, parsed);
+    }
+
+    // ---------------------------------------------------------------------
+    // convert_val: exhaustive (Value × otyp) → Type matrix.
+    //
+    // For every (JSON Value, parser otyp) combination that can occur from
+    // either windmill-client SDK output (TS or Python) or a hand-written
+    // Postgres script, verify that convert_val returns a `(Box, Type)` pair
+    // where the Type matches the Box's concrete Rust type. This is the core
+    // invariant that makes `query_typed_raw` safe — if it ever drifts again
+    // (the bug introduced by #8988), users get
+    // `cannot convert between the Rust type X and the Postgres type Y`.
+    //
+    // We can't introspect the Box's Rust type at runtime, but we *can* feed
+    // each (Box, Type) through `to_sql_checked` against the asserted Type —
+    // that's exactly the codepath `query_typed_raw` uses, so any mismatch
+    // surfaces here as a `ToSql` error.
+    // ---------------------------------------------------------------------
+
+    use bytes::BytesMut;
+    use serde_json::json;
+    use tokio_postgres::types::IsNull;
+
+    /// Verify that convert_val for `(value, arg_t)` returns a binding whose
+    /// Rust type matches the asserted Postgres `Type` — exactly the check
+    /// `query_typed_raw` performs when serialising parameters.
+    fn assert_convert_val_consistent(
+        label: &str,
+        value: Value,
+        arg_t: &str,
+        typ: Typ,
+        expected_type: Type,
+    ) {
+        let (boxed, t) = convert_val(&value, &arg_t.to_string(), &typ)
+            .unwrap_or_else(|e| panic!("{label}: convert_val errored: {e}"));
+        assert_eq!(
+            t, expected_type,
+            "{label}: expected Type {expected_type}, got {t}"
+        );
+        // Run the encoder check — this is what query_typed_raw does internally
+        // when binding the param. A mismatch between the boxed Rust type and
+        // the asserted Type fails here as a `WrongType` error.
+        let mut buf = BytesMut::new();
+        match boxed.to_sql_checked(&t, &mut buf) {
+            Ok(IsNull::Yes) | Ok(IsNull::No) => {}
+            Err(e) => panic!(
+                "{label}: ToSql failed for value={value:?} arg_t={arg_t} (asserted {t}): {e}"
+            ),
+        }
+    }
+
+    fn typ_for(arg_t: &str) -> Typ {
+        windmill_parser_sql::parse_pg_typ(arg_t)
+    }
+
+    #[test]
+    fn convert_val_null_for_every_known_arg_t() {
+        // `Value::Null` for every type the parser may resolve, plus an unknown
+        // arg_t (custom enum / extension). Each must produce a matching Type
+        // and serialise without error.
+        let cases: &[(&str, Type)] = &[
+            ("bool", Type::BOOL),
+            ("boolean", Type::BOOL),
+            ("char", Type::CHAR),
+            ("character", Type::CHAR),
+            ("smallint", Type::INT2),
+            ("int2", Type::INT2),
+            ("smallserial", Type::INT2),
+            ("serial2", Type::INT2),
+            ("int", Type::INT4),
+            ("integer", Type::INT4),
+            ("int4", Type::INT4),
+            ("serial", Type::INT4),
+            ("bigint", Type::INT8),
+            ("int8", Type::INT8),
+            ("bigserial", Type::INT8),
+            ("serial8", Type::INT8),
+            ("real", Type::FLOAT4),
+            ("float4", Type::FLOAT4),
+            ("double", Type::FLOAT8),
+            ("double precision", Type::FLOAT8),
+            ("float8", Type::FLOAT8),
+            ("numeric", Type::NUMERIC),
+            ("decimal", Type::NUMERIC),
+            ("oid", Type::OID),
+            ("uuid", Type::UUID),
+            ("date", Type::DATE),
+            ("time", Type::TIME),
+            // chrono::NaiveTime can only encode as TIME — see the Null arm.
+            ("timetz", Type::TIME),
+            ("timestamp", Type::TIMESTAMP),
+            ("timestamptz", Type::TIMESTAMPTZ),
+            ("json", Type::JSON),
+            ("jsonb", Type::JSONB),
+            ("bytea", Type::BYTEA),
+            ("text", Type::TEXT),
+            ("varchar", Type::VARCHAR),
+            ("character varying", Type::VARCHAR),
+            // Unknown / custom type: convert_val falls back to TEXT NULL — the
+            // dispatch then takes the prepare + query_raw path so the server
+            // resolves the actual column type.
+            ("my_custom_enum", Type::TEXT),
+        ];
+        for (arg_t, expected) in cases {
+            assert_convert_val_consistent(
+                &format!("Null/{arg_t}"),
+                Value::Null,
+                arg_t,
+                typ_for(arg_t),
+                expected.clone(),
+            );
+        }
+    }
+
+    #[test]
+    fn convert_val_bool_against_every_arg_t() {
+        // Value::Bool. Pre-fix this always produced Box<bool> regardless of
+        // arg_t, which mismatched the asserted Type for parser-default "text"
+        // (the original regression). Post-fix Bool stays bound as BOOL except
+        // when arg_t is explicitly json/jsonb (then we serialise as the JSON
+        // value to match the JSON encoder).
+        let bool_targets = ["bool", "boolean"];
+        let json_targets = [("json", Type::JSON), ("jsonb", Type::JSONB)];
+        let bind_as_bool = [
+            "text",
+            "varchar",
+            "char",
+            "smallint",
+            "int",
+            "integer",
+            "bigint",
+            "int4",
+            "int8",
+            "real",
+            "double",
+            "double precision",
+            "numeric",
+            "uuid",
+            "date",
+            "time",
+            "timestamp",
+            "timestamptz",
+            "bytea",
+            "oid",
+            // unknown — server resolves via prepare path
+            "my_custom_enum",
+        ];
+
+        for v in [true, false] {
+            for arg_t in &bool_targets {
+                assert_convert_val_consistent(
+                    &format!("Bool({v})/{arg_t}"),
+                    Value::Bool(v),
+                    arg_t,
+                    typ_for(arg_t),
+                    Type::BOOL,
+                );
+            }
+            for (arg_t, expected) in &json_targets {
+                assert_convert_val_consistent(
+                    &format!("Bool({v})/{arg_t}"),
+                    Value::Bool(v),
+                    arg_t,
+                    typ_for(arg_t),
+                    expected.clone(),
+                );
+            }
+            for arg_t in &bind_as_bool {
+                assert_convert_val_consistent(
+                    &format!("Bool({v})/{arg_t}"),
+                    Value::Bool(v),
+                    arg_t,
+                    typ_for(arg_t),
+                    Type::BOOL,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn convert_val_integer_number_against_every_arg_t() {
+        // JSON integers. Each arg_t selects its matching encoder; for arg_ts
+        // that don't have a numeric encoder (uuid, date, …), the value falls
+        // through to the generic Number arm — Box<i64> bound as INT8 — and
+        // server-side casts handle the rest if the SQL wants it.
+        let cases: &[(&str, Type)] = &[
+            ("char", Type::CHAR),
+            // "character" (= bpchar in PG) doesn't have a Number arm, so it
+            // falls through to generic Number → Box<i64> + INT8. Server
+            // casts at the SQL site if the column is bpchar.
+            ("character", Type::INT8),
+            ("smallint", Type::INT2),
+            ("smallserial", Type::INT2),
+            ("int2", Type::INT2),
+            ("serial2", Type::INT2),
+            ("int", Type::INT4),
+            ("integer", Type::INT4),
+            ("int4", Type::INT4),
+            ("serial", Type::INT4),
+            ("bigint", Type::INT8),
+            ("bigserial", Type::INT8),
+            ("int8", Type::INT8),
+            ("serial8", Type::INT8),
+            ("oid", Type::OID),
+            ("numeric", Type::NUMERIC),
+            ("decimal", Type::NUMERIC),
+            // text / varchar (parser default & explicit): bind as INT8, server
+            // implicit-casts int→text at the assignment / cast site.
+            ("text", Type::INT8),
+            ("varchar", Type::INT8),
+            // Unknown arg_t falls through to generic Number → INT8.
+            ("my_custom_enum", Type::INT8),
+        ];
+        for (arg_t, expected) in cases {
+            assert_convert_val_consistent(
+                &format!("Number(42)/{arg_t}"),
+                json!(42),
+                arg_t,
+                typ_for(arg_t),
+                expected.clone(),
+            );
+        }
+        // Negative integer (is_u64 false → falls to generic i64 arm for bigint).
+        assert_convert_val_consistent(
+            "Number(-7)/bigint",
+            json!(-7),
+            "bigint",
+            typ_for("bigint"),
+            Type::INT8,
+        );
+        assert_convert_val_consistent("Number(0)/oid", json!(0), "oid", typ_for("oid"), Type::OID);
+    }
+
+    #[test]
+    fn convert_val_float_number_against_every_arg_t() {
+        let cases: &[(&str, Type)] = &[
+            ("real", Type::FLOAT4),
+            ("float4", Type::FLOAT4),
+            ("double", Type::FLOAT8),
+            ("double precision", Type::FLOAT8),
+            ("float8", Type::FLOAT8),
+            ("numeric", Type::NUMERIC),
+            ("decimal", Type::NUMERIC),
+            // For text targets a float falls through to generic → Box<f64>+FLOAT8.
+            ("text", Type::FLOAT8),
+            ("varchar", Type::FLOAT8),
+            ("my_custom_enum", Type::FLOAT8),
+        ];
+        for (arg_t, expected) in cases {
+            assert_convert_val_consistent(
+                &format!("Number(3.14)/{arg_t}"),
+                json!(3.14),
+                arg_t,
+                typ_for(arg_t),
+                expected.clone(),
+            );
+        }
+    }
+
+    #[test]
+    fn convert_val_string_against_every_arg_t() {
+        // Strings parse into the matching Rust type when arg_t resolves to a
+        // numeric / temporal / uuid / bytea type; otherwise they bind as TEXT.
+        assert_convert_val_consistent(
+            "String('42')/smallint",
+            json!("42"),
+            "smallint",
+            typ_for("smallint"),
+            Type::INT2,
+        );
+        assert_convert_val_consistent(
+            "String('42')/int",
+            json!("42"),
+            "int",
+            typ_for("int"),
+            Type::INT4,
+        );
+        assert_convert_val_consistent(
+            "String('42')/bigint",
+            json!("42"),
+            "bigint",
+            typ_for("bigint"),
+            Type::INT8,
+        );
+        assert_convert_val_consistent(
+            "String(uuid)/uuid",
+            json!("550e8400-e29b-41d4-a716-446655440000"),
+            "uuid",
+            typ_for("uuid"),
+            Type::UUID,
+        );
+        assert_convert_val_consistent(
+            "String(date)/date",
+            json!("2024-01-15"),
+            "date",
+            typ_for("date"),
+            Type::DATE,
+        );
+        assert_convert_val_consistent(
+            "String(time)/time",
+            json!("10:30:00"),
+            "time",
+            typ_for("time"),
+            Type::TIME,
+        );
+        assert_convert_val_consistent(
+            "String(time)/timetz",
+            json!("10:30:00"),
+            "timetz",
+            typ_for("timetz"),
+            Type::TIME,
+        );
+        assert_convert_val_consistent(
+            "String(ts)/timestamp",
+            json!("2024-01-15T10:30:00"),
+            "timestamp",
+            typ_for("timestamp"),
+            Type::TIMESTAMP,
+        );
+        assert_convert_val_consistent(
+            "String(tstz)/timestamptz",
+            json!("2024-01-15T10:30:00Z"),
+            "timestamptz",
+            typ_for("timestamptz"),
+            Type::TIMESTAMPTZ,
+        );
+        assert_convert_val_consistent(
+            "String(b64)/bytea",
+            json!("aGVsbG8="),
+            "bytea",
+            typ_for("bytea"),
+            Type::BYTEA,
+        );
+        // Generic text arms.
+        for (arg_t, expected) in [
+            ("text", Type::TEXT),
+            ("varchar", Type::VARCHAR),
+            ("character varying", Type::VARCHAR),
+            // Unknown → TEXT (prepare fallback in dispatch).
+            ("my_custom_enum", Type::TEXT),
+        ] {
+            assert_convert_val_consistent(
+                &format!("String('hello')/{arg_t}"),
+                json!("hello"),
+                arg_t,
+                typ_for(arg_t),
+                expected,
+            );
+        }
+    }
+
+    #[test]
+    fn convert_val_object_against_every_arg_t() {
+        // Object values: bind as JSONB (default), JSON if explicitly typed,
+        // or JSON-stringify into TEXT/VARCHAR when arg_t is text-like.
+        assert_convert_val_consistent(
+            "Object/jsonb",
+            json!({"k": 1}),
+            "jsonb",
+            typ_for("jsonb"),
+            Type::JSONB,
+        );
+        assert_convert_val_consistent(
+            "Object/json",
+            json!({"k": 1}),
+            "json",
+            typ_for("json"),
+            Type::JSON,
+        );
+        assert_convert_val_consistent(
+            "Object/text",
+            json!({"k": 1}),
+            "text",
+            typ_for("text"),
+            Type::TEXT,
+        );
+        assert_convert_val_consistent(
+            "Object/varchar",
+            json!({"k": 1}),
+            "varchar",
+            typ_for("varchar"),
+            Type::VARCHAR,
+        );
+        // Parser-default text (Typ::Str) still routes to TEXT-string via the
+        // `matches!(typ, Typ::Str(_))` arm.
+        assert_convert_val_consistent(
+            "Object/parser-default-text",
+            json!({"k": 1}),
+            "text",
+            Typ::Str(None),
+            Type::TEXT,
+        );
+        // Unknown arg_t parses to Typ::Str (parser's catch-all), so the
+        // text-coercion arm picks it up — Box<String> + TEXT. The dispatch
+        // then takes the prepare + query_raw path because otyp_to_pg_type
+        // returns Err for the unknown name, letting the server resolve the
+        // actual column type (e.g. a custom enum that accepts JSON via cast).
+        assert_convert_val_consistent(
+            "Object/my_custom_enum",
+            json!({"k": 1}),
+            "my_custom_enum",
+            typ_for("my_custom_enum"),
+            Type::TEXT,
+        );
+    }
+
+    #[test]
+    fn convert_val_array_against_every_arg_t() {
+        // arg_t with [] suffix routes to convert_vec_val.
+        let int_array_cases: &[(&str, Type)] = &[
+            ("int[]", Type::INT4_ARRAY),
+            ("integer[]", Type::INT4_ARRAY),
+            ("int4[]", Type::INT4_ARRAY),
+            ("smallint[]", Type::INT2_ARRAY),
+            ("bigint[]", Type::INT8_ARRAY),
+        ];
+        for (arg_t, expected) in int_array_cases {
+            assert_convert_val_consistent(
+                &format!("Array([1,2])/{arg_t}"),
+                json!([1, 2]),
+                arg_t,
+                typ_for(arg_t),
+                expected.clone(),
+            );
+        }
+        assert_convert_val_consistent(
+            "Array(strs)/text[]",
+            json!(["a", "b"]),
+            "text[]",
+            typ_for("text[]"),
+            Type::TEXT_ARRAY,
+        );
+        assert_convert_val_consistent(
+            "Array(strs)/varchar[]",
+            json!(["a", "b"]),
+            "varchar[]",
+            typ_for("varchar[]"),
+            Type::VARCHAR_ARRAY,
+        );
+        assert_convert_val_consistent(
+            "Array(bools)/bool[]",
+            json!([true, false]),
+            "bool[]",
+            typ_for("bool[]"),
+            Type::BOOL_ARRAY,
+        );
+        assert_convert_val_consistent(
+            "Array(floats)/double[]",
+            json!([1.5, 2.5]),
+            "double[]",
+            typ_for("double[]"),
+            Type::FLOAT8_ARRAY,
+        );
+        assert_convert_val_consistent(
+            "Array(uuids)/uuid[]",
+            json!(["550e8400-e29b-41d4-a716-446655440000"]),
+            "uuid[]",
+            typ_for("uuid[]"),
+            Type::UUID_ARRAY,
+        );
+        // Array without [] suffix on arg_t: bind as JSONB (or JSON / TEXT).
+        assert_convert_val_consistent(
+            "Array/jsonb (no [])",
+            json!([1, 2, 3]),
+            "jsonb",
+            typ_for("jsonb"),
+            Type::JSONB,
+        );
+        assert_convert_val_consistent(
+            "Array/json (no [])",
+            json!([1, 2, 3]),
+            "json",
+            typ_for("json"),
+            Type::JSON,
+        );
+        assert_convert_val_consistent(
+            "Array/text (parser-default)",
+            json!([1, 2, 3]),
+            "text",
+            typ_for("text"),
+            Type::TEXT,
+        );
+        // See Object/my_custom_enum: Typ::Str catch-all → TEXT-stringify;
+        // dispatch falls back to prepare for the unknown arg_t.
+        assert_convert_val_consistent(
+            "Array/my_custom_enum",
+            json!([1, 2, 3]),
+            "my_custom_enum",
+            typ_for("my_custom_enum"),
+            Type::TEXT,
+        );
+        // NULL-array shape: Value::Null with arg_t ending in []
+        assert_convert_val_consistent(
+            "Null/int[]",
+            Value::Null,
+            "int[]",
+            typ_for("int[]"),
+            Type::INT4_ARRAY,
+        );
+    }
+
+    /// Edge cases mirroring what the SDKs (TS / Python) and hand-written PG
+    /// scripts can actually emit. Each case is a real input → encode round
+    /// trip, and would have failed under #8988 if the asserted Type drifted
+    /// from the binding's Rust type.
+    #[test]
+    fn convert_val_sdk_edge_cases() {
+        // TS SDK shapes — `${val}` is auto-tagged with ::TYPE.
+        assert_convert_val_consistent(
+            "TS SDK ${42}",
+            json!(42),
+            "bigint",
+            typ_for("bigint"),
+            Type::INT8,
+        );
+        assert_convert_val_consistent(
+            "TS SDK ${3.14}",
+            json!(3.14),
+            "double",
+            typ_for("double"),
+            Type::FLOAT8,
+        );
+        assert_convert_val_consistent(
+            "TS SDK ${true}",
+            json!(true),
+            "boolean",
+            typ_for("boolean"),
+            Type::BOOL,
+        );
+        assert_convert_val_consistent(
+            "TS SDK ${\"hello\"}",
+            json!("hello"),
+            "text",
+            typ_for("text"),
+            Type::TEXT,
+        );
+        assert_convert_val_consistent(
+            "TS SDK ${{x:1}}",
+            json!({"x": 1}),
+            "json",
+            typ_for("json"),
+            Type::JSON,
+        );
+        assert_convert_val_consistent(
+            "TS SDK ${[1,2,3]}",
+            json!([1, 2, 3]),
+            "json",
+            typ_for("json"),
+            Type::JSON,
+        );
+        assert_convert_val_consistent(
+            "TS SDK ${null}",
+            Value::Null,
+            "text",
+            typ_for("text"),
+            Type::TEXT,
+        );
+
+        // CAST(${val} AS T) shape — the SDK strips its own ::TYPE here, so
+        // the parser sees a bare $N and otyp defaults to "text". This is
+        // the original regression #8988 introduced.
+        assert_convert_val_consistent(
+            "CAST AS bool / Bool true",
+            json!(true),
+            "text",
+            typ_for("text"),
+            Type::BOOL,
+        );
+        assert_convert_val_consistent(
+            "CAST AS bool / Bool false",
+            json!(false),
+            "text",
+            typ_for("text"),
+            Type::BOOL,
+        );
+        assert_convert_val_consistent(
+            "CAST AS jsonb / Object",
+            json!({"a": 1, "b": [2, 3]}),
+            "text",
+            typ_for("text"),
+            Type::TEXT,
+        );
+        assert_convert_val_consistent(
+            "CAST AS int / Number",
+            json!(7),
+            "text",
+            typ_for("text"),
+            Type::INT8,
+        );
+
+        // Python SDK datatable shape — type sits in the declaration comment
+        // (`-- $1 arg1 (BIGINT)`). Parser resolves otyp before convert_val.
+        assert_convert_val_consistent(
+            "Python decl bigint / Number",
+            json!(42),
+            "bigint",
+            typ_for("bigint"),
+            Type::INT8,
+        );
+        assert_convert_val_consistent(
+            "Python decl text / String",
+            json!("hello"),
+            "text",
+            typ_for("text"),
+            Type::TEXT,
+        );
+        assert_convert_val_consistent(
+            "Python decl jsonb / Object",
+            json!({"k": [1, 2]}),
+            "jsonb",
+            typ_for("jsonb"),
+            Type::JSONB,
+        );
+
+        // Mismatched-but-coercible JSON shape: JSON int 0/1 into a bool col
+        // still works because tokio_postgres encodes Number as INT8 and
+        // postgres has int→bool cast at the SQL site.
+        assert_convert_val_consistent(
+            "Number(0)/bool (parser default)",
+            json!(0),
+            "text",
+            typ_for("text"),
+            Type::INT8,
+        );
     }
 }

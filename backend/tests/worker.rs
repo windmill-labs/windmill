@@ -1860,6 +1860,439 @@ async fn test_postgresql_100_jobs_cached(db: Pool<Postgres>) -> anyhow::Result<(
     Ok(())
 }
 
+/// Cover the (Value × arg_t) combinations that #8988 broke. Each shape mirrors
+/// what the windmill-client SDK or a hand-written PG script can emit:
+///
+/// - bare `$N` with no inline cast and no `-- $N name (type)` declaration
+///   (parser defaults the otyp to "text"). The user's value can be any JSON
+///   shape; the eventual column type is whatever the SQL context implies.
+/// - inline `$N::TYPE` casts (the SDK's default for bare `${value}`).
+/// - `CAST($N AS T)` syntax (the SDK strips its own cast when this pattern
+///   surrounds the value, so the parser sees a bare `$N`).
+/// - explicit declaration: `-- $N name (type)`.
+///
+/// Pre-fix, the dispatch asserted `Type::TEXT` for parser-defaulted args, so
+/// e.g. a `Value::Bool` bound to `Box<bool>` failed at the encoder with
+/// "cannot convert between the Rust type `bool` and the Postgres type `text`"
+/// before the query ever reached the server.
+#[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
+async fn test_postgresql_arg_type_combinations(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_worker::pg_executor::clear_pg_cache;
+
+    initialize_tracing().await;
+    clear_pg_cache().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let db_arg = json!({"host": "localhost", "port": 5432, "dbname": "windmill", "user": "postgres", "password": "changeme"});
+
+    // Build a fresh schema for this test so we don't trip over prior runs.
+    let setup = r#"
+DROP SCHEMA IF EXISTS wm_pg_arg_combo_test CASCADE;
+CREATE SCHEMA wm_pg_arg_combo_test;
+CREATE TABLE wm_pg_arg_combo_test.bugbool (flag bool);
+CREATE TABLE wm_pg_arg_combo_test.sdkbug (n int, f double precision);
+CREATE TABLE wm_pg_arg_combo_test.bugmix (id int, name text, payload jsonb, tags text[]);
+CREATE TABLE wm_pg_arg_combo_test.allcols (
+  c_bool bool,
+  c_int2 smallint,
+  c_int4 int,
+  c_int8 bigint,
+  c_float4 real,
+  c_float8 double precision,
+  c_numeric numeric,
+  c_text text,
+  c_varchar varchar(64),
+  c_uuid uuid,
+  c_date date,
+  c_time time,
+  c_ts timestamp,
+  c_tstz timestamptz,
+  c_json json,
+  c_jsonb jsonb,
+  c_int_arr int[],
+  c_text_arr text[]
+);
+CREATE TYPE wm_pg_arg_combo_test.color AS ENUM ('red','green','blue');
+CREATE TABLE wm_pg_arg_combo_test.enumtbl (c wm_pg_arg_combo_test.color);
+"#;
+    RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content: setup.to_owned(),
+        path: None,
+        lock: None,
+        language: ScriptLang::Postgresql,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        modules: None,
+    }))
+    .arg("database", db_arg.clone())
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    // Each case: (name, content, args, expected_result)
+    let cases: Vec<(&str, String, serde_json::Value, serde_json::Value)> = vec![
+        // === parser-default "text" otyp (bare $N), value drives the binding ===
+        (
+            "bool via CAST AS bool (parser default text)",
+            "-- $1 arg1\nINSERT INTO wm_pg_arg_combo_test.bugbool VALUES (CAST($1 AS bool)) RETURNING flag".to_owned(),
+            json!({"arg1": true}),
+            json!([{"flag": true}]),
+        ),
+        (
+            "bare $1 with bool into bool col",
+            "-- $1 arg1\nINSERT INTO wm_pg_arg_combo_test.bugbool VALUES ($1) RETURNING flag".to_owned(),
+            json!({"arg1": false}),
+            json!([{"flag": false}]),
+        ),
+        (
+            "bare $1 with bool into text via implicit cast bool->text",
+            "-- $1 arg1\nSELECT $1::text AS s".to_owned(),
+            json!({"arg1": true}),
+            json!([{"s": "true"}]),
+        ),
+        (
+            "bare $1 with int into text via implicit cast int->text",
+            "-- $1 arg1\nSELECT $1::text AS s".to_owned(),
+            json!({"arg1": 42}),
+            json!([{"s": "42"}]),
+        ),
+        (
+            "object via CAST AS jsonb (parser default text)",
+            "-- $1 arg1\nSELECT CAST($1 AS jsonb) AS v".to_owned(),
+            json!({"arg1": {"k": 1}}),
+            json!([{"v": {"k": 1}}]),
+        ),
+        (
+            "string '42' via CAST AS int (parser default text)",
+            "-- $1 arg1\nSELECT CAST($1 AS int) AS v".to_owned(),
+            json!({"arg1": "42"}),
+            json!([{"v": 42}]),
+        ),
+        (
+            "NULL into bool col via CAST",
+            "-- $1 arg1\nINSERT INTO wm_pg_arg_combo_test.bugbool VALUES (CAST($1 AS bool)) RETURNING flag".to_owned(),
+            json!({"arg1": null}),
+            json!([{"flag": null}]),
+        ),
+        // === SDK happy path — inline ::TYPE injected by the client ===
+        (
+            "SDK shape: $1::BIGINT, $2::DOUBLE PRECISION",
+            "-- $1 arg1\n-- $2 arg2\nINSERT INTO wm_pg_arg_combo_test.sdkbug VALUES ($1::BIGINT, $2::DOUBLE PRECISION) RETURNING n, f".to_owned(),
+            json!({"arg1": 42, "arg2": 3.14}),
+            json!([{"n": 42, "f": 3.14}]),
+        ),
+        (
+            "SDK shape: $1::TEXT with int target via explicit ::int",
+            "-- $1 arg1\nSELECT $1::TEXT::int AS v".to_owned(),
+            json!({"arg1": "7"}),
+            json!([{"v": 7}]),
+        ),
+        // === explicit declaration -- $N name (type) ===
+        (
+            "explicit decl (text)",
+            "-- $1 arg1 (text)\nSELECT $1 AS v".to_owned(),
+            json!({"arg1": "hello"}),
+            json!([{"v": "hello"}]),
+        ),
+        (
+            "explicit decl (jsonb) with object",
+            "-- $1 arg1 (jsonb)\nSELECT $1 AS v".to_owned(),
+            json!({"arg1": {"k": [1, 2]}}),
+            json!([{"v": {"k": [1, 2]}}]),
+        ),
+        // === mixed args: int, text, jsonb, text[] ===
+        (
+            "mixed: int + text + jsonb + text[]",
+            "-- $1 arg1\n-- $2 arg2\n-- $3 arg3\n-- $4 arg4\nINSERT INTO wm_pg_arg_combo_test.bugmix VALUES ($1::int, $2::text, $3::jsonb, $4::text[]) RETURNING *".to_owned(),
+            json!({"arg1": 7, "arg2": "hello", "arg3": {"k": 1}, "arg4": ["a", "b"]}),
+            json!([{"id": 7, "name": "hello", "payload": {"k": 1}, "tags": ["a", "b"]}]),
+        ),
+
+        // === Every PG type, SDK happy path (inline ::TYPE) ===
+        (
+            "all PG types via inline casts",
+            r#"-- $1 arg1
+-- $2 arg2
+-- $3 arg3
+-- $4 arg4
+-- $5 arg5
+-- $6 arg6
+-- $7 arg7
+-- $8 arg8
+-- $9 arg9
+-- $10 arg10
+-- $11 arg11
+-- $12 arg12
+-- $13 arg13
+-- $14 arg14
+-- $15 arg15
+-- $16 arg16
+-- $17 arg17
+-- $18 arg18
+INSERT INTO wm_pg_arg_combo_test.allcols VALUES (
+  $1::bool, $2::int2, $3::int4, $4::int8,
+  $5::real, $6::double precision, $7::numeric,
+  $8::text, $9::varchar,
+  $10::uuid, $11::date, $12::time, $13::timestamp, $14::timestamptz,
+  $15::json, $16::jsonb,
+  $17::int[], $18::text[]
+) RETURNING c_bool, c_int4, c_int8, c_text, c_uuid, c_int_arr"#.to_owned(),
+            json!({
+                "arg1": true, "arg2": 1, "arg3": 2, "arg4": 3,
+                "arg5": 1.5, "arg6": 2.5, "arg7": 3.14,
+                "arg8": "hello", "arg9": "varhello",
+                "arg10": "550e8400-e29b-41d4-a716-446655440000",
+                "arg11": "2024-01-15", "arg12": "10:30:00",
+                "arg13": "2024-01-15T10:30:00", "arg14": "2024-01-15T10:30:00Z",
+                "arg15": {"k": 1}, "arg16": {"k": 2},
+                "arg17": [1,2,3], "arg18": ["a","b"]
+            }),
+            json!([{"c_bool": true, "c_int4": 2, "c_int8": 3, "c_text": "hello",
+                    "c_uuid": "550e8400-e29b-41d4-a716-446655440000",
+                    "c_int_arr": [1,2,3]}]),
+        ),
+
+        // === Every PG type, declaration-style otyp (Python SDK shape) ===
+        (
+            "all PG types via -- $N name (TYPE) decls",
+            r#"-- $1 arg1 (bool)
+-- $2 arg2 (int2)
+-- $3 arg3 (int4)
+-- $4 arg4 (int8)
+-- $5 arg5 (real)
+-- $6 arg6 (float8)
+-- $7 arg7 (numeric)
+-- $8 arg8 (text)
+-- $9 arg9 (varchar)
+-- $10 arg10 (uuid)
+-- $11 arg11 (date)
+-- $12 arg12 (time)
+-- $13 arg13 (timestamp)
+-- $14 arg14 (timestamptz)
+-- $15 arg15 (json)
+-- $16 arg16 (jsonb)
+-- $17 arg17 (int[])
+-- $18 arg18 (text[])
+INSERT INTO wm_pg_arg_combo_test.allcols VALUES (
+  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+) RETURNING c_bool, c_int4, c_int8, c_text, c_int_arr, c_text_arr"#.to_owned(),
+            json!({
+                "arg1": false, "arg2": 4, "arg3": 5, "arg4": 6,
+                "arg5": 1.5, "arg6": 2.5, "arg7": 3.14,
+                "arg8": "world", "arg9": "varworld",
+                "arg10": "550e8400-e29b-41d4-a716-446655440000",
+                "arg11": "2024-01-15", "arg12": "10:30:00",
+                "arg13": "2024-01-15T10:30:00", "arg14": "2024-01-15T10:30:00Z",
+                "arg15": [1,2], "arg16": [3,4],
+                "arg17": [10,20], "arg18": ["x","y"]
+            }),
+            json!([{"c_bool": false, "c_int4": 5, "c_int8": 6, "c_text": "world",
+                    "c_int_arr": [10,20], "c_text_arr": ["x","y"]}]),
+        ),
+
+        // === Edge values per type ===
+        ("int8 negative", "-- $1 arg1\nSELECT $1::int8 AS v".to_owned(), json!({"arg1": -42}), json!([{"v": -42}])),
+        ("int8 zero",     "-- $1 arg1\nSELECT $1::int8 AS v".to_owned(), json!({"arg1": 0}), json!([{"v": 0}])),
+        ("int4 max",      "-- $1 arg1\nSELECT $1::int4 AS v".to_owned(), json!({"arg1": 2147483647i64}), json!([{"v": 2147483647i64}])),
+        ("int8 max",      "-- $1 arg1\nSELECT $1::int8 AS v".to_owned(), json!({"arg1": 9223372036854775807i64}), json!([{"v": 9223372036854775807i64}])),
+        ("float8 fraction", "-- $1 arg1\nSELECT $1::float8 AS v".to_owned(), json!({"arg1": 0.1 + 0.2}), json!([{"v": 0.1 + 0.2}])),
+        ("empty string", "-- $1 arg1\nSELECT $1::text AS v".to_owned(), json!({"arg1": ""}), json!([{"v": ""}])),
+        ("empty array",  "-- $1 arg1\nSELECT $1::int[] AS v".to_owned(), json!({"arg1": []}), json!([{"v": []}])),
+        ("empty object", "-- $1 arg1\nSELECT $1::jsonb AS v".to_owned(), json!({"arg1": {}}), json!([{"v": {}}])),
+
+        // === Bool roundtrip across every shape ===
+        ("Bool/bare $1 → bool col", "-- $1 arg1\nSELECT $1 AS v".to_owned(), json!({"arg1": true}), json!([{"v": true}])),
+        ("Bool/inline ::bool",      "-- $1 arg1\nSELECT $1::bool AS v".to_owned(), json!({"arg1": true}), json!([{"v": true}])),
+        ("Bool/decl (bool)",        "-- $1 arg1 (bool)\nSELECT $1 AS v".to_owned(), json!({"arg1": true}), json!([{"v": true}])),
+        ("Bool/CAST AS bool",       "-- $1 arg1\nSELECT CAST($1 AS bool) AS v".to_owned(), json!({"arg1": false}), json!([{"v": false}])),
+        ("Bool/CAST AS bool inside SELECT","-- $1 arg1\nSELECT CAST($1 AS bool) AS v WHERE CAST($1 AS bool) IS NOT NULL".to_owned(), json!({"arg1": true}), json!([{"v": true}])),
+
+        // === Object/Array via CAST AS jsonb (regression: non-text otyp via CAST) ===
+        ("Object via CAST AS jsonb", "-- $1 arg1\nSELECT CAST($1 AS jsonb) AS v".to_owned(), json!({"arg1": {"a":1,"b":[2,3]}}), json!([{"v": {"a":1,"b":[2,3]}}])),
+        ("Array via CAST AS jsonb",  "-- $1 arg1\nSELECT CAST($1 AS jsonb) AS v".to_owned(), json!({"arg1": [1,"two",{"three":3}]}), json!([{"v": [1,"two",{"three":3}]}])),
+        ("Object inline ::json",     "-- $1 arg1\nSELECT $1::json AS v".to_owned(), json!({"arg1": {"k":1}}), json!([{"v": {"k":1}}])),
+        ("Object decl (jsonb)",      "-- $1 arg1 (jsonb)\nSELECT $1 AS v".to_owned(), json!({"arg1": {"k":1}}), json!([{"v": {"k":1}}])),
+
+        // === Numbers: implicit/explicit casts to text ===
+        ("Number/CAST AS text",    "-- $1 arg1\nSELECT CAST($1 AS text) AS v".to_owned(), json!({"arg1": 42}), json!([{"v": "42"}])),
+        ("Number/inline ::text",   "-- $1 arg1\nSELECT $1::text AS v".to_owned(), json!({"arg1": 42}), json!([{"v": "42"}])),
+        ("Float/CAST AS text",     "-- $1 arg1\nSELECT CAST($1 AS text) AS v".to_owned(), json!({"arg1": 3.14}), json!([{"v": "3.14"}])),
+        ("Negative/CAST AS int8",  "-- $1 arg1\nSELECT CAST($1 AS int8) AS v".to_owned(), json!({"arg1": -1}), json!([{"v": -1}])),
+
+        // === Strings parsed into typed targets ===
+        ("String '42' as int",     "-- $1 arg1\nSELECT $1::int AS v".to_owned(), json!({"arg1": "42"}), json!([{"v": 42}])),
+        ("String '42' as bigint",  "-- $1 arg1\nSELECT $1::bigint AS v".to_owned(), json!({"arg1": "42"}), json!([{"v": 42}])),
+        ("String '1.5' as real",   "-- $1 arg1\nSELECT $1::real AS v".to_owned(), json!({"arg1": "1.5"}), json!([{"v": 1.5}])),
+        ("String uuid",            "-- $1 arg1\nSELECT $1::uuid AS v".to_owned(), json!({"arg1": "550e8400-e29b-41d4-a716-446655440000"}), json!([{"v": "550e8400-e29b-41d4-a716-446655440000"}])),
+
+        // === NULL handling for every type ===
+        ("Null/bool",      "-- $1 arg1\nSELECT CAST($1 AS bool) AS v".to_owned(),      json!({"arg1": null}), json!([{"v": null}])),
+        ("Null/int",       "-- $1 arg1\nSELECT CAST($1 AS int) AS v".to_owned(),       json!({"arg1": null}), json!([{"v": null}])),
+        ("Null/bigint",    "-- $1 arg1\nSELECT CAST($1 AS bigint) AS v".to_owned(),    json!({"arg1": null}), json!([{"v": null}])),
+        ("Null/text",      "-- $1 arg1\nSELECT $1::text AS v".to_owned(),              json!({"arg1": null}), json!([{"v": null}])),
+        ("Null/jsonb",     "-- $1 arg1\nSELECT CAST($1 AS jsonb) AS v".to_owned(),     json!({"arg1": null}), json!([{"v": null}])),
+        ("Null/uuid",      "-- $1 arg1\nSELECT CAST($1 AS uuid) AS v".to_owned(),      json!({"arg1": null}), json!([{"v": null}])),
+        ("Null/timestamp", "-- $1 arg1\nSELECT CAST($1 AS timestamp) AS v".to_owned(), json!({"arg1": null}), json!([{"v": null}])),
+        ("Null/date",      "-- $1 arg1\nSELECT CAST($1 AS date) AS v".to_owned(),      json!({"arg1": null}), json!([{"v": null}])),
+
+        // === Multi-statement (datatable scripts often DROP/CREATE/INSERT) ===
+        (
+            "multi-statement: DROP/CREATE/INSERT",
+            r#"DROP TABLE IF EXISTS wm_pg_arg_combo_test.tmp_multi;
+CREATE TABLE wm_pg_arg_combo_test.tmp_multi (n int, b bool);
+-- $1 arg1
+-- $2 arg2
+INSERT INTO wm_pg_arg_combo_test.tmp_multi VALUES ($1::int, $2::bool) RETURNING *"#.to_owned(),
+            json!({"arg1": 10, "arg2": true}),
+            json!([{"n": 10, "b": true}]),
+        ),
+
+        // === Same arg used in multiple positions (parser reorders) ===
+        (
+            "same arg twice",
+            "-- $1 arg1\nSELECT $1::int + $1::int AS v".to_owned(),
+            json!({"arg1": 5}),
+            json!([{"v": 10}]),
+        ),
+
+        // === Custom enum (unrecognised arg_t → prepare fallback path) ===
+        // The unrecognised-arg_t fallback works when the user formats the
+        // value as the enum's text representation themselves, so the binding
+        // never has to encode a Rust String *as* an enum (which the
+        // tokio-postgres `ToSql` impls don't support):
+        (
+            "custom enum: text representation cast in SQL",
+            r#"-- $1 arg1
+INSERT INTO wm_pg_arg_combo_test.enumtbl
+VALUES (CAST($1::text AS wm_pg_arg_combo_test.color))
+RETURNING c::text AS c"#
+                .to_owned(),
+            json!({"arg1": "green"}),
+            json!([{"c": "green"}]),
+        ),
+    ];
+
+    for (name, content, args, expected) in cases {
+        let mut job = RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+        }))
+        .arg("database", db_arg.clone());
+        for (k, v) in args.as_object().unwrap() {
+            job = job.arg(k, v.clone());
+        }
+        let result = job
+            .run_until_complete(&db, false, port)
+            .await
+            .json_result()
+            .unwrap_or_else(|| panic!("case '{name}': no json result"));
+        assert_eq!(result, expected, "case '{name}' mismatch");
+    }
+
+    Ok(())
+}
+
+/// Pooler-safety regression test for #8988: when every arg has a resolvable
+/// otyp (the common SDK case), the dispatch must use unnamed prepared
+/// statements (`query_typed_raw`) and *must not* leak named statements
+/// (`s0, s1, ...`) on the cached connection. Behind a transaction-mode pooler
+/// (PgBouncer / Supabase pooler / RDS Proxy), accumulated names get dropped
+/// when the prepare and execute land on different backend connections, which
+/// is what produced the original "prepared statement \"sN\" does not exist"
+/// errors.
+#[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
+async fn test_postgresql_no_named_statements_after_typed_args(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_worker::pg_executor::clear_pg_cache;
+
+    initialize_tracing().await;
+    clear_pg_cache().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let db_arg = json!({"host": "localhost", "port": 5432, "dbname": "windmill", "user": "postgres", "password": "changeme"});
+
+    let make_pg_job = |content: String| {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+        }))
+        .arg("database", db_arg.clone())
+    };
+
+    // Run several SDK-shape queries (parameterised, all args resolvable) on the
+    // same cached connection. None of them should land in `pg_prepared_statements`.
+    for i in 0..5 {
+        let result = make_pg_job(format!(
+            "-- $1 arg1\n-- $2 arg2\nSELECT $1::BIGINT AS a, $2::TEXT AS b, {} AS i;",
+            i
+        ))
+        .arg("arg1", json!(i))
+        .arg("arg2", json!(format!("v{i}")))
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+        assert_eq!(
+            result,
+            json!([{"a": i, "b": format!("v{i}"), "i": i}]),
+            "iteration {i}"
+        );
+    }
+
+    // Use the *same* connection (cached one) to peek at pg_prepared_statements.
+    // Anything matching the tokio-postgres "s\d+" naming would mean the
+    // pooler-unsafe `prepare + query_raw` path was taken.
+    let probe = make_pg_job(
+        "SELECT count(*)::int AS n FROM pg_prepared_statements WHERE name ~ '^s[0-9]+$'".to_owned(),
+    )
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+    let n = probe[0]["n"].as_i64().unwrap_or(-1);
+    assert_eq!(
+        n, 0,
+        "expected no leaked named prepared statements, found {n}"
+    );
+
+    Ok(())
+}
+
 #[cfg(feature = "mysql")]
 #[sqlx::test(fixtures("base"))]
 async fn test_mysql_job(db: Pool<Postgres>) -> anyhow::Result<()> {
