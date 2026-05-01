@@ -32,6 +32,18 @@ with two invariants:
 cloned**. Those triggers manage external webhook state we don't want
 duplicated.
 
+**Non-workspaced HTTP triggers are also skipped.** A row with
+`workspaced_route=false` (and where neither `CLOUD_HOSTED` nor the
+`HTTP_ROUTE_WORKSPACED_ROUTE` instance setting is on) has a runtime URL
+without any workspace prefix. A clone would collide with the parent's row at
+the matchit router level, where duplicate inserts are silently dropped — one
+trigger would invisibly hijack the other. There is no namespacing escape
+hatch for these (the whole point of `workspaced_route=false` is to skip the
+prefix), so the clone filter excludes them. The fork user can re-create one
+manually if they need it. When `CLOUD_HOSTED` or `HTTP_ROUTE_WORKSPACED_ROUTE`
+is on, every route is workspace-prefixed at runtime regardless of the column,
+and the clone copies all rows.
+
 ## Merge-direction filter (always on)
 
 Whenever the source workspace ID matches `wm-fork-*`, the tarball export at

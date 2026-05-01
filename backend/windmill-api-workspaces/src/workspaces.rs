@@ -30,6 +30,7 @@ use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
+use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{
     build_crypt, decrypt, encrypt, SECRET_SALT, WORKSPACE_CRYPT_CACHE,
@@ -3825,6 +3826,15 @@ async fn clone_triggers_and_schedules(
     .execute(&mut **tx)
     .await?;
 
+    // Skip non-workspaced HTTP triggers: their URL has no workspace prefix, so
+    // a clone would collide with the parent's row at runtime (matchit::Router
+    // silently drops one of two duplicates) and `route_path_key_exists` would
+    // also fail to spot the cross-workspace conflict cleanly. The instance
+    // settings `CLOUD_HOSTED` and `HTTP_ROUTE_WORKSPACED_ROUTE` force every
+    // route to be workspace-prefixed regardless of the column, so when either
+    // is on we clone everything.
+    let force_workspaced =
+        *CLOUD_HOSTED || HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
     sqlx::query!(
         r#"INSERT INTO http_trigger (
             path, route_path, route_path_key, script_path, is_flow, workspace_id,
@@ -3841,9 +3851,12 @@ async fn clone_triggers_and_schedules(
             raw_string, authentication_resource_path, summary, description,
             error_handler_path, error_handler_args, retry, request_type, 'disabled'::TRIGGER_MODE,
             permissioned_as, labels
-        FROM http_trigger WHERE workspace_id = $2"#,
+        FROM http_trigger
+        WHERE workspace_id = $2
+            AND (workspaced_route IS TRUE OR $3)"#,
         target_workspace_id,
         source_workspace_id,
+        force_workspaced,
     )
     .execute(&mut **tx)
     .await?;
