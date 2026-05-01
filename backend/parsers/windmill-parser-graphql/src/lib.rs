@@ -64,7 +64,7 @@ fn parse_graphql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ.unwrap()),
             has_default,
             oidx: None,
-        otyp_inferred: false,
+            otyp_inferred: false,
         });
     }
 
@@ -109,7 +109,7 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                         default: None,
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("[String]".to_string()),
@@ -118,7 +118,7 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                         default: None,
                         has_default: false,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("String".to_string()),
@@ -127,7 +127,7 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                         default: Some(json!("wahoo")),
                         has_default: true,
                         oidx: None,
-                    otyp_inferred: false,
+                        otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
