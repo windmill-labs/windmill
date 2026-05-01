@@ -69,6 +69,7 @@ pub fn parse_java_sig_meta(code: &str) -> anyhow::Result<JavaMainSigMeta> {
                         has_default: default.is_some(),
                         default,
                         oidx: None,
+                    otyp_inferred: false,
                     });
                 }
             }
@@ -256,7 +257,8 @@ class Main {
                     typ: Typ::Bytes,
                     default: None,
                     has_default: false,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "b".into(),
@@ -264,7 +266,8 @@ class Main {
                     typ: Typ::Int,
                     default: None,
                     has_default: false,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "c".into(),
@@ -272,7 +275,8 @@ class Main {
                     typ: Typ::Int,
                     default: None,
                     has_default: false,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "d".into(),
@@ -280,7 +284,8 @@ class Main {
                     typ: Typ::Int,
                     default: None,
                     has_default: false,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "e".into(),
@@ -288,7 +293,8 @@ class Main {
                     typ: Typ::Float,
                     default: None,
                     has_default: false,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "f".into(),
@@ -296,7 +302,8 @@ class Main {
                     typ: Typ::Float,
                     default: None,
                     has_default: false,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "g".into(),
@@ -304,7 +311,8 @@ class Main {
                     typ: Typ::Bool,
                     default: None,
                     has_default: false,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "h".into(),
@@ -312,7 +320,8 @@ class Main {
                     typ: Typ::Str(None),
                     default: None,
                     has_default: false,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
             ]
         );
@@ -338,7 +347,8 @@ class Main {
                     typ: Typ::Bytes,
                     default: Some(json!(null)),
                     has_default: true,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "b".into(),
@@ -346,7 +356,8 @@ class Main {
                     typ: Typ::Int,
                     default: Some(json!(null)),
                     has_default: true,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "c".into(),
@@ -354,7 +365,8 @@ class Main {
                     typ: Typ::Int,
                     default: Some(json!(null)),
                     has_default: true,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "d".into(),
@@ -362,7 +374,8 @@ class Main {
                     typ: Typ::Int,
                     default: Some(json!(null)),
                     has_default: true,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "e".into(),
@@ -370,7 +383,8 @@ class Main {
                     typ: Typ::Float,
                     default: Some(json!(null)),
                     has_default: true,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "f".into(),
@@ -378,7 +392,8 @@ class Main {
                     typ: Typ::Float,
                     default: Some(json!(null)),
                     has_default: true,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "g".into(),
@@ -386,7 +401,8 @@ class Main {
                     typ: Typ::Bool,
                     default: Some(json!(null)),
                     has_default: true,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "h".into(),
@@ -394,7 +410,8 @@ class Main {
                     typ: Typ::Str(None),
                     default: Some(json!(null)),
                     has_default: true,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "i".into(),
@@ -402,7 +419,8 @@ class Main {
                     typ: Typ::Object(ObjectType::new(None, Some(vec![]))),
                     default: Some(json!(null)),
                     has_default: true,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
             ]
         );
@@ -427,7 +445,8 @@ class Main {
                     typ: Typ::List(Box::new(Typ::Int)),
                     default: Some(json!(null)),
                     has_default: true,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "b".into(),
@@ -435,7 +454,8 @@ class Main {
                     typ: Typ::List(Box::new(Typ::Object(ObjectType::new(None, Some(vec![]))))),
                     default: Some(json!(null)),
                     has_default: true,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
                 Arg {
                     name: "c".into(),
@@ -443,7 +463,8 @@ class Main {
                     typ: Typ::List(Box::new(Typ::Str(None))),
                     default: Some(json!(null)),
                     has_default: true,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 },
             ]
         );

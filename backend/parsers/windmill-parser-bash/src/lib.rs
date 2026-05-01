@@ -134,6 +134,7 @@ fn parse_bash_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
                 otyp: None,
                 has_default: default.is_some(),
                 oidx: None,
+            otyp_inferred: false,
             });
         } else {
             break;
@@ -731,6 +732,7 @@ fn finalize_parameter(
         otyp,
         has_default,
         oidx: None,
+    otyp_inferred: false,
     })
 }
 

@@ -91,6 +91,7 @@ pub fn parse_php_signature(
                     has_default: default.is_some(),
                     default,
                     oidx: None,
+                otyp_inferred: false,
                 }
             })
             .collect();
@@ -146,7 +147,8 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         typ: Typ::Str(None),
                         has_default: true,
                         default: Some(Value::String("hey".to_string())),
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -154,7 +156,8 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         typ: Typ::Bool,
                         has_default: true,
                         default: Some(Value::Bool(false)),
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -162,7 +165,8 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         typ: Typ::Int,
                         has_default: true,
                         default: Some(Value::Number(Number::from(3))),
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -170,7 +174,8 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         typ: Typ::Float,
                         has_default: true,
                         default: Some(Value::Number(Number::from_f64(f64::from(4.5)).unwrap())),
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -178,7 +183,8 @@ function main(string $input1 = \"hey\", bool $input2 = false, int $input3 = 3, f
                         typ: Typ::Resource("stripe".to_string()),
                         has_default: false,
                         default: None,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,

@@ -2179,6 +2179,70 @@ RETURNING c::text AS c"#
             json!({"arg1": "green"}),
             json!([{"c": "green"}]),
         ),
+
+        // === Sparse positional placeholders ($5, $50) ===
+        // The pre-fix `String::replace($5 → $1)` chain mangled `$50` into
+        // `$10`, breaking sparse-index queries. The regex-based renumbering
+        // handles them as distinct units.
+        (
+            "sparse $5 / $50 renumbering",
+            "-- $5 arg5\n-- $50 arg50\nSELECT $5::int AS a, $50::int AS b".to_owned(),
+            json!({"arg5": 5, "arg50": 50}),
+            json!([{"a": 5, "b": 50}]),
+        ),
+        (
+            "sparse $5 / $50 reversed in SQL",
+            "-- $5 arg5\n-- $50 arg50\nSELECT $50::int AS a, $5::int AS b".to_owned(),
+            json!({"arg5": 5, "arg50": 50}),
+            json!([{"a": 50, "b": 5}]),
+        ),
+        (
+            "sparse same arg used twice + sparse",
+            "-- $5 arg5\n-- $50 arg50\nSELECT $5::int + $5::int AS a, $50::int AS b".to_owned(),
+            json!({"arg5": 7, "arg50": 50}),
+            json!([{"a": 14, "b": 50}]),
+        ),
+
+        // === Explicit (text) decl + non-string value: should coerce ===
+        // Without the otyp_inferred flag, the executor would bind the value's
+        // natural type (INT8/BOOL) and the WHERE comparison `text = int8` /
+        // `text = bool` would fail with "operator does not exist". With the
+        // flag, the parser tells the executor "user committed to text" and
+        // the value is JSON-stringified so `text = text` works.
+        (
+            "decl (text) + Number used in WHERE text comparison",
+            r#"-- $1 arg1 (text)
+SELECT name FROM (VALUES ('42'::text)) AS t(name) WHERE name = $1"#
+                .to_owned(),
+            json!({"arg1": 42}),
+            json!([{"name": "42"}]),
+        ),
+        (
+            "decl (text) + Bool used in WHERE text comparison",
+            r#"-- $1 arg1 (text)
+SELECT name FROM (VALUES ('true'::text)) AS t(name) WHERE name = $1"#
+                .to_owned(),
+            json!({"arg1": true}),
+            json!([{"name": "true"}]),
+        ),
+        (
+            "decl (varchar) + Number used in WHERE",
+            r#"-- $1 arg1 (varchar)
+SELECT name FROM (VALUES ('99'::varchar)) AS t(name) WHERE name = $1"#
+                .to_owned(),
+            json!({"arg1": 99}),
+            json!([{"name": "99"}]),
+        ),
+
+        // === Bare $N (parser-default text) + non-string value: bind native ===
+        // The user wrote no annotation — we bind the value's natural type so
+        // it works against whatever column the SQL eventually targets.
+        (
+            "bare $1 + Bool into bool col",
+            "-- $1 arg1\nSELECT $1 = true AS v".to_owned(),
+            json!({"arg1": true}),
+            json!([{"v": true}]),
+        ),
     ];
 
     for (name, content, args, expected) in cases {

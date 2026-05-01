@@ -64,6 +64,7 @@ fn parse_graphql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ.unwrap()),
             has_default,
             oidx: None,
+        otyp_inferred: false,
         });
     }
 

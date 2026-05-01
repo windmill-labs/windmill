@@ -48,6 +48,7 @@ use crate::sql_utils::remove_comments;
 use crate::MAX_RESULT_SIZE;
 use bytes::Buf;
 use lazy_static::lazy_static;
+use regex::Regex;
 use windmill_common::client::AuthedClient;
 use windmill_types::s3::S3Object;
 
@@ -58,6 +59,11 @@ lazy_static! {
         Arc::new(RwLock::new(HashMap::new()));
     pub static ref LAST_QUERY: AtomicU64 = AtomicU64::new(0);
     pub static ref CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+    /// Matches a single `$N` placeholder. `\d+` is greedy so `$50` matches as
+    /// one unit (not `$5` + literal `0`) — we rely on this to renumber sparse
+    /// positional args without the substring-collision bug a naive
+    /// `String::replace("$5", "$1")` would have.
+    static ref PG_PLACEHOLDER_RE: Regex = Regex::new(r"\$(\d+)").unwrap();
 }
 
 pub async fn clear_pg_cache() {
@@ -206,19 +212,40 @@ fn do_postgresql_inner<'a>(
 
     let arg_indices = parse_pg_statement_arg_indices(&query);
 
-    let mut i = 1;
+    // Renumber sparse positional placeholders (e.g. $5, $50 → $1, $2) in one
+    // regex pass. Greedy `\d+` matches the full digit run, so `$50` is never
+    // mis-rewritten as `$5 + 0` — the bug a per-index `String::replace` chain
+    // had. Indices we don't have a mapping for are left untouched.
+    let renumber_mapping: HashMap<i32, usize> = arg_indices
+        .iter()
+        .sorted()
+        .enumerate()
+        .map(|(i, oidx)| (*oidx, i + 1))
+        .collect();
+    if renumber_mapping
+        .iter()
+        .any(|(oidx, new_i)| *oidx as usize != *new_i)
+    {
+        query = PG_PLACEHOLDER_RE
+            .replace_all(&query, |caps: &regex::Captures| {
+                let oidx: i32 = caps[1].parse().unwrap_or(-1);
+                match renumber_mapping.get(&oidx) {
+                    Some(new_i) => format!("${new_i}"),
+                    None => caps[0].to_string(),
+                }
+            })
+            .into_owned();
+    }
+
     for oidx in arg_indices.iter().sorted() {
         if let Some((arg, value)) = param_idx_to_arg_and_value.get(&oidx) {
-            if *oidx as usize != i {
-                query = query.replace(&format!("${}", oidx), &format!("${}", i));
-            }
             let value = value.unwrap_or_else(|| &serde_json::Value::Null);
             let arg_t = arg
                 .otyp
                 .as_ref()
                 .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?;
             let typ = &arg.typ;
-            let (param, natural_type) = convert_val(value, arg_t, typ)?;
+            let (param, natural_type) = convert_val(value, arg_t, typ, arg.otyp_inferred)?;
             query_params.push(param);
             param_meta.push((arg.name.clone(), json_value_kind(value)));
             if all_types_resolved {
@@ -235,7 +262,6 @@ fn do_postgresql_inner<'a>(
                     param_types.clear();
                 }
             }
-            i += 1;
         }
     }
 
@@ -919,7 +945,20 @@ fn convert_val(
     value: &Value,
     arg_t: &String,
     typ: &Typ,
+    otyp_inferred: bool,
 ) -> windmill_common::error::Result<ConvertedParam> {
+    // Helper: was the user's intent explicitly "text" / "varchar" / "char"?
+    // True when the parser saw an inline `$N::text` cast or a `-- $N (text)`
+    // declaration. False when the parser fell back to "text" because nothing
+    // else was found (in which case the caller has no real target type
+    // committed and we should bind the value's natural type).
+    let explicit_text_target = !otyp_inferred
+        && (matches!(typ, Typ::Str(_))
+            && (arg_t == "text"
+                || arg_t == "varchar"
+                || arg_t == "character varying"
+                || arg_t == "char"
+                || arg_t == "character"));
     match value {
         Value::Array(vec) if arg_t.ends_with("[]") => {
             let arg_t = arg_t.trim_end_matches("[]").to_string();
@@ -960,17 +999,46 @@ fn convert_val(
             // column type (custom enums / extension types).
             _ => Ok((Box::new(None::<String>), Type::TEXT)),
         },
-        // Bool / Number: bind as BOOL / INT8 / FLOAT8 even when arg_t resolves
-        // to a text-like type (parser-default "text", or an explicit `(text)`
-        // declaration). Postgres has implicit assignment casts bool→text and
-        // int→text, so a text column still accepts the raw type — and binding
-        // as TEXT here would either wrongly assert a type the encoder can't
-        // produce (parser-default case) or wrongly coerce when the underlying
-        // column isn't actually text (e.g. `INSERT INTO bool_col VALUES ($1)`
-        // with parser-defaulted text otyp).
+        // Bool / Number with an *explicitly* text-typed arg: coerce to
+        // String. Used when the user wrote `-- $N (text)` or `$N::text` —
+        // they committed to text and may rely on equality comparisons like
+        // `WHERE text_col = $1`, which need a `text = text` operator (PG has
+        // no implicit `bool/int → text` cast in expression context).
+        Value::Bool(b) if explicit_text_target => {
+            // `char` (Type::CHAR, OID 18) is single-byte and `to_string()` of
+            // a bool is multi-byte ("true"/"false") — fall back to BOOL, the
+            // server will cast at the use site. Same for `character` (= bpchar).
+            // For text/varchar/character varying we coerce to a string.
+            match arg_t.as_str() {
+                "char" | "character" => Ok((Box::new(*b), Type::BOOL)),
+                "varchar" | "character varying" => Ok((Box::new(b.to_string()), Type::VARCHAR)),
+                _ => Ok((Box::new(b.to_string()), Type::TEXT)),
+            }
+        }
+        // Bool: bind as BOOL when no explicit text target. Postgres has an
+        // implicit assignment cast bool→text, so INSERTs into text columns
+        // still work — this only differs from the explicit-text branch above
+        // for expression-context uses (WHERE clauses, etc.).
         Value::Bool(_) if arg_t == "jsonb" => Ok((Box::new(value.clone()), Type::JSONB)),
         Value::Bool(_) if arg_t == "json" => Ok((Box::new(value.clone()), Type::JSON)),
         Value::Bool(b) => Ok((Box::new(b.clone()), Type::BOOL)),
+        // Number with an explicitly text-typed arg: coerce to String. Same
+        // reasoning as the Bool branch — preserves pre-#8988 behaviour for
+        // hand-written PG scripts that use `WHERE text_col = $1` with a
+        // numeric value and an explicit text declaration.
+        // Skip `char`/`character`: those go to the existing single-byte arm
+        // below or the generic INT8 fallthrough.
+        Value::Number(n)
+            if explicit_text_target
+                && (arg_t == "text" || arg_t == "varchar" || arg_t == "character varying") =>
+        {
+            let t = if arg_t == "varchar" || arg_t == "character varying" {
+                Type::VARCHAR
+            } else {
+                Type::TEXT
+            };
+            Ok((Box::new(n.to_string()), t))
+        }
         Value::Number(n) if arg_t == "char" && n.is_i64() => {
             Ok((Box::new(n.as_i64().unwrap() as i8), Type::CHAR))
         }
@@ -1536,6 +1604,10 @@ mod tests {
     /// Verify that convert_val for `(value, arg_t)` returns a binding whose
     /// Rust type matches the asserted Postgres `Type` — exactly the check
     /// `query_typed_raw` performs when serialising parameters.
+    ///
+    /// Defaults to `otyp_inferred = false` (= "user explicitly typed this").
+    /// Tests that need the parser-default flavour use
+    /// `assert_convert_val_consistent_inferred`.
     fn assert_convert_val_consistent(
         label: &str,
         value: Value,
@@ -1543,7 +1615,28 @@ mod tests {
         typ: Typ,
         expected_type: Type,
     ) {
-        let (boxed, t) = convert_val(&value, &arg_t.to_string(), &typ)
+        assert_convert_val_consistent_full(label, value, arg_t, typ, expected_type, false)
+    }
+
+    fn assert_convert_val_consistent_inferred(
+        label: &str,
+        value: Value,
+        arg_t: &str,
+        typ: Typ,
+        expected_type: Type,
+    ) {
+        assert_convert_val_consistent_full(label, value, arg_t, typ, expected_type, true)
+    }
+
+    fn assert_convert_val_consistent_full(
+        label: &str,
+        value: Value,
+        arg_t: &str,
+        typ: Typ,
+        expected_type: Type,
+        otyp_inferred: bool,
+    ) {
+        let (boxed, t) = convert_val(&value, &arg_t.to_string(), &typ, otyp_inferred)
             .unwrap_or_else(|e| panic!("{label}: convert_val errored: {e}"));
         assert_eq!(
             t, expected_type,
@@ -1626,16 +1719,22 @@ mod tests {
 
     #[test]
     fn convert_val_bool_against_every_arg_t() {
-        // Value::Bool. Pre-fix this always produced Box<bool> regardless of
-        // arg_t, which mismatched the asserted Type for parser-default "text"
-        // (the original regression). Post-fix Bool stays bound as BOOL except
-        // when arg_t is explicitly json/jsonb (then we serialise as the JSON
-        // value to match the JSON encoder).
+        // Value::Bool. Pre-#8988 this always produced Box<bool>, which
+        // mismatched the asserted Type for parser-default "text" (the
+        // regression we fix). Post-fix:
+        //  - explicit text-like target (`-- $1 (text)` / `$1::text`):
+        //    coerce to Box<String>+TEXT so `WHERE text_col = $1` works.
+        //  - parser-default text (bare `$N`, no annotation): bind as BOOL
+        //    natively, server casts at the use site.
+        //  - any other target: bind as BOOL.
         let bool_targets = ["bool", "boolean"];
         let json_targets = [("json", Type::JSON), ("jsonb", Type::JSONB)];
+        let explicit_text_targets = [
+            ("text", Type::TEXT),
+            ("varchar", Type::VARCHAR),
+            ("character varying", Type::VARCHAR),
+        ];
         let bind_as_bool = [
-            "text",
-            "varchar",
             "char",
             "smallint",
             "int",
@@ -1677,6 +1776,24 @@ mod tests {
                     expected.clone(),
                 );
             }
+            for (arg_t, expected) in &explicit_text_targets {
+                // Explicit (otyp_inferred=false): coerce to text.
+                assert_convert_val_consistent(
+                    &format!("Bool({v})/{arg_t} explicit"),
+                    Value::Bool(v),
+                    arg_t,
+                    typ_for(arg_t),
+                    expected.clone(),
+                );
+                // Inferred (parser-default): keep BOOL.
+                assert_convert_val_consistent_inferred(
+                    &format!("Bool({v})/{arg_t} inferred"),
+                    Value::Bool(v),
+                    arg_t,
+                    typ_for(arg_t),
+                    Type::BOOL,
+                );
+            }
             for arg_t in &bind_as_bool {
                 assert_convert_val_consistent(
                     &format!("Bool({v})/{arg_t}"),
@@ -1716,10 +1833,6 @@ mod tests {
             ("oid", Type::OID),
             ("numeric", Type::NUMERIC),
             ("decimal", Type::NUMERIC),
-            // text / varchar (parser default & explicit): bind as INT8, server
-            // implicit-casts int→text at the assignment / cast site.
-            ("text", Type::INT8),
-            ("varchar", Type::INT8),
             // Unknown arg_t falls through to generic Number → INT8.
             ("my_custom_enum", Type::INT8),
         ];
@@ -1730,6 +1843,24 @@ mod tests {
                 arg_t,
                 typ_for(arg_t),
                 expected.clone(),
+            );
+        }
+        // Text targets: split between explicit (coerce to TEXT) and inferred
+        // (parser-default, bind as INT8 — server casts at the use site).
+        for (arg_t, expected_text) in [("text", Type::TEXT), ("varchar", Type::VARCHAR)] {
+            assert_convert_val_consistent(
+                &format!("Number(42)/{arg_t} explicit"),
+                json!(42),
+                arg_t,
+                typ_for(arg_t),
+                expected_text,
+            );
+            assert_convert_val_consistent_inferred(
+                &format!("Number(42)/{arg_t} inferred"),
+                json!(42),
+                arg_t,
+                typ_for(arg_t),
+                Type::INT8,
             );
         }
         // Negative integer (is_u64 false → falls to generic i64 arm for bigint).
@@ -1753,9 +1884,7 @@ mod tests {
             ("float8", Type::FLOAT8),
             ("numeric", Type::NUMERIC),
             ("decimal", Type::NUMERIC),
-            // For text targets a float falls through to generic → Box<f64>+FLOAT8.
-            ("text", Type::FLOAT8),
-            ("varchar", Type::FLOAT8),
+            // Unknown arg_t falls through to generic → Box<f64>+FLOAT8.
             ("my_custom_enum", Type::FLOAT8),
         ];
         for (arg_t, expected) in cases {
@@ -1765,6 +1894,24 @@ mod tests {
                 arg_t,
                 typ_for(arg_t),
                 expected.clone(),
+            );
+        }
+        // Text targets: split between explicit (coerce to TEXT/VARCHAR) and
+        // inferred (parser-default, bind as FLOAT8 — server casts at use site).
+        for (arg_t, expected_text) in [("text", Type::TEXT), ("varchar", Type::VARCHAR)] {
+            assert_convert_val_consistent(
+                &format!("Number(3.14)/{arg_t} explicit"),
+                json!(3.14),
+                arg_t,
+                typ_for(arg_t),
+                expected_text,
+            );
+            assert_convert_val_consistent_inferred(
+                &format!("Number(3.14)/{arg_t} inferred"),
+                json!(3.14),
+                arg_t,
+                typ_for(arg_t),
+                Type::FLOAT8,
             );
         }
     }
@@ -2069,30 +2216,36 @@ mod tests {
         );
 
         // CAST(${val} AS T) shape — the SDK strips its own ::TYPE here, so
-        // the parser sees a bare $N and otyp defaults to "text". This is
-        // the original regression #8988 introduced.
-        assert_convert_val_consistent(
+        // the parser sees a bare $N and otyp defaults to "text" *with
+        // otyp_inferred = true*. This is the original regression #8988
+        // introduced; the inferred-default flag is what lets convert_val
+        // bind the value's natural type rather than coerce to TEXT.
+        assert_convert_val_consistent_inferred(
             "CAST AS bool / Bool true",
             json!(true),
             "text",
             typ_for("text"),
             Type::BOOL,
         );
-        assert_convert_val_consistent(
+        assert_convert_val_consistent_inferred(
             "CAST AS bool / Bool false",
             json!(false),
             "text",
             typ_for("text"),
             Type::BOOL,
         );
-        assert_convert_val_consistent(
+        // Object falls into the text-coercion arm (Object branch checks
+        // `matches!(typ, Typ::Str(_))` regardless of otyp_inferred — JSON
+        // serialisation is always safer than asserting JSONB for an
+        // unannotated arg).
+        assert_convert_val_consistent_inferred(
             "CAST AS jsonb / Object",
             json!({"a": 1, "b": [2, 3]}),
             "text",
             typ_for("text"),
             Type::TEXT,
         );
-        assert_convert_val_consistent(
+        assert_convert_val_consistent_inferred(
             "CAST AS int / Number",
             json!(7),
             "text",
@@ -2126,14 +2279,51 @@ mod tests {
 
         // Mismatched-but-coercible JSON shape: JSON int 0/1 into a bool col
         // still works because tokio_postgres encodes Number as INT8 and
-        // postgres has int→bool cast at the SQL site.
-        assert_convert_val_consistent(
+        // postgres has int→bool cast at the SQL site. Uses the inferred
+        // path (parser-default text otyp).
+        assert_convert_val_consistent_inferred(
             "Number(0)/bool (parser default)",
             json!(0),
             "text",
             typ_for("text"),
             Type::INT8,
         );
+    }
+
+    /// Sparse positional placeholders must renumber to a contiguous 1..=N
+    /// without substring collisions. The pre-existing `String::replace` chain
+    /// turned `$50` into `$10` when processing oidx=5 first; the regex pass
+    /// (greedy `\d+`) handles `$5` and `$50` as distinct units.
+    #[test]
+    fn renumber_sparse_placeholders_no_collision() {
+        // Mimics the renumbering done in do_postgresql_inner: sorted
+        // arg_indices [5, 50] → mapping {5: 1, 50: 2}.
+        let mapping: HashMap<i32, usize> = [(5, 1), (50, 2)].into_iter().collect();
+        let cases = &[
+            // Two placeholders, full rewrite.
+            ("SELECT $5, $50", "SELECT $1, $2"),
+            // Same input flipped.
+            ("SELECT $50, $5", "SELECT $2, $1"),
+            // Repeat use of an index — both sites get rewritten.
+            (
+                "SELECT $5 FROM t WHERE id = $5 OR ref = $50",
+                "SELECT $1 FROM t WHERE id = $1 OR ref = $2",
+            ),
+            // Index outside the mapping is left untouched.
+            ("SELECT $5, $99", "SELECT $1, $99"),
+        ];
+        for (input, expected) in cases {
+            let got = PG_PLACEHOLDER_RE
+                .replace_all(input, |caps: &regex::Captures| {
+                    let oidx: i32 = caps[1].parse().unwrap_or(-1);
+                    match mapping.get(&oidx) {
+                        Some(new_i) => format!("${new_i}"),
+                        None => caps[0].to_string(),
+                    }
+                })
+                .into_owned();
+            assert_eq!(&got, expected, "input={input}");
+        }
     }
 
     /// Drift-prevention: `otyp_to_pg_type` and `convert_val` must agree on the

@@ -50,6 +50,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
                                         has_default: default.is_some(),
                                         default,
                                         oidx: None,
+                                    otyp_inferred: false,
                                     })
                                 }
                             }
@@ -68,6 +69,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
                             has_default: inv.default.is_some(),
                             default: inv.default.map(|v| json!(format!("$res:{}", v))),
                             oidx: None,
+                        otyp_inferred: false,
                         });
                     }
                 }
@@ -81,6 +83,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
                                 has_default: false,
                                 default: None,
                                 oidx: None,
+                            otyp_inferred: false,
                             });
                         }
                     }

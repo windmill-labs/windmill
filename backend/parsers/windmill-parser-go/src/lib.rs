@@ -34,6 +34,7 @@ pub fn parse_go_sig(code: &str) -> anyhow::Result<MainArgSignature> {
                     default: None,
                     has_default: false,
                     oidx: None,
+                otyp_inferred: false,
                 }
             })
             .collect_vec();

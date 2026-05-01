@@ -281,6 +281,7 @@ fn parse_oracledb_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -305,6 +306,7 @@ fn parse_oracledb_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
                 otyp: Some(typ),
                 has_default,
                 oidx: None,
+                otyp_inferred: false,
             });
         }
     }
@@ -331,6 +333,7 @@ fn parse_sql_sanitized_interpolation(code: &str) -> Vec<Arg> {
             otyp: Some(otyp.to_string()),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -360,6 +363,7 @@ fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -384,6 +388,7 @@ fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
                 otyp: Some(typ),
                 has_default,
                 oidx: None,
+                otyp_inferred: false,
             });
         }
     }
@@ -577,12 +582,16 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
                 otyp: Some(typ),
                 has_default,
                 oidx: Some(idx),
+                otyp_inferred: false,
             });
         }
     }
 
-    // Second pass: infer types from usage for non-explicitly-typed args
-    let mut hm: HashMap<i32, String> = HashMap::new();
+    // Second pass: infer types from usage for non-explicitly-typed args.
+    // We track whether each entry came from an inline `$N::TYPE` cast or from
+    // the parser's "text" fallback, so the executor can later distinguish
+    // "user committed to text" from "no info, use a placeholder".
+    let mut hm: HashMap<i32, (String, bool)> = HashMap::new();
     for cap in RE_CODE_PGSQL.captures_iter(code) {
         let idx = cap
             .get(1)
@@ -594,15 +603,23 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
             continue;
         }
 
-        let typ = cap
+        let cast = cap
             .get(2)
-            .map(|cap| transform_types_with_spaces(&cap, &code))
-            .unwrap_or("text");
-        hm.insert(idx, typ.to_string());
+            .map(|cap| transform_types_with_spaces(&cap, &code));
+        let inferred_default = cast.is_none();
+        let typ = cast.unwrap_or("text");
+        // Prefer an explicit cast over a previously seen default — once we
+        // have any inline cast for the index, lock it in.
+        match hm.get(&idx) {
+            Some((_, false)) => {} // already locked from explicit cast
+            _ => {
+                hm.insert(idx, (typ.to_string(), inferred_default));
+            }
+        }
     }
 
     // Add inferred args
-    for (i, v) in hm.iter() {
+    for (i, (v, inferred)) in hm.iter() {
         let typ = v.to_lowercase();
         args.push(Arg {
             name: format!("${}", i),
@@ -611,6 +628,7 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
             otyp: Some(typ),
             has_default: false,
             oidx: Some(*i),
+            otyp_inferred: *inferred,
         });
     }
 
@@ -646,6 +664,7 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
                 otyp: oarg.otyp,
                 has_default,
                 oidx: oarg.oidx,
+                otyp_inferred: oarg.otyp_inferred,
             };
         }
     }
@@ -736,6 +755,7 @@ fn parse_bigquery_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -765,6 +785,7 @@ fn parse_duckdb_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -794,6 +815,7 @@ fn parse_snowflake_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -823,6 +845,7 @@ fn parse_mssql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -1006,6 +1029,7 @@ SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
                         default: None,
                         has_default: false,
                         oidx: Some(1),
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("bigint".to_string()),
@@ -1014,6 +1038,7 @@ SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
                         default: None,
                         has_default: false,
                         oidx: Some(2),
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1048,6 +1073,7 @@ SELECT $2::TEXT;
                         default: None,
                         has_default: false,
                         oidx: Some(1),
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1056,6 +1082,7 @@ SELECT $2::TEXT;
                         default: None,
                         has_default: false,
                         oidx: Some(2),
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1064,6 +1091,7 @@ SELECT $2::TEXT;
                         default: None,
                         has_default: false,
                         oidx: Some(3),
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1259,6 +1287,7 @@ SELECT ?, ?;
                         default: Some(json!(3)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1267,6 +1296,7 @@ SELECT ?, ?;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1300,6 +1330,7 @@ SELECT :param2;
                         default: Some(json!(3)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1308,6 +1339,7 @@ SELECT :param2;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1316,6 +1348,7 @@ SELECT :param2;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1349,6 +1382,7 @@ SELECT @token;
                         default: Some(json!("abc")),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("int64".to_string()),
@@ -1357,6 +1391,7 @@ SELECT @token;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1390,6 +1425,7 @@ SELECT ?;
                         default: Some(json!(3)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("varchar".to_string()),
@@ -1398,6 +1434,7 @@ SELECT ?;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("varchar".to_string()),
@@ -1406,6 +1443,7 @@ SELECT ?;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
@@ -1439,6 +1477,7 @@ SELECT @P2;
                         default: Some(json!(3)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("varchar".to_string()),
@@ -1447,6 +1486,7 @@ SELECT @P2;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("varchar".to_string()),
@@ -1455,6 +1495,7 @@ SELECT @P2;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1489,6 +1530,7 @@ SELECT * FROM table_name WHERE thing = :name4;
                         default: Some(json!(3)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1497,6 +1539,7 @@ SELECT * FROM table_name WHERE thing = :name4;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1505,6 +1548,7 @@ SELECT * FROM table_name WHERE thing = :name4;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1536,6 +1580,7 @@ SELECT * FROM users WHERE id = $1 AND email = $2::text;
                         default: None,
                         has_default: false,
                         oidx: Some(1),
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1544,6 +1589,7 @@ SELECT * FROM users WHERE id = $1 AND email = $2::text;
                         default: None,
                         has_default: false,
                         oidx: Some(2),
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1575,6 +1621,7 @@ SELECT * FROM users LIMIT $1 OFFSET $2;
                         default: Some(json!(10)),
                         has_default: true,
                         oidx: Some(1),
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("bigint".to_string()),
@@ -1583,6 +1630,7 @@ SELECT * FROM users LIMIT $1 OFFSET $2;
                         default: Some(json!(0)),
                         has_default: true,
                         oidx: Some(2),
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1618,6 +1666,7 @@ WHERE id = $1
                         default: None,
                         has_default: false,
                         oidx: Some(1),
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1626,6 +1675,7 @@ WHERE id = $1
                         default: None,
                         has_default: false,
                         oidx: Some(2),
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("timestamptz".to_string()),
@@ -1634,6 +1684,7 @@ WHERE id = $1
                         default: None,
                         has_default: false,
                         oidx: Some(3),
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1663,6 +1714,7 @@ SELECT * FROM users WHERE id = ANY($1);
                     default: None,
                     has_default: false,
                     oidx: Some(1),
+                    otyp_inferred: false,
                 },],
                 auto_kind: None,
                 has_preprocessor: None,
@@ -1693,12 +1745,69 @@ SELECT $1::integer;
                     default: None,
                     has_default: false,
                     oidx: Some(1),
+                    otyp_inferred: false,
                 },],
                 auto_kind: None,
                 has_preprocessor: None,
                 ..Default::default()
             }
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_pgsql_otyp_inferred_flag() -> anyhow::Result<()> {
+        // Bare `$N` (no inline cast, no decl) should produce otyp = "text"
+        // *and* otyp_inferred = true. This is the signal the PG executor
+        // uses to decide whether the user committed to a text target.
+        let code_bare = "SELECT $1, $2";
+        let args = parse_pgsql_sig(code_bare)?.args;
+        let map: HashMap<String, (Option<String>, bool)> = args
+            .into_iter()
+            .map(|a| (a.name, (a.otyp, a.otyp_inferred)))
+            .collect();
+        assert_eq!(
+            map.get("$1").cloned(),
+            Some((Some("text".to_string()), true)),
+            "bare $1 → otyp_inferred true"
+        );
+        assert_eq!(
+            map.get("$2").cloned(),
+            Some((Some("text".to_string()), true)),
+            "bare $2 → otyp_inferred true"
+        );
+
+        // Inline `$N::TYPE` cast → otyp_inferred = false (user committed).
+        let args = parse_pgsql_sig("SELECT $1::int, $2::text")?.args;
+        let map: HashMap<String, (Option<String>, bool)> = args
+            .into_iter()
+            .map(|a| (a.name, (a.otyp, a.otyp_inferred)))
+            .collect();
+        assert_eq!(
+            map.get("$1").cloned(),
+            Some((Some("int".to_string()), false))
+        );
+        assert_eq!(
+            map.get("$2").cloned(),
+            Some((Some("text".to_string()), false)),
+            "explicit $2::text → otyp_inferred false (distinct from bare $2)"
+        );
+
+        // Declaration `-- $N name (TYPE)` → otyp_inferred = false (decl is
+        // explicit by definition).
+        let args = parse_pgsql_sig("-- $1 name (text)\nSELECT $1")?.args;
+        assert_eq!(args[0].otyp.as_deref(), Some("text"));
+        assert!(!args[0].otyp_inferred);
+
+        // Mixed: $1 has decl, $2 is bare → flag differs per arg.
+        let args = parse_pgsql_sig("-- $1 a (int)\nSELECT $1, $2")?.args;
+        let map: HashMap<String, bool> = args
+            .into_iter()
+            .map(|a| (a.name, a.otyp_inferred))
+            .collect();
+        assert_eq!(map.get("a").copied(), Some(false), "$1 decl → not inferred");
+        assert_eq!(map.get("$2").copied(), Some(true), "$2 bare → inferred");
 
         Ok(())
     }
@@ -1782,6 +1891,7 @@ SELECT x
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 },],
                 auto_kind: None,
                 has_preprocessor: None,
