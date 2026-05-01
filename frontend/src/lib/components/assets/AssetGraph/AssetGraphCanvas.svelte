@@ -35,7 +35,8 @@
 		onAddScriptForAsset?: (
 			asset: { kind: AssetKind; path: string },
 			language: import('$lib/gen').ScriptLang,
-			scriptPath: string
+			scriptPath: string,
+			outputKind: import('./pipelineTemplates').PipelineOutputKind
 		) => void
 		// Pipeline-wide + node shown at the top of the graph. Picking any
 		// kind from the menu invokes this one callback with the chosen
@@ -48,7 +49,8 @@
 				| {
 						kind: 'webhook' | 'email' | 'kafka' | 'mqtt' | 'nats' | 'postgres' | 'sqs' | 'gcp'
 						path: string | undefined
-				  }
+				  },
+			outputKind: import('./pipelineTemplates').PipelineOutputKind
 		) => void
 		// Folder-scoped prefix shown as a read-only chip in the insert menu
 		// path input (e.g. `f/{folder}/`). Shared across top + and per-asset +.

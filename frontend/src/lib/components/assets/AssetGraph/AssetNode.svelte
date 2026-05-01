@@ -9,6 +9,8 @@
 	import type { ScriptLang } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
+	import { PIPELINE_LANGUAGES } from './pipelineLanguages'
+	import type { PipelineOutputKind } from './pipelineTemplates'
 
 	// Shape used for both the data prop and the run callback. Drafts carry
 	// `content` / `language` so the page-level run handler can dispatch to
@@ -27,7 +29,8 @@
 			onAddScript?: (
 				asset: { kind: AssetKind; path: string },
 				language: ScriptLang,
-				scriptPath: string
+				scriptPath: string,
+				outputKind: PipelineOutputKind
 			) => void
 			pathPrefix?: string
 			defaultPathSuffix?: string
@@ -84,26 +87,13 @@
 		}
 	}
 
-	const LANGUAGES: Array<{ label: string; lang: ScriptLang }> = [
-		{ label: 'TypeScript (Bun)', lang: 'bun' },
-		{ label: 'TypeScript (Deno)', lang: 'deno' },
-		{ label: 'Python', lang: 'python3' },
-		{ label: 'PostgreSQL', lang: 'postgresql' },
-		{ label: 'DuckDB', lang: 'duckdb' },
-		{ label: 'BigQuery', lang: 'bigquery' },
-		{ label: 'Snowflake', lang: 'snowflake' },
-		{ label: 'MySQL', lang: 'mysql' },
-		{ label: 'MS SQL', lang: 'mssql' },
-		{ label: 'Bash', lang: 'bash' },
-		{ label: 'Go', lang: 'go' }
-	]
-
 	function handlePick(pick: PipelineInsertPick) {
 		if (pick.kindId === 'pipeline_script' && pick.language && pick.path) {
 			data.onAddScript?.(
 				{ kind: data.asset_kind, path: data.path },
 				pick.language as ScriptLang,
-				pick.path
+				pick.path,
+				(pick.outputKind ?? 'none') as PipelineOutputKind
 			)
 		}
 	}
@@ -182,7 +172,8 @@
 						pickLanguage: true
 					}
 				]}
-				languages={LANGUAGES as any}
+				languages={PIPELINE_LANGUAGES as any}
+				pickOutputKind
 				pathPrefix={data.pathPrefix ?? ''}
 				defaultPathSuffix={data.defaultPathSuffix ?? ''}
 				onPick={handlePick}

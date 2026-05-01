@@ -14,6 +14,8 @@
 	} from 'lucide-svelte'
 	import type { ScriptLang } from '$lib/gen'
 	import type { NativeTriggerKind } from './types'
+	import { PIPELINE_LANGUAGES } from './pipelineLanguages'
+	import type { PipelineOutputKind } from './pipelineTemplates'
 
 	// Each left-column kind is just "pipeline script triggered by <trigger
 	// source>". id === the SCRIPT_TRIGGER_KIND value, so the handler can
@@ -28,7 +30,8 @@
 				path: string,
 				source:
 					| { kind: 'schedule'; cron: string }
-					| { kind: NativeTriggerKind; path: string | undefined }
+					| { kind: NativeTriggerKind; path: string | undefined },
+				outputKind: PipelineOutputKind
 			) => void
 			pathPrefix: string
 			defaultPathSuffix: string
@@ -37,37 +40,28 @@
 	}
 	let { data }: Props = $props()
 
-	const LANGUAGES: Array<{ label: string; lang: ScriptLang }> = [
-		{ label: 'TypeScript (Bun)', lang: 'bun' },
-		{ label: 'TypeScript (Deno)', lang: 'deno' },
-		{ label: 'Python', lang: 'python3' },
-		{ label: 'PostgreSQL', lang: 'postgresql' },
-		{ label: 'DuckDB', lang: 'duckdb' },
-		{ label: 'BigQuery', lang: 'bigquery' },
-		{ label: 'Snowflake', lang: 'snowflake' },
-		{ label: 'MySQL', lang: 'mysql' },
-		{ label: 'MS SQL', lang: 'mssql' },
-		{ label: 'Bash', lang: 'bash' },
-		{ label: 'Go', lang: 'go' }
-	]
-
 	function handlePick(pick: PipelineInsertPick) {
 		if (!pick.language || !pick.path) return
 		const kindId = pick.kindId as KindId
+		const outputKind = (pick.outputKind ?? 'none') as PipelineOutputKind
 		if (kindId === 'schedule') {
-			data.onAddPipelineScript(pick.language as ScriptLang, pick.path, {
-				kind: 'schedule',
-				cron: data.defaultScheduleCron
-			})
+			data.onAddPipelineScript(
+				pick.language as ScriptLang,
+				pick.path,
+				{ kind: 'schedule', cron: data.defaultScheduleCron },
+				outputKind
+			)
 		} else {
 			// Native trigger reference: user is expected to fill in the
 			// trigger path themselves in the editor (or configure it in the
 			// trigger's own UI). We seed the annotation with an empty ref
 			// the user replaces.
-			data.onAddPipelineScript(pick.language as ScriptLang, pick.path, {
-				kind: kindId,
-				path: undefined
-			})
+			data.onAddPipelineScript(
+				pick.language as ScriptLang,
+				pick.path,
+				{ kind: kindId, path: undefined },
+				outputKind
+			)
 		}
 	}
 </script>
@@ -138,7 +132,8 @@
 			pickLanguage: true
 		}
 	]}
-	languages={LANGUAGES as any}
+	languages={PIPELINE_LANGUAGES as any}
+	pickOutputKind
 	pathPrefix={data.pathPrefix}
 	defaultPathSuffix={data.defaultPathSuffix}
 	onPick={handlePick}

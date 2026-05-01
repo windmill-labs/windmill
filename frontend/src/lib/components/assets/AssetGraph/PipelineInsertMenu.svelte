@@ -18,6 +18,9 @@
 		kindId: string
 		language?: SupportedLanguage
 		path?: string
+		// Picked output asset kind. Optional because some menu instances
+		// (those without `pickOutputKind`) skip that stage entirely.
+		outputKind?: string
 	}
 </script>
 
@@ -27,6 +30,12 @@
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import { ArrowLeft, ChevronRight } from 'lucide-svelte'
 	import { tick } from 'svelte'
+	import {
+		PIPELINE_OUTPUT_KINDS,
+		compatibleOutputKinds,
+		type PipelineOutputKind
+	} from './pipelineTemplates'
+	import type { ScriptLang } from '$lib/gen'
 
 	interface Props {
 		kinds: PipelineInsertKind[]
@@ -38,6 +47,11 @@
 		// Default suffix seeded into the editable input when the user
 		// reaches the path stage (e.g. `new_pipeline_script`).
 		defaultPathSuffix?: string
+		// When true, after the user picks a language we add an output-kind
+		// stage between language and path. The picked kind is forwarded in
+		// onPick(pick.outputKind). When false (or omitted), the menu jumps
+		// directly from language → path, matching the legacy two-stage flow.
+		pickOutputKind?: boolean
 		onPick: (pick: PipelineInsertPick) => void
 		trigger: import('svelte').Snippet
 		placement?: 'bottom' | 'top' | 'left' | 'right'
@@ -48,24 +62,34 @@
 		languages = [],
 		pathPrefix = '',
 		defaultPathSuffix = '',
+		pickOutputKind = false,
 		onPick,
 		trigger: triggerSnippet,
 		placement = 'bottom'
 	}: Props = $props()
 
-	// Flow stages: kind → lang → path → confirm. `stage` drives the right
-	// column. Only the `language` kinds reach the lang/path stages.
-	// Default-select the first kind, and if it needs a language jump
-	// straight into the lang stage so the user doesn't have to click the
-	// left column to see the language picker.
+	// Flow stages: kind → lang → (output) → path → confirm. `stage` drives
+	// the right column. Only the `language` kinds reach the lang/path
+	// stages. The `output` stage is gated behind `pickOutputKind` so menus
+	// that don't need it (legacy two-column callers) keep their old flow.
 	let selectedKindId = $state<string>(kinds[0]?.id ?? '')
 	let selectedKind = $derived(kinds.find((k) => k.id === selectedKindId) ?? kinds[0])
-	let stage = $state<'lang' | 'path' | 'description'>(
+	let stage = $state<'lang' | 'output' | 'path' | 'description'>(
 		kinds[0]?.pickLanguage ? 'lang' : 'description'
 	)
 	let selectedLanguage = $state<SupportedLanguage | undefined>(undefined)
+	let selectedOutputKind = $state<PipelineOutputKind | undefined>(undefined)
 	let pathSuffix = $state('')
 	let pathInput: HTMLInputElement | undefined = $state(undefined)
+
+	// Output kinds that have a real template for the picked language. We
+	// hide non-compatible kinds entirely rather than greying them — keeps
+	// the picker scannable and the user never lands on a kind that would
+	// silently fall back to the generic body.
+	let compatibleKinds = $derived.by<PipelineOutputKind[]>(() => {
+		if (!selectedLanguage) return []
+		return compatibleOutputKinds(selectedLanguage as ScriptLang)
+	})
 
 	// Popover closing doesn't unmount its content, so state persists across
 	// opens. Reset everything back to initial state on close so the next
@@ -76,6 +100,7 @@
 		selectedKindId = kinds[0]?.id ?? ''
 		stage = kinds[0]?.pickLanguage ? 'lang' : 'description'
 		selectedLanguage = undefined
+		selectedOutputKind = undefined
 		pathSuffix = ''
 	}
 
@@ -88,6 +113,7 @@
 		selectedKindId = k.id
 		stage = 'lang'
 		selectedLanguage = undefined
+		selectedOutputKind = undefined
 		pathSuffix = ''
 	}
 
@@ -102,24 +128,45 @@
 		return out
 	}
 
-	async function handleLanguageClick(lang: SupportedLanguage) {
-		selectedLanguage = lang
-		const base = defaultPathSuffix || 'pipeline_script'
-		pathSuffix = `${base}_${shortSlug()}`
-		stage = 'path'
-		// Focus the suffix input so the user can just start typing a name.
+	async function focusPathInput() {
 		await tick()
 		pathInput?.focus()
 		pathInput?.select()
 	}
 
+	async function handleLanguageClick(lang: SupportedLanguage) {
+		selectedLanguage = lang
+		// If this menu wants an output-kind stage, route through it; the
+		// path suffix only gets seeded once the user has confirmed both
+		// language and output kind.
+		if (pickOutputKind) {
+			selectedOutputKind = undefined
+			stage = 'output'
+			return
+		}
+		const base = defaultPathSuffix || 'pipeline_script'
+		pathSuffix = `${base}_${shortSlug()}`
+		stage = 'path'
+		await focusPathInput()
+	}
+
+	async function handleOutputKindClick(kind: PipelineOutputKind) {
+		selectedOutputKind = kind
+		const base = defaultPathSuffix || 'pipeline_script'
+		pathSuffix = `${base}_${shortSlug()}`
+		stage = 'path'
+		await focusPathInput()
+	}
+
 	function confirmPath(close: () => void) {
 		const suffix = pathSuffix.trim()
 		if (!suffix || !selectedLanguage) return
+		if (pickOutputKind && !selectedOutputKind) return
 		onPick({
 			kindId: selectedKindId,
 			language: selectedLanguage,
-			path: pathPrefix + suffix
+			path: pathPrefix + suffix,
+			outputKind: pickOutputKind ? selectedOutputKind : undefined
 		})
 		close()
 	}
@@ -130,7 +177,7 @@
 			confirmPath(close)
 		} else if (e.key === 'Escape') {
 			e.preventDefault()
-			stage = 'lang'
+			stage = pickOutputKind ? 'output' : 'lang'
 		}
 	}
 </script>
@@ -157,10 +204,19 @@
 	{/snippet}
 	{#snippet content({ close })}
 		{@const singleKind = kinds.length === 1}
+		{@const widthClass = pickOutputKind
+			? singleKind
+				? 'w-[520px]'
+				: 'w-[720px]'
+			: singleKind
+				? 'w-[360px]'
+				: 'w-[560px]'}
 		<div
-			class={singleKind
-				? 'flex flex-row bg-surface-tertiary w-[360px] h-[280px]'
-				: 'flex flex-row divide-x bg-surface-tertiary w-[560px] h-[280px]'}
+			class={[
+				'flex flex-row bg-surface-tertiary h-[280px]',
+				singleKind ? '' : 'divide-x',
+				widthClass
+			].join(' ')}
 		>
 			<!-- Left column: kind picker. Only shown when there's more than one
 			     option — single-kind menus jump straight to language/path. -->
@@ -215,9 +271,9 @@
 							</Button>
 						{/each}
 					</div>
-				{:else if stage === 'path' && selectedLanguage}
-					<div class="flex flex-col gap-3 p-3 grow overflow-auto">
-						<div class="flex items-center gap-2">
+				{:else if stage === 'output' && selectedLanguage}
+					<div class="flex flex-col gap-1 p-2 grow overflow-auto">
+						<div class="flex items-center gap-2 mb-1">
 							<Button
 								variant="subtle"
 								unifiedSize="xs"
@@ -230,6 +286,46 @@
 								<LanguageIcon lang={selectedLanguage} width={13} height={13} />
 								<span class="text-xs font-medium">{selectedLanguage}</span>
 							</div>
+						</div>
+						<div class="text-2xs font-normal text-secondary ml-2 mb-1">Output asset</div>
+						{#each PIPELINE_OUTPUT_KINDS.filter((k) => compatibleKinds.includes(k.id)) as k}
+							<button
+								type="button"
+								onclick={() => handleOutputKindClick(k.id)}
+								class="flex flex-col items-start gap-0.5 px-2 py-2 rounded-md text-left transition-colors hover:bg-surface-hover"
+							>
+								<span class="text-sm font-medium leading-tight">{k.label}</span>
+								<span class="text-2xs text-tertiary font-normal leading-snug">
+									{k.description}
+								</span>
+							</button>
+						{/each}
+						{#if compatibleKinds.length === 0}
+							<span class="text-2xs text-tertiary px-2">No output presets for this language.</span>
+						{/if}
+					</div>
+				{:else if stage === 'path' && selectedLanguage}
+					{@const outputMeta = selectedOutputKind
+						? PIPELINE_OUTPUT_KINDS.find((k) => k.id === selectedOutputKind)
+						: undefined}
+					<div class="flex flex-col gap-3 p-3 grow overflow-auto">
+						<div class="flex items-center gap-2">
+							<Button
+								variant="subtle"
+								unifiedSize="xs"
+								startIcon={{ icon: ArrowLeft }}
+								iconOnly
+								title={pickOutputKind ? 'Back to output' : 'Back to language'}
+								onClick={() => (stage = pickOutputKind ? 'output' : 'lang')}
+							/>
+							<div class="flex items-center gap-1.5">
+								<LanguageIcon lang={selectedLanguage} width={13} height={13} />
+								<span class="text-xs font-medium">{selectedLanguage}</span>
+							</div>
+							{#if outputMeta}
+								<span class="text-2xs text-tertiary">·</span>
+								<span class="text-2xs text-secondary">{outputMeta.label}</span>
+							{/if}
 						</div>
 						<div class="flex flex-col gap-1">
 							<span class="text-2xs font-normal text-secondary">Path</span>

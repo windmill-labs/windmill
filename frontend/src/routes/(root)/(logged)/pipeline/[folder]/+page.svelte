@@ -15,6 +15,12 @@
 		parsePipelineAnnotations,
 		type PipelineAnnotations
 	} from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
+	import {
+		generatePipelineDraft,
+		autoOutputAsset,
+		type PipelineOutputKind,
+		type DraftTriggerSource
+	} from '$lib/components/assets/AssetGraph/pipelineTemplates'
 	import { decodeState, encodeState } from '$lib/utils'
 	import { onMount, untrack } from 'svelte'
 	import {
@@ -27,7 +33,6 @@
 		RefreshCw
 	} from 'lucide-svelte'
 	import { JobService, OpenAPI, type AssetKind, type Script, type ScriptLang } from '$lib/gen'
-	import { initialCode } from '$lib/script_helpers'
 	import { resource } from 'runed'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { emptySchema } from '$lib/utils'
@@ -70,7 +75,10 @@
 	// user can come back to it.
 	type Draft = {
 		script: Script
-		outputAsset: { kind: AssetKind; path: string }
+		// Undefined when the user picked `outputKind === 'none'` — the draft
+		// has no auto-generated output asset, so the graph overlay skips
+		// synthesizing a write edge for it.
+		outputAsset?: { kind: AssetKind; path: string }
 	}
 	let drafts = $state<Map<string, Draft>>(new Map())
 
@@ -153,190 +161,24 @@
 		}
 	})
 
-	// Crockford-ish random slug for asset paths. 7 chars of [a-z0-9] gives
-	// ~36^7 ≈ 7.8e10 combinations — collision-free in practice for the
-	// handful of scripts a user creates in a session.
-	function randomSlug(len = 7): string {
-		const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789'
-		let out = ''
-		for (let i = 0; i < len; i++) {
-			out += alphabet[Math.floor(Math.random() * alphabet.length)]
-		}
-		return out
-	}
-
-	function randomOutputAssetPath(): { kind: AssetKind; path: string } {
-		// `s3://` is the most universal kind; works as a literal across every
-		// supported language without extra imports. Inside `pipelines/<folder>/`
-		// so outputs of a single pipeline cluster under one prefix.
-		return { kind: 's3object', path: `pipelines/${folder}/out_${randomSlug()}.parquet` }
-	}
-
-	// Language → comment prefix recognized by parse_pipeline_annotations.
-	function commentPrefix(lang: ScriptLang): string {
-		switch (lang) {
-			case 'python3':
-			case 'bash':
-			case 'powershell':
-			case 'nu':
-			case 'ansible':
-				return '#'
-			case 'postgresql':
-			case 'mysql':
-			case 'bigquery':
-			case 'snowflake':
-			case 'mssql':
-			case 'oracledb':
-			case 'duckdb':
-				return '--'
-			default:
-				return '//'
-		}
-	}
-
-	// Each entry becomes a `// on <…>` line in the seeded template. Multiple
-	// trigger sources are valid (a script can be fired by both a schedule
-	// and a webhook, for instance), but the menu only seeds one at a time.
-	type DraftTriggerSource =
-		| { kind: 'schedule'; cron: string }
-		| { kind: 'asset'; ref: string } // already-prefixed (e.g. s3://…)
-		| {
-				kind: 'webhook' | 'email' | 'kafka' | 'mqtt' | 'nats' | 'postgres' | 'sqs' | 'gcp'
-				path: string | undefined
-		  }
-
-	// Annotation block prepended to every new draft. Pipeline scripts opt in
-	// with `// pipeline` (strict — keyword on its own line) plus zero or
-	// more trigger declarations. We deliberately don't include a doc block
-	// here: it's noise on the editor canvas and the annotation grammar is
-	// documented in /docs.
-	function pipelineHeader(language: ScriptLang, sources: DraftTriggerSource[]): string {
-		const p = commentPrefix(language)
-		const triggerLines = sources.map((s) => {
-			switch (s.kind) {
-				case 'schedule':
-					// Schedule is a top-level annotation, not under `on`.
-					return `${p} schedule "${s.cron}"`
-				case 'asset':
-					return `${p} on ${s.ref}`
-				default:
-					// Empty placeholder path makes it visible the user needs
-					// to fill in the trigger reference.
-					return `${p} on ${s.kind} ${s.path ?? '<trigger-path>'}`
-			}
-		})
-		return [`${p} pipeline`, ...triggerLines, ''].join('\n')
-	}
-
-	// Minimal pipeline-script body per language. No user-facing args (pipeline
-	// scripts are fired by triggers, not invoked interactively); the runtime
-	// auto-fills partition/context fields when applicable. The output URI is
-	// declared as a module-scope literal so the backend asset parser sees the
-	// write on deploy and the graph stays in sync.
-	function pipelineBody(language: ScriptLang, outputAssetUri?: string): string {
-		const out = outputAssetUri
-		switch (language) {
-			case 'python3':
-				return [
-					out ? `OUT = "${out}"\n` : '',
-					'def main():',
-					'    # Read inputs and write to OUT.',
-					'    pass',
-					''
-				].join('\n')
-			case 'bun':
-			case 'deno':
-				return [
-					out ? `const OUT = "${out}"\n` : '',
-					'export async function main() {',
-					'    // Read inputs and write to OUT.',
-					'}',
-					''
-				].join('\n')
-			case 'postgresql':
-			case 'mysql':
-			case 'bigquery':
-			case 'snowflake':
-			case 'mssql':
-			case 'oracledb':
-				return [
-					out ? `-- writes to: ${out}` : '',
-					"-- Read with FROM 's3://...', write with INSERT / COPY.",
-					'SELECT 1;',
-					''
-				]
-					.filter(Boolean)
-					.join('\n')
-			case 'duckdb':
-				return [
-					out ? `-- writes to: ${out}` : '',
-					'-- Read with read_parquet/read_csv on s3:// paths;',
-					"-- write with COPY (...) TO 's3://...'.",
-					'SELECT 1;',
-					''
-				]
-					.filter(Boolean)
-					.join('\n')
-			case 'bash':
-				return [out ? `OUT="${out}"\n` : '', '# Read inputs and write to "$OUT".', 'true', ''].join(
-					'\n'
-				)
-			case 'powershell':
-				return [out ? `$OUT = "${out}"\n` : '', '# Read inputs and write to $OUT.', ''].join('\n')
-			case 'nu':
-				return [out ? `let OUT = "${out}"\n` : '', '# Read inputs and write to $OUT.', ''].join(
-					'\n'
-				)
-			case 'go':
-				return [
-					'package inner',
-					'',
-					out ? `const OUT = "${out}"\n` : '',
-					'func main() (interface{}, error) {',
-					'    // Read inputs and write to OUT.',
-					'    return nil, nil',
-					'}',
-					''
-				].join('\n')
-			case 'rust':
-				return [
-					out ? `const OUT: &str = "${out}";\n` : '',
-					'fn main() -> anyhow::Result<()> {',
-					'    // Read inputs and write to OUT.',
-					'    Ok(())',
-					'}',
-					''
-				].join('\n')
-			case 'ansible':
-				return [
-					'---',
-					out ? `# writes to: ${out}` : '',
-					'- name: Pipeline play',
-					'  hosts: localhost',
-					'  tasks: []',
-					''
-				]
-					.filter(Boolean)
-					.join('\n')
-			default:
-				// Conservative fallback for languages without a hand-rolled
-				// minimal template — windmill ships a default body that we
-				// can use rather than ship something broken. Only loses the
-				// argless guarantee for these languages; users can trim args
-				// themselves.
-				return initialCode(language as any, 'script', 'script')
-		}
-	}
-
+	// Build a runnable Script from picked language / triggers / output.
+	// Delegates to the shared template generator (pipelineTemplates.ts) so
+	// the same logic is reachable from anywhere a draft is needed.
 	function buildDraft(
 		language: ScriptLang,
 		scriptPath: string,
-		sources: DraftTriggerSource[],
-		outputAssetUri?: string
+		triggers: DraftTriggerSource[],
+		outputKind: PipelineOutputKind,
+		output: { kind: AssetKind; path: string } | undefined,
+		input: { kind: AssetKind; path: string } | undefined
 	): Script {
-		const header = pipelineHeader(language, sources)
-		const body = pipelineBody(language, outputAssetUri)
-		const content = header + body
+		const content = generatePipelineDraft({
+			language,
+			outputKind,
+			output,
+			input,
+			triggers
+		})
 		// Cast through unknown: the Script generated type has many readonly
 		// deployment fields (hash, created_*) that we don't care about for a
 		// local draft. The details pane only reads path/language/content/schema.
@@ -362,13 +204,16 @@
 	function openMaterializerDraft(
 		language: ScriptLang,
 		scriptPath: string,
-		sources: DraftTriggerSource[]
+		triggers: DraftTriggerSource[],
+		outputKind: PipelineOutputKind,
+		input?: { kind: AssetKind; path: string }
 	) {
-		const out = randomOutputAssetPath()
-		const outputUri = `${ASSET_PREFIX[out.kind]}${out.path}`
-		const script = buildDraft(language, scriptPath, sources, outputUri)
+		const out = autoOutputAsset(outputKind, folder)
+		const script = buildDraft(language, scriptPath, triggers, outputKind, out, input)
 		// Write the new draft into the map (structural update so Svelte
-		// re-derives graphWithDraft) and focus it in the details pane.
+		// re-derives graphWithDraft) and focus it in the details pane. When
+		// the user picked `none`, `outputAsset` is undefined and the graph
+		// overlay skips synthesizing a write edge.
 		const next = new Map(drafts)
 		next.set(scriptPath, { script, outputAsset: out })
 		drafts = next
@@ -417,16 +262,18 @@
 				unsaved: true
 			})
 			const out = d.outputAsset
-			const hasAsset = assets.some((a) => a.kind === out.kind && a.path === out.path)
-			if (!hasAsset) assets.push({ kind: out.kind, path: out.path })
-			edges.push({
-				runnable_path: path,
-				runnable_kind: 'script',
-				asset_kind: out.kind,
-				asset_path: out.path,
-				access_type: 'w',
-				unsaved: true
-			})
+			if (out) {
+				const hasAsset = assets.some((a) => a.kind === out.kind && a.path === out.path)
+				if (!hasAsset) assets.push({ kind: out.kind, path: out.path })
+				edges.push({
+					runnable_path: path,
+					runnable_kind: 'script',
+					asset_kind: out.kind,
+					asset_path: out.path,
+					access_type: 'w',
+					unsaved: true
+				})
+			}
 			// Seed trigger edges (schedule + asset) from the draft's template
 			// so the graph stays stable when the user clicks off this draft.
 			// Live annotations (below) take over for the currently-open draft
@@ -781,12 +628,15 @@
 									selection = s
 								}
 							}}
-							onAddScriptForAsset={(asset, language, scriptPath) => {
+							onAddScriptForAsset={(asset, language, scriptPath, outputKind) => {
 								const ref = `${ASSET_PREFIX[asset.kind]}${asset.path}`
-								openMaterializerDraft(language, scriptPath, [{ kind: 'asset', ref }])
+								openMaterializerDraft(language, scriptPath, [{ kind: 'asset', ref }], outputKind, {
+									kind: asset.kind,
+									path: asset.path
+								})
 							}}
-							onAddPipelineScript={(language, scriptPath, source) =>
-								openMaterializerDraft(language, scriptPath, [source])}
+							onAddPipelineScript={(language, scriptPath, source, outputKind) =>
+								openMaterializerDraft(language, scriptPath, [source], outputKind)}
 							onRunProducer={async (producer) => {
 								// Saved scripts go through runScriptByPath; drafts
 								// have no DB row yet, so dispatch to runScriptPreview
