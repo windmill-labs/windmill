@@ -118,8 +118,11 @@ export function getLanguageFromExtension(
  */
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/;
 
-export function sanitizeForFilesystem(summary: string): string {
-  const name = summary
+export function sanitizeForFilesystem(
+  summary: string,
+  options?: { preserveCase?: boolean },
+): string {
+  let name = summary
     .replaceAll(" ", "_")
     // Remove characters invalid on Windows/Unix/Mac: / \ : * ? " < > |
     // Also remove control characters (0x00-0x1F) and DEL (0x7F)
@@ -129,6 +132,9 @@ export function sanitizeForFilesystem(summary: string): string {
     .replace(/_+/g, "_")
     // Trim leading/trailing dots and underscores (hidden files, Windows edge cases)
     .replace(/^[._]+|[._]+$/g, "");
+  if (!options?.preserveCase) {
+    name = name.toLowerCase();
+  }
   // Prefix Windows reserved device names (CON, PRN, AUX, NUL, COM0-9, LPT0-9)
   return WINDOWS_RESERVED.test(name.toLowerCase()) ? `_${name}` : name;
 }
@@ -211,7 +217,7 @@ export function newRawAppPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
   ): [string, string] {
     let name;
 
-    name = summary ? sanitizeForFilesystem(summary) : "";
+    name = summary ? sanitizeForFilesystem(summary, { preserveCase: true }) : "";
 
     let original_name = name;
 
