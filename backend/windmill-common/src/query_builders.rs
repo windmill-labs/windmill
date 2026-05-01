@@ -2434,14 +2434,32 @@ WHERE table_schema = current_schema()",
             let table_filter = if let Some(t) = table {
                 let parts: Vec<&str> = t.split('.').collect();
                 let tname = parts[parts.len() - 1];
-                let schema = if parts.len() > 1 { parts[0] } else { db_name };
+                let schema = if parts.len() > 1 {
+                    parts[0]
+                } else if !db_name.is_empty() {
+                    db_name
+                } else {
+                    "DATABASE()"
+                };
+                let schema_sql = if schema == "DATABASE()" {
+                    schema.to_string()
+                } else {
+                    format!("'{}'", escape_sql_literal(schema))
+                };
                 format!(
-                    "\nWHERE\n    TABLE_NAME = '{}' AND TABLE_SCHEMA = '{}'",
+                    "\nWHERE\n    TABLE_NAME = '{}' AND TABLE_SCHEMA = {}",
                     escape_sql_literal(tname),
-                    escape_sql_literal(schema)
+                    schema_sql
                 )
             } else {
-                "\nWHERE\n    TABLE_SCHEMA NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')".to_string()
+                let schema_predicate = database_name
+                    .filter(|s| !s.is_empty())
+                    .map(|dn| format!("TABLE_SCHEMA = '{}'", escape_sql_literal(dn)))
+                    .unwrap_or_else(|| "TABLE_SCHEMA = DATABASE()".to_string());
+                format!(
+                    "\nWHERE\n    {}\n    AND TABLE_SCHEMA NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys', '_vt')",
+                    schema_predicate
+                )
             };
             let extra_col = if table.is_none() {
                 ",\n    TABLE_NAME as table_name"
@@ -4250,10 +4268,21 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_load_table_metadata_mysql_all_tables() {
+    fn test_expand_load_table_metadata_mysql_all_tables_uses_session_db() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {}"#;
         let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(sql.contains("TABLE_NAME as table_name"));
+        assert!(sql.contains("TABLE_SCHEMA = DATABASE()"));
+        assert!(sql.contains("TABLE_SCHEMA NOT IN"));
+    }
+
+    #[test]
+    fn test_expand_load_table_metadata_mysql_all_tables_with_database_name() {
+        let marker =
+            r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"databaseName":"mydb"}"#;
+        let sql = expand_code(marker, &ScriptLang::Mysql);
+        assert!(sql.contains("TABLE_NAME as table_name"));
+        assert!(sql.contains("TABLE_SCHEMA = 'mydb'"));
         assert!(sql.contains("TABLE_SCHEMA NOT IN"));
     }
 
