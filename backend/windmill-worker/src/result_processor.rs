@@ -505,7 +505,6 @@ pub async fn process_result(
             Ok(crate::worker::JobOutcome::Completed)
         }
         Err(e) => {
-            let description = crate::worker::truncate_description(&e.to_string());
             let error_value = match e {
                 Error::ExitStatus(program, i) => {
                     let res = read_result(job_dir, None).await.ok();
@@ -547,6 +546,17 @@ pub async fn process_result(
                     exit_code: None,
                 }),
             };
+
+            // Use the structured error message that was just extracted (the
+            // user-facing script error) rather than the generic Error string.
+            // For ExitStatus, `error_value` carries the message extracted from
+            // job logs by `extract_error_value`; for other variants it's the
+            // SerializedError we just built. Falls back to "Job failed" if the
+            // error_value isn't shaped like ErrorMessage (e.g. raw scalar).
+            let description = serde_json::from_str::<ErrorMessage>(error_value.get())
+                .ok()
+                .map(|err_msg| crate::worker::truncate_description(&err_msg.message))
+                .unwrap_or_else(|| "Job failed".to_string());
 
             send_job_completed(
                 job_completed_tx,
