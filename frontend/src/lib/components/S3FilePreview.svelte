@@ -37,6 +37,11 @@
 		// metadata out themselves (the picker already has its own).
 		showMetadata?: boolean
 		class?: string
+		// Bump this to force a re-fetch (metadata + preview). Used by the
+		// asset detail pane after an upstream producer run completes —
+		// without it, the "Asset not yet materialized" empty state stays
+		// pinned until the user re-selects the asset.
+		refreshKey?: any
 	}
 
 	let {
@@ -45,7 +50,8 @@
 		loadFilePreviewRequest = HelpersService.loadFilePreview,
 		loadFileMetadataRequest = HelpersService.loadFileMetadata,
 		showMetadata = false,
-		class: className = ''
+		class: className = '',
+		refreshKey
 	}: Props = $props()
 
 	let csvSeparatorChar: string = $state(',')
@@ -91,12 +97,15 @@
 		return body.includes('not found') || body.includes('404')
 	}
 
-	// Reload whenever the file key changes. Tracking the workspace too —
-	// the asset graph spans workspaces so a re-mount with the same key but
-	// a different ws should refetch.
+	// Reload whenever the file key, workspace, or external refreshKey
+	// changes. The refreshKey path is what lets the asset pane re-check
+	// existence after an upstream run completes — moving from the
+	// "not yet materialized" empty state to the actual preview without
+	// requiring the user to re-click the asset.
 	$effect(() => {
 		const key = fileKey
 		const ws = $workspaceStore
+		void refreshKey
 		if (!key || !ws) {
 			fileMetadata = undefined
 			filePreview = undefined

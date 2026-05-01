@@ -33,8 +33,19 @@
 		// uses it after dispatching a run so the new job appears without
 		// waiting for the next poll tick.
 		refreshKey?: any
+		// Most-recently-dispatched job id. When this changes, the panel
+		// switches selection to it so the user lands on their just-started
+		// run without an extra click. Independent of refreshKey so callers
+		// can refresh without forcing a selection change.
+		pendingJobId?: string | undefined
+		// Fires when the watched job transitions to terminal (success or
+		// failure). The asset detail pane uses this to re-check the
+		// asset's preview — a successful run materializes the asset, so
+		// "not yet materialized" can move to the actual preview without
+		// the user re-selecting.
+		onRunCompleted?: () => void
 	}
-	let { producers, refreshKey }: Props = $props()
+	let { producers, refreshKey, pendingJobId, onRunCompleted }: Props = $props()
 
 	let runnableProducers = $derived(producers.filter((p) => p.kind === 'script'))
 	// Stable string key for the producer set. The parent re-derives
@@ -98,20 +109,54 @@
 		}
 	})
 
+	// Track the last pendingJobId we honored. Without this guard, manually
+	// selecting a *different* run from the history popover would be undone
+	// by a re-run of this effect (e.g. on parent re-derivation) — every
+	// trip would slam selectedId back to pendingJobId.
+	let appliedPendingJobId = $state<string | undefined>(undefined)
 	$effect(() => {
-		// Watch the selected job as soon as one is picked.
+		const id = pendingJobId
+		if (id && id !== appliedPendingJobId) {
+			appliedPendingJobId = id
+			selectedId = id
+		}
+	})
+
+	// Track the id we last started watching so we don't restart the
+	// JobLoader stream on every effect re-run. The earlier flood (~4400
+	// `/jobs_u/get/<id>` requests per second) came from JobLoader.watchJob
+	// being called on every effect tick: each call resets internal state
+	// and fires a fresh `getJob`, so a few extra effect runs per second
+	// snowballed into thousands of fetches.
+	let lastWatchedId = $state<string | undefined>(undefined)
+
+	$effect(() => {
 		const id = selectedId
+		if (id === lastWatchedId) return
+		lastWatchedId = id
 		if (!id) {
-			selectedJob = undefined
-			void jobLoader?.clearCurrentJob?.()
+			// untrack: clearCurrentJob reads JobLoader internals (tracked
+			// state in another component); without untrack, those reads
+			// become deps of this effect and any change to them
+			// (e.g. JobLoader's own bind:isLoading writes) would re-run
+			// it.
+			untrack(() => {
+				selectedJob = undefined
+				void jobLoader?.clearCurrentJob?.()
+			})
 			return
 		}
-		void jobLoader?.watchJob(id, {
-			done: () => {
-				// When a run we're watching finishes, refresh the listing so
-				// its row shows the terminal status.
-				void refresh()
-			}
+		untrack(() => {
+			void jobLoader?.watchJob(id, {
+				done: () => {
+					// When a run we're watching finishes, refresh the listing
+					// so its row shows the terminal status, and notify the
+					// parent so the asset preview can re-check existence —
+					// a successful run materializes the asset.
+					void refresh()
+					onRunCompleted?.()
+				}
+			})
 		})
 	})
 

@@ -9,7 +9,6 @@
 	import type { ScriptLang } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
-	import { base } from '$lib/base'
 
 	// Shape used for both the data prop and the run callback. Drafts carry
 	// `content` / `language` so the page-level run handler can dispatch to
@@ -74,22 +73,10 @@
 			// Fire every script producer in parallel — matches what would
 			// happen if every upstream trigger fired together. The handler
 			// internally dispatches to runScriptByPath / runScriptPreview
-			// based on producer.unsaved.
-			const jobs = (await Promise.all(scriptProducers.map((p) => handler(p)))).filter(
-				(j): j is string => !!j
-			)
-			if (jobs.length === 1) {
-				sendUserToast(`Running ${scriptProducers[0].path}`, false, [
-					{
-						label: 'Open run',
-						callback: () => {
-							window.open(`${base}/run/${jobs[0]}?workspace=${$workspaceStore}`, '_blank')
-						}
-					}
-				])
-			} else if (jobs.length > 1) {
-				sendUserToast(`Running ${jobs.length} producers of this asset`)
-			}
+			// based on producer.unsaved. No success toast — the runs panel
+			// auto-selects the new job and shows status/logs/output, so
+			// the toast was redundant.
+			await Promise.all(scriptProducers.map((p) => handler(p)))
 		} catch (err: any) {
 			sendUserToast(`Failed to run: ${err.body ?? err.message}`, true)
 		} finally {

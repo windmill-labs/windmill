@@ -563,6 +563,9 @@
 	// the listing immediately — the new (preview or script) job appears in
 	// the history popover without waiting on its 3 s poll tick.
 	let runsRefreshKey = $state(0)
+	// The most recently dispatched job id — surfaces to AssetRunsPanel so
+	// the new run auto-selects without an extra click.
+	let runsPendingJobId = $state<string | undefined>(undefined)
 
 	// Producers (write/rw edges) for the currently-selected asset, derived
 	// from `graphWithDraft.edges`. Threaded into the details pane so the
@@ -815,7 +818,10 @@
 										requestBody: {}
 									})
 								}
-								if (jobId) runsRefreshKey++
+								if (jobId) {
+									runsPendingJobId = jobId
+									runsRefreshKey++
+								}
 								return jobId
 							}}
 						/>
@@ -826,6 +832,7 @@
 								selection={activeDraft ? undefined : selection}
 								selectionProducers={activeDraft ? [] : selectionProducers}
 								{runsRefreshKey}
+								{runsPendingJobId}
 								draftScript={activeDraft?.script}
 								workspace={$workspaceStore}
 								onAnnotationsChange={(scriptPath, annotations) => {

@@ -23,6 +23,7 @@
 	import { parsePipelineAnnotations, type PipelineAnnotations } from './parsePipelineAnnotations'
 	import SummaryPathDisplay from '$lib/components/SummaryPathDisplay.svelte'
 	import S3FilePreview from '$lib/components/S3FilePreview.svelte'
+	import DataTablePreview from './DataTablePreview.svelte'
 	import AssetRunsPanel from './AssetRunsPanel.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { fade } from 'svelte/transition'
@@ -69,6 +70,9 @@
 		// re-fetches the listing immediately (rather than waiting on its
 		// background poll tick).
 		runsRefreshKey?: any
+		// Job id of the most recently dispatched run. Forwarded to the
+		// runs panel so that clicking play auto-selects the new run.
+		runsPendingJobId?: string | undefined
 	}
 	let {
 		selection,
@@ -81,8 +85,16 @@
 		onScriptRenamed,
 		onScriptRemoved,
 		selectionProducers = [],
-		runsRefreshKey
+		runsRefreshKey,
+		runsPendingJobId
 	}: Props = $props()
+
+	// Bumped when the runs panel reports a watched job has reached a
+	// terminal state. Drives S3FilePreview's refreshKey so the preview
+	// re-checks existence after a producer run finishes — moves the
+	// "not yet materialized" empty state to the actual preview without
+	// requiring the user to re-click the asset.
+	let previewRefreshKey = $state(0)
 
 	// When `draftScript` is provided we bypass the fetch entirely and edit
 	// it locally; saving calls ScriptService.createScript to deploy it.
@@ -334,25 +346,38 @@
 
 	<div class="flex-1 min-h-0 relative">
 		{#if selection?.kind === 'asset' && !isDraft}
-			{#if selection.asset_kind === 's3object'}
-				<!-- Vertical split: S3 contents on top, runs detail (with
-				     popover-driven history) on the bottom. Both visible at
-				     once so users can correlate "what's in the file" with
-				     "which run produced it" without flipping tabs. The
-				     splitter lets users grow whichever pane matters more. -->
-				<Splitpanes horizontal class="!h-full">
-					<Pane size={55} minSize={20}>
-						<S3FilePreview fileKey={selection.path} showMetadata class="h-full" />
-					</Pane>
-					<Pane size={45} minSize={20}>
-						<AssetRunsPanel producers={selectionProducers} refreshKey={runsRefreshKey} />
-					</Pane>
-				</Splitpanes>
-			{:else}
-				<div class="p-3 text-xs text-secondary">
-					Asset details. Use the producer/consumer arrows in the graph to navigate.
-				</div>
-			{/if}
+			<!-- Vertical split: top pane is kind-specific (S3 has a content
+			     preview; other kinds fall back to a navigational hint until
+			     they grow their own previews); bottom pane is the runs panel,
+			     which is generic — runs are keyed by producer script path,
+			     not by asset kind, so it's useful for every asset. -->
+			<Splitpanes horizontal class="!h-full">
+				<Pane size={55} minSize={20}>
+					{#if selection.asset_kind === 's3object'}
+						<S3FilePreview
+							fileKey={selection.path}
+							showMetadata
+							class="h-full"
+							refreshKey={previewRefreshKey}
+						/>
+					{:else if selection.asset_kind === 'datatable'}
+						<DataTablePreview path={selection.path} class="h-full" refreshKey={previewRefreshKey} />
+					{:else}
+						<div class="p-3 text-xs text-secondary">
+							No inline preview yet for {selection.asset_kind}. Use the producer/consumer arrows in
+							the graph to navigate. Runs of the upstream script are below.
+						</div>
+					{/if}
+				</Pane>
+				<Pane size={45} minSize={20}>
+					<AssetRunsPanel
+						producers={selectionProducers}
+						refreshKey={runsRefreshKey}
+						pendingJobId={runsPendingJobId}
+						onRunCompleted={() => (previewRefreshKey += 1)}
+					/>
+				</Pane>
+			</Splitpanes>
 		{:else if selection?.kind === 'runnable' && selection.runnable_kind === 'flow' && !isDraft}
 			<div class="p-3 text-xs text-secondary">
 				Flows are not editable inline. Use the open-in-editor button above.
