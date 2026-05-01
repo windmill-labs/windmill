@@ -40,9 +40,18 @@
 		 * Map from ForLoop step id to the number of iterations that ran in the
 		 * original execution (i.e. `flow_jobs.length`). When provided for a step,
 		 * the popup renders a `<select>` of `0..count-1` instead of a free-form
-		 * number input — same surface as the graph's iteration tabs.
+		 * number input — same surface as the graph's iteration tabs. Used for the
+		 * SELECTED step's iteration picker when it is itself a top-level ForLoop.
 		 */
 		iterationCounts?: Record<string, number>
+		/**
+		 * Iteration counts for nested-path entries, keyed by the popup's field-key
+		 * (`'top'` for the outer container, `'inner-N'` for nested ancestors).
+		 * Populated by the composable so each entry uses the *correct* graph-state
+		 * key (prefixed for in-subflow ancestors), avoiding collisions when the
+		 * same step id appears at multiple nesting levels.
+		 */
+		nestedPathIterationCounts?: Record<string, number>
 		/** Called when flow is restarted. If not provided, will navigate to the new run using goto (requires SvelteKit) */
 		onRestart?: (stepId: string, branchOrIterationN: number, flowVersion?: number) => void
 		/** Called when flow restart completes with the new job ID. Used for navigation in non-SvelteKit contexts */
@@ -65,6 +74,7 @@
 		nestedTopBranchOrIterationN = undefined,
 		presetIterationN = undefined,
 		iterationCounts = undefined,
+		nestedPathIterationCounts = undefined,
 		onRestart,
 		onRestartComplete
 	}: Props = $props()
@@ -303,7 +313,7 @@
 				{/if}
 
 				{#each iterationFields as field (field.key)}
-					{@const count = iterationCounts?.[field.label] ?? 0}
+					{@const count = nestedPathIterationCounts?.[field.key] ?? 0}
 					<label>
 						<div class="pb-1 text-xs font-semibold text-emphasis">
 							From iteration # of <code class="text-xs">{field.label}</code>
