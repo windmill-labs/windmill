@@ -159,6 +159,59 @@ impl<'a> FromSql<'a> for AnyTextValue {
     }
 }
 
+impl ResultFormatState {
+    /// Decide whether to actually run the precision-loss check for this cell.
+    /// Returns `true` for the first `NUMERIC_PRECISION_CHECK_BUDGET` calls,
+    /// then `false` thereafter — and always `false` once the warning has
+    /// already been triggered. Cheap on the hot path: an atomic load + an
+    /// atomic decrement (Relaxed ordering), no allocation.
+    fn should_check_precision(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        if self.numeric_precision_loss.load(Ordering::Relaxed) {
+            return false;
+        }
+        // `fetch_sub` returns the value BEFORE the decrement. When that's
+        // > 0 we had budget left for this cell. After the budget reaches 0
+        // the next call would wrap to `u32::MAX-1`; pin it back to 0.
+        let prev = self
+            .numeric_precision_check_budget
+            .fetch_sub(1, Ordering::Relaxed);
+        if prev == 0 {
+            self.numeric_precision_check_budget
+                .store(0, Ordering::Relaxed);
+            false
+        } else {
+            true
+        }
+    }
+}
+
+/// Emit a single job-log warning if `state.numeric_precision_loss` flipped
+/// during the row iteration. The detection itself is bounded by
+/// `NUMERIC_PRECISION_CHECK_BUDGET` cells, so this only adds a constant-cost
+/// log call at end-of-query.
+async fn warn_on_numeric_precision_loss(
+    state: &ResultFormatState,
+    job_id: Uuid,
+    workspace_id: &str,
+    log_conn: &Connection,
+) {
+    use std::sync::atomic::Ordering;
+    if state.numeric_precision_loss.load(Ordering::Relaxed) {
+        windmill_queue::append_logs(
+            &job_id,
+            workspace_id,
+            "warning: at least one `numeric` value in the result lost precision \
+             when serialised as a JSON number (the JSON Number format goes through \
+             f64, which has ~15-17 significant digits). To preserve full precision, \
+             cast the column to text in your SQL — e.g. `SELECT col::text` — and \
+             parse the string client-side with a Decimal library.\n",
+            log_conn,
+        )
+        .await;
+    }
+}
+
 /// Short stable label for the JSON value's variant — used in error messages
 /// so users can see *what kind of value* hit a binding error.
 fn json_value_kind(v: &Value) -> &'static str {
@@ -362,12 +415,23 @@ fn do_postgresql_inner<'a>(
                 .map_err(to_anyhow)?
         };
 
+        // One state object per query — `pg_cell_to_json_value_with_state`
+        // flips `numeric_precision_loss` once if any `numeric` cell can't
+        // round-trip through f64. We emit a single warning to the job log
+        // after the iteration finishes, instead of error-by-error or per
+        // row, and the per-row check short-circuits on the flag so the cost
+        // is one branch after the first lossy value.
+        let format_state = ResultFormatState::default();
+
         if skip_collect {
             futures::pin_mut!(rows);
             while rows.try_next().await.map_err(to_anyhow)?.is_some() {}
         } else if let Some(ref s3) = s3 {
-            let rows_stream = rows.map_err(to_anyhow).map(|row_result| {
-                row_result.and_then(|row| postgres_row_to_json_value(row).map_err(to_anyhow))
+            let format_state_ref = &format_state;
+            let rows_stream = rows.map_err(to_anyhow).map(move |row_result| {
+                row_result.and_then(|row| {
+                    postgres_row_to_json_value_with_state(row, format_state_ref).map_err(to_anyhow)
+                })
             });
 
             s3_stream_and_upload_with_logs(
@@ -379,6 +443,8 @@ fn do_postgresql_inner<'a>(
                 log_conn,
             )
             .await?;
+
+            warn_on_numeric_precision_loss(&format_state, job_id, workspace_id, log_conn).await;
 
             return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
         } else {
@@ -404,7 +470,7 @@ fn do_postgresql_inner<'a>(
             }
 
             for row in rows.into_iter() {
-                let r = postgres_row_to_json_value(row);
+                let r = postgres_row_to_json_value_with_state(row, &format_state);
                 if let Ok(v) = r.as_ref() {
                     let size = sizeof_val(v);
                     siz.fetch_add(size, Ordering::Relaxed);
@@ -426,6 +492,8 @@ fn do_postgresql_inner<'a>(
                 }
             }
         }
+
+        warn_on_numeric_precision_loss(&format_state, job_id, workspace_id, log_conn).await;
 
         Ok(res)
     };
@@ -1367,14 +1435,78 @@ fn convert_val(
     }
 }
 
+/// Hard cap on how many `numeric` cells we test for f64-precision loss per
+/// query. The check is `Decimal -> f64 -> Decimal` round-trip + `==` (~tens
+/// of ns each); on a query returning millions of numeric cells, an
+/// unbounded check would add measurable latency. After this many "fits
+/// fine" observations we assume the rest do too — the pathological case
+/// (rows 1..N fit, row N+1 loses precision) goes silently truncated, but
+/// users who care about precision in such results can `::text`-cast their
+/// SQL anyway. The first cell that does NOT fit short-circuits the budget
+/// (the warning fires once and the per-row check stops immediately).
+const NUMERIC_PRECISION_CHECK_BUDGET: u32 = 256;
+
+/// Per-query state carried through result formatting. Currently used to
+/// detect precision loss on the first `numeric` cell that doesn't round-trip
+/// through f64, so the caller can emit a single warning per job rather than
+/// silently truncating every row. Uses atomics (rather than `Cell`) so the
+/// s3-streaming path — which moves the closure across futures and requires
+/// `Send` — can borrow it.
+pub struct ResultFormatState {
+    /// `true` once we've observed a `numeric` value that loses precision when
+    /// converted via f64. Once flipped, the per-row check short-circuits.
+    pub numeric_precision_loss: std::sync::atomic::AtomicBool,
+    /// Decremented for each `numeric` cell we actually check. When it hits 0
+    /// the per-row check is skipped (along with the precision-loss flag) for
+    /// the rest of the query — see the rationale on
+    /// `NUMERIC_PRECISION_CHECK_BUDGET`.
+    numeric_precision_check_budget: std::sync::atomic::AtomicU32,
+}
+
+impl Default for ResultFormatState {
+    fn default() -> Self {
+        Self {
+            numeric_precision_loss: std::sync::atomic::AtomicBool::new(false),
+            numeric_precision_check_budget: std::sync::atomic::AtomicU32::new(
+                NUMERIC_PRECISION_CHECK_BUDGET,
+            ),
+        }
+    }
+}
+
 pub fn pg_cell_to_json_value(
     row: &Row,
     column: &Column,
     column_i: usize,
 ) -> Result<JSONValue, Error> {
+    pg_cell_to_json_value_with_state(row, column, column_i, &ResultFormatState::default())
+}
+
+pub fn pg_cell_to_json_value_with_state(
+    row: &Row,
+    column: &Column,
+    column_i: usize,
+    state: &ResultFormatState,
+) -> Result<JSONValue, Error> {
+    // JSON has no encoding for NaN / +Inf / -Inf, but Postgres `float4` /
+    // `float8` (and `numeric`, via the special `'NaN'` value) do return them.
+    // Pre-fix the worker errored with "invalid json-float", failing the
+    // entire query. Round-trip these as JSON strings ("NaN", "Infinity",
+    // "-Infinity") so the rest of the row still comes through; users who
+    // need numeric semantics can filter them out client-side.
     let f64_to_json_number = |raw_val: f64| -> Result<JSONValue, Error> {
-        let temp = serde_json::Number::from_f64(raw_val.into())
-            .ok_or(anyhow::anyhow!("invalid json-float"))?;
+        if raw_val.is_nan() {
+            return Ok(JSONValue::String("NaN".to_string()));
+        }
+        if raw_val.is_infinite() {
+            return Ok(JSONValue::String(if raw_val > 0.0 {
+                "Infinity".to_string()
+            } else {
+                "-Infinity".to_string()
+            }));
+        }
+        let temp =
+            serde_json::Number::from_f64(raw_val).ok_or(anyhow::anyhow!("invalid json-float"))?;
         Ok(JSONValue::Number(temp))
     };
     Ok(match *column.type_() {
@@ -1441,7 +1573,25 @@ pub fn pg_cell_to_json_value(
         Type::FLOAT4 => get_basic(row, column, column_i, |a: f32| {
             Ok(f64_to_json_number(a.into())?)
         })?,
+        // Pre-existing behaviour: `numeric` is serialised as a JSON Number
+        // via `Decimal::serialize`, which goes through f64 and silently
+        // truncates past ~15-17 significant digits. Switching to JSON String
+        // would preserve precision but break any user script doing arithmetic
+        // / comparison on numeric column results (`row.amount + 1` becomes
+        // string concat, `row.amount > 100` is lexicographic). Left as Number
+        // for back-compat. Instead, on the FIRST cell whose decimal
+        // representation can't round-trip through f64, we flip
+        // `state.numeric_precision_loss` so the caller can emit a single
+        // job-log warning recommending a `::text` cast. The check is bounded
+        // by `NUMERIC_PRECISION_CHECK_BUDGET` cells (see comment there) and
+        // short-circuits on the first lossy value, so the hot path on a
+        // numeric-heavy result set is two atomic loads + an early return.
         Type::NUMERIC => get_basic(row, column, column_i, |a: Decimal| {
+            if state.should_check_precision() && !decimal_fits_f64_losslessly(&a) {
+                state
+                    .numeric_precision_loss
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            }
             Ok(serde_json::to_value(a)
                 .map_err(|_| anyhow::anyhow!("Cannot convert decimal to json"))?)
         })?,
@@ -1487,7 +1637,14 @@ pub fn pg_cell_to_json_value(
         Type::FLOAT8_ARRAY => {
             get_array(row, column, column_i, |a: f64| Ok(f64_to_json_number(a)?))?
         }
+        // See scalar NUMERIC arm — kept as JSON Number for back-compat,
+        // with bounded precision-loss detection.
         Type::NUMERIC_ARRAY => get_array(row, column, column_i, |a: Decimal| {
+            if state.should_check_precision() && !decimal_fits_f64_losslessly(&a) {
+                state
+                    .numeric_precision_loss
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            }
             Ok(serde_json::to_value(a)
                 .map_err(|_| anyhow::anyhow!("Cannot convert decimal to json"))?)
         })?,
@@ -1527,7 +1684,14 @@ pub fn pg_cell_to_json_value(
 }
 
 pub fn postgres_row_to_json_value(row: Row) -> Result<JSONValue, Error> {
-    let row_data = postgres_row_to_row_data(row)?;
+    postgres_row_to_json_value_with_state(row, &ResultFormatState::default())
+}
+
+pub fn postgres_row_to_json_value_with_state(
+    row: Row,
+    state: &ResultFormatState,
+) -> Result<JSONValue, Error> {
+    let row_data = postgres_row_to_row_data_with_state(row, state)?;
     Ok(JSONValue::Object(row_data))
 }
 
@@ -1536,13 +1700,32 @@ pub type JSONValue = serde_json::Value;
 pub type RowData = Map<String, JSONValue>;
 
 pub fn postgres_row_to_row_data(row: Row) -> Result<RowData, Error> {
+    postgres_row_to_row_data_with_state(row, &ResultFormatState::default())
+}
+
+pub fn postgres_row_to_row_data_with_state(
+    row: Row,
+    state: &ResultFormatState,
+) -> Result<RowData, Error> {
     let mut result: Map<String, JSONValue> = Map::new();
     for (i, column) in row.columns().iter().enumerate() {
         let name = column.name();
-        let json_value = pg_cell_to_json_value(&row, column, i)?;
+        let json_value = pg_cell_to_json_value_with_state(&row, column, i, state)?;
         result.insert(name.to_string(), json_value);
     }
     Ok(result)
+}
+
+/// Returns true if the `Decimal` value can round-trip through `f64` without
+/// losing precision. Used to detect when the user's `numeric` results are
+/// being silently truncated by the JSON Number serialisation path so the
+/// worker can log a one-shot warning recommending a `::text` cast in SQL.
+fn decimal_fits_f64_losslessly(d: &Decimal) -> bool {
+    use rust_decimal::prelude::ToPrimitive;
+    match d.to_f64() {
+        Some(f) if f.is_finite() => Decimal::from_f64(f).is_some_and(|round| &round == d),
+        _ => false,
+    }
 }
 
 fn get_basic<'a, T: FromSql<'a>>(
@@ -2539,6 +2722,68 @@ mod tests {
             "text",
             typ_for("text"),
             Type::INT8,
+        );
+    }
+
+    /// `decimal_fits_f64_losslessly` returns true for values that round-trip
+    /// through f64 and false for values that don't. This is the predicate
+    /// behind the one-shot precision-loss warning.
+    #[test]
+    fn decimal_fits_f64_losslessly_predicate() {
+        use std::str::FromStr;
+        // Values that fit f64 cleanly:
+        for s in &["0", "1", "-1", "3.14", "1234.5", "-0.5", "10000000000"] {
+            let d = Decimal::from_str(s).unwrap();
+            assert!(
+                decimal_fits_f64_losslessly(&d),
+                "expected `{s}` to fit f64 losslessly"
+            );
+        }
+        // Values past f64's ~15 significant-digit window lose precision:
+        for s in &[
+            "12345678901234.56789", // 19 sig digits
+            "0.123456789012345678", // 18 sig digits past the decimal
+            "99999999999999999999", // 20-digit integer
+        ] {
+            let d = Decimal::from_str(s).unwrap();
+            assert!(
+                !decimal_fits_f64_losslessly(&d),
+                "expected `{s}` to NOT fit f64 losslessly"
+            );
+        }
+    }
+
+    /// `should_check_precision` returns `true` exactly
+    /// `NUMERIC_PRECISION_CHECK_BUDGET` times, then `false` forever — and
+    /// `false` immediately once the precision-loss flag has been set, so the
+    /// hot path on a numeric-heavy result set is one cheap atomic load after
+    /// the first lossy value is observed.
+    #[test]
+    fn precision_check_budget_caps_per_query_overhead() {
+        use std::sync::atomic::Ordering;
+        let state = ResultFormatState::default();
+        let mut allowed = 0u32;
+        let mut denied = 0u32;
+        for _ in 0..(NUMERIC_PRECISION_CHECK_BUDGET + 100) {
+            if state.should_check_precision() {
+                allowed += 1;
+            } else {
+                denied += 1;
+            }
+        }
+        assert_eq!(allowed, NUMERIC_PRECISION_CHECK_BUDGET);
+        assert_eq!(denied, 100);
+        // The flag short-circuits the budget — once set, no more checks run
+        // even if the budget hadn't been spent.
+        let state = ResultFormatState::default();
+        state.numeric_precision_loss.store(true, Ordering::Relaxed);
+        for _ in 0..10 {
+            assert!(!state.should_check_precision());
+        }
+        // Budget untouched.
+        assert_eq!(
+            state.numeric_precision_check_budget.load(Ordering::Relaxed),
+            NUMERIC_PRECISION_CHECK_BUDGET
         );
     }
 
