@@ -255,6 +255,8 @@ pub struct PolicyTriggerableInputs {
     delete_after_secs: Option<i32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sensitive_inputs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tag: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -2119,6 +2121,7 @@ async fn execute_component(
                 allow_user_resources: force_viewer_allow_user_resources.unwrap_or_default(),
                 delete_after_secs: force_viewer_delete_after_secs,
                 sensitive_inputs: force_viewer_sensitive_inputs.unwrap_or_default(),
+                tag: None,
             },
         ),
         // 2. "run" mode.
@@ -2267,15 +2270,20 @@ async fn execute_component(
     let (job_payload, tag, on_behalf_of) = match (payload.path, payload.raw_code, payload.id) {
         // flow or script:
         (Some(path), None, None) => get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?,
-        // inline script: in "preview" mode or without entry in the `app_script` table.
+        // inline script: in "preview" mode (no entry in `app_script`). Tag is
+        // taken from the client request — preview mode is editor-only and the
+        // editing user is already trusted by the policy check.
         (None, Some(raw_code), None) => {
             let tag = raw_code.tag.clone().filter(|t| !t.is_empty());
             (JobPayload::Code(raw_code), tag, None)
         }
-        // inline script: in "run" mode and with an entry in the `app_script` table.
-        (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
+        // inline script: in "run" mode (deployed app) with an entry in `app_script`.
+        // Never trust the client-supplied tag here — read it from the policy that
+        // was committed at deploy time, so end users running the app cannot redirect
+        // the job to an arbitrary worker group.
+        (None, Some(RawCode { language, path, cache_ttl, .. }), Some(id)) => (
             JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
-            tag.filter(|t| !t.is_empty()),
+            policy_triggerables.tag.clone().filter(|t| !t.is_empty()),
             None,
         ),
         _ => unreachable!(),
