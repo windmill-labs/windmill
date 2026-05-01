@@ -153,7 +153,15 @@ export async function pushSchedule(
           ...preserveFields,
         },
       });
-      if (localSchedule.enabled != schedule.enabled) {
+      // Only push `enabled` when the local YAML actually carries it. Tarball
+      // export from a workspace fork strips the field (so fork→parent
+      // round-trips don't flip the parent's operational state), which means
+      // a sync push of fork-pulled YAMLs would otherwise call setEnabled
+      // with `enabled: undefined` and the backend would reject the body.
+      if (
+        localSchedule.enabled !== undefined &&
+        localSchedule.enabled !== schedule.enabled
+      ) {
         log.info(colors.bold.yellow(
           `Schedule ${path} is ${localSchedule.enabled ? "enabled" : "disabled"} locally but not on remote, updating remote`
         ));
