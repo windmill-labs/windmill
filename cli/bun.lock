@@ -18,18 +18,18 @@
         "open": "^10.0.0",
         "svelte": "^5.45.2",
         "tar-stream": "^3.1.7",
-        "windmill-parser-wasm-csharp": "*",
-        "windmill-parser-wasm-go": "*",
-        "windmill-parser-wasm-java": "*",
-        "windmill-parser-wasm-nu": "*",
-        "windmill-parser-wasm-php": "*",
-        "windmill-parser-wasm-py": "*",
-        "windmill-parser-wasm-py-imports": "*",
-        "windmill-parser-wasm-regex": "*",
-        "windmill-parser-wasm-ruby": "*",
-        "windmill-parser-wasm-rust": "*",
-        "windmill-parser-wasm-ts": "^1.659.1",
-        "windmill-parser-wasm-yaml": "*",
+        "windmill-parser-wasm-csharp": "1.510.1",
+        "windmill-parser-wasm-go": "1.510.1",
+        "windmill-parser-wasm-java": "1.510.1",
+        "windmill-parser-wasm-nu": "1.510.1",
+        "windmill-parser-wasm-php": "1.647.1",
+        "windmill-parser-wasm-py": "1.693.1",
+        "windmill-parser-wasm-py-imports": "1.693.1",
+        "windmill-parser-wasm-regex": "1.692.0",
+        "windmill-parser-wasm-ruby": "1.526.1",
+        "windmill-parser-wasm-rust": "1.647.1",
+        "windmill-parser-wasm-ts": "1.693.1",
+        "windmill-parser-wasm-yaml": "1.593.0",
         "windmill-yaml-validator": "1.1.1",
         "ws": "8.18.0",
         "yaml": "^2.7.0",
@@ -295,17 +295,17 @@
 
     "windmill-parser-wasm-php": ["windmill-parser-wasm-php@1.647.1", "", {}, "sha512-u2qaMkupSdhJibxvkLh3r/y36IARvnYNTLXWvOKxcQ0G/BPUB4+yF5o/yf47vv9zUV5WZv4mrdsKDt/pZDYeDg=="],
 
-    "windmill-parser-wasm-py": ["windmill-parser-wasm-py@1.628.3", "", {}, "sha512-TlluqknZpg8cZ+A3m6JFLPseY2PpKtDsxdj26fAnCUzKPtse8TxQR+n0dwC80rfW5TwdWSulvNGRDgcNuf7CTw=="],
+    "windmill-parser-wasm-py": ["windmill-parser-wasm-py@1.693.1", "", {}, "sha512-qSXKxDsKjt1UOEK1NnpKJmDrXIx/sZaGHktC6+Sj6CfhLi1X/Qj37FalOq4Es5l2qzm2NPvk4jkCXsV1QdkcHA=="],
 
-    "windmill-parser-wasm-py-imports": ["windmill-parser-wasm-py-imports@1.659.1", "", {}, "sha512-nfnf04WBRf8f/mNIwdvggYOgz3erxrFGjKqULYBH+bKFMlKA6V7eB19m6CXOBkq9rjTp0ZFG+rgsR+Us7JEkyQ=="],
+    "windmill-parser-wasm-py-imports": ["windmill-parser-wasm-py-imports@1.693.1", "", {}, "sha512-FC0KbREe2G/sa/9kYIR930wmWw+VL6PvEIqg12J3dsJes3A+0x5JIUPT/jeD+c24DrG0ko/Ub7yDnYs56Bem7g=="],
 
-    "windmill-parser-wasm-regex": ["windmill-parser-wasm-regex@1.639.0", "", {}, "sha512-qvYM4sYxB6M0xrqwBljS2fWqOMk6rp++60TRltJnzZDzVaWQrKjTGwNMmfepGAIWy1OGVKp0SCVERhe2P+O6tQ=="],
+    "windmill-parser-wasm-regex": ["windmill-parser-wasm-regex@1.692.0", "", {}, "sha512-BHGTxrinZJ9ef6hFxbKiBqBEr5uqgG/QySOgMA5r1LswO9n/8fyGswr8JcPT2kGaoeoweV6/RQ+RHVaOhosnKw=="],
 
     "windmill-parser-wasm-ruby": ["windmill-parser-wasm-ruby@1.526.1", "", {}, "sha512-rMBQA8s21wmL2kA5ztRs/ZgVA3ckxe9/NLjxl3iQPL0CX6DlvfaUH0O+AnhpXXDMyBs1Y1SZIhcnbnvsHZ3R8g=="],
 
     "windmill-parser-wasm-rust": ["windmill-parser-wasm-rust@1.647.1", "", {}, "sha512-9yGLYZX2Hn9TdTqGY/5Fp50ftzgUsrfBkSK9vJkKJd5Amyg+yXLBGzd8pz6Org+4uxMenz/16wpsgijvo6uhhQ=="],
 
-    "windmill-parser-wasm-ts": ["windmill-parser-wasm-ts@1.659.1", "", {}, "sha512-EmXMzOmazC5r29UZh+1TVF9g/N2X51pqK11qDL6xWGeWTIIonhfOZ5nWdGvKQMDUR650fGxehImZzW2v9hNy+w=="],
+    "windmill-parser-wasm-ts": ["windmill-parser-wasm-ts@1.693.1", "", {}, "sha512-xrPgVWwQbOWJKiz68wBDNMrKVOtCY/utyhzSx0kFYIWm/QH/6L8k6LLjo4DOn+PnlBNRXc7qum0sDyB8IuuJYQ=="],
 
     "windmill-parser-wasm-yaml": ["windmill-parser-wasm-yaml@1.593.0", "", {}, "sha512-Gyx4aR2jsJYuDrD3mCNTmz7LWOQQXPw5yKNCC1xRgUOPfjsD/tINAFfsBLwVOSmlQQcFZO+wHm4KtDtXOcnGVw=="],
 

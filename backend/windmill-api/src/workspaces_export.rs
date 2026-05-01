@@ -1038,7 +1038,13 @@ pub(crate) async fn tarball_workspace(
                 slack_name: row.slack_name.clone(),
                 slack_command_script: row.slack_command_script.clone(),
                 slack_oauth_client_id: row.slack_oauth_client_id.clone(),
-                slack_oauth_client_secret: row.slack_oauth_client_secret.clone(),
+                // Mirror the non-admin redaction in `get_settings`: the OAuth
+                // client secret is admin-only and must not leak via tarball.
+                slack_oauth_client_secret: if authed.is_admin {
+                    row.slack_oauth_client_secret.clone()
+                } else {
+                    None
+                },
             };
             serde_json::to_value(settings)
                 .map(|v| serde_json::to_string_pretty(&v).ok())

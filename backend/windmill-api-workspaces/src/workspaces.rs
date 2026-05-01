@@ -83,6 +83,7 @@ pub fn workspaced_service() -> Router {
         .route("/get_imports/{*importer_path}", get(get_imports))
         .route("/get_dependents_amounts", post(get_dependents_amounts))
         .route("/get_settings", get(get_settings))
+        .route("/get_public_settings", get(get_public_settings))
         .route(
             "/get_copilot_settings_state",
             get(get_copilot_settings_state),
@@ -277,6 +278,34 @@ pub struct WorkspaceSettings {
     pub success_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
+}
+
+/// Subset of `WorkspaceSettings` that is safe to return to any workspace
+/// member. Adding a field here means it will be readable by every authed user
+/// in the workspace — anything sensitive (OAuth secrets, GitHub App tokens,
+/// billing/customer info, integration credentials, etc.) must NOT be added.
+/// The full `WorkspaceSettings` struct is admin-only via `get_settings`.
+#[derive(FromRow, Serialize, Debug)]
+pub struct WorkspacePublicSettings {
+    pub workspace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_guid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mute_critical_alerts: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deploy_ui: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub large_file_storage: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub datatable: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -622,6 +651,10 @@ async fn get_settings(
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<WorkspaceSettings> {
+    // Admin-only: this struct contains OAuth secrets, GitHub App tokens, billing
+    // info, and other admin-managed integration credentials. Non-admin callers
+    // should use `get_public_settings`.
+    require_admin(authed.is_admin, &authed.username)?;
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
@@ -669,12 +702,46 @@ async fn get_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
 
-    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
 
-    if !authed.is_admin {
-        settings.slack_oauth_client_secret = None;
-    }
+    Ok(Json(settings))
+}
+
+async fn get_public_settings(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<WorkspacePublicSettings> {
+    let mut tx = user_db.begin(&authed).await?;
+    let settings = sqlx::query_as!(
+        WorkspacePublicSettings,
+        r#"
+        SELECT
+            workspace_id,
+            slack_team_id,
+            slack_name,
+            teams_team_id,
+            teams_team_name,
+            teams_team_guid,
+            mute_critical_alerts,
+            deploy_ui,
+            large_file_storage,
+            datatable
+        FROM
+            workspace_settings
+        WHERE
+            workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("getting public settings: {e:#}")))?;
+
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    tx.commit().await?;
+
     Ok(Json(settings))
 }
 

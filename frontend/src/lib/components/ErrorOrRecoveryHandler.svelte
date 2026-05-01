@@ -113,7 +113,7 @@
 	const CHANNEL_KEY = 'channel'
 
 	async function loadSlackResources() {
-		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		const settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
 		if (!emptyString(settings.slack_name) && !emptyString(settings.slack_team_id)) {
 			workspaceConnectedToSlack = true
 			slack_team_name = settings.slack_name
@@ -124,7 +124,7 @@
 	}
 
 	async function loadTeamsResources() {
-		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		const settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
 		if (!emptyString(settings.teams_team_name) && !emptyString(settings.teams_team_id)) {
 			workspaceConnectedToTeams = true
 		} else {
