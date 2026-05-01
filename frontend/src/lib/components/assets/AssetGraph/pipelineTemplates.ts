@@ -57,7 +57,7 @@ const LANG_COMPATIBILITY: Record<ScriptLang, PipelineOutputKind[]> = {
 	bun: ['datatable', 'ducklake', 's3_parquet', 's3_object', 'none'],
 	deno: ['datatable', 'ducklake', 's3_parquet', 's3_object', 'none'],
 	python3: ['datatable', 'ducklake', 's3_parquet', 's3_object', 'none'],
-	duckdb: ['datatable', 'ducklake', 's3_parquet', 'none'],
+	duckdb: ['datatable', 'ducklake', 's3_parquet', 's3_object', 'none'],
 	postgresql: ['datatable', 'none'],
 	mysql: ['none'],
 	mssql: ['none'],
@@ -100,7 +100,8 @@ function randomSlug(len = 7): string {
 // downstream scripts in one session.
 export function autoOutputAsset(
 	kind: PipelineOutputKind,
-	folder: string
+	folder: string,
+	language?: ScriptLang
 ): { kind: AssetKind; path: string } | undefined {
 	const slug = randomSlug()
 	switch (kind) {
@@ -110,8 +111,14 @@ export function autoOutputAsset(
 			return { kind: 'ducklake', path: `main/${folder}_${slug}` }
 		case 's3_parquet':
 			return { kind: 's3object', path: `pipelines/${folder}/out_${slug}.parquet` }
-		case 's3_object':
-			return { kind: 's3object', path: `pipelines/${folder}/out_${slug}.json` }
+		case 's3_object': {
+			// duckdb's natural output for a generic blob is CSV (one COPY TO
+			// statement). TS/Python templates serialize JSON, so default to
+			// .json for those — keeps the body and the file extension in
+			// sync without the user having to rename anything.
+			const ext = language === 'duckdb' ? 'csv' : 'json'
+			return { kind: 's3object', path: `pipelines/${folder}/out_${slug}.${ext}` }
+		}
 		case 'none':
 			return undefined
 	}
@@ -188,7 +195,12 @@ function header(language: ScriptLang, triggers: DraftTriggerSource[]): string {
 				return `${p} on ${t.kind} ${t.path ?? '<trigger-path>'}`
 		}
 	})
-	return [`${p} pipeline`, ...lines, ''].join('\n')
+	// Discoverability hint — the three annotations users most often miss
+	// when authoring their first pipeline script. Single line, real
+	// example values (not placeholders) so users see the syntax. Docs
+	// link is the canonical reference once they want the details.
+	const more = `${p} More: partitioned daily, freshness 1h, retry 3, tag heavy — https://www.windmill.dev/docs/pipelines/annotations`
+	return [`${p} pipeline`, ...lines, more, ''].join('\n')
 }
 
 // Bun / Deno bodies. These share the wmill SDK surface, so we treat them
@@ -390,6 +402,17 @@ function bodyDuckdb(ctx: TemplateContext): string {
 					`  SELECT *`,
 					`  FROM ${fromExpr}`,
 					`) TO 's3://${output.path}' (FORMAT 'parquet');`
+				)
+			}
+			break
+		case 's3_object':
+			if (output) {
+				const fromExpr = inSql ?? '(SELECT 1 AS placeholder)'
+				lines.push(
+					`COPY (`,
+					`  SELECT *`,
+					`  FROM ${fromExpr}`,
+					`) TO 's3://${output.path}' (FORMAT 'csv', HEADER);`
 				)
 			}
 			break

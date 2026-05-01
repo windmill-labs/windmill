@@ -46,6 +46,10 @@
 			// cached draft content). Without this callback, the play button
 			// is hidden — runs only make sense in editor contexts.
 			onRunProducer?: (producer: AssetProducer) => Promise<string | undefined>
+			// Forwarded from the canvas. Called when the user runs producers
+			// from this node so the page can auto-select the asset and open
+			// the runs panel — matches what clicking the node would do.
+			onSelectAsset?: () => void
 		}
 		// SvelteFlow injects this on the node component when the user clicks
 		// the node. Combined with our own `hovered` state to drive the
@@ -70,6 +74,11 @@
 		e.stopPropagation()
 		if (!$workspaceStore || running || !data.onRunProducer) return
 		if (scriptProducers.length === 0) return
+		// Select the asset so the runs panel opens (or refocuses) on this
+		// node — without this, dispatching a run silently goes off into the
+		// void with no UI feedback when the panel was closed or pointed at
+		// a different node.
+		if (!selected) data.onSelectAsset?.()
 		running = true
 		const handler = data.onRunProducer
 		try {

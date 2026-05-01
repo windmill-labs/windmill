@@ -24,19 +24,31 @@
 	import { decodeState, encodeState } from '$lib/utils'
 	import { onMount, untrack } from 'svelte'
 	import {
+		AlertTriangle,
 		ArrowLeft,
 		ChevronDown,
 		Folder,
 		FolderSearch,
 		Loader2,
 		NetworkIcon,
-		RefreshCw
+		RefreshCw,
+		Save
 	} from 'lucide-svelte'
-	import { JobService, OpenAPI, type AssetKind, type Script, type ScriptLang } from '$lib/gen'
+	import {
+		JobService,
+		OpenAPI,
+		ScriptService,
+		type AssetKind,
+		type Script,
+		type ScriptLang
+	} from '$lib/gen'
 	import { resource } from 'runed'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { emptySchema } from '$lib/utils'
-	import { goto } from '$app/navigation'
+	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { beforeNavigate, goto } from '$app/navigation'
+	import { fade } from 'svelte/transition'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { inferArgs } from '$lib/infer'
 
 	// Variables and resources are declarative config, not pipeline assets —
 	// they're hub-shaped (referenced by most runnables) and would swamp the
@@ -208,7 +220,7 @@
 		outputKind: PipelineOutputKind,
 		input?: { kind: AssetKind; path: string }
 	) {
-		const out = autoOutputAsset(outputKind, folder)
+		const out = autoOutputAsset(outputKind, folder, language)
 		const script = buildDraft(language, scriptPath, triggers, outputKind, out, input)
 		// Write the new draft into the map (structural update so Svelte
 		// re-derives graphWithDraft) and focus it in the details pane. When
@@ -221,12 +233,225 @@
 		selection = undefined
 	}
 
+	// Navigation guard state. `pendingNavigationUrl` holds the URL the user
+	// tried to leave to so we can complete the navigation after they pick
+	// "Save all" or "Discard all"; `bypassNavigationGuard` is the standard
+	// SvelteKit pattern for "this navigation was already approved, don't
+	// re-prompt".
+	let pendingNavigationUrl = $state<URL | undefined>(undefined)
+	let leaveModalOpen = $state(false)
+	let bypassNavigationGuard = $state(false)
+	let leaveSaving = $state(false)
+
+	beforeNavigate((nav) => {
+		if (bypassNavigationGuard) {
+			bypassNavigationGuard = false
+			return
+		}
+		if (drafts.size === 0) return
+		// Same-folder URL changes (search params, hash) shouldn't re-prompt;
+		// the guard is for actually leaving the editor.
+		if (nav.to && nav.from && nav.to.url.pathname === nav.from.url.pathname) {
+			return
+		}
+		nav.cancel()
+		pendingNavigationUrl = nav.to?.url
+		leaveModalOpen = true
+	})
+
+	// Native browser tab close / reload — we can't show a custom modal
+	// here, only the browser's generic confirm. Setting returnValue to a
+	// non-empty string is the cross-browser idiom that triggers the
+	// "Leave site?" prompt. The text shown is browser-controlled.
+	$effect(() => {
+		if (typeof window === 'undefined') return
+		function onBeforeUnload(e: BeforeUnloadEvent) {
+			if (drafts.size === 0) return
+			e.preventDefault()
+			e.returnValue = ''
+		}
+		window.addEventListener('beforeunload', onBeforeUnload)
+		return () => window.removeEventListener('beforeunload', onBeforeUnload)
+	})
+
+	function leaveModalCancel() {
+		leaveModalOpen = false
+		pendingNavigationUrl = undefined
+	}
+
+	function leaveModalDiscard() {
+		// Wipe every draft and the active selection so saved drafts and
+		// stale active path don't bleed into the next page. localStorage
+		// is overwritten by the persist effect on the next tick.
+		drafts = new Map()
+		activeDraftPath = undefined
+		saveErrors = new Map()
+		const target = pendingNavigationUrl
+		leaveModalOpen = false
+		pendingNavigationUrl = undefined
+		if (target) {
+			bypassNavigationGuard = true
+			goto(target)
+		}
+	}
+
+	async function leaveModalSaveAll() {
+		leaveSaving = true
+		await saveAllDrafts()
+		leaveSaving = false
+		// If anything failed, keep the modal closed and the user on the
+		// page so they can deal with the failures via the bar's error
+		// popover. Otherwise resume the navigation that triggered the
+		// guard.
+		if (drafts.size === 0) {
+			const target = pendingNavigationUrl
+			leaveModalOpen = false
+			pendingNavigationUrl = undefined
+			if (target) {
+				bypassNavigationGuard = true
+				goto(target)
+			}
+		} else {
+			leaveModalOpen = false
+			pendingNavigationUrl = undefined
+		}
+	}
+
+	// Bulk-save state. Errors are keyed by draft path so the error popover
+	// can show one entry per failing draft alongside its message; successes
+	// are removed from the drafts map as they land.
+	let savingAll = $state(false)
+	let saveErrors = $state<Map<string, string>>(new Map())
+
+	async function saveDraft(path: string, draft: Draft, ws: string): Promise<void> {
+		const script = structuredClone($state.snapshot(draft.script) as Script)
+		script.schema = script.schema ?? emptySchema()
+		try {
+			const result = await inferArgs(script.language, script.content, script.schema)
+			;(script as any).auto_kind = result?.auto_kind || undefined
+			script.has_preprocessor = result?.has_preprocessor || undefined
+		} catch {
+			// Inference failures don't block deploys (the same fallback the
+			// per-pane save uses). The createScript call is the real
+			// validation gate — if the body is broken it'll reject there.
+		}
+		await ScriptService.createScript({
+			workspace: ws,
+			requestBody: {
+				...script,
+				language: script.language,
+				description: script.description ?? '',
+				// Drafts have no parent — they're brand new at this path.
+				parent_hash: undefined,
+				is_template: false,
+				tag: script.tag,
+				kind: script.kind as Script['kind'] | undefined,
+				lock: undefined
+			}
+		})
+	}
+
+	async function saveAllDrafts() {
+		if (!$workspaceStore || drafts.size === 0 || savingAll) return
+		savingAll = true
+		const ws = $workspaceStore
+		const entries = [...drafts.entries()]
+		const errors = new Map<string, string>()
+		const savedPaths: string[] = []
+		// Parallel — every createScript is independent. The backend handles
+		// its own ordering for any cross-script lock writes; we just want
+		// failures isolated per script so one bad body doesn't block the
+		// other deploys.
+		const results = await Promise.allSettled(
+			entries.map(async ([path, d]) => {
+				await saveDraft(path, d, ws)
+				return path
+			})
+		)
+		for (let i = 0; i < results.length; i++) {
+			const r = results[i]
+			const [path] = entries[i]
+			if (r.status === 'fulfilled') {
+				savedPaths.push(path)
+			} else {
+				const e: any = r.reason
+				errors.set(path, e?.body ?? e?.message ?? String(e))
+			}
+		}
+		// Drop the saved drafts from the map; failed ones stay so the user
+		// can fix them and retry. Build the new map from the still-failing
+		// entries to keep insertion order stable.
+		if (savedPaths.length > 0) {
+			const next = new Map<string, Draft>()
+			for (const [k, v] of drafts) {
+				if (!savedPaths.includes(k)) next.set(k, v)
+			}
+			drafts = next
+			if (activeDraftPath && savedPaths.includes(activeDraftPath)) {
+				activeDraftPath = undefined
+			}
+			await graphRes.refetch()
+		}
+		saveErrors = errors
+		savingAll = false
+		if (savedPaths.length > 0 && errors.size === 0) {
+			sendUserToast(`Saved ${savedPaths.length} draft${savedPaths.length === 1 ? '' : 's'}`)
+		} else if (savedPaths.length > 0 && errors.size > 0) {
+			sendUserToast(`Saved ${savedPaths.length}, ${errors.size} failed — see details`, true)
+		} else if (errors.size > 0) {
+			sendUserToast(`${errors.size} draft${errors.size === 1 ? '' : 's'} failed to save`, true)
+		}
+	}
+
 	function discardDraft(path: string) {
 		if (!drafts.has(path)) return
 		const next = new Map(drafts)
 		next.delete(path)
 		drafts = next
 		if (activeDraftPath === path) activeDraftPath = undefined
+		clearSaveError(path)
+	}
+
+	function clearSaveError(path: string) {
+		if (!saveErrors.has(path)) return
+		const next = new Map(saveErrors)
+		next.delete(path)
+		saveErrors = next
+	}
+
+	// Rename a draft in place — re-key its entry in the drafts map and
+	// repoint activeDraftPath. Returns false (or an error string) if the
+	// new path collides with another draft so the dialog can keep itself
+	// open and surface the conflict inline.
+	function renameDraft(oldPath: string, newPath: string): boolean | string {
+		if (oldPath === newPath) return true
+		const draft = drafts.get(oldPath)
+		if (!draft) return 'Draft not found'
+		if (drafts.has(newPath)) return 'Another draft already uses this path'
+		const next = new Map<string, Draft>()
+		// Preserve insertion order: replace the entry at its original
+		// position so the canvas / lists don't reshuffle on rename.
+		for (const [k, v] of drafts) {
+			if (k === oldPath) {
+				const updatedScript = { ...v.script, path: newPath }
+				next.set(newPath, { ...v, script: updatedScript })
+			} else {
+				next.set(k, v)
+			}
+		}
+		drafts = next
+		if (activeDraftPath === oldPath) activeDraftPath = newPath
+		// Errors are keyed by path — re-key the entry so a previously
+		// failed draft keeps its error visible against the new path
+		// after rename.
+		if (saveErrors.has(oldPath)) {
+			const nextErrors = new Map(saveErrors)
+			const msg = nextErrors.get(oldPath)!
+			nextErrors.delete(oldPath)
+			nextErrors.set(newPath, msg)
+			saveErrors = nextErrors
+		}
+		return true
 	}
 
 	// Currently-open draft shape (if any) — fed into the details pane.
@@ -579,6 +804,52 @@
 				{/if}
 			</div>
 			<div class="flex flex-row items-center gap-2">
+				{#if saveErrors.size > 0}
+					<!-- Compact errors popover anchored next to Save all so users
+					     can see exactly which drafts failed and why without losing
+					     the editor context. Drafts that succeed disappear from
+					     the map; the ones still listed here are the unresolved
+					     failures. -->
+					<Popover placement="bottom-end" contentClasses="p-3 max-w-[480px]" usePointerDownOutside>
+						{#snippet trigger()}
+							<button
+								type="button"
+								class="flex items-center gap-1.5 px-2 py-1 rounded-md text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors text-xs font-medium"
+								title="View save errors"
+							>
+								<AlertTriangle size={14} />
+								<span>{saveErrors.size} failed</span>
+							</button>
+						{/snippet}
+						{#snippet content()}
+							<div class="flex flex-col gap-2">
+								<span class="text-xs font-semibold text-emphasis">Save errors</span>
+								<div class="flex flex-col gap-2 max-h-72 overflow-y-auto">
+									{#each [...saveErrors.entries()] as [path, message]}
+										<div class="flex flex-col gap-0.5 border-l-2 border-red-400 pl-2">
+											<span class="text-2xs font-mono text-emphasis">{path}</span>
+											<span class="text-2xs text-red-600 dark:text-red-400 break-words">
+												{message}
+											</span>
+										</div>
+									{/each}
+								</div>
+							</div>
+						{/snippet}
+					</Popover>
+				{/if}
+				{#if drafts.size > 0}
+					<Button
+						variant="accent"
+						unifiedSize="sm"
+						startIcon={{ icon: savingAll ? Loader2 : Save }}
+						onclick={saveAllDrafts}
+						disabled={savingAll}
+						title={savingAll ? 'Saving drafts…' : `Deploy all ${drafts.size} drafts`}
+					>
+						{savingAll ? 'Saving…' : `Save all (${drafts.size})`}
+					</Button>
+				{/if}
 				<Button
 					variant="subtle"
 					unifiedSize="sm"
@@ -684,6 +955,8 @@
 								{runsRefreshKey}
 								{runsPendingJobId}
 								draftScript={activeDraft?.script}
+								{pathPrefix}
+								onDraftPathChange={renameDraft}
 								workspace={$workspaceStore}
 								onAnnotationsChange={(scriptPath, annotations) => {
 									liveAnnotations = { scriptPath, annotations }
@@ -740,4 +1013,85 @@
 	</div>
 
 	<PipelinePickerModal bind:open={pickerModalOpen} currentFolder={folder} />
+
+	{#if leaveModalOpen}
+		<!-- Three-button leave guard. Built inline rather than reusing
+		     ConfirmationModal because that one is binary (confirm/cancel) and
+		     we need a distinct "Save all" path that runs the same dispatch as
+		     the bar button. Layout mirrors the archive/delete modal in
+		     AssetGraphDetailsPane for consistency. -->
+		<div
+			transition:fade={{ duration: 100 }}
+			class="fixed top-0 bottom-0 left-0 right-0 z-[9999]"
+			role="dialog"
+		>
+			<div class="fixed inset-0 bg-gray-500 bg-opacity-75"></div>
+			<div class="fixed inset-0 z-10 overflow-y-auto">
+				<div class="flex min-h-full items-center justify-center p-4">
+					<div
+						class="relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl sm:my-8 sm:w-full sm:max-w-lg sm:p-6"
+					>
+						<div class="flex">
+							<div
+								class="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-800/50"
+							>
+								<AlertTriangle class="text-amber-500 dark:text-amber-400" />
+							</div>
+							<div class="ml-4 flex-1">
+								<h3 class="text-lg font-medium text-primary">
+									{drafts.size === 1 ? 'Unsaved draft' : `${drafts.size} unsaved drafts`}
+								</h3>
+								<div class="mt-2 text-sm text-secondary flex flex-col gap-2">
+									<p>
+										You have {drafts.size === 1
+											? 'a draft pipeline script'
+											: `${drafts.size} draft pipeline scripts`} that {drafts.size === 1
+											? 'has'
+											: 'have'} not been deployed yet. What would you like to do?
+									</p>
+									<ul
+										class="text-2xs font-mono pl-4 max-h-40 overflow-y-auto flex flex-col gap-0.5"
+									>
+										{#each [...drafts.keys()] as p}
+											<li class="truncate text-tertiary">{p}</li>
+										{/each}
+									</ul>
+								</div>
+							</div>
+						</div>
+						<div class="flex items-center gap-2 flex-row-reverse mt-4">
+							<Button
+								disabled={leaveSaving}
+								onclick={leaveModalSaveAll}
+								variant="accent"
+								unifiedSize="sm"
+								startIcon={{ icon: leaveSaving ? Loader2 : Save }}
+							>
+								<span class="min-w-20">{leaveSaving ? 'Saving…' : `Save all (${drafts.size})`}</span
+								>
+							</Button>
+							<Button
+								disabled={leaveSaving}
+								onclick={leaveModalCancel}
+								variant="default"
+								unifiedSize="sm"
+							>
+								Cancel
+							</Button>
+							<Button
+								disabled={leaveSaving}
+								onclick={leaveModalDiscard}
+								variant="contained"
+								color="red"
+								unifiedSize="sm"
+								destructive
+							>
+								Discard all
+							</Button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
 {/if}

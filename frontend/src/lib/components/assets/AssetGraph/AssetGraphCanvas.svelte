@@ -163,7 +163,8 @@
 					pathPrefix,
 					defaultPathSuffix,
 					producers: producersByAsset.get(`${a.kind}:${a.path}`) ?? [],
-					onRunProducer
+					onRunProducer,
+					onSelectAsset: () => onselect?.({ kind: 'asset', asset_kind: a.kind, path: a.path })
 				}
 			})
 		}
