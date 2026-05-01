@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
 import * as path from "node:path";
-import { writeFile, readFile, stat, rm, mkdir } from "node:fs/promises";
+import { writeFile, readFile, stat, rm, mkdir, readdir } from "node:fs/promises";
 
 // =============================================================================
 // RAW APP SYNC TESTS
@@ -556,10 +556,14 @@ excludes: []`, "utf-8");
 
       // YAML and code file must both come back with the original case so
       // loadRunnablesFromBackend pairs them as one runnable, not two.
-      expect(await fileExists(path.join(backendDir, "CamelCaseTSRunnable.yaml"))).toBeTruthy();
-      expect(await fileExists(path.join(backendDir, "CamelCaseTSRunnable.ts"))).toBeTruthy();
-      expect(await fileExists(path.join(backendDir, "camelcasetsrunnable.ts"))).toBeFalsy();
-      expect(await fileExists(path.join(backendDir, "camelcasetsrunnable.yaml"))).toBeFalsy();
+      // Use readdir for exact-case comparison: Windows is case-insensitive at
+      // the filesystem level, so fileExists("camelcasetsrunnable.ts") would
+      // resolve to CamelCaseTSRunnable.ts and false-positive the orphan check.
+      const backendEntries = await readdir(backendDir);
+      expect(backendEntries).toContain("CamelCaseTSRunnable.yaml");
+      expect(backendEntries).toContain("CamelCaseTSRunnable.ts");
+      expect(backendEntries).not.toContain("camelcasetsrunnable.ts");
+      expect(backendEntries).not.toContain("camelcasetsrunnable.yaml");
 
       const pulledContent = await readFileContent(path.join(backendDir, "CamelCaseTSRunnable.ts"));
       expect(pulledContent).toContain("Result:");
