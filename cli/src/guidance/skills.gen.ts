@@ -6052,9 +6052,17 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
 - \`--skip-flows\` - Skip processing flows
 - \`--skip-apps\` - Skip processing apps
 - \`--strict-folder-boundaries\` - Only update items inside the specified folder (requires folder argument)
-- \`--rehash-only\` - Trust on-disk content; rewrite wmill-lock.yaml hashes without backend trips or yaml/lock rewrites. Useful for bootstrapping missing entries.
 - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
 - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
+
+**Subcommands:**
+
+- \`generate-metadata rehash [folder:string]\`
+  - \`--skip-scripts\` - Skip processing scripts
+  - \`--skip-flows\` - Skip processing flows
+  - \`--skip-apps\` - Skip processing apps
+  - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
+  - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
 
 ### gitsync-settings
 
