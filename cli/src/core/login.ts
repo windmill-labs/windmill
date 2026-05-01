@@ -82,7 +82,7 @@ export async function browserLogin(
     log.info(`Login by going to ${url}`);
 
     try {
-      open.openApp(open.apps.browser, { arguments: [url] }).catch((error) => {
+      open.default(url).catch((error) => {
         console.error(
           `Failed to open browser, please navigate to ${url}, error: ${error}`
         );

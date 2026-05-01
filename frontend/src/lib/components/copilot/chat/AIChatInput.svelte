@@ -12,6 +12,7 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { tick, untrack } from 'svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		availableContext: ContextElement[]
@@ -109,7 +110,7 @@
 		}
 	}
 
-	function addContextToSelection(contextElement: ContextElement) {
+	async function addContextToSelection(contextElement: ContextElement) {
 		if (!selectedContext || !availableContext) return
 
 		const alreadySelected = selectedContext.find(
@@ -130,20 +131,48 @@
 			return
 		}
 
-		selectedContext = [...selectedContext, contextElement]
+		let contextToAdd = contextElement
 
-		// If it's a datatable table, add it to the app's whitelisted tables
 		if (
 			contextElement.type === 'app_datatable' &&
 			aiChatManager.mode === AIMode.APP &&
 			aiChatManager.appAiChatHelpers
 		) {
-			aiChatManager.appAiChatHelpers.addTableToWhitelist(
+			const appAiChatHelpers = aiChatManager.appAiChatHelpers
+			appAiChatHelpers.addTableToWhitelist(
 				contextElement.datatableName,
 				contextElement.schemaName,
 				contextElement.tableName
 			)
+
+			if (!contextElement.columns) {
+				try {
+					contextToAdd = {
+						...contextElement,
+						columns: await appAiChatHelpers.getDatatableTableSchema(
+							contextElement.datatableName,
+							contextElement.schemaName,
+							contextElement.tableName
+						)
+					}
+				} catch (e) {
+					console.error('Failed to load datatable table schema:', e)
+					sendUserToast(
+						'Failed to load datatable table schema',
+						true,
+						[],
+						e instanceof Error ? e.message : String(e)
+					)
+				}
+			}
 		}
+
+		const duplicateAfterAwait = selectedContext.find(
+			(c) => c.type === contextToAdd.type && c.title === contextToAdd.title
+		)
+		if (duplicateAfterAwait) return
+
+		selectedContext = [...selectedContext, contextToAdd]
 	}
 
 	function sendRequest() {
@@ -342,7 +371,7 @@
 	}
 
 	function handleAppContextSelection(contextElement: ContextElement) {
-		addContextToSelection(contextElement)
+		void addContextToSelection(contextElement)
 		// Update instructions with the selected context title
 		const index = instructions.lastIndexOf('@')
 		if (index !== -1) {
@@ -364,31 +393,27 @@
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
 				<Popover>
 					{#snippet trigger()}
-									
-							<div
-								class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-								>@</div
-							>
-						
-									{/snippet}
+						<div
+							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
+							>@</div
+						>
+					{/snippet}
 					{#snippet content({ close })}
-									
-							<AvailableContextList
-								{availableContext}
-								{selectedContext}
-								onSelect={(element) => {
-									addContextToSelection(element)
-									close()
-								}}
-								onSelectWorkspaceItem={(element) => {
-									addContextToSelection(element)
-									close()
-								}}
-							/>
-						
-									{/snippet}
+						<AvailableContextList
+							{availableContext}
+							{selectedContext}
+							onSelect={(element) => {
+								void addContextToSelection(element)
+								close()
+							}}
+							onSelectWorkspaceItem={(element) => {
+								void addContextToSelection(element)
+								close()
+							}}
+						/>
+					{/snippet}
 				</Popover>
-				{#each selectedContext as element}
+				{#each selectedContext as element (element.type + '-' + element.title)}
 					<ContextElementBadge
 						contextElement={element}
 						deletable
@@ -408,7 +433,7 @@
 			{selectedContext}
 			{isFirstMessage}
 			placeholder={modePlaceholder}
-			onAddContext={(contextElement) => addContextToSelection(contextElement)}
+			onAddContext={(contextElement) => void addContextToSelection(contextElement)}
 			onSendRequest={() => {
 				if (disabled) {
 					return
@@ -423,25 +448,21 @@
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
 				<Popover>
 					{#snippet trigger()}
-											
-							<div
-								class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-								>@</div
-							>
-						
-											{/snippet}
+						<div
+							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
+							>@</div
+						>
+					{/snippet}
 					{#snippet content({ close })}
-											
-							<AppAvailableContextList
-								{availableContext}
-								{selectedContext}
-								onSelect={(element) => {
-									addContextToSelection(element)
-									close()
-								}}
-							/>
-						
-											{/snippet}
+						<AppAvailableContextList
+							{availableContext}
+							{selectedContext}
+							onSelect={(element) => {
+								void addContextToSelection(element)
+								close()
+							}}
+						/>
+					{/snippet}
 				</Popover>
 				{#each selectedContext as element (element.type + '-' + element.title)}
 					<ContextElementBadge

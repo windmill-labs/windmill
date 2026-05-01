@@ -45,3 +45,12 @@ export function getDatatableSdkReference(): string {
     prompts.DATATABLE_SDK_PYTHON
   ].filter(Boolean).join('\n\n');
 }
+
+// Helper to combine prompts for Workflow-as-Code scripts
+export function getWorkflowAsCodePrompt(): string {
+  return [
+    prompts.WORKFLOW_AS_CODE_BASE,
+    prompts.WAC_SDK_TYPESCRIPT,
+    prompts.WAC_SDK_PYTHON
+  ].filter(Boolean).join('\n\n');
+}

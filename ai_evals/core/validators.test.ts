@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { validateAppState, validateCliWorkspace, validateScriptState } from "./validators";
+import {
+  validateAppState,
+  validateCliWorkspace,
+  validateScriptState,
+  validateToolExpectations,
+} from "./validators";
 
 describe("validateScriptState", () => {
   it("accepts semantically equivalent script implementations", () => {
@@ -31,6 +36,85 @@ describe("validateScriptState", () => {
     expect(checks).toContainEqual({
       name: "script exports entrypoint",
       passed: false,
+    });
+  });
+});
+
+describe("validateToolExpectations", () => {
+  it("accepts Windmill-prefixed schedule paths", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["create_schedule"],
+        toolCallDetails: [
+          {
+            name: "create_schedule",
+            arguments: {
+              path: "f/evals/greet_user_daily",
+            },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        requiredToolsUsed: ["create_schedule"],
+        toolCallArgs: [
+          {
+            tool: "create_schedule",
+            field: "path",
+            stringStartsWithAnyOf: ["f/", "u/"],
+            stringMustNotStartWithAnyOf: ["schedules/"],
+          },
+        ],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("rejects schedule-prefixed tool paths", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["create_schedule"],
+        toolCallDetails: [
+          {
+            name: "create_schedule",
+            arguments: {
+              path: "schedules/greet_user_daily",
+            },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        requiredToolsUsed: ["create_schedule"],
+        toolCallArgs: [
+          {
+            tool: "create_schedule",
+            field: "path",
+            stringStartsWithAnyOf: ["f/", "u/"],
+            stringMustNotStartWithAnyOf: ["schedules/"],
+          },
+        ],
+      },
+    });
+
+    expect(checks).toContainEqual({
+      name: "create_schedule.path uses an accepted prefix",
+      passed: false,
+      details: 'accepted prefixes: f/, u/; values: "schedules/greet_user_daily"',
+    });
+    expect(checks).toContainEqual({
+      name: "create_schedule.path avoids rejected prefixes",
+      passed: false,
+      details: 'rejected prefixes: schedules/; values: "schedules/greet_user_daily"',
     });
   });
 });

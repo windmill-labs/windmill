@@ -83,6 +83,7 @@ pub fn workspaced_service() -> Router {
         .route("/get_imports/{*importer_path}", get(get_imports))
         .route("/get_dependents_amounts", post(get_dependents_amounts))
         .route("/get_settings", get(get_settings))
+        .route("/get_public_settings", get(get_public_settings))
         .route(
             "/get_copilot_settings_state",
             get(get_copilot_settings_state),
@@ -115,6 +116,11 @@ pub fn workspaced_service() -> Router {
         .route("/list_ducklakes", get(list_ducklakes))
         .route("/list_datatables", get(list_datatables))
         .route("/list_datatable_schemas", get(list_datatable_schemas))
+        .route("/list_datatable_tables", get(list_datatable_tables))
+        .route(
+            "/get_datatable_table_schema",
+            get(get_datatable_table_schema),
+        )
         .route("/edit_datatable_config", post(edit_datatable_config))
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
@@ -272,6 +278,34 @@ pub struct WorkspaceSettings {
     pub success_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
+}
+
+/// Subset of `WorkspaceSettings` that is safe to return to any workspace
+/// member. Adding a field here means it will be readable by every authed user
+/// in the workspace — anything sensitive (OAuth secrets, GitHub App tokens,
+/// billing/customer info, integration credentials, etc.) must NOT be added.
+/// The full `WorkspaceSettings` struct is admin-only via `get_settings`.
+#[derive(FromRow, Serialize, Debug)]
+pub struct WorkspacePublicSettings {
+    pub workspace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_guid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mute_critical_alerts: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deploy_ui: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub large_file_storage: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub datatable: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -617,6 +651,10 @@ async fn get_settings(
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<WorkspaceSettings> {
+    // Admin-only: this struct contains OAuth secrets, GitHub App tokens, billing
+    // info, and other admin-managed integration credentials. Non-admin callers
+    // should use `get_public_settings`.
+    require_admin(authed.is_admin, &authed.username)?;
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
@@ -664,12 +702,46 @@ async fn get_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
 
-    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
 
-    if !authed.is_admin {
-        settings.slack_oauth_client_secret = None;
-    }
+    Ok(Json(settings))
+}
+
+async fn get_public_settings(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<WorkspacePublicSettings> {
+    let mut tx = user_db.begin(&authed).await?;
+    let settings = sqlx::query_as!(
+        WorkspacePublicSettings,
+        r#"
+        SELECT
+            workspace_id,
+            slack_team_id,
+            slack_name,
+            teams_team_id,
+            teams_team_name,
+            teams_team_guid,
+            mute_critical_alerts,
+            deploy_ui,
+            large_file_storage,
+            datatable
+        FROM
+            workspace_settings
+        WHERE
+            workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("getting public settings: {e:#}")))?;
+
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    tx.commit().await?;
+
     Ok(Json(settings))
 }
 
@@ -1365,6 +1437,9 @@ type TableMap = HashMap<String, ColumnMap>;
 /// Schemas mapped by name to their tables
 type SchemaMap = HashMap<String, TableMap>;
 
+/// Schemas mapped by name to their table names
+type TableListMap = HashMap<String, Vec<String>>;
+
 #[derive(Serialize, Debug)]
 struct DataTableSchema {
     datatable_name: String,
@@ -1374,26 +1449,36 @@ struct DataTableSchema {
     error: Option<String>,
 }
 
+#[derive(Serialize, Debug)]
+struct DataTableTables {
+    datatable_name: String,
+    /// Hierarchical metadata: schema_name -> table_names
+    schemas: TableListMap,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GetDataTableSchemaQuery {
+    datatable_name: String,
+    schema_name: String,
+    table_name: String,
+}
+
+#[derive(Serialize, Debug)]
+struct DataTableTableSchema {
+    datatable_name: String,
+    schema_name: String,
+    table_name: String,
+    columns: ColumnMap,
+}
+
 async fn list_datatable_schemas(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DataTableSchema>> {
-    // Get all datatable names for this workspace
-    let datatable_names: Vec<String> = sqlx::query_scalar!(
-        r#"
-            SELECT jsonb_object_keys(ws.datatable->'datatables') AS datatable_name
-            FROM workspace_settings ws
-            WHERE ws.workspace_id = $1
-        "#,
-        &w_id
-    )
-    .fetch_all(&db)
-    .await?
-    .into_iter()
-    .filter_map(|s| s)
-    .collect();
-
+    let datatable_names = list_datatable_names(&db, &w_id).await?;
     let mut results = Vec::new();
 
     for datatable_name in datatable_names {
@@ -1409,6 +1494,68 @@ async fn list_datatable_schemas(
     }
 
     Ok(Json(results))
+}
+
+async fn list_datatable_tables(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<DataTableTables>> {
+    let datatable_names = list_datatable_names(&db, &w_id).await?;
+    let mut results = Vec::new();
+
+    for datatable_name in datatable_names {
+        let tables = match get_datatable_tables(&db, &w_id, &datatable_name).await {
+            Ok(schemas) => DataTableTables { datatable_name, schemas, error: None },
+            Err(e) => DataTableTables {
+                datatable_name,
+                schemas: HashMap::new(),
+                error: Some(e.to_string()),
+            },
+        };
+        results.push(tables);
+    }
+
+    Ok(Json(results))
+}
+
+async fn get_datatable_table_schema(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(query): Query<GetDataTableSchemaQuery>,
+) -> JsonResult<DataTableTableSchema> {
+    let columns = get_datatable_table_columns(
+        &db,
+        &w_id,
+        &query.datatable_name,
+        &query.schema_name,
+        &query.table_name,
+    )
+    .await?;
+
+    Ok(Json(DataTableTableSchema {
+        datatable_name: query.datatable_name,
+        schema_name: query.schema_name,
+        table_name: query.table_name,
+        columns,
+    }))
+}
+
+async fn list_datatable_names(db: &DB, w_id: &str) -> Result<Vec<String>> {
+    Ok(sqlx::query_scalar!(
+        r#"
+            SELECT jsonb_object_keys(ws.datatable->'datatables') AS datatable_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        w_id
+    )
+    .fetch_all(db)
+    .await?
+    .into_iter()
+    .filter_map(|s| s)
+    .collect())
 }
 
 async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Result<SchemaMap> {
@@ -1486,31 +1633,200 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
         let is_nullable: String = row.get(4);
         let column_default: Option<String> = row.get(5);
 
-        // Build compact type representation: "type[?][=default]"
-        let mut compact = udt_name;
-        if is_nullable == "YES" {
-            compact.push('?');
-        }
-        if let Some(default) = column_default {
-            // Truncate long defaults for compactness
-            let short_default = if default.len() > 30 {
-                format!("{}...", &default[..27])
-            } else {
-                default
-            };
-            compact.push('=');
-            compact.push_str(&short_default);
-        }
-
         schema_map
             .entry(table_schema)
             .or_default()
             .entry(table_name)
             .or_default()
-            .insert(column_name, compact);
+            .insert(
+                column_name,
+                compact_column_type(udt_name, is_nullable, column_default),
+            );
     }
 
     Ok(schema_map)
+}
+
+async fn get_datatable_tables(db: &DB, w_id: &str, datatable_name: &str) -> Result<TableListMap> {
+    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    let (client, connection) = pg_db.connect(Some(db)).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+
+    let schema_rows = client
+        .query(
+            r#"
+            SELECT nspname::text AS schema_name
+            FROM pg_namespace
+            WHERE nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
+              AND nspname NOT LIKE 'pg_%'
+            ORDER BY nspname
+            "#,
+            &[],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to query schemas: {}", e)))?;
+
+    let mut table_map: TableListMap = HashMap::new();
+    let schema_names: Vec<String> = schema_rows
+        .iter()
+        .map(|row| {
+            let name: String = row.get(0);
+            table_map.entry(name.clone()).or_default();
+            name
+        })
+        .collect();
+
+    let rows = client
+        .query(
+            r#"
+            SELECT DISTINCT
+                table_schema::text,
+                table_name::text
+            FROM information_schema.columns
+            WHERE table_schema = ANY($1)
+              AND table_name IS NOT NULL
+            ORDER BY table_schema, table_name
+            "#,
+            &[&schema_names],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to query tables: {}", e)))?;
+
+    for row in rows {
+        let table_schema: String = row.get(0);
+        let table_name: String = row.get(1);
+        table_map.entry(table_schema).or_default().push(table_name);
+    }
+
+    Ok(table_map)
+}
+
+async fn get_datatable_table_columns(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<ColumnMap> {
+    if is_system_pg_schema(schema_name) {
+        return Err(Error::BadRequest(format!(
+            "Schema '{}' is not available for datatable schema lookup",
+            schema_name
+        )));
+    }
+
+    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    let (client, connection) = pg_db.connect(Some(db)).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+
+    let rows = client
+        .query(
+            r#"
+            SELECT
+                column_name::text,
+                udt_name::text,
+                is_nullable::text,
+                column_default::text
+            FROM information_schema.columns
+            WHERE table_schema = $1
+              AND table_name = $2
+            ORDER BY ordinal_position
+            "#,
+            &[&schema_name, &table_name],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to query columns: {}", e)))?;
+
+    if rows.is_empty() {
+        return Err(Error::NotFound(format!(
+            "Table '{}.{}' not found in datatable '{}'",
+            schema_name, table_name, datatable_name
+        )));
+    }
+
+    let mut columns: ColumnMap = HashMap::new();
+    for row in rows {
+        let column_name: String = row.get(0);
+        let udt_name: String = row.get(1);
+        let is_nullable: String = row.get(2);
+        let column_default: Option<String> = row.get(3);
+        columns.insert(
+            column_name,
+            compact_column_type(udt_name, is_nullable, column_default),
+        );
+    }
+
+    Ok(columns)
+}
+
+fn is_system_pg_schema(schema_name: &str) -> bool {
+    // Match the datatable listing filter: PostgreSQL reserves pg_* schemas for system use.
+    matches!(
+        schema_name,
+        "information_schema" | "pg_toast" | "pg_catalog"
+    ) || schema_name.starts_with("pg_")
+}
+
+fn compact_column_type(
+    udt_name: String,
+    is_nullable: String,
+    column_default: Option<String>,
+) -> String {
+    let mut compact = udt_name;
+    if is_nullable == "YES" {
+        compact.push('?');
+    }
+    if let Some(default) = column_default {
+        compact.push('=');
+        compact.push_str(&truncate_column_default(default));
+    }
+    compact
+}
+
+fn truncate_column_default(default: String) -> String {
+    const MAX_DEFAULT_CHARS: usize = 30;
+    const TRUNCATED_DEFAULT_CHARS: usize = 27;
+
+    if default.chars().count() > MAX_DEFAULT_CHARS {
+        format!(
+            "{}...",
+            default
+                .chars()
+                .take(TRUNCATED_DEFAULT_CHARS)
+                .collect::<String>()
+        )
+    } else {
+        default
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_column_type_truncates_multibyte_defaults_safely() {
+        let default = "é".repeat(31);
+
+        assert_eq!(
+            compact_column_type("text".to_string(), "NO".to_string(), Some(default)),
+            format!("text={}...", "é".repeat(27))
+        );
+    }
 }
 
 /// Resolve a source string to PgDatabase credentials with user-scoped permission checks.

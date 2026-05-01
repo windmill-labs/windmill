@@ -16,6 +16,12 @@ const parserPackages = [
 ];
 const parserExternals = parserPackages.flatMap(p => ["--external", p]);
 
+// Forward parser specs from the dev package.json so the published CLI pins
+// to the same versions devs install/test against. Falls back to "*" if not
+// listed locally.
+const cliDeps: Record<string, string> =
+  JSON.parse(readFileSync("./package.json", "utf-8")).dependencies ?? {};
+
 // Clean output directory
 rmSync(outDir, { recursive: true, force: true });
 
@@ -68,7 +74,7 @@ const packageJson = {
   },
   dependencies: {
     esbuild: "0.28.0",
-    ...Object.fromEntries(parserPackages.map(p => [p, "*"])),
+    ...Object.fromEntries(parserPackages.map(p => [p, cliDeps[p] ?? "*"])),
   },
   optionalDependencies: {
     svelte: "^5.0.0",

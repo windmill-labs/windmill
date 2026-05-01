@@ -42,6 +42,7 @@ export function normalizeFlowStateFixture(value: unknown): FlowState {
 
 export function normalizeFlowFixture(value: FlowState): FlowFixture {
   return {
+    path: value.path,
     schema: value.schema,
     value: value.value
       ? {

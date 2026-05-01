@@ -1210,6 +1210,80 @@ where
     ))
 }
 
+/// Decode the bytes of a Parquet file into a JSON array text (`[ {...}, {...} ]`)
+/// suitable for binding as a single SQL parameter and consuming with `OPENJSON`,
+/// `jsonb_to_recordset`, `JSON_TABLE`, etc.
+///
+/// Runs the synchronous Arrow parquet reader on a `spawn_blocking` thread, which is
+/// fine for the ~500 MB ceiling we target. Larger files should use a streaming
+/// path (out of scope for the s3-input feature).
+#[cfg(feature = "parquet")]
+pub async fn decode_parquet_bytes_to_json_array(bytes: bytes::Bytes) -> anyhow::Result<String> {
+    use datafusion::parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+
+    task::spawn_blocking(move || {
+        let builder = ParquetRecordBatchReaderBuilder::try_new(bytes).map_err(to_anyhow)?;
+        let reader = builder.build().map_err(to_anyhow)?;
+
+        let mut out: Vec<u8> = Vec::new();
+        let mut writer = json::Writer::<_, JsonArray>::new(&mut out);
+        for batch in reader {
+            let batch = batch.map_err(to_anyhow)?;
+            writer.write(&batch).map_err(to_anyhow)?;
+        }
+        writer.finish().map_err(to_anyhow)?;
+        drop(writer);
+        String::from_utf8(out).map_err(to_anyhow)
+    })
+    .await
+    .map_err(to_anyhow)?
+}
+
+#[cfg(not(feature = "parquet"))]
+pub async fn decode_parquet_bytes_to_json_array(_bytes: bytes::Bytes) -> anyhow::Result<String> {
+    anyhow::bail!("Parquet S3 input requires the `parquet` feature to be enabled on this build")
+}
+
+/// Decode the bytes of a CSV file into a JSON array text using the first row as headers.
+/// Same blocking-thread pattern as the parquet decoder.
+#[cfg(feature = "parquet")]
+pub async fn decode_csv_bytes_to_json_array(bytes: bytes::Bytes) -> anyhow::Result<String> {
+    use datafusion::arrow::csv::ReaderBuilder;
+    use std::io::Cursor;
+
+    task::spawn_blocking(move || {
+        let cursor = Cursor::new(bytes);
+        // Two-pass: infer schema from the bytes, then build the reader. The infer step
+        // rewinds the underlying reader for us.
+        let (schema, _) = datafusion::arrow::csv::reader::Format::default()
+            .with_header(true)
+            .infer_schema(Cursor::new(&cursor.get_ref()[..]), Some(1024))
+            .map_err(to_anyhow)?;
+
+        let reader = ReaderBuilder::new(Arc::new(schema))
+            .with_header(true)
+            .build(cursor)
+            .map_err(to_anyhow)?;
+
+        let mut out: Vec<u8> = Vec::new();
+        let mut writer = json::Writer::<_, JsonArray>::new(&mut out);
+        for batch in reader {
+            let batch = batch.map_err(to_anyhow)?;
+            writer.write(&batch).map_err(to_anyhow)?;
+        }
+        writer.finish().map_err(to_anyhow)?;
+        drop(writer);
+        String::from_utf8(out).map_err(to_anyhow)
+    })
+    .await
+    .map_err(to_anyhow)?
+}
+
+#[cfg(not(feature = "parquet"))]
+pub async fn decode_csv_bytes_to_json_array(_bytes: bytes::Bytes) -> anyhow::Result<String> {
+    anyhow::bail!("CSV S3 input requires the `parquet` feature to be enabled on this build")
+}
+
 lazy_static::lazy_static! {
     pub static ref S3_PROXY_LAST_ERRORS_CACHE: Cache<String, String> = Cache::new(4);
 }

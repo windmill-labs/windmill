@@ -477,6 +477,7 @@ pub fn parse_python_signature(
                         has_default: has_default || default.is_some(),
                         default,
                         oidx: None,
+                    otyp_inferred: false,
                     }
                 })
                 .collect(),
@@ -716,7 +717,8 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -724,7 +726,8 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         typ: Typ::Datetime,
                         default: Some(json!("<function call>")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -732,7 +735,8 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -740,7 +744,8 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         typ: Typ::Str(None),
                         default: Some(json!("wewe")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -748,7 +753,8 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         typ: Typ::Int,
                         default: Some(json!(21)),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -756,7 +762,8 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         typ: Typ::List(Box::new(Typ::Int)),
                         default: Some(json!([1, 2])),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -764,7 +771,8 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         typ: Typ::Bool,
                         default: Some(json!(true)),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -806,7 +814,8 @@ def main(test1: str,
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -814,7 +823,8 @@ def main(test1: str,
                         typ: Typ::Datetime,
                         default: Some(json!("<function call>")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -822,7 +832,8 @@ def main(test1: str,
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -830,7 +841,8 @@ def main(test1: str,
                         typ: Typ::Resource("postgresql".to_string()),
                         default: Some(json!("$res:g/all/resource")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
@@ -867,7 +879,8 @@ def main(test1: str,
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -875,7 +888,8 @@ def main(test1: str,
                         typ: Typ::Resource("s3_object".to_string()),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -883,7 +897,8 @@ def main(test1: str,
                         typ: Typ::Str(None),
                         default: Some(json!("test")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -891,7 +906,8 @@ def main(test1: str,
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
@@ -925,7 +941,8 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                         typ: Typ::Str(Some(vec!["foo".to_string(), "bar".to_string()])),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -936,7 +953,8 @@ def main(test1: Literal["foo", "bar"], test2: List[Literal["foo", "bar"]]): retu
                         ])))),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
@@ -969,7 +987,8 @@ def main(test1: DynSelect_foo): return
                     typ: Typ::DynSelect("foo".to_string()),
                     default: None,
                     has_default: false,
-                    oidx: None
+                    oidx: None,
+                otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
@@ -1094,7 +1113,8 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         typ: Typ::List(Box::new(Typ::Str(None))),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1102,7 +1122,8 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         typ: Typ::List(Box::new(Typ::Int)),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1110,7 +1131,8 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         typ: Typ::List(Box::new(Typ::Int)),
                         default: Some(json!([1, 2, 3, 4])),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1118,7 +1140,8 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         typ: Typ::List(Box::new(Typ::Int)),
                         default: Some(json!([1, 2, 3, 4])),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1126,7 +1149,8 @@ def main(a: list, e: List[int], b: list = [1,2,3,4], c = [1,2,3,4], d = ["a", "b
                         typ: Typ::List(Box::new(Typ::Str(None))),
                         default: Some(json!(["a", "b"])),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
@@ -1160,7 +1184,8 @@ def main(a: str, b: Optional[str], c: str | None): return
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1168,7 +1193,8 @@ def main(a: str, b: Optional[str], c: str | None): return
                         typ: Typ::Str(None),
                         default: None,
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1176,7 +1202,8 @@ def main(a: str, b: Optional[str], c: str | None): return
                         typ: Typ::Str(None),
                         default: None,
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,

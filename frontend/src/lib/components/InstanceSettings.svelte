@@ -371,7 +371,7 @@
 
 	function getSettingsForCategory(category: string) {
 		if (category === 'Auth/OAuth/SAML') {
-			return scimSamlSetting
+			return [...(settings[category] ?? []), ...scimSamlSetting]
 		}
 		const base = settings[category] ?? []
 		// In quick setup, reorder Core: base settings (without license_key), then extras from Jobs
@@ -502,27 +502,20 @@
 	}
 
 	export function discardCategory(category: string) {
+		const categorySettings = getSettingsForCategory(category)
+		for (const s of categorySettings) {
+			const v = initialValues[s.key]
+			$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+		}
 		if (category === 'Auth/OAuth/SAML') {
-			for (const s of scimSamlSetting) {
-				const v = initialValues[s.key]
-				$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
-			}
 			oauths = JSON.parse(JSON.stringify(initialOauths))
 			requirePreexistingUserForOauth = initialRequirePreexistingUserForOauth
 			const account_identifier =
 				initialOauths?.snowflake_oauth?.connect_config?.extra_params?.account_identifier
 			snowflakeAccountIdentifier = account_identifier ?? ''
-		} else {
-			const categorySettings = getSettingsForCategory(category)
-			for (const s of categorySettings) {
-				const v = initialValues[s.key]
-				$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
-			}
-			if (category === 'Registries') {
-				const v = initialValues['workspace_registries']
-				$values['workspace_registries'] =
-					v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
-			}
+		} else if (category === 'Registries') {
+			const v = initialValues['workspace_registries']
+			$values['workspace_registries'] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
 	}
 

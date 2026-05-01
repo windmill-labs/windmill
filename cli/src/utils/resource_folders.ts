@@ -553,6 +553,23 @@ export function getScriptBasePathFromModulePath(p: string): string | undefined {
   return norm.slice(0, idx);
 }
 
+/**
+ * Convert a local script file path to its Windmill API remote path.
+ * Handles both folder layout (`u/admin/my_script__mod/script.ts` -> `u/admin/my_script`)
+ * and flat layout (`u/admin/my_script.ts` -> `u/admin/my_script`).
+ *
+ * For flat layout, splits at the FIRST `.` which means a script under a
+ * folder containing a `.` in its name (e.g. `u/my.folder/script.ts`) gets
+ * truncated; that pre-dates this helper and is preserved here for parity.
+ */
+export function scriptPathToRemotePath(p: string): string {
+  return (
+    isModuleEntryPoint(p)
+      ? getScriptBasePathFromModulePath(p)!
+      : p.substring(0, p.indexOf("."))
+  ).replaceAll(SEP, "/");
+}
+
 // ============================================================================
 // Sync-related Path Functions
 // ============================================================================

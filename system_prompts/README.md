@@ -7,6 +7,8 @@ This directory contains the single source of truth for AI system prompts used by
 ```
 system_prompts/
 ├── base/              # Core instruction templates (manually written)
+│   ├── flow-base.md   # Shared OpenFlow structure guidance
+│   └── flow-cli.md    # CLI/local-agent workflow guidance for write-flow skill
 ├── languages/         # Language-specific instructions (manually written)
 └── auto-generated/    # Auto-generated files (DO NOT EDIT)
     ├── sdks/          # SDK documentation
@@ -61,6 +63,10 @@ They DO NOT contain:
 
 Tool instructions are added separately by the frontend and CLI.
 
+CLI-only workflow instructions live in `base/flow-cli.md` and are included in the
+generated `write-flow` skill for `wmill init`. They are intentionally excluded
+from the frontend flow chat prompt.
+
 ## Integration
 
 ### Frontend
@@ -74,7 +80,7 @@ import { getLangContext } from "$system_prompts/languages";
 
 ### CLI
 
-Generates `/cli/src/guidance/skills.ts` with embedded skill content for `wmill init`.
+Generates `/cli/src/guidance/skills.gen.ts` with embedded skill content for `wmill init`.
 
 ## Editing Guidelines
 

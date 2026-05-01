@@ -371,11 +371,7 @@ pub struct AnthropicQueryBuilder {
 }
 
 impl AnthropicQueryBuilder {
-    pub fn new(
-        provider_kind: AIProvider,
-        platform: AIPlatform,
-        enable_1m_context: bool,
-    ) -> Self {
+    pub fn new(provider_kind: AIProvider, platform: AIPlatform, enable_1m_context: bool) -> Self {
         Self { provider_kind, platform, enable_1m_context }
     }
 

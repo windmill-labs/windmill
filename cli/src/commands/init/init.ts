@@ -81,13 +81,20 @@ async function initAction(opts: InitOptions) {
             : undefined;
         } else {
           const activeProfile = await getActiveWorkspace(opts as GlobalOptions);
+          const orderedProfiles = activeProfile
+            ? [
+                ...profiles.filter((p) => p.name === activeProfile.name),
+                ...profiles.filter((p) => p.name !== activeProfile.name),
+              ]
+            : profiles;
           const selectedName = await Select.prompt({
             message: "Select workspace profile",
-            options: profiles.map((p) => ({
-              name: `${p.name} (${p.workspaceId} on ${p.remote})`,
+            options: orderedProfiles.map((p) => ({
+              name: `${p.name} (${p.workspaceId} on ${p.remote})${
+                activeProfile?.name === p.name ? " — active" : ""
+              }`,
               value: p.name,
             })),
-            default: activeProfile?.name,
           });
           selectedProfile = profiles.find((p) => p.name === selectedName);
         }
@@ -234,14 +241,14 @@ async function initAction(opts: InitOptions) {
     }
   }
 
-  // Read nonDottedPaths from config to specialize generated skills
+  // Read nonDottedPaths from config
   let nonDottedPaths = true; // default for new inits
   try {
     const { readConfigFile } = await import("../../core/conf.ts");
     const config = await readConfigFile();
     nonDottedPaths = config.nonDottedPaths ?? true;
   } catch {
-    // If config can't be read, use default
+    // If config can't be read, use defaults
   }
 
   // Create guidance files (AGENTS.md, CLAUDE.md, and agent skills)

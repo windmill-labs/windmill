@@ -412,3 +412,57 @@
     - the updated flow rejects empty payload strings
     - "the existing `process_event` step remains the main step"
     - failures return a compact error object with the error message and failing step id
+
+- id: flow-test15-create-current-flow-schedule
+  prompt: |-
+    Update this flow by adding a final step named `return_schedule_status`.
+    It should return an object with `scheduled: true` and the order summary from `results.summarize_orders`.
+    Also create an enabled daily schedule named `order_processing_daily` for the current flow.
+    It should run every day at 07:30 UTC with empty args.
+    Do not ask me for the flow path.
+  initial: ai_evals/fixtures/frontend/flow/initial/scheduled_order_flow.json
+  validate:
+    topLevelStepIds:
+      - return_schedule_status
+  toolExpect:
+    requiredToolsUsed:
+      - create_schedule
+    toolCallArgs:
+      - tool: create_schedule
+        field: path
+        stringStartsWithAnyOf:
+          - f/
+          - u/
+        stringMustNotStartWithAnyOf:
+          - schedules/
+  skipJudge: true
+  judgeChecklist:
+    - "the flow includes a final top-level step named `return_schedule_status`"
+    - "`return_schedule_status` returns `scheduled: true` and the order summary"
+
+- id: flow-test16-create-current-flow-http-trigger
+  prompt: |-
+    Update this flow by adding a final step named `webhook_response`.
+    It should return an object with `ok: true` and the order summary from `results.summarize_orders`.
+    Also create a public POST HTTP endpoint named `order_processing_webhook` for the current flow.
+    Use route path `ai-evals/order-processing` and no authentication.
+    Do not ask me for the flow path.
+  initial: ai_evals/fixtures/frontend/flow/initial/scheduled_order_flow.json
+  validate:
+    topLevelStepIds:
+      - webhook_response
+  toolExpect:
+    requiredToolsUsed:
+      - create_trigger
+    toolCallArgs:
+      - tool: create_trigger
+        field: path
+        stringStartsWithAnyOf:
+          - f/
+          - u/
+        stringMustNotStartWithAnyOf:
+          - schedules/
+  skipJudge: true
+  judgeChecklist:
+    - "the flow includes a final top-level step named `webhook_response`"
+    - "`webhook_response` returns `ok: true` and the order summary"

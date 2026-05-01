@@ -7,7 +7,7 @@ script_dirpath="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source_file="${script_dirpath}/../windmill-yaml-validator/src/gen/openflow.json"
 output_dirpath="${script_dirpath}/src/lib/components/copilot/chat/flow"
 json_output_file="${output_dirpath}/openFlow.json"
-zod_output_file="${output_dirpath}/openFlowZod.ts"
+zod_output_file="${output_dirpath}/openFlowZod.gen.ts"
 
 echo "Generating OpenFlow JSON and Zod schemas..."
 

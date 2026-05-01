@@ -510,6 +510,24 @@ export const settings: Record<string, Setting[]> = {
 			hiddenIfEmpty: true
 		},
 		{
+			label: 'Minimum release age (uv / Python)',
+			description:
+				'Refuse to install Python packages younger than this many seconds. Protects against supply-chain attacks via freshly published versions. Wires to <code>uv pip --exclude-newer</code>.',
+			key: 'uv_exclude_newer',
+			fieldType: 'seconds',
+			placeholder: '604800',
+			storage: 'setting'
+		},
+		{
+			label: 'Minimum release age (bun / npm)',
+			description:
+				'Refuse to install npm packages younger than this many seconds. Protects against supply-chain attacks via freshly published versions. Sets <code>BUN_INSTALL_MINIMUM_RELEASE_AGE</code>.',
+			key: 'bun_install_min_release_age',
+			fieldType: 'seconds',
+			placeholder: '604800',
+			storage: 'setting'
+		},
+		{
 			label: 'Nuget Config',
 			description:
 				'Write a nuget.config file to set custom package sources and credentials. Use <clear /> inside <packageSources> to remove default sources and only use your custom ones',

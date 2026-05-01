@@ -541,7 +541,45 @@ pub async fn do_snowflake(
     occupancy_metrics: &mut OccupancyMetrics,
     parent_runnable_path: Option<String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let snowflake_args = build_args_values(job, client, conn).await?;
+    let mut snowflake_args = build_args_values(job, client, conn).await?;
+
+    // Materialize any `(s3object)` args into JSON text. The catch-all branch in
+    // `convert_typ_val` binds a String value as `{type: "TEXT", value: ...}`, which
+    // the user wraps with `PARSE_JSON(?)` in their SQL.
+    {
+        let sig = parse_snowflake_sig(query)
+            .map_err(|x| Error::ExecutionErr(x.to_string()))?
+            .args;
+        for arg in sig.iter() {
+            if arg.otyp.as_deref() != Some("s3object") {
+                continue;
+            }
+            let raw = snowflake_args.remove(&arg.name).unwrap_or(Value::Null);
+            if matches!(raw, Value::Null) {
+                return Err(Error::BadRequest(format!(
+                    "Missing S3Object value for arg `{}`",
+                    arg.name
+                )));
+            }
+            let s3_obj: windmill_types::s3::S3Object =
+                serde_json::from_value(raw).map_err(|e| {
+                    Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
+                })?;
+            let json_text = crate::sql_s3_input::fetch_s3object_as_json_text(
+                client,
+                &job.workspace_id,
+                &s3_obj,
+            )
+            .await
+            .map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Failed to fetch S3 object for arg `{}`: {e}",
+                    arg.name
+                ))
+            })?;
+            snowflake_args.insert(arg.name.clone(), Value::String(json_text));
+        }
+    }
 
     let inline_db_res_path = parse_db_resource(&query);
     let s3 = parse_s3_mode(&query)?.map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));

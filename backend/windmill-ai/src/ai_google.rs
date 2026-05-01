@@ -651,14 +651,54 @@ pub fn sanitize_schema_for_google(value: &mut serde_json::Value) {
         "exclusiveMaximum",
         "const",
         "multipleOf",
+        "unevaluatedItems",
+        "unevaluatedProperties",
+    ];
+    const SINGLE_SCHEMA_FIELDS: &[&str] = &[
+        "items",
+        "additionalItems",
+        "contains",
+        "not",
+        "if",
+        "then",
+        "else",
+        "contentSchema",
+    ];
+    const ARRAY_SCHEMA_FIELDS: &[&str] = &["oneOf", "anyOf", "allOf", "prefixItems"];
+    const MAP_SCHEMA_FIELDS: &[&str] = &[
+        "properties",
+        "patternProperties",
+        "$defs",
+        "definitions",
+        "dependentSchemas",
+        "dependencies",
     ];
 
     if let Some(obj) = value.as_object_mut() {
         for field in UNSUPPORTED {
             obj.remove(*field);
         }
-        for v in obj.values_mut() {
-            sanitize_schema_for_google(v);
+
+        for &key in SINGLE_SCHEMA_FIELDS {
+            if let Some(schema) = obj.get_mut(key) {
+                sanitize_schema_for_google(schema);
+            }
+        }
+
+        for &key in ARRAY_SCHEMA_FIELDS {
+            if let Some(schemas) = obj.get_mut(key).and_then(serde_json::Value::as_array_mut) {
+                for schema in schemas {
+                    sanitize_schema_for_google(schema);
+                }
+            }
+        }
+
+        for &key in MAP_SCHEMA_FIELDS {
+            if let Some(schemas) = obj.get_mut(key).and_then(serde_json::Value::as_object_mut) {
+                for schema in schemas.values_mut() {
+                    sanitize_schema_for_google(schema);
+                }
+            }
         }
     } else if let Some(arr) = value.as_array_mut() {
         for v in arr.iter_mut() {
@@ -833,5 +873,128 @@ mod tests {
 
         assert!(schema["properties"]["staticInputs"]["propertyNames"].is_null());
         assert!(schema["properties"]["staticInputs"]["additionalProperties"].is_null());
+    }
+
+    #[test]
+    fn sanitize_schema_for_google_preserves_keyword_property_names() {
+        let mut schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "default": {
+                    "type": "string",
+                    "default": "fallback"
+                },
+                "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "const": {
+                            "type": "string",
+                            "const": "value"
+                        }
+                    },
+                    "required": ["const"]
+                }
+            },
+            "required": ["default", "additionalProperties"]
+        });
+
+        sanitize_schema_for_google(&mut schema);
+
+        assert!(schema["properties"]["default"].is_object());
+        assert_eq!(schema["properties"]["default"]["type"], "string");
+        assert!(schema["properties"]["default"]["default"].is_null());
+
+        assert!(schema["properties"]["additionalProperties"].is_object());
+        assert!(schema["properties"]["additionalProperties"]["additionalProperties"].is_null());
+        assert!(schema["properties"]["additionalProperties"]["properties"]["const"].is_object());
+        assert!(
+            schema["properties"]["additionalProperties"]["properties"]["const"]["const"].is_null()
+        );
+        assert_eq!(
+            schema["required"],
+            serde_json::json!(["default", "additionalProperties"])
+        );
+    }
+
+    #[test]
+    fn sanitize_schema_for_google_recurses_through_schema_containers() {
+        let mut schema = serde_json::json!({
+            "type": "object",
+            "not": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "default": {
+                        "type": "string",
+                        "default": "fallback"
+                    }
+                }
+            },
+            "if": {
+                "type": "object",
+                "const": { "kind": "a" }
+            },
+            "then": {
+                "type": "object",
+                "properties": {
+                    "value": {
+                        "type": "number",
+                        "multipleOf": 2
+                    }
+                }
+            },
+            "prefixItems": [
+                {
+                    "type": "string",
+                    "default": "first"
+                }
+            ],
+            "contentSchema": {
+                "type": "object",
+                "default": {}
+            },
+            "unevaluatedItems": {
+                "type": "string",
+                "default": "item"
+            },
+            "unevaluatedProperties": false,
+            "patternProperties": {
+                "^x-": {
+                    "type": "string",
+                    "const": "fixed"
+                }
+            },
+            "dependentSchemas": {
+                "credit_card": {
+                    "type": "object",
+                    "additionalProperties": false
+                }
+            },
+            "dependencies": {
+                "billing_address": {
+                    "type": "object",
+                    "default": {}
+                }
+            }
+        });
+
+        sanitize_schema_for_google(&mut schema);
+
+        assert!(schema["not"]["additionalProperties"].is_null());
+        assert!(schema["not"]["properties"]["default"].is_object());
+        assert!(schema["not"]["properties"]["default"]["default"].is_null());
+        assert!(schema["if"]["const"].is_null());
+        assert!(schema["then"]["properties"]["value"]["multipleOf"].is_null());
+        assert!(schema["prefixItems"][0]["default"].is_null());
+        assert!(schema["contentSchema"]["default"].is_null());
+        assert!(schema["unevaluatedItems"].is_null());
+        assert!(schema["unevaluatedProperties"].is_null());
+        assert!(schema["patternProperties"]["^x-"].is_object());
+        assert!(schema["patternProperties"]["^x-"]["const"].is_null());
+        assert!(schema["dependentSchemas"]["credit_card"].is_object());
+        assert!(schema["dependentSchemas"]["credit_card"]["additionalProperties"].is_null());
+        assert!(schema["dependencies"]["billing_address"].is_object());
+        assert!(schema["dependencies"]["billing_address"]["default"].is_null());
     }
 }

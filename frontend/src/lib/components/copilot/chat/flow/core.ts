@@ -31,12 +31,13 @@ import {
 	createSearchWorkspaceTool,
 	createGetRunnableDetailsTool
 } from '../shared'
+import { createWorkspaceMutationTools } from '../workspaceTools'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
 import { createInlineScriptSession, type InlineScriptSession } from './inlineScriptsUtils'
 import { validateFlowGroups, type FlowGroup, type FlowJsonUpdateResult } from './helperUtils'
-import { flowModuleSchema, flowModulesSchema } from './openFlowZod'
+import { flowModuleSchema, flowModulesSchema } from './openFlowZod.gen'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
 import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
 
@@ -747,6 +748,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	createDbSchemaTool<FlowAIChatHelpers>(),
 	createSearchWorkspaceTool(),
 	createGetRunnableDetailsTool(),
+	...createWorkspaceMutationTools<FlowAIChatHelpers>(),
 	{
 		def: resourceTypeToolDef,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
@@ -1316,6 +1318,8 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 **Resources & Schema:**
 - **Search resource types** → \`resource_type\`
 - **Get database schema** → \`get_db_schema\`
+- **Create a schedule for the current flow** → \`create_schedule\`
+- **Create a trigger for the current flow** → \`create_trigger\`
 
 ## Quick Edits with patch_flow_json
 

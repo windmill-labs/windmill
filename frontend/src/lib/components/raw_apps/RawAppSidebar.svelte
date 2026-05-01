@@ -12,6 +12,7 @@
 	import RawAppDataTableList from './RawAppDataTableList.svelte'
 	import type { DataTableRef } from './dataTableRefUtils'
 	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
+	import RawAppSharedUiDrawer from './RawAppSharedUiDrawer.svelte'
 
 	interface Props {
 		runnables: Record<string, Runnable>
@@ -55,6 +56,7 @@
 
 	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
 	let selectedDataTableIndex: number | undefined = $state(undefined)
+	let sharedUiDrawer: RawAppSharedUiDrawer | undefined = $state()
 
 	function handleAddDataTable(ref: DataTableRef) {
 		onDataTableRefsChange?.([...dataTableRefs, ref])
@@ -107,6 +109,15 @@
 				<Plus size={12} />
 				<Folder size={12} />
 			</Button>
+			<Button
+				onClick={() => sharedUiDrawer?.openDrawer()}
+				title="Browse the workspace shared ui/ folder"
+				unifiedSize="xs"
+				variant="subtle"
+				btnClasses="px-1 gap-0.5 text-xs"
+			>
+				ui/
+			</Button>
 		</div>
 	{/snippet}
 	<FileExplorer
@@ -146,6 +157,7 @@
 	onAdd={handleAddDataTable}
 	existingRefs={dataTableRefs}
 />
+<RawAppSharedUiDrawer bind:this={sharedUiDrawer} />
 
 {#if historyManager && onHistorySelect && onManualSnapshot}
 	<div class="py-4"></div>

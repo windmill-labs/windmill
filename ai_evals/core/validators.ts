@@ -6,6 +6,8 @@ import type {
   CliTrace,
   CliValidationSpec,
   FlowValidationSpec,
+  ModeRunOutput,
+  ToolValidationSpec,
 } from "./types";
 
 export interface ScriptState {
@@ -16,6 +18,7 @@ export interface ScriptState {
 }
 
 export interface FlowState {
+  path?: string;
   summary?: string;
   value?: {
     preprocessor_module?: Record<string, unknown>;
@@ -124,6 +127,76 @@ export function validateFlowState(input: {
 
   if (input.validate) {
     checks.push(...validateFlowRequirements(input.actual, input.validate));
+  }
+
+  return checks;
+}
+
+export function validateToolExpectations(input: {
+  run: ModeRunOutput<unknown>;
+  toolExpect?: ToolValidationSpec;
+}): BenchmarkCheck[] {
+  const expect = input.toolExpect;
+  if (!expect) {
+    return [];
+  }
+
+  const checks: BenchmarkCheck[] = [];
+  const toolCallDetails = input.run.toolCallDetails ?? [];
+
+  for (const toolName of expect.requiredToolsUsed ?? []) {
+    checks.push(
+      check(
+        `uses ${toolName}`,
+        input.run.toolsUsed.includes(toolName),
+        `tools used: ${input.run.toolsUsed.join(", ") || "none"}`
+      )
+    );
+  }
+
+  for (const rule of expect.toolCallArgs ?? []) {
+    const calls = toolCallDetails.filter((call) => call.name === rule.tool);
+    checks.push(
+      check(
+        `${rule.tool} was called for argument validation`,
+        calls.length > 0,
+        `tools called: ${toolCallDetails.map((call) => call.name).join(", ") || "none"}`
+      )
+    );
+    if (calls.length === 0) {
+      continue;
+    }
+
+    const values = calls.map((call) => getToolArgumentValue(call.arguments, rule.field));
+    if (rule.stringStartsWithAnyOf && rule.stringStartsWithAnyOf.length > 0) {
+      const invalidValues = values.filter(
+        (value) =>
+          typeof value !== "string" ||
+          !rule.stringStartsWithAnyOf!.some((prefix) => value.startsWith(prefix))
+      );
+      checks.push(
+        check(
+          `${rule.tool}.${rule.field} uses an accepted prefix`,
+          invalidValues.length === 0,
+          `accepted prefixes: ${rule.stringStartsWithAnyOf.join(", ")}; values: ${summarizeToolValues(values)}`
+        )
+      );
+    }
+
+    if (rule.stringMustNotStartWithAnyOf && rule.stringMustNotStartWithAnyOf.length > 0) {
+      const invalidValues = values.filter(
+        (value) =>
+          typeof value === "string" &&
+          rule.stringMustNotStartWithAnyOf!.some((prefix) => value.startsWith(prefix))
+      );
+      checks.push(
+        check(
+          `${rule.tool}.${rule.field} avoids rejected prefixes`,
+          invalidValues.length === 0,
+          `rejected prefixes: ${rule.stringMustNotStartWithAnyOf.join(", ")}; values: ${summarizeToolValues(values)}`
+        )
+      );
+    }
   }
 
   return checks;
@@ -327,6 +400,17 @@ function cliFileContainsExpectedContent(actualContent: string, expectedContent: 
 
 function check(name: string, passed: boolean, details?: string): BenchmarkCheck {
   return !passed && details ? { name, passed, details } : { name, passed };
+}
+
+function getToolArgumentValue(args: unknown, dottedPath: string): unknown {
+  if (!isObjectRecord(args)) {
+    return undefined;
+  }
+  return getValueAtPath(args, dottedPath);
+}
+
+function summarizeToolValues(values: unknown[]): string {
+  return values.map((value) => JSON.stringify(value)).join(", ") || "none";
 }
 
 function normalizeText(value: string): string {

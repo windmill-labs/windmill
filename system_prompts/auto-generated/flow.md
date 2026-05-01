@@ -1,15 +1,5 @@
 # Windmill Flow Building Guide
 
-## CLI Commands
-
-Create a folder ending with `__flow` and add a `flow.yaml` file with the flow definition.
-For rawscript modules, use `!inline path/to/script.ts` for the content key. Inline script files should NOT include `.inline_script.` in their names (e.g. use `a.ts`, not `a.inline_script.ts`).
-After writing, tell the user they can run:
-- `wmill generate-metadata` - Generate lock files for the flow you modified
-- `wmill sync push` - Deploy to Windmill
-
-Do NOT run these commands yourself. Instead, inform the user that they should run them.
-
 ## OpenFlow Schema
 
 The OpenFlow schema (openflow.openapi.yaml) is the source of truth for flow structure. Refer to OPENFLOW_SCHEMA for the complete type definitions.

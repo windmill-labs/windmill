@@ -247,7 +247,9 @@ mod suspend_resume {
     #[cfg(feature = "enterprise")]
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
-    async fn test_self_approval_disabled_blocks_owner_resume(db: Pool<Postgres>) -> anyhow::Result<()> {
+    async fn test_self_approval_disabled_blocks_owner_resume(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
         initialize_tracing().await;
 
         let server = ApiServer::start(db.clone()).await?;
@@ -358,7 +360,9 @@ mod suspend_resume {
     #[cfg(feature = "enterprise")]
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
-    async fn test_self_approval_allowed_when_not_disabled(db: Pool<Postgres>) -> anyhow::Result<()> {
+    async fn test_self_approval_allowed_when_not_disabled(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
         initialize_tracing().await;
 
         let server = ApiServer::start(db.clone()).await?;
@@ -462,7 +466,9 @@ mod suspend_resume {
     #[cfg(feature = "enterprise")]
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base"))]
-    async fn test_different_user_can_approve_when_self_approval_disabled(db: Pool<Postgres>) -> anyhow::Result<()> {
+    async fn test_different_user_can_approve_when_self_approval_disabled(
+        db: Pool<Postgres>,
+    ) -> anyhow::Result<()> {
         initialize_tracing().await;
 
         let server = ApiServer::start(db.clone()).await?;

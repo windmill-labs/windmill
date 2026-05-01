@@ -2,7 +2,9 @@
 mod tests {
     use serde_json::json;
     use windmill_parser::{Arg, MainArgSignature, ObjectProperty, ObjectType, Typ};
-    use windmill_parser_ts::{parse_deno_signature, parse_expr_for_imports, parse_relative_imports};
+    use windmill_parser_ts::{
+        parse_deno_signature, parse_expr_for_imports, parse_relative_imports,
+    };
 
     #[test]
     fn test_imports_basic() {
@@ -78,6 +80,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "num_param".to_string(),
@@ -86,6 +89,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "bool_param".to_string(),
@@ -94,6 +98,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "any_param".to_string(),
@@ -102,6 +107,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -136,6 +142,7 @@ mod tests {
                         default: Some(json!("World")),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "count".to_string(),
@@ -144,6 +151,7 @@ mod tests {
                         default: Some(json!(42)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "enabled".to_string(),
@@ -152,6 +160,7 @@ mod tests {
                         default: Some(json!(true)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -186,6 +195,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "numbers".to_string(),
@@ -194,6 +204,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "items".to_string(),
@@ -202,6 +213,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -235,6 +247,7 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 },],
                 auto_kind: None,
                 has_preprocessor: Some(false),
@@ -267,6 +280,7 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 },],
                 auto_kind: None,
                 has_preprocessor: Some(false),
@@ -308,6 +322,7 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
@@ -347,6 +362,7 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
@@ -406,6 +422,7 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
@@ -440,6 +457,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "base64_param".to_string(),
@@ -448,6 +466,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "email_param".to_string(),
@@ -456,6 +475,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "sql_param".to_string(),
@@ -464,6 +484,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -498,6 +519,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "optional".to_string(),
@@ -506,6 +528,7 @@ mod tests {
                         default: None,
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "with_default".to_string(),
@@ -514,6 +537,7 @@ mod tests {
                         default: Some(json!(false)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -593,6 +617,7 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
@@ -623,6 +648,7 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
@@ -653,6 +679,7 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(false),
@@ -686,6 +713,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "numbers".to_string(),
@@ -694,6 +722,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "plain".to_string(),
@@ -702,6 +731,7 @@ mod tests {
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -744,6 +774,7 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(true),
@@ -775,6 +806,7 @@ mod tests {
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 }],
                 auto_kind: None,
                 has_preprocessor: Some(true),

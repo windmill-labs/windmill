@@ -1,0 +1,25 @@
+summary: Basic flow
+description: Two sequential script modules
+value:
+  modules:
+    - id: a
+      value:
+        type: script
+        input_transforms:
+          x:
+            type: static
+            value: hello
+        path: f/lib/uppercase
+    - id: b
+      value:
+        type: script
+        input_transforms:
+          input:
+            type: javascript
+            expr: results.a
+        path: f/lib/print
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  properties: {}
+  required: []

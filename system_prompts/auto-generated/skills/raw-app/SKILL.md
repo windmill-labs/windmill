@@ -9,11 +9,70 @@ Raw apps let you build custom frontends with React, Svelte, or Vue that connect 
 
 ## Creating a Raw App
 
+**You — the AI agent — create the app yourself by running `wmill app new` with the right flags. Do NOT tell the user to "run `wmill app new` and follow the prompts" or wait for them to do it.** The bare `wmill app new` is an interactive wizard that hangs waiting for stdin in any non-TTY context (which includes you). Always pass flags.
+
+### Step 1 — Gather the three required values by asking the user
+
+You need three things to run the command:
+
+1. **summary** — a short description of the app
+2. **path** — the windmill path, e.g. `f/folder/my_app` or `u/username/my_app`
+3. **framework** — one of `react19` (recommended), `react18`, `svelte5`, `vue`
+
+If the user's request did not supply *every* one of these explicitly, ask. Do not guess values, do not invent paths, do not pick a framework on the user's behalf, do not "just use react19 because it's the default".
+
+Use whichever interactive question facility your runtime provides — a structured multi-choice tool if available, otherwise plain chat — and group all missing fields into a single round-trip so the user answers them at once:
+
+- For `framework` — multiple-choice with the four allowed values; mark `react19` as `(Recommended)` and put it first.
+- For `summary` and `path` — provide one or two example values as multiple-choice options (the user can pick "Other" to type a free-form answer).
+
+Only proceed once you have concrete values for all three. If the user replies with something ambiguous, ask again rather than guessing.
+
+### Step 2 — Run the command yourself
+
+Once you have summary + path + framework, run it:
+
+```bash
+wmill app new \
+  --summary "Customer dashboard" \
+  --path f/sales/dashboard \
+  --framework react19
+```
+
+That's the minimum. The datatable wizard and the "Open in Claude Desktop?" prompt are skipped silently because passing any of `--summary`/`--path`/`--framework` puts the command in non-interactive mode.
+
+### Optional flags
+
+Layer these in only when the user asked for them:
+
+| Flag | When to add it |
+|---|---|
+| `--datatable <name>` | The user wants this app wired to a specific Windmill datatable. Without it, the app is created with no datatable. |
+| `--schema <name>` | Together with `--datatable`. Creates the schema with `CREATE SCHEMA IF NOT EXISTS` if it doesn't already exist. |
+| `--overwrite` | The target directory already exists and the user said it's OK to replace. Without it, non-interactive mode aborts with an error so you don't clobber existing work. |
+| `--no-open-in-desktop` | Already implied in non-interactive mode; only needed if you're somehow running interactively. |
+
+### Step 3 — Offer the visual preview
+
+After `wmill app new` and any initial edits to `App.tsx` / `index.tsx`, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a `launch.json` entry when an embedded preview tool is in play) the user should consent to.
+
+For apps the preview command runs from the app folder (`cd <app_path>__raw_app && wmill app dev …`); the `preview` skill picks the proxy vs direct branch based on whether the runtime exposes a tool that can embed a localhost URL. If the user already asked to see/preview/visualize the app in their original request, skip the offer and just invoke the skill.
+
+### Anti-patterns to avoid
+
+- ❌ Running `wmill app new` with no flags (the prompt will hang).
+- ❌ Telling the user to "run `wmill app new` and follow the prompts" — that's a step backwards from what you can do directly.
+- ❌ Inventing a path/summary/framework instead of asking the user.
+- ❌ Defaulting to `react19` because the user didn't say — even sensible defaults must be confirmed.
+- ❌ Passing `--overwrite` automatically when the directory exists — confirm with the user first.
+
+### Interactive (only when a human is at the terminal)
+
 ```bash
 wmill app new
 ```
 
-This interactive command creates a complete app structure with your choice of frontend framework (React, Svelte, or Vue).
+This is the wizard. It only works when run by a human in a real terminal. Don't call it this way from an agent.
 
 ## App Structure
 
@@ -237,12 +296,13 @@ data:
 
 ## CLI Commands
 
-Tell the user they can run these commands (do NOT run them yourself):
+`wmill app new` is the exception: you run it yourself, with flags, per the "Creating a Raw App" section above.
+
+For everything else, tell the user which command fits their intent and let them run it — these touch the workspace or local lock files, and the user should consent each time:
 
 | Command | Description |
 |---------|-------------|
-| `wmill app new` | Create a new raw app interactively |
-| `wmill app dev` | Start dev server with live reload |
+| `wmill app dev` | Start dev server with live reload (see the `preview` skill for the full open-the-app-in-the-IDE-pane procedure). |
 | `wmill app generate-agents` | Refresh AGENTS.md and DATATABLES.md |
 | `wmill generate-metadata` | Generate lock files for backend runnables |
 | `wmill sync push` | Deploy app to Windmill |

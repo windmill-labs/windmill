@@ -49,6 +49,7 @@ SCHEMA_MAPPINGS = {
         ('SqsTrigger', 'sqs_trigger'),
         ('GcpTrigger', 'gcp_trigger'),
         ('AzureTrigger', 'azure_trigger'),
+        ('EmailTrigger', 'email_trigger'),
     ],
     'schedules': [
         ('Schedule', 'schedule'),

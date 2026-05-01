@@ -1492,6 +1492,8 @@ pub struct FlowWDraft {
     pub visible_to_runner_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
 }
 
 async fn get_flow_by_path_w_draft(
@@ -1516,7 +1518,8 @@ async fn get_flow_by_path_w_draft(
             draft.value AS draft,
             flow.tag,
             flow.visible_to_runner_only,
-            flow.on_behalf_of_email
+            flow.on_behalf_of_email,
+            flow.labels
         FROM flow
         LEFT JOIN draft
             ON flow.path = draft.path

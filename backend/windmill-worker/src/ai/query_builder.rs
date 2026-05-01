@@ -24,9 +24,9 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
     use windmill_ai::ai_providers::AIProvider;
 
     match provider.kind {
-        AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new(
-            provider.get_platform().clone(),
-        )),
+        AIProvider::GoogleAI => {
+            Box::new(GoogleAIQueryBuilder::new(provider.get_platform().clone()))
+        }
         AIProvider::OpenAI => Box::new(OpenAIQueryBuilder::new(provider.kind.clone())),
         AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(
             provider.kind.clone(),

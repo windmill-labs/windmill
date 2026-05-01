@@ -35,8 +35,7 @@ const config = {
 			'rubendev.wimill.xyz',
 			'windmill.xyz',
 			'app.windmill.xyz',
-			'public.windmill.xyz',
-			'hugo.ngrok.pro'
+			'public.windmill.xyz'
 		],
 		port: parseInt(process.env.FRONTEND_PORT) || 3000,
 		cors: { origin: '*' },
