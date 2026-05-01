@@ -44,6 +44,12 @@ const TOP_HASH = "__flow_hash";
  * fallback, if the top hash mismatches we accept the entry as up-to-date when
  * every per-file hash matches individually — that's enough to prove no file
  * content changed.
+ *
+ * Known false-negative: on a legacy lockfile, *removing* a step leaves the
+ * remaining per-file hashes matching, so this returns "up-to-date" even
+ * though the flow shape changed. Self-heals on the next push (which writes
+ * the modern top hash). Acceptable trade-off vs. the alternative — false
+ * positives from the unrecoverable legacy top-hash formula.
  */
 async function isFlowDirectlyStale(
   folder: string,

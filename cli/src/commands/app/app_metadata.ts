@@ -63,6 +63,10 @@ type AppFile = RawAppFile | NormalAppFile;
  * Mirrors the flow staleness check: when the top hash mismatches (e.g. due to
  * the legacy unsorted-keys top-hash formula), accept the entry if every
  * per-file hash still matches individually.
+ *
+ * Same false-negative as flows: removing a runnable on a legacy lockfile
+ * looks "up-to-date" until the next push rewrites the top hash. See
+ * isFlowDirectlyStale for the rationale.
  */
 async function isAppDirectlyStale(
   appFolder: string,

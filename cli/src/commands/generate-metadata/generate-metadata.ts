@@ -93,6 +93,12 @@ async function walkLocalAppItems(
  * Categorize a flat list of file paths into scripts / flow folders / app
  * file paths. Used to derive item lists from a precomputed FS map (e.g.
  * sync pull's change-tracker output) without re-walking the filesystem.
+ *
+ * Caller invariant: the provided paths are expected to already be filtered
+ * by the user-level ignore predicate (`ignoreF(opts)`). This function does
+ * NOT re-apply ignore patterns — it only filters by file *kind* (script vs
+ * flow vs app). Sync pull's localMap satisfies this since `elementsToMap`
+ * was called with the same `ignoreF`.
  */
 function categorizeLocalFiles(
   paths: Iterable<string>,

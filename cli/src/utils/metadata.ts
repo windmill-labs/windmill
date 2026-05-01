@@ -63,6 +63,13 @@ export class UnknownLockVersionError extends Error {
   }
 }
 
+export class MalformedLockfileError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MalformedLockfileError";
+  }
+}
+
 
 export async function getRawWorkspaceDependencies(legacyBehaviour: boolean): Promise<Record<string, string>> {
   const rawWorkspaceDeps: Record<string, string> = {};
@@ -261,6 +268,9 @@ export async function generateScriptMetadataInternal(
         await updateMetadataGlobalLock(remotePath, moduleHash, modulePath);
       }
     } else {
+      // Mirror the hasModuleHashes branch: clear first so any legacy
+      // "./"-prefixed duplicate gets collapsed alongside the canonical write.
+      await clearGlobalLock(remotePath);
       await updateMetadataGlobalLock(remotePath, hash);
     }
     return;
@@ -1197,7 +1207,10 @@ export async function readLockfile(): Promise<Lock> {
     return lock;
   }
   if (typeof parsed != "object" || parsed == null) {
-    throw new Error("wmill-lock.yaml is malformed (expected an object)");
+    throw new MalformedLockfileError(
+      "wmill-lock.yaml is malformed (expected an object). " +
+      "Refusing to operate to avoid corrupting the lockfile.",
+    );
   }
   const conf = parsed as Lock;
   if (conf.version != null && !KNOWN_LOCK_VERSIONS.includes(conf.version)) {

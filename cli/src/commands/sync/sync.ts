@@ -76,6 +76,7 @@ import {
   getRawWorkspaceDependencies,
   readLockfile,
   UnknownLockVersionError,
+  MalformedLockfileError,
   workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
 import { OpenFlow, NativeServiceName, ScriptModule } from "../../../gen/types.gen.ts";
@@ -2682,9 +2683,13 @@ export async function pull(
         );
       }
     } catch (e) {
-      // Re-throw fail-fast errors (unknown lockfile version) so the user
-      // sees them; only swallow soft failures from the auto-fill walk.
-      if (e instanceof UnknownLockVersionError) {
+      // Re-throw fail-fast lockfile errors (unknown version, malformed yaml)
+      // so the user sees them; only swallow soft failures from the auto-fill
+      // walk itself.
+      if (
+        e instanceof UnknownLockVersionError ||
+        e instanceof MalformedLockfileError
+      ) {
         throw e;
       }
       log.warn(
