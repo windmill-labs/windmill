@@ -12,6 +12,12 @@ export interface BundleOptions {
   sourcemap?: boolean;
   minify?: boolean;
   production?: boolean;
+  /**
+   * Absolute path to the workspace's shared `ui/` folder. When set, imports
+   * starting with `/ui/...` are resolved as files inside this directory.
+   * Allows raw apps to reuse components from the workspace-level shared folder.
+   */
+  sharedUiDir?: string;
 }
 
 export interface BundleResult {
@@ -235,6 +241,45 @@ export async function createBundle(
     },
   };
 
+  const sharedUiPlugins: any[] = [];
+  if (options.sharedUiDir && fs.existsSync(options.sharedUiDir)) {
+    const sharedUiDir = options.sharedUiDir;
+    sharedUiPlugins.push({
+      name: "wmill-shared-ui",
+      setup(build: any) {
+        // Intercept imports of /ui/<file> and resolve to the workspace ui/ folder.
+        build.onResolve({ filter: /^\/ui\// }, (args: any) => {
+          const rel = args.path.slice("/ui/".length);
+          const candidates = [rel];
+          if (!path.extname(rel)) {
+            candidates.push(
+              rel + ".tsx",
+              rel + ".ts",
+              rel + ".jsx",
+              rel + ".js",
+              rel + ".css",
+              path.join(rel, "index.tsx"),
+              path.join(rel, "index.ts"),
+            );
+          }
+          for (const c of candidates) {
+            const full = path.join(sharedUiDir, c);
+            if (fs.existsSync(full)) {
+              return { path: full };
+            }
+          }
+          return {
+            errors: [
+              {
+                text: `Could not resolve shared UI import "${args.path}" in ${sharedUiDir}`,
+              },
+            ],
+          };
+        });
+      },
+    });
+  }
+
   const buildOptions = {
     ...DEFAULT_BUILD_OPTIONS,
     entryPoints: [entryPoint],
@@ -244,7 +289,7 @@ export async function createBundle(
     define: {
       "process.env.NODE_ENV": production ? '"production"' : '"development"',
     },
-    plugins: [...frameworkPlugins, wmillPlugin],
+    plugins: [...frameworkPlugins, wmillPlugin, ...sharedUiPlugins],
   };
 
   log.info(colors.blue("📦 Building bundle..."));

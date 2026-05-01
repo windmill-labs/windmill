@@ -32,6 +32,7 @@
 
 	type RunnableWithInlineScript = RunnableWithFields & {
 		inlineScript?: InlineScript & { language: ScriptLang }
+		delete_after_secs?: number
 	}
 	export type Runnable = RunnableWithInlineScript | undefined
 	interface Props {
@@ -204,6 +205,7 @@
 					bind:inlineScript={runnable.inlineScript}
 					bind:name={runnable.name}
 					bind:fields={runnable.fields}
+					bind:delete_after_secs={runnable.delete_after_secs}
 					onRun={testPreview}
 					on:delete
 					path={appPath}

@@ -597,8 +597,22 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
         }
       }
 
+      // Debounce flow round-trip writes per-client. Each keystroke in the
+      // dev page produces a `flow` message; without this, every keystroke
+      // races on the same flow.yaml + inline scripts, and the resulting
+      // fsWatcher echoes engage the client's lockChanges mid-typing,
+      // dropping subsequent edits. Mirrors the windmill-vscode extension's
+      // 200ms debounce in src/extension.ts.
+      let pendingFlowMessage: { flow: any; uriPath: string } | undefined;
+      let flowDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+
       ws.on("close", () => {
         connectedClients.delete(ws);
+        if (flowDebounceTimer) {
+          clearTimeout(flowDebounceTimer);
+          flowDebounceTimer = undefined;
+          pendingFlowMessage = undefined;
+        }
         console.log("Dev client disconnected");
       });
 
@@ -614,9 +628,20 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
         if (data.type === "load") {
           loadPaths([data.path]);
         } else if (data.type === "flow") {
-          handleFlowRoundTrip(data).catch((err) => {
-            log.error(`Failed to write flow changes: ${err}`);
-          });
+          pendingFlowMessage = data;
+          if (flowDebounceTimer) {
+            clearTimeout(flowDebounceTimer);
+          }
+          flowDebounceTimer = setTimeout(() => {
+            const msg = pendingFlowMessage;
+            pendingFlowMessage = undefined;
+            flowDebounceTimer = undefined;
+            if (msg) {
+              handleFlowRoundTrip(msg).catch((err) => {
+                log.error(`Failed to write flow changes: ${err}`);
+              });
+            }
+          }, 200);
         } else if (data.type === "loadWmPath") {
           loadWmPath(data.path).then((edit) => {
             if (edit && ws.readyState === WebSocket.OPEN) {

@@ -101,7 +101,15 @@
 										.filter(([k, v]) => v.type == 'static')
 										.map(([k, v]) => [k, v?.['value']])
 								)
-							: undefined
+							: undefined,
+						force_viewer_sensitive_inputs: editor
+							? undefinedIfEmpty(
+									Object.keys(runnable?.fields ?? {}).filter(
+										(k) => runnable?.fields?.[k]?.type == 'user' && runnable?.fields?.[k]?.sensitive
+									)
+								)
+							: undefined,
+						force_viewer_delete_after_secs: editor ? runnable?.delete_after_secs : undefined
 					},
 					undefined
 				)

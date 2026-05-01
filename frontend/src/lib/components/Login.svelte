@@ -96,6 +96,7 @@
 	let smtpConfigured: boolean | undefined = $state(undefined)
 	let disablePasswordLogin = $state(false)
 	let autoRedirecting = $state(false)
+	let oauthFlowDone = false
 
 	type OAuthLogin = {
 		type: string
@@ -301,24 +302,39 @@
 		if (data.type === 'error') {
 			sendUserToast(data.error, true)
 		} else if (data.type === 'success') {
-			onLoginSuccess?.()
+			finishOauthFlow('postMessage')
 		}
 	}
 
 	function handleStorageEvent(event) {
 		if (event.key === 'oauth-success') {
 			try {
-				processPopupData(JSON.parse(event.newValue))
+				const data = JSON.parse(event.newValue)
 				console.log('oauth-success from storage')
 				// Clean up
 				localStorage.removeItem('oauth-success')
 				window.removeEventListener('storage', handleStorageEvent)
+				if (data?.type === 'success') {
+					finishOauthFlow('storage')
+				} else {
+					processPopupData(data)
+				}
 			} catch (e) {
 				console.error('Could not process oauth-success from storage', e)
 			}
 		} else {
 			console.log('Storage event', event.key)
 		}
+	}
+
+	function finishOauthFlow(via: 'postMessage' | 'storage' | 'poll', win?: Window) {
+		if (oauthFlowDone) return
+		oauthFlowDone = true
+		console.log(`oauth: signaled via ${via}`)
+		if (win && !win.closed) win.close()
+		window.removeEventListener('message', popupListener)
+		window.removeEventListener('storage', handleStorageEvent)
+		onLoginSuccess?.()
 	}
 
 	onDestroy(() => {
@@ -351,12 +367,46 @@
 				window.removeEventListener('storage', handleStorageEvent)
 				return false
 			}
+			// Safety net for Safari: when the popup is opened without a fresh user
+			// gesture (auto-login), ITP can partition cookies/localStorage between
+			// popup and parent, so neither the close cookie, the postMessage, nor
+			// the localStorage 'oauth-success' signal reaches us. The session
+			// cookie is set same-origin and isn't subject to that partitioning, so
+			// polling whoami catches the success and lets us force-close the popup.
+			pollForLoginSuccess(win)
 			return true
 		} else {
 			localStorage.setItem('closeUponLogin', 'false')
 			window.location.href = url
 			return true
 		}
+	}
+
+	function pollForLoginSuccess(win: Window) {
+		const startedAt = Date.now()
+		const interval = setInterval(async () => {
+			if (oauthFlowDone) {
+				clearInterval(interval)
+				return
+			}
+			if (Date.now() - startedAt > 5 * 60 * 1000) {
+				clearInterval(interval)
+				console.log('oauth: poll timed out after 5 minutes')
+				return
+			}
+			if (win.closed) {
+				clearInterval(interval)
+				console.log('oauth: popup closed before login completed')
+				return
+			}
+			try {
+				await UserService.getCurrentEmail()
+			} catch {
+				return
+			}
+			clearInterval(interval)
+			finishOauthFlow('poll', win)
+		}, 1500)
 	}
 
 	function redirectSaml(): boolean {

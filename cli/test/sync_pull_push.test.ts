@@ -631,10 +631,10 @@ test("newPathAssigner with skipInlineScriptSuffix removes .inline_script. from p
   expect(noSuffixPyExt).toEqual("py");
 });
 
-test("path assigners preserve mixed-case summaries", () => {
+test("newPathAssigner lowercases summaries; newRawAppPathAssigner preserves case", () => {
   const inlineAssigner = newPathAssigner("bun", { skipInlineScriptSuffix: true });
   const [inlinePath] = inlineAssigner.assignPath("CamelCaseTSRunnable", "bun");
-  expect(inlinePath).toEqual("CamelCaseTSRunnable.");
+  expect(inlinePath).toEqual("camelcasetsrunnable.");
 
   const rawAssigner = newRawAppPathAssigner("bun");
   const [rawPath] = rawAssigner.assignPath("CamelCaseTSRunnable", "bun");

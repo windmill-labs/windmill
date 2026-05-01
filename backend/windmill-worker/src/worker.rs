@@ -1342,7 +1342,7 @@ pub fn create_span_with_name(
         script_hash = field::Empty,
         otel.name = field::Empty,
         otel.status_code = field::Empty,
-        otel.status_description = field::Empty,
+        otel.status_message = field::Empty,
     );
 
     let rj = arc_job.flow_innermost_root_job.unwrap_or(arc_job.id);
@@ -1382,12 +1382,12 @@ pub fn create_span_with_name(
     span
 }
 
-/// Max characters of an error message copied into the `otel.status_description`
+/// Max characters of an error message copied into the `otel.status_message`
 /// span attribute. Prevents a single verbose failure from blowing up the span
 /// payload on OTLP exporters.
 const STATUS_DESCRIPTION_MAX_LEN: usize = 512;
 
-/// Record `otel.status_code` / `otel.status_description` on the current span
+/// Record `otel.status_code` / `otel.status_message` on the current span
 /// when a job fails. Called from inside the `.instrument(job_span)` future so
 /// that `Span::current()` resolves to the `"job"` span created by
 /// `create_span_with_name`.
@@ -1402,7 +1402,7 @@ pub(crate) fn record_job_span_status(result: &windmill_common::error::Result<boo
     };
     let span = tracing::Span::current();
     span.record("otel.status_code", "ERROR");
-    span.record("otel.status_description", description.as_str());
+    span.record("otel.status_message", description.as_str());
 }
 
 /// Cap an error description at `STATUS_DESCRIPTION_MAX_LEN` bytes, appending

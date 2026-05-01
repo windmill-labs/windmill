@@ -272,6 +272,38 @@
 	let suppressIframeSetFiles = false
 	let suppressTimer: ReturnType<typeof setTimeout> | undefined
 
+	let sharedUiFiles: Record<string, string> = $state({})
+	let sharedUiVersion = $state(0)
+	let sharedUiLoaded = $state(false)
+
+	async function loadSharedUi() {
+		if (!$workspaceStore) return
+		try {
+			const res = (await WorkspaceService.getSharedUi({
+				workspace: $workspaceStore
+			})) as { files?: Record<string, string>; version?: number }
+			sharedUiFiles = res.files ?? {}
+			sharedUiVersion = res.version ?? 0
+		} catch (e) {
+			console.warn('Failed to load shared UI for raw app editor:', e)
+			sharedUiFiles = {}
+		} finally {
+			sharedUiLoaded = true
+		}
+	}
+
+	function setSharedUiInIframe() {
+		const filesSnap = $state.snapshot(sharedUiFiles)
+		iframe?.contentWindow?.postMessage(
+			{
+				type: 'setSharedUi',
+				files: filesSnap,
+				version: sharedUiVersion
+			},
+			'*'
+		)
+	}
+
 	function populateFiles() {
 		if (files) {
 			suppressSetActiveDocument = true
@@ -330,6 +362,7 @@
 		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.APP)
 		rawAppLintStore.enable()
+		loadSharedUi()
 
 		// Initialize aiChatManager.datatableCreationPolicy from stored data
 		aiChatManager.datatableCreationPolicy = {
@@ -751,6 +784,16 @@
 	})
 	$effect(() => {
 		iframe && iframeLoaded && runnables && populateRunnables()
+	})
+	$effect(() => {
+		// Re-push the shared UI whenever the iframe (re)loads or the
+		// fetched files change. We gate on `sharedUiLoaded` so the empty
+		// initial state isn't sent before the API call resolves.
+		if (iframe && iframeLoaded && sharedUiLoaded) {
+			// Touch the version so reassignments after a refresh re-fire this.
+			void sharedUiVersion
+			untrack(() => setSharedUiInIframe())
+		}
 	})
 
 	function clearInspectorSelection() {
