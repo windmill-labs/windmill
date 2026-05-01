@@ -175,6 +175,8 @@ export async function generateAppLocksInternal(
   const conf = await readLockfile();
 
   // Rehash-only fast path: write canonical hashes from disk, skip backend.
+  // Uses empty workspace deps `{}` to match the tree-mode write path. See
+  // the matching comment in flow_metadata.ts for the legacy-mode caveat.
   if (opts.rehashOnly) {
     const hashes = await generateAppHash({}, appFolder, rawApp, opts.defaultTs);
     await clearGlobalLock(appFolder);

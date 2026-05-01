@@ -79,6 +79,10 @@ describe("wmill-lock.yaml byte-format pinning", () => {
     // A representative Lock with both flat and ./-prefixed entries — the
     // shape we produce in the real CLI. If the yaml lib changes
     // indentation, quote style, or sort order, this snapshot will break.
+    // Note on ordering: `./`-prefixed keys sort BEFORE non-prefixed because
+    // `localeCompare` puts `.` before alphanumerics. If a future change
+    // normalizes away `./` on write (i.e. `clearGlobalLock` deletes them
+    // before any new entry is added), update this snapshot.
     const lock = {
       version: "v2",
       locks: {

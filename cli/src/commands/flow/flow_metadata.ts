@@ -130,6 +130,10 @@ export async function generateFlowLockInternal(
 
   // Rehash-only fast path: write canonical per-file + top hashes from disk,
   // no backend trip, no flow.yaml/inline_script rewrite.
+  // Uses empty workspace deps `{}` to match the tree-mode dryRun and write
+  // paths (the modern default). A subsequent legacy non-tree push would
+  // see a deps-included hash mismatch — but legacy non-tree mode is opt-in
+  // and not the recommended workflow.
   if (opts.rehashOnly) {
     const hashes = await generateFlowHash({}, folder, opts.defaultTs);
     await clearGlobalLock(folder);

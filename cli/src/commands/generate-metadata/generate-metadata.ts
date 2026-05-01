@@ -20,7 +20,7 @@ import {
   ignoreF,
 } from "../sync/sync.ts";
 import { exts } from "../script/script.ts";
-import { isFolderResourcePathAnyFormat, isScriptModulePath, isModuleEntryPoint } from "../../utils/resource_folders.ts";
+import { isFolderResourcePathAnyFormat, isScriptModulePath, isModuleEntryPoint, getScriptBasePathFromModulePath } from "../../utils/resource_folders.ts";
 import { listSyncCodebases } from "../../utils/codebase.ts";
 import {
   DoubleLinkedDependencyTree,
@@ -170,9 +170,10 @@ export async function rehashOnly(
   for (const e of scriptPaths) {
     if (!inFilter(e)) continue;
     if (rehashFilter?.missingOnly) {
-      // Quick existence check using the same path-derivation as the handler.
+      // Mirror the canonical derivation in metadata.ts:202-204 so the
+      // existence check matches the key the handler would write.
       const remotePath = isModuleEntryPoint(e)
-        ? e.substring(0, e.lastIndexOf(SEP)).replaceAll(SEP, "/")
+        ? getScriptBasePathFromModulePath(e)!.replaceAll(SEP, "/")
         : e.substring(0, e.indexOf(".")).replaceAll(SEP, "/");
       if (skipIfExisting(remotePath) || skipIfExisting(remotePath, "__script_hash")) continue;
     }

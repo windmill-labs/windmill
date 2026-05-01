@@ -2654,6 +2654,8 @@ export async function pull(
   // dict lookups, no hashing).
   if (!opts.jsonOutput) {
     try {
+      // Dynamic import to avoid a circular dep between sync.ts and
+      // generate-metadata.ts. Don't "clean up" to a static import.
       const { rehashOnly } = await import("../generate-metadata/generate-metadata.ts");
       // Reuse the local-side file list from the change-tracker so we don't
       // re-walk the filesystem. Apply the just-applied changes to derive the
@@ -2678,6 +2680,11 @@ export async function pull(
         );
       }
     } catch (e) {
+      // Re-throw fail-fast errors (e.g. unknown lockfile version) so the
+      // user sees them; only swallow soft failures from the auto-fill walk.
+      if (e instanceof Error && /unknown version/i.test(e.message)) {
+        throw e;
+      }
       log.warn(
         colors.yellow(
           `Could not auto-fill missing lockfile entries: ${e instanceof Error ? e.message : e}`,
