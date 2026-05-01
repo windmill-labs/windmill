@@ -281,6 +281,7 @@ fn parse_oracledb_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -305,6 +306,7 @@ fn parse_oracledb_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
                 otyp: Some(typ),
                 has_default,
                 oidx: None,
+                otyp_inferred: false,
             });
         }
     }
@@ -331,6 +333,7 @@ fn parse_sql_sanitized_interpolation(code: &str) -> Vec<Arg> {
             otyp: Some(otyp.to_string()),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -360,6 +363,7 @@ fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -384,6 +388,7 @@ fn parse_mysql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
                 otyp: Some(typ),
                 has_default,
                 oidx: None,
+                otyp_inferred: false,
             });
         }
     }
@@ -518,7 +523,25 @@ fn run_on_sql_statement_matches<
 }
 
 pub fn parse_pg_statement_arg_indices(code: &str) -> HashSet<i32> {
-    let mut arg_indices = HashSet::new();
+    parse_pg_statement_arg_positions(code)
+        .into_iter()
+        .map(|(idx, _)| idx)
+        .collect()
+}
+
+/// Like `parse_pg_statement_arg_indices`, but also returns the byte range of
+/// each placeholder occurrence in `code` (excluding `$`, including the digits).
+/// The same string-/comment-/dollar-quote-aware tokenizer is used, so
+/// occurrences inside string literals and comments are correctly skipped —
+/// this is what callers need to renumber `$N → $M` without mangling literal
+/// SQL bytes that happen to match the `$\d+` pattern.
+///
+/// The returned vec is in source order. Each entry is `(idx, range)` where
+/// `idx` is the parameter number and `range` covers the `$N` digits (i.e.
+/// `code[range.start - 1 .. range.end]` is the full `$N` token, and
+/// `code[range]` is just the digits).
+pub fn parse_pg_statement_arg_positions(code: &str) -> Vec<(i32, std::ops::Range<usize>)> {
+    let mut positions = Vec::new();
     run_on_sql_statement_matches(
         code,
         true,
@@ -529,21 +552,24 @@ pub fn parse_pg_statement_arg_indices(code: &str) -> HashSet<i32> {
                     .is_some_and(|&(_, next_char)| next_char.is_ascii_digit())
         },
         |_, chars| {
+            let start = chars.peek().map(|&(i, _)| i).unwrap_or(0);
             let mut arg_idx = String::new();
-            while let Some(&(_, char)) = chars.peek() {
+            let mut end = start;
+            while let Some(&(i, char)) = chars.peek() {
                 if char.is_ascii_digit() {
                     arg_idx.push(char);
+                    end = i + char.len_utf8();
                     chars.next();
                 } else {
                     break;
                 }
             }
             if let Ok(arg_idx) = arg_idx.parse::<i32>() {
-                arg_indices.insert(arg_idx);
+                positions.push((arg_idx, start..end));
             }
         },
     );
-    arg_indices
+    positions
 }
 
 fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
@@ -577,12 +603,16 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
                 otyp: Some(typ),
                 has_default,
                 oidx: Some(idx),
+                otyp_inferred: false,
             });
         }
     }
 
-    // Second pass: infer types from usage for non-explicitly-typed args
-    let mut hm: HashMap<i32, String> = HashMap::new();
+    // Second pass: infer types from usage for non-explicitly-typed args.
+    // We track whether each entry came from an inline `$N::TYPE` cast or from
+    // the parser's "text" fallback, so the executor can later distinguish
+    // "user committed to text" from "no info, use a placeholder".
+    let mut hm: HashMap<i32, (String, bool)> = HashMap::new();
     for cap in RE_CODE_PGSQL.captures_iter(code) {
         let idx = cap
             .get(1)
@@ -594,15 +624,23 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
             continue;
         }
 
-        let typ = cap
+        let cast = cap
             .get(2)
-            .map(|cap| transform_types_with_spaces(&cap, &code))
-            .unwrap_or("text");
-        hm.insert(idx, typ.to_string());
+            .map(|cap| transform_types_with_spaces(&cap, &code));
+        let inferred_default = cast.is_none();
+        let typ: std::borrow::Cow<str> = cast.unwrap_or(std::borrow::Cow::Borrowed("text"));
+        // Prefer an explicit cast over a previously seen default — once we
+        // have any inline cast for the index, lock it in.
+        match hm.get(&idx) {
+            Some((_, false)) => {} // already locked from explicit cast
+            _ => {
+                hm.insert(idx, (typ.into_owned(), inferred_default));
+            }
+        }
     }
 
     // Add inferred args
-    for (i, v) in hm.iter() {
+    for (i, (v, inferred)) in hm.iter() {
         let typ = v.to_lowercase();
         args.push(Arg {
             name: format!("${}", i),
@@ -611,6 +649,7 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
             otyp: Some(typ),
             has_default: false,
             oidx: Some(*i),
+            otyp_inferred: *inferred,
         });
     }
 
@@ -646,6 +685,7 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
                 otyp: oarg.otyp,
                 has_default,
                 oidx: oarg.oidx,
+                otyp_inferred: oarg.otyp_inferred,
             };
         }
     }
@@ -657,8 +697,12 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
 }
 
 // The regex doesn't parse types with space such as "character varying"
-// So we look for them manually and replace them with their shorter counterpart
-fn transform_types_with_spaces<'a>(cap: &Match<'a>, code: &str) -> &'a str {
+// So we look for them manually and replace them with their shorter counterpart.
+// Returns `Cow::Borrowed` for the trivial case (the regex's own match) and
+// `Cow::Owned` when we need to alias a multi-word type and/or append a `[]`
+// suffix that the regex's `\w+` capture didn't pick up.
+fn transform_types_with_spaces<'a>(cap: &Match<'a>, code: &str) -> std::borrow::Cow<'a, str> {
+    use std::borrow::Cow;
     lazy_static! {
         static ref TYPES: [(&'static str, &'static str); 6] = [
             ("character varying", "varchar"),
@@ -671,20 +715,31 @@ fn transform_types_with_spaces<'a>(cap: &Match<'a>, code: &str) -> &'a str {
     }
     let typ = &code[cap.start()..];
     for (long_type, alias) in TYPES.iter() {
-        let mut typ = typ;
+        let mut rest = typ;
         let mut found_mismatch = false;
         for token in long_type.split(' ') {
-            if typ.len() < token.len() || !typ[..token.len()].eq_ignore_ascii_case(token) {
+            if rest.len() < token.len() || !rest[..token.len()].eq_ignore_ascii_case(token) {
                 found_mismatch = true;
                 break;
             }
-            typ = typ[token.len()..].trim_start();
+            rest = rest[token.len()..].trim_start();
         }
         if !found_mismatch {
-            return alias;
+            // The regex captured only the first word (`\w+`), so its `[]`
+            // detection in `(?:\[\])?` matched against the wrong position
+            // and is empty for multi-word types. Re-check the trailing
+            // bytes after the multi-word match: if they start with `[]`,
+            // append the array suffix to the alias so the dispatch routes
+            // through `convert_vec_val` instead of binding as JSONB.
+            let with_suffix = rest.starts_with("[]");
+            return if with_suffix {
+                Cow::Owned(format!("{alias}[]"))
+            } else {
+                Cow::Borrowed(*alias)
+            };
         }
     }
-    cap.as_str()
+    Cow::Borrowed(cap.as_str())
 }
 
 pub fn parse_sql_statement_named_params(code: &str, prefix: char) -> HashSet<String> {
@@ -736,6 +791,7 @@ fn parse_bigquery_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -765,6 +821,7 @@ fn parse_duckdb_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -794,6 +851,7 @@ fn parse_snowflake_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -823,6 +881,7 @@ fn parse_mssql_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
             otyp: Some(typ),
             has_default,
             oidx: None,
+            otyp_inferred: false,
         });
     }
 
@@ -1006,6 +1065,7 @@ SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
                         default: None,
                         has_default: false,
                         oidx: Some(1),
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("bigint".to_string()),
@@ -1014,6 +1074,7 @@ SELECT * FROM table WHERE token=$1::TEXT AND image=$2::BIGINT
                         default: None,
                         has_default: false,
                         oidx: Some(2),
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1048,6 +1109,7 @@ SELECT $2::TEXT;
                         default: None,
                         has_default: false,
                         oidx: Some(1),
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1056,6 +1118,7 @@ SELECT $2::TEXT;
                         default: None,
                         has_default: false,
                         oidx: Some(2),
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1064,6 +1127,7 @@ SELECT $2::TEXT;
                         default: None,
                         has_default: false,
                         oidx: Some(3),
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1217,6 +1281,54 @@ SELECT $2;"#;
     }
 
     #[test]
+    fn test_parse_pg_statement_arg_positions_skips_strings_and_comments() -> anyhow::Result<()> {
+        // Each occurrence's byte range covers JUST the digits (after `$`).
+        let code = "SELECT $5, $50";
+        let positions = parse_pg_statement_arg_positions(code);
+        let collected: Vec<(i32, &str)> = positions
+            .iter()
+            .map(|(idx, range)| (*idx, &code[range.clone()]))
+            .collect();
+        assert_eq!(collected, vec![(5, "5"), (50, "50")]);
+
+        // String literals and comments must not produce positions — this is
+        // what stops the do_postgresql_inner rewrite from mangling SQL like
+        // `'price: $5'`.
+        let code = "SELECT 'literal $5' AS lbl, $5 FROM t -- mention $5";
+        let positions = parse_pg_statement_arg_positions(code);
+        let positions_only: Vec<(i32, std::ops::Range<usize>)> = positions.clone();
+        assert_eq!(
+            positions_only.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+            vec![5],
+            "only the real $5 between 'lbl,' and 'FROM' should be returned"
+        );
+        // The single returned position is the real placeholder (between
+        // `lbl, ` and ` FROM`).
+        let (idx, range) = &positions[0];
+        assert_eq!(*idx, 5);
+        // `code[range.start - 1 .. range.end]` should be the full `$5` token.
+        assert_eq!(&code[range.start - 1..range.end], "$5");
+
+        // Dollar-quoted blocks similarly skipped.
+        let code = "SELECT $$body with $5 inside$$, $7 FROM t";
+        let positions = parse_pg_statement_arg_positions(code);
+        assert_eq!(
+            positions.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+            vec![7],
+            "$5 inside $$...$$ is part of the string"
+        );
+
+        // Repeat indices show up multiple times — caller can rewrite each.
+        let code = "SELECT $1, $1, $2";
+        let positions = parse_pg_statement_arg_positions(code);
+        assert_eq!(
+            positions.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+            vec![1, 1, 2]
+        );
+        Ok(())
+    }
+
+    #[test]
     fn test_parse_sql_blocks_non_pg_ignores_dollar_quotes() -> anyhow::Result<()> {
         // Non-Postgres dialects (MySQL/Oracle/BigQuery/Snowflake) pass `false`,
         // so a bare `$tag$...;...$tag$` sequence must still split on `;`.
@@ -1259,6 +1371,7 @@ SELECT ?, ?;
                         default: Some(json!(3)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1267,6 +1380,7 @@ SELECT ?, ?;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1300,6 +1414,7 @@ SELECT :param2;
                         default: Some(json!(3)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1308,6 +1423,7 @@ SELECT :param2;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1316,6 +1432,7 @@ SELECT :param2;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1349,6 +1466,7 @@ SELECT @token;
                         default: Some(json!("abc")),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("int64".to_string()),
@@ -1357,6 +1475,7 @@ SELECT @token;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1390,6 +1509,7 @@ SELECT ?;
                         default: Some(json!(3)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("varchar".to_string()),
@@ -1398,6 +1518,7 @@ SELECT ?;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("varchar".to_string()),
@@ -1406,6 +1527,7 @@ SELECT ?;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
@@ -1439,6 +1561,7 @@ SELECT @P2;
                         default: Some(json!(3)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("varchar".to_string()),
@@ -1447,6 +1570,7 @@ SELECT @P2;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("varchar".to_string()),
@@ -1455,6 +1579,7 @@ SELECT @P2;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1489,6 +1614,7 @@ SELECT * FROM table_name WHERE thing = :name4;
                         default: Some(json!(3)),
                         has_default: true,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1497,6 +1623,7 @@ SELECT * FROM table_name WHERE thing = :name4;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1505,6 +1632,7 @@ SELECT * FROM table_name WHERE thing = :name4;
                         default: None,
                         has_default: false,
                         oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1536,6 +1664,7 @@ SELECT * FROM users WHERE id = $1 AND email = $2::text;
                         default: None,
                         has_default: false,
                         oidx: Some(1),
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1544,6 +1673,7 @@ SELECT * FROM users WHERE id = $1 AND email = $2::text;
                         default: None,
                         has_default: false,
                         oidx: Some(2),
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1575,6 +1705,7 @@ SELECT * FROM users LIMIT $1 OFFSET $2;
                         default: Some(json!(10)),
                         has_default: true,
                         oidx: Some(1),
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("bigint".to_string()),
@@ -1583,6 +1714,7 @@ SELECT * FROM users LIMIT $1 OFFSET $2;
                         default: Some(json!(0)),
                         has_default: true,
                         oidx: Some(2),
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1618,6 +1750,7 @@ WHERE id = $1
                         default: None,
                         has_default: false,
                         oidx: Some(1),
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("text".to_string()),
@@ -1626,6 +1759,7 @@ WHERE id = $1
                         default: None,
                         has_default: false,
                         oidx: Some(2),
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("timestamptz".to_string()),
@@ -1634,6 +1768,7 @@ WHERE id = $1
                         default: None,
                         has_default: false,
                         oidx: Some(3),
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -1663,6 +1798,7 @@ SELECT * FROM users WHERE id = ANY($1);
                     default: None,
                     has_default: false,
                     oidx: Some(1),
+                    otyp_inferred: false,
                 },],
                 auto_kind: None,
                 has_preprocessor: None,
@@ -1693,12 +1829,69 @@ SELECT $1::integer;
                     default: None,
                     has_default: false,
                     oidx: Some(1),
+                    otyp_inferred: false,
                 },],
                 auto_kind: None,
                 has_preprocessor: None,
                 ..Default::default()
             }
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_pgsql_otyp_inferred_flag() -> anyhow::Result<()> {
+        // Bare `$N` (no inline cast, no decl) should produce otyp = "text"
+        // *and* otyp_inferred = true. This is the signal the PG executor
+        // uses to decide whether the user committed to a text target.
+        let code_bare = "SELECT $1, $2";
+        let args = parse_pgsql_sig(code_bare)?.args;
+        let map: HashMap<String, (Option<String>, bool)> = args
+            .into_iter()
+            .map(|a| (a.name, (a.otyp, a.otyp_inferred)))
+            .collect();
+        assert_eq!(
+            map.get("$1").cloned(),
+            Some((Some("text".to_string()), true)),
+            "bare $1 → otyp_inferred true"
+        );
+        assert_eq!(
+            map.get("$2").cloned(),
+            Some((Some("text".to_string()), true)),
+            "bare $2 → otyp_inferred true"
+        );
+
+        // Inline `$N::TYPE` cast → otyp_inferred = false (user committed).
+        let args = parse_pgsql_sig("SELECT $1::int, $2::text")?.args;
+        let map: HashMap<String, (Option<String>, bool)> = args
+            .into_iter()
+            .map(|a| (a.name, (a.otyp, a.otyp_inferred)))
+            .collect();
+        assert_eq!(
+            map.get("$1").cloned(),
+            Some((Some("int".to_string()), false))
+        );
+        assert_eq!(
+            map.get("$2").cloned(),
+            Some((Some("text".to_string()), false)),
+            "explicit $2::text → otyp_inferred false (distinct from bare $2)"
+        );
+
+        // Declaration `-- $N name (TYPE)` → otyp_inferred = false (decl is
+        // explicit by definition).
+        let args = parse_pgsql_sig("-- $1 name (text)\nSELECT $1")?.args;
+        assert_eq!(args[0].otyp.as_deref(), Some("text"));
+        assert!(!args[0].otyp_inferred);
+
+        // Mixed: $1 has decl, $2 is bare → flag differs per arg.
+        let args = parse_pgsql_sig("-- $1 a (int)\nSELECT $1, $2")?.args;
+        let map: HashMap<String, bool> = args
+            .into_iter()
+            .map(|a| (a.name, a.otyp_inferred))
+            .collect();
+        assert_eq!(map.get("a").copied(), Some(false), "$1 decl → not inferred");
+        assert_eq!(map.get("$2").copied(), Some(true), "$2 bare → inferred");
 
         Ok(())
     }
@@ -1782,6 +1975,7 @@ SELECT x
                     default: None,
                     has_default: false,
                     oidx: None,
+                    otyp_inferred: false,
                 },],
                 auto_kind: None,
                 has_preprocessor: None,

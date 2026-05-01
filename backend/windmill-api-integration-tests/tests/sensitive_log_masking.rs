@@ -95,6 +95,7 @@ async fn push_bun_job(db: &Pool<Postgres>, code: String) -> Uuid {
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .push(db)
     .await
@@ -141,6 +142,7 @@ async fn push_bun_job_with_encrypted_arg(
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .job_id(job_id)
     .arg(arg_name, json!(arg_value))

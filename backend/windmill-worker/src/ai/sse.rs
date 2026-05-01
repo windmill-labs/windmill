@@ -9,10 +9,7 @@ use windmill_ai::{
     ai_google::{parse_gemini_sse_event, GeminiUsageMetadata},
     ai_types::{ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall},
 };
-use windmill_common::{
-    error::Error,
-    utils::rd_string,
-};
+use windmill_common::{error::Error, utils::rd_string};
 
 use crate::ai::{
     query_builder::StreamEventSink,
@@ -502,7 +499,10 @@ impl SSEParser for GeminiSSEParser {
         if let Some(text) = parsed.text {
             self.accumulated_content.push_str(&text);
             self.stream_event_processor
-                .send(StreamingEvent::TokenDelta { content: text }, &mut self.events_str)
+                .send(
+                    StreamingEvent::TokenDelta { content: text },
+                    &mut self.events_str,
+                )
                 .await?;
         }
 

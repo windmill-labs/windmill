@@ -208,9 +208,7 @@ pub fn parse_relative_imports(code: &str, path: &str) -> anyhow::Result<Vec<Stri
 
 /// Check if an import path is a relative import (starts with `./`, `../`, or `/`)
 fn is_relative_import(import_path: &str) -> bool {
-    import_path.starts_with("./")
-        || import_path.starts_with("../")
-        || import_path.starts_with("/")
+    import_path.starts_with("./") || import_path.starts_with("../") || import_path.starts_with("/")
 }
 
 /// Normalize a path by resolving `.` and `..` components
@@ -542,6 +540,7 @@ fn parse_param(
                 default: None,
                 has_default: ident.id.optional || nullable,
                 oidx: None,
+                otyp_inferred: false,
             })
         }
         // Pat::Object(ObjectPat { ... }) = todo!()
@@ -596,13 +595,29 @@ fn parse_param(
             if typ == Typ::Unknown && dflt.is_some() {
                 typ = json_to_typ(dflt.as_ref().unwrap(), false);
             }
-            Ok(Arg { otyp, name, typ, default: dflt, has_default: true, oidx: None })
+            Ok(Arg {
+                otyp,
+                name,
+                typ,
+                default: dflt,
+                has_default: true,
+                oidx: None,
+                otyp_inferred: false,
+            })
         }
         Pat::Object(ObjectPat { type_ann, .. }) => {
             let (typ, nullable) = eval_type_ann(symbol_table, type_resolver, &type_ann);
             *counter += 1;
             let name = format!("anon{}", counter);
-            Ok(Arg { otyp: None, name, typ, default: None, has_default: nullable, oidx: None })
+            Ok(Arg {
+                otyp: None,
+                name,
+                typ,
+                default: None,
+                has_default: nullable,
+                oidx: None,
+                otyp_inferred: false,
+            })
         }
         _ => Err(anyhow::anyhow!(
             "parameter syntax unsupported: `{}`: {:#?}",

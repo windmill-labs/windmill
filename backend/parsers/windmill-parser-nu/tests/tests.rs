@@ -27,7 +27,8 @@ mod test {
                         typ: Typ::Unknown,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "b".into(),
@@ -35,7 +36,8 @@ mod test {
                         typ: Typ::Unknown,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "c".into(),
@@ -43,7 +45,8 @@ mod test {
                         typ: Typ::Unknown,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "d".into(),
@@ -51,7 +54,8 @@ mod test {
                         typ: Typ::Unknown,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
@@ -80,7 +84,8 @@ mod test {
                     typ: Typ::Unknown,
                     default: Some(serde_json::Value::Null),
                     has_default: true,
-                    oidx: None
+                    oidx: None,
+                    otyp_inferred: false,
                 },],
                 auto_kind: None,
                 has_preprocessor: None,
@@ -109,7 +114,8 @@ mod test {
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "bar".into(),
@@ -117,7 +123,8 @@ mod test {
                         typ: Typ::Int,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -158,7 +165,8 @@ mod test {
                         typ: Typ::Unknown,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "a2".into(),
@@ -166,7 +174,8 @@ mod test {
                         typ: Typ::Bool,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "a3".into(),
@@ -174,7 +183,8 @@ mod test {
                         typ: Typ::Int,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "a4".into(),
@@ -182,7 +192,8 @@ mod test {
                         typ: Typ::Float,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "a5".into(),
@@ -190,7 +201,8 @@ mod test {
                         typ: Typ::Datetime,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "a6".into(),
@@ -198,7 +210,8 @@ mod test {
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "a7".into(),
@@ -206,7 +219,8 @@ mod test {
                         typ: Typ::Object(ObjectType::new(None, Some(vec![]))),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "a8".into(),
@@ -214,7 +228,8 @@ mod test {
                         typ: Typ::List(Box::new(Typ::Unknown)),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "a9".into(),
@@ -222,7 +237,8 @@ mod test {
                         typ: Typ::List(Box::new(Typ::Object(ObjectType::new(None, Some(vec![]))))),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "a10".into(),
@@ -230,7 +246,8 @@ mod test {
                         typ: Typ::Unknown,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -262,7 +279,8 @@ mod test {
                         typ: Typ::Unknown,
                         default: Some(json!("Foo")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "bar".into(),
@@ -270,7 +288,8 @@ mod test {
                         typ: Typ::Str(None),
                         default: Some(json!("Bar")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "bazz".into(),
@@ -278,7 +297,8 @@ mod test {
                         typ: Typ::Unknown,
                         default: Some(json!(3)),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -375,7 +395,8 @@ mod test {
                     typ: Typ::List(Box::new(Typ::Float)),
                     default: None,
                     has_default: false,
-                    oidx: None
+                    oidx: None,
+                    otyp_inferred: false,
                 },],
                 auto_kind: None,
                 has_preprocessor: None,
@@ -406,7 +427,8 @@ mod test {
                         typ: Typ::Unknown,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "foo".into(),
@@ -414,7 +436,8 @@ mod test {
                         typ: Typ::List(Box::new(Typ::Float)),
                         default: Some(json!([2, 3, 4])),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "b".into(),
@@ -422,7 +445,8 @@ mod test {
                         typ: Typ::Unknown,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,
@@ -452,7 +476,8 @@ mod test {
                     typ: Typ::Datetime,
                     default: None,
                     has_default: false,
-                    oidx: None
+                    oidx: None,
+                    otyp_inferred: false,
                 },],
                 auto_kind: None,
                 has_preprocessor: None,
@@ -515,7 +540,8 @@ mod test {
                         typ: Typ::Unknown,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "b".into(),
@@ -523,7 +549,8 @@ mod test {
                         typ: Typ::Int,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "c".into(),
@@ -531,7 +558,8 @@ mod test {
                         typ: Typ::Unknown,
                         default: Some(serde_json::Value::Null),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "d".into(),
@@ -539,7 +567,8 @@ mod test {
                         typ: Typ::Str(None),
                         default: Some(json!("foo")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         name: "bi".into(),
@@ -547,7 +576,8 @@ mod test {
                         typ: Typ::Unknown,
                         default: Some(serde_json::Value::Null),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,

@@ -34,10 +34,7 @@ async fn test_error_handler_settings(db: Pool<Postgres>) -> anyhow::Result<()> {
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(
-        after_set,
-        Some("script/f/test/error_handler".to_string())
-    );
+    assert_eq!(after_set, Some("script/f/test/error_handler".to_string()));
 
     // Verify extra_args
     let extra_args = sqlx::query_scalar!(
@@ -162,7 +159,8 @@ export async function main(path: string, email: string, job_id: string, is_flow:
         priority: None,
         apply_preprocessor: false,
         concurrency_settings: ConcurrencySettings::default(),
-        debouncing_settings: DebouncingSettings::default(), labels: None,
+        debouncing_settings: DebouncingSettings::default(),
+        labels: None,
     })
     .run_until_complete(&db, false, server.addr.port())
     .await;
@@ -285,7 +283,8 @@ async fn test_error_handler_muted_on_script(db: Pool<Postgres>) -> anyhow::Resul
         priority: None,
         apply_preprocessor: false,
         concurrency_settings: ConcurrencySettings::default(),
-        debouncing_settings: DebouncingSettings::default(), labels: None,
+        debouncing_settings: DebouncingSettings::default(),
+        labels: None,
     })
     .run_until_complete(&db, false, server.addr.port())
     .await;
@@ -380,7 +379,8 @@ async fn test_error_handler_not_triggered_on_success(db: Pool<Postgres>) -> anyh
         priority: None,
         apply_preprocessor: false,
         concurrency_settings: ConcurrencySettings::default(),
-        debouncing_settings: DebouncingSettings::default(), labels: None,
+        debouncing_settings: DebouncingSettings::default(),
+        labels: None,
     })
     .run_until_complete(&db, false, server.addr.port())
     .await;

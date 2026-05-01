@@ -34,14 +34,15 @@ export type Runnable = RunnableWithInlineScript | undefined
 function extraFields(
 	runnable: RunnableWithInlineScript,
 	fields: Record<string, any>
-): Partial<Pick<TriggerableV2, 'delete_after_secs' | 'sensitive_inputs'>> {
-	const out: Partial<Pick<TriggerableV2, 'delete_after_secs' | 'sensitive_inputs'>> = {}
+): Partial<Pick<TriggerableV2, 'delete_after_secs' | 'sensitive_inputs' | 'tag'>> {
+	const out: Partial<Pick<TriggerableV2, 'delete_after_secs' | 'sensitive_inputs' | 'tag'>> = {}
 	if (typeof runnable.delete_after_secs === 'number' && runnable.delete_after_secs >= 0)
 		out.delete_after_secs = runnable.delete_after_secs
 	const sensitive_inputs = Object.entries(fields)
 		.map(([k, v]) => (v['sensitive'] ? k : undefined))
 		.filter(Boolean) as string[]
 	if (sensitive_inputs.length > 0) out.sensitive_inputs = sensitive_inputs
+	if (runnable.inlineScript?.tag) out.tag = runnable.inlineScript.tag
 	return out
 }
 

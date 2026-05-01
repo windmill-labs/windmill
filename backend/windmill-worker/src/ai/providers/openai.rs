@@ -242,12 +242,10 @@ fn convert_content_to_responses_format(
                             image_url: image_url.url.clone(),
                         })
                     }
-                    ContentPart::File { file } => {
-                        Some(ImageGenerationContent::InputFile {
-                            filename: file.filename.clone(),
-                            file_data: file.file_data.clone(),
-                        })
-                    }
+                    ContentPart::File { file } => Some(ImageGenerationContent::InputFile {
+                        filename: file.filename.clone(),
+                        file_data: file.file_data.clone(),
+                    }),
                     // S3 objects should have been resolved earlier, but handle gracefully
                     ContentPart::S3Object { .. } => None,
                 })
@@ -433,8 +431,7 @@ impl OpenAIQueryBuilder {
         if let Some(attachments) = args.attachments {
             for attachment in attachments.iter() {
                 if !attachment.s3.is_empty() {
-                    let part =
-                        s3_object_to_content_part(attachment, client, workspace_id).await?;
+                    let part = s3_object_to_content_part(attachment, client, workspace_id).await?;
                     match part {
                         ContentPart::File { file } => {
                             content.push(ImageGenerationContent::InputFile {

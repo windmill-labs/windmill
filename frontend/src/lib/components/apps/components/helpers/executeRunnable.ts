@@ -12,7 +12,7 @@ export async function executeRunnable(
 	id: string,
 	requestBody: ExecuteComponentData['requestBody'],
 	inlineScriptOverride?: InlineScript,
-	queryParams?: Record<string, any>,
+	queryParams?: Record<string, any>
 ) {
 	let appPath = defaultIfEmptyString(path, `u/${username ?? 'unknown'}/newapp`)
 	if (isRunnableByName(runnable)) {
@@ -29,7 +29,8 @@ export async function executeRunnable(
 				language: inlineScript.language ?? '',
 				path: appPath + '/' + id,
 				lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
-				cache_ttl: inlineScript.cache_ttl
+				cache_ttl: inlineScript.cache_ttl,
+				...(inlineScript.tag ? { tag: inlineScript.tag } : {})
 			}
 		}
 	} else if (isRunnableByPath(runnable)) {

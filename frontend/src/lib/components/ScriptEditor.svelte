@@ -523,7 +523,8 @@
 				const old = assets?.find((a) => assetEq(a, asset))
 				if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
 			}
-			if (!deepEqual(assets, newAssets)) assets = newAssets
+			const normalizedAssets = newAssets.length > 0 ? newAssets : undefined
+			if (!deepEqual(assets, normalizedAssets)) assets = normalizedAssets
 		}
 	)
 

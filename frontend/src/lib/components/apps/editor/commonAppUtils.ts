@@ -16,6 +16,7 @@ export type TriggerableV2 = {
 	allow_user_resources?: string[]
 	delete_after_secs?: number
 	sensitive_inputs?: string[]
+	tag?: string
 }
 
 export async function hash(message) {
