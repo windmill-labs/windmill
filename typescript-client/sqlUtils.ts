@@ -217,12 +217,27 @@ function buildSqlStatement(
 }
 
 // JSON-encode a JS value into something the executor can deserialize. The
-// only non-trivial case is `bigint`: `JSON.stringify(BigInt(42))` throws,
-// and the PG executor accepts numeric strings into `bigint` columns via
-// the `Value::String → INT8` path. So we stringify bigints (the SDK already
-// emits `::BIGINT` for them via inferSqlType) and pass the rest through.
+// JSON.stringify-friendly representation of a JS value before sending it to
+// the executor:
+//   - `bigint`             → string. JSON.stringify on a bigint throws; the
+//                            executor accepts numeric strings into BIGINT
+//                            slots via `Value::String → INT8`.
+//   - `Date`               → ISO-8601 string. inferSqlType maps these to
+//                            `TIMESTAMPTZ`; the executor's `Value::String`
+//                            arm parses ISO strings into `chrono::DateTime`.
+//   - non-finite `number`  → string ("NaN" / "Infinity" / "-Infinity").
+//                            JSON.stringify renders these as `null`, which
+//                            silently became NULL in the database. The
+//                            executor accepts these literals via
+//                            `Value::String → FLOAT8` (`f64::from_str`).
+//   - everything else      → passed through unchanged.
 function serializeArgValue(v: any): any {
   if (typeof v === "bigint") return v.toString();
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === "number" && !Number.isFinite(v)) {
+    if (Number.isNaN(v)) return "NaN";
+    return v > 0 ? "Infinity" : "-Infinity";
+  }
   return v;
 }
 
@@ -387,6 +402,13 @@ function inferSqlType(value: any): string {
     // `${arr}::int[]` cast. For non-homogeneous or nested arrays we fall
     // back to JSON, which works for jsonb columns.
     return inferSqlArrayType(value);
+  } else if (value instanceof Date) {
+    // JS `Date` carries an absolute instant in UTC; map to TIMESTAMPTZ so
+    // `${someDate}` works against a `timestamptz` column without the user
+    // needing an explicit cast. Without this the typeof check above falls
+    // through to "object" → JSON, which only works by accident via
+    // PG's `json → text → timestamptz` implicit cast chain.
+    return "TIMESTAMPTZ";
   } else if (typeof value === "object") {
     return "JSON";
   } else if (typeof value === "boolean") {

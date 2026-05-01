@@ -73,6 +73,8 @@ function inferSqlType(value: any): string {
     return "TEXT";
   } else if (Array.isArray(value)) {
     return inferSqlArrayType(value);
+  } else if (value instanceof Date) {
+    return "TIMESTAMPTZ";
   } else if (typeof value === "object") {
     return "JSON";
   } else if (typeof value === "boolean") {
@@ -130,6 +132,11 @@ function parseTypeAnnotation(
 
 function serializeArgValue(v: any): any {
   if (typeof v === "bigint") return v.toString();
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === "number" && !Number.isFinite(v)) {
+    if (Number.isNaN(v)) return "NaN";
+    return v > 0 ? "Infinity" : "-Infinity";
+  }
   return v;
 }
 
@@ -409,6 +416,32 @@ describe("datatable() — template tag", () => {
     expect(sql`SELECT ${BigInt("99999999999999999999")}`.args.arg1).toBe(
       "99999999999999999999"
     );
+  });
+
+  test("Date is auto-tagged ::TIMESTAMPTZ and ISO-stringified", () => {
+    // Pre-fix: typeof Date === "object" → ::JSON, then PG cast chain
+    // worked accidentally for `${date}::timestamptz`. Now: explicit
+    // ::TIMESTAMPTZ + Date.toISOString() so plain `${date}` against a
+    // timestamptz column doesn't need a cast.
+    const sql = dt();
+    const d = new Date("2024-01-15T10:30:00.000Z");
+    const out = sql`SELECT ${d} AS t`;
+    expect(out.content).toContain("$1::TIMESTAMPTZ");
+    expect(out.args.arg1).toBe("2024-01-15T10:30:00.000Z");
+    expect(() => JSON.stringify(out.args)).not.toThrow();
+  });
+
+  test("non-finite Number is stringified for the executor", () => {
+    // JSON.stringify(NaN) and JSON.stringify(Infinity) both produce `null`,
+    // which silently became NULL in the database. The executor accepts
+    // "NaN" / "Infinity" / "-Infinity" via `Value::String → FLOAT8`
+    // (`f64::from_str`), so we send the special values as strings.
+    const sql = dt();
+    expect(sql`SELECT ${NaN}`.args.arg1).toBe("NaN");
+    expect(sql`SELECT ${Infinity}`.args.arg1).toBe("Infinity");
+    expect(sql`SELECT ${-Infinity}`.args.arg1).toBe("-Infinity");
+    // Tag stays DOUBLE PRECISION (these are floats).
+    expect(sql`SELECT ${NaN}`.content).toContain("$1::DOUBLE PRECISION");
   });
 
   test("homogeneous arrays auto-tag with TYPE[]", () => {
