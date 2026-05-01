@@ -27,7 +27,7 @@
 		]
 	}}
 	closeButton
-	contentClasses="block text-primary p-4 min-w-[280px]"
+	contentClasses="block text-primary p-3 w-56"
 >
 	{#snippet trigger()}
 		<Button
