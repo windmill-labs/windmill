@@ -94,6 +94,51 @@ async fn new_pg_connection(
     Ok((client, handle))
 }
 
+/// Short stable label for the JSON value's variant — used in error messages
+/// so users can see *what kind of value* hit a binding error.
+fn json_value_kind(v: &Value) -> &'static str {
+    match v {
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+/// rust-postgres reports parameter encoding failures as
+/// `error serializing parameter N: <inner>` with N being a 0-based index.
+/// Pull N out so we can attach our own metadata.
+fn parse_param_index_from_err_msg(msg: &str) -> Option<usize> {
+    msg.strip_prefix("error serializing parameter ")
+        .and_then(|rest| rest.split(':').next())
+        .and_then(|n| n.parse::<usize>().ok())
+}
+
+/// Replace a rust-postgres encoder error with one that names the offending
+/// arg, its JSON value kind, and the Postgres type we asserted, plus a hint
+/// about how to fix it. Other errors are passed through unchanged.
+fn wrap_param_encoding_error(
+    err: tokio_postgres::Error,
+    param_meta: &[(String, &'static str)],
+    param_types: &[Type],
+) -> Error {
+    let msg = err.to_string();
+    if let Some(idx) = parse_param_index_from_err_msg(&msg) {
+        if let (Some((name, kind)), Some(t)) = (param_meta.get(idx), param_types.get(idx)) {
+            return Error::ExecutionErr(format!(
+                "Cannot bind arg `{name}` (JSON {kind}) as Postgres type `{t}` ({err}). \
+                 Try adding an explicit cast in the SQL — e.g. `${pos}::<column_type>` \
+                 or `CAST(${pos} AS <column_type>)` — or declare the type via \
+                 `-- ${pos} {name} (<column_type>)`.",
+                pos = idx + 1,
+            ));
+        }
+    }
+    to_anyhow(err).into()
+}
+
 fn otyp_to_pg_type(otyp: &str) -> error::Result<Type> {
     let base = otyp.trim_end_matches("[]");
     let is_array = otyp.ends_with("[]");
@@ -145,6 +190,10 @@ fn do_postgresql_inner<'a>(
 ) -> error::Result<BoxFuture<'a, error::Result<Vec<Box<RawValue>>>>> {
     let mut query_params = vec![];
     let mut param_types: Vec<Type> = vec![];
+    // Per-param metadata used to wrap rust-postgres `error serializing
+    // parameter N` errors with actionable context (arg name, JSON value kind,
+    // asserted Postgres type) — see error wrapping at the dispatch site.
+    let mut param_meta: Vec<(String, &'static str)> = vec![];
     // Track whether every arg has a resolvable Postgres type. We need *both*
     // the parser-supplied otyp to be in `otyp_to_pg_type`'s map (so the arg
     // isn't a custom enum / extension type) *and* convert_val to produce a
@@ -171,6 +220,7 @@ fn do_postgresql_inner<'a>(
             let typ = &arg.typ;
             let (param, natural_type) = convert_val(value, arg_t, typ)?;
             query_params.push(param);
+            param_meta.push((arg.name.clone(), json_value_kind(value)));
             if all_types_resolved {
                 if otyp_to_pg_type(arg_t).is_ok() {
                     // The Type comes from convert_val (paired with the binding's
@@ -205,10 +255,12 @@ fn do_postgresql_inner<'a>(
                 .iter()
                 .zip(param_types.iter())
                 .map(|(p, t)| (&**p as &(dyn ToSql + Sync), t.clone()));
-            client
-                .query_typed_raw(&query, typed_params)
-                .await
-                .map_err(to_anyhow)?
+            match client.query_typed_raw(&query, typed_params).await {
+                Ok(rows) => rows,
+                Err(e) => {
+                    return Err(wrap_param_encoding_error(e, &param_meta, &param_types));
+                }
+            }
         } else {
             let query_params = query_params
                 .iter()
@@ -2082,5 +2134,84 @@ mod tests {
             typ_for("text"),
             Type::INT8,
         );
+    }
+
+    /// Drift-prevention: `otyp_to_pg_type` and `convert_val` must agree on the
+    /// Type for every recognised arg_t when the JSON value matches the arg_t's
+    /// "natural" Rust kind. Fails if someone adds a new arg_t to one but not
+    /// the other, or changes the Type returned by either.
+    #[test]
+    fn otyp_to_pg_type_and_convert_val_agree_for_recognised_types() {
+        // (arg_t, natural-value, expected scalar Type)
+        let cases: &[(&str, Value, Type)] = &[
+            ("bool", json!(true), Type::BOOL),
+            ("boolean", json!(false), Type::BOOL),
+            ("char", json!(65), Type::CHAR),
+            ("smallint", json!(1), Type::INT2),
+            ("smallserial", json!(1), Type::INT2),
+            ("int2", json!(1), Type::INT2),
+            ("serial2", json!(1), Type::INT2),
+            ("int", json!(1), Type::INT4),
+            ("integer", json!(1), Type::INT4),
+            ("int4", json!(1), Type::INT4),
+            ("serial", json!(1), Type::INT4),
+            ("bigint", json!(1), Type::INT8),
+            ("int8", json!(1), Type::INT8),
+            ("bigserial", json!(1), Type::INT8),
+            ("serial8", json!(1), Type::INT8),
+            ("real", json!(1.5), Type::FLOAT4),
+            ("float4", json!(1.5), Type::FLOAT4),
+            ("double", json!(1.5), Type::FLOAT8),
+            ("double precision", json!(1.5), Type::FLOAT8),
+            ("float8", json!(1.5), Type::FLOAT8),
+            ("numeric", json!(1), Type::NUMERIC),
+            ("decimal", json!(1), Type::NUMERIC),
+            ("oid", json!(1), Type::OID),
+            (
+                "uuid",
+                json!("550e8400-e29b-41d4-a716-446655440000"),
+                Type::UUID,
+            ),
+            ("date", json!("2024-01-15"), Type::DATE),
+            ("time", json!("10:30:00"), Type::TIME),
+            // chrono::NaiveTime can only encode TIME — see the timetz arm.
+            ("timetz", json!("10:30:00"), Type::TIME),
+            ("timestamp", json!("2024-01-15T10:30:00"), Type::TIMESTAMP),
+            (
+                "timestamptz",
+                json!("2024-01-15T10:30:00Z"),
+                Type::TIMESTAMPTZ,
+            ),
+            ("json", json!({"k": 1}), Type::JSON),
+            ("jsonb", json!({"k": 1}), Type::JSONB),
+            ("bytea", json!("aGVsbG8="), Type::BYTEA),
+            ("text", json!("hello"), Type::TEXT),
+            ("varchar", json!("hello"), Type::VARCHAR),
+            ("character varying", json!("hello"), Type::VARCHAR),
+        ];
+        for (arg_t, value, expected) in cases {
+            // 1. The dispatch's "is recognised" gate must accept this arg_t.
+            //    `timetz` is the one exception where we deliberately return
+            //    TIME from convert_val (chrono limitation), but otyp_to_pg_type
+            //    returns TIMETZ.
+            let from_otyp = otyp_to_pg_type(arg_t)
+                .unwrap_or_else(|e| panic!("otyp_to_pg_type lost arg_t `{arg_t}`: {e}"));
+            if *arg_t != "timetz" {
+                assert_eq!(
+                    from_otyp, *expected,
+                    "otyp_to_pg_type({arg_t}) drift: expected {expected}, got {from_otyp}"
+                );
+            }
+            // 2. convert_val must produce a binding whose Type matches
+            //    `expected`, AND whose Rust type successfully encodes against
+            //    that Type (the to_sql_checked round-trip).
+            assert_convert_val_consistent(
+                &format!("meta/{arg_t}"),
+                value.clone(),
+                arg_t,
+                typ_for(arg_t),
+                expected.clone(),
+            );
+        }
     }
 }

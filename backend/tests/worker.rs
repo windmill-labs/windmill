@@ -2293,6 +2293,100 @@ async fn test_postgresql_no_named_statements_after_typed_args(
     Ok(())
 }
 
+/// Exercise the `prepare + query_raw` fallback path. The dispatch takes this
+/// path when `otyp_to_pg_type` doesn't recognise the parser-derived arg_t —
+/// typical for custom enums, domains, and extension types.
+///
+/// Vanilla `tokio_postgres`'s `ToSql for String` doesn't actually accept
+/// `Kind::Enum` / `Kind::Domain`, so an end-to-end happy-path test of an
+/// arbitrary custom type isn't possible without `postgres-derive`. What we
+/// CAN lock in here is *which dispatch path runs*: when the arg_t is
+/// unrecognised, the prepare path must be taken (the server resolves the
+/// param type from the cast and the binding then errors at the encoder).
+/// If a regression accidentally routes unrecognised types through
+/// `query_typed_raw`, the failure mode flips: instead of "cannot convert
+/// `String` to `<custom_type>`" we'd see "cannot convert `String` to
+/// `text`" (because we'd assert TEXT). The error-text check below catches
+/// that flip.
+#[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
+async fn test_postgresql_prepare_fallback_for_unrecognised_arg_t(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_worker::pg_executor::clear_pg_cache;
+
+    initialize_tracing().await;
+    clear_pg_cache().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let db_arg = json!({"host": "localhost", "port": 5432, "dbname": "windmill", "user": "postgres", "password": "changeme"});
+
+    let make_pg_job = |content: String| {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+        }))
+        .arg("database", db_arg.clone())
+    };
+
+    // Set up a custom enum in a dedicated schema so the test is self-contained.
+    let setup = r#"
+DROP SCHEMA IF EXISTS fallback_test CASCADE;
+CREATE SCHEMA fallback_test;
+CREATE TYPE fallback_test.color AS ENUM ('red', 'green', 'blue');
+"#;
+    make_pg_job(setup.to_owned())
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    // Inline cast `::fallback_test.color` — the parser only captures
+    // `fallback_test` (regex stops at the dot), which otyp_to_pg_type won't
+    // recognise. Dispatch must take the prepare fallback path.
+    let cjob = make_pg_job("-- $1 arg1\nSELECT $1::fallback_test.color AS c".to_owned())
+        .arg("arg1", json!("red"))
+        .run_until_complete(&db, false, port)
+        .await;
+
+    // We expect failure (vanilla tokio_postgres can't encode String as
+    // Kind::Enum), but the *shape* of the failure proves we ran through
+    // the prepare path — the server-resolved param type appears verbatim.
+    assert!(
+        !cjob.success,
+        "encoder should reject String→color until postgres-derive is wired in"
+    );
+    let err_msg = cjob
+        .result
+        .as_ref()
+        .and_then(|r| r.get("error"))
+        .and_then(|e| e.get("message"))
+        .and_then(|m| m.as_str())
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        err_msg.contains("color"),
+        "fallback path should surface the server-resolved type `color` in the \
+         error; got: {err_msg}. If this says `text` instead, the dispatch \
+         routed unrecognised arg_t through query_typed_raw — a regression."
+    );
+
+    Ok(())
+}
+
 #[cfg(feature = "mysql")]
 #[sqlx::test(fixtures("base"))]
 async fn test_mysql_job(db: Pool<Postgres>) -> anyhow::Result<()> {
