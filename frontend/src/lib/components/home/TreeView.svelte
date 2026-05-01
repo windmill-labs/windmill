@@ -82,16 +82,16 @@
 		{#if opened || isSearching}
 			<div>
 				{#if hasPipeline && isFolder(item)}
+					<!-- py-3 matches common/table/Row.svelte so this row sits at
+					     the same height as the script/flow/app rows that follow
+					     it under the same folder; py-2 was visibly shorter. -->
 					<a
 						href="{base}/pipeline/{encodeURIComponent(item.folderName)}"
-						class="flex items-center gap-4 px-4 py-2 border-b text-sm hover:bg-surface-hover transition-colors"
+						class="flex items-center gap-4 px-4 py-3 border-b text-sm hover:bg-surface-hover transition-colors"
 						style="padding-left: {(depth + 1) * 16}px;"
 					>
 						<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
-						<div class="flex flex-col">
-							<span class="text-xs font-medium text-emphasis">Pipeline</span>
-							<span class="text-2xs text-secondary">Open pipeline editor</span>
-						</div>
+						<span class="text-xs font-medium text-emphasis">Pipeline</span>
 					</a>
 				{/if}
 				{#each item.items.slice(0, showMax) as subItem, index ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] + '__' + index : undefined) ?? 'folder__' + subItem['folderName'] + '__' + index)}

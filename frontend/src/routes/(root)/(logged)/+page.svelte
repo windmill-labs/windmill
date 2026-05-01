@@ -22,7 +22,6 @@
 		Loader2,
 		Code,
 		LayoutDashboard,
-		NetworkIcon,
 		PlugZap
 	} from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
@@ -302,17 +301,6 @@
 			{#if !$userStore?.operator && showCreateButtons}
 				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
 				{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
-				<Button
-					id="pipeline-button"
-					aiId="pipeline-button"
-					aiDescription="Opens the pipeline editor"
-					unifiedSize="lg"
-					startIcon={{ icon: NetworkIcon }}
-					href="{base}/pipeline"
-					variant="accent"
-				>
-					Pipeline
-				</Button>
 				{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
 			{/if}
 		</PageHeader>

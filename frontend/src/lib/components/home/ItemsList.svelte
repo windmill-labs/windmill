@@ -45,6 +45,8 @@
 	import { getContext, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
+	import { NetworkIcon } from 'lucide-svelte'
+	import { base } from '$lib/base'
 	interface Props {
 		filter?: string
 		subtab?: 'flow' | 'script' | 'app'
@@ -594,6 +596,27 @@
 			/>
 		{:else}
 			<div class="border rounded-md bg-surface-tertiary">
+				<!-- One pipeline row per folder that has pipeline-member scripts.
+				     Mirrors the entry the tree view shows under each folder, so
+				     users in flat view get the same affordance — clicking opens
+				     the pipeline editor for that folder. Hidden when an
+				     active filter is set (filter operates on items, not on
+				     folder-level entries). -->
+				{#if filter === ''}
+					{#each [...pipelineFolders].sort() as folder (folder)}
+						<!-- px-4/py-3 + gap-4 mirrors common/table/Row.svelte so the
+						     row is the same height as the script/flow/app items
+						     beneath it; without it the single-line pipeline row
+						     was visibly shorter than the surrounding rows. -->
+						<a
+							href="{base}/pipeline/{encodeURIComponent(folder)}"
+							class="w-full inline-flex items-center gap-4 px-4 py-3 border-b last:border-b-0 hover:bg-surface-hover transition-colors text-sm first-of-type:rounded-t-md"
+						>
+							<NetworkIcon size={16} class="text-emerald-600 dark:text-emerald-400" />
+							<span class="text-xs font-medium text-emphasis truncate">Pipeline · f/{folder}</span>
+						</a>
+					{/each}
+				{/if}
 				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
