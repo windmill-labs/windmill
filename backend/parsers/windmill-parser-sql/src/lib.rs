@@ -628,13 +628,13 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
             .get(2)
             .map(|cap| transform_types_with_spaces(&cap, &code));
         let inferred_default = cast.is_none();
-        let typ = cast.unwrap_or("text");
+        let typ: std::borrow::Cow<str> = cast.unwrap_or(std::borrow::Cow::Borrowed("text"));
         // Prefer an explicit cast over a previously seen default — once we
         // have any inline cast for the index, lock it in.
         match hm.get(&idx) {
             Some((_, false)) => {} // already locked from explicit cast
             _ => {
-                hm.insert(idx, (typ.to_string(), inferred_default));
+                hm.insert(idx, (typ.into_owned(), inferred_default));
             }
         }
     }
@@ -697,8 +697,12 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
 }
 
 // The regex doesn't parse types with space such as "character varying"
-// So we look for them manually and replace them with their shorter counterpart
-fn transform_types_with_spaces<'a>(cap: &Match<'a>, code: &str) -> &'a str {
+// So we look for them manually and replace them with their shorter counterpart.
+// Returns `Cow::Borrowed` for the trivial case (the regex's own match) and
+// `Cow::Owned` when we need to alias a multi-word type and/or append a `[]`
+// suffix that the regex's `\w+` capture didn't pick up.
+fn transform_types_with_spaces<'a>(cap: &Match<'a>, code: &str) -> std::borrow::Cow<'a, str> {
+    use std::borrow::Cow;
     lazy_static! {
         static ref TYPES: [(&'static str, &'static str); 6] = [
             ("character varying", "varchar"),
@@ -711,20 +715,31 @@ fn transform_types_with_spaces<'a>(cap: &Match<'a>, code: &str) -> &'a str {
     }
     let typ = &code[cap.start()..];
     for (long_type, alias) in TYPES.iter() {
-        let mut typ = typ;
+        let mut rest = typ;
         let mut found_mismatch = false;
         for token in long_type.split(' ') {
-            if typ.len() < token.len() || !typ[..token.len()].eq_ignore_ascii_case(token) {
+            if rest.len() < token.len() || !rest[..token.len()].eq_ignore_ascii_case(token) {
                 found_mismatch = true;
                 break;
             }
-            typ = typ[token.len()..].trim_start();
+            rest = rest[token.len()..].trim_start();
         }
         if !found_mismatch {
-            return alias;
+            // The regex captured only the first word (`\w+`), so its `[]`
+            // detection in `(?:\[\])?` matched against the wrong position
+            // and is empty for multi-word types. Re-check the trailing
+            // bytes after the multi-word match: if they start with `[]`,
+            // append the array suffix to the alias so the dispatch routes
+            // through `convert_vec_val` instead of binding as JSONB.
+            let with_suffix = rest.starts_with("[]");
+            return if with_suffix {
+                Cow::Owned(format!("{alias}[]"))
+            } else {
+                Cow::Borrowed(*alias)
+            };
         }
     }
-    cap.as_str()
+    Cow::Borrowed(cap.as_str())
 }
 
 pub fn parse_sql_statement_named_params(code: &str, prefix: char) -> HashSet<String> {

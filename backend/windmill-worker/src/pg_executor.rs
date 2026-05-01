@@ -1059,22 +1059,50 @@ fn convert_vec_val(
     arg_t: &String,
 ) -> windmill_common::error::Result<ConvertedParam> {
     match arg_t.as_str() {
+        // Each integer / bool array arm accepts both JSON-native values AND
+        // stringified counterparts ("1", "true", …) — same coercion the
+        // scalar `Value::String → <type>` arms in `convert_val` apply, so an
+        // array passed via `JSON.stringify(BigInt(...))` or hand-quoted
+        // values doesn't trip a confusing "Mixed types in array" error.
         "bool" | "boolean" => Ok((
-            Box::new(map_as_single_type(vec, |v| v.as_bool())?),
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_bool()
+                    .or_else(|| match v.as_str()?.to_ascii_lowercase().as_str() {
+                        "true" | "t" | "yes" | "y" | "1" | "on" => Some(true),
+                        "false" | "f" | "no" | "n" | "0" | "off" => Some(false),
+                        _ => None,
+                    })
+            })?),
             Type::BOOL_ARRAY,
         )),
         "char" | "character" => Ok((
-            Box::new(map_as_single_type(vec, |v| v.as_i64().map(|x| x as i8))?),
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_i64()
+                    .map(|x| x as i8)
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<i8>().ok()))
+            })?),
             Type::CHAR_ARRAY,
         )),
         "smallint" | "smallserial" | "int2" | "serial2" => Ok((
-            Box::new(map_as_single_type(vec, |v| v.as_i64().map(|x| x as i16))?),
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_i64()
+                    .map(|x| x as i16)
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<i16>().ok()))
+            })?),
             Type::INT2_ARRAY,
         )),
         "int" | "integer" | "int4" | "serial" => Ok((
-            Box::new(map_as_single_type(vec, |v| v.as_i64().map(|x| x as i32))?),
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_i64()
+                    .map(|x| x as i32)
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<i32>().ok()))
+            })?),
             Type::INT4_ARRAY,
         )),
+        // Mirror the scalar `Value::String → numeric` parsing arm so an array
+        // like `["1.5", "2.5"]` works against `$1::numeric[]` — useful for
+        // bulk-loading via `unnest`. Without this the user would see an
+        // unhelpful "Mixed types in array" error.
         "numeric" | "decimal" => Ok((
             Box::new(map_as_single_type(vec, |v| {
                 if v.is_i64() {
@@ -1082,25 +1110,40 @@ fn convert_vec_val(
                 } else if v.is_f64() {
                     Decimal::from_f64(v.as_f64().unwrap())
                 } else {
-                    None
+                    v.as_str().and_then(|s| s.parse::<Decimal>().ok())
                 }
             })?),
             Type::NUMERIC_ARRAY,
         )),
         "oid" => Ok((
-            Box::new(map_as_single_type(vec, |v| v.as_u64().map(|x| x as u32))?),
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_u64()
+                    .map(|x| x as u32)
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<u32>().ok()))
+            })?),
             Type::OID_ARRAY,
         )),
         "bigint" | "bigserial" | "int8" | "serial8" => Ok((
-            Box::new(map_as_single_type(vec, |v| v.as_u64().map(|x| x as i64))?),
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_i64()
+                    .or_else(|| v.as_u64().map(|x| x as i64))
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
+            })?),
             Type::INT8_ARRAY,
         )),
         "real" | "float4" => Ok((
-            Box::new(map_as_single_type(vec, |v| v.as_f64().map(|x| x as f32))?),
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_f64()
+                    .map(|x| x as f32)
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<f32>().ok()))
+            })?),
             Type::FLOAT4_ARRAY,
         )),
         "double" | "double precision" | "float8" => Ok((
-            Box::new(map_as_single_type(vec, |v| v.as_f64())?),
+            Box::new(map_as_single_type(vec, |v| {
+                v.as_f64()
+                    .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+            })?),
             Type::FLOAT8_ARRAY,
         )),
         "uuid" => Ok((
