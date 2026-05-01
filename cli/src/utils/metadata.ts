@@ -19,7 +19,7 @@ import {
   languageNeedsLock,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { getModuleFolderSuffix, isModuleEntryPoint, getScriptBasePathFromModulePath } from "./resource_folders.ts";
+import { getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders, readTextFile, readTextFileSync } from "./utils.ts";
 
@@ -199,9 +199,7 @@ export async function generateScriptMetadataInternal(
   const isFolderLayout = isModuleEntryPoint(scriptPath);
 
   // remotePath is the Windmill API path (e.g., "u/admin/my_script")
-  const remotePath = isFolderLayout
-    ? getScriptBasePathFromModulePath(scriptPath)!.replaceAll(SEP, "/")
-    : scriptPath.substring(0, scriptPath.indexOf(".")).replaceAll(SEP, "/");
+  const remotePath = scriptPathToRemotePath(scriptPath);
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 

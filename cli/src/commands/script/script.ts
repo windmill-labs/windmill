@@ -70,6 +70,7 @@ import {
   getModuleFolderSuffix,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
+  scriptPathToRemotePath,
   isRawAppPath,
 } from "../../utils/resource_folders.ts";
 
@@ -299,9 +300,7 @@ export async function handleFile(
     log.debug(`Processing local script ${path}`);
 
     alreadySynced.push(path);
-    const remotePath = moduleEntryPoint
-      ? getScriptBasePathFromModulePath(path)!.replaceAll(SEP, "/")
-      : path.substring(0, path.indexOf(".")).replaceAll(SEP, "/");
+    const remotePath = scriptPathToRemotePath(path);
 
     const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
 
