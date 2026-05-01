@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use windmill_ai::ai_google::{
-    openai_messages_to_gemini, openai_tools_to_gemini, GeminiGenerationConfig,
-    GeminiImageContent, GeminiImageRequest, GeminiImageResponse, GeminiInlineData, GeminiPart,
-    GeminiPredictContent, GeminiTextRequest, GeminiTool,
+    openai_messages_to_gemini, openai_tools_to_gemini, GeminiGenerationConfig, GeminiImageContent,
+    GeminiImageRequest, GeminiImageResponse, GeminiInlineData, GeminiPart, GeminiPredictContent,
+    GeminiTextRequest, GeminiTool,
 };
 use windmill_common::{client::AuthedClient, error::Error};
 
@@ -135,7 +135,10 @@ impl GoogleAIQueryBuilder {
         openai_tools_to_gemini(tool_defs, &tool_params, has_websearch)
     }
 
-    fn build_generation_config(&self, args: &BuildRequestArgs<'_>) -> Option<GeminiGenerationConfig> {
+    fn build_generation_config(
+        &self,
+        args: &BuildRequestArgs<'_>,
+    ) -> Option<GeminiGenerationConfig> {
         let has_output_schema = args
             .output_schema
             .and_then(|s| s.properties.as_ref())
@@ -145,7 +148,10 @@ impl GoogleAIQueryBuilder {
         let (response_mime_type, response_schema) = if has_output_schema {
             let mut schema = args.output_schema.unwrap().clone();
             schema.sanitize_for_google();
-            (Some("application/json".to_string()), serde_json::to_value(&schema).ok())
+            (
+                Some("application/json".to_string()),
+                serde_json::to_value(&schema).ok(),
+            )
         } else {
             (None, None)
         };
@@ -253,7 +259,11 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         });
 
         Ok(ParsedResponse::Text {
-            content: if accumulated_content.is_empty() { None } else { Some(accumulated_content) },
+            content: if accumulated_content.is_empty() {
+                None
+            } else {
+                Some(accumulated_content)
+            },
             tool_calls: accumulated_tool_calls.into_values().collect(),
             events_str: Some(events_str),
             annotations,
@@ -271,8 +281,11 @@ impl QueryBuilder for GoogleAIQueryBuilder {
                     format!("{}/{}:streamGenerateContent?alt=sse", base_url, model)
                 }
                 OutputType::Image => {
-                    let url_suffix =
-                        if model.contains("imagen") { "predict" } else { "generateContent" };
+                    let url_suffix = if model.contains("imagen") {
+                        "predict"
+                    } else {
+                        "generateContent"
+                    };
                     format!("{}/{}:{}", base_url, model, url_suffix)
                 }
             }
@@ -280,11 +293,17 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             // Standard Google AI: base_url is generativelanguage.googleapis.com/v1beta
             match output_type {
                 OutputType::Text => {
-                    format!("{}/models/{}:streamGenerateContent?alt=sse", base_url, model)
+                    format!(
+                        "{}/models/{}:streamGenerateContent?alt=sse",
+                        base_url, model
+                    )
                 }
                 OutputType::Image => {
-                    let url_suffix =
-                        if model.contains("imagen") { "predict" } else { "generateContent" };
+                    let url_suffix = if model.contains("imagen") {
+                        "predict"
+                    } else {
+                        "generateContent"
+                    };
                     format!("{}/models/{}:{}", base_url, model, url_suffix)
                 }
             }

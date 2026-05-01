@@ -153,6 +153,94 @@ function ducklakeProvider(name: string): SqlProvider {
 // Shared template function builder
 // ---------------------------------------------------------------------------
 
+// Build a ready-to-execute SqlStatement. Used by both the template-tag
+// path (which builds `content` from strings/values) and `.query()` (which
+// gets a hand-written SQL string with positional placeholders).
+function buildSqlStatement(
+  provider: SqlProvider,
+  content: string,
+  contentBody: string,
+  args: Record<string, any>
+): SqlStatement<any> {
+  async function fetch<ResultCollectionT extends ResultCollection>({
+    resultCollection,
+  }: FetchParams<ResultCollectionT> = {}) {
+    let finalContent = content;
+    if (resultCollection)
+      finalContent = `-- result_collection=${resultCollection}\n${finalContent}`;
+    try {
+      let result;
+      if (workerHasInternalServer()) {
+        result = await JobService.runScriptPreviewInline({
+          workspace: getWorkspace(),
+          requestBody: { args, content: finalContent, language: provider.language },
+        });
+      } else {
+        result = await JobService.runScriptPreviewAndWaitResult({
+          workspace: getWorkspace(),
+          requestBody: { args, content: finalContent, language: provider.language },
+        });
+      }
+      return result as SqlResult<any, ResultCollectionT>;
+    } catch (e: any) {
+      let err = e;
+      if (
+        e &&
+        typeof e.body == "string" &&
+        e.statusText == "Internal Server Error"
+      ) {
+        let body = e.body;
+        if (body.startsWith("Internal:")) body = body.slice(9).trim();
+        if (body.startsWith("Error:")) body = body.slice(6).trim();
+        if (body.startsWith("datatable")) body = body.slice(9).trim();
+        err = Error(`${provider.providerName} ${body}`);
+        err.query = contentBody;
+        err.request = e.request;
+      }
+      throw err;
+    }
+  }
+
+  return {
+    content,
+    args,
+    fetch,
+    fetchOne: (params) =>
+      fetch({ ...params, resultCollection: "last_statement_first_row" }),
+    fetchOneScalar: (params) =>
+      fetch({
+        ...params,
+        resultCollection: "last_statement_first_row_scalar",
+      }),
+    execute: (params) => fetch(params),
+  } satisfies SqlStatement<any>;
+}
+
+// JSON-encode a JS value into something the executor can deserialize. The
+// JSON.stringify-friendly representation of a JS value before sending it to
+// the executor:
+//   - `bigint`             → string. JSON.stringify on a bigint throws; the
+//                            executor accepts numeric strings into BIGINT
+//                            slots via `Value::String → INT8`.
+//   - `Date`               → ISO-8601 string. inferSqlType maps these to
+//                            `TIMESTAMPTZ`; the executor's `Value::String`
+//                            arm parses ISO strings into `chrono::DateTime`.
+//   - non-finite `number`  → string ("NaN" / "Infinity" / "-Infinity").
+//                            JSON.stringify renders these as `null`, which
+//                            silently became NULL in the database. The
+//                            executor accepts these literals via
+//                            `Value::String → FLOAT8` (`f64::from_str`).
+//   - everything else      → passed through unchanged.
+function serializeArgValue(v: any): any {
+  if (typeof v === "bigint") return v.toString();
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === "number" && !Number.isFinite(v)) {
+    if (Number.isNaN(v)) return "NaN";
+    return v > 0 ? "Infinity" : "-Infinity";
+  }
+  return v;
+}
+
 function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
   let sqlFn = ((strings: TemplateStringsArray, ...values: any[]) => {
     // Separate raw vs parameterized values, assigning arg indices only to params
@@ -212,62 +300,12 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
       ...Object.fromEntries(
         valueInfos
           .filter((info): info is Extract<(typeof valueInfos)[number], { raw: false }> => !info.raw)
-          .map((info) => [`arg${info.argNum}`, info.value])
+          .map((info) => [`arg${info.argNum}`, serializeArgValue(info.value)])
       ),
       ...provider.extraArgs,
     };
 
-    async function fetch<ResultCollectionT extends ResultCollection>({
-      resultCollection,
-    }: FetchParams<ResultCollectionT> = {}) {
-      if (resultCollection)
-        content = `-- result_collection=${resultCollection}\n${content}`;
-      try {
-        let result;
-        if (workerHasInternalServer()) {
-          result = await JobService.runScriptPreviewInline({
-            workspace: getWorkspace(),
-            requestBody: { args, content, language: provider.language },
-          });
-        } else {
-          result = await JobService.runScriptPreviewAndWaitResult({
-            workspace: getWorkspace(),
-            requestBody: { args, content, language: provider.language },
-          });
-        }
-        return result as SqlResult<any, ResultCollectionT>;
-      } catch (e: any) {
-        let err = e;
-        if (
-          e &&
-          typeof e.body == "string" &&
-          e.statusText == "Internal Server Error"
-        ) {
-          let body = e.body;
-          if (body.startsWith("Internal:")) body = body.slice(9).trim();
-          if (body.startsWith("Error:")) body = body.slice(6).trim();
-          if (body.startsWith("datatable")) body = body.slice(9).trim();
-          err = Error(`${provider.providerName} ${body}`);
-          err.query = contentBody;
-          err.request = e.request;
-        }
-        throw err;
-      }
-    }
-
-    return {
-      content,
-      args,
-      fetch,
-      fetchOne: (params) =>
-        fetch({ ...params, resultCollection: "last_statement_first_row" }),
-      fetchOneScalar: (params) =>
-        fetch({
-          ...params,
-          resultCollection: "last_statement_first_row_scalar",
-        }),
-      execute: (params) => fetch(params),
-    } satisfies SqlStatement<any>;
+    return buildSqlStatement(provider, content, contentBody, args);
   }) as SqlTemplateFunction;
 
   sqlFn.raw = (value: string) => new RawSql(value);
@@ -293,12 +331,33 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
  */
 export function datatable(name: string = "main"): DatatableSqlTemplateFunction {
   let { name: n, schema } = parseName(name);
-  let sqlFn = buildSqlTemplateFunction(
-    datatableProvider(n, schema)
-  ) as DatatableSqlTemplateFunction;
+  let provider = datatableProvider(n, schema);
+  let sqlFn = buildSqlTemplateFunction(provider) as DatatableSqlTemplateFunction;
+  // `.query(sql, ...params)` is for SQL strings that already contain
+  // positional placeholders ($1, $2, ...). We DON'T go through the template
+  // builder here — that would re-emit each value as `$N::TYPE` and append
+  // them after the user's literal SQL, which is the bug previous versions of
+  // this method shipped. Instead we build the executor-shaped content
+  // directly: a `-- $N argN (TYPE)` declaration block (the parser picks
+  // these up as explicitly typed args) followed by the user's SQL verbatim.
+  // Note: we hand-roll the decl format here rather than calling
+  // `provider.formatArgDecl`, because the datatable formatter intentionally
+  // omits the type (the template-tag path emits `$N::TYPE` inline instead);
+  // for `.query()` we have no inline cast to fall back on.
   sqlFn.query = (sqlString: string, ...params: any[]) => {
-    let arr = Object.assign([sqlString], { raw: [sqlString] });
-    return sqlFn(arr, ...params);
+    let argDecls = params
+      .map((v, i) => `-- $${i + 1} arg${i + 1} (${inferSqlType(v)})`)
+      .join("\n");
+    let contentBody = sqlString;
+    let content =
+      (argDecls ? argDecls + "\n" : "") + provider.preamble() + sqlString;
+    let args = {
+      ...Object.fromEntries(
+        params.map((v, i) => [`arg${i + 1}`, serializeArgValue(v)])
+      ),
+      ...provider.extraArgs,
+    };
+    return buildSqlStatement(provider, content, contentBody, args);
   };
   return sqlFn;
 }
@@ -329,13 +388,27 @@ export function ducklake(name: string = "main"): SqlTemplateFunction {
 // These types exist in both DuckDB and Postgres
 // Check that the types exist if you plan to extend this function for other SQL engines.
 function inferSqlType(value: any): string {
-  if (typeof value === "number" || typeof value === "bigint") {
+  if (typeof value === "bigint") return "BIGINT";
+  if (typeof value === "number") {
     if (Number.isInteger(value)) return "BIGINT";
     return "DOUBLE PRECISION";
   } else if (value === null || value === undefined) {
     return "TEXT";
   } else if (typeof value === "string") {
     return "TEXT";
+  } else if (Array.isArray(value)) {
+    // Homogeneous-primitive arrays auto-tag as `TYPE[]` so that values like
+    // `${[1,2,3]}` against an `int[]` column work without an explicit
+    // `${arr}::int[]` cast. For non-homogeneous or nested arrays we fall
+    // back to JSON, which works for jsonb columns.
+    return inferSqlArrayType(value);
+  } else if (value instanceof Date) {
+    // JS `Date` carries an absolute instant in UTC; map to TIMESTAMPTZ so
+    // `${someDate}` works against a `timestamptz` column without the user
+    // needing an explicit cast. Without this the typeof check above falls
+    // through to "object" → JSON, which only works by accident via
+    // PG's `json → text → timestamptz` implicit cast chain.
+    return "TIMESTAMPTZ";
   } else if (typeof value === "object") {
     return "JSON";
   } else if (typeof value === "boolean") {
@@ -345,11 +418,45 @@ function inferSqlType(value: any): string {
   }
 }
 
+function inferSqlArrayType(value: any[]): string {
+  if (value.length === 0) return "JSON";
+  // Detect a single shared scalar JS type across all elements. Mixed types
+  // or any non-primitive element forces the JSON fallback.
+  let scalarType: string | undefined = undefined;
+  for (const elem of value) {
+    let elemType: string;
+    if (typeof elem === "bigint") elemType = "BIGINT";
+    else if (typeof elem === "number")
+      elemType = Number.isInteger(elem) ? "BIGINT" : "DOUBLE PRECISION";
+    else if (typeof elem === "string") elemType = "TEXT";
+    else if (typeof elem === "boolean") elemType = "BOOLEAN";
+    else return "JSON";
+    if (scalarType === undefined) scalarType = elemType;
+    else if (scalarType === "BIGINT" && elemType === "DOUBLE PRECISION")
+      scalarType = "DOUBLE PRECISION";
+    else if (scalarType === "DOUBLE PRECISION" && elemType === "BIGINT") {
+      // already widened
+    } else if (scalarType !== elemType) {
+      return "JSON";
+    }
+  }
+  return `${scalarType}[]`;
+}
+
 // The goal is to detect if the user added a type annotation manually
 //
 // untyped : sql`SELECT ${x} = 0` => ['SELECT ', ' = 0']
 // typed   : sql`SELECT ${x}::int = 0` => ['SELECT ', '::int = 0']
 // typed   : sql`SELECT CAST ( ${x} AS int ) = 0` => ['SELECT CAST ( ', ' AS int ) = 0']
+//
+// Caveat: the returned string is only meaningful as a *presence* signal —
+// the only consumer (`formatArgUsage`) just checks `explicitType !== undefined`
+// to decide whether to emit `$N` (user already wrote a cast) vs `$N::TYPE`
+// (SDK injects the inferred cast). The returned string itself can be
+// imprecise — e.g. `${x}::DOUBLE PRECISION` returns `"DOUBLE"` (split on
+// whitespace), and `CAST(${x} AS int)` returns `"int)"` (no paren stripping).
+// Don't rely on the returned string as a parsed PG type; only on whether
+// it's defined.
 function parseTypeAnnotation(
   prevTemplateString: string | undefined,
   nextTemplateString: string | undefined

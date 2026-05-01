@@ -106,6 +106,15 @@ pub struct Arg {
     pub default: Option<serde_json::Value>,
     pub has_default: bool,
     pub oidx: Option<i32>,
+    /// `true` when `otyp` is the parser's fallback default rather than a value
+    /// the user (or SDK) actually wrote down. Currently only set by the PG SQL
+    /// parser when a placeholder has no `-- $N name (TYPE)` declaration *and*
+    /// no `$N::TYPE` inline cast — the otyp is `"text"` purely as a
+    /// placeholder. Consumers that care about original intent (e.g. the PG
+    /// executor deciding whether to coerce `Number → String` for a text
+    /// target) should treat `otyp_inferred = true` as "type unknown".
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub otyp_inferred: bool,
 }
 
 pub fn json_to_typ(js: &Value, precise_arrays: bool) -> Typ {
