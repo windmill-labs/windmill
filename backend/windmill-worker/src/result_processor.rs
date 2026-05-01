@@ -549,13 +549,19 @@ pub async fn process_result(
 
             // Use the structured error message that was just extracted (the
             // user-facing script error) rather than the generic Error string.
-            // For ExitStatus, `error_value` carries the message extracted from
-            // job logs by `extract_error_value`; for other variants it's the
-            // SerializedError we just built. Falls back to "Job failed" if the
-            // error_value isn't shaped like ErrorMessage (e.g. raw scalar).
-            let description = serde_json::from_str::<ErrorMessage>(error_value.get())
+            // Pull `.message` out of the JSON object if present, otherwise
+            // accept a bare string (e.g. agent-worker "See logs for more
+            // details"), and only fall back to "Job failed" when the value
+            // carries no readable description.
+            let description = serde_json::from_str::<serde_json::Value>(error_value.get())
                 .ok()
-                .map(|err_msg| crate::worker::truncate_description(&err_msg.message))
+                .and_then(|value| {
+                    value
+                        .get("message")
+                        .and_then(|m| m.as_str())
+                        .or_else(|| value.as_str())
+                        .map(|m| crate::worker::truncate_description(m))
+                })
                 .unwrap_or_else(|| "Job failed".to_string());
 
             send_job_completed(
