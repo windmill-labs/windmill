@@ -2092,6 +2092,11 @@ async fn execute_component(
     let path = path.to_path();
     let (arc_policy, policy): (Arc<Policy>, Policy);
     let policy_triggerables_default = Default::default();
+    // Preview mode means the request was issued from the editor; the editing
+    // user is already trusted by the policy check, so client-supplied `tag`
+    // on the inline script is honored. In any other case we must read the
+    // tag from the deployed policy and ignore the request body.
+    let is_preview = payload.force_viewer_static_fields.is_some();
 
     // Two cases here:
     // 1. The component is executed from the editor (i.e. in "preview" mode), then:
@@ -2267,23 +2272,31 @@ async fn execute_component(
         .map(|p| p.starts_with("flow/"))
         .unwrap_or(false);
 
+    // Tag for inline-script jobs is read from the deployed policy in run mode;
+    // only preview mode (editor) honors the client-supplied tag. This applies to
+    // both the `id`-bearing app_script path and the legacy `rawscript/<sha>`
+    // path that has no app_script entry yet.
+    let resolved_inline_tag = |client_tag: Option<String>| -> Option<String> {
+        if is_preview {
+            client_tag
+        } else {
+            policy_triggerables.tag.clone()
+        }
+        .filter(|t| !t.is_empty())
+    };
     let (job_payload, tag, on_behalf_of) = match (payload.path, payload.raw_code, payload.id) {
         // flow or script:
         (Some(path), None, None) => get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?,
-        // inline script: in "preview" mode (no entry in `app_script`). Tag is
-        // taken from the client request — preview mode is editor-only and the
-        // editing user is already trusted by the policy check.
+        // inline script: "preview" mode, or run mode without an entry in the
+        // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
         (None, Some(raw_code), None) => {
-            let tag = raw_code.tag.clone().filter(|t| !t.is_empty());
+            let tag = resolved_inline_tag(raw_code.tag.clone());
             (JobPayload::Code(raw_code), tag, None)
         }
-        // inline script: in "run" mode (deployed app) with an entry in `app_script`.
-        // Never trust the client-supplied tag here — read it from the policy that
-        // was committed at deploy time, so end users running the app cannot redirect
-        // the job to an arbitrary worker group.
-        (None, Some(RawCode { language, path, cache_ttl, .. }), Some(id)) => (
+        // inline script: run mode (deployed app) with an entry in `app_script`.
+        (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
             JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
-            policy_triggerables.tag.clone().filter(|t| !t.is_empty()),
+            resolved_inline_tag(tag),
             None,
         ),
         _ => unreachable!(),
