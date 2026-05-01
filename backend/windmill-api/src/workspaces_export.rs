@@ -123,6 +123,25 @@ pub fn is_none_or_false(val: &Option<bool>) -> bool {
 /// source workspace is a fork. Stripping these keys avoids propagating
 /// fork-local operational state (enabled flag, runtime listener identifiers)
 /// back to the parent workspace through the git-sync round-trip.
+#[cfg(any(
+    feature = "http_trigger",
+    feature = "websocket",
+    feature = "postgres_trigger",
+    feature = "mqtt_trigger",
+    feature = "native_trigger",
+    all(
+        feature = "enterprise",
+        any(
+            feature = "kafka",
+            feature = "sqs_trigger",
+            feature = "gcp_trigger",
+            feature = "azure_trigger",
+            feature = "nats",
+            feature = "smtp",
+        ),
+        feature = "private"
+    )
+))]
 fn fork_trigger_ignore_keys(is_fork: bool) -> Option<Vec<&'static str>> {
     if is_fork {
         Some(vec!["mode", "enabled"])

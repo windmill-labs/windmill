@@ -112,14 +112,18 @@
 					{
 						displayName: 'Suspend job execution',
 						icon: Pause,
-						action: () => {
+						action: async () => {
 							// Optimistically flip the local mirror, not the
 							// non-bindable `triggerMode` prop. The parent will
 							// echo the new mode back via $effect on success;
-							// on cancel, our on:change reset path snaps it
-							// back to the prop value.
+							// on cancel (e.g. user dismisses the fork-conflict
+							// modal), reset to whatever the prop says — same
+							// shape as the Toggle's on:change handler.
 							innerTriggerMode = 'suspended'
-							onToggleMode?.('suspended')
+							const result = await onToggleMode?.('suspended')
+							if (result === false) {
+								innerTriggerMode = triggerMode
+							}
 						},
 						tooltip:
 							'When a trigger is in suspended mode, it will continue to accept payloads and queue jobs, but those jobs will not run automatically. You can review the list of suspended jobs, and resume or cancel them individually.'

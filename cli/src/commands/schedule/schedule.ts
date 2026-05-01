@@ -153,7 +153,17 @@ export async function pushSchedule(
           ...preserveFields,
         },
       });
-      if (localSchedule.enabled != schedule.enabled) {
+      // Tarball export from a fork strips `enabled` from schedule YAMLs so
+      // the fork→parent git-sync round-trip can't flip the parent's state.
+      // Skip the secondary setScheduleEnabled call when the local YAML
+      // doesn't carry `enabled` — sending `{ enabled: undefined }` would
+      // serialize to `{}` and the backend (`SetEnabled.enabled` is required)
+      // would reject the request. Preserving the target's existing flag is
+      // exactly the round-trip-safe behavior.
+      if (
+        localSchedule.enabled !== undefined &&
+        localSchedule.enabled !== schedule.enabled
+      ) {
         log.info(colors.bold.yellow(
           `Schedule ${path} is ${localSchedule.enabled ? "enabled" : "disabled"} locally but not on remote, updating remote`
         ));

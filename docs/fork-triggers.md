@@ -53,11 +53,16 @@ copies email triggers only when `workspaced_local_part IS TRUE` (or
 
 ## Merge-direction filter (always on)
 
-Whenever the source workspace ID matches `wm-fork-*`, the tarball export at
-`/api/w/{workspace}/workspaces/tarball` strips fork-local fields:
+Whenever the source workspace has `parent_workspace_id IS NOT NULL` (i.e.
+it's a fork), the tarball export at `/api/w/{workspace}/workspaces/tarball`
+strips fork-local fields:
 
 - `mode` from every `*_trigger` row
 - `enabled` from every `schedule` row
+
+The fork-detection key is the column, not the `wm-fork-*` naming convention,
+so it stays consistent with the conflict-warning gates in `set_trigger_mode`
+and `set_schedule_enabled` and survives any future ID rename.
 
 The trigger update handler complements this: when an incoming `update_trigger`
 request omits both `mode` and `enabled`, the existing DB value is preserved
@@ -161,8 +166,8 @@ at runtime for the kinds that support it:
 | Azure Event Grid | `subscription_name` | `manage_azure_subscription` creates the suffixed sub in Azure. |
 | GCP Pub/Sub (CreateNew) | `subscription_id` | `manage_google_subscription` creates the suffixed sub. |
 
-The suffix is invisible in the stored row and never reaches the parent on
-merge — the merge-direction filter strips identifier columns too. The
-follow-up also adds cleanup-on-fork-delete hooks for the upstream resources
-(Azure / GCP / Postgres publication) so deleted forks don't leak external
-state.
+The suffix is applied at runtime by the listener — the *stored* identifier
+column never carries the suffix, so nothing extra needs to be filtered on
+export. The follow-up also adds cleanup-on-fork-delete hooks for the
+upstream resources (Azure / GCP / Postgres publication) so deleted forks
+don't leak external state.

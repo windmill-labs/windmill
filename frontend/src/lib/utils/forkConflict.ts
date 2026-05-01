@@ -26,10 +26,14 @@ export function detectForkConflict(e: unknown): ForkConflict | null {
 /**
  * Opens the global ForkConflictModal and awaits the user's choice. Resolves
  * to true when the user clicks "Enable anyway", false when they cancel or
- * dismiss.
+ * dismiss. If a previous modal is still pending (e.g. user clicked toggles
+ * on two rows in quick succession), resolve the older promise to false so
+ * the prior caller doesn't hang.
  */
 function askForkConflictConfirm(kind: string, kindLabel: string, parentWorkspaceId: string) {
 	return new Promise<boolean>((resolve) => {
+		const previous = forkConflictModal.val
+		previous?.resolve(false)
 		forkConflictModal.val = { kind, kindLabel, parentWorkspaceId, resolve }
 	})
 }

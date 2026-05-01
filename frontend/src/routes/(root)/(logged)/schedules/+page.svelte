@@ -450,6 +450,12 @@
 												setScheduleEnabled(path, e.detail)
 											} else {
 												sendUserToast('not enough permission', true)
+												// Permission denied — bump the row's reset
+												// counter so the Toggle remounts back to the
+												// prop value. Without this, the local
+												// `bind:checked` flip from the user's click
+												// stays stuck on.
+												bumpToggleReset(path)
 											}
 										}}
 									/>
