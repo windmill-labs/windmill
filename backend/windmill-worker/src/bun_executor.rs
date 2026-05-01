@@ -2511,6 +2511,7 @@ pub async fn handle_wac_v2_output(
                         concurrency_settings: ConcurrencySettingsWithCustom::default(),
                         debouncing_settings: DebouncingSettings::default(),
                         modules: None,
+                        tag: None,
                     }))
                 }
                 _ => Err(error::Error::internal_err(format!(
@@ -2620,6 +2621,7 @@ pub async fn handle_wac_v2_output(
                                 concurrency_settings: ConcurrencySettingsWithCustom::default(),
                                 debouncing_settings: DebouncingSettings::default(),
                                 modules: None,
+                                tag: None,
                             });
                             let step_args: HashMap<String, Box<RawValue>> = step
                                 .args

@@ -68,6 +68,7 @@ async fn test_list_jobs_without_include_args(db: Pool<Postgres>) -> anyhow::Resu
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("x", json!(42))
     .push(&db)
@@ -125,6 +126,7 @@ async fn test_list_jobs_with_include_args(db: Pool<Postgres>) -> anyhow::Result<
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("x", json!(42))
     .push(&db)
@@ -196,6 +198,7 @@ async fn test_list_jobs_completed_with_include_args(db: Pool<Postgres>) -> anyho
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("x", json!(42))
     .run_until_complete(&db, false, port)
@@ -269,6 +272,7 @@ async fn test_list_jobs_mixed_queue_and_completed(db: Pool<Postgres>) -> anyhow:
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("completed_arg", json!("completed_value"))
     .run_until_complete(&db, false, port)
@@ -290,6 +294,7 @@ async fn test_list_jobs_mixed_queue_and_completed(db: Pool<Postgres>) -> anyhow:
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("queued_arg", json!("queued_value"))
     .push(&db)
@@ -375,6 +380,7 @@ async fn test_list_jobs_multiple_queued_with_include_args(
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("x", json!(1))
     .push(&db)
@@ -393,6 +399,7 @@ async fn test_list_jobs_multiple_queued_with_include_args(
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("y", json!(2))
     .push(&db)
@@ -471,6 +478,7 @@ async fn test_queue_list_without_include_args(db: Pool<Postgres>) -> anyhow::Res
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("x", json!(42))
     .push(&db)
@@ -531,6 +539,7 @@ async fn test_queue_list_with_include_args(db: Pool<Postgres>) -> anyhow::Result
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("x", json!(42))
     .push(&db)
@@ -601,6 +610,7 @@ async fn test_queue_list_multiple_jobs_with_include_args(db: Pool<Postgres>) -> 
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("a", json!("value_a"))
     .push(&db)
@@ -619,6 +629,7 @@ async fn test_queue_list_multiple_jobs_with_include_args(db: Pool<Postgres>) -> 
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("b", json!("value_b"))
     .push(&db)
@@ -698,6 +709,7 @@ async fn test_completed_list_without_include_args(db: Pool<Postgres>) -> anyhow:
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("x", json!(42))
     .run_until_complete(&db, false, port)
@@ -764,6 +776,7 @@ async fn test_completed_list_with_include_args(db: Pool<Postgres>) -> anyhow::Re
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("x", json!(42))
     .run_until_complete(&db, false, port)
@@ -839,6 +852,7 @@ async fn test_completed_list_multiple_jobs_with_include_args(
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("a", json!("completed_a"))
     .run_until_complete(&db, false, port)
@@ -860,6 +874,7 @@ async fn test_completed_list_multiple_jobs_with_include_args(
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .arg("b", json!("completed_b"))
     .run_until_complete(&db, false, port)
@@ -992,6 +1007,7 @@ async fn test_job_without_labels_has_no_labels_field(db: Pool<Postgres>) -> anyh
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }))
     .push(&db)
     .await;
@@ -1135,6 +1151,7 @@ async fn test_wm_labels_from_result_merged_with_static_labels(
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     }));
 
     let completed = job

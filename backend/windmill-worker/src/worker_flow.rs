@@ -5483,6 +5483,7 @@ pub fn raw_script_to_payload(
             // TODO: Should this have debouncing?
             debouncing_settings: DebouncingSettings::default(),
             modules: None,
+            tag: None,
         }),
         tag,
         delete_after_use,

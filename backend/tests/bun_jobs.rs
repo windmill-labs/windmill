@@ -35,6 +35,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -72,6 +73,7 @@ export function main(name: string, count: number) {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = RunJob::from(job)
@@ -115,6 +117,7 @@ export function main() {
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -148,6 +151,7 @@ export function main() {
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -182,6 +186,7 @@ export function main() {
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -223,6 +228,7 @@ export async function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -263,6 +269,7 @@ export function main() {
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -296,6 +303,7 @@ export function main() {
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -339,6 +347,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
@@ -380,6 +389,7 @@ export function notMain() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
@@ -421,6 +431,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
@@ -459,6 +470,7 @@ export async function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
@@ -514,6 +526,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -552,6 +565,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -595,6 +609,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -694,6 +709,7 @@ export function main() {
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -730,6 +746,7 @@ export function main() {
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -777,6 +794,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -826,6 +844,7 @@ export function main(x: number) {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     // x=5, main adds 10 = 15
@@ -877,6 +896,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -923,6 +943,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -1963,6 +1984,7 @@ export function main(name: string) {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = RunJob::from(job)
@@ -2027,6 +2049,7 @@ export function main(name: string) {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = RunJob::from(job)
@@ -2304,6 +2327,7 @@ module.exports.main = function() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = RunJob::from(job)
@@ -2346,6 +2370,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = RunJob::from(job)
@@ -2397,6 +2422,7 @@ module.exports.main = function() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     use std::sync::atomic::Ordering;
@@ -2458,6 +2484,7 @@ export function main() {
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     use std::sync::atomic::Ordering;

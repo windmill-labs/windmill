@@ -2268,11 +2268,14 @@ async fn execute_component(
         // flow or script:
         (Some(path), None, None) => get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?,
         // inline script: in "preview" mode or without entry in the `app_script` table.
-        (None, Some(raw_code), None) => (JobPayload::Code(raw_code), None, None),
+        (None, Some(raw_code), None) => {
+            let tag = raw_code.tag.clone().filter(|t| !t.is_empty());
+            (JobPayload::Code(raw_code), tag, None)
+        }
         // inline script: in "run" mode and with an entry in the `app_script` table.
-        (None, Some(RawCode { language, path, cache_ttl, .. }), Some(id)) => (
+        (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
             JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
-            None,
+            tag.filter(|t| !t.is_empty()),
             None,
         ),
         _ => unreachable!(),
