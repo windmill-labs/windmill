@@ -508,3 +508,84 @@ excludes: []`, "utf-8");
       expect(hasRawApp).toBeTruthy();
     });
 });
+
+test("Raw App: CamelCase backend runnableId round-trips without duplicates", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "raw_app_camelcase_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      const appDir = path.join(tempDir, "f", "test", "camelcase_app.raw_app");
+      const backendDir = path.join(appDir, "backend");
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
+      await createRawAppOnDisk(appDir);
+
+      // Add a backend runnable whose id contains uppercase letters. The YAML
+      // metadata file is named `${runnableId}.yaml` and must stay in sync with
+      // the code file's casing — the bug fixed here desynced them.
+      await mkdir(backendDir, { recursive: true });
+      await writeFile(path.join(backendDir, "CamelCaseTSRunnable.yaml"), "type: inline\n", "utf-8");
+      await writeFile(
+        path.join(backendDir, "CamelCaseTSRunnable.ts"),
+        `export async function main(x: number): Promise<string> {\n  return \`Result: \${x}\`;\n}\n`,
+        "utf-8"
+      );
+
+      const pushResult1 = await backend.runCLICommand(
+        ["sync", "push", "--yes"],
+        tempDir, "raw_app_camelcase_test"
+      );
+      expect(pushResult1.code).toEqual(0);
+
+      await rm(appDir, { recursive: true });
+
+      const pullResult = await backend.runCLICommand(
+        ["sync", "pull", "--yes"],
+        tempDir, "raw_app_camelcase_test"
+      );
+      expect(pullResult.code).toEqual(0);
+
+      // YAML and code file must both come back with the original case so
+      // loadRunnablesFromBackend pairs them as one runnable, not two.
+      expect(await fileExists(path.join(backendDir, "CamelCaseTSRunnable.yaml"))).toBeTruthy();
+      expect(await fileExists(path.join(backendDir, "CamelCaseTSRunnable.ts"))).toBeTruthy();
+      expect(await fileExists(path.join(backendDir, "camelcasetsrunnable.ts"))).toBeFalsy();
+      expect(await fileExists(path.join(backendDir, "camelcasetsrunnable.yaml"))).toBeFalsy();
+
+      const pulledContent = await readFileContent(path.join(backendDir, "CamelCaseTSRunnable.ts"));
+      expect(pulledContent).toContain("Result:");
+
+      // A second push must not surface a duplicate lowercase runnable: the
+      // dry-run change list should only mention the one app, no orphan code
+      // file getting registered as a separate inline runnable.
+      const dryRun = await backend.runCLICommand(
+        ["sync", "push", "--dry-run", "--json-output"],
+        tempDir, "raw_app_camelcase_test"
+      );
+      expect(dryRun.code).toEqual(0);
+
+      let jsonOutput: any = null;
+      try {
+        jsonOutput = JSON.parse(dryRun.stdout.trim());
+      } catch {
+        const jsonMatch = dryRun.stdout.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try { jsonOutput = JSON.parse(jsonMatch[0]); } catch { /* ignore */ }
+        }
+      }
+      expect(jsonOutput !== null).toBeTruthy();
+      const changes = (jsonOutput.changes ?? []) as Array<{ path: string }>;
+      // No change should reference a lowercased runnable filename.
+      const lowercased = changes.filter((c) => c.path.includes("camelcasetsrunnable"));
+      expect(lowercased).toEqual([]);
+    });
+});
