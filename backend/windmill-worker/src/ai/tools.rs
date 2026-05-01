@@ -592,13 +592,13 @@ async fn execute_windmill_tool(
             )
             .await?;
         }
-        Ok(success) => {
+        Ok(outcome) => {
             handle_tool_execution_success(
                 ctx,
                 tool_call,
                 tool_module,
                 job_id,
-                success,
+                outcome.is_success(),
                 inner_job_completed_rx,
                 messages,
                 final_events_str,

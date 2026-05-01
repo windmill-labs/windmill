@@ -478,7 +478,7 @@ pub async fn process_result(
     duration: Option<i64>,
     has_stream: bool,
     flow_runners: Option<Arc<FlowRunners>>,
-) -> error::Result<bool> {
+) -> error::Result<crate::worker::JobOutcome> {
     match result {
         Ok(result) => {
             send_job_completed(
@@ -502,9 +502,10 @@ pub async fn process_result(
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
             .await;
-            Ok(true)
+            Ok(crate::worker::JobOutcome::Completed)
         }
         Err(e) => {
+            let description = crate::worker::truncate_description(&e.to_string());
             let error_value = match e {
                 Error::ExitStatus(program, i) => {
                     let res = read_result(job_dir, None).await.ok();
@@ -568,7 +569,7 @@ pub async fn process_result(
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
             .await;
-            Ok(false)
+            Ok(crate::worker::JobOutcome::Failed { description })
         }
     }
 }
