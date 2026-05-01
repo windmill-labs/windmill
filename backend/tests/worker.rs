@@ -2320,6 +2320,54 @@ SELECT 'price: $5' AS lbl, $5::int + $50::int AS sum"#
             json!({"arg5": 1, "arg50": 2}),
             json!([{"lbl": "price: $5", "sum": 3}]),
         ),
+
+        // === Multi-word PG type names with [] array suffix ===
+        // Pre-fix: `transform_types_with_spaces` returned a `&str` alias
+        // ("double" / "varchar" / "timestamptz" / …) and dropped the trailing
+        // `[]`, so the dispatch routed `Value::Array` through `Type::JSONB`
+        // and the server failed with "cannot cast type jsonb to <T>[]".
+        (
+            "multi-word array: double precision[]",
+            "-- $1 a\nSELECT $1::double precision[] AS v".to_owned(),
+            json!({"a": [1.5, 2.5]}),
+            json!([{"v": [1.5, 2.5]}]),
+        ),
+        (
+            "multi-word array: character varying[]",
+            "-- $1 a\nSELECT $1::character varying[] AS v".to_owned(),
+            json!({"a": ["x", "y"]}),
+            json!([{"v": ["x", "y"]}]),
+        ),
+        (
+            "multi-word array: timestamp without time zone[]",
+            "-- $1 a\nSELECT $1::timestamp without time zone[] AS v".to_owned(),
+            json!({"a": ["2024-01-15T10:30:00"]}),
+            json!([{"v": ["2024-01-15T10:30:00"]}]),
+        ),
+
+        // === Stringified primitives in array args ===
+        // Mirror the scalar `Value::String → <numeric type>` arms so values
+        // sent as e.g. `["1.5", "2.5"]` for `numeric[]` (typical for bulk-
+        // loading via `unnest` or BigInt-stringified arrays) round-trip
+        // instead of erroring with "Mixed types in array".
+        (
+            "numeric[] from stringified decimals",
+            "-- $1 a\nSELECT $1::numeric[] AS v".to_owned(),
+            json!({"a": ["1.5", "2.5"]}),
+            json!([{"v": [1.5, 2.5]}]),
+        ),
+        (
+            "int[] from stringified ints",
+            "-- $1 a\nSELECT $1::int[] AS v".to_owned(),
+            json!({"a": ["1", "2", "3"]}),
+            json!([{"v": [1, 2, 3]}]),
+        ),
+        (
+            "bool[] from stringified bools",
+            "-- $1 a\nSELECT $1::bool[] AS v".to_owned(),
+            json!({"a": ["true", "f", "yes"]}),
+            json!([{"v": [true, false, true]}]),
+        ),
     ];
 
     for (name, content, args, expected) in cases {
