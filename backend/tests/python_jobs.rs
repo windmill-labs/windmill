@@ -748,6 +748,7 @@ def main():
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -800,6 +801,7 @@ def main():
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -837,6 +839,7 @@ def main():
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -878,6 +881,7 @@ def main():
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -917,6 +921,7 @@ def main():
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -1003,6 +1008,7 @@ async def main(item: str, qty: int, email: str):
                         language: ScriptLang::Python3,
                         content,
                         ..RawCode::default()
+                        tag: None,
                     }))
                     .arg("item", json!("widget"))
                     .arg("qty", json!(5))
@@ -1188,6 +1194,7 @@ async def main(n: int):
                         language: ScriptLang::Python3,
                         content,
                         ..RawCode::default()
+                        tag: None,
                     }))
                     .arg("n", json!(1))
                     .run_until_complete(db, false, port),

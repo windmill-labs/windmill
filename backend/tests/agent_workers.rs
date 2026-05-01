@@ -22,6 +22,7 @@ fn bun_code(code: &str) -> RawCode {
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+    tag: None,
     }
 }
 

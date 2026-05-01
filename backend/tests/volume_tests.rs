@@ -597,6 +597,7 @@ export function main() {
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port).await;
