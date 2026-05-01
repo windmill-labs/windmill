@@ -426,6 +426,15 @@ function inferSqlArrayType(value: any[]): string {
 // untyped : sql`SELECT ${x} = 0` => ['SELECT ', ' = 0']
 // typed   : sql`SELECT ${x}::int = 0` => ['SELECT ', '::int = 0']
 // typed   : sql`SELECT CAST ( ${x} AS int ) = 0` => ['SELECT CAST ( ', ' AS int ) = 0']
+//
+// Caveat: the returned string is only meaningful as a *presence* signal —
+// the only consumer (`formatArgUsage`) just checks `explicitType !== undefined`
+// to decide whether to emit `$N` (user already wrote a cast) vs `$N::TYPE`
+// (SDK injects the inferred cast). The returned string itself can be
+// imprecise — e.g. `${x}::DOUBLE PRECISION` returns `"DOUBLE"` (split on
+// whitespace), and `CAST(${x} AS int)` returns `"int)"` (no paren stripping).
+// Don't rely on the returned string as a parsed PG type; only on whether
+// it's defined.
 function parseTypeAnnotation(
   prevTemplateString: string | undefined,
   nextTemplateString: string | undefined

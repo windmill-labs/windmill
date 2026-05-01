@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -31,8 +31,8 @@ use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult, DB};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
-    parse_db_resource, parse_pg_statement_arg_indices, parse_pg_statement_arg_positions,
-    parse_pgsql_sig_with_typed_schema, parse_s3_mode, parse_sql_blocks,
+    parse_db_resource, parse_pg_statement_arg_positions, parse_pgsql_sig_with_typed_schema,
+    parse_s3_mode, parse_sql_blocks,
 };
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
@@ -269,15 +269,16 @@ fn do_postgresql_inner<'a>(
     // types from the SQL context.
     let mut all_types_resolved = true;
 
-    let arg_indices = parse_pg_statement_arg_indices(&query);
+    // Single tokenizer pass — derive both the index set (for the param
+    // dispatch loop below) and the byte ranges (for sparse renumbering) from
+    // one walk over the SQL. Positions skip occurrences inside string
+    // literals, comments, and dollar-quoted blocks, so the rewrite below
+    // doesn't mangle a query like `SELECT 'price: $5' AS lbl, $5 FROM t`.
+    let positions = parse_pg_statement_arg_positions(&query);
+    let arg_indices: HashSet<i32> = positions.iter().map(|(i, _)| *i).collect();
 
-    // Renumber sparse positional placeholders (e.g. $5, $50 → $1, $2) using
-    // the parser's string/comment-aware tokenizer. Each occurrence is rewritten
-    // by byte position, walking from the end of the SQL backwards so earlier
-    // positions don't shift. Crucially, occurrences inside string literals
-    // / line comments / dollar-quoted blocks are NOT in `positions` (the
-    // tokenizer skips them), so a query like `SELECT 'price: $5' AS lbl, $5
-    // FROM t` only rewrites the real placeholder, not the literal.
+    // Renumber sparse positional placeholders (e.g. $5, $50 → $1, $2) by
+    // byte position, walking back-to-front so earlier positions don't shift.
     let renumber_mapping: HashMap<i32, usize> = arg_indices
         .iter()
         .sorted()
@@ -288,7 +289,7 @@ fn do_postgresql_inner<'a>(
         .iter()
         .any(|(oidx, new_i)| *oidx as usize != *new_i)
     {
-        let mut positions = parse_pg_statement_arg_positions(&query);
+        let mut positions = positions.clone();
         positions.sort_by_key(|(_, range)| std::cmp::Reverse(range.start));
         for (oidx, range) in positions {
             if let Some(new_i) = renumber_mapping.get(&oidx) {
@@ -988,7 +989,11 @@ fn convert_vec_val(
             Box::new(map_as_single_type(vec, |v| {
                 v.as_str().and_then(|x| parse_naive_time(x).ok())
             })?),
-            Type::TIMETZ_ARRAY,
+            // chrono's `NaiveTime` only encodes for `TIME` — same caveat as
+            // the scalar `timetz` arm. Asserting `TIMETZ_ARRAY` here would
+            // fail at the encoder. Postgres has an implicit `time → timetz`
+            // assignment cast at the column site.
+            Type::TIME_ARRAY,
         )),
         "timestamp" => Ok((
             Box::new(map_as_single_type(vec, |v| {
@@ -1105,11 +1110,19 @@ fn convert_val(
         // no implicit `bool/int → text` cast in expression context).
         Value::Bool(b) if explicit_text_target => {
             // `char` (Type::CHAR, OID 18) is single-byte and `to_string()` of
-            // a bool is multi-byte ("true"/"false") — fall back to BOOL, the
-            // server will cast at the use site. Same for `character` (= bpchar).
+            // a bool is multi-byte ("true"/"false") — we can't bind it as
+            // CHAR. Fail explicitly with an actionable hint rather than
+            // silently sending BOOL (which the server then can't compare
+            // against a CHAR column — `operator does not exist: bool = char`).
+            // `character` (= bpchar, fixed-length text) has the same issue.
             // For text/varchar/character varying we coerce to a string.
             match arg_t.as_str() {
-                "char" | "character" => Ok((Box::new(*b), Type::BOOL)),
+                "char" | "character" => Err(Error::ExecutionErr(format!(
+                    "Cannot bind a JSON bool to a `{arg_t}` arg. \
+                     `char` and `character` are single-byte / fixed-width text — \
+                     pass the value as a string (e.g. \"t\" / \"f\") or change \
+                     the arg type to `bool`."
+                ))),
                 "varchar" | "character varying" => Ok((Box::new(b.to_string()), Type::VARCHAR)),
                 _ => Ok((Box::new(b.to_string()), Type::TEXT)),
             }
@@ -1292,6 +1305,22 @@ fn convert_val(
         // For arg_t in (json, jsonb): bind a JSON-encodable Value with the
         // matching pg type. Falling through to TEXT here would assert TEXT
         // and break query_typed_raw's encoder check.
+        // Object / Array (no `[]` suffix): bind as JSONB by default and
+        // JSON-stringify when the target is text-like.
+        //
+        // Note the asymmetry vs the Bool/Number arms above: we coerce to
+        // text on `matches!(typ, Typ::Str(_))` (which is true for both
+        // explicit `(text)` decls AND parser-default text), not on
+        // `explicit_text_target`. Reason: serialising a JSON object/array
+        // as JSONB and binding against a parser-default-text arg would
+        // assert `JSONB` for what could be a plain-text column. Postgres
+        // has no implicit cast `jsonb → text` in expression context, so
+        // `WHERE text_col = $1::JSONB` would fail. JSON-stringifying into
+        // TEXT is what users almost always want for these JSON shapes
+        // (and the result is itself valid JSON, so a `::jsonb` cast in
+        // SQL still round-trips). Bool/Number don't need this safety
+        // because `bool → text` and `int → text` have implicit assignment
+        // casts; the asymmetry is therefore semantic, not a bug.
         Value::Array(_) if arg_t == "jsonb" => Ok((Box::new(value.clone()), Type::JSONB)),
         Value::Array(_) if arg_t == "json" => Ok((Box::new(value.clone()), Type::JSON)),
         Value::Array(_) if matches!(typ, Typ::Str(_)) => {
@@ -1374,20 +1403,30 @@ pub fn pg_cell_to_json_value(
         Type::TEXT | Type::VARCHAR => {
             get_basic(row, column, column_i, |a: String| Ok(JSONValue::String(a)))?
         }
+        // ISO-8601 / RFC-3339 for temporal types so values round-trip through
+        // JS / Python clients (`new Date(s)`, `datetime.fromisoformat(s)`)
+        // without manual parsing. chrono's default `to_string()` returns
+        // space-separated for naive datetimes and " UTC" suffix for tz-aware,
+        // neither of which is parseable as ISO 8601.
         Type::TIMESTAMP => get_basic(row, column, column_i, |a: chrono::NaiveDateTime| {
-            Ok(JSONValue::String(a.to_string()))
+            Ok(JSONValue::String(format_naive_datetime_iso(&a)))
         })?,
         Type::DATE => get_basic(row, column, column_i, |a: chrono::NaiveDate| {
+            // chrono's `NaiveDate::to_string` is already ISO-8601 (`%Y-%m-%d`).
             Ok(JSONValue::String(a.to_string()))
         })?,
         Type::TIME => get_basic(row, column, column_i, |a: chrono::NaiveTime| {
+            // `NaiveTime::to_string` is already ISO-8601 (`%H:%M:%S` with
+            // optional `.f`).
             Ok(JSONValue::String(a.to_string()))
         })?,
         Type::TIMETZ => get_basic(row, column, column_i, |a: TimeTZStr| {
+            // TimeTZStr's `from_sql` already formats as ISO-8601 (see impl
+            // below).
             Ok(JSONValue::String(a.0))
         })?,
         Type::TIMESTAMPTZ => get_basic(row, column, column_i, |a: chrono::DateTime<Utc>| {
-            Ok(JSONValue::String(a.to_string()))
+            Ok(JSONValue::String(a.to_rfc3339()))
         })?,
         Type::UUID => get_basic(row, column, column_i, |a: uuid::Uuid| {
             Ok(JSONValue::String(a.to_string()))
@@ -1456,8 +1495,9 @@ pub fn pg_cell_to_json_value(
         Type::TS_VECTOR_ARRAY => get_array(row, column, column_i, |a: StringCollector| {
             Ok(JSONValue::String(a.0))
         })?,
+        // Same ISO-8601 formatting as the scalar arms above.
         Type::TIMESTAMP_ARRAY => get_array(row, column, column_i, |a: chrono::NaiveDateTime| {
-            Ok(JSONValue::String(a.to_string()))
+            Ok(JSONValue::String(format_naive_datetime_iso(&a)))
         })?,
         Type::DATE_ARRAY => get_array(row, column, column_i, |a: chrono::NaiveDate| {
             Ok(JSONValue::String(a.to_string()))
@@ -1469,7 +1509,7 @@ pub fn pg_cell_to_json_value(
             Ok(JSONValue::String(a.0))
         })?,
         Type::TIMESTAMPTZ_ARRAY => get_array(row, column, column_i, |a: chrono::DateTime<Utc>| {
-            Ok(JSONValue::String(a.to_string()))
+            Ok(JSONValue::String(a.to_rfc3339()))
         })?,
         Type::BYTEA_ARRAY => get_array(row, column, column_i, |a: Vec<u8>| {
             Ok(JSONValue::String(format!("\\x{}", hex::encode(a))))
@@ -1556,11 +1596,24 @@ impl<'a> FromSql<'a> for TimeTZStr {
             ((microsecond % 1_000_000) * 1_000) as u32,
         )
         .ok_or_else(|| anyhow::anyhow!("Invalid time value"))?;
-        Ok(TimeTZStr(format!("{:?} UTC", utc)))
+        // ISO-8601: append `+00:00` since TIMETZ is normalised to UTC here.
+        Ok(TimeTZStr(format!("{}+00:00", utc)))
     }
 
     fn accepts(ty: &Type) -> bool {
         matches!(ty, &Type::TIMETZ)
+    }
+}
+
+/// Format a `NaiveDateTime` as ISO-8601 (`YYYY-MM-DDTHH:MM:SS[.fff…]`).
+/// chrono's default `to_string` uses a space separator, which is not parseable
+/// by `new Date(s)` in older JS engines or Python's `datetime.fromisoformat`
+/// before 3.11. Use the explicit format string so output is portable.
+fn format_naive_datetime_iso(dt: &chrono::NaiveDateTime) -> String {
+    if dt.and_utc().timestamp_subsec_nanos() == 0 {
+        dt.format("%Y-%m-%dT%H:%M:%S").to_string()
+    } else {
+        dt.format("%Y-%m-%dT%H:%M:%S%.f").to_string()
     }
 }
 
@@ -1891,7 +1944,6 @@ mod tests {
             ("character varying", Type::VARCHAR),
         ];
         let bind_as_bool = [
-            "char",
             "smallint",
             "int",
             "integer",
@@ -1942,6 +1994,32 @@ mod tests {
                     expected.clone(),
                 );
                 // Inferred (parser-default): keep BOOL.
+                assert_convert_val_consistent_inferred(
+                    &format!("Bool({v})/{arg_t} inferred"),
+                    Value::Bool(v),
+                    arg_t,
+                    typ_for(arg_t),
+                    Type::BOOL,
+                );
+            }
+            // `char` and `character` (= bpchar) are single-byte / fixed-width
+            // text. Explicit decl with a JSON bool errors with an actionable
+            // hint instead of silently binding BOOL (which a CHAR column
+            // can't compare against). Inferred-default still binds BOOL.
+            for arg_t in &["char", "character"] {
+                let err = convert_val(
+                    &Value::Bool(v),
+                    &arg_t.to_string(),
+                    &typ_for(arg_t),
+                    /* otyp_inferred = */ false,
+                )
+                .err()
+                .unwrap_or_else(|| panic!("Bool({v})/{arg_t} explicit should error"));
+                let msg = err.to_string();
+                assert!(
+                    msg.contains("Cannot bind a JSON bool"),
+                    "Bool({v})/{arg_t} explicit error didn't have expected message: {msg}"
+                );
                 assert_convert_val_consistent_inferred(
                     &format!("Bool({v})/{arg_t} inferred"),
                     Value::Bool(v),
@@ -2272,6 +2350,24 @@ mod tests {
             "uuid[]",
             typ_for("uuid[]"),
             Type::UUID_ARRAY,
+        );
+        // `timetz[]` falls back to TIME_ARRAY for the same reason the scalar
+        // `timetz` falls back to TIME — chrono's `NaiveTime` only encodes for
+        // TIME. The encoder check (to_sql_checked) catches a mistakenly
+        // asserted TIMETZ_ARRAY here.
+        assert_convert_val_consistent(
+            "Array(times)/timetz[] → TIME_ARRAY",
+            json!(["10:30:00", "11:00:00"]),
+            "timetz[]",
+            typ_for("timetz[]"),
+            Type::TIME_ARRAY,
+        );
+        assert_convert_val_consistent(
+            "Array(times)/time[]",
+            json!(["10:30:00", "11:00:00"]),
+            "time[]",
+            typ_for("time[]"),
+            Type::TIME_ARRAY,
         );
         // Array without [] suffix on arg_t: bind as JSONB (or JSON / TEXT).
         assert_convert_val_consistent(

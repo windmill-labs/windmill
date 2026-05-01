@@ -63,10 +63,7 @@ fn authed(builder: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuil
 
 /// Create an app with inline script via API
 async fn create_app_with_inline_script(port: u16, path: &str) -> anyhow::Result<()> {
-    let url = format!(
-        "http://localhost:{}/api/w/test-workspace/apps/create",
-        port
-    );
+    let url = format!("http://localhost:{}/api/w/test-workspace/apps/create", port);
     let resp = authed(client().post(&url), SAME_WS_TOKEN)
         .json(&json!({
             "path": path,
@@ -102,17 +99,18 @@ async fn create_app_with_inline_script(port: u16, path: &str) -> anyhow::Result<
         .send()
         .await?;
     if !resp.status().is_success() {
-        anyhow::bail!("create app failed: {} - {}", resp.status(), resp.text().await?);
+        anyhow::bail!(
+            "create app failed: {} - {}",
+            resp.status(),
+            resp.text().await?
+        );
     }
     Ok(())
 }
 
 /// Create a raw app with inline script via API (uses regular app endpoint with rawapp type)
 async fn create_raw_app_with_inline_script(port: u16, path: &str) -> anyhow::Result<()> {
-    let url = format!(
-        "http://localhost:{}/api/w/test-workspace/apps/create",
-        port
-    );
+    let url = format!("http://localhost:{}/api/w/test-workspace/apps/create", port);
     let resp = authed(client().post(&url), SAME_WS_TOKEN)
         .json(&json!({
             "path": path,
@@ -146,12 +144,21 @@ async fn create_raw_app_with_inline_script(port: u16, path: &str) -> anyhow::Res
         .send()
         .await?;
     if !resp.status().is_success() {
-        anyhow::bail!("create raw app failed: {} - {}", resp.status(), resp.text().await?);
+        anyhow::bail!(
+            "create raw app failed: {} - {}",
+            resp.status(),
+            resp.text().await?
+        );
     }
     Ok(())
 }
 
-async fn run_app_inline_script(port: u16, token: &str, app_path: &str, force_viewer: bool) -> anyhow::Result<String> {
+async fn run_app_inline_script(
+    port: u16,
+    token: &str,
+    app_path: &str,
+    force_viewer: bool,
+) -> anyhow::Result<String> {
     let url = format!(
         "http://localhost:{}/api/w/test-workspace/apps_u/execute_component/{}",
         port, app_path
@@ -173,13 +180,22 @@ async fn run_app_inline_script(port: u16, token: &str, app_path: &str, force_vie
         .send()
         .await?;
     if !resp.status().is_success() {
-        anyhow::bail!("app inline script run failed: {} - {}", resp.status(), resp.text().await?);
+        anyhow::bail!(
+            "app inline script run failed: {} - {}",
+            resp.status(),
+            resp.text().await?
+        );
     }
     let job_id = resp.text().await?;
     wait_for_job_result(port, token, &job_id).await
 }
 
-async fn run_raw_app_inline_script(port: u16, token: &str, app_path: &str, force_viewer: bool) -> anyhow::Result<String> {
+async fn run_raw_app_inline_script(
+    port: u16,
+    token: &str,
+    app_path: &str,
+    force_viewer: bool,
+) -> anyhow::Result<String> {
     let url = format!(
         "http://localhost:{}/api/w/test-workspace/apps_u/execute_component/{}",
         port, app_path
@@ -200,7 +216,11 @@ async fn run_raw_app_inline_script(port: u16, token: &str, app_path: &str, force
         .send()
         .await?;
     if !resp.status().is_success() {
-        anyhow::bail!("raw app inline script run failed: {} - {}", resp.status(), resp.text().await?);
+        anyhow::bail!(
+            "raw app inline script run failed: {} - {}",
+            resp.status(),
+            resp.text().await?
+        );
     }
     let job_id = resp.text().await?;
     wait_for_job_result(port, token, &job_id).await
@@ -215,8 +235,12 @@ async fn wait_for_job_result(port: u16, token: &str, job_id: &str) -> anyhow::Re
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         let resp = authed(client().get(&url), token).send().await?;
         if resp.status().is_success() {
-            return Ok(resp.json::<serde_json::Value>().await?
-                .as_str().unwrap_or("").to_string());
+            return Ok(resp
+                .json::<serde_json::Value>()
+                .await?
+                .as_str()
+                .unwrap_or("")
+                .to_string());
         }
     }
     anyhow::bail!("timeout waiting for job result")
@@ -268,24 +292,38 @@ async fn test_app_wm_end_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let app_path = "f/test/email_app";
 
-    in_test_worker(Connection::Sql(db.clone()), async move {
-        // Create the app with inline script first
-        create_app_with_inline_script(port, app_path).await?;
+    in_test_worker(
+        Connection::Sql(db.clone()),
+        async move {
+            // Create the app with inline script first
+            create_app_with_inline_script(port, app_path).await?;
 
-        // Same workspace user (force_viewer mode works for workspace members)
-        let result = run_app_inline_script(port, SAME_WS_TOKEN, app_path, true).await?;
-        assert_eq!(result, SAME_WS_EMAIL, "same workspace user should get their email");
+            // Same workspace user (force_viewer mode works for workspace members)
+            let result = run_app_inline_script(port, SAME_WS_TOKEN, app_path, true).await?;
+            assert_eq!(
+                result, SAME_WS_EMAIL,
+                "same workspace user should get their email"
+            );
 
-        // Other workspace user (uses app's anonymous policy + token lookup)
-        let result = run_app_inline_script(port, OTHER_WS_TOKEN, app_path, false).await?;
-        assert_eq!(result, OTHER_WS_EMAIL, "other workspace user should get their email");
+            // Other workspace user (uses app's anonymous policy + token lookup)
+            let result = run_app_inline_script(port, OTHER_WS_TOKEN, app_path, false).await?;
+            assert_eq!(
+                result, OTHER_WS_EMAIL,
+                "other workspace user should get their email"
+            );
 
-        // No workspace user (uses app's anonymous policy + token lookup)
-        let result = run_app_inline_script(port, NO_WS_TOKEN, app_path, false).await?;
-        assert_eq!(result, NO_WS_EMAIL, "no workspace user should get their email");
+            // No workspace user (uses app's anonymous policy + token lookup)
+            let result = run_app_inline_script(port, NO_WS_TOKEN, app_path, false).await?;
+            assert_eq!(
+                result, NO_WS_EMAIL,
+                "no workspace user should get their email"
+            );
 
-        Ok::<(), anyhow::Error>(())
-    }, port).await?;
+            Ok::<(), anyhow::Error>(())
+        },
+        port,
+    )
+    .await?;
 
     Ok(())
 }
@@ -300,24 +338,38 @@ async fn test_raw_app_wm_end_user_email(db: Pool<Postgres>) -> anyhow::Result<()
 
     let app_path = "f/test/email_raw_app";
 
-    in_test_worker(Connection::Sql(db.clone()), async move {
-        // Create the raw app with inline script first
-        create_raw_app_with_inline_script(port, app_path).await?;
+    in_test_worker(
+        Connection::Sql(db.clone()),
+        async move {
+            // Create the raw app with inline script first
+            create_raw_app_with_inline_script(port, app_path).await?;
 
-        // Same workspace user (force_viewer mode works for workspace members)
-        let result = run_raw_app_inline_script(port, SAME_WS_TOKEN, app_path, true).await?;
-        assert_eq!(result, SAME_WS_EMAIL, "same workspace user should get their email");
+            // Same workspace user (force_viewer mode works for workspace members)
+            let result = run_raw_app_inline_script(port, SAME_WS_TOKEN, app_path, true).await?;
+            assert_eq!(
+                result, SAME_WS_EMAIL,
+                "same workspace user should get their email"
+            );
 
-        // Other workspace user (uses app's anonymous policy + token lookup)
-        let result = run_raw_app_inline_script(port, OTHER_WS_TOKEN, app_path, false).await?;
-        assert_eq!(result, OTHER_WS_EMAIL, "other workspace user should get their email");
+            // Other workspace user (uses app's anonymous policy + token lookup)
+            let result = run_raw_app_inline_script(port, OTHER_WS_TOKEN, app_path, false).await?;
+            assert_eq!(
+                result, OTHER_WS_EMAIL,
+                "other workspace user should get their email"
+            );
 
-        // No workspace user (uses app's anonymous policy + token lookup)
-        let result = run_raw_app_inline_script(port, NO_WS_TOKEN, app_path, false).await?;
-        assert_eq!(result, NO_WS_EMAIL, "no workspace user should get their email");
+            // No workspace user (uses app's anonymous policy + token lookup)
+            let result = run_raw_app_inline_script(port, NO_WS_TOKEN, app_path, false).await?;
+            assert_eq!(
+                result, NO_WS_EMAIL,
+                "no workspace user should get their email"
+            );
 
-        Ok::<(), anyhow::Error>(())
-    }, port).await?;
+            Ok::<(), anyhow::Error>(())
+        },
+        port,
+    )
+    .await?;
 
     Ok(())
 }
