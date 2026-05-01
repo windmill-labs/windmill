@@ -820,14 +820,16 @@ async fn set_trigger_mode<T: TriggerCrud>(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    // Block enabling a trigger in a fork when the parent has the same path
-    // (regardless of parent's mode), unless the caller passes force=true.
-    // Until Phase 3 ships namespacing of listener identifiers, the cloned
-    // upstream identifier is shared with the parent — two enabled listeners
-    // would split or steal events; one enabled vs. one disabled can still
-    // destructively claim shared state. Skipped for kinds where the upstream
-    // identifier is already workspace-scoped at runtime (HTTP, Email).
-    if T::FORK_CONFLICT_ON_ENABLE && payload.mode == TriggerMode::Enabled && !payload.force {
+    // Block transitioning a trigger in a fork to any mode that attaches a
+    // listener (Enabled or Suspended) when the parent has the same path,
+    // unless the caller passes force=true. Suspended still keeps the
+    // listener attached — it just stops auto-running queued jobs — so a
+    // suspended fork would still split Kafka events / share a PG slot
+    // with the parent. The cloned upstream identifier is shared by
+    // construction; the risk is independent of the parent's current mode.
+    // Skipped for kinds where the upstream identifier is already
+    // workspace-scoped at runtime (HTTP, Email).
+    if T::FORK_CONFLICT_ON_ENABLE && payload.mode != TriggerMode::Disabled && !payload.force {
         if let Some(parent_id) =
             parent_has_trigger(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?
         {

@@ -45,7 +45,6 @@ use windmill_common::scripts::ScriptRunnableSettingsHandle;
 use windmill_common::utils::require_admin;
 use windmill_common::variables::decrypt;
 use windmill_common::worker::WINDMILL_DIR;
-use windmill_common::workspaces::WM_FORK_PREFIX;
 use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
@@ -124,16 +123,16 @@ pub fn is_none_or_false(val: &Option<bool>) -> bool {
 /// source workspace is a fork. Stripping these keys avoids propagating
 /// fork-local operational state (enabled flag, runtime listener identifiers)
 /// back to the parent workspace through the git-sync round-trip.
-fn fork_trigger_ignore_keys(w_id: &str) -> Option<Vec<&'static str>> {
-    if w_id.starts_with(WM_FORK_PREFIX) {
+fn fork_trigger_ignore_keys(is_fork: bool) -> Option<Vec<&'static str>> {
+    if is_fork {
         Some(vec!["mode", "enabled"])
     } else {
         None
     }
 }
 
-fn fork_schedule_ignore_keys(w_id: &str) -> Option<Vec<&'static str>> {
-    if w_id.starts_with(WM_FORK_PREFIX) {
+fn fork_schedule_ignore_keys(is_fork: bool) -> Option<Vec<&'static str>> {
+    if is_fork {
         Some(vec!["enabled"])
     } else {
         None
@@ -436,6 +435,19 @@ pub(crate) async fn tarball_workspace(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    // Source-of-truth check for fork-ness: the workspace's parent_workspace_id
+    // column. The wm-fork-* prefix is a creation-time naming convention that
+    // could in principle drift (rename, manual SQL); the column is the
+    // contract that matches what the conflict-warning gates read.
+    let is_fork: bool = sqlx::query_scalar!(
+        "SELECT parent_workspace_id IS NOT NULL FROM workspace WHERE id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten()
+    .unwrap_or(false);
+
     let tmp_dir = TempDir::new_in(&*WINDMILL_DIR)?;
 
     let name = match archive_type.as_deref() {
@@ -703,7 +715,7 @@ pub(crate) async fn tarball_workspace(
         .fetch_all(&mut *tx)
         .await?;
 
-        let schedule_ignore_keys = fork_schedule_ignore_keys(&w_id);
+        let schedule_ignore_keys = fork_schedule_ignore_keys(is_fork);
         for schedule in schedules {
             let app_str =
                 &to_string_without_metadata(&schedule, false, schedule_ignore_keys.clone())
@@ -734,7 +746,7 @@ pub(crate) async fn tarball_workspace(
                 feature = "private"
             )
         ))]
-        let trigger_ignore_keys = fork_trigger_ignore_keys(&w_id);
+        let trigger_ignore_keys = fork_trigger_ignore_keys(is_fork);
 
         #[cfg(feature = "http_trigger")]
         {

@@ -113,7 +113,12 @@
 						displayName: 'Suspend job execution',
 						icon: Pause,
 						action: () => {
-							triggerMode = 'suspended'
+							// Optimistically flip the local mirror, not the
+							// non-bindable `triggerMode` prop. The parent will
+							// echo the new mode back via $effect on success;
+							// on cancel, our on:change reset path snaps it
+							// back to the prop value.
+							innerTriggerMode = 'suspended'
 							onToggleMode?.('suspended')
 						},
 						tooltip:

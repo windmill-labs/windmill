@@ -70,10 +70,16 @@ update path is naturally safe.
 
 ## Conflict warning on enable
 
-The `set_*_trigger_mode` and `set_schedule_enabled` endpoints check whether
-the parent workspace has a row at the same trigger path — **regardless of
-the parent's current `mode`/`enabled`**. If so, they reject the request with
-an error string of the shape:
+The `set_*_trigger_mode` endpoint fires the warning whenever a fork transitions
+to a mode that *attaches a listener* — `Enabled` or `Suspended`. Suspended is
+not "off": the listener still attaches and consumes events; only the auto-run
+of queued jobs is paused. Two suspended forks would still split Kafka events
+or share a Postgres slot with the parent. `Disabled` is the only mode that
+fully detaches.
+
+The check fires whenever the parent workspace has a row at the same trigger
+path — **regardless of the parent's current `mode`/`enabled`**. If so, the
+endpoint rejects the request with an error string of the shape:
 
 ```
 fork-conflict:<kind>:<parent_workspace_id>
