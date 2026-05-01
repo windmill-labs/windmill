@@ -48,7 +48,10 @@ describe("yaml format snapshot — flow.yaml fixtures", () => {
   for (const filename of fixtures) {
     test(`${filename}: round-trip is byte-stable`, () => {
       const filePath = path.join(FIXTURE_DIR, filename);
-      const original = readFileSync(filePath, "utf-8");
+      // Normalize CRLF→LF: on Windows, git checkout may rewrite line endings
+      // even though .gitattributes pins these fixtures to LF. yamlStringify
+      // always emits LF, so we compare in LF form.
+      const original = readFileSync(filePath, "utf-8").replace(/\r\n/g, "\n");
       const parsed = yamlParseContent(filename, original);
       const reSerialized = yamlStringify(parsed, yamlOptions);
       expect(reSerialized).toEqual(original);
