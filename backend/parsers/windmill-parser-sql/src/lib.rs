@@ -523,7 +523,25 @@ fn run_on_sql_statement_matches<
 }
 
 pub fn parse_pg_statement_arg_indices(code: &str) -> HashSet<i32> {
-    let mut arg_indices = HashSet::new();
+    parse_pg_statement_arg_positions(code)
+        .into_iter()
+        .map(|(idx, _)| idx)
+        .collect()
+}
+
+/// Like `parse_pg_statement_arg_indices`, but also returns the byte range of
+/// each placeholder occurrence in `code` (excluding `$`, including the digits).
+/// The same string-/comment-/dollar-quote-aware tokenizer is used, so
+/// occurrences inside string literals and comments are correctly skipped —
+/// this is what callers need to renumber `$N → $M` without mangling literal
+/// SQL bytes that happen to match the `$\d+` pattern.
+///
+/// The returned vec is in source order. Each entry is `(idx, range)` where
+/// `idx` is the parameter number and `range` covers the `$N` digits (i.e.
+/// `code[range.start - 1 .. range.end]` is the full `$N` token, and
+/// `code[range]` is just the digits).
+pub fn parse_pg_statement_arg_positions(code: &str) -> Vec<(i32, std::ops::Range<usize>)> {
+    let mut positions = Vec::new();
     run_on_sql_statement_matches(
         code,
         true,
@@ -534,21 +552,24 @@ pub fn parse_pg_statement_arg_indices(code: &str) -> HashSet<i32> {
                     .is_some_and(|&(_, next_char)| next_char.is_ascii_digit())
         },
         |_, chars| {
+            let start = chars.peek().map(|&(i, _)| i).unwrap_or(0);
             let mut arg_idx = String::new();
-            while let Some(&(_, char)) = chars.peek() {
+            let mut end = start;
+            while let Some(&(i, char)) = chars.peek() {
                 if char.is_ascii_digit() {
                     arg_idx.push(char);
+                    end = i + char.len_utf8();
                     chars.next();
                 } else {
                     break;
                 }
             }
             if let Ok(arg_idx) = arg_idx.parse::<i32>() {
-                arg_indices.insert(arg_idx);
+                positions.push((arg_idx, start..end));
             }
         },
     );
-    arg_indices
+    positions
 }
 
 fn parse_pg_file(code: &str) -> anyhow::Result<Option<(Vec<Arg>, bool)>> {
@@ -1240,6 +1261,54 @@ SELECT $2;"#;
         assert!(
             indices.contains(&2),
             "$2 outside dollar-quote should be collected"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_pg_statement_arg_positions_skips_strings_and_comments() -> anyhow::Result<()> {
+        // Each occurrence's byte range covers JUST the digits (after `$`).
+        let code = "SELECT $5, $50";
+        let positions = parse_pg_statement_arg_positions(code);
+        let collected: Vec<(i32, &str)> = positions
+            .iter()
+            .map(|(idx, range)| (*idx, &code[range.clone()]))
+            .collect();
+        assert_eq!(collected, vec![(5, "5"), (50, "50")]);
+
+        // String literals and comments must not produce positions — this is
+        // what stops the do_postgresql_inner rewrite from mangling SQL like
+        // `'price: $5'`.
+        let code = "SELECT 'literal $5' AS lbl, $5 FROM t -- mention $5";
+        let positions = parse_pg_statement_arg_positions(code);
+        let positions_only: Vec<(i32, std::ops::Range<usize>)> = positions.clone();
+        assert_eq!(
+            positions_only.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+            vec![5],
+            "only the real $5 between 'lbl,' and 'FROM' should be returned"
+        );
+        // The single returned position is the real placeholder (between
+        // `lbl, ` and ` FROM`).
+        let (idx, range) = &positions[0];
+        assert_eq!(*idx, 5);
+        // `code[range.start - 1 .. range.end]` should be the full `$5` token.
+        assert_eq!(&code[range.start - 1..range.end], "$5");
+
+        // Dollar-quoted blocks similarly skipped.
+        let code = "SELECT $$body with $5 inside$$, $7 FROM t";
+        let positions = parse_pg_statement_arg_positions(code);
+        assert_eq!(
+            positions.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+            vec![7],
+            "$5 inside $$...$$ is part of the string"
+        );
+
+        // Repeat indices show up multiple times — caller can rewrite each.
+        let code = "SELECT $1, $1, $2";
+        let positions = parse_pg_statement_arg_positions(code);
+        assert_eq!(
+            positions.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+            vec![1, 1, 2]
         );
         Ok(())
     }

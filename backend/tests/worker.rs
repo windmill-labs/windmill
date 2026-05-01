@@ -2243,6 +2243,83 @@ SELECT name FROM (VALUES ('99'::varchar)) AS t(name) WHERE name = $1"#
             json!({"arg1": true}),
             json!([{"v": true}]),
         ),
+
+        // === Custom enum (Kind::Enum) — round-trip via AnyTextValue ===
+        // Pre-fix this failed at the encoder ("cannot convert String → color")
+        // because vanilla tokio_postgres' ToSql/FromSql for String reject
+        // Kind::Enum. The wrapper accepts enum kinds in both directions.
+        (
+            "enum: explicit ::wm_pg_arg_combo_test.color cast",
+            r#"-- $1 arg1
+INSERT INTO wm_pg_arg_combo_test.enumtbl
+VALUES ($1::wm_pg_arg_combo_test.color) RETURNING c"#
+                .to_owned(),
+            json!({"arg1": "blue"}),
+            json!([{"c": "blue"}]),
+        ),
+        (
+            "enum: SELECT a literal value cast to enum",
+            "-- $1 arg1\nSELECT $1::wm_pg_arg_combo_test.color AS c".to_owned(),
+            json!({"arg1": "red"}),
+            json!([{"c": "red"}]),
+        ),
+
+        // === Extended String→numeric/real/double/oid/bool arms (#10) ===
+        (
+            "String '3.14' → numeric",
+            "-- $1 arg1\nSELECT $1::numeric AS v".to_owned(),
+            json!({"arg1": "3.14"}),
+            json!([{"v": 3.14}]),
+        ),
+        (
+            "String '1.5' → real",
+            "-- $1 arg1\nSELECT $1::real AS v".to_owned(),
+            json!({"arg1": "1.5"}),
+            json!([{"v": 1.5}]),
+        ),
+        (
+            "String '2.5' → double",
+            "-- $1 arg1\nSELECT $1::double precision AS v".to_owned(),
+            json!({"arg1": "2.5"}),
+            json!([{"v": 2.5}]),
+        ),
+        (
+            "String 'true' → bool",
+            "-- $1 arg1\nSELECT $1::bool AS v".to_owned(),
+            json!({"arg1": "true"}),
+            json!([{"v": true}]),
+        ),
+        (
+            "String 't' → bool",
+            "-- $1 arg1\nSELECT $1::bool AS v".to_owned(),
+            json!({"arg1": "t"}),
+            json!([{"v": true}]),
+        ),
+        (
+            "String '0' → bool false",
+            "-- $1 arg1\nSELECT $1::bool AS v".to_owned(),
+            json!({"arg1": "0"}),
+            json!([{"v": false}]),
+        ),
+        (
+            "String '42' → oid",
+            "-- $1 arg1\nSELECT $1::oid AS v".to_owned(),
+            json!({"arg1": "42"}),
+            json!([{"v": 42}]),
+        ),
+
+        // === String literals containing $N must NOT be renumbered ===
+        // Sparse positional args force a rewrite pass; the literal
+        // `'price: $5'` and the comment `-- mention $5` must survive intact.
+        (
+            "renumber must skip $N inside string literal",
+            r#"-- $5 arg5
+-- $50 arg50
+SELECT 'price: $5' AS lbl, $5::int + $50::int AS sum"#
+                .to_owned(),
+            json!({"arg5": 1, "arg50": 2}),
+            json!([{"lbl": "price: $5", "sum": 3}]),
+        ),
     ];
 
     for (name, content, args, expected) in cases {
@@ -2421,32 +2498,33 @@ CREATE TYPE fallback_test.color AS ENUM ('red', 'green', 'blue');
     // Inline cast `::fallback_test.color` — the parser only captures
     // `fallback_test` (regex stops at the dot), which otyp_to_pg_type won't
     // recognise. Dispatch must take the prepare fallback path.
-    let cjob = make_pg_job("-- $1 arg1\nSELECT $1::fallback_test.color AS c".to_owned())
+    //
+    // Thanks to the AnyTextValue ToSql/FromSql wrapper, this case now
+    // round-trips end-to-end (the wrapper accepts Kind::Enum on both
+    // directions). Pre-fix, vanilla tokio_postgres rejected String → color
+    // and the user had to write `CAST($1::text AS color)` as a workaround.
+    let result = make_pg_job("-- $1 arg1\nSELECT $1::fallback_test.color AS c".to_owned())
         .arg("arg1", json!("red"))
         .run_until_complete(&db, false, port)
-        .await;
+        .await
+        .json_result()
+        .unwrap();
+    assert_eq!(result, json!([{"c": "red"}]));
 
-    // We expect failure (vanilla tokio_postgres can't encode String as
-    // Kind::Enum), but the *shape* of the failure proves we ran through
-    // the prepare path — the server-resolved param type appears verbatim.
-    assert!(
-        !cjob.success,
-        "encoder should reject String→color until postgres-derive is wired in"
-    );
-    let err_msg = cjob
-        .result
-        .as_ref()
-        .and_then(|r| r.get("error"))
-        .and_then(|e| e.get("message"))
-        .and_then(|m| m.as_str())
-        .unwrap_or_default()
-        .to_owned();
-    assert!(
-        err_msg.contains("color"),
-        "fallback path should surface the server-resolved type `color` in the \
-         error; got: {err_msg}. If this says `text` instead, the dispatch \
-         routed unrecognised arg_t through query_typed_raw — a regression."
-    );
+    // Reading enum columns also goes through AnyTextValue's FromSql impl on
+    // the result side, so the value comes back as a JSON string.
+    let result = make_pg_job(
+        r#"-- $1 arg1
+SELECT $1::fallback_test.color AS c1,
+       'green'::fallback_test.color AS c2"#
+            .to_owned(),
+    )
+    .arg("arg1", json!("blue"))
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+    assert_eq!(result, json!([{"c1": "blue", "c2": "green"}]));
 
     Ok(())
 }

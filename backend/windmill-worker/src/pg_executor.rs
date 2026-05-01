@@ -18,7 +18,7 @@ use tokio::sync::{Mutex, RwLock};
 use tokio_postgres::Client;
 use tokio_postgres::{types::ToSql, Row};
 use tokio_postgres::{
-    types::{FromSql, Type},
+    types::{FromSql, IsNull, Kind, Type},
     Column,
 };
 use uuid::Uuid;
@@ -31,8 +31,8 @@ use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult, DB};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
-    parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig_with_typed_schema,
-    parse_s3_mode, parse_sql_blocks,
+    parse_db_resource, parse_pg_statement_arg_indices, parse_pg_statement_arg_positions,
+    parse_pgsql_sig_with_typed_schema, parse_s3_mode, parse_sql_blocks,
 };
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
@@ -48,7 +48,6 @@ use crate::sql_utils::remove_comments;
 use crate::MAX_RESULT_SIZE;
 use bytes::Buf;
 use lazy_static::lazy_static;
-use regex::Regex;
 use windmill_common::client::AuthedClient;
 use windmill_types::s3::S3Object;
 
@@ -59,11 +58,6 @@ lazy_static! {
         Arc::new(RwLock::new(HashMap::new()));
     pub static ref LAST_QUERY: AtomicU64 = AtomicU64::new(0);
     pub static ref CACHE_HITS: AtomicU64 = AtomicU64::new(0);
-    /// Matches a single `$N` placeholder. `\d+` is greedy so `$50` matches as
-    /// one unit (not `$5` + literal `0`) — we rely on this to renumber sparse
-    /// positional args without the substring-collision bug a naive
-    /// `String::replace("$5", "$1")` would have.
-    static ref PG_PLACEHOLDER_RE: Regex = Regex::new(r"\$(\d+)").unwrap();
 }
 
 pub async fn clear_pg_cache() {
@@ -98,6 +92,71 @@ async fn new_pg_connection(
         }
     });
     Ok((client, handle))
+}
+
+/// `ToSql` / `FromSql` wrapper for a value whose Postgres wire format is plain
+/// UTF-8 text regardless of the column's *type kind*. Vanilla
+/// `tokio_postgres`'s `ToSql for String` / `FromSql for String` only accepts a
+/// fixed list of base text types (TEXT/VARCHAR/BPCHAR/NAME/UNKNOWN + citext) —
+/// they reject user-defined `Kind::Enum` and `Kind::Domain` even though
+/// enum/domain wire format is just the variant name / the underlying base
+/// type's text. This wrapper plugs that gap on both directions:
+///
+/// - **bind side** (prepare-fallback path): `INSERT INTO t VALUES
+///   ($1::my_enum)` works end-to-end without users needing the
+///   `CAST($1::text AS my_enum)` workaround.
+/// - **read side** (`pg_cell_to_json_value`'s fallback): `SELECT
+///   $1::my_enum`, `SELECT enum_col FROM t`, etc. round-trip into a JSON
+///   string instead of erroring with "cannot convert Option<String> and the
+///   Postgres type `my_enum`".
+#[derive(Debug)]
+struct AnyTextValue(String);
+
+fn any_text_accepts(ty: &Type) -> bool {
+    // Base text-like types, plus the citext extension type matched by name
+    // (it's not in `tokio_postgres::types::Type`'s constants), plus
+    // enum/domain kinds. We accept `Kind::Domain` unconditionally — the
+    // server is responsible for parsing the bytes and any domain whose
+    // base type accepts text on the wire (which is most of them) round-trips
+    // naturally.
+    matches!(
+        *ty,
+        Type::TEXT | Type::VARCHAR | Type::BPCHAR | Type::NAME | Type::UNKNOWN
+    ) || ty.name() == "citext"
+        || matches!(ty.kind(), Kind::Enum(_) | Kind::Domain(_))
+}
+
+impl ToSql for AnyTextValue {
+    fn to_sql(
+        &self,
+        _ty: &Type,
+        out: &mut bytes::BytesMut,
+    ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        use bytes::BufMut;
+        out.put_slice(self.0.as_bytes());
+        Ok(IsNull::No)
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        any_text_accepts(ty)
+    }
+
+    tokio_postgres::types::to_sql_checked!();
+}
+
+impl<'a> FromSql<'a> for AnyTextValue {
+    fn from_sql(
+        _ty: &Type,
+        raw: &'a [u8],
+    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        // Postgres' text wire format for enums / domains-over-text / the
+        // base text types is the same: UTF-8 bytes of the value.
+        Ok(AnyTextValue(std::str::from_utf8(raw)?.to_owned()))
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        any_text_accepts(ty)
+    }
 }
 
 /// Short stable label for the JSON value's variant — used in error messages
@@ -212,10 +271,13 @@ fn do_postgresql_inner<'a>(
 
     let arg_indices = parse_pg_statement_arg_indices(&query);
 
-    // Renumber sparse positional placeholders (e.g. $5, $50 → $1, $2) in one
-    // regex pass. Greedy `\d+` matches the full digit run, so `$50` is never
-    // mis-rewritten as `$5 + 0` — the bug a per-index `String::replace` chain
-    // had. Indices we don't have a mapping for are left untouched.
+    // Renumber sparse positional placeholders (e.g. $5, $50 → $1, $2) using
+    // the parser's string/comment-aware tokenizer. Each occurrence is rewritten
+    // by byte position, walking from the end of the SQL backwards so earlier
+    // positions don't shift. Crucially, occurrences inside string literals
+    // / line comments / dollar-quoted blocks are NOT in `positions` (the
+    // tokenizer skips them), so a query like `SELECT 'price: $5' AS lbl, $5
+    // FROM t` only rewrites the real placeholder, not the literal.
     let renumber_mapping: HashMap<i32, usize> = arg_indices
         .iter()
         .sorted()
@@ -226,15 +288,15 @@ fn do_postgresql_inner<'a>(
         .iter()
         .any(|(oidx, new_i)| *oidx as usize != *new_i)
     {
-        query = PG_PLACEHOLDER_RE
-            .replace_all(&query, |caps: &regex::Captures| {
-                let oidx: i32 = caps[1].parse().unwrap_or(-1);
-                match renumber_mapping.get(&oidx) {
-                    Some(new_i) => format!("${new_i}"),
-                    None => caps[0].to_string(),
+        let mut positions = parse_pg_statement_arg_positions(&query);
+        positions.sort_by_key(|(_, range)| std::cmp::Reverse(range.start));
+        for (oidx, range) in positions {
+            if let Some(new_i) = renumber_mapping.get(&oidx) {
+                if oidx as usize != *new_i {
+                    query.replace_range(range, &new_i.to_string());
                 }
-            })
-            .into_owned();
+            }
+        }
     }
 
     for oidx in arg_indices.iter().sorted() {
@@ -994,10 +1056,14 @@ fn convert_val(
             "bytea" => Ok((Box::new(None::<Vec<u8>>), Type::BYTEA)),
             "varchar" | "character varying" => Ok((Box::new(None::<String>), Type::VARCHAR)),
             "text" => Ok((Box::new(None::<String>), Type::TEXT)),
-            // Unrecognised arg_t — bind as TEXT NULL; the dispatch will fall
-            // back to prepare + query_raw so the server resolves the actual
-            // column type (custom enums / extension types).
-            _ => Ok((Box::new(None::<String>), Type::TEXT)),
+            // Unrecognised arg_t — bind as TEXT NULL. The dispatch will fall
+            // back to prepare + query_raw, where the server resolves the
+            // actual column type and `Option<String>`'s ToSql will accept the
+            // resolved Type for any text-like base; for enum/domain kinds
+            // None is encoded as the literal NULL message body, so the
+            // accepts() check is the only place that matters and we just need
+            // a binding whose accepts() is permissive enough.
+            _ => Ok((Box::new(None::<AnyTextValue>), Type::TEXT)),
         },
         // Bool / Number with an *explicitly* text-typed arg: coerce to
         // String. Used when the user wrote `-- $N (text)` or `$N::text` —
@@ -1150,6 +1216,43 @@ fn convert_val(
                 .unwrap_or(vec![]);
             Ok((Box::new(bytes), Type::BYTEA))
         }
+        // Parse Strings into the matching native Rust type for the remaining
+        // recognised arg_ts that didn't have a dedicated arm. Without these,
+        // a string value lands in the generic Value::String fallback below
+        // (Box<String> + TEXT) and the server-side comparison
+        // `<numeric|real|...> = text` fails since PG has no implicit cast.
+        Value::String(s) if arg_t == "numeric" || arg_t == "decimal" => s
+            .parse::<Decimal>()
+            .map(|d| (Box::new(d) as Box<dyn ToSql + Sync + Send>, Type::NUMERIC))
+            .map_err(|e| anyhow::anyhow!("Cannot parse '{s}' as numeric: {e}").into()),
+        Value::String(s) if arg_t == "real" || arg_t == "float4" => s
+            .parse::<f32>()
+            .map(|n| (Box::new(n) as Box<dyn ToSql + Sync + Send>, Type::FLOAT4))
+            .map_err(|e| anyhow::anyhow!("Cannot parse '{s}' as real: {e}").into()),
+        Value::String(s)
+            if arg_t == "double" || arg_t == "double precision" || arg_t == "float8" =>
+        {
+            s.parse::<f64>()
+                .map(|n| (Box::new(n) as Box<dyn ToSql + Sync + Send>, Type::FLOAT8))
+                .map_err(|e| anyhow::anyhow!("Cannot parse '{s}' as double: {e}").into())
+        }
+        Value::String(s) if arg_t == "oid" => s
+            .parse::<u32>()
+            .map(|n| (Box::new(n) as Box<dyn ToSql + Sync + Send>, Type::OID))
+            .map_err(|e| anyhow::anyhow!("Cannot parse '{s}' as oid: {e}").into()),
+        Value::String(s) if arg_t == "bool" || arg_t == "boolean" => {
+            // Accept the same literals Postgres' boolin() does.
+            let b = match s.to_ascii_lowercase().as_str() {
+                "true" | "t" | "yes" | "y" | "1" | "on" => true,
+                "false" | "f" | "no" | "n" | "0" | "off" => false,
+                _ => {
+                    return Err(
+                        anyhow::anyhow!("Cannot parse '{s}' as bool: invalid literal").into(),
+                    )
+                }
+            };
+            Ok((Box::new(b), Type::BOOL))
+        }
         Value::String(s) if arg_t == "varchar" || arg_t == "character varying" => {
             Ok((Box::new(s.clone()), Type::VARCHAR))
         }
@@ -1185,7 +1288,20 @@ fn convert_val(
             Type::TEXT,
         )),
         Value::Object(_) => Ok((Box::new(value.clone()), Type::JSONB)),
-        Value::String(s) => Ok((Box::new(s.clone()), Type::TEXT)),
+        // Generic String fallback. Use `AnyTextValue` (rather than plain
+        // `String`) so the binding's `accepts()` covers `Kind::Enum` and
+        // `Kind::Domain` in addition to the base text types — this is what
+        // makes `INSERT INTO t VALUES ($1::my_enum)` work end-to-end without
+        // users needing the `CAST($1::text AS my_enum)` workaround.
+        //
+        // We always assert `Type::TEXT` (not `Type::UNKNOWN`): tokio_postgres
+        // sends parameter values in binary format, and Postgres rejects
+        // binary-formatted bytes for `UNKNOWN` parameters in operator
+        // contexts ("incorrect binary data format in bind parameter N"). The
+        // trade-off is that bare `$1` against a non-text column still needs
+        // an explicit cast (`$1::my_enum`), but the failure mode is a clear
+        // server error rather than a cryptic protocol mismatch.
+        Value::String(s) => Ok((Box::new(AnyTextValue(s.clone())), Type::TEXT)),
     }
 }
 
@@ -1326,7 +1442,14 @@ pub fn pg_cell_to_json_value(
             Ok(JSONValue::String(format!("\\x{}", hex::encode(a))))
         })?,
         Type::VOID => JSONValue::Null,
-        _ => get_basic(row, column, column_i, |a: String| Ok(JSONValue::String(a)))?,
+        // Default fallback for unhandled column types: read as text. We use
+        // `AnyTextValue` instead of plain `String` so that `Kind::Enum`,
+        // `Kind::Domain`, and citext columns round-trip into JSON strings
+        // rather than erroring with `cannot convert between Option<String>
+        // and the Postgres type \`<custom>\``.
+        _ => get_basic(row, column, column_i, |a: AnyTextValue| {
+            Ok(JSONValue::String(a.0))
+        })?,
     })
 }
 
@@ -2290,39 +2413,58 @@ mod tests {
         );
     }
 
-    /// Sparse positional placeholders must renumber to a contiguous 1..=N
-    /// without substring collisions. The pre-existing `String::replace` chain
-    /// turned `$50` into `$10` when processing oidx=5 first; the regex pass
-    /// (greedy `\d+`) handles `$5` and `$50` as distinct units.
+    /// Sparse positional placeholders renumber to a contiguous 1..=N without
+    /// substring collisions OR mangling string-literal/comment occurrences.
+    /// The pre-existing `String::replace` chain turned `$50` into `$10` when
+    /// oidx=5 was processed first; even the regex-with-greedy-digits approach
+    /// (a regression of its own) walked through string literals. The current
+    /// position-aware rewrite uses the parser's tokenizer to skip those.
     #[test]
-    fn renumber_sparse_placeholders_no_collision() {
-        // Mimics the renumbering done in do_postgresql_inner: sorted
-        // arg_indices [5, 50] → mapping {5: 1, 50: 2}.
+    fn renumber_sparse_placeholders_no_collision_no_string_mangling() {
+        fn renumber(input: &str, mapping: &HashMap<i32, usize>) -> String {
+            let mut out = input.to_owned();
+            let mut positions = windmill_parser_sql::parse_pg_statement_arg_positions(input);
+            positions.sort_by_key(|(_, range)| std::cmp::Reverse(range.start));
+            for (oidx, range) in positions {
+                if let Some(new_i) = mapping.get(&oidx) {
+                    if oidx as usize != *new_i {
+                        out.replace_range(range, &new_i.to_string());
+                    }
+                }
+            }
+            out
+        }
+
         let mapping: HashMap<i32, usize> = [(5, 1), (50, 2)].into_iter().collect();
         let cases = &[
-            // Two placeholders, full rewrite.
+            // Two placeholders, full rewrite (greedy-digit collision check).
             ("SELECT $5, $50", "SELECT $1, $2"),
-            // Same input flipped.
+            // Same input flipped — order independence.
             ("SELECT $50, $5", "SELECT $2, $1"),
-            // Repeat use of an index — both sites get rewritten.
+            // Repeat use of an index — every site gets rewritten.
             (
                 "SELECT $5 FROM t WHERE id = $5 OR ref = $50",
                 "SELECT $1 FROM t WHERE id = $1 OR ref = $2",
             ),
-            // Index outside the mapping is left untouched.
+            // Index outside the mapping is left intact.
             ("SELECT $5, $99", "SELECT $1, $99"),
+            // String literal containing the same `$N` syntax must not be
+            // rewritten — the tokenizer marks it as inside a string.
+            (
+                "SELECT 'price: $5' AS lbl, $5 FROM t",
+                "SELECT 'price: $5' AS lbl, $1 FROM t",
+            ),
+            // Single-line comment must not be rewritten either.
+            ("-- mention $5\nSELECT $5", "-- mention $5\nSELECT $1"),
+            // Dollar-quoted block ($$ … $$) must not be rewritten.
+            ("SELECT $$body with $5$$, $5", "SELECT $$body with $5$$, $1"),
         ];
         for (input, expected) in cases {
-            let got = PG_PLACEHOLDER_RE
-                .replace_all(input, |caps: &regex::Captures| {
-                    let oidx: i32 = caps[1].parse().unwrap_or(-1);
-                    match mapping.get(&oidx) {
-                        Some(new_i) => format!("${new_i}"),
-                        None => caps[0].to_string(),
-                    }
-                })
-                .into_owned();
-            assert_eq!(&got, expected, "input={input}");
+            assert_eq!(
+                renumber(input, &mapping).as_str(),
+                *expected,
+                "input={input}"
+            );
         }
     }
 
