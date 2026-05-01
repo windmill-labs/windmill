@@ -168,9 +168,12 @@ export async function rehashOnly(
   const rehashOpts = { ...opts, rehashOnly: true } as any;
 
   for (const e of scriptPaths) {
-    if (!inFilter(e)) continue;
+    // Filter against the derived remote path so a folder argument like
+    // `f/foo` matches both flat (`f/foo.ts`) and folder-layout
+    // (`f/foo__mod/script.ts`) scripts uniformly.
+    const remotePath = scriptPathToRemotePath(e);
+    if (!inFilter(remotePath)) continue;
     if (rehashFilter?.missingOnly) {
-      const remotePath = scriptPathToRemotePath(e);
       if (skipIfExisting(remotePath) || skipIfExisting(remotePath, "__script_hash")) continue;
     }
     try {

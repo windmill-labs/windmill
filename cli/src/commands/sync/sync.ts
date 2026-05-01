@@ -75,6 +75,7 @@ import {
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   readLockfile,
+  UnknownLockVersionError,
   workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
 import { OpenFlow, NativeServiceName, ScriptModule } from "../../../gen/types.gen.ts";
@@ -2651,8 +2652,9 @@ export async function pull(
   // no entry yet (e.g. flows/apps that predate lockfile maintenance). Runs
   // regardless of whether the pull had changes from the backend so a no-op
   // pull still bootstraps the lockfile. Silent on a complete lockfile (just
-  // dict lookups, no hashing).
-  if (!opts.jsonOutput) {
+  // dict lookups, no hashing). Skipped under --dry-run since auto-fill writes
+  // to wmill-lock.yaml.
+  if (!opts.jsonOutput && !opts.dryRun) {
     try {
       // Dynamic import to avoid a circular dep between sync.ts and
       // generate-metadata.ts. Don't "clean up" to a static import.
@@ -2680,9 +2682,9 @@ export async function pull(
         );
       }
     } catch (e) {
-      // Re-throw fail-fast errors (e.g. unknown lockfile version) so the
-      // user sees them; only swallow soft failures from the auto-fill walk.
-      if (e instanceof Error && /unknown version/i.test(e.message)) {
+      // Re-throw fail-fast errors (unknown lockfile version) so the user
+      // sees them; only swallow soft failures from the auto-fill walk.
+      if (e instanceof UnknownLockVersionError) {
         throw e;
       }
       log.warn(

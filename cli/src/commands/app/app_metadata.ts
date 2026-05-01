@@ -155,6 +155,20 @@ export async function generateAppLocksInternal(
     appFolder = appFolder.substring(0, appFolder.length - 1);
   }
 
+  // Rehash-only fast path: write canonical hashes from disk, skip backend.
+  // Short-circuit before reading app.yaml / readLockfile since generateAppHash
+  // walks the folder itself.
+  // Uses empty workspace deps `{}` to match the tree-mode write path. See
+  // the matching comment in flow_metadata.ts for the legacy-mode caveat.
+  if (opts.rehashOnly) {
+    const hashes = await generateAppHash({}, appFolder, rawApp, opts.defaultTs);
+    await clearGlobalLock(appFolder);
+    for (const [k, v] of Object.entries(hashes)) {
+      await updateMetadataGlobalLock(appFolder, v, k);
+    }
+    return;
+  }
+
   const remote_path = appFolder.replaceAll(SEP, "/");
 
   if (!justUpdateMetadataLock && !noStaleMessage) {
@@ -173,18 +187,6 @@ export async function generateAppLocksInternal(
 
   let filteredDeps: Record<string, string> = {};
   const conf = await readLockfile();
-
-  // Rehash-only fast path: write canonical hashes from disk, skip backend.
-  // Uses empty workspace deps `{}` to match the tree-mode write path. See
-  // the matching comment in flow_metadata.ts for the legacy-mode caveat.
-  if (opts.rehashOnly) {
-    const hashes = await generateAppHash({}, appFolder, rawApp, opts.defaultTs);
-    await clearGlobalLock(appFolder);
-    for (const [k, v] of Object.entries(hashes)) {
-      await updateMetadataGlobalLock(appFolder, v, k);
-    }
-    return;
-  }
 
   // Tree-based dependency tracking
   if (tree) {

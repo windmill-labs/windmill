@@ -56,6 +56,13 @@ export class LockfileGenerationError extends Error {
   }
 }
 
+export class UnknownLockVersionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnknownLockVersionError";
+  }
+}
+
 
 export async function getRawWorkspaceDependencies(legacyBehaviour: boolean): Promise<Record<string, string>> {
   const rawWorkspaceDeps: Record<string, string> = {};
@@ -1194,7 +1201,7 @@ export async function readLockfile(): Promise<Lock> {
   }
   const conf = parsed as Lock;
   if (conf.version != null && !KNOWN_LOCK_VERSIONS.includes(conf.version)) {
-    throw new Error(
+    throw new UnknownLockVersionError(
       `wmill-lock.yaml is at unknown version "${conf.version}". This was ` +
       `written by a newer wmill CLI; please upgrade with \`wmill upgrade\`. ` +
       `Refusing to operate to avoid corrupting the lockfile.`,

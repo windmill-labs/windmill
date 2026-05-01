@@ -108,6 +108,24 @@ export async function generateFlowLockInternal(
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
   }
+
+  // Rehash-only fast path: write canonical per-file + top hashes from disk,
+  // no backend trip, no flow.yaml/inline_script rewrite. Short-circuit before
+  // yamlParseFile / extractInlineScriptsForFlows / readLockfile since none of
+  // those are needed — generateFlowHash walks the folder itself.
+  // Uses empty workspace deps `{}` to match the tree-mode dryRun and write
+  // paths (the modern default). A subsequent legacy non-tree push would
+  // see a deps-included hash mismatch — but legacy non-tree mode is opt-in
+  // and not the recommended workflow.
+  if (opts.rehashOnly) {
+    const hashes = await generateFlowHash({}, folder, opts.defaultTs);
+    await clearGlobalLock(folder);
+    for (const [k, v] of Object.entries(hashes)) {
+      await updateMetadataGlobalLock(folder, v, k);
+    }
+    return;
+  }
+
   const remote_path = extractNameFromFolder(folder.replaceAll(SEP, "/"), "flow");
   if (!justUpdateMetadataLock && !noStaleMessage) {
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
@@ -127,21 +145,6 @@ export async function generateFlowLockInternal(
 
   let filteredDeps: Record<string, string> = {};
   const conf = await readLockfile();
-
-  // Rehash-only fast path: write canonical per-file + top hashes from disk,
-  // no backend trip, no flow.yaml/inline_script rewrite.
-  // Uses empty workspace deps `{}` to match the tree-mode dryRun and write
-  // paths (the modern default). A subsequent legacy non-tree push would
-  // see a deps-included hash mismatch — but legacy non-tree mode is opt-in
-  // and not the recommended workflow.
-  if (opts.rehashOnly) {
-    const hashes = await generateFlowHash({}, folder, opts.defaultTs);
-    await clearGlobalLock(folder);
-    for (const [k, v] of Object.entries(hashes)) {
-      await updateMetadataGlobalLock(folder, v, k);
-    }
-    return;
-  }
 
   if (tree) {
     if (dryRun) {
