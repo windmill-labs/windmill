@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.694.0](https://github.com/windmill-labs/windmill/compare/v1.693.4...v1.694.0) (2026-05-01)
+
+
+### Features
+
+* ansible delegate_to_git_repo install_requirements, dynamic fields, --limit ([#8997](https://github.com/windmill-labs/windmill/issues/8997)) ([96324ea](https://github.com/windmill-labs/windmill/commit/96324ea5aed4054d33895102ec9313f5dadc77a2))
+* **cli:** wmill-lock.yaml auto-fill + --rehash-only + path-prefix dedup ([#8978](https://github.com/windmill-labs/windmill/issues/8978)) ([0b959b8](https://github.com/windmill-labs/windmill/commit/0b959b8ec61b24d861c5a10a9242a7a0e6013707))
+* **forks:** handle triggers and schedules in workspace forks ([#8976](https://github.com/windmill-labs/windmill/issues/8976)) ([d60dd74](https://github.com/windmill-labs/windmill/commit/d60dd745e49853bb130b139f300fc0f2ab8ebe39))
+* support assigning a worker tag to app inline scripts ([#9002](https://github.com/windmill-labs/windmill/issues/9002)) ([0c22f52](https://github.com/windmill-labs/windmill/commit/0c22f52b46c56d3577309e37c1e81a1a1feb9b7c))
+
+
+### Bug Fixes
+
+* **cli:** only preserve case for raw-app runnableIds, not app/flow summaries ([#9000](https://github.com/windmill-labs/windmill/issues/9000)) ([5d5b853](https://github.com/windmill-labs/windmill/commit/5d5b853f70a73453f63d14edcd5d2fac8e3d804c))
+* distinguish AlreadyCompleted from execution failure on OTLP job span ([#9004](https://github.com/windmill-labs/windmill/issues/9004)) ([70a5880](https://github.com/windmill-labs/windmill/commit/70a5880d3619edece4ce67a00407ee0d2d523469))
+* nested-restart iteration count for step-id collisions across subflow boundaries ([#9003](https://github.com/windmill-labs/windmill/issues/9003)) ([ad9f1fa](https://github.com/windmill-labs/windmill/commit/ad9f1fa4541f2eefb0b013bac42cd626af424852))
+* omit empty assets array on scripts and raw app inline scripts ([#9006](https://github.com/windmill-labs/windmill/issues/9006)) ([419bc4b](https://github.com/windmill-labs/windmill/commit/419bc4b1757a7c20c2b7aa9b7d3b02e3515f934a))
+* pair PG arg type with actual Rust binding to keep query_typed_raw safe ([#8999](https://github.com/windmill-labs/windmill/issues/8999)) ([aedf369](https://github.com/windmill-labs/windmill/commit/aedf3691744748a307976ef01ea7f63b0961fad4))
+* route email trigger path through standard info channel ([#8996](https://github.com/windmill-labs/windmill/issues/8996)) ([2141128](https://github.com/windmill-labs/windmill/commit/21411282bb4a0442046bf71fdc7ea012fa2c3d3d))
+* surface scope errors as 403 and show real message in CLI ([#8953](https://github.com/windmill-labs/windmill/issues/8953)) ([66db873](https://github.com/windmill-labs/windmill/commit/66db873651a04b0701d8231fbf11ab973c3fc69b))
+* use otel.status_message for OTLP Status.message on failed jobs ([#8995](https://github.com/windmill-labs/windmill/issues/8995)) ([9cb777a](https://github.com/windmill-labs/windmill/commit/9cb777a6b6e969696cf9beade1cf07c86967dafc))
+
 ## [1.693.4](https://github.com/windmill-labs/windmill/compare/v1.693.3...v1.693.4) (2026-04-30)
 
 
