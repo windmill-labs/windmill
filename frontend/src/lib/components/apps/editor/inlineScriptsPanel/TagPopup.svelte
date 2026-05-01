@@ -12,6 +12,10 @@
 	}
 
 	let { tag = $bindable(), btnProps }: Props = $props()
+
+	$effect(() => {
+		if (tag === '') tag = undefined
+	})
 </script>
 
 <Popover

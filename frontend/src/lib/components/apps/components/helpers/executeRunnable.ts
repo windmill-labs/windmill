@@ -30,7 +30,7 @@ export async function executeRunnable(
 				path: appPath + '/' + id,
 				lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
 				cache_ttl: inlineScript.cache_ttl,
-				tag: inlineScript.tag
+				...(inlineScript.tag ? { tag: inlineScript.tag } : {})
 			}
 		}
 	} else if (isRunnableByPath(runnable)) {
