@@ -10,12 +10,10 @@
 		CircleCheck,
 		CircleX,
 		DiffIcon,
-		Eye,
 		FileJson,
 		FlaskConical,
 		GitFork,
 		Loader2,
-		Trash2,
 		UserPlus
 	} from 'lucide-svelte'
 	import type { CiTestResult } from '$lib/gen'
@@ -42,23 +40,11 @@
 		type WorkspaceItemDiff
 	} from '$lib/gen'
 	import Button from './common/button/Button.svelte'
-	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import DiffEditor from './DiffEditor.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
-	import ScheduleEditor from './triggers/schedules/ScheduleEditor.svelte'
-	import RouteEditor from './triggers/http/RouteEditor.svelte'
-	import WebsocketTriggerEditor from './triggers/websocket/WebsocketTriggerEditor.svelte'
-	import KafkaTriggerEditor from './triggers/kafka/KafkaTriggerEditor.svelte'
-	import PostgresTriggerEditor from './triggers/postgres/PostgresTriggerEditor.svelte'
-	import NatsTriggerEditor from './triggers/nats/NatsTriggerEditor.svelte'
-	import MqttTriggerEditor from './triggers/mqtt/MqttTriggerEditor.svelte'
-	import SqsTriggerEditor from './triggers/sqs/SqsTriggerEditor.svelte'
-	import GcpTriggerEditor from './triggers/gcp/GcpTriggerEditor.svelte'
-	import AzureTriggerEditor from './triggers/azure/AzureTriggerEditor.svelte'
-	import EmailTriggerEditor from './triggers/email/EmailTriggerEditor.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
 	import type { Kind } from '$lib/utils_deployable'
@@ -77,7 +63,7 @@
 	} from './OnBehalfOfSelector.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
-	import { orderedJsonStringify } from '$lib/utils'
+	import { orderedJsonStringify, orderedYamlStringify } from '$lib/utils'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import DeploymentRequestPanel from './deploymentRequest/DeploymentRequestPanel.svelte'
 	import { userStore } from '$lib/stores'
@@ -563,6 +549,7 @@
 				key: getTriggerKey(trigger),
 				path: trigger.path,
 				kind: 'trigger' as Kind,
+				triggerKind: trigger.triggerKind,
 				diff: undefined as WorkspaceItemDiff | undefined,
 				trigger
 			}))
@@ -576,7 +563,6 @@
 		triggerKind: TriggerKind
 		scriptPath: string
 		isFlow: boolean
-		enabled?: boolean
 		extraLabel?: string
 		/** Raw row as returned by the listX endpoint, used to detect changes
 		 * between the fork and parent workspaces. */
@@ -646,211 +632,125 @@
 	})
 
 	let forkTriggers = $state<ForkTrigger[]>([])
-	let triggerToDelete = $state<ForkTrigger | undefined>(undefined)
 	let deploymentRequestPanel: DeploymentRequestPanel | undefined = $state(undefined)
 	let hasOpenDeploymentRequest = $state(false)
 
-	// Trigger detail drawer refs — one per trigger kind. Each is lazy-mounted
-	// on first openEdit() call, so having them all sit here is cheap.
-	let scheduleEditor: ScheduleEditor | undefined = $state()
-	let routeEditor: RouteEditor | undefined = $state()
-	let websocketEditor: WebsocketTriggerEditor | undefined = $state()
-	let kafkaEditor: KafkaTriggerEditor | undefined = $state()
-	let postgresEditor: PostgresTriggerEditor | undefined = $state()
-	let natsEditor: NatsTriggerEditor | undefined = $state()
-	let mqttEditor: MqttTriggerEditor | undefined = $state()
-	let sqsEditor: SqsTriggerEditor | undefined = $state()
-	let gcpEditor: GcpTriggerEditor | undefined = $state()
-	let azureEditor: AzureTriggerEditor | undefined = $state()
-	let emailEditor: EmailTriggerEditor | undefined = $state()
-
-	function openTriggerDetails(trigger: ForkTrigger) {
-		const isFlow = trigger.isFlow
-		switch (trigger.triggerKind) {
-			case 'schedules':
-				scheduleEditor?.openEdit(trigger.path, isFlow)
-				break
-			case 'routes':
-				routeEditor?.openEdit(trigger.path, isFlow)
-				break
-			case 'websockets':
-				websocketEditor?.openEdit(trigger.path, isFlow)
-				break
-			case 'kafka':
-				kafkaEditor?.openEdit(trigger.path, isFlow)
-				break
-			case 'postgres':
-				postgresEditor?.openEdit(trigger.path, isFlow)
-				break
-			case 'nats':
-				natsEditor?.openEdit(trigger.path, isFlow)
-				break
-			case 'mqtt':
-				mqttEditor?.openEdit(trigger.path, isFlow)
-				break
-			case 'sqs':
-				sqsEditor?.openEdit(trigger.path, isFlow)
-				break
-			case 'gcp':
-				gcpEditor?.openEdit(trigger.path, isFlow)
-				break
-			case 'azure':
-				azureEditor?.openEdit(trigger.path, isFlow)
-				break
-			case 'emails':
-				emailEditor?.openEdit(trigger.path, isFlow)
-				break
-		}
-	}
-
-	/** Deployable trigger kinds and their list+delete services */
+	/** Deployable trigger kinds and their list services */
 	const triggerServices = {
 		schedules: {
 			list: (ws: string) => ScheduleService.listSchedules({ workspace: ws }),
-			delete: (ws: string, path: string) => ScheduleService.deleteSchedule({ workspace: ws, path }),
 			normalize: (item: any): ForkTrigger => ({
 				path: item.path,
 				triggerKind: 'schedules',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.enabled,
 				extraLabel: item.schedule,
 				raw: item
 			})
 		},
 		routes: {
 			list: (ws: string) => HttpTriggerService.listHttpTriggers({ workspace: ws }),
-			delete: (ws: string, path: string) =>
-				HttpTriggerService.deleteHttpTrigger({ workspace: ws, path }),
 			normalize: (item: any): ForkTrigger => ({
 				path: item.path,
 				triggerKind: 'routes',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.mode === 'enabled',
 				extraLabel: `${(item.http_method ?? 'get').toUpperCase()} ${item.route_path ?? ''}`
 			})
 		},
 		websockets: {
 			list: (ws: string) => WebsocketTriggerService.listWebsocketTriggers({ workspace: ws }),
-			delete: (ws: string, path: string) =>
-				WebsocketTriggerService.deleteWebsocketTrigger({ workspace: ws, path }),
 			normalize: (item: any): ForkTrigger => ({
 				path: item.path,
 				triggerKind: 'websockets',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.mode === 'enabled',
 				extraLabel: item.url,
 				raw: item
 			})
 		},
 		kafka: {
 			list: (ws: string) => KafkaTriggerService.listKafkaTriggers({ workspace: ws }),
-			delete: (ws: string, path: string) =>
-				KafkaTriggerService.deleteKafkaTrigger({ workspace: ws, path }),
 			normalize: (item: any): ForkTrigger => ({
 				path: item.path,
 				triggerKind: 'kafka',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.mode === 'enabled',
 				extraLabel: item.topics?.join(', '),
 				raw: item
 			})
 		},
 		postgres: {
 			list: (ws: string) => PostgresTriggerService.listPostgresTriggers({ workspace: ws }),
-			delete: (ws: string, path: string) =>
-				PostgresTriggerService.deletePostgresTrigger({ workspace: ws, path }),
 			normalize: (item: any): ForkTrigger => ({
 				path: item.path,
 				triggerKind: 'postgres',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.mode === 'enabled',
 				raw: item
 			})
 		},
 		nats: {
 			list: (ws: string) => NatsTriggerService.listNatsTriggers({ workspace: ws }),
-			delete: (ws: string, path: string) =>
-				NatsTriggerService.deleteNatsTrigger({ workspace: ws, path }),
 			normalize: (item: any): ForkTrigger => ({
 				path: item.path,
 				triggerKind: 'nats',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.mode === 'enabled',
 				extraLabel: item.subjects?.join(', '),
 				raw: item
 			})
 		},
 		mqtt: {
 			list: (ws: string) => MqttTriggerService.listMqttTriggers({ workspace: ws }),
-			delete: (ws: string, path: string) =>
-				MqttTriggerService.deleteMqttTrigger({ workspace: ws, path }),
 			normalize: (item: any): ForkTrigger => ({
 				path: item.path,
 				triggerKind: 'mqtt',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.mode === 'enabled',
 				raw: item
 			})
 		},
 		sqs: {
 			list: (ws: string) => SqsTriggerService.listSqsTriggers({ workspace: ws }),
-			delete: (ws: string, path: string) =>
-				SqsTriggerService.deleteSqsTrigger({ workspace: ws, path }),
 			normalize: (item: any): ForkTrigger => ({
 				path: item.path,
 				triggerKind: 'sqs',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.mode === 'enabled',
 				extraLabel: item.queue_url,
 				raw: item
 			})
 		},
 		gcp: {
 			list: (ws: string) => GcpTriggerService.listGcpTriggers({ workspace: ws }),
-			delete: (ws: string, path: string) =>
-				GcpTriggerService.deleteGcpTrigger({ workspace: ws, path }),
 			normalize: (item: any): ForkTrigger => ({
 				path: item.path,
 				triggerKind: 'gcp',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.mode === 'enabled',
 				extraLabel: item.topic_id,
 				raw: item
 			})
 		},
 		azure: {
 			list: (ws: string) => AzureTriggerService.listAzureTriggers({ workspace: ws }),
-			delete: (ws: string, path: string) =>
-				AzureTriggerService.deleteAzureTrigger({ workspace: ws, path }),
 			normalize: (item: any): ForkTrigger => ({
 				path: item.path,
 				triggerKind: 'azure',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.mode === 'enabled',
 				extraLabel: item.topic_name ?? item.scope_resource_id,
 				raw: item
 			})
 		},
 		emails: {
 			list: (ws: string) => EmailTriggerService.listEmailTriggers({ workspace: ws }),
-			delete: (ws: string, path: string) =>
-				EmailTriggerService.deleteEmailTrigger({ workspace: ws, path }),
 			normalize: (item: any): ForkTrigger => ({
 				path: item.path,
 				triggerKind: 'emails',
 				scriptPath: item.script_path,
 				isFlow: item.is_flow,
-				enabled: item.mode === 'enabled',
 				extraLabel: getEmailAddress(
 					item.local_part,
 					item.workspaced_local_part,
@@ -975,31 +875,6 @@
 		}
 	}
 
-	function deleteTrigger(trigger: ForkTrigger) {
-		triggerToDelete = trigger
-	}
-
-	async function confirmDeleteTrigger() {
-		const trigger = triggerToDelete
-		if (!trigger) return
-		triggerToDelete = undefined
-		const triggerType = triggerKindToTriggerType(trigger.triggerKind)
-		const displayName = triggerType ? triggerDisplayNamesMap[triggerType] : trigger.triggerKind
-		try {
-			const svc = triggerServices[trigger.triggerKind as keyof typeof triggerServices]
-			if (!svc) {
-				throw new Error(`No service for trigger kind: ${trigger.triggerKind}`)
-			}
-			await svc.delete(currentWorkspaceId, trigger.path)
-			forkTriggers = forkTriggers.filter(
-				(t) => !(t.path === trigger.path && t.triggerKind === trigger.triggerKind)
-			)
-			sendUserToast(`Deleted ${displayName} trigger '${trigger.path}'`)
-		} catch (e: any) {
-			sendUserToast(`Failed to delete trigger '${trigger.path}': ${e.body || e.message}`, true)
-		}
-	}
-
 	function getTriggerDisplayName(triggerKind: TriggerKind): string {
 		const triggerType = triggerKindToTriggerType(triggerKind)
 		return triggerType ? triggerDisplayNamesMap[triggerType] : triggerKind
@@ -1031,8 +906,8 @@
 			path: t.path,
 			originalLabel: `${targetWorkspace} (target)`,
 			modifiedLabel: `${sourceWorkspace} (source)`,
-			original: orderedJsonStringify(stripIgnoredFields(toRow ?? {}), 2) ?? '{}',
-			modified: orderedJsonStringify(stripIgnoredFields(fromRow ?? {}), 2) ?? '{}'
+			original: orderedYamlStringify(stripIgnoredFields(toRow ?? {})),
+			modified: orderedYamlStringify(stripIgnoredFields(fromRow ?? {}))
 		}
 		triggerDiffOpen = true
 	}
@@ -1244,7 +1119,10 @@
 					{#if item.trigger}
 						{@const t = item.trigger as ForkTrigger}
 						<span class="text-emphasis">{getTriggerDisplayName(t.triggerKind)}</span>
-						<span class="text-secondary mx-1">&rarr;</span>
+						{#if t.extraLabel}
+							<span class="text-secondary ml-1">{t.extraLabel}</span>
+						{/if}
+						<span class="text-tertiary mx-1">&rarr;</span>
 						<span class="text-secondary">{t.scriptPath}</span>
 					{:else}
 						{@const diff = item.diff as WorkspaceItemDiff}
@@ -1283,44 +1161,30 @@
 								color="indigo"
 								size="xs">New</Badge
 							>
-						{:else if t.changeKind === 'modified'}
-							<Badge title="Configuration differs from the other workspace" color="yellow" size="xs"
-								>Modified</Badge
-							>
 						{/if}
 						{#if t.isFlow}
 							<Badge color="blue" size="xs">flow</Badge>
 						{/if}
-						{#if t.extraLabel}
-							<span class="text-tertiary text-xs">({t.extraLabel})</span>
-						{/if}
-						{#if t.enabled != null}
-							<Badge color={t.enabled ? 'green' : 'gray'} size="xs">
-								{t.enabled ? 'Enabled' : 'Disabled'}
-							</Badge>
-						{/if}
 						{#if !deploymentStatus[key] || deploymentStatus[key].status != 'deployed'}
-							{#if t.changeKind === 'modified'}
-								<Button
-									size="xs"
-									variant="subtle"
-									startIcon={{ icon: DiffIcon }}
-									onclick={() => openTriggerDiff(t)}
-								>
-									Diff
-								</Button>
+							{#if mergeIntoParent}
+								<Badge color="green" size="xs">
+									<ArrowUpRight class="w-3 h-3 inline" />
+									1 ahead
+								</Badge>
+							{:else}
+								<Badge color="blue" size="xs">
+									<ArrowDownRight class="w-3 h-3 inline" />
+									1 behind
+								</Badge>
 							{/if}
-							<Button
-								size="xs"
-								variant="subtle"
-								startIcon={{ icon: Eye }}
-								onclick={() => openTriggerDetails(t)}
-							>
-								Details
-							</Button>
-							<Button size="xs" variant="subtle" color="red" onclick={() => deleteTrigger(t)}>
-								<Trash2 size={12} />
-							</Button>
+							{#if t.changeKind === 'modified'}
+								<div>
+									<Button size="xs" variant="subtle" onclick={() => openTriggerDiff(t)}>
+										<DiffIcon class="w-3 h-3" />
+										Show diff
+									</Button>
+								</div>
+							{/if}
 						{/if}
 					{:else}
 						{@const diff = item.diff as WorkspaceItemDiff}
@@ -1503,31 +1367,6 @@
 
 	<DiffDrawer bind:this={diffDrawer} {isFlow} />
 
-	<ScheduleEditor bind:this={scheduleEditor} />
-	<RouteEditor bind:this={routeEditor} />
-	<WebsocketTriggerEditor bind:this={websocketEditor} />
-	<KafkaTriggerEditor bind:this={kafkaEditor} />
-	<PostgresTriggerEditor bind:this={postgresEditor} />
-	<NatsTriggerEditor bind:this={natsEditor} />
-	<MqttTriggerEditor bind:this={mqttEditor} />
-	<SqsTriggerEditor bind:this={sqsEditor} />
-	<GcpTriggerEditor bind:this={gcpEditor} />
-	<AzureTriggerEditor bind:this={azureEditor} />
-	<EmailTriggerEditor bind:this={emailEditor} />
-
-	<ConfirmationModal
-		title="Delete trigger"
-		confirmationText="Delete"
-		open={!!triggerToDelete}
-		onConfirmed={confirmDeleteTrigger}
-		onCanceled={() => (triggerToDelete = undefined)}
-	>
-		{#if triggerToDelete}
-			Are you sure you want to delete the {getTriggerDisplayName(triggerToDelete.triggerKind)} trigger
-			'{triggerToDelete.path}'?
-		{/if}
-	</ConfirmationModal>
-
 	<Drawer bind:open={triggerDiffOpen} size="900px">
 		<DrawerContent
 			title={triggerDiffPayload
@@ -1536,25 +1375,12 @@
 			on:close={() => (triggerDiffOpen = false)}
 		>
 			{#if triggerDiffPayload}
-				<div class="flex flex-col gap-2 h-full">
-					<div class="text-xs text-secondary flex gap-3">
-						<span
-							><span class="text-tertiary">Original (target):</span>
-							{triggerDiffPayload.originalLabel}</span
-						>
-						<span
-							><span class="text-tertiary">Modified (source):</span>
-							{triggerDiffPayload.modifiedLabel}</span
-						>
-					</div>
-					<p class="text-2xs text-tertiary">
-						Runtime fields (mode, enabled, server_id, last_server_ping, edited_at, edited_by) are
-						stripped from the diff — those don't propagate through git-sync.
-					</p>
-					<div class="flex-1 min-h-[400px] border rounded">
+				<div class="flex flex-col h-full">
+					<div class="flex-1 min-h-0">
 						<DiffEditor
 							open={triggerDiffOpen}
-							defaultLang="json"
+							className="!h-full"
+							defaultLang="yaml"
 							defaultOriginal={triggerDiffPayload.original}
 							defaultModified={triggerDiffPayload.modified}
 							readOnly

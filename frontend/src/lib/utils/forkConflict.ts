@@ -45,7 +45,7 @@ function askForkConflictConfirm(kind: string, kindLabel: string, parentWorkspace
 export async function withForkConflictRetry<T>(
 	fn: (force: boolean) => Promise<T>,
 	kindLabel: string
-): Promise<T> {
+): Promise<T | undefined> {
 	try {
 		return await fn(false)
 	} catch (e) {
@@ -56,11 +56,9 @@ export async function withForkConflictRetry<T>(
 			kindLabel,
 			conflict.parentWorkspaceId
 		)
-		if (!proceed) {
-			throw new Error(
-				`Enable cancelled because of fork conflict with ${conflict.parentWorkspaceId}`
-			)
-		}
+		// User explicitly dismissed the modal — treat as a silent no-op so the
+		// caller's catch block doesn't pop a redundant error toast.
+		if (!proceed) return undefined
 		return await fn(true)
 	}
 }
