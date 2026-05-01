@@ -515,11 +515,44 @@ pub async fn do_postgresql(
             .as_ref()
             .is_some_and(|x| x.as_ref().is_some_and(|y| y.0 == database_string))
         {
-            // Probe the cached connection with DISCARD ALL before using it.
-            // This resets the full session (role, GUCs, temp tables, prepared
-            // statements, advisory locks) and also detects broken connections.
+            // Probe the cached connection with a curated session reset before
+            // reusing it. Each statement targets a specific class of state:
+            //
+            //   RESET ALL                     — GUC parameters (search_path,
+            //                                   application_name, statement_
+            //                                   timeout, transaction_*…). Note
+            //                                   that this does NOT reset SET
+            //                                   ROLE or SET SESSION
+            //                                   AUTHORIZATION (security!).
+            //   RESET SESSION AUTHORIZATION   — undoes both `SET SESSION
+            //                                   AUTHORIZATION` and `SET ROLE`,
+            //                                   restoring the connecting user.
+            //                                   Without this a previous job
+            //                                   leaving an elevated role
+            //                                   active would silently leak
+            //                                   permissions into the next.
+            //   UNLISTEN *                    — drops LISTEN registrations.
+            //   CLOSE ALL                     — closes open cursors.
+            //
+            // We deliberately do NOT use `DISCARD ALL`. DISCARD includes
+            // `DEALLOCATE ALL`, which deallocates *all* prepared statements
+            // server-side — including the typeinfo statements that
+            // tokio_postgres caches per-Client to resolve custom enum/domain
+            // Oids. After DISCARD, tokio_postgres still holds Statement
+            // objects whose names the server has forgotten, so the next
+            // custom-type query fails with `prepared statement "sN" does not
+            // exist`. The trade-off: temp tables, advisory locks, and user-
+            // PREPARE statements may persist across cached-connection reuse
+            // (rare in datatable / script workloads).
+            //
+            // Doubles as a liveness probe — if the connection is broken any
+            // statement in the chain fails and we replace it.
             let probe_client = &guard.as_ref().unwrap().as_ref().unwrap().1;
-            if probe_client.batch_execute("DISCARD ALL").await.is_ok() {
+            if probe_client
+                .batch_execute("RESET ALL; RESET SESSION AUTHORIZATION; UNLISTEN *; CLOSE ALL;")
+                .await
+                .is_ok()
+            {
                 tracing::info!("Using cached connection");
                 CACHE_HITS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 LAST_QUERY.store(

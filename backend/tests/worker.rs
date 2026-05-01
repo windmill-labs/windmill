@@ -2529,6 +2529,220 @@ SELECT $1::fallback_test.color AS c1,
     Ok(())
 }
 
+/// Regression: custom enum / domain queries must not error with `prepared
+/// statement "sN" does not exist` when run on a cached connection.
+///
+/// Root cause: when we used `DISCARD ALL` to reset the cached connection
+/// between jobs, the included `DEALLOCATE ALL` deallocated *every* prepared
+/// statement server-side — including the typeinfo statements that
+/// tokio_postgres caches per-client to resolve custom-type Oids. The Rust
+/// client still held `Statement` objects whose names the server had
+/// forgotten, so the next custom-type query failed.
+///
+/// Fix: switched the cached-connection probe to `RESET ALL; UNLISTEN *;
+/// CLOSE ALL;` which covers windmill's session-isolation needs (GUC reset,
+/// listen channels, open cursors) without nuking the prepared-statement
+/// cache. This test runs the failing pattern (enum query → domain query on
+/// the same cached connection, several times) to lock the behaviour in.
+#[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
+async fn test_postgresql_custom_types_on_cached_connection(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_worker::pg_executor::clear_pg_cache;
+
+    initialize_tracing().await;
+    clear_pg_cache().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let db_arg = json!({"host": "localhost", "port": 5432, "dbname": "windmill", "user": "postgres", "password": "changeme"});
+
+    let make_pg_job = |content: String| {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+        }))
+        .arg("database", db_arg.clone())
+    };
+
+    // Set up custom enum + domain types in a dedicated schema (avoid the
+    // `pg_*` reserved prefix for user schemas).
+    let setup = r#"
+DROP SCHEMA IF EXISTS wm_pg_cached_test CASCADE;
+CREATE SCHEMA wm_pg_cached_test;
+CREATE TYPE wm_pg_cached_test.color AS ENUM ('red', 'green', 'blue');
+CREATE DOMAIN wm_pg_cached_test.short_name AS TEXT CHECK (length(VALUE) BETWEEN 1 AND 10);
+"#;
+    make_pg_job(setup.to_owned())
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    // Run a long alternating sequence of enum + domain queries on the same
+    // cached connection. Each query goes through the prepare-fallback path
+    // (otyp_to_pg_type doesn't recognise these custom-type names) and needs
+    // tokio_postgres' typeinfo cache to resolve the Oids server-side. Pre-fix
+    // this would fail intermittently with `prepared statement "sN" does not
+    // exist` after the first cached-conn reuse.
+    for i in 0..10 {
+        let r = make_pg_job("-- $1 arg1\nSELECT $1::wm_pg_cached_test.color AS c".to_owned())
+            .arg("arg1", json!(if i % 2 == 0 { "red" } else { "blue" }))
+            .run_until_complete(&db, false, port)
+            .await;
+        assert!(
+            r.success,
+            "iter {i} enum query failed (was the DISCARD ALL bug); result: {:?}",
+            r.result
+        );
+
+        let r = make_pg_job("-- $1 arg1\nSELECT $1::wm_pg_cached_test.short_name AS s".to_owned())
+            .arg("arg1", json!(format!("v{i}")))
+            .run_until_complete(&db, false, port)
+            .await;
+        assert!(
+            r.success,
+            "iter {i} domain query failed (was the DISCARD ALL bug); result: {:?}",
+            r.result
+        );
+    }
+
+    Ok(())
+}
+
+/// Security regression: a previous job that did `SET ROLE` or `SET SESSION
+/// AUTHORIZATION` to a different role must not leak that role into the next
+/// job that reuses the cached connection.
+///
+/// This is the case `RESET ALL` alone does *not* cover — neither SET ROLE
+/// nor SET SESSION AUTHORIZATION are GUC parameters, so they survive
+/// `RESET ALL`. We rely on `RESET SESSION AUTHORIZATION` (which subsumes
+/// `RESET ROLE`) explicitly being part of the cached-connection probe.
+///
+/// The pre-existing `test_postgresql_single_worker_session_isolation` test
+/// only did `SET ROLE postgres` (the connecting user), so the leak was
+/// invisible — this test catches it by switching to a *different* role.
+#[sqlx::test(fixtures("base"))]
+#[serial(pg_cache)]
+async fn test_postgresql_set_role_does_not_leak_across_cached_connection(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_worker::pg_executor::clear_pg_cache;
+
+    initialize_tracing().await;
+    clear_pg_cache().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let db_arg = json!({"host": "localhost", "port": 5432, "dbname": "windmill", "user": "postgres", "password": "changeme"});
+
+    let make_pg_job = |content: String| {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+        }))
+        .arg("database", db_arg.clone())
+    };
+
+    // Create a non-postgres role to switch to. Idempotent so the test survives
+    // re-runs against the same DB.
+    make_pg_job(
+        "DO $$ BEGIN \
+           IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'wm_isolation_test_role') THEN \
+             CREATE ROLE wm_isolation_test_role; \
+           END IF; \
+         END $$"
+            .to_owned(),
+    )
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+
+    // Job 1: SET ROLE to a different role.
+    let r1 = make_pg_job(
+        "SET ROLE wm_isolation_test_role; SELECT current_user AS cu, session_user AS su".to_owned(),
+    )
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+    assert_eq!(r1[0]["cu"], "wm_isolation_test_role");
+    assert_eq!(r1[0]["su"], "postgres");
+
+    // Job 2 (cached connection reuse): role MUST be back to the connecting
+    // user. Pre-fix with `RESET ALL` alone, this would still see
+    // `wm_isolation_test_role` because RESET ALL doesn't cover SET ROLE.
+    let r2 = make_pg_job("SELECT current_user AS cu, session_user AS su".to_owned())
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+    assert_eq!(
+        r2[0]["cu"], "postgres",
+        "SET ROLE leaked across cached connection: current_user is {}",
+        r2[0]["cu"]
+    );
+
+    // Job 3: SET SESSION AUTHORIZATION (changes both current_user and
+    // session_user — RESET ALL does NOT touch this either).
+    let r3 = make_pg_job(
+        "SET SESSION AUTHORIZATION wm_isolation_test_role; \
+         SELECT current_user AS cu, session_user AS su"
+            .to_owned(),
+    )
+    .run_until_complete(&db, false, port)
+    .await
+    .json_result()
+    .unwrap();
+    assert_eq!(r3[0]["cu"], "wm_isolation_test_role");
+    assert_eq!(r3[0]["su"], "wm_isolation_test_role");
+
+    // Job 4 (cached): both must be restored to the connecting user.
+    let r4 = make_pg_job("SELECT current_user AS cu, session_user AS su".to_owned())
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+    assert_eq!(
+        r4[0]["cu"], "postgres",
+        "SET SESSION AUTHORIZATION leaked across cached connection: current_user is {}",
+        r4[0]["cu"]
+    );
+    assert_eq!(
+        r4[0]["su"], "postgres",
+        "SET SESSION AUTHORIZATION leaked across cached connection: session_user is {}",
+        r4[0]["su"]
+    );
+
+    Ok(())
+}
+
 #[cfg(feature = "mysql")]
 #[sqlx::test(fixtures("base"))]
 async fn test_mysql_job(db: Pool<Postgres>) -> anyhow::Result<()> {
