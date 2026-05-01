@@ -16,13 +16,13 @@ use {
         error::{Error, Result},
     },
     windmill_git_sync::DeployedObject,
-    windmill_trigger::TriggerCrud,
+    windmill_trigger::{Trigger, TriggerCrud},
 };
 
 #[cfg(not(feature = "private"))]
 #[async_trait]
 impl TriggerCrud for NatsTrigger {
-    type Trigger = ();
+    type Trigger = Trigger<Self::TriggerConfig>;
     type TriggerConfig = ();
     type TriggerConfigRequest = ();
     type TestConnectionConfig = ();

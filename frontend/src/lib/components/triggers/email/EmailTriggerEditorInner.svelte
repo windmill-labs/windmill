@@ -257,6 +257,8 @@
 	async function handleToggleMode(newMode: TriggerMode) {
 		mode = newMode
 		if (!trigger?.draftConfig) {
+			// Email addresses are always workspace-prefixed (clone filter
+			// excludes workspaced_local_part=false) — no fork-conflict warning.
 			await EmailTriggerService.setEmailTriggerMode({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',

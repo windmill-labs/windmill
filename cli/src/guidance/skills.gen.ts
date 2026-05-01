@@ -6756,6 +6756,7 @@ schedule related commands
 - \`schedule new <path:string>\` - create a new schedule locally
 - \`schedule push <file_path:string> <remote_path:string>\` - push a local schedule spec. This overrides any remote versions.
 - \`schedule enable <path:string>\` - Enable a schedule
+  - \`--force\` - Bypass the fork-conflict warning when the parent workspace has the same schedule (acknowledges that both crons will fire)
 - \`schedule disable <path:string>\` - Disable a schedule
 - \`schedule set-permissioned-as <path:string> <email:string>\` - Set the email (run-as user) for a schedule (requires admin or wm_deployers group)
 

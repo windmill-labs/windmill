@@ -62,7 +62,8 @@ pub async fn route_path_key_exists(
         .await?
         .unwrap_or(false)
     } else {
-        let http_route_workspaced = HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+        let http_route_workspaced =
+            HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
         let effective_workspaced = workspaced_route.unwrap_or(false) || http_route_workspaced;
         let route_path_key = if effective_workspaced {
             std::borrow::Cow::Owned(format!("{}/{}", w_id, route_path_key.trim_matches('/')))
@@ -70,6 +71,10 @@ pub async fn route_path_key_exists(
             std::borrow::Cow::Borrowed(route_path_key)
         };
 
+        // Self-exclusion is by `(workspace_id, path)` not just `path`: workspace
+        // forks clone trigger rows verbatim, so the same trigger path can exist
+        // in multiple workspaces. Excluding by path alone would silently mask a
+        // real collision against the parent's row.
         sqlx::query_scalar!(
             r#"
             SELECT EXISTS(
@@ -79,12 +84,13 @@ pub async fn route_path_key_exists(
                     ((workspaced_route IS TRUE AND workspace_id || '/' || route_path_key = $1)
                     OR (workspaced_route IS FALSE AND route_path_key = $1))
                     AND http_method = $2
-                    AND ($3::TEXT IS NULL OR path != $3)
+                    AND ($3::TEXT IS NULL OR NOT (workspace_id = $4 AND path = $3))
             )
             "#,
             &route_path_key,
             http_method as &HttpMethod,
-            trigger_path
+            trigger_path,
+            w_id
         )
         .fetch_one(db)
         .await?
@@ -145,7 +151,8 @@ async fn require_admin_for_instance_wide_route(
     is_admin: bool,
     workspaced_route: Option<bool>,
 ) -> Result<bool> {
-    let http_route_workspaced = HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+    let http_route_workspaced =
+        HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
     let effective_workspaced = workspaced_route.unwrap_or(false) || http_route_workspaced;
     if !is_admin && !effective_workspaced {
         return Err(Error::NotAuthorized(
@@ -371,6 +378,10 @@ impl TriggerCrud for HttpTrigger {
     const ROUTE_PREFIX: &'static str = "/http_triggers";
     const DEPLOYMENT_NAME: &'static str = "HTTP trigger";
     const IS_ALLOWED_ON_CLOUD: bool = true;
+    // Cloned HTTP triggers are always workspaced (the clone filter excludes
+    // workspaced_route=false rows), so fork and parent live at distinct URLs
+    // and never collide.
+    const FORK_CONFLICT_ON_ENABLE: bool = false;
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[
         "route_path",
         "route_path_key",
@@ -465,7 +476,8 @@ impl TriggerCrud for HttpTrigger {
         let resolved_edited_by = trigger.base.resolve_edited_by(authed);
         let resolved_permissioned_as = trigger.base.resolve_permissioned_as(authed);
 
-        let http_route_workspaced = HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+        let http_route_workspaced =
+            HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
         let effective_workspaced =
             trigger.config.workspaced_route.unwrap_or(false) || http_route_workspaced;
 

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO sqs_trigger (\n            path, queue_url, aws_resource_path, message_attributes, script_path,\n            is_flow, workspace_id, edited_by, edited_at, extra_perms, error,\n            server_id, last_server_ping, aws_auth_resource_type, error_handler_path,\n            error_handler_args, retry, mode, permissioned_as, labels\n        )\n        SELECT\n            path, queue_url, aws_resource_path, message_attributes, script_path,\n            is_flow, $1, edited_by, edited_at, extra_perms, NULL,\n            NULL, NULL, aws_auth_resource_type, error_handler_path,\n            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels\n        FROM sqs_trigger WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0b347b021123e66ffb6b7eb690f7619daf34795410505609a1ff3bf0be953550"
+}

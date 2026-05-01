@@ -960,6 +960,7 @@ export function main() {
 // Dedicated Worker Protocol Tests
 // ============================================================================
 
+#[cfg(feature = "private")]
 mod dedicated_worker_protocol {
     use std::io::{BufRead, BufReader, Write};
     use std::process::{Command, Stdio};
@@ -1668,6 +1669,7 @@ export function main(x?: number): string {
 // Deno Dedicated Worker Protocol Tests
 // ============================================================================
 
+#[cfg(feature = "private")]
 mod dedicated_worker_protocol_deno {
     use std::io::{BufRead, BufReader, Write};
     use std::process::{Command, Stdio};

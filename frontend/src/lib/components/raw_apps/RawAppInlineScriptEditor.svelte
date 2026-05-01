@@ -149,7 +149,10 @@
 		() => $workspaceStore
 	)
 	$effect(() => {
-		if (inlineScript && inferAssetsRes.current) inlineScript.assets = inferAssetsRes.current?.assets
+		if (!inlineScript || !inferAssetsRes.current || inferAssetsRes.current.status === 'error')
+			return
+		const newAssets = inferAssetsRes.current.assets
+		inlineScript.assets = newAssets.length > 0 ? newAssets : undefined
 	})
 
 	// Debug mode state

@@ -461,7 +461,7 @@ pub fn check_route_access(
         if token_scopes.iter().any(|s| s.starts_with("mcp:")) {
             return Ok(());
         }
-        return Err(Error::NotAuthorized(
+        return Err(Error::PermissionDenied(
             "Access denied. Required scope: mcp:*".to_string(),
         ));
     }
@@ -506,7 +506,7 @@ pub fn check_route_access(
         format!("{}:{}", required_domain.as_str(), required_action.as_str())
     };
 
-    Err(Error::NotAuthorized(format!(
+    Err(Error::PermissionDenied(format!(
         "Access denied. Required scope: {}",
         scope_display
     )))

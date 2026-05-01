@@ -11,7 +11,7 @@ use windmill_test_utils::*;
 // Dedicated Worker Protocol Tests (Python)
 // ============================================================================
 
-#[cfg(feature = "python")]
+#[cfg(all(feature = "python", feature = "private"))]
 mod dedicated_worker_protocol_python {
     use std::io::{BufRead, BufReader, Write};
     use std::process::{Command, Stdio};

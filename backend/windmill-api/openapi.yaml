@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.693.4
+  version: 1.694.0
   title: Windmill API
 
   contact:
@@ -13217,6 +13217,11 @@ paths:
               properties:
                 enabled:
                   type: boolean
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    schedule in a fork whose parent has the same path enabled.
               required:
                 - enabled
 
@@ -13663,6 +13668,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -13830,6 +13840,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -14030,6 +14045,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -14271,6 +14291,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -14466,6 +14491,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -15254,6 +15284,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -15449,6 +15484,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -15703,6 +15743,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -16249,6 +16294,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -16475,6 +16525,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:

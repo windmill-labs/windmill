@@ -210,7 +210,8 @@ export async function processRunnable(
 			{
 				static_inputs: staticInputs,
 				one_of_inputs: oneOfInputs,
-				allow_user_resources: allowUserResources
+				allow_user_resources: allowUserResources,
+				...(runnable.inlineScript?.tag ? { tag: runnable.inlineScript.tag } : {})
 			}
 		]
 	} else if (isRunnableByPath(runnable)) {

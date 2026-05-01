@@ -111,7 +111,9 @@ Regenerate frontend client: `npm run generate-backend-client` from `frontend/`.
 
 **`backend/windmill-api-workspaces/src/workspaces.rs`** — add `{kind}_used: bool` to the `UsedTriggers` struct and add an `EXISTS(SELECT 1 FROM {kind}_trigger …)` to the `get_used_triggers` query.
 
-**`backend/windmill-api/src/workspaces_export.rs`** — add export block mirroring gcp's (export lists all triggers, serializes them to YAML/JSON).
+**`backend/windmill-api/src/workspaces_export.rs`** — add export block mirroring gcp's (export lists all triggers, serializes them to YAML/JSON). The block re-uses the `trigger_ignore_keys` variable so the new kind automatically participates in fork-export stripping (`mode` field is omitted when the source workspace is a fork — keeps fork→parent merges from flipping the parent's enabled state).
+
+**Fork cloning (`clone_triggers_and_schedules` in workspaces.rs)** — add an `INSERT INTO {kind}_trigger ... SELECT ...` block that copies all rows from the parent workspace, forcing `mode = 'disabled'::TRIGGER_MODE`. Always runs at fork creation; forgetting this means users can't carry `{kind}` triggers into their forks.
 
 ## 6.5 Hardcoded trigger-kind arrays (silent-failure hotspots)
 

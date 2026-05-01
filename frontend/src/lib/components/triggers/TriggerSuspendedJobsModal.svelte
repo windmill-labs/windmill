@@ -43,7 +43,7 @@
 		triggerPath: string
 		triggerKind: JobTriggerKind
 		hasChanged: boolean
-		onToggleMode: (mode: TriggerMode) => void
+		onToggleMode: (mode: TriggerMode) => void | boolean | Promise<void | boolean>
 		runnableConfig: TriggerRunnableConfig
 	}
 

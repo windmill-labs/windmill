@@ -243,6 +243,8 @@
 
 	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
+			// HTTP routes are always workspace-prefixed at runtime, so fork
+			// and parent live at distinct URLs — no fork-conflict warning.
 			await HttpTriggerService.setHttpTriggerMode({
 				path,
 				workspace: $workspaceStore!,

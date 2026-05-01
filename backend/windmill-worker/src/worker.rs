@@ -1387,17 +1387,45 @@ pub fn create_span_with_name(
 /// payload on OTLP exporters.
 const STATUS_DESCRIPTION_MAX_LEN: usize = 512;
 
+/// Outcome of running a queued job, carrying enough information to set the
+/// OTLP `Status` on the outer `"job"` span without conflating "another worker
+/// raced us" with "the user's script raised an exception".
+#[derive(Debug)]
+pub enum JobOutcome {
+    /// Job ran cleanly, was forwarded as a flow, was a no-op (test workspace),
+    /// or was suspended waiting for child jobs (WAC v2 / schedule zombie).
+    /// All of these leave the span `Status` `Unset`.
+    Completed,
+    /// Job was attempted but its execution returned an error; the failure has
+    /// been dispatched to the result processor. `description` holds the
+    /// truncated error string for the outer span's `Status.message`.
+    Failed { description: String },
+    /// Another worker (or the same worker after a restart) already inserted a
+    /// row in `v2_job_completed`; this worker has nothing to do.
+    AlreadyCompleted,
+}
+
+impl JobOutcome {
+    /// True when the job completed successfully on this worker. Used by
+    /// callers that previously matched on `Ok(true)`.
+    pub fn is_success(&self) -> bool {
+        matches!(self, Self::Completed)
+    }
+}
+
 /// Record `otel.status_code` / `otel.status_message` on the current span
 /// when a job fails. Called from inside the `.instrument(job_span)` future so
 /// that `Span::current()` resolves to the `"job"` span created by
 /// `create_span_with_name`.
 ///
-/// On `Ok(true)` the fields are left unset, which `tracing-opentelemetry`
-/// maps to `Status::Unset` (semantically equivalent to OK per OTel spec).
-pub(crate) fn record_job_span_status(result: &windmill_common::error::Result<bool>) {
+/// `Completed` leaves the fields unset (`Status::Unset`, equivalent to OK
+/// per OTel spec). The other variants set `Status.code = ERROR` with a
+/// description that reflects the actual cause.
+pub(crate) fn record_job_span_status(result: &windmill_common::error::Result<JobOutcome>) {
     let description = match result {
-        Ok(true) => return,
-        Ok(false) => "job already completed by another worker".to_string(),
+        Ok(JobOutcome::Completed) => return,
+        Ok(JobOutcome::Failed { description }) => description.clone(),
+        Ok(JobOutcome::AlreadyCompleted) => "job already completed by another worker".to_string(),
         Err(err) => truncate_description(&err.to_string()),
     };
     let span = tracing::Span::current();
@@ -2900,13 +2928,13 @@ pub async fn run_worker(
                     .await;
 
                     match job_result {
-                        Ok(false) if is_init_script => {
+                        Ok(ref outcome) if !outcome.is_success() && is_init_script => {
                             tracing::error!("init script job failed, exiting");
                             update_worker_ping_for_failed_init_script(conn, &worker_name, job_id)
                                 .await;
                             break;
                         }
-                        Ok(false) if is_periodic_bash_script => {
+                        Ok(ref outcome) if !outcome.is_success() && is_periodic_bash_script => {
                             tracing::error!(
                                 "periodic script job failed. Check logs for job ID {} for details.",
                                 job_id
@@ -3388,7 +3416,7 @@ pub async fn handle_queued_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     flow_runners: Option<Arc<FlowRunners>>,
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
-) -> windmill_common::error::Result<bool> {
+) -> windmill_common::error::Result<JobOutcome> {
     if job.canceled_by.is_some() {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
     }
@@ -3556,7 +3584,7 @@ pub async fn handle_queued_job(
                     }
                 }
 
-                return Ok(true);
+                return Ok(JobOutcome::Completed);
             }
         };
     }
@@ -3587,11 +3615,11 @@ pub async fn handle_queued_job(
                     tracing::error!(
                         "Schedule push zombie: {err}. Leaving flow job in queue for zombie detection to restart."
                     );
-                    Ok(true)
+                    Ok(JobOutcome::Completed)
                 }
                 other => {
                     other?;
-                    Ok(true)
+                    Ok(JobOutcome::Completed)
                 }
             }
         } else {
@@ -3866,21 +3894,21 @@ pub async fn handle_queued_job(
         drop(job);
         //it's a test job, no need to update the db
         if cjob.workspace_id == "" {
-            return Ok(true);
+            return Ok(JobOutcome::Completed);
         }
 
         if result
             .as_ref()
             .is_err_and(|err| matches!(err, &Error::AlreadyCompleted(_)))
         {
-            return Ok(false);
+            return Ok(JobOutcome::AlreadyCompleted);
         }
         if result
             .as_ref()
             .is_err_and(|err| matches!(err, &Error::WacSuspended(_)))
         {
             // WAC v2 job suspended while waiting for child jobs — don't complete it
-            return Ok(true);
+            return Ok(JobOutcome::Completed);
         }
         process_result(
             cjob,

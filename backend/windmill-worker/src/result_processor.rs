@@ -478,7 +478,7 @@ pub async fn process_result(
     duration: Option<i64>,
     has_stream: bool,
     flow_runners: Option<Arc<FlowRunners>>,
-) -> error::Result<bool> {
+) -> error::Result<crate::worker::JobOutcome> {
     match result {
         Ok(result) => {
             send_job_completed(
@@ -502,7 +502,7 @@ pub async fn process_result(
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
             .await;
-            Ok(true)
+            Ok(crate::worker::JobOutcome::Completed)
         }
         Err(e) => {
             let error_value = match e {
@@ -547,6 +547,23 @@ pub async fn process_result(
                 }),
             };
 
+            // Use the structured error message that was just extracted (the
+            // user-facing script error) rather than the generic Error string.
+            // Pull `.message` out of the JSON object if present, otherwise
+            // accept a bare string (e.g. agent-worker "See logs for more
+            // details"), and only fall back to "Job failed" when the value
+            // carries no readable description.
+            let description = serde_json::from_str::<serde_json::Value>(error_value.get())
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("message")
+                        .and_then(|m| m.as_str())
+                        .or_else(|| value.as_str())
+                        .map(|m| crate::worker::truncate_description(m))
+                })
+                .unwrap_or_else(|| "Job failed".to_string());
+
             send_job_completed(
                 job_completed_tx,
                 JobCompleted {
@@ -568,7 +585,7 @@ pub async fn process_result(
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
             .await;
-            Ok(false)
+            Ok(crate::worker::JobOutcome::Failed { description })
         }
     }
 }

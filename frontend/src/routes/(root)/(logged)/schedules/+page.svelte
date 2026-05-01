@@ -6,6 +6,7 @@
 		WorkspaceService
 	} from '$lib/gen'
 	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
@@ -140,16 +141,41 @@
 		loadingSchedulesWithJobStats = false
 	}
 
+	// Per-path counter bumped when a schedule toggle is cancelled or errors,
+	// to force-remount that row's <Toggle>. Toggle uses `bind:checked` on
+	// its native input; once the user clicks, the local checkbox state
+	// diverges from the parent's prop expression, and Svelte 5 prop
+	// reactivity won't push a same-valued prop back down. Re-mounting
+	// re-initializes from the prop. List-page rows don't optimistically
+	// flip `enabled`, so they need this nudge — but only the affected row,
+	// not all rows on the page.
+	let toggleResetVersions = $state<Record<string, number>>({})
+	function bumpToggleReset(path: string) {
+		toggleResetVersions[path] = (toggleResetVersions[path] ?? 0) + 1
+	}
+
 	async function setScheduleEnabled(path: string, enabled: boolean): Promise<void> {
 		try {
-			await ScheduleService.setScheduleEnabled({
-				path,
-				workspace: $workspaceStore!,
-				requestBody: { enabled }
-			})
-			loadSchedules()
+			const ok = await withForkConflictRetry(
+				(force) =>
+					ScheduleService.setScheduleEnabled({
+						path,
+						workspace: $workspaceStore!,
+						requestBody: { enabled, force }
+					}),
+				'schedule'
+			)
+			if (ok) {
+				loadSchedules()
+			} else {
+				// Cancelled — nothing changed on the server, skip the reload
+				// (which would re-fetch job stats and flash the loading flag)
+				// and just nudge the toggle back to the prop value.
+				bumpToggleReset(path)
+			}
 		} catch (err) {
 			sendUserToast(`Cannot ` + (enabled ? 'enable' : 'disable') + ` schedule: ${err.body}`, true)
+			bumpToggleReset(path)
 			loadSchedules()
 		}
 	}
@@ -416,16 +442,24 @@
 									{/if}
 								</div>
 
-								<Toggle
-									checked={enabled}
-									on:change={(e) => {
-										if (canWrite) {
-											setScheduleEnabled(path, e.detail)
-										} else {
-											sendUserToast('not enough permission', true)
-										}
-									}}
-								/>
+								{#key toggleResetVersions[path] ?? 0}
+									<Toggle
+										checked={enabled}
+										on:change={(e) => {
+											if (canWrite) {
+												setScheduleEnabled(path, e.detail)
+											} else {
+												sendUserToast('not enough permission', true)
+												// Permission denied — bump the row's reset
+												// counter so the Toggle remounts back to the
+												// prop value. Without this, the local
+												// `bind:checked` flip from the user's click
+												// stays stuck on.
+												bumpToggleReset(path)
+											}
+										}}
+									/>
+								{/key}
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										href={`${base}/runs/?schedule_path=${path}&show_schedules=true&show_future_jobs=true`}

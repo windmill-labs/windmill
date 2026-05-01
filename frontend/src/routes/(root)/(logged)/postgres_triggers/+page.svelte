@@ -17,6 +17,7 @@
 		removeTriggerKindIfUnused,
 		capitalize
 	} from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -110,19 +111,28 @@
 		clearInterval(interval)
 	})
 
-	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<boolean> {
+		let committed = false
 		try {
-			await PostgresTriggerService.setPostgresTriggerMode({
-				path,
-				workspace: $workspaceStore!,
-				requestBody: { mode }
-			})
-			sendUserToast(`${capitalize(mode)} postgres trigger ${path}`)
+			const ok = await withForkConflictRetry(
+				(force) =>
+					PostgresTriggerService.setPostgresTriggerMode({
+						path,
+						workspace: $workspaceStore!,
+						requestBody: { mode, force }
+					}),
+				'postgres trigger'
+			)
+			if (ok) {
+				sendUserToast(`${capitalize(mode)} postgres trigger ${path}`)
+				loadTriggers()
+			}
+			committed = ok
 		} catch (err) {
 			sendUserToast(`Cannot change postgres trigger mode: ${err.body}`, true)
-		} finally {
 			loadTriggers()
 		}
+		return committed
 	}
 
 	run(() => {
