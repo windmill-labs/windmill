@@ -312,6 +312,103 @@ test("hash computation: deeply nested paths are normalized correctly", async () 
   expect(Object.keys(windowsHashes)[0]).toEqual(deepLinuxPath);
 });
 
+// =============================================================================
+// REGRESSION TESTS — ./-prefix dedup, separator boundary, fail-fast version
+// =============================================================================
+
+test("checkifMetadataUptodate: accepts ./-prefixed entries left over by older CLIs", async () => {
+  await withTempDir(async () => {
+    // Hand-write a lockfile with both forms (./key and key) for two scripts
+    await writeFile(
+      "wmill-lock.yaml",
+      yamlStringify({
+        version: "v2",
+        locks: {
+          "./f/foo": "hash_dotted",
+          "f/bar": "hash_canonical",
+        },
+      } as Record<string, unknown>),
+      "utf-8"
+    );
+    const conf = await readLockfile();
+    expect(await checkifMetadataUptodate("f/foo", "hash_dotted", conf)).toEqual(true);
+    expect(await checkifMetadataUptodate("f/bar", "hash_canonical", conf)).toEqual(true);
+  });
+});
+
+test("clearGlobalLock: removes both canonical and ./-prefixed entries", async () => {
+  await withTempDir(async () => {
+    await writeFile(
+      "wmill-lock.yaml",
+      yamlStringify({
+        version: "v2",
+        locks: {
+          "./f/foo+__script_hash": "h1",
+          "f/foo+other": "h2",
+        },
+      } as Record<string, unknown>),
+      "utf-8"
+    );
+    await clearGlobalLock("f/foo");
+    const conf = await readLockfile();
+    expect(conf.locks?.["./f/foo+__script_hash"]).toBeUndefined();
+    expect(conf.locks?.["f/foo+other"]).toBeUndefined();
+  });
+});
+
+test("clearGlobalLock: does not over-delete sibling entries (separator boundary)", async () => {
+  await withTempDir(async () => {
+    // f/foo and f/foobar are siblings — clearing f/foo must not touch f/foobar
+    await updateMetadataGlobalLock("f/foo", "h_foo_top", "__script_hash");
+    await updateMetadataGlobalLock("f/foobar", "h_foobar_top", "__script_hash");
+    await updateMetadataGlobalLock("f/foobar", "h_foobar_step", "step1.ts");
+    await clearGlobalLock("f/foo");
+    const conf = await readLockfile();
+    expect(await checkifMetadataUptodate("f/foo", "h_foo_top", conf, "__script_hash")).toEqual(false);
+    expect(await checkifMetadataUptodate("f/foobar", "h_foobar_top", conf, "__script_hash")).toEqual(true);
+    expect(await checkifMetadataUptodate("f/foobar", "h_foobar_step", conf, "step1.ts")).toEqual(true);
+  });
+});
+
+test("readLockfile: throws on unknown version (fail-fast)", async () => {
+  await withTempDir(async () => {
+    await writeFile(
+      "wmill-lock.yaml",
+      yamlStringify({ version: "v999", locks: {} } as Record<string, unknown>),
+      "utf-8"
+    );
+    await expect(readLockfile()).rejects.toThrow(/unknown version "v999"/);
+  });
+});
+
+test("readLockfile: accepts v1 (manual-edit), v2, and missing version", async () => {
+  await withTempDir(async () => {
+    // v2
+    await writeFile(
+      "wmill-lock.yaml",
+      yamlStringify({ version: "v2", locks: { "f/x": "h" } } as Record<string, unknown>),
+      "utf-8"
+    );
+    expect((await readLockfile()).version).toEqual("v2");
+
+    // v1 (literal — manual edit)
+    await writeFile(
+      "wmill-lock.yaml",
+      yamlStringify({ version: "v1", locks: { "f/x": { __script_hash: "h" } } } as Record<string, unknown>),
+      "utf-8"
+    );
+    expect((await readLockfile()).version).toEqual("v1");
+
+    // No version field (real legacy v1)
+    await writeFile(
+      "wmill-lock.yaml",
+      yamlStringify({ locks: { "f/x": { __script_hash: "h" } } } as Record<string, unknown>),
+      "utf-8"
+    );
+    expect((await readLockfile()).version).toBeUndefined();
+  });
+});
+
 test("hash computation: changedScripts comparison works with inline module paths", () => {
   // This test simulates the comparison done in replaceInlineScripts
   // where changedScripts (from hashes keys) is compared with paths from flow module content

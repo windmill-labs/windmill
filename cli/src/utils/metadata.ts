@@ -19,7 +19,7 @@ import {
   languageNeedsLock,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { getModuleFolderSuffix, isModuleEntryPoint, getScriptBasePathFromModulePath } from "./resource_folders.ts";
+import { getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders, readTextFile, readTextFileSync } from "./utils.ts";
 
@@ -53,6 +53,20 @@ export class LockfileGenerationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "LockfileGenerationError";
+  }
+}
+
+export class UnknownLockVersionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnknownLockVersionError";
+  }
+}
+
+export class MalformedLockfileError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MalformedLockfileError";
   }
 }
 
@@ -186,6 +200,7 @@ export async function generateScriptMetadataInternal(
     lockOnly?: boolean | undefined;
     schemaOnly?: boolean | undefined;
     defaultTs?: "bun" | "deno";
+    rehashOnly?: boolean | undefined;
   },
   dryRun: boolean,
   noStaleMessage: boolean,
@@ -198,9 +213,7 @@ export async function generateScriptMetadataInternal(
   const isFolderLayout = isModuleEntryPoint(scriptPath);
 
   // remotePath is the Windmill API path (e.g., "u/admin/my_script")
-  const remotePath = isFolderLayout
-    ? getScriptBasePathFromModulePath(scriptPath)!.replaceAll(SEP, "/")
-    : scriptPath.substring(0, scriptPath.indexOf(".")).replaceAll(SEP, "/");
+  const remotePath = scriptPathToRemotePath(scriptPath);
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
@@ -241,6 +254,30 @@ export async function generateScriptMetadataInternal(
   }
   const hasModuleHashes = Object.keys(moduleHashes).length > 0;
 
+  // Rehash-only fast path: trust on-disk content, write canonical hashes
+  // straight to the lockfile, skip staleness check and any backend trip.
+  // Short-circuit before computing the legacy fallback hashes since we never
+  // use them on this path.
+  if (opts.rehashOnly) {
+    if (hasModuleHashes) {
+      const sortedEntries = Object.entries(moduleHashes).sort(([a], [b]) => a.localeCompare(b));
+      const metaHash = await generateHash(hash + JSON.stringify(sortedEntries));
+      await clearGlobalLock(remotePath);
+      await updateMetadataGlobalLock(remotePath, metaHash, SCRIPT_TOP_HASH);
+      for (const [modulePath, moduleHash] of Object.entries(moduleHashes)) {
+        await updateMetadataGlobalLock(remotePath, moduleHash, modulePath);
+      }
+    } else {
+      // Mirror the hasModuleHashes branch: clear first so any legacy
+      // "./"-prefixed duplicate gets collapsed alongside the canonical write.
+      await clearGlobalLock(remotePath);
+      await updateMetadataGlobalLock(remotePath, hash);
+    }
+    return;
+  }
+
+  const conf = await readLockfile();
+
   // If modules exist, combine main script hash + module hashes into a meta-hash
   let checkHash = hash;
   let checkSubpath: string | undefined;
@@ -249,8 +286,6 @@ export async function generateScriptMetadataInternal(
     checkHash = await generateHash(hash + JSON.stringify(sortedEntries));
     checkSubpath = SCRIPT_TOP_HASH;
   }
-
-  const conf = await readLockfile();
 
   // Use checkHash (includes module hashes) so module changes are detected as stale
   const isDirectlyStale = !(await checkifMetadataUptodate(remotePath, checkHash, conf, checkSubpath));
@@ -1129,37 +1164,63 @@ export async function parseMetadataFile(
   };
 }
 
-interface Lock {
-  version?: "v2";
+export type LockVersion = "v2";
+
+export interface Lock {
+  version?: LockVersion;
   locks?: { [path: string]: string | { [subpath: string]: string } };
 }
 
 const WMILL_LOCKFILE = "wmill-lock.yaml";
+const CURRENT_LOCK_VERSION: LockVersion = "v2";
+// Versions this CLI knows how to read/write. An unknown value indicates the
+// lockfile was written by a newer CLI; we refuse to touch it rather than
+// silently fall through to a legacy code path (the bug that 1.692.0 had with
+// the proposed v3 marker).
+// Real v1 lockfiles never had a version field (it was added with v2). The
+// "v1" string is included here only to be lenient about manual edits that
+// label a v1 lockfile explicitly — the downstream isFlatKeyed check ensures
+// it still goes through the legacy nested-key path.
+const KNOWN_LOCK_VERSIONS: readonly string[] = ["v1", "v2"];
 const SCRIPT_TOP_HASH = "__script_hash";
 
 /**
- * Normalizes a path to use Linux separators (forward slashes).
- * This ensures wmill-lock.yaml is portable across Windows and Linux.
+ * Normalizes a path to use Linux separators (forward slashes) and strips a
+ * leading "./" prefix. Forward slashes ensure wmill-lock.yaml is portable
+ * across Windows and Linux; stripping "./" collapses entries from older CLIs
+ * that joined paths against the current directory before storing.
  */
 export function normalizeLockPath(p: string): string {
-  return p.replace(/\\/g, "/");
+  let n = p.replace(/\\/g, "/");
+  if (n.startsWith("./")) n = n.slice(2);
+  return n;
 }
 
 export async function readLockfile(): Promise<Lock> {
+  let parsed: unknown;
   try {
-    const read = await yamlParseFile(WMILL_LOCKFILE);
-    if (typeof read == "object" && read != null) {
-      return read as Lock;
-    } else {
-      throw new Error("Invalid lockfile");
-    }
+    parsed = await yamlParseFile(WMILL_LOCKFILE);
   } catch {
-    const lock = { locks: {}, version: "v2" as const };
+    const lock: Lock = { locks: {}, version: CURRENT_LOCK_VERSION };
     await writeFile(WMILL_LOCKFILE, yamlStringify(lock, yamlOptions), "utf-8");
     log.info(colors.green("wmill-lock.yaml created"));
-
     return lock;
   }
+  if (typeof parsed != "object" || parsed == null) {
+    throw new MalformedLockfileError(
+      "wmill-lock.yaml is malformed (expected an object). " +
+      "Refusing to operate to avoid corrupting the lockfile.",
+    );
+  }
+  const conf = parsed as Lock;
+  if (conf.version != null && !KNOWN_LOCK_VERSIONS.includes(conf.version)) {
+    throw new UnknownLockVersionError(
+      `wmill-lock.yaml is at unknown version "${conf.version}". This was ` +
+      `written by a newer wmill CLI; please upgrade with \`wmill upgrade\`. ` +
+      `Refusing to operate to avoid corrupting the lockfile.`,
+    );
+  }
+  return conf;
 }
 
 function v2LockPath(path: string, subpath?: string) {
@@ -1182,16 +1243,21 @@ export async function checkifMetadataUptodate(
   if (!conf.locks) {
     return false;
   }
-  const isV2 = conf?.version == "v2";
+  const isFlatKeyed = conf?.version === "v2";
 
-  if (isV2) {
-    const current = conf.locks?.[v2LockPath(path, subpath)];
-    return current == hash;
-  } else {
-    const obj = conf.locks?.[path];
-    const current = subpath && typeof obj == "object" ? obj?.[subpath] : obj;
-    return current == hash;
+  // Older CLIs sometimes wrote entries with a leading "./" prefix; some
+  // lockfiles even contain both forms with different stale values. Accept
+  // either form so duplicate-key drift doesn't cause false positives.
+  if (isFlatKeyed) {
+    const key = v2LockPath(path, subpath);
+    return conf.locks?.[key] === hash || conf.locks?.["./" + key] === hash;
   }
+  for (const p of [path, "./" + path]) {
+    const obj = conf.locks?.[p];
+    const v = subpath && typeof obj == "object" ? obj?.[subpath] : obj;
+    if (v === hash) return true;
+  }
+  return false;
 }
 
 export async function generateScriptHash(
@@ -1249,17 +1315,26 @@ export async function clearGlobalLock(path: string): Promise<void> {
   if (!conf?.locks) {
     conf.locks = {};
   }
-  const isV2 = conf?.version == "v2";
+  const isFlatKeyed = conf?.version === "v2";
 
-  if (isV2) {
-    // Remove the specific v2 lock entry
+  if (isFlatKeyed) {
+    // Remove the specific flat-keyed lock entry. Match both the canonical
+    // form and the legacy "./"-prefixed form so duplicate entries left over
+    // from older CLIs get cleaned up alongside the canonical write.
+    // Match exactly `key` or `key+<subpath>` (and the same for the legacy
+    // "./"-prefixed form). The "+" separator boundary is critical: a plain
+    // startsWith("f/foo") would also match "f/foobar+..." entries belonging
+    // to a sibling script.
     const key = v2LockPath(path);
+    const legacyKey = "./" + key;
     if (conf.locks) {
       Object.keys(conf.locks).forEach((k) => {
-        if (conf.locks) {
-          if (k.startsWith(key)) {
-            delete conf.locks[k];
-          }
+        if (!conf.locks) return;
+        if (
+          k === key || k.startsWith(key + "+") ||
+          k === legacyKey || k.startsWith(legacyKey + "+")
+        ) {
+          delete conf.locks[k];
         }
       });
     }
@@ -1280,9 +1355,9 @@ export async function updateMetadataGlobalLock(
   if (!conf?.locks) {
     conf.locks = {};
   }
-  const isV2 = conf?.version == "v2";
+  const isFlatKeyed = conf?.version === "v2";
 
-  if (isV2) {
+  if (isFlatKeyed) {
     conf.locks[v2LockPath(path, subpath)] = hash;
   } else {
     if (subpath) {

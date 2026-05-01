@@ -75,6 +75,8 @@ import {
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   readLockfile,
+  UnknownLockVersionError,
+  MalformedLockfileError,
   workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
 import { OpenFlow, NativeServiceName, ScriptModule } from "../../../gen/types.gen.ts";
@@ -1669,7 +1671,7 @@ async function compareDynFSElement(
   specificItems?: SpecificItemsConfig,
   branchOverride?: string,
   isEls1Remote?: boolean,
-): Promise<Change[]> {
+): Promise<{ changes: Change[]; localMap: Record<string, string> }> {
   const [m1, m2] = els2
     ? await Promise.all([
         elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote),
@@ -1864,7 +1866,12 @@ async function compareDynFSElement(
     return a.path.localeCompare(b.path);
   });
 
-  return changes;
+  // Expose the local-side map so callers (e.g. sync pull's auto-fill) can
+  // reuse it instead of re-walking the filesystem. Which map is local depends
+  // on which side `els1` was — pull passes remote as els1 (isEls1Remote=true),
+  // push passes local as els1 (isEls1Remote=false).
+  const localMap = isEls1Remote ? m2 : m1;
+  return { changes, localMap };
 }
 
 function getOrderFromPath(p: string) {
@@ -2332,7 +2339,7 @@ export async function pull(
     ? await FSFSElement(process.cwd(), codebases, true)
     : await FSFSElement(path.join(process.cwd(), ".wmill"), [], true);
 
-  const changes = await compareDynFSElement(
+  const { changes, localMap } = await compareDynFSElement(
     remote,
     local,
     await ignoreF(opts),
@@ -2600,6 +2607,7 @@ export async function pull(
         true,
       );
     }
+
     if (opts.jsonOutput) {
       const result = {
         success: true,
@@ -2639,6 +2647,57 @@ export async function pull(
         2,
       ),
     );
+  }
+
+  // Auto-fill missing lockfile entries for items that exist on disk but have
+  // no entry yet (e.g. flows/apps that predate lockfile maintenance). Runs
+  // regardless of whether the pull had changes from the backend so a no-op
+  // pull still bootstraps the lockfile. Silent on a complete lockfile (just
+  // dict lookups, no hashing). Skipped under --dry-run since auto-fill writes
+  // to wmill-lock.yaml.
+  if (!opts.jsonOutput && !opts.dryRun) {
+    try {
+      // Dynamic import to avoid a circular dep between sync.ts and
+      // generate-metadata.ts. Don't "clean up" to a static import.
+      const { rehashOnly } = await import("../generate-metadata/generate-metadata.ts");
+      // Reuse the local-side file list from the change-tracker so we don't
+      // re-walk the filesystem. Apply the just-applied changes to derive the
+      // post-pull state: localMap is pre-pull, but auto-fill needs to see
+      // additions and skip deletions.
+      const postPullPaths = new Set<string>(Object.keys(localMap));
+      for (const change of changes) {
+        if (change.name === "added") postPullPaths.add(change.path);
+        else if (change.name === "deleted") postPullPaths.delete(change.path);
+      }
+      const filled = await rehashOnly(opts as any, undefined, {
+        missingOnly: true,
+        localFiles: postPullPaths,
+      });
+      const total = filled.scripts + filled.flows + filled.apps;
+      if (total > 0) {
+        log.info(
+          colors.gray(
+            `Auto-filled ${total} missing lockfile entr${total === 1 ? "y" : "ies"} ` +
+            `(${filled.scripts} script, ${filled.flows} flow, ${filled.apps} app) from disk.`,
+          ),
+        );
+      }
+    } catch (e) {
+      // Re-throw fail-fast lockfile errors (unknown version, malformed yaml)
+      // so the user sees them; only swallow soft failures from the auto-fill
+      // walk itself.
+      if (
+        e instanceof UnknownLockVersionError ||
+        e instanceof MalformedLockfileError
+      ) {
+        throw e;
+      }
+      log.warn(
+        colors.yellow(
+          `Could not auto-fill missing lockfile entries: ${e instanceof Error ? e.message : e}`,
+        ),
+      );
+    }
   }
 
   try {
@@ -2908,7 +2967,7 @@ export async function push(
   );
 
   const local = await FSFSElement(path.join(process.cwd(), ""), codebases, false);
-  const changes = await compareDynFSElement(
+  const { changes } = await compareDynFSElement(
     local,
     remote,
     await ignoreF(opts),

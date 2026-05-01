@@ -6496,6 +6496,15 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
 - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
 - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
 
+**Subcommands:**
+
+- \`generate-metadata rehash [folder:string]\`
+  - \`--skip-scripts\` - Skip processing scripts
+  - \`--skip-flows\` - Skip processing flows
+  - \`--skip-apps\` - Skip processing apps
+  - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
+  - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
+
 ### gitsync-settings
 
 Manage git-sync settings between local wmill.yaml and Windmill backend
