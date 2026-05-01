@@ -192,7 +192,8 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                         typ: Typ::Int,
                         has_default: false,
                         default: None,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("string".to_string()),
@@ -200,7 +201,8 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("bool".to_string()),
@@ -208,7 +210,8 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                         typ: Typ::Bool,
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("[]string".to_string()),
@@ -216,7 +219,8 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                         typ: Typ::List(Box::new(Typ::Str(None))),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("struct { Name string `json:\"name\"` }".to_string()),
@@ -227,7 +231,8 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                         },]))),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("interface{}".to_string()),
@@ -235,7 +240,8 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                         typ: Typ::Object(ObjectType::new(None, Some(vec![]))),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("map[string]interface{}".to_string()),
@@ -243,7 +249,8 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                         typ: Typ::Object(ObjectType::new(None, Some(vec![]))),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                 ],
                 auto_kind: None,

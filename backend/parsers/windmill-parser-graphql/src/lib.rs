@@ -108,7 +108,8 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                         typ: Typ::Int,
                         default: None,
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("[String]".to_string()),
@@ -116,7 +117,8 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                         typ: Typ::List(Box::new(Typ::Str(None))),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("String".to_string()),
@@ -124,7 +126,8 @@ query($i: Int, $arr: [String]!, $wahoo: String = "wahoo") {
                         typ: Typ::Str(None),
                         default: Some(json!("wahoo")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                    otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
