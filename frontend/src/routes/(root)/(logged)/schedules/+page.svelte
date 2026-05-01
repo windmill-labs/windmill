@@ -141,20 +141,37 @@
 		loadingSchedulesWithJobStats = false
 	}
 
+	// Bumped when a schedule toggle is cancelled or errors, to force-remount
+	// the affected row's <Toggle>. Toggle uses `bind:checked` on its native
+	// input internally; once the user clicks, the local checkbox state
+	// diverges from the parent's prop expression, and Svelte 5 prop
+	// reactivity won't push a same-valued prop back down. Re-mounting
+	// re-initializes from the prop. List-page rows don't optimistically
+	// flip `enabled`, so they need this nudge.
+	let toggleResetVersion = $state(0)
+
 	async function setScheduleEnabled(path: string, enabled: boolean): Promise<void> {
 		try {
-			await withForkConflictRetry(
-					(force) =>
-						ScheduleService.setScheduleEnabled({
-							path,
-							workspace: $workspaceStore!,
-							requestBody: { enabled, force }
-						}),
-					'schedule'
+			const ok = await withForkConflictRetry(
+				(force) =>
+					ScheduleService.setScheduleEnabled({
+						path,
+						workspace: $workspaceStore!,
+						requestBody: { enabled, force }
+					}),
+				'schedule'
 			)
-			loadSchedules()
+			if (ok) {
+				loadSchedules()
+			} else {
+				// Cancelled — nothing changed on the server, skip the reload
+				// (which would re-fetch job stats and flash the loading flag)
+				// and just nudge the toggle back to the prop value.
+				toggleResetVersion++
+			}
 		} catch (err) {
 			sendUserToast(`Cannot ` + (enabled ? 'enable' : 'disable') + ` schedule: ${err.body}`, true)
+			toggleResetVersion++
 			loadSchedules()
 		}
 	}
@@ -421,16 +438,18 @@
 									{/if}
 								</div>
 
-								<Toggle
-									checked={enabled}
-									on:change={(e) => {
-										if (canWrite) {
-											setScheduleEnabled(path, e.detail)
-										} else {
-											sendUserToast('not enough permission', true)
-										}
-									}}
-								/>
+								{#key toggleResetVersion}
+									<Toggle
+										checked={enabled}
+										on:change={(e) => {
+											if (canWrite) {
+												setScheduleEnabled(path, e.detail)
+											} else {
+												sendUserToast('not enough permission', true)
+											}
+										}}
+									/>
+								{/key}
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										href={`${base}/runs/?schedule_path=${path}&show_schedules=true&show_future_jobs=true`}

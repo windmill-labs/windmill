@@ -60,6 +60,15 @@ pub trait TriggerCrud: Send + Sync + 'static {
     const DEPLOYMENT_NAME: &'static str;
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[];
     const IS_ALLOWED_ON_CLOUD: bool;
+    /// Whether enabling this trigger in a fork while the parent has the same
+    /// path enabled is a real conflict (shared upstream resource). True for
+    /// listener-based kinds where two consumers compete (Kafka group, PG slot,
+    /// SQS queue, etc.) and for Websocket where both subscribers fire on every
+    /// broadcast. False for kinds whose upstream identifier is implicitly
+    /// workspace-scoped at runtime (HTTP routes, Email local_part — clones for
+    /// the non-workspaced sub-case are filtered out, so any cloned row is
+    /// already collision-free vs. the parent).
+    const FORK_CONFLICT_ON_ENABLE: bool = true;
 
     fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject;
 
@@ -759,11 +768,16 @@ struct SetTriggerModePayload {
     force: bool,
 }
 
-/// Returns true when this workspace is a fork *and* the parent workspace has
-/// the same trigger path enabled. Used to gate enabling a trigger in a fork
-/// behind an explicit `force=true` confirmation, since two enabled listeners
-/// for the same upstream resource will compete for events.
-async fn parent_trigger_enabled(
+/// Returns the parent workspace id when this workspace is a fork *and* the
+/// parent has a row at the same trigger path. Used to gate enabling a trigger
+/// in a fork behind an explicit `force=true` confirmation: the fork's row was
+/// cloned from the parent, so its upstream identifier (Kafka group, PG slot,
+/// SQS queue URL, etc.) is shared by construction. The risk is independent of
+/// the parent's current `mode`: if the parent is enabled, the two listeners
+/// compete; if it's disabled, the fork can destructively take over shared
+/// state (e.g. advance the PG WAL, claim an MQTT client_id) before the parent
+/// re-enables. Either way, the user should be asked to confirm.
+async fn parent_has_trigger(
     tx: &mut PgConnection,
     table_name: &str,
     workspace_id: &str,
@@ -778,15 +792,15 @@ async fn parent_trigger_enabled(
     let Some(parent_id) = parent else {
         return Ok(None);
     };
-    let enabled: Option<bool> = sqlx::query_scalar(&format!(
-        "SELECT mode = 'enabled'::TRIGGER_MODE FROM {} WHERE workspace_id = $1 AND path = $2",
+    let exists: Option<bool> = sqlx::query_scalar(&format!(
+        "SELECT EXISTS(SELECT 1 FROM {} WHERE workspace_id = $1 AND path = $2)",
         table_name
     ))
     .bind(&parent_id)
     .bind(path)
-    .fetch_optional(&mut *tx)
+    .fetch_one(&mut *tx)
     .await?;
-    Ok(if enabled == Some(true) {
+    Ok(if exists == Some(true) {
         Some(parent_id)
     } else {
         None
@@ -807,14 +821,15 @@ async fn set_trigger_mode<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     // Block enabling a trigger in a fork when the parent has the same path
-    // enabled, unless the caller passes force=true. Until Phase 3 ships
-    // namespacing of listener identifiers, two enabled listeners for the same
-    // kafka group / postgres slot / etc. would split or steal events from
-    // each other. Suspended is treated as "not actively listening" so we let
-    // it through.
-    if payload.mode == TriggerMode::Enabled && !payload.force {
+    // (regardless of parent's mode), unless the caller passes force=true.
+    // Until Phase 3 ships namespacing of listener identifiers, the cloned
+    // upstream identifier is shared with the parent — two enabled listeners
+    // would split or steal events; one enabled vs. one disabled can still
+    // destructively claim shared state. Skipped for kinds where the upstream
+    // identifier is already workspace-scoped at runtime (HTTP, Email).
+    if T::FORK_CONFLICT_ON_ENABLE && payload.mode == TriggerMode::Enabled && !payload.force {
         if let Some(parent_id) =
-            parent_trigger_enabled(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?
+            parent_has_trigger(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?
         {
             return Err(Error::BadRequest(format!(
                 "fork-conflict:{}:{}",

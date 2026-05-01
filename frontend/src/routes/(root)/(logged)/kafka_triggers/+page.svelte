@@ -105,17 +105,20 @@
 		clearInterval(interval)
 	})
 
-	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<boolean> {
+		let committed = false
 		try {
-			await withForkConflictRetry(
-					(force) =>
-						KafkaTriggerService.setKafkaTriggerMode({
-							path,
-							workspace: $workspaceStore!,
-							requestBody: { mode, force }
-						}),
-					'Kafka trigger'
+			const ok = await withForkConflictRetry(
+				(force) =>
+					KafkaTriggerService.setKafkaTriggerMode({
+						path,
+						workspace: $workspaceStore!,
+						requestBody: { mode, force }
+					}),
+				'Kafka trigger'
 			)
+			committed = ok
+			if (ok) loadTriggers()
 		} catch (err) {
 			sendUserToast(
 				`Cannot ` +
@@ -123,9 +126,9 @@
 					` Kafka trigger: ${err.body}`,
 				true
 			)
-		} finally {
 			loadTriggers()
 		}
+		return committed
 	}
 
 	run(() => {

@@ -100,26 +100,31 @@
 		clearInterval(interval)
 	})
 
-	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<boolean> {
+		let committed = false
 		try {
-			await withForkConflictRetry(
-					(force) =>
-						MqttTriggerService.setMqttTriggerMode({
-							path,
-							workspace: $workspaceStore!,
-							requestBody: { mode, force }
-						}),
-					'MQTT trigger'
+			const ok = await withForkConflictRetry(
+				(force) =>
+					MqttTriggerService.setMqttTriggerMode({
+						path,
+						workspace: $workspaceStore!,
+						requestBody: { mode, force }
+					}),
+				'MQTT trigger'
 			)
-			sendUserToast(`${capitalize(mode)} MQTT trigger ${path}`)
+			if (ok) {
+				sendUserToast(`${capitalize(mode)} MQTT trigger ${path}`)
+				loadTriggers()
+			}
+			committed = ok
 		} catch (err) {
 			sendUserToast(
 				`Cannot ${mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend'} mqtt trigger: ${err.body}`,
 				true
 			)
-		} finally {
 			loadTriggers()
 		}
+		return committed
 	}
 
 	run(() => {

@@ -283,19 +283,23 @@
 	}
 
 	async function handleToggleMode(newMode: TriggerMode) {
+		const previousMode = mode
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			await withForkConflictRetry(
-					(force) =>
-						NatsTriggerService.setNatsTriggerMode({
-							path: initialPath,
-							workspace: $workspaceStore ?? '',
-							requestBody: { mode: newMode, force }
-						}),
-					'NATS trigger'
+			const ok = await withForkConflictRetry(
+				(force) =>
+					NatsTriggerService.setNatsTriggerMode({
+						path: initialPath,
+						workspace: $workspaceStore ?? '',
+						requestBody: { mode: newMode, force }
+					}),
+				'NATS trigger'
 			)
+			if (!ok) {
+				mode = previousMode
+				return
+			}
 			sendUserToast(`${capitalize(newMode)} NATS trigger ${initialPath}`)
-
 			onUpdate?.(initialPath)
 		}
 		if (originalConfig) {

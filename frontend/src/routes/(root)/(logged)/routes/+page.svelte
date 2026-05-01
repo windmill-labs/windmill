@@ -18,7 +18,6 @@
 		removeTriggerKindIfUnused,
 		sendUserToast
 	} from '$lib/utils'
-	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -244,15 +243,13 @@
 
 	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
-			await withForkConflictRetry(
-					(force) =>
-						HttpTriggerService.setHttpTriggerMode({
-							path,
-							workspace: $workspaceStore!,
-							requestBody: { mode, force }
-						}),
-					'HTTP trigger'
-			)
+			// HTTP routes are always workspace-prefixed at runtime, so fork
+			// and parent live at distinct URLs — no fork-conflict warning.
+			await HttpTriggerService.setHttpTriggerMode({
+				path,
+				workspace: $workspaceStore!,
+				requestBody: { mode }
+			})
 		} catch (err) {
 			sendUserToast(
 				`Cannot ` +

@@ -104,17 +104,20 @@
 		clearInterval(interval)
 	})
 
-	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<boolean> {
+		let committed = false
 		try {
-			await withForkConflictRetry(
-					(force) =>
-						NatsTriggerService.setNatsTriggerMode({
-							path,
-							workspace: $workspaceStore!,
-							requestBody: { mode, force }
-						}),
-					'NATS trigger'
+			const ok = await withForkConflictRetry(
+				(force) =>
+					NatsTriggerService.setNatsTriggerMode({
+						path,
+						workspace: $workspaceStore!,
+						requestBody: { mode, force }
+					}),
+				'NATS trigger'
 			)
+			committed = ok
+			if (ok) loadTriggers()
 		} catch (err) {
 			sendUserToast(
 				`Cannot ` +
@@ -122,9 +125,9 @@
 					` NATS trigger: ${err.body}`,
 				true
 			)
-		} finally {
 			loadTriggers()
 		}
+		return committed
 	}
 
 	run(() => {

@@ -112,25 +112,28 @@
 		clearInterval(interval)
 	})
 
-	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<boolean> {
+		let committed = false
 		try {
-			await withForkConflictRetry(
-					(force) =>
-						GcpTriggerService.setGcpTriggerMode({
-							path,
-							workspace: $workspaceStore!,
-							requestBody: { mode, force }
-						}),
-					'GCP Pub/Sub trigger'
+			const ok = await withForkConflictRetry(
+				(force) =>
+					GcpTriggerService.setGcpTriggerMode({
+						path,
+						workspace: $workspaceStore!,
+						requestBody: { mode, force }
+					}),
+				'GCP Pub/Sub trigger'
 			)
+			committed = ok
+			if (ok) loadTriggers()
 		} catch (err) {
 			sendUserToast(
 				`Cannot ${mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend'} GCP Pub/Sub trigger: ${err.body}`,
 				true
 			)
-		} finally {
 			loadTriggers()
 		}
+		return committed
 	}
 
 	run(() => {

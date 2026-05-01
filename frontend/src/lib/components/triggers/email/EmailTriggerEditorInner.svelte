@@ -15,7 +15,6 @@
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
-	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -258,15 +257,13 @@
 	async function handleToggleMode(newMode: TriggerMode) {
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			await withForkConflictRetry(
-					(force) =>
-						EmailTriggerService.setEmailTriggerMode({
-							path: initialPath,
-							workspace: $workspaceStore ?? '',
-							requestBody: { mode: newMode, force }
-						}),
-					'email trigger'
-			)
+			// Email addresses are always workspace-prefixed (clone filter
+			// excludes workspaced_local_part=false) — no fork-conflict warning.
+			await EmailTriggerService.setEmailTriggerMode({
+				path: initialPath,
+				workspace: $workspaceStore ?? '',
+				requestBody: { mode: newMode }
+			})
 			sendUserToast(`${capitalize(newMode)} email trigger ${initialPath}`)
 
 			onUpdate(initialPath)

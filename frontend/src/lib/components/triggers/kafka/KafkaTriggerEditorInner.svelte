@@ -317,19 +317,23 @@
 	}
 
 	async function handleToggleMode(newMode: TriggerMode) {
+		const previousMode = mode
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			await withForkConflictRetry(
-					(force) =>
-						KafkaTriggerService.setKafkaTriggerMode({
-							path: initialPath,
-							workspace: $workspaceStore ?? '',
-							requestBody: { mode: newMode, force }
-						}),
-					'Kafka trigger'
+			const ok = await withForkConflictRetry(
+				(force) =>
+					KafkaTriggerService.setKafkaTriggerMode({
+						path: initialPath,
+						workspace: $workspaceStore ?? '',
+						requestBody: { mode: newMode, force }
+					}),
+				'Kafka trigger'
 			)
+			if (!ok) {
+				mode = previousMode
+				return
+			}
 			sendUserToast(`${capitalize(newMode)} Kafka trigger ${initialPath}`)
-
 			onUpdate?.(initialPath)
 		}
 		if (originalConfig) {

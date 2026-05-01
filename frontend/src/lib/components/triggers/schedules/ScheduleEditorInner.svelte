@@ -628,9 +628,10 @@
 	}
 
 	async function handleToggleEnabled(nEnabled: boolean) {
+		const previousEnabled = enabled
 		enabled = nEnabled
 		if (!trigger?.draftConfig) {
-			await withForkConflictRetry(
+			const ok = await withForkConflictRetry(
 				(force) =>
 					ScheduleService.setScheduleEnabled({
 						path: initialPath,
@@ -639,6 +640,10 @@
 					}),
 				'schedule'
 			)
+			if (!ok) {
+				enabled = previousEnabled
+				return
+			}
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
 			onUpdate?.(initialPath)
 		}

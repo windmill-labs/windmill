@@ -111,23 +111,28 @@
 		clearInterval(interval)
 	})
 
-	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<boolean> {
+		let committed = false
 		try {
-			await withForkConflictRetry(
-					(force) =>
-						PostgresTriggerService.setPostgresTriggerMode({
-							path,
-							workspace: $workspaceStore!,
-							requestBody: { mode, force }
-						}),
-					'postgres trigger'
+			const ok = await withForkConflictRetry(
+				(force) =>
+					PostgresTriggerService.setPostgresTriggerMode({
+						path,
+						workspace: $workspaceStore!,
+						requestBody: { mode, force }
+					}),
+				'postgres trigger'
 			)
-			sendUserToast(`${capitalize(mode)} postgres trigger ${path}`)
+			if (ok) {
+				sendUserToast(`${capitalize(mode)} postgres trigger ${path}`)
+				loadTriggers()
+			}
+			committed = ok
 		} catch (err) {
 			sendUserToast(`Cannot change postgres trigger mode: ${err.body}`, true)
-		} finally {
 			loadTriggers()
 		}
+		return committed
 	}
 
 	run(() => {

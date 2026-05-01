@@ -371,19 +371,23 @@
 	}
 
 	async function handleToggleMode(newMode: TriggerMode) {
+		const previousMode = mode
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			await withForkConflictRetry(
-					(force) =>
-						WebsocketTriggerService.setWebsocketTriggerMode({
-							path: initialPath,
-							workspace: $workspaceStore ?? '',
-							requestBody: { mode: newMode, force }
-						}),
-					'websocket trigger'
+			const ok = await withForkConflictRetry(
+				(force) =>
+					WebsocketTriggerService.setWebsocketTriggerMode({
+						path: initialPath,
+						workspace: $workspaceStore ?? '',
+						requestBody: { mode: newMode, force }
+					}),
+				'websocket trigger'
 			)
+			if (!ok) {
+				mode = previousMode
+				return
+			}
 			sendUserToast(`${capitalize(newMode)} websocket trigger ${initialPath}`)
-
 			onUpdate?.(initialPath)
 		}
 		if (originalConfig) {

@@ -71,8 +71,9 @@ update path is naturally safe.
 ## Conflict warning on enable
 
 The `set_*_trigger_mode` and `set_schedule_enabled` endpoints check whether
-the parent workspace has the same path enabled. If so, they reject the
-request with an error string of the shape:
+the parent workspace has a row at the same trigger path — **regardless of
+the parent's current `mode`/`enabled`**. If so, they reject the request with
+an error string of the shape:
 
 ```
 fork-conflict:<kind>:<parent_workspace_id>
@@ -83,14 +84,44 @@ user to confirm via a dialog (a `ConfirmationModal` mounted at the logged
 layout root, driven by the `forkConflictModal` store), and re-issues the
 call with `force: true` if the user agrees. The CLI sees the raw error.
 
+The check fires whenever the parent has the row because the fork's row was
+*cloned* from the parent — the upstream identifier (Kafka group, PG slot,
+SQS queue URL, GCP/Azure subscription, …) is shared by construction. That
+sharing is a risk independent of the parent's current state:
+
+- Both enabled → the listeners compete (split events) or fire twice.
+- Parent disabled → the fork can destructively claim shared state (PG WAL
+  advance, Azure secret_hash reuse, MQTT client_id race) before the parent
+  re-enables.
+
+The check is opt-out per kind via `TriggerCrud::FORK_CONFLICT_ON_ENABLE`
+(default `true`). It is **skipped** for kinds whose upstream identifier is
+already workspace-scoped at runtime — fork and parent there can never share
+a real upstream:
+
+- **HTTP** — routes are `/r/<workspace_id>/...`; cloned rows always have
+  `workspaced_route=true` (non-workspaced are filtered out at clone time).
+- **Email** — addresses are workspace-prefixed; cloned rows always have
+  `workspaced_local_part=true`.
+
+The check **fires** for every other kind. The frontend modal copy splits the
+conflict into three families so the user can act on the right risk:
+
+- **Split events** (Kafka, NATS, MQTT, SQS, GCP, Azure) — events split
+  between the two listeners; each side receives a fraction of its traffic.
+- **Duplicate firing** (Websocket, Schedule) — every event fires the script
+  twice (once in fork, once in parent).
+- **Slot takeover** (Postgres) — the replication slot is exclusive *and*
+  destructive: enabling either errors with "slot already active" (parent
+  enabled) or hijacks the WAL position (parent disabled).
+
 This warning is the *durable* solution for trigger kinds where the conflict
-cannot be eliminated:
+cannot be eliminated by namespacing alone:
 
 - **SQS** — the queue *is* the event source; two consumers will compete for
   messages no matter what.
 - **GCP-Existing subscription** — same as SQS.
-- **Schedule** — both crons fire on the same wall-clock; deduplication has
-  to happen in the script logic.
+- **Schedule** — same wall-clock firing.
 
 For the kinds that *can* be auto-namespaced (see below), the warning is the
 short-term placeholder until that work lands.

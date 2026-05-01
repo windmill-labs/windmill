@@ -39,15 +39,21 @@ function askForkConflictConfirm(kind: string, kindLabel: string, parentWorkspace
  * dialog, and retries with `fn(true)` when the user accepts. Re-throws every
  * other error.
  *
+ * Returns `true` when the call committed (no conflict, or user confirmed and
+ * retry succeeded) and `false` when the user dismissed the modal. Callers
+ * should bail on `false` to skip success toasts and revert any optimistic UI
+ * state.
+ *
  * `kindLabel` is shown to the user — pass a friendly name like "kafka trigger"
  * or "schedule" so the dialog reads naturally.
  */
-export async function withForkConflictRetry<T>(
-	fn: (force: boolean) => Promise<T>,
+export async function withForkConflictRetry(
+	fn: (force: boolean) => Promise<unknown>,
 	kindLabel: string
-): Promise<T | undefined> {
+): Promise<boolean> {
 	try {
-		return await fn(false)
+		await fn(false)
+		return true
 	} catch (e) {
 		const conflict = detectForkConflict(e)
 		if (!conflict) throw e
@@ -58,7 +64,8 @@ export async function withForkConflictRetry<T>(
 		)
 		// User explicitly dismissed the modal — treat as a silent no-op so the
 		// caller's catch block doesn't pop a redundant error toast.
-		if (!proceed) return undefined
-		return await fn(true)
+		if (!proceed) return false
+		await fn(true)
+		return true
 	}
 }

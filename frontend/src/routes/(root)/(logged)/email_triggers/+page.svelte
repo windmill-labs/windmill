@@ -17,7 +17,6 @@
 		removeTriggerKindIfUnused,
 		sendUserToast
 	} from '$lib/utils'
-	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -228,15 +227,13 @@
 
 	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
-			await withForkConflictRetry(
-					(force) =>
-						EmailTriggerService.setEmailTriggerMode({
-							path,
-							workspace: $workspaceStore!,
-							requestBody: { mode, force }
-						}),
-					'email trigger'
-			)
+			// Email addresses are always workspace-prefixed (clone filter
+			// excludes workspaced_local_part=false) — no fork-conflict warning.
+			await EmailTriggerService.setEmailTriggerMode({
+				path,
+				workspace: $workspaceStore!,
+				requestBody: { mode }
+			})
 		} catch (err) {
 			sendUserToast(
 				`Cannot ` +

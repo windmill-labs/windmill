@@ -378,6 +378,10 @@ impl TriggerCrud for HttpTrigger {
     const ROUTE_PREFIX: &'static str = "/http_triggers";
     const DEPLOYMENT_NAME: &'static str = "HTTP trigger";
     const IS_ALLOWED_ON_CLOUD: bool = true;
+    // Cloned HTTP triggers are always workspaced (the clone filter excludes
+    // workspaced_route=false rows), so fork and parent live at distinct URLs
+    // and never collide.
+    const FORK_CONFLICT_ON_ENABLE: bool = false;
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[
         "route_path",
         "route_path_key",
