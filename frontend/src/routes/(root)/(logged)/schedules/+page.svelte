@@ -141,14 +141,18 @@
 		loadingSchedulesWithJobStats = false
 	}
 
-	// Bumped when a schedule toggle is cancelled or errors, to force-remount
-	// the affected row's <Toggle>. Toggle uses `bind:checked` on its native
-	// input internally; once the user clicks, the local checkbox state
+	// Per-path counter bumped when a schedule toggle is cancelled or errors,
+	// to force-remount that row's <Toggle>. Toggle uses `bind:checked` on
+	// its native input; once the user clicks, the local checkbox state
 	// diverges from the parent's prop expression, and Svelte 5 prop
 	// reactivity won't push a same-valued prop back down. Re-mounting
 	// re-initializes from the prop. List-page rows don't optimistically
-	// flip `enabled`, so they need this nudge.
-	let toggleResetVersion = $state(0)
+	// flip `enabled`, so they need this nudge — but only the affected row,
+	// not all rows on the page.
+	let toggleResetVersions = $state<Record<string, number>>({})
+	function bumpToggleReset(path: string) {
+		toggleResetVersions[path] = (toggleResetVersions[path] ?? 0) + 1
+	}
 
 	async function setScheduleEnabled(path: string, enabled: boolean): Promise<void> {
 		try {
@@ -167,11 +171,11 @@
 				// Cancelled — nothing changed on the server, skip the reload
 				// (which would re-fetch job stats and flash the loading flag)
 				// and just nudge the toggle back to the prop value.
-				toggleResetVersion++
+				bumpToggleReset(path)
 			}
 		} catch (err) {
 			sendUserToast(`Cannot ` + (enabled ? 'enable' : 'disable') + ` schedule: ${err.body}`, true)
-			toggleResetVersion++
+			bumpToggleReset(path)
 			loadSchedules()
 		}
 	}
@@ -438,7 +442,7 @@
 									{/if}
 								</div>
 
-								{#key toggleResetVersion}
+								{#key toggleResetVersions[path] ?? 0}
 									<Toggle
 										checked={enabled}
 										on:change={(e) => {
