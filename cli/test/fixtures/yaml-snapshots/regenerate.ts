@@ -326,6 +326,102 @@ const FIXTURES: Fixture[] = [
       },
     },
   },
+  {
+    filename: "app_basic.yaml",
+    source: {
+      summary: "Dashboard",
+      value: {
+        grid: [
+          {
+            data: {
+              type: "tablecomponent",
+              configuration: {},
+              componentInput: {
+                type: "runnable",
+                fieldType: "any",
+                fields: {},
+                runnable: {
+                  type: "runnableByPath",
+                  path: "f/lib/list_users",
+                  inlineScriptName: undefined,
+                  schema: {
+                    $schema: "https://json-schema.org/draft/2020-12/schema",
+                    type: "object",
+                    properties: {},
+                    required: [],
+                  },
+                },
+              },
+            },
+            id: "table_a",
+            "3": { fixed: true, x: 0, y: 0, w: 12, h: 6 },
+            "12": { fixed: true, x: 0, y: 0, w: 12, h: 6 },
+          },
+        ],
+        fullscreen: false,
+        unusedInlineScripts: [],
+        hiddenInlineScripts: [],
+        norefreshbar: false,
+      },
+      policy: {
+        triggerables_v2: {},
+        execution_mode: "viewer",
+        on_behalf_of_email: "admin@windmill.dev",
+      },
+    },
+  },
+  {
+    filename: "app_raw.yaml",
+    source: {
+      summary: "Raw HTML app",
+      value: {
+        files: {
+          "index.html": "!inline_fileset index.html",
+          "app.js": "!inline_fileset app.js",
+        },
+        runnables: {
+          fetch_data: {
+            kind: "runnableByPath",
+            path: "f/lib/fetch_data",
+            fields: {},
+          },
+        },
+      },
+      policy: {
+        triggerables_v2: {},
+        execution_mode: "viewer",
+        on_behalf_of_email: "admin@windmill.dev",
+      },
+    },
+  },
+  {
+    filename: "script_metadata.script.yaml",
+    source: {
+      summary: "List active users",
+      description: "Returns users active in the last N days.",
+      lock: "!inline list_users.lock",
+      concurrency_time_window_s: 0,
+      kind: "script",
+      schema: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        type: "object",
+        order: ["days", "limit"],
+        properties: {
+          days: {
+            type: "integer",
+            description: "Lookback window in days",
+            default: 30,
+          },
+          limit: {
+            type: "integer",
+            description: "Max rows",
+            default: 100,
+          },
+        },
+        required: ["days"],
+      },
+    },
+  },
 ];
 
 async function main() {
