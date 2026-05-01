@@ -44,6 +44,13 @@ manually if they need it. When `CLOUD_HOSTED` or `HTTP_ROUTE_WORKSPACED_ROUTE`
 is on, every route is workspace-prefixed at runtime regardless of the column,
 and the clone copies all rows.
 
+**Non-workspaced email triggers are skipped on the same grounds.** A row
+with `workspaced_local_part=false` exposes a bare `local_part@domain`
+address shared instance-wide; a clone would share the address with the
+parent and incoming mail would be delivered arbitrarily. The clone filter
+copies email triggers only when `workspaced_local_part IS TRUE` (or
+`CLOUD_HOSTED`, since cloud scopes email lookup by `workspace_id` natively).
+
 ## Merge-direction filter (always on)
 
 Whenever the source workspace ID matches `wm-fork-*`, the tarball export at

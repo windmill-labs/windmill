@@ -4021,6 +4021,11 @@ async fn clone_triggers_and_schedules(
     .execute(&mut **tx)
     .await?;
 
+    // Skip non-workspaced email triggers: same shape as the non-workspaced
+    // HTTP route case — a clone would share the same `local_part@domain`
+    // address as the parent, and incoming mail would arbitrarily land in one
+    // or the other. CLOUD_HOSTED scopes email lookup by workspace_id natively,
+    // so on cloud we clone everything.
     sqlx::query!(
         r#"INSERT INTO email_trigger (
             path, local_part, workspaced_local_part, script_path, is_flow,
@@ -4031,9 +4036,12 @@ async fn clone_triggers_and_schedules(
             path, local_part, workspaced_local_part, script_path, is_flow,
             $1, edited_by, edited_at, extra_perms, error_handler_path,
             error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels
-        FROM email_trigger WHERE workspace_id = $2"#,
+        FROM email_trigger
+        WHERE workspace_id = $2
+            AND (workspaced_local_part IS TRUE OR $3)"#,
         target_workspace_id,
         source_workspace_id,
+        *CLOUD_HOSTED,
     )
     .execute(&mut **tx)
     .await?;
