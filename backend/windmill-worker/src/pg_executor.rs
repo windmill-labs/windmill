@@ -212,6 +212,38 @@ async fn warn_on_numeric_precision_loss(
     }
 }
 
+/// Emit a one-shot warning naming each declared arg the user didn't supply a
+/// value for. PG executor binds these as NULL for back-compat — without a
+/// warning, a misspelled arg key in the args object silently produces a row
+/// of NULLs, which is a notoriously hard DX bug to track down.
+async fn warn_on_missing_args(
+    missing: &[String],
+    job_id: Uuid,
+    workspace_id: &str,
+    log_conn: &Connection,
+) {
+    if missing.is_empty() {
+        return;
+    }
+    let names = missing
+        .iter()
+        .map(|n| format!("`{n}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    windmill_queue::append_logs(
+        &job_id,
+        workspace_id,
+        format!(
+            "warning: argument(s) {names} declared in the query but not provided in the \
+             args object — bound as NULL. Add the value(s) to the job args, declare a \
+             default in the SQL (`-- $1 name (type) = default`), or remove the \
+             declaration if the arg isn't used.\n"
+        ),
+        log_conn,
+    )
+    .await;
+}
+
 /// Short stable label for the JSON value's variant — used in error messages
 /// so users can see *what kind of value* hit a binding error.
 fn json_value_kind(v: &Value) -> &'static str {
@@ -353,9 +385,29 @@ fn do_postgresql_inner<'a>(
         }
     }
 
+    // Args the user didn't supply a value for — if their declaration doesn't
+    // carry a default, we still bind NULL (back-compat with how the PG
+    // executor has worked for years), but we collect them here to emit a
+    // single one-shot warning to the job logs after query execution so a typo
+    // / missing key doesn't silently turn into a row of NULLs.
+    let mut missing_args: Vec<String> = Vec::new();
+    // Stash declaration-default values so we can borrow them by reference
+    // alongside user-supplied values — both paths feed `convert_val(&Value)`.
+    let mut default_values: HashMap<i32, serde_json::Value> = HashMap::new();
+
     for oidx in arg_indices.iter().sorted() {
         if let Some((arg, value)) = param_idx_to_arg_and_value.get(&oidx) {
-            let value = value.unwrap_or_else(|| &serde_json::Value::Null);
+            // Resolve the value: explicit user value > declaration default > NULL.
+            let value: &serde_json::Value = match (value, arg.default.as_ref()) {
+                (Some(v), _) => *v,
+                (None, Some(d)) => default_values.entry(*oidx).or_insert_with(|| d.clone()),
+                (None, None) => {
+                    if !arg.has_default && !missing_args.contains(&arg.name) {
+                        missing_args.push(arg.name.clone());
+                    }
+                    &serde_json::Value::Null
+                }
+            };
             let arg_t = arg
                 .otyp
                 .as_ref()
@@ -445,6 +497,7 @@ fn do_postgresql_inner<'a>(
             .await?;
 
             warn_on_numeric_precision_loss(&format_state, job_id, workspace_id, log_conn).await;
+            warn_on_missing_args(&missing_args, job_id, workspace_id, log_conn).await;
 
             return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
         } else {
@@ -494,6 +547,7 @@ fn do_postgresql_inner<'a>(
         }
 
         warn_on_numeric_precision_loss(&format_state, job_id, workspace_id, log_conn).await;
+        warn_on_missing_args(&missing_args, job_id, workspace_id, log_conn).await;
 
         Ok(res)
     };
@@ -602,6 +656,14 @@ pub async fn do_postgresql(
             //                                   permissions into the next.
             //   UNLISTEN *                    — drops LISTEN registrations.
             //   CLOSE ALL                     — closes open cursors.
+            //   pg_advisory_unlock_all()      — releases any session-scoped
+            //                                   advisory locks. Without this
+            //                                   a job that called
+            //                                   pg_advisory_lock and exited
+            //                                   without unlocking would block
+            //                                   later jobs holding the same
+            //                                   key (DISCARD ALL covered this
+            //                                   too).
             //
             // We deliberately do NOT use `DISCARD ALL`. DISCARD includes
             // `DEALLOCATE ALL`, which deallocates *all* prepared statements
@@ -610,15 +672,21 @@ pub async fn do_postgresql(
             // Oids. After DISCARD, tokio_postgres still holds Statement
             // objects whose names the server has forgotten, so the next
             // custom-type query fails with `prepared statement "sN" does not
-            // exist`. The trade-off: temp tables, advisory locks, and user-
-            // PREPARE statements may persist across cached-connection reuse
-            // (rare in datatable / script workloads).
+            // exist`. The trade-off: temp tables and user-PREPARE statements
+            // may persist across cached-connection reuse (rare in datatable /
+            // script workloads).
             //
             // Doubles as a liveness probe — if the connection is broken any
             // statement in the chain fails and we replace it.
             let probe_client = &guard.as_ref().unwrap().as_ref().unwrap().1;
             if probe_client
-                .batch_execute("RESET ALL; RESET SESSION AUTHORIZATION; UNLISTEN *; CLOSE ALL;")
+                .batch_execute(
+                    "RESET ALL; \
+                     RESET SESSION AUTHORIZATION; \
+                     UNLISTEN *; \
+                     CLOSE ALL; \
+                     SELECT pg_advisory_unlock_all();",
+                )
                 .await
                 .is_ok()
             {
