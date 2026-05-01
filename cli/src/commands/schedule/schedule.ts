@@ -187,18 +187,42 @@ export async function pushSchedule(
   }
 }
 
-async function enable(opts: GlobalOptions, path: string) {
+async function enable(opts: GlobalOptions & { force?: boolean }, path: string) {
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  await wmill.setScheduleEnabled({
-    workspace: workspace.workspaceId,
-    path,
-    requestBody: { enabled: true },
-  });
+  try {
+    await wmill.setScheduleEnabled({
+      workspace: workspace.workspaceId,
+      path,
+      requestBody: { enabled: true, force: opts.force },
+    });
+  } catch (e) {
+    const conflict = parseForkConflict(e);
+    if (conflict) {
+      log.error(
+        `Cannot enable schedule '${path}': the parent workspace '${conflict.parentWorkspaceId}' has the same path configured. ` +
+          `Both crons would fire on every tick and the script would run twice per scheduled time.\n` +
+          `Re-run with --force to enable anyway.`
+      );
+      process.exit(1);
+    }
+    throw e;
+  }
 
   log.info(colors.green(`Schedule ${path} enabled.`));
+}
+
+/** Parse a backend error body of the shape `fork-conflict:<kind>:<parent_workspace_id>`. */
+function parseForkConflict(
+  e: unknown
+): { kind: string; parentWorkspaceId: string } | undefined {
+  const body = (e as any)?.body;
+  const raw = typeof body === "string" ? body : (e as any)?.message ?? "";
+  const m = String(raw).match(/fork-conflict:([^:]+):(.+)/);
+  if (!m) return undefined;
+  return { kind: m[1], parentWorkspaceId: m[2].trim() };
 }
 
 async function disable(opts: GlobalOptions, path: string) {
@@ -260,6 +284,10 @@ const command = new Command()
   .arguments("<file_path:string> <remote_path:string>")
   .action(push as any)
   .command("enable", "Enable a schedule")
+  .option(
+    "--force",
+    "Bypass the fork-conflict warning when the parent workspace has the same schedule (acknowledges that both crons will fire)"
+  )
   .arguments("<path:string>")
   .action(enable as any)
   .command("disable", "Disable a schedule")
