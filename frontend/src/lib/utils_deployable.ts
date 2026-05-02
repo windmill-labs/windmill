@@ -1,5 +1,7 @@
 import { minimatch } from 'minimatch'
 import {
+	AzureTriggerService,
+	EmailTriggerService,
 	GcpTriggerService,
 	HttpTriggerService,
 	KafkaTriggerService,
@@ -84,12 +86,16 @@ export async function existsTrigger(
 		return await WebsocketTriggerService.existsWebsocketTrigger(data)
 	} else if (triggerKind === 'nats') {
 		return await NatsTriggerService.existsNatsTrigger(data)
+	} else if (triggerKind === 'azure') {
+		return await AzureTriggerService.existsAzureTrigger(data)
+	} else if (triggerKind === 'emails') {
+		return await EmailTriggerService.existsEmailTrigger(data)
 	} else if (triggerKind === 'schedules') {
 		return await ScheduleService.existsSchedule(data)
 	}
 
 	throw new Error(
-		`Unexpected trigger kind ${triggerKind}. Allowed kinds are: routes, kafka, mqtt, postgres, sqs, gcp, websockets, nats, schedules.`
+		`Unexpected trigger kind ${triggerKind}. Allowed kinds are: routes, kafka, mqtt, postgres, sqs, gcp, websockets, nats, azure, emails, schedules.`
 	)
 }
 
@@ -253,6 +259,36 @@ export async function getTriggersDeployData(
 			},
 			createFn: HttpTriggerService.createHttpTrigger,
 			updateFn: HttpTriggerService.updateHttpTrigger
+		}
+	} else if (kind === 'azure') {
+		const azureTrigger = await AzureTriggerService.getAzureTrigger({
+			workspace: workspace!,
+			path: path
+		})
+
+		return {
+			data: {
+				...stripOperationalState(azureTrigger),
+				permissioned_as: onBehalfOf,
+				preserve_permissioned_as: preservePermissionedAs
+			},
+			createFn: AzureTriggerService.createAzureTrigger,
+			updateFn: AzureTriggerService.updateAzureTrigger
+		}
+	} else if (kind === 'emails') {
+		const emailTrigger = await EmailTriggerService.getEmailTrigger({
+			workspace: workspace!,
+			path: path
+		})
+
+		return {
+			data: {
+				...stripOperationalState(emailTrigger),
+				permissioned_as: onBehalfOf,
+				preserve_permissioned_as: preservePermissionedAs
+			},
+			createFn: EmailTriggerService.createEmailTrigger,
+			updateFn: EmailTriggerService.updateEmailTrigger
 		}
 	} else if (kind === 'schedules') {
 		const schedulesTrigger = await ScheduleService.getSchedule({
