@@ -247,6 +247,7 @@ async fn get_offboard_preview(
     ).fetch_all(db).await?;
 
     let mut obo_triggers = HashMap::new();
+    // SAFETY: `table` comes from a hardcoded allowlist `trigger_tables`, not user input.
     for table in &trigger_tables {
         let paths: Vec<String> = sqlx::query_scalar(&format!(
             "SELECT path FROM {table} WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3"
@@ -760,7 +761,7 @@ async fn check_path_conflicts(
             "flow" => " AND NOT t1.archived",
             _ => "",
         };
-        // SAFETY: `table` comes from a hardcoded allowlist `tables`, not user input.
+        // SAFETY: `table_name` comes from a hardcoded allowlist `tables`, not user input.
         let rows: Vec<String> = sqlx::query_scalar(&format!(
             "SELECT REGEXP_REPLACE(t1.path, '^u/' || $1 || '/', $3) \
              FROM {table} t1 \

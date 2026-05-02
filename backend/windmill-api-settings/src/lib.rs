@@ -1132,7 +1132,7 @@ async fn setup_custom_instance_pg_database_inner(
 
     logs.created_database = "SKIP".to_string();
     if !db_exists {
-        // SAFETY: `dbname` has been validated via validate_dbname() earlier in the call chain.
+        // SAFETY: `dbname` has been validated by the VALID_NAME regex and length checks above (lines 1088–1120).
         sqlx::query(&format!("CREATE DATABASE \"{dbname}\""))
             .execute(db)
             .await?;
@@ -1145,6 +1145,7 @@ async fn setup_custom_instance_pg_database_inner(
 
     logs.db_connect = "OK".to_string();
 
+    // SAFETY: `dbname` has been validated by the VALID_NAME regex and length checks above.
     client
         .batch_execute(&format!(
             "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
@@ -1163,6 +1164,7 @@ async fn setup_custom_instance_pg_database_inner(
             ))
         })?;
 
+    // SAFETY: `dbname` has been validated by the VALID_NAME regex and length checks above.
     if let Err(e) = client
         .batch_execute(&format!("ALTER ROLE custom_instance_user REPLICATION;"))
         .await
