@@ -62,6 +62,7 @@ pub trait RunnableSettingsTrait:
         async move {
             let v = RUNNABLE_INDIVIDUAL_SETTINGS
                 .get_or_insert_async(hash, async {
+                    // SAFETY: INCLUDE_FIELDS and SETTINGS_NAME are compile-time constants, not user input.
                     let r = sqlx::query_as::<Postgres, Self>(&format!(
                         "SELECT {} FROM {} WHERE hash = $1",
                         Self::INCLUDE_FIELDS.iter().join(","),

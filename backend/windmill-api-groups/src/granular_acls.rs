@@ -131,6 +131,7 @@ async fn add_granular_acl(
         }
     }
 
+    // SAFETY: `kind` has been validated against the `KINDS` allowlist before reaching this function.
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
         "UPDATE {kind} SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2), \
          true) WHERE {identifier} = $3 AND workspace_id = $4 RETURNING extra_perms"
@@ -294,6 +295,7 @@ async fn remove_granular_acl(
         require_owner_of_path(&authed, path)?;
     }
 
+    // SAFETY: `kind` has been validated against the `KINDS` allowlist before reaching this function.
     let obj_o = sqlx::query_scalar::<_, bool>(&format!(
         "WITH old AS (
             SELECT extra_perms->$1 as old_write FROM {kind}
@@ -419,6 +421,7 @@ async fn get_granular_acls(
     } else {
         "path"
     };
+    // SAFETY: `kind` has been validated against the `KINDS` allowlist before reaching this function.
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
         "SELECT extra_perms from {kind} WHERE {identifier} = $1 AND workspace_id = $2"
     ))

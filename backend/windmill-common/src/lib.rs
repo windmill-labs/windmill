@@ -778,6 +778,7 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
 
     if db_exists {
         // Terminate active connections
+        // SAFETY: `dbname` has been validated via validate_dbname() before reaching this point.
         if let Err(e) = sqlx::query(&format!(
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}' AND pid <> pg_backend_pid()",
             dbname.replace('\'', "''")
@@ -789,6 +790,7 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
         }
 
         // Drop the database
+        // SAFETY: `dbname` has been validated via validate_dbname() before reaching this point.
         sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", dbname))
             .execute(db)
             .await
@@ -837,6 +839,7 @@ pub async fn create_custom_instance_database(
         )));
     }
 
+    // SAFETY: `dbname` has been validated via validate_dbname() before reaching this point.
     sqlx::query(&format!("CREATE DATABASE \"{}\"", dbname))
         .execute(db)
         .await

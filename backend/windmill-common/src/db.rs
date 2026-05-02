@@ -233,6 +233,7 @@ impl UserDB {
         let mut tx = self.db.begin().await?;
 
         if let Some(schema) = PG_SCHEMA.as_ref() {
+            // SAFETY: `schema` comes from the compile-time PG_SCHEMA config, not user input.
             sqlx::query(&format!("SET LOCAL search_path TO {}", schema))
                 .execute(&mut *tx)
                 .await?;

@@ -1132,6 +1132,7 @@ async fn setup_custom_instance_pg_database_inner(
 
     logs.created_database = "SKIP".to_string();
     if !db_exists {
+        // SAFETY: `dbname` has been validated via validate_dbname() earlier in the call chain.
         sqlx::query(&format!("CREATE DATABASE \"{dbname}\""))
             .execute(db)
             .await?;

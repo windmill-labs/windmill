@@ -480,6 +480,7 @@ async fn restore_trigger(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) 
         )));
     }
 
+    // SAFETY: `table_name` has been validated against the `valid_tables` allowlist above.
     let exists: bool = sqlx::query_scalar(&format!(
         "SELECT EXISTS(SELECT 1 FROM {} WHERE path = $1 AND workspace_id = $2)",
         table_name
@@ -500,6 +501,7 @@ async fn restore_trigger(tx: &mut sqlx::PgConnection, item: &TrashItemWithData) 
         .get("row")
         .ok_or_else(|| Error::internal_err("Invalid trash data for trigger"))?;
 
+    // SAFETY: `table_name` has been validated against the `valid_tables` allowlist above.
     sqlx::query(&format!(
         "INSERT INTO {} SELECT * FROM jsonb_populate_record(null::{}, $1)",
         table_name, table_name

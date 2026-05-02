@@ -1698,6 +1698,7 @@ pub async fn delete_workspace_user_internal(
         "azure_trigger",
         "email_trigger",
     ];
+    // SAFETY: `table` comes from a hardcoded allowlist `extra_perms_tables`, not user input.
     for table in &extra_perms_tables {
         sqlx::query(&format!(
             "UPDATE {table} SET extra_perms = extra_perms - ('u/' || $1) \

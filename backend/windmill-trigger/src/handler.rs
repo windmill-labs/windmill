@@ -52,6 +52,8 @@ pub trait TriggerCrud: Send + Sync + 'static {
     type TriggerConfigRequest: Debug + DeserializeOwned + Serialize + Send + Sync;
     type TestConnectionConfig: Debug + DeserializeOwned + Serialize + Send + Sync;
 
+    /// Table name used in dynamic SQL queries via `format!()`. This is a compile-time
+    /// constant set by each trigger impl — it is never user-controllable.
     const TABLE_NAME: &'static str;
     const TRIGGER_TYPE: &'static str;
     const SUPPORTS_SERVER_STATE: bool;
@@ -180,6 +182,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
     }
 
     async fn exists(&self, db: &DB, workspace_id: &str, path: &str) -> Result<bool> {
+        // SAFETY: Self::TABLE_NAME is a compile-time constant, not user input.
         let exists = sqlx::query_scalar(&format!(
             "SELECT EXISTS(SELECT 1 FROM {} WHERE workspace_id = $1 AND path = $2)",
             Self::TABLE_NAME
@@ -198,6 +201,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         workspace_id: &str,
         path: &str,
     ) -> Result<bool> {
+        // SAFETY: Self::TABLE_NAME is a compile-time constant, not user input.
         let deleted = sqlx::query(&format!(
             "DELETE FROM {} WHERE workspace_id = $1 AND path = $2",
             Self::TABLE_NAME
@@ -225,6 +229,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
     ) -> Result<bool> {
         let permissioned_as = windmill_common::users::username_to_permissioned_as(&authed.username);
         let updated = if Self::SUPPORTS_SERVER_STATE {
+            // SAFETY: Self::TABLE_NAME is a compile-time constant.
             sqlx::query(&format!(
                 r#"
                 UPDATE
@@ -251,6 +256,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
             .await?
             .rows_affected()
         } else {
+            // SAFETY: Self::TABLE_NAME is a compile-time constant.
             sqlx::query(&format!(
                 r#"
                 UPDATE
@@ -289,6 +295,7 @@ pub trait TriggerCrud: Send + Sync + 'static {
         is_flow: bool,
         script_path: &str,
     ) -> i64 {
+        // SAFETY: Self::TABLE_NAME is a compile-time constant.
         let count = sqlx::query_scalar(&format!(
             r#"
                 SELECT
@@ -457,6 +464,7 @@ async fn create_trigger<T: TriggerCrud>(
         .await?;
 
     if let Some(ref labels) = labels {
+        // SAFETY: T::TABLE_NAME is a compile-time constant.
         sqlx::query(&format!(
             "UPDATE {} SET labels = $1 WHERE workspace_id = $2 AND path = $3",
             T::TABLE_NAME
@@ -588,6 +596,7 @@ async fn update_trigger<T: TriggerCrud>(
         .await?;
 
     if let Some(ref labels) = labels {
+        // SAFETY: T::TABLE_NAME is a compile-time constant.
         sqlx::query(&format!(
             "UPDATE {} SET labels = $1 WHERE workspace_id = $2 AND path = $3",
             T::TABLE_NAME
@@ -665,6 +674,7 @@ async fn delete_trigger<T: TriggerCrud>(
     let mut tx = user_db.begin(&authed).await?;
 
     // Capture trigger data for trashbin before deleting
+    // SAFETY: T::TABLE_NAME is a compile-time constant.
     let trash_data: Option<serde_json::Value> = sqlx::query_scalar(&format!(
         "SELECT jsonb_build_object('row', to_jsonb(t), 'table_name', '{table}') FROM {table} t WHERE path = $1 AND workspace_id = $2",
         table = T::TABLE_NAME
