@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job (id, kind, tag, created_by, permissioned_as, permissioned_as_email, workspace_id)\n                 SELECT unnest($1::uuid[]), 'noop', 'deno', 'test-user', 'u/test-user', 'test@windmill.dev', 'test-workspace'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c6d963e5cefeea728414892df9f28a89f435fc0fb7e55f243b021200f33d2151"
+}

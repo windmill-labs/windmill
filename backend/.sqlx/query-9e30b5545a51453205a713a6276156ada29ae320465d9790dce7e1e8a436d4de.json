@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM volume WHERE workspace_id = $1 AND name = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9e30b5545a51453205a713a6276156ada29ae320465d9790dce7e1e8a436d4de"
+}

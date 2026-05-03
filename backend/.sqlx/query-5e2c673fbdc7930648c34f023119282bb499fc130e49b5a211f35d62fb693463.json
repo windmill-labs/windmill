@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT workspace_id, username\n                FROM usr\n                WHERE email = $1\n                AND workspace_id = 'ws-with-auto-add'\n                AND added_via->>'source' = 'instance_group'\n                AND added_via->>'group' = 'engineering'\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "5e2c673fbdc7930648c34f023119282bb499fc130e49b5a211f35d62fb693463"
+}

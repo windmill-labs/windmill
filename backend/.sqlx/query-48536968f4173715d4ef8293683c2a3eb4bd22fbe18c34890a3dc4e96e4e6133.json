@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH ids AS (\n                SELECT id as job_id FROM v2_job_debounce_batch WHERE debounce_batch = (\n                    SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1\n                )\n            ) SELECT args->>'items' FROM ids LEFT JOIN v2_job ON v2_job.id = ids.job_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "48536968f4173715d4ef8293683c2a3eb4bd22fbe18c34890a3dc4e96e4e6133"
+}

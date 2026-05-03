@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(SELECT 1 FROM usr WHERE email = 'test2@windmill.dev' AND workspace_id = 'test-workspace')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d72005e7d45edf09b5f05a9472361d40e211e912beeb7f4c275c2f2696fd6438"
+}

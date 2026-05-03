@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * from resource_type ORDER BY name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "schema",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "format_extension",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_fileset",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "eb1f7f01461f5a7540c273b37e5d578c31cf151ab3ef813f7aada76533761e12"
+}

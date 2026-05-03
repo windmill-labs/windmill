@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE resource SET path = 'f/shared/new_name'\n         WHERE workspace_id = 'test-workspace' AND path = 'f/shared/old_name'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "9b7d0f980267e62fb50545570e83daae65e4458a88b53b65870523b64d183231"
+}

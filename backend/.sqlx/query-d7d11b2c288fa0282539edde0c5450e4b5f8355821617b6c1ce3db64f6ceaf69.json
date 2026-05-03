@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM variable WHERE is_secret = true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d7d11b2c288fa0282539edde0c5450e4b5f8355821617b6c1ce3db64f6ceaf69"
+}
