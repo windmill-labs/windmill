@@ -2434,17 +2434,12 @@ WHERE table_schema = current_schema()",
             let table_filter = if let Some(t) = table {
                 let parts: Vec<&str> = t.split('.').collect();
                 let tname = parts[parts.len() - 1];
-                let schema = if parts.len() > 1 {
-                    parts[0]
+                let schema_sql = if parts.len() > 1 {
+                    format!("'{}'", escape_sql_literal(parts[0]))
                 } else if !db_name.is_empty() {
-                    db_name
+                    format!("'{}'", escape_sql_literal(db_name))
                 } else {
-                    "DATABASE()"
-                };
-                let schema_sql = if schema == "DATABASE()" {
-                    schema.to_string()
-                } else {
-                    format!("'{}'", escape_sql_literal(schema))
+                    "DATABASE()".to_string()
                 };
                 format!(
                     "\nWHERE\n    TABLE_NAME = '{}' AND TABLE_SCHEMA = {}",
@@ -4268,6 +4263,14 @@ mod tests {
     }
 
     #[test]
+    fn test_expand_load_table_metadata_mysql_single_table_uses_session_db() {
+        let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"table":"users"}"#;
+        let sql = expand_code(marker, &ScriptLang::Mysql);
+        assert!(sql.contains("TABLE_NAME = 'users'"));
+        assert!(sql.contains("TABLE_SCHEMA = DATABASE()"));
+    }
+
+    #[test]
     fn test_expand_load_table_metadata_mysql_all_tables_uses_session_db() {
         let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {}"#;
         let sql = expand_code(marker, &ScriptLang::Mysql);
@@ -4278,8 +4281,7 @@ mod tests {
 
     #[test]
     fn test_expand_load_table_metadata_mysql_all_tables_with_database_name() {
-        let marker =
-            r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"databaseName":"mydb"}"#;
+        let marker = r#"-- WM_INTERNAL_DB_LOAD_TABLE_METADATA {"databaseName":"mydb"}"#;
         let sql = expand_code(marker, &ScriptLang::Mysql);
         assert!(sql.contains("TABLE_NAME as table_name"));
         assert!(sql.contains("TABLE_SCHEMA = 'mydb'"));
