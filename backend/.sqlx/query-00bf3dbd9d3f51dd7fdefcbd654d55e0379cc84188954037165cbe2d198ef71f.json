@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE volume SET lease_until = now() + interval '60 seconds'\n                         WHERE workspace_id = $1 AND name = $2 AND leased_by = $3 AND lease_until > now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "00bf3dbd9d3f51dd7fdefcbd654d55e0379cc84188954037165cbe2d198ef71f"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO usr\n            (workspace_id, email, username, is_admin, operator, is_service_account)\n            VALUES ($1, $2, $3, false, true, true)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f8654d5f50a80d862edbf57355502a9bd039d16f7dfb11e22d16ff9090456853"
+}

@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            workspace_id,\n            COUNT(DISTINCT CASE WHEN NOT operator THEN email END)::INT as \"author_count!\",\n            COUNT(DISTINCT CASE WHEN operator THEN email END)::INT as \"operator_count!\"\n        FROM usr\n        WHERE email IN (\n            SELECT DISTINCT username FROM audit\n            WHERE timestamp > NOW() - INTERVAL '1 month'\n            AND operation IN ('users.login', 'oauth.login', 'users.token.refresh')\n        )\n        AND workspace_id NOT LIKE 'wm-fork%'\n        GROUP BY workspace_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "author_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "operator_count!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "69274380aadda7b9333f38012c1b637cfbd67d9b1088bb6c8b366bedbf220bb7"
+}
