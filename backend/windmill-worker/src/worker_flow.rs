@@ -1038,7 +1038,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                     // backwards compatibility
                     itered.as_ref().map(|itered| itered.len()).unwrap_or(0)
                 };
-                (*while_loop || (*index + 1 < itered_len) && (success || skip_loop_failures))
+                (*while_loop || *index + 1 < itered_len)
+                    && (success || skip_loop_failures)
                     && !stop_early
             } =>
             {
