@@ -251,12 +251,13 @@ jobs:
           PI_SKIP_VERSION_CHECK: '1'
         run: |
           set -o pipefail
+          cat .github/review-prompt-shared.md .github/pi/pr-review.prompt.md > /tmp/pi-prompt.md
           pi -p \
             --provider deepseek \
             --model deepseek-v4-pro \
             --tools read,grep,find,ls,bash \
             --mode json \
-            < .github/pi/pr-review.prompt.md \
+            < /tmp/pi-prompt.md \
             | tee pi-events.jsonl \
             | jq -rc --unbuffered '
                 if .type == "agent_start" then "🤖 pi agent started"

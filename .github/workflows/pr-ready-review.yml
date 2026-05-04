@@ -124,10 +124,12 @@ jobs:
         run: |
           {
             echo 'REVIEW_PROMPT<<EOF'
+            cat .github/review-prompt-shared.md
+            echo ''
             cat .claude/review-prompt.md
             if [ -n "$EXTRA_PROMPT" ]; then
               echo ''
-              echo '## Additional Reviewer Instructions'
+              echo '## Additional reviewer instructions'
               echo ''
               printf '%s\n' "$EXTRA_PROMPT"
             fi
