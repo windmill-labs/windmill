@@ -1968,7 +1968,7 @@ const TS_SDK_LANGUAGES = ['bun', 'deno', 'nativets', 'bunnative'];
 const PY_SDK_LANGUAGES = ['python3'];
 
 // Languages that use the TypeScript Workflow-as-Code SDK
-const WAC_TS_SDK_LANGUAGES = TS_SDK_LANGUAGES;
+const WAC_TS_SDK_LANGUAGES = ['bun'];
 
 // Languages that use the Python Workflow-as-Code SDK
 const WAC_PY_SDK_LANGUAGES = PY_SDK_LANGUAGES;

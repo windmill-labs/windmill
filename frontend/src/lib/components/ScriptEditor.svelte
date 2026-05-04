@@ -1236,7 +1236,7 @@
 		)
 	}
 
-	const WAC_CONTEXT_LANGUAGES = ['python3', 'bun', 'deno', 'nativets', 'bunnative']
+	const WAC_CONTEXT_LANGUAGES = ['python3', 'bun']
 	let isWac = $derived(
 		template === 'wac_python' ||
 			template === 'wac_typescript' ||

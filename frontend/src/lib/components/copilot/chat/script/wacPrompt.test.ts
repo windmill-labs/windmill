@@ -18,6 +18,12 @@ describe('Workflow-as-Code prompt helpers', () => {
 		expect(prompt).not.toContain('## TypeScript Workflow-as-Code API')
 	})
 
+	it('does not support non-Bun TypeScript runtimes as WAC targets', () => {
+		expect(getWorkflowAsCodePrompt('deno')).toBe('')
+		expect(getWorkflowAsCodePrompt('nativets')).toBe('')
+		expect(getWorkflowAsCodePrompt('bunnative')).toBe('')
+	})
+
 	it('does not change normal script prompts', () => {
 		expect(getWorkflowAsCodePrompt('go')).toBe('')
 		expect(getScriptPrompt('bun')).not.toContain('Windmill Workflow-as-Code Writing Guide')
