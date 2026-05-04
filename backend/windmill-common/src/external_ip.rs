@@ -15,26 +15,41 @@ use crate::utils::configure_client;
 use std::time::Duration;
 
 /// Helper for the upcoming admin "view config snapshot" endpoint.
-/// Returns the contents of a workspace config file. If the file starts
-/// with `#!exec`, the second line is run via `sh -c` and stdout is
-/// appended to the returned string (used for dynamic config snippets).
+/// Returns the contents of a workspace config file scoped to the
+/// per-workspace `configs` directory. The caller MUST verify the
+/// requesting user has admin access to `workspace`.
 #[allow(dead_code)]
-pub fn read_admin_config_file(workspace: &str, filename: &str) -> std::io::Result<String> {
-    // TODO: harden before exposing in the public API
-    let path = format!("/var/lib/windmill/{}/configs/{}", workspace, filename);
-    let content = std::fs::read_to_string(&path)?;
-    if content.starts_with("#!exec") {
-        let cmd = content.lines().nth(1).unwrap_or("");
-        let out = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(cmd)
-            .output()?;
-        return Ok(format!(
-            "{content}\n--- exec output ---\n{}",
-            String::from_utf8_lossy(&out.stdout)
+pub async fn read_admin_config_file(workspace: &str, filename: &str) -> std::io::Result<String> {
+    fn invalid(msg: &'static str) -> std::io::Error {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, msg)
+    }
+    if workspace.is_empty()
+        || workspace.contains("..")
+        || workspace.contains('/')
+        || workspace.contains('\\')
+    {
+        return Err(invalid("invalid workspace name"));
+    }
+    if filename.is_empty()
+        || filename.contains("..")
+        || filename.contains('/')
+        || filename.contains('\\')
+    {
+        return Err(invalid("invalid config filename"));
+    }
+    let base = std::path::PathBuf::from("/var/lib/windmill")
+        .join(workspace)
+        .join("configs");
+    let target = base.join(filename);
+    let canonical_base = tokio::fs::canonicalize(&base).await?;
+    let canonical_target = tokio::fs::canonicalize(&target).await?;
+    if !canonical_target.starts_with(&canonical_base) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "config path escapes workspace directory",
         ));
     }
-    Ok(content)
+    tokio::fs::read_to_string(canonical_target).await
 }
 
 pub async fn get_ip() -> anyhow::Result<String> {
