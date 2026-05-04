@@ -5,6 +5,7 @@
 	import type { ToolDisplayMessage } from './shared'
 	import { twMerge } from 'tailwind-merge'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
+	import ToolMessageActions from './ToolMessageActions.svelte'
 
 	interface Props {
 		message: ToolDisplayMessage
@@ -20,6 +21,12 @@
 		message.showDetails ||
 			(message.isStreamingArguments && hasParameters) ||
 			(message.isLoading && message.needsConfirmation)
+	)
+
+	const visibleActions = $derived(
+		message.actions && !message.isLoading && !message.error && !message.needsConfirmation
+			? message.actions
+			: []
 	)
 </script>
 
@@ -121,6 +128,10 @@
 					error={message.error}
 					loading={message.isLoading}
 				/>
+
+				{#if visibleActions.length > 0}
+					<ToolMessageActions actions={visibleActions} />
+				{/if}
 			{/if}
 		</div>
 	{/if}
