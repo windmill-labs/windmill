@@ -1,4 +1,4 @@
-name: Codex Auto Review
+name: Pi Auto Review
 
 on:
   pull_request:
@@ -20,13 +20,13 @@ on:
         type: string
         default: ''
     secrets:
-      CODEX_AUTH_JSON:
+      DEEPSEEK_API_KEY:
         required: false
       WINDMILL_EE_PRIVATE_ACCESS:
         required: false
 
 concurrency:
-  group: codex-review-${{ inputs.pr_number || github.event.pull_request.number }}
+  group: pi-review-${{ inputs.pr_number || github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -38,7 +38,7 @@ jobs:
     secrets:
       access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
 
-  codex-review:
+  pi-review:
     needs: check-membership
     runs-on: ubicloud-standard-2
     timeout-minutes: 30
@@ -57,20 +57,20 @@ jobs:
       issues: write
       pull-requests: read
     steps:
-      - name: Check Codex configuration
-        id: codex_config
+      - name: Check Pi configuration
+        id: pi_config
         env:
-          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          if [ -n "$CODEX_AUTH_JSON" ]; then
+          if [ -n "$DEEPSEEK_API_KEY" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "CODEX_AUTH_JSON is not configured; skipping Codex review."
+            echo "DEEPSEEK_API_KEY is not configured; skipping Pi review."
           fi
 
       - name: Resolve PR metadata
-        if: steps.codex_config.outputs.enabled == 'true'
+        if: steps.pi_config.outputs.enabled == 'true'
         id: pr
         env:
           GH_TOKEN: ${{ github.token }}
@@ -103,7 +103,7 @@ jobs:
             IS_FORK="$EVENT_FORK"
           fi
           if [ "$IS_FORK" = "true" ]; then
-            echo "Skipping Codex review for fork PR."
+            echo "Skipping Pi review for fork PR."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -122,14 +122,14 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
-        if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
         uses: actions/checkout@v5
         with:
           ref: refs/pull/${{ steps.pr.outputs.pr_number }}/merge
           fetch-depth: 1
 
       - name: Check EE access
-        if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
         id: ee
         env:
           EE_TOKEN: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
@@ -156,33 +156,17 @@ jobs:
         run: ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
       - name: Set up Node.js
-        if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Install Codex CLI
-        if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
-        run: npm install --global @openai/codex@0.117.0
-
-      - name: Configure file-backed Codex auth
-        if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
-        env:
-          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-        run: |
-          CODEX_HOME="$HOME/.codex"
-          echo "CODEX_HOME=$CODEX_HOME" >> "$GITHUB_ENV"
-          mkdir -p "$CODEX_HOME"
-          chmod 700 "$CODEX_HOME"
-          cat > "$CODEX_HOME/config.toml" <<'EOF'
-          cli_auth_credentials_store = "file"
-          EOF
-          printf '%s' "$CODEX_AUTH_JSON" > "$CODEX_HOME/auth.json"
-          chmod 600 "$CODEX_HOME/auth.json"
-          node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$CODEX_HOME/auth.json"
+      - name: Install Pi CLI
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        run: npm install --global @mariozechner/pi-coding-agent
 
       - name: Pre-fetch base and head refs for the PR
-        if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
         env:
           PR_BASE_REF: ${{ steps.pr.outputs.base_ref }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
@@ -191,8 +175,8 @@ jobs:
             "$PR_BASE_REF" \
             "+refs/pull/$PR_NUMBER/head"
 
-      - name: Write Codex review context
-        if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+      - name: Write Pi review context
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
         env:
           PR_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
@@ -202,7 +186,7 @@ jobs:
           PR_BODY: ${{ steps.pr.outputs.body }}
           EXTRA_PROMPT: ${{ inputs.extra_prompt }}
         run: |
-          mkdir -p .github/codex
+          mkdir -p .github/pi
           node <<'NODE'
           const fs = require('fs');
           const lines = [
@@ -229,22 +213,24 @@ jobs:
           if (process.env.EXTRA_PROMPT && process.env.EXTRA_PROMPT.trim()) {
             lines.push('', 'Additional reviewer instructions:', process.env.EXTRA_PROMPT.trim());
           }
-          fs.writeFileSync('.github/codex/pr-review-context.md', `${lines.join('\n')}\n`);
+          fs.writeFileSync('.github/pi/pr-review-context.md', `${lines.join('\n')}\n`);
           NODE
 
-      - name: Run Codex review
-        if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+      - name: Run Pi review
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          PI_SKIP_VERSION_CHECK: '1'
         run: |
-          codex exec \
-            -C "$GITHUB_WORKSPACE" \
-            -m gpt-5.4 \
-            -c 'model_reasoning_effort="xhigh"' \
-            -s read-only \
-            -o codex-final-message.md \
-            - < .github/codex/pr-review.prompt.md
+          pi -p \
+            --provider deepseek \
+            --model deepseek-v4-pro \
+            --tools read,grep,find,ls,bash \
+            < .github/pi/pr-review.prompt.md \
+            > pi-final-message.md
 
-      - name: Post Codex review comment
-        if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+      - name: Post Pi review comment
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
         uses: actions/github-script@v7
         env:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
@@ -252,14 +238,14 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const fs = require('fs');
-            const path = `${process.env.GITHUB_WORKSPACE}/codex-final-message.md`;
+            const path = `${process.env.GITHUB_WORKSPACE}/pi-final-message.md`;
             if (!fs.existsSync(path)) {
-              core.info('Codex did not produce a final message; skipping PR comment.');
+              core.info('Pi did not produce a final message; skipping PR comment.');
               return;
             }
             const body = fs.readFileSync(path, 'utf8').trim();
             if (!body) {
-              core.info('Codex final message was empty; skipping PR comment.');
+              core.info('Pi final message was empty; skipping PR comment.');
               return;
             }
             await github.rest.issues.createComment({
