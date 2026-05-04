@@ -318,6 +318,18 @@ pub fn id_to_codebase_info(id: &str) -> CodebaseInfo {
     CodebaseInfo { is_tar, is_esm }
 }
 
+/// Column list for `SELECT ... FROM script` when targeting `Script<ScriptRunnableSettingsHandle>`.
+/// Shared across all query sites so a schema change only needs one edit.
+pub const SCRIPT_COLUMNS: &str = "workspace_id, hash, path, parent_hashes, summary, \
+    description, content, created_by, created_at, archived, schema, deleted, \
+    is_template, extra_perms, lock, lock_error_logs, language, kind, tag, \
+    draft_only, envs, dedicated_worker, ws_error_handler_muted, priority, \
+    cache_ttl, cache_ignore_s3_path, timeout, delete_after_use, delete_after_secs, \
+    restart_unless_cancelled, visible_to_runner_only, auto_kind, codebase, \
+    has_preprocessor, on_behalf_of_email, assets, modules, labels, \
+    concurrency_key, concurrent_limit, concurrency_time_window_s, \
+    debounce_key, debounce_delay_s, runnable_settings_handle";
+
 #[derive(Serialize, sqlx::FromRow, Debug)]
 pub struct Script<SR> {
     pub workspace_id: String,

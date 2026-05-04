@@ -507,10 +507,13 @@ pub(crate) async fn tarball_workspace(
 
     {
         let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
-            "SELECT workspace_id, hash, path, parent_hashes, summary, description, content, created_by, created_at, archived, schema, deleted, is_template, extra_perms, lock, lock_error_logs, language, kind, tag, draft_only, envs, dedicated_worker, ws_error_handler_muted, priority, cache_ttl, cache_ignore_s3_path, timeout, delete_after_use, delete_after_secs, restart_unless_cancelled, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, assets, modules, labels, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, runnable_settings_handle FROM script as o WHERE workspace_id = $1 AND archived = false
-             AND (draft_only IS NULL OR draft_only = false)
-             AND created_at = (select max(created_at) from script where path = o.path AND \
-              workspace_id = $1)",
+            &format!(
+                "SELECT {} FROM script as o WHERE workspace_id = $1 AND archived = false
+                 AND (draft_only IS NULL OR draft_only = false)
+                 AND created_at = (select max(created_at) from script where path = o.path AND \
+                  workspace_id = $1)",
+                windmill_common::scripts::SCRIPT_COLUMNS,
+            ),
         )
         .bind(&w_id)
         .fetch_all(&mut *tx)
