@@ -1586,8 +1586,11 @@ pub async fn update_flow_status_after_job_completion_internal(
             Ok(should_retry)
         };
 
-        // continue_on_error/skip_failures on the LAST step has nothing to resume to, but the
-        // failure must still not bubble up to the enclosing job/subflow.
+        // For a regular module with continue_on_error at the last position, nothing else
+        // overrides `success` — `flow_jobs` is None so the loop/branchall override above
+        // doesn't fire, and `should_continue_flow` resolves to `!is_last_step = false`,
+        // letting the flow complete with success=false and bubble the error up to the
+        // enclosing job/subflow. Detect that case and treat the flow as successful.
         let recoverable_failure_at_last_step = !success
             && is_last_step
             && !unrecoverable
