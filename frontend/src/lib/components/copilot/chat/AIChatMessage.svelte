@@ -3,7 +3,10 @@
 	import type { DisplayMessage, ToolDisplayMessage } from './shared'
 	import ContextElementBadge from './ContextElementBadge.svelte'
 	import AssistantMessage from './AssistantMessage.svelte'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { getContext } from 'svelte'
+	import { AIChatManager, aiChatManager as singletonAiChatManager } from './AIChatManager.svelte'
+
+	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 	import { Button } from '$lib/components/common'
 	import { RefreshCwIcon, Undo2Icon } from 'lucide-svelte'
 	import AIChatInput from './AIChatInput.svelte'

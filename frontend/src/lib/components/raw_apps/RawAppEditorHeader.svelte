@@ -109,6 +109,7 @@
 		onUndo?: () => void
 		onRedo?: () => void
 		onOpenYamlEditor?: () => void
+		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 	}
 
 	let {
@@ -130,7 +131,8 @@
 		canRedo = false,
 		onUndo = undefined,
 		onRedo = undefined,
-		onOpenYamlEditor = undefined
+		onOpenYamlEditor = undefined,
+		onNavigate
 	}: Props = $props()
 
 	let newEditedPath = $state(
@@ -860,7 +862,7 @@
 			savedPath={appPath || newPath || undefined}
 			kind="app"
 			raw_app
-			onNavigate={(item) => goto(editPathFor(item))}
+			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 		/>
 		<div></div>
 	</div>

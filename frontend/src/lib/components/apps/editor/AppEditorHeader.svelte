@@ -101,6 +101,7 @@
 		onHideRightPanel?: () => void
 		onHideLeftPanel?: () => void
 		onHideBottomPanel?: () => void
+		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 	}
 
 	let {
@@ -121,7 +122,8 @@
 		onShowBottomPanel,
 		onHideLeftPanel,
 		onHideRightPanel,
-		onHideBottomPanel
+		onHideBottomPanel,
+		onNavigate
 	}: Props = $props()
 
 	/** Mirror of the path the user is editing in the pen popover. Initialized
@@ -940,7 +942,7 @@
 			bind:path={newEditedPath}
 			savedPath={$appPath || newPath || undefined}
 			kind="app"
-			onNavigate={(item) => goto(editPathFor(item))}
+			onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 		/>
 		<div class="flex gap-2">
 			{#if $app}

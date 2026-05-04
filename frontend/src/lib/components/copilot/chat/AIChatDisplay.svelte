@@ -1,6 +1,6 @@
 <script lang="ts">
 	import AIChatMessage from './AIChatMessage.svelte'
-	import { type Snippet } from 'svelte'
+	import { getContext, type Snippet } from 'svelte'
 	import {
 		CheckIcon,
 		HistoryIcon,
@@ -21,7 +21,13 @@
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Markdown from 'svelte-exmarkdown'
-	import { aiChatManager, AIMode } from './AIChatManager.svelte'
+	import {
+		AIChatManager,
+		aiChatManager as singletonAiChatManager,
+		AIMode
+	} from './AIChatManager.svelte'
+
+	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 	import AIChatInput from './AIChatInput.svelte'
 	import { getModifierKey } from '$lib/utils'
 	import type { SelectedContext } from './app/core'
@@ -42,7 +48,11 @@
 		headerRight,
 		disabled = false,
 		disabledMessage = '',
-		suggestions = []
+		suggestions = [],
+		hideInputBorder = false,
+		hideHeader = false,
+		emptyHint,
+		inputPreface
 	}: {
 		messages: DisplayMessage[]
 		pastChats: { id: string; title: string }[]
@@ -60,6 +70,10 @@
 		disabled?: boolean
 		disabledMessage?: string
 		suggestions?: string[]
+		hideInputBorder?: boolean
+		hideHeader?: boolean
+		emptyHint?: Snippet
+		inputPreface?: Snippet
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
@@ -110,17 +124,17 @@
 </script>
 
 <div class="flex flex-col h-full">
-	<div
-		class="flex flex-row items-center justify-between gap-2 p-2 border-b border-gray-200 dark:border-gray-600"
-	>
-		<div class="flex flex-row items-center gap-2">
-			{@render headerLeft?.()}
-			<p class="text-sm font-semibold">Chat</p>
-		</div>
-		<div class="flex flex-row items-center gap-2">
-			<Popover>
-				{#snippet trigger()}
-							
+	{#if !hideHeader}
+		<div
+			class="flex flex-row items-center justify-between gap-2 p-2 border-b border-gray-200 dark:border-gray-600"
+		>
+			<div class="flex flex-row items-center gap-2">
+				{@render headerLeft?.()}
+				<p class="text-sm font-semibold">Chat</p>
+			</div>
+			<div class="flex flex-row items-center gap-2">
+				<Popover>
+					{#snippet trigger()}
 						<Button
 							on:click={() => {}}
 							title="History"
@@ -132,10 +146,8 @@
 							color="light"
 							propagateEvent
 						/>
-					
-							{/snippet}
-				{#snippet content({ close })}
-							
+					{/snippet}
+					{#snippet content({ close })}
 						<div class="p-1 overflow-y-auto max-h-[300px]">
 							{#if pastChats.length === 0}
 								<div class="text-center text-primary text-xs">No history</div>
@@ -170,29 +182,33 @@
 								</div>
 							{/if}
 						</div>
-					
-							{/snippet}
-			</Popover>
-			<Button
-				title="New chat"
-				on:click={() => {
-					saveAndClear()
-				}}
-				size="md"
-				btnClasses="!p-1"
-				startIcon={{ icon: Plus }}
-				iconOnly
-				variant="border"
-				color="light"
-			/>
-			{@render headerRight?.()}
+					{/snippet}
+				</Popover>
+				<Button
+					title="New chat"
+					on:click={() => {
+						saveAndClear()
+					}}
+					size="md"
+					btnClasses="!p-1"
+					startIcon={{ icon: Plus }}
+					iconOnly
+					variant="border"
+					color="light"
+				/>
+				{@render headerRight?.()}
+			</div>
 		</div>
-	</div>
+	{/if}
 	{#if messages.length === 0}
-		<span class="text-2xs text-gray-500 dark:text-gray-400 text-center px-2 my-2"
-			>You can use {getModifierKey()}L to open or close this chat, and {getModifierKey()}K in the
-			script editor to modify selected lines.</span
-		>
+		{#if emptyHint}
+			{@render emptyHint()}
+		{:else}
+			<span class="text-2xs text-gray-500 dark:text-gray-400 text-center px-2 my-2"
+				>You can use {getModifierKey()}L to open or close this chat, and {getModifierKey()}K in the
+				script editor to modify selected lines.</span
+			>
+		{/if}
 	{/if}
 
 	{#if messages.length > 0}
@@ -222,7 +238,7 @@
 		</div>
 	{/if}
 
-	<div class:border-t={messages.length > 0} class="relative">
+	<div class:border-t={messages.length > 0 && !hideInputBorder} class="relative">
 		{#if aiChatManager.loading}
 			<div class="absolute -top-10 w-full flex flex-row justify-center">
 				<Button
@@ -264,6 +280,9 @@
 			</div>
 		{/if}
 		<div class="px-2">
+			{#if inputPreface}
+				{@render inputPreface()}
+			{/if}
 			<AIChatInput
 				bind:this={aiChatInput}
 				bind:selectedContext

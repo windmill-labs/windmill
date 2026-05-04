@@ -95,7 +95,7 @@ function isWorkspacePath(path: string | undefined): path is string {
 	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
 }
 
-class AIChatManager {
+export class AIChatManager {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
@@ -144,13 +144,18 @@ class AIChatManager {
 	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
+	disabledModes: Partial<Record<AIMode, boolean>> = $state({})
+
 	allowedModes: Record<AIMode, boolean> = $derived({
-		script: this.flowAiChatHelpers === undefined && this.scriptEditorOptions !== undefined,
-		flow: this.flowAiChatHelpers !== undefined,
-		app: this.appAiChatHelpers !== undefined,
-		navigator: true,
-		ask: true,
-		API: true,
+		script:
+			this.flowAiChatHelpers === undefined &&
+			this.scriptEditorOptions !== undefined &&
+			!this.disabledModes.script,
+		flow: this.flowAiChatHelpers !== undefined && !this.disabledModes.flow,
+		app: this.appAiChatHelpers !== undefined && !this.disabledModes.app,
+		navigator: !this.disabledModes.navigator,
+		ask: !this.disabledModes.ask,
+		API: !this.disabledModes.API,
 		// Dev-only gate. See `./global/gate.ts` for how to enable.
 		global: isAIModeVisible(AIMode.GLOBAL)
 	})

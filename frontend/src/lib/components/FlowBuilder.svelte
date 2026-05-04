@@ -30,7 +30,7 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { createRawSnippet, onMount, setContext, untrack } from 'svelte'
+	import { createRawSnippet, getContext, onMount, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -86,7 +86,12 @@
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
-	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import {
+		AIChatManager,
+		aiChatManager as singletonAiChatManager
+	} from './copilot/chat/AIChatManager.svelte'
+
+	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 	import type { GraphModuleState } from './graph'
 	import { validateRetryConfig } from '$lib/utils'
 	import {

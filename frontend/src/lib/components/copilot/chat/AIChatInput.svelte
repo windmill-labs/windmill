@@ -6,12 +6,17 @@
 	import ContextTextarea from './ContextTextarea.svelte'
 	import autosize from '$lib/autosize'
 	import type { ContextElement } from './context'
-	import { aiChatManager, AIMode } from './AIChatManager.svelte'
+	import {
+		AIChatManager,
+		aiChatManager as singletonAiChatManager,
+		AIMode
+	} from './AIChatManager.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { Snippet } from 'svelte'
+	import { getContext, tick, untrack, type Snippet } from 'svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
-	import { tick, untrack } from 'svelte'
+
+	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 	import { sendUserToast } from '$lib/toast'
 
 	interface Props {

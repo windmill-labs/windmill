@@ -77,7 +77,8 @@
 		replaceStateFn = (path: string) => window.history.replaceState(null, '', path),
 		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path),
 		unsavedConfirmationModal,
-		onSavedNewAppPath
+		onSavedNewAppPath,
+		onNavigate
 	}: AppEditorProps = $props()
 
 	migrateApp(untrack(() => app))
@@ -857,6 +858,7 @@
 			rightPanelHidden={rightPanelSize === 0}
 			bottomPanelHidden={runnablePanelSize === 0}
 			{onSavedNewAppPath}
+			{onNavigate}
 			onShowLeftPanel={() => showLeftPanel()}
 			onShowRightPanel={() => showRightPanel()}
 			onShowBottomPanel={() => showBottomPanel()}

@@ -41,8 +41,12 @@
 		Database,
 		Pyramid,
 		Trash2,
-		MailIcon
+		MailIcon,
+		ChevronDown,
+		ChevronRight
 	} from 'lucide-svelte'
+	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
+	import { slide } from 'svelte/transition'
 	import UserMenu from './UserMenu.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
 	import { WorkspaceService } from '$lib/gen'
@@ -172,6 +176,12 @@
 	}
 
 	loadAvailableNativeTriggers()
+
+	const triggersCollapsed = useLocalStorageValue(
+		'windmill_triggers_section_collapsed',
+		false,
+		'boolean'
+	)
 
 	onMount(async () => {
 		if (lastOpened) {
@@ -612,188 +622,207 @@
 		'grow flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 justify-between gap-2'
 	)}
 >
-	<div class={twMerge('pt-4 mb-6 md:mb-10')}>
+	<div class={twMerge('pt-4 mb-6 md:mb-10 flex flex-col grow')}>
 		<div class="space-y-1">
 			{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 				<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 			{/each}
 		</div>
 		<div class="pt-4">
-			<div
-				class="text-secondary text-[0.5rem] uppercase transition-opacity"
-				class:opacity-0={isCollapsed}>Triggers</div
-			>
-			<Menubar class="flex flex-col gap-1">
-				{#snippet children({ createMenu })}
-					{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-						<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
-					{/each}
-					{#if extraTriggerLinks.length > 0 && !$userStore?.operator}
-						<Menu {createMenu} usePointerDownOutside>
-							{#snippet triggr({ trigger })}
-								<MeltButton
-									aiId="sidebar-menu-link-add-trigger"
-									aiDescription="Button to add a new trigger. Can be HTTP, WebSocket, Postgres, Kafka, NATS, SQS, GCP Pub/Sub, or MQTT"
-									class={twMerge(
-										'w-full text-secondary text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-surface-hover rounded',
-										'data-[highlighted]:bg-surface-hover'
-									)}
-									meltElement={trigger}
-								>
-									<Plus size={14} />
-								</MeltButton>
-							{/snippet}
-							{#snippet children({ item })}
-								{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
-									<MenuItem
-										aiId={subItem.aiId}
-										aiDescription={subItem.aiDescription}
-										href={subItem.disabled ? '' : subItem.href}
-										class={twMerge(
-											itemClass,
-											subItem.disabled ? 'pointer-events-none opacity-50' : ''
-										)}
-										{item}
-										disabled={subItem.disabled}
-									>
-										<div class="flex flex-row items-center gap-2">
-											{#if subItem.icon}
-												<subItem.icon size={16} />
-											{/if}
-											{subItem.label}
-										</div>
-									</MenuItem>
-								{/each}
-							{/snippet}
-						</Menu>
-					{/if}
-				{/snippet}
-			</Menubar>
-		</div>
-	</div>
-	<div class="flex flex-col h-full justify-end">
-		<Menubar class="flex flex-col gap-1 mb-6 md:mb-10">
-			{#snippet children({ createMenu })}
-				<UserMenu {isCollapsed} {createMenu} />
-
-				{#each secondaryMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-					{#if menuLink.subItems}
-						{@const notificationsCount = computeAllNotificationsCount(menuLink.subItems)}
-						<Menu {createMenu} usePointerDownOutside>
-							{#snippet triggr({ trigger })}
-								<MenuButton
-									class="!text-2xs"
-									{...menuLink}
-									{isCollapsed}
-									{notificationsCount}
-									{trigger}
-								/>
-							{/snippet}
-
-							{#snippet children({ item })}
-								{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
-									<MenuItem
-										class={itemClass}
-										href={subItem.href}
-										{item}
-										onClick={() => {
-											subItem?.['action']?.()
-										}}
-										aiId={subItem.aiId}
-										aiDescription={subItem.aiDescription}
-									>
-										<div class="flex flex-row items-center gap-2">
-											{#if subItem.icon}
-												<subItem.icon size={16} />
-											{/if}
-											{subItem.label}
-											{#if subItem?.['notificationCount']}
-												<div class="ml-auto">
-													<SideBarNotification notificationCount={subItem['notificationCount']} />
-												</div>
-											{/if}
-										</div>
-									</MenuItem>
-								{/each}
-							{/snippet}
-						</Menu>
+			{#if isCollapsed}
+				<div class="text-secondary text-[0.5rem] uppercase transition-opacity opacity-0">
+					Triggers
+				</div>
+			{:else}
+				<button
+					type="button"
+					onclick={() => (triggersCollapsed.val = !triggersCollapsed.val)}
+					class="text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 rounded px-1 -mx-1 py-0.5 hover:bg-surface-hover focus:outline-none"
+					aria-expanded={!triggersCollapsed.val}
+				>
+					Triggers
+					{#if triggersCollapsed.val}
+						<ChevronRight size={10} />
 					{:else}
-						<MenuSingleItem>
-							{#snippet children({})}
-								<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} />
-							{/snippet}
-						</MenuSingleItem>
+						<ChevronDown size={10} />
 					{/if}
-				{/each}
-			{/snippet}
-		</Menubar>
-
-		<Menubar class="flex flex-col gap-1">
-			{#snippet children({ createMenu })}
-				{#each thirdMenuLinks as menuLink (menuLink)}
-					{#if menuLink.subItems}
-						<Menu {createMenu} usePointerDownOutside>
-							{#snippet triggr({ trigger })}
-								<button
-									class="relative w-full"
-									onclick={() => {
-										if (menuLink.label === 'Help') {
-											openChangelogs()
-										}
-									}}
-								>
-									<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
-									{#if menuLink.label === 'Help' && hasNewChangelogs}
-										<span
+				</button>
+			{/if}
+			{#if isCollapsed || !triggersCollapsed.val}
+				<div transition:slide={{ duration: 180 }}>
+					<Menubar class="flex flex-col gap-1">
+						{#snippet children({ createMenu })}
+							{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+								<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
+							{/each}
+							{#if extraTriggerLinks.length > 0 && !$userStore?.operator}
+								<Menu {createMenu} usePointerDownOutside>
+									{#snippet triggr({ trigger })}
+										<MeltButton
+											aiId="sidebar-menu-link-add-trigger"
+											aiDescription="Button to add a new trigger. Can be HTTP, WebSocket, Postgres, Kafka, NATS, SQS, GCP Pub/Sub, or MQTT"
 											class={twMerge(
-												'flex h-2 w-2 absolute',
-												isCollapsed ? 'top-1 right-1' : 'right-2 top-1/2 -translate-y-1/2'
+												'w-full text-secondary text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-surface-hover rounded',
+												'data-[highlighted]:bg-surface-hover'
 											)}
+											meltElement={trigger}
 										>
-											<span
-												class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
-											></span>
-											<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500"></span>
-										</span>
-									{/if}
-								</button>
-							{/snippet}
-							{#snippet children({ item })}
-								{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
-									<MenuItem
-										href={subItem.href}
-										class={itemClass}
-										target={subItem.external !== false ? '_blank' : undefined}
-										{item}
-									>
-										<div class="flex flex-row items-center gap-2">
-											{#if subItem.icon}
-												<subItem.icon size={16} />
-											{/if}
+											<Plus size={14} />
+										</MeltButton>
+									{/snippet}
+									{#snippet children({ item })}
+										{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
+											<MenuItem
+												aiId={subItem.aiId}
+												aiDescription={subItem.aiDescription}
+												href={subItem.disabled ? '' : subItem.href}
+												class={twMerge(
+													itemClass,
+													subItem.disabled ? 'pointer-events-none opacity-50' : ''
+												)}
+												{item}
+												disabled={subItem.disabled}
+											>
+												<div class="flex flex-row items-center gap-2">
+													{#if subItem.icon}
+														<subItem.icon size={16} />
+													{/if}
+													{subItem.label}
+												</div>
+											</MenuItem>
+										{/each}
+									{/snippet}
+								</Menu>
+							{/if}
+						{/snippet}
+					</Menubar>
+				</div>
+			{/if}
+		</div>
+		<div class="flex flex-col mt-auto">
+			<Menubar class="flex flex-col gap-1 mb-6 md:mb-10">
+				{#snippet children({ createMenu })}
+					<UserMenu {isCollapsed} {createMenu} />
 
-											{subItem.label}
-										</div>
-									</MenuItem>
-								{/each}
-								{#if recentChangelogs.length > 0}
-									<div class="w-full h-1 border-t"></div>
-									<span class="text-xs px-4 font-bold"> Latest changelogs </span>
-									{#each recentChangelogs as changelog}
-										<MenuItem href={changelog.href} class={itemClass} target="_blank" {item}>
+					{#each secondaryMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+						{#if menuLink.subItems}
+							{@const notificationsCount = computeAllNotificationsCount(menuLink.subItems)}
+							<Menu {createMenu} usePointerDownOutside>
+								{#snippet triggr({ trigger })}
+									<MenuButton
+										class="!text-2xs"
+										{...menuLink}
+										{isCollapsed}
+										{notificationsCount}
+										{trigger}
+									/>
+								{/snippet}
+
+								{#snippet children({ item })}
+									{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
+										<MenuItem
+											class={itemClass}
+											href={subItem.href}
+											{item}
+											onClick={() => {
+												subItem?.['action']?.()
+											}}
+											aiId={subItem.aiId}
+											aiDescription={subItem.aiDescription}
+										>
 											<div class="flex flex-row items-center gap-2">
-												{changelog.label}
+												{#if subItem.icon}
+													<subItem.icon size={16} />
+												{/if}
+												{subItem.label}
+												{#if subItem?.['notificationCount']}
+													<div class="ml-auto">
+														<SideBarNotification notificationCount={subItem['notificationCount']} />
+													</div>
+												{/if}
 											</div>
 										</MenuItem>
 									{/each}
-								{/if}
-							{/snippet}
-						</Menu>
-					{/if}
-				{/each}
-			{/snippet}
-		</Menubar>
-	</div>
-</nav>
+								{/snippet}
+							</Menu>
+						{:else}
+							<MenuSingleItem>
+								{#snippet children({})}
+									<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} />
+								{/snippet}
+							</MenuSingleItem>
+						{/if}
+					{/each}
+				{/snippet}
+			</Menubar>
+
+			<Menubar class="flex flex-col gap-1">
+				{#snippet children({ createMenu })}
+					{#each thirdMenuLinks as menuLink (menuLink)}
+						{#if menuLink.subItems}
+							<Menu {createMenu} usePointerDownOutside>
+								{#snippet triggr({ trigger })}
+									<button
+										class="relative w-full"
+										onclick={() => {
+											if (menuLink.label === 'Help') {
+												openChangelogs()
+											}
+										}}
+									>
+										<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
+										{#if menuLink.label === 'Help' && hasNewChangelogs}
+											<span
+												class={twMerge(
+													'flex h-2 w-2 absolute',
+													isCollapsed ? 'top-1 right-1' : 'right-2 top-1/2 -translate-y-1/2'
+												)}
+											>
+												<span
+													class="animate-ping absolute inline-flex h-full w-full rounded-full bg-frost-400 opacity-75"
+												></span>
+												<span class="relative inline-flex rounded-full h-2 w-2 bg-frost-500"></span>
+											</span>
+										{/if}
+									</button>
+								{/snippet}
+								{#snippet children({ item })}
+									{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
+										<MenuItem
+											href={subItem.href}
+											class={itemClass}
+											target={subItem.external !== false ? '_blank' : undefined}
+											{item}
+										>
+											<div class="flex flex-row items-center gap-2">
+												{#if subItem.icon}
+													<subItem.icon size={16} />
+												{/if}
+
+												{subItem.label}
+											</div>
+										</MenuItem>
+									{/each}
+									{#if recentChangelogs.length > 0}
+										<div class="w-full h-1 border-t"></div>
+										<span class="text-xs px-4 font-bold"> Latest changelogs </span>
+										{#each recentChangelogs as changelog}
+											<MenuItem href={changelog.href} class={itemClass} target="_blank" {item}>
+												<div class="flex flex-row items-center gap-2">
+													{changelog.label}
+												</div>
+											</MenuItem>
+										{/each}
+									{/if}
+								{/snippet}
+							</Menu>
+						{/if}
+					{/each}
+				{/snippet}
+			</Menubar>
+		</div>
+	</div></nav
+>
 
 <ConfirmationModal
 	open={leaveWorkspaceModal}

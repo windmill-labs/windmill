@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { Loader2, ChevronDown, ChevronRight, XCircle, Play } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { getContext } from 'svelte'
+	import { AIChatManager, aiChatManager as singletonAiChatManager } from './AIChatManager.svelte'
+
+	const aiChatManager = getContext<AIChatManager>('aiChatManager') ?? singletonAiChatManager
 	import type { ToolDisplayMessage } from './shared'
 	import { twMerge } from 'tailwind-merge'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'

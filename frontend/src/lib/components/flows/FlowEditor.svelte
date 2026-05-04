@@ -13,7 +13,11 @@
 	import type { Flow, Job } from '$lib/gen'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
-	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
+	import {
+		AIChatManager,
+		aiChatManager as singletonAiChatManager,
+		AIMode
+	} from '../copilot/chat/AIChatManager.svelte'
 	import type { GraphModuleState } from '../graph'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
@@ -21,6 +25,8 @@
 	import type { FlowOptions } from '../copilot/chat/ContextManager.svelte'
 	import { extractAllModules } from '../copilot/chat/shared'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')
+	const aiChatManager = sessionScopedManager ?? singletonAiChatManager
 
 	interface Props {
 		loading: boolean
@@ -123,14 +129,18 @@
 	})
 
 	onMount(() => {
-		aiChatManager.saveAndClear()
-		aiChatManager.changeMode(AIMode.FLOW)
+		if (!sessionScopedManager) {
+			aiChatManager.saveAndClear()
+			aiChatManager.changeMode(AIMode.FLOW)
+		}
 	})
 
 	onDestroy(() => {
 		aiChatManager.flowOptions = undefined
-		aiChatManager.saveAndClear()
-		aiChatManager.changeMode(AIMode.NAVIGATOR)
+		if (!sessionScopedManager) {
+			aiChatManager.saveAndClear()
+			aiChatManager.changeMode(AIMode.NAVIGATOR)
+		}
 	})
 </script>
 
