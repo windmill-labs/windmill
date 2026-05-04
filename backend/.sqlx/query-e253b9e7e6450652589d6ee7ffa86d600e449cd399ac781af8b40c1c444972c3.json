@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM resource_type WHERE workspace_id = $1",
+  "query": "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type ORDER BY name",
   "describe": {
     "columns": [
       {
@@ -25,13 +25,13 @@
       },
       {
         "ordinal": 4,
-        "name": "edited_at",
-        "type_info": "Timestamptz"
+        "name": "created_by",
+        "type_info": "Varchar"
       },
       {
         "ordinal": 5,
-        "name": "created_by",
-        "type_info": "Varchar"
+        "name": "edited_at",
+        "type_info": "Timestamptz"
       },
       {
         "ordinal": 6,
@@ -45,9 +45,7 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Text"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -60,5 +58,5 @@
       false
     ]
   },
-  "hash": "7b1239ad6460e8f5fb41bfe12f662a779528784ec8cf3f6dcce5545ab90bf234"
+  "hash": "e253b9e7e6450652589d6ee7ffa86d600e449cd399ac781af8b40c1c444972c3"
 }

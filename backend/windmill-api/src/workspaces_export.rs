@@ -490,7 +490,7 @@ pub(crate) async fn tarball_workspace(
         Some(t) => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
     }?;
     {
-        let folders = sqlx::query_as::<_, Folder>("SELECT * FROM folder WHERE workspace_id = $1")
+        let folders = sqlx::query_as::<_, Folder>("SELECT name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as FROM folder WHERE workspace_id = $1")
             .bind(&w_id)
             .fetch_all(&mut *tx)
             .await?;
@@ -507,10 +507,13 @@ pub(crate) async fn tarball_workspace(
 
     {
         let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
-            "SELECT * FROM script as o WHERE workspace_id = $1 AND archived = false
-             AND (draft_only IS NULL OR draft_only = false)
-             AND created_at = (select max(created_at) from script where path = o.path AND \
-              workspace_id = $1)",
+            &format!(
+                "SELECT {} FROM script as o WHERE workspace_id = $1 AND archived = false
+                 AND (draft_only IS NULL OR draft_only = false)
+                 AND created_at = (select max(created_at) from script where path = o.path AND \
+                  workspace_id = $1)",
+                windmill_common::scripts::SCRIPT_COLUMNS,
+            ),
         )
         .bind(&w_id)
         .fetch_all(&mut *tx)
@@ -595,7 +598,7 @@ pub(crate) async fn tarball_workspace(
     if !skip_resources.unwrap_or(false) {
         let resources = sqlx::query_as!(
              Resource,
-             "SELECT * FROM resource WHERE workspace_id = $1 AND resource_type != 'state' AND resource_type != 'cache'",
+             "SELECT workspace_id, path, value, description, resource_type, extra_perms, created_by, edited_at, labels FROM resource WHERE workspace_id = $1 AND resource_type != 'state' AND resource_type != 'cache'",
              &w_id
          )
          .fetch_all(&mut *tx)
@@ -612,7 +615,7 @@ pub(crate) async fn tarball_workspace(
     if !skip_resource_types.unwrap_or(false) {
         let resource_types = sqlx::query_as!(
             ResourceType,
-            "SELECT * FROM resource_type WHERE workspace_id = $1",
+            "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset FROM resource_type WHERE workspace_id = $1",
             &w_id
         )
         .fetch_all(&mut *tx)
@@ -651,9 +654,9 @@ pub(crate) async fn tarball_workspace(
     if !skip_variables.unwrap_or(false) {
         let variables =
              sqlx::query_as::<_, ExportableListableVariable>(if !skip_secrets.unwrap_or(false) {
-                 "SELECT * FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
+                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, labels FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
              } else {
-                 "SELECT * FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
+                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, labels FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
              })
              .bind(&w_id)
              .fetch_all(&mut *tx)
@@ -727,7 +730,7 @@ pub(crate) async fn tarball_workspace(
 
     if include_schedules.unwrap_or(false) {
         let schedules = sqlx::query_as::<_, Schedule>(
-            "SELECT * FROM schedule
+            "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule
              WHERE workspace_id = $1",
         )
         .bind(&w_id)
@@ -998,7 +1001,7 @@ pub(crate) async fn tarball_workspace(
 
     if include_users.unwrap_or(false) {
         let users = sqlx::query!(
-            "SELECT * FROM usr
+            "SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via FROM usr
              WHERE workspace_id = $1",
             &w_id
         )
