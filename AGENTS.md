@@ -15,7 +15,7 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
 - **Backend patterns**: use the `rust-backend` skill when writing Rust code
 - **Frontend patterns**: use the `svelte-frontend` skill when writing Svelte code. Do NOT edit svelte files unless you have read that skill.
-- **Code review**: use `/local-review` to review a PR for bugs and CLAUDE.md compliance
+- **Code review**: review the current PR or branch against the shared review policy in `.github/review-prompt-shared.md` (severity triage, public-surface checklist, AGENTS.md compliance, test-coverage assessment). The skill at `.agents/skills/local-review/SKILL.md` orchestrates it; `.claude/skills/local-review/SKILL.md` is a symlink to that file so Claude and Pi share one source of truth. Invocations: `/local-review` in Claude Code · `pi --skill local-review` (or `/skill:local-review` interactive) · `scripts/local-review.sh codex` for Codex
 - **Domain guides**: `.claude/skills/native-trigger/` and `frontend/tutorial-system-guide.mdc`
 - **Brand/UI guidelines**: `frontend/brand-guidelines.md`
 
