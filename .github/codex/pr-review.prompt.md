@@ -9,7 +9,8 @@ Review policy:
 
 Repository context:
 - Read `./.github/codex/pr-review-context.md` for the PR metadata and the exact diff commands to use.
-- If the context file ends with an "Additional reviewer instructions:" section, treat it as extra guidance from the human who triggered this review and follow it.
+- If the context file contains an "Additional reviewer instructions:" section, treat it as extra guidance from the human who triggered this review and follow it.
+- If the context file contains a "Prior PR discussion" section, this PR has already received review activity. Look for your own previous "## Codex Review" comment, take it into account, focus on what changed in the latest commits, and do not repeat findings the human already pushed back on or addressed.
 - Review only the changes introduced by this PR.
 - Read additional files only when the diff is not enough to validate a finding.
 - Do not modify any files.

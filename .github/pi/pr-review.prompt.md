@@ -9,7 +9,8 @@ Review policy:
 
 Repository context:
 - Read `./.github/pi/pr-review-context.md` for PR metadata and the exact diff commands to use.
-- If the context file ends with an "Additional reviewer instructions:" section, treat it as extra guidance from the human who triggered this review and follow it.
+- If the context file contains an "Additional reviewer instructions:" section, treat it as extra guidance from the human who triggered this review and follow it.
+- If the context file contains a "Prior PR discussion" section, this PR has already received review activity. Look for your own previous "## Pi Review (DeepSeek V4)" comment, take it into account, focus on what changed in the latest commits, and do not repeat findings the human already pushed back on or addressed.
 - Run those `git diff` / `git log` commands to inspect the changes — they reference the base and head SHAs of this PR.
 - Review only the changes introduced by this PR. Read additional files only when the diff is not enough to validate a finding.
 - Do not modify any files. Do not create new files outside this review.

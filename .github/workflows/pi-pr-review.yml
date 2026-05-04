@@ -2,7 +2,7 @@ name: Pi Auto Review
 
 on:
   pull_request:
-    types: [ready_for_review, opened]
+    types: [ready_for_review, opened, synchronize]
   workflow_call:
     inputs:
       pr_number:
@@ -175,6 +175,17 @@ jobs:
             "$PR_BASE_REF" \
             "+refs/pull/$PR_NUMBER/head"
 
+      - name: Fetch prior PR discussion
+        if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
+            --jq '[.[] | {user: .user.login, created_at: .created_at, body: (.body | .[:4000])}] | sort_by(.created_at) | .[-20:]' \
+            > prior-comments.json || echo "[]" > prior-comments.json
+
       - name: Write Pi review context
         if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
         env:
@@ -212,6 +223,23 @@ jobs:
           ];
           if (process.env.EXTRA_PROMPT && process.env.EXTRA_PROMPT.trim()) {
             lines.push('', 'Additional reviewer instructions:', process.env.EXTRA_PROMPT.trim());
+          }
+          if (fs.existsSync('prior-comments.json')) {
+            try {
+              const comments = JSON.parse(fs.readFileSync('prior-comments.json', 'utf8'));
+              if (Array.isArray(comments) && comments.length > 0) {
+                lines.push(
+                  '',
+                  'Prior PR discussion (most recent up to 20 comments):',
+                  '',
+                  'If you have already reviewed this PR (look for your own earlier "## Pi Review (DeepSeek V4)" comment), focus on what changed since then per the diff and respect any decisions the human made in replies. Do not re-flag findings the human already pushed back on.',
+                  ''
+                );
+                for (const c of comments) {
+                  lines.push(`### @${c.user} (${c.created_at})`, '', c.body, '', '---', '');
+                }
+              }
+            } catch (_) {}
           }
           fs.writeFileSync('.github/pi/pr-review-context.md', `${lines.join('\n')}\n`);
           NODE

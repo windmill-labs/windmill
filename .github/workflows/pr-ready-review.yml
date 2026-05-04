@@ -2,7 +2,7 @@ name: Claude Auto Review
 
 on:
   pull_request:
-    types: [ready_for_review, opened]
+    types: [ready_for_review, opened, synchronize]
   workflow_call:
     inputs:
       pr_number:
@@ -99,6 +99,24 @@ jobs:
             echo "pr_number=$EVENT_PR_NUMBER" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Fetch prior PR discussion
+        id: prior
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+        run: |
+          gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
+            --jq '[.[] | {user: .user.login, created_at: .created_at, body: (.body | .[:4000])}] | sort_by(.created_at) | .[-20:]' \
+            > prior-comments.json || echo "[]" > prior-comments.json
+          jq -r '
+            if length == 0 then ""
+            else
+              "## Prior PR discussion (most recent up to 20 comments)\n\nIf you have already reviewed this PR (look for your own earlier comment), focus on what changed since then per the diff and respect any decisions the human made in replies. Do not re-flag findings the human already pushed back on.\n\n" +
+              (map("### @\(.user) (\(.created_at))\n\n\(.body)") | join("\n\n---\n\n"))
+            end
+          ' prior-comments.json > prior-comments.md
+
       - name: Read review prompt
         id: review-prompt
         env:
@@ -112,6 +130,10 @@ jobs:
               echo '## Additional Reviewer Instructions'
               echo ''
               printf '%s\n' "$EXTRA_PROMPT"
+            fi
+            if [ -s prior-comments.md ]; then
+              echo ''
+              cat prior-comments.md
             fi
             echo 'EOF'
           } >> "$GITHUB_ENV"

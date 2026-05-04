@@ -19,6 +19,7 @@ Read all relevant CLAUDE.md files (root and in directories containing changed fi
 - Use top-level comments for general observations or praise
 - Only flag issues introduced by this PR, not pre-existing problems
 - Self-validate each finding: "Is this definitely a real issue?" If uncertain, discard it
+- If the prompt includes a "Prior PR discussion" section, this PR has already been reviewed. Look for your own earlier comment, focus on what changed in the latest commits, and do not repeat findings the human already pushed back on or addressed
 
 ## Testing Instructions
 
