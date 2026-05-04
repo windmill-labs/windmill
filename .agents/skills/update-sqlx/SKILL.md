@@ -48,6 +48,7 @@ while read f; do
 done < /tmp/missing_files.txt
 
 # 4. Verify nothing was lost from main
+find backend/.sqlx -name "*.json" -printf '%P\n' | sort > /tmp/current_files.txt
 comm -23 /tmp/main_files.txt /tmp/current_files.txt | wc -l
 # Should output: 0
 ```
@@ -66,7 +67,7 @@ But if it fails with EE compilation errors, use the safe procedure above.
 ## What NOT to Do
 
 - **Never** run `cargo sqlx prepare --workspace` with only OSS features and commit the result — it will delete EE caches.
-- **Never** use `SQLX_OFFLINE=true` — a live database is always available per CLAUDE.md.
+- **Never** set `SQLX_OFFLINE=true` for local `cargo sqlx prepare` — use a live database per CLAUDE.md. (CI runs with `SQLX_OFFLINE=true`, which is why the cache must be complete.)
 - **Never** skip the verification step (step 4 above).
 
 ## Verification
