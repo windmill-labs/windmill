@@ -23,14 +23,19 @@
 		label: string
 		load: () => Promise<EditorModule>
 	}
+	type ActiveDrawerState = {
+		id: number
+		key: DrawerKey
+		path: string
+		promise: Promise<EditorModule>
+	}
 
 	const DRAWER_SIZE = '800px'
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let editor: EditorHandle | undefined = $state(undefined)
-	let activeDrawer: DrawerKey | undefined = $state(undefined)
-	let activePath = $state('')
-	let editorPromise: Promise<EditorModule> | undefined = $state(undefined)
+	let activeDrawer: ActiveDrawerState | undefined = $state(undefined)
+	let nextActiveDrawerId = 0
 
 	const drawerConfigs: Record<DrawerKey, DrawerConfig> = {
 		schedule: {
@@ -75,13 +80,10 @@
 		}
 	}
 
-	const activeConfig = $derived.by(() => {
+	const drawerTitle = $derived.by(() => {
 		const current = activeDrawer
-		return current ? drawerConfigs[current] : undefined
+		return current ? `Edit ${drawerConfigs[current.key].label} ${current.path}` : 'Edit trigger'
 	})
-	const drawerTitle = $derived(
-		activeConfig ? `Edit ${activeConfig.label} ${activePath}` : 'Edit trigger'
-	)
 
 	function waitForAnimationFrame(): Promise<void> {
 		return new Promise((resolve) => {
@@ -93,20 +95,12 @@
 		})
 	}
 
-	async function getEditor(
-		expectedDrawer: DrawerKey,
-		expectedPromise: Promise<EditorModule>,
-		expectedPath: string
-	): Promise<EditorHandle | undefined> {
-		await expectedPromise
+	async function getEditor(request: ActiveDrawerState): Promise<EditorHandle | undefined> {
+		await request.promise
 		await tick()
 		await waitForAnimationFrame()
 
-		if (
-			activeDrawer !== expectedDrawer ||
-			editorPromise !== expectedPromise ||
-			activePath !== expectedPath
-		) {
+		if (activeDrawer?.id !== request.id) {
 			return undefined
 		}
 
@@ -116,7 +110,7 @@
 		}
 
 		if (!editor) {
-			throw new Error(`${activeConfig?.label ?? 'Trigger'} drawer is not ready`)
+			throw new Error(`${drawerConfigs[request.key].label} drawer is not ready`)
 		}
 		return editor
 	}
@@ -132,22 +126,17 @@
 		}
 
 		const config = drawerConfigs[key]
-		const nextEditorPromise = activeDrawer === key && editorPromise ? editorPromise : config.load()
-		if (activeDrawer !== key) {
+		const promise = activeDrawer?.key === key ? activeDrawer.promise : config.load()
+		if (activeDrawer?.key !== key) {
 			editor = undefined
 		}
-		activeDrawer = key
-		activePath = action.path
-		editorPromise = nextEditorPromise
+
+		const request: ActiveDrawerState = { id: nextActiveDrawerId++, key, path: action.path, promise }
+		activeDrawer = request
 		drawer?.openDrawer()
 
-		const currentEditor = await getEditor(key, nextEditorPromise, action.path)
-		if (
-			!currentEditor ||
-			activeDrawer !== key ||
-			editorPromise !== nextEditorPromise ||
-			activePath !== action.path
-		) {
+		const currentEditor = await getEditor(request)
+		if (!currentEditor) {
 			return
 		}
 		await currentEditor.openEdit(action.path, action.targetKind === 'flow')
@@ -169,9 +158,9 @@
 
 <Drawer bind:this={drawer} size={DRAWER_SIZE}>
 	<DrawerContent title={drawerTitle} on:close={() => drawer?.closeDrawer()}>
-		{#if activeDrawer && editorPromise}
-			{#key activeDrawer}
-				{#await editorPromise}
+		{#if activeDrawer}
+			{#key activeDrawer.key}
+				{#await activeDrawer.promise}
 					<div class="p-4 flex justify-center">
 						<Loader2 class="animate-spin" />
 					</div>
