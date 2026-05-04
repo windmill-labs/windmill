@@ -25,8 +25,8 @@
 		workspaceId,
 		...(versionsResource.current?.filter((v) => v != workspaceId) ?? [])
 	])
-	let regular = $derived(versions.filter((v) => !v.startsWith('wm-fork-') || v === workspaceId))
-	let forks = $derived(versions.filter((v) => v.startsWith('wm-fork-') && v !== workspaceId))
+	let regular = $derived(versions.filter((v) => !v.startsWith('wm-fork-')))
+	let forks = $derived(versions.filter((v) => v.startsWith('wm-fork-')))
 </script>
 
 {#if versions.length > 1}

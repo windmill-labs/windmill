@@ -103,7 +103,11 @@
 		Object.keys(states).filter((ws) => !deepEqual(states[ws], initialStates[ws]))
 	)
 	const anyDirty = $derived(dirtyWorkspaces.length > 0)
-	const otherDirty = $derived(dirtyWorkspaces.filter((ws) => ws !== $workspaceStore))
+	const otherDirty = $derived(
+		dirtyWorkspaces.length == 1
+			? dirtyWorkspaces.filter((ws) => ws !== $workspaceStore)
+			: dirtyWorkspaces
+	)
 	const dirtyValid = $derived(dirtyWorkspaces.every((ws) => perWsValid[ws] !== false))
 	const dirtyCanWrite = $derived(
 		dirtyWorkspaces.every((ws) => {
