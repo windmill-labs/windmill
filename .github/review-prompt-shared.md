@@ -36,14 +36,16 @@ For any new `pub fn` / `pub async fn` / exported Svelte component / exported pro
 
 ## Test coverage assessment
 
-End your review with a short "Test coverage" section that addresses two questions:
+End your review with a short "Test coverage" section calibrated to the layers actually changed by the diff. Skip categories the PR does not touch.
 
-1. Does the diff include automated tests (unit / integration / e2e) for the new behavior?
-   - If yes, are they sufficient? Call out any obvious uncovered cases or edge cases worth a follow-up.
-   - If no, is that appropriate for the change (docs-only, CI-only, refactor with stable contracts)? Or is automated coverage missing where it should exist?
-2. What manual verification, if any, is still needed before merge?
-   - Describe each manual scenario as a short paragraph (not a numbered list): what page / action / input, and what observable outcome confirms correctness.
-   - If the diff is purely backend / CI / docs / a refactor with no in-app surface to exercise, say that plainly.
+- **Backend** (Rust under `backend/`) — expect Rust unit tests for new logic. For new or modified API handlers, worker steps, queue/cron behavior, or DB access, also expect or note the absence of integration tests. Pure-refactor backend PRs don't need new tests if existing tests cover the surface.
+- **Frontend** (Svelte / TS under `frontend/`) — expect a vitest or playwright test for new component behavior, non-trivial state machines, or new exported APIs. UI-only tweaks (styling, copy, icon swap) generally don't need tests.
+- **CI / workflows / docs / config-only** — no automated tests expected; say so explicitly so the reader knows you considered it.
+
+Then state what manual verification, if any, is still needed before merge:
+
+- Describe each manual scenario as a short paragraph (not a numbered list): what page / action / input, and what observable outcome confirms correctness.
+- If the diff has no in-app surface to exercise (purely backend internals, CI, docs, or refactor), say that plainly.
 
 ## Additional reviewer instructions
 
