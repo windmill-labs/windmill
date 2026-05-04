@@ -30,6 +30,7 @@
 		error?: string | undefined
 		popup?: boolean
 		firstTime?: boolean
+		autoRedirect?: boolean
 		onLoginSuccess?: () => void
 	}
 
@@ -40,6 +41,7 @@
 		error = undefined,
 		popup = false,
 		firstTime = false,
+		autoRedirect = true,
 		onLoginSuccess = undefined
 	}: Props = $props()
 
@@ -92,6 +94,9 @@
 	let logins: OAuthLogin[] | undefined = $state(undefined)
 	let saml: string | undefined = $state(undefined)
 	let smtpConfigured: boolean | undefined = $state(undefined)
+	let disablePasswordLogin = $state(false)
+	let autoRedirecting = $state(false)
+	let oauthFlowDone = false
 
 	type OAuthLogin = {
 		type: string
@@ -188,20 +193,56 @@
 	}
 
 	async function loadLogins() {
-		try {
-			const allLogins = await OauthService.listOauthLogins()
-			logins = allLogins.oauth.map((login) => ({
+		const [loginsResult, disabledResult] = await Promise.allSettled([
+			OauthService.listOauthLogins(),
+			UserService.isPasswordLoginDisabled()
+		])
+
+		if (disabledResult.status === 'fulfilled') {
+			disablePasswordLogin = disabledResult.value ?? false
+		} else {
+			disablePasswordLogin = false
+			console.error('Could not load password login setting', disabledResult.reason)
+		}
+
+		let autoLogin: string | undefined = undefined
+		if (loginsResult.status === 'fulfilled') {
+			logins = loginsResult.value.oauth.map((login) => ({
 				type: login.type,
 				displayName: login.display_name || login.type
 			}))
-			saml = allLogins.saml
-
-			showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
-		} catch (e) {
+			saml = loginsResult.value.saml
+			autoLogin = loginsResult.value.auto_login
+		} else {
 			logins = []
 			saml = undefined
-			showPassword = true
-			console.error('Could not load logins', e)
+			console.error('Could not load logins', loginsResult.reason)
+		}
+
+		showPassword =
+			!disablePasswordLogin &&
+			((logins?.length === 0 && !saml) || (email != undefined && email.length > 0))
+
+		if (autoRedirect && autoLogin && !error && !shouldSkipAutoRedirect()) {
+			if (autoLogin === 'saml' && saml) {
+				autoRedirecting = true
+				if (!redirectSaml()) autoRedirecting = false
+			} else if (logins?.some((l) => l.type === autoLogin)) {
+				autoRedirecting = true
+				if (!storeRedirect(autoLogin)) {
+					autoRedirecting = false
+					sendUserToast('Popup blocked — please click the sign-in button to continue.', true)
+				}
+			}
+		}
+	}
+
+	function shouldSkipAutoRedirect(): boolean {
+		try {
+			const params = new URLSearchParams(window.location.search)
+			return params.get('no_sso') === '1'
+		} catch {
+			return false
 		}
 	}
 
@@ -261,18 +302,23 @@
 		if (data.type === 'error') {
 			sendUserToast(data.error, true)
 		} else if (data.type === 'success') {
-			onLoginSuccess?.()
+			finishOauthFlow('postMessage')
 		}
 	}
 
 	function handleStorageEvent(event) {
 		if (event.key === 'oauth-success') {
 			try {
-				processPopupData(JSON.parse(event.newValue))
+				const data = JSON.parse(event.newValue)
 				console.log('oauth-success from storage')
 				// Clean up
 				localStorage.removeItem('oauth-success')
 				window.removeEventListener('storage', handleStorageEvent)
+				if (data?.type === 'success') {
+					finishOauthFlow('storage')
+				} else {
+					processPopupData(data)
+				}
 			} catch (e) {
 				console.error('Could not process oauth-success from storage', e)
 			}
@@ -281,12 +327,22 @@
 		}
 	}
 
+	function finishOauthFlow(via: 'postMessage' | 'storage' | 'poll', win?: Window) {
+		if (oauthFlowDone) return
+		oauthFlowDone = true
+		console.log(`oauth: signaled via ${via}`)
+		if (win && !win.closed) win.close()
+		window.removeEventListener('message', popupListener)
+		window.removeEventListener('storage', handleStorageEvent)
+		onLoginSuccess?.()
+	}
+
 	onDestroy(() => {
 		window.removeEventListener('message', popupListener)
 		window.removeEventListener('storage', handleStorageEvent)
 	})
 
-	function storeRedirect(provider: string) {
+	function persistRd() {
 		if (rd) {
 			try {
 				localStorage.setItem('rd', rd)
@@ -294,6 +350,10 @@
 				console.error('Could not persist redirection to local storage', e)
 			}
 		}
+	}
+
+	function storeRedirect(provider: string): boolean {
+		persistRd()
 		let url = base + '/api/oauth/login/' + provider + (popup ? '?close=true' : '')
 		console.log('storeRedirect', popup, url)
 
@@ -301,11 +361,62 @@
 			localStorage.setItem('closeUponLogin', 'true')
 			window.addEventListener('message', popupListener)
 			window.addEventListener('storage', handleStorageEvent)
-			window.open(url, '_blank', 'popup')
+			const win = window.open(url, '_blank', 'popup')
+			if (!win) {
+				window.removeEventListener('message', popupListener)
+				window.removeEventListener('storage', handleStorageEvent)
+				return false
+			}
+			// Safety net for Safari: when the popup is opened without a fresh user
+			// gesture (auto-login), ITP can partition cookies/localStorage between
+			// popup and parent, so neither the close cookie, the postMessage, nor
+			// the localStorage 'oauth-success' signal reaches us. The session
+			// cookie is set same-origin and isn't subject to that partitioning, so
+			// polling whoami catches the success and lets us force-close the popup.
+			pollForLoginSuccess(win)
+			return true
 		} else {
 			localStorage.setItem('closeUponLogin', 'false')
 			window.location.href = url
+			return true
 		}
+	}
+
+	function pollForLoginSuccess(win: Window) {
+		const startedAt = Date.now()
+		const interval = setInterval(async () => {
+			if (oauthFlowDone) {
+				clearInterval(interval)
+				return
+			}
+			if (Date.now() - startedAt > 5 * 60 * 1000) {
+				clearInterval(interval)
+				console.log('oauth: poll timed out after 5 minutes')
+				return
+			}
+			if (win.closed) {
+				clearInterval(interval)
+				console.log('oauth: popup closed before login completed')
+				return
+			}
+			try {
+				await UserService.getCurrentEmail()
+			} catch {
+				return
+			}
+			clearInterval(interval)
+			finishOauthFlow('poll', win)
+		}, 1500)
+	}
+
+	function redirectSaml(): boolean {
+		if (!saml) {
+			sendUserToast('No SAML login available', true)
+			return false
+		}
+		persistRd()
+		window.location.href = saml
+		return true
 	}
 
 	$effect(() => {
@@ -314,7 +425,14 @@
 </script>
 
 <div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">
-	<div class="grid {logins && logins.length > 2 ? 'grid-cols-2' : ''} gap-4">
+	{#if autoRedirecting}
+		<p class="text-sm text-center text-secondary py-4">Signing you in…</p>
+	{/if}
+	<div
+		class="grid {logins && logins.length > 2 ? 'grid-cols-2' : ''} gap-4 {autoRedirecting
+			? 'hidden'
+			: ''}"
+	>
 		{#if !logins}
 			{#each Array(4) as _}
 				<Skeleton layout={[0.5, [2.375]]} />
@@ -342,29 +460,10 @@
 			{/each}
 		{/if}
 		{#if saml}
-			<Button
-				variant="default"
-				btnClasses="mt-2 w-full"
-				on:click={() => {
-					if (saml) {
-						if (rd) {
-							try {
-								localStorage.setItem('rd', rd)
-							} catch (e) {
-								console.error('Could not persist redirection to local storage', e)
-							}
-						}
-						window.location.href = saml
-					} else {
-						sendUserToast('No SAML login available', true)
-					}
-				}}
-			>
-				SSO
-			</Button>
+			<Button variant="default" btnClasses="mt-2 w-full" on:click={redirectSaml}>SSO</Button>
 		{/if}
 	</div>
-	{#if saml || (logins && logins.length > 0)}
+	{#if !autoRedirecting && !disablePasswordLogin && (saml || (logins && logins.length > 0))}
 		<div class={classNames('center-center', logins && logins.length > 0 ? 'mt-6' : '')}>
 			<Button
 				size="xs"
@@ -378,7 +477,7 @@
 		</div>
 	{/if}
 
-	{#if showPassword}
+	{#if !autoRedirecting && showPassword && !disablePasswordLogin}
 		<div>
 			{#if firstTime}
 				<p class="text-xs text-center w-full pb-4 text-secondary">

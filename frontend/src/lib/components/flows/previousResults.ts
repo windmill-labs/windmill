@@ -1,8 +1,12 @@
 import type { Schema } from '$lib/common'
 import type { FlowModule, OpenFlow } from '$lib/gen'
 import { schemaToObject } from '$lib/schema'
-import { getAllSubmodules, getSubModules } from './flowExplorer'
 import type { FlowState } from './flowState'
+import {
+	collectDescendantFlowModules,
+	getChildModuleBranches,
+	getModuleArrayContainer
+} from './flowTree'
 
 export type PickableProperties = {
 	flow_input: Object
@@ -42,7 +46,7 @@ export function dfsByModule(
 				if (module.id === id) {
 					return getParents ? [module] : modules.slice(0, i + 1).reverse()
 				} else {
-					const submodules = getSubModules(module)
+					const submodules = getChildModuleBranches(module)
 
 					if (submodules) {
 						let found: FlowModule[] | undefined = rec(id, submodules)
@@ -126,9 +130,7 @@ export function getPreviousIds(id: string, flow: OpenFlow, include_node: boolean
 	}
 	return df
 		.map((x) => {
-			let submodules = getAllSubmodules(x)
-				.flat()
-				.map((x) => x.id)
+			let submodules = collectDescendantFlowModules(x).map((submodule) => submodule.id)
 
 			if (submodules.includes(id)) {
 				return [x.id]
@@ -359,40 +361,17 @@ export function filterNestedObject(obj: any, nestedKeys: string[]) {
  * based on the same logic used in FlowModuleWrapper.svelte
  */
 export function getPreviousModule(moduleId: string, flow: OpenFlow): FlowModule | undefined {
-	function searchInModules(modules: FlowModule[]): FlowModule | undefined | null {
-		for (let i = 0; i < modules.length; i++) {
-			const module = modules[i]
-
-			if (module.id === moduleId) {
-				// Found the module, return previous module ID if it exists
-				return i > 0 ? modules[i - 1] : undefined
-			}
-
-			// Search in submodules based on module type
-			if (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow') {
-				const result = searchInModules(module.value.modules)
-				if (result !== null) return result
-			} else if (module.value.type === 'branchone') {
-				// Search in default branch
-				const defaultResult = searchInModules(module.value.default)
-				if (defaultResult !== null) return defaultResult
-
-				// Search in each branch
-				for (const branch of module.value.branches) {
-					const branchResult = searchInModules(branch.modules)
-					if (branchResult !== null) return branchResult
-				}
-			} else if (module.value.type === 'branchall') {
-				// Search in each branch
-				for (const branch of module.value.branches) {
-					const branchResult = searchInModules(branch.modules)
-					if (branchResult !== null) return branchResult
-				}
-			}
-		}
-		return null // Continue searching (module not found in this branch)
+	const container = getModuleArrayContainer(flow.value, moduleId)
+	if (!container || container.index === 0) {
+		return undefined
 	}
 
-	const result = searchInModules(flow.value.modules)
-	return result === null ? undefined : result
+	for (let i = container.index - 1; i >= 0; i--) {
+		const mod = container.modules[i]
+		const toolType = (mod.value as any)?.tool_type
+		if (toolType === undefined || toolType === 'flowmodule') {
+			return mod
+		}
+	}
+	return undefined
 }

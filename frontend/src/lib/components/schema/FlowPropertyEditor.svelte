@@ -37,10 +37,11 @@
 		customErrorMessage?: string | undefined
 		itemsType?:
 			| {
-					type?: 'string' | 'number' | 'bytes' | 'object'
+					type?: 'string' | 'number' | 'bytes' | 'object' | 'resource'
 					contentEncoding?: 'base64'
 					enum?: string[]
 					multiselect?: string[]
+					resourceType?: string
 			  }
 			| undefined
 		properties?: Record<string, any> | undefined
@@ -48,6 +49,8 @@
 		requiredProperty?: string[] | undefined
 		displayWebhookWarning?: boolean
 		onDrawerClose?: () => void
+		hideCatalogPicker?: boolean | undefined
+		hideRawInput?: boolean | undefined
 	}
 
 	let {
@@ -72,8 +75,16 @@
 		order = $bindable(undefined),
 		requiredProperty = $bindable(undefined),
 		displayWebhookWarning = true,
-		onDrawerClose = undefined
+		onDrawerClose = undefined,
+		hideCatalogPicker = $bindable(undefined),
+		hideRawInput = $bindable(undefined)
 	}: Props = $props()
+
+	let isS3Field = $derived(
+		format === 'resource-s3_object' ||
+			(type === 'array' &&
+				(itemsType?.resourceType === 's3_object' || itemsType?.resourceType === 's3object'))
+	)
 
 	let oneOfSelected: string | undefined = $state(oneOf?.[0]?.title)
 
@@ -424,6 +435,32 @@
 				}
 			}}
 		/>
+		{#if isS3Field}
+			<Toggle
+				options={{
+					right: 'Hide catalog picker',
+					rightTooltip: 'Hide the "Choose an object from the catalog" button below the file upload.'
+				}}
+				lightMode
+				size="xs"
+				checked={hideCatalogPicker}
+				on:change={(event) => {
+					hideCatalogPicker = event?.detail ? true : undefined
+				}}
+			/>
+			<Toggle
+				options={{
+					right: 'Hide raw input',
+					rightTooltip: 'Hide the "Raw S3 object input" toggle below the file upload.'
+				}}
+				lightMode
+				size="xs"
+				checked={hideRawInput}
+				on:change={(event) => {
+					hideRawInput = event?.detail ? true : undefined
+				}}
+			/>
+		{/if}
 	</div>
 
 	{#if displayWebhookWarning && !(type === 'object' && oneOf && oneOf.length >= 2)}

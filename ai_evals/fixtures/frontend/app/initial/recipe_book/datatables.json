@@ -1,0 +1,16 @@
+[
+  {
+    "datatable_name": "main",
+    "schemas": {
+      "public": {
+        "recipes": {
+          "id": "int4",
+          "name": "text",
+          "ingredients": "text",
+          "instructions": "text",
+          "created_at": "timestamp=now()"
+        }
+      }
+    }
+  }
+]

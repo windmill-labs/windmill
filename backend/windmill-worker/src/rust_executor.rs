@@ -101,7 +101,8 @@ lazy_static::lazy_static! {
     static ref RUSTUP_HOME_DEFAULT: String = format!("{}/.rustup", HOME_ENV.as_str());
 }
 
-const RUST_OBJECT_STORE_PREFIX: &str = "rustbin/";
+const RUST_OBJECT_STORE_PREFIX: &str =
+    const_format::concatcp!(crate::global_cache::TARGET, "_rustbin/");
 
 #[cfg(not(windows))]
 lazy_static::lazy_static! {
@@ -476,6 +477,7 @@ pub async fn build_rust_crate(
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", &*RUST_CACHE_DIR)
                 .replace("{CARGO_HOME}", CARGO_HOME.as_str())
+                .replace("{RUSTUP_HOME}", RUSTUP_HOME.as_str())
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{BUILD}", &build_dir),

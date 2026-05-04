@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO postgres_trigger (\n            path, script_path, is_flow, workspace_id, edited_by, edited_at,\n            extra_perms, postgres_resource_path, error, server_id, last_server_ping,\n            replication_slot_name, publication_name, error_handler_path,\n            error_handler_args, retry, mode, permissioned_as, labels\n        )\n        SELECT\n            path, script_path, is_flow, $1, edited_by, edited_at,\n            extra_perms, postgres_resource_path, NULL, NULL, NULL,\n            replication_slot_name, publication_name, error_handler_path,\n            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels\n        FROM postgres_trigger WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b20e4486e2038ac8138f5d7435db8cbd78ac3d68674335db79df7fd8a4ba91fd"
+}

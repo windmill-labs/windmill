@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.684.1
+  version: 1.694.0
   title: Windmill API
 
   contact:
@@ -298,6 +298,21 @@ paths:
       responses:
         "200":
           description: returns true if SMTP is configured
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /auth/is_password_login_disabled:
+    get:
+      security: []
+      summary: check if password login is disabled instance-wide
+      operationId: isPasswordLoginDisabled
+      tags:
+        - user
+      responses:
+        "200":
+          description: returns true if password login is disabled
           content:
             application/json:
               schema:
@@ -2447,6 +2462,9 @@ paths:
                     type: string
                   client_id:
                     type: string
+                  app_owner:
+                    type: string
+                    nullable: true
                 required:
                   - base_url
                   - app_slug
@@ -3009,9 +3027,51 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkspaceInvite"
 
+  /w/{workspace}/workspaces/get_public_settings:
+    get:
+      summary: get public settings
+      description: Returns the subset of workspace settings safe to expose to any workspace member. The full settings struct is admin-only via `getSettings`.
+      operationId: getPublicSettings
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workspace_id:
+                    type: string
+                  slack_name:
+                    type: string
+                  slack_team_id:
+                    type: string
+                  teams_team_id:
+                    type: string
+                  teams_team_name:
+                    type: string
+                  teams_team_guid:
+                    type: string
+                  large_file_storage:
+                    $ref: "#/components/schemas/LargeFileStorage"
+                  datatable:
+                    $ref: "#/components/schemas/DataTableSettings"
+                  deploy_ui:
+                    $ref: "#/components/schemas/WorkspaceDeployUISettings"
+                  mute_critical_alerts:
+                    type: boolean
+                required:
+                  - workspace_id
+
   /w/{workspace}/workspaces/get_settings:
     get:
-      summary: get settings
+      summary: get settings (admin only)
+      description: Returns the full workspace settings including admin-managed integration credentials. Admin-only — non-admin callers should use `getPublicSettings`.
       operationId: getSettings
       tags:
         - workspace
@@ -3548,6 +3608,37 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/connect_slack:
+    post:
+      summary: connect slack (non-interactive; pre-minted bot token)
+      operationId: connectSlack
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: connect slack with a pre-minted bot token
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - bot_token
+                - team_id
+                - team_name
+              properties:
+                bot_token:
+                  type: string
+                  description: xoxb-... bot token obtained at api.slack.com/apps
+                team_id:
+                  type: string
+                team_name:
+                  type: string
+      responses:
+        "200":
+          description: status
+
   /w/{workspace}/workspaces/run_slack_message_test_job:
     post:
       summary: run a job that sends a message to Slack
@@ -3946,6 +4037,55 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/DataTableSchema"
+
+  /w/{workspace}/workspaces/list_datatable_tables:
+    get:
+      summary: list tables of all connected Datatables
+      operationId: listDataTableTables
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: table metadata of all datatables
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DataTableTables"
+
+  /w/{workspace}/workspaces/get_datatable_table_schema:
+    get:
+      summary: get one Datatable table schema
+      operationId: getDataTableTableSchema
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: schema_name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: table_name
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: schema of one datatable table
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DataTableTableSchema"
 
   /w/{workspace}/workspaces/edit_ducklake_config:
     post:
@@ -4557,6 +4697,8 @@ paths:
                     type: boolean
                   gcp_used:
                     type: boolean
+                  azure_used:
+                    type: boolean
                   sqs_used:
                     type: boolean
                   email_used:
@@ -4564,6 +4706,8 @@ paths:
                   nextcloud_used:
                     type: boolean
                   google_used:
+                    type: boolean
+                  github_used:
                     type: boolean
                 required:
                   - http_routes_used
@@ -4573,10 +4717,12 @@ paths:
                   - postgres_used
                   - mqtt_used
                   - gcp_used
+                  - azure_used
                   - sqs_used
                   - email_used
                   - nextcloud_used
                   - google_used
+                  - github_used
   /w/{workspace}/users/list:
     get:
       summary: list users
@@ -4725,6 +4871,39 @@ paths:
       responses:
         "200":
           description: delete token
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/tokens/update_scopes/{token_prefix}:
+    post:
+      summary: update scopes of an existing token (owner only)
+      operationId: updateTokenScopes
+      tags:
+        - user
+      parameters:
+        - name: token_prefix
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new scopes (null or omitted = full access)
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                  nullable: true
+      responses:
+        "200":
+          description: scopes updated
           content:
             text/plain:
               schema:
@@ -5763,6 +5942,35 @@ paths:
               schema:
                 type: string
 
+  /oauth/connect_slack_instance:
+    post:
+      summary: connect slack instance (non-interactive; pre-minted bot token)
+      operationId: connectSlackInstance
+      tags:
+        - oauth
+      requestBody:
+        description: connect slack at the instance level with a pre-minted bot token
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - bot_token
+                - team_id
+                - team_name
+              properties:
+                bot_token:
+                  type: string
+                  description: xoxb-... bot token obtained at api.slack.com/apps
+                team_id:
+                  type: string
+                team_name:
+                  type: string
+      responses:
+        "200":
+          description: status
+
   /oauth/connect_callback/{client_name}:
     post:
       summary: connect callback
@@ -5999,6 +6207,9 @@ paths:
                         - type
                   saml:
                     type: string
+                  auto_login:
+                    type: string
+                    description: provider type to auto-redirect to on login (oauth key or "saml")
                 required:
                   - oauth
 
@@ -7442,6 +7653,9 @@ paths:
   /w/{workspace}/scripts/create:
     post:
       summary: create script
+      description: |
+        Creates a new script when the path does not already exist.
+        Creates a new version of an existing script when called with the same path and the current `parent_hash`.
       operationId: createScript
       x-mcp-tool: true
       x-mcp-instructions: "To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed."
@@ -9427,7 +9641,7 @@ paths:
       summary: list flow conversations
       operationId: listFlowConversations
       tags:
-        - flow_conversation
+        - flow_conversations
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Page"
@@ -9452,7 +9666,7 @@ paths:
       summary: delete flow conversation
       operationId: deleteFlowConversation
       tags:
-        - flow_conversation
+        - flow_conversations
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: conversation_id
@@ -9475,7 +9689,7 @@ paths:
       summary: list conversation messages
       operationId: listConversationMessages
       tags:
-        - flow_conversation
+        - flow_conversations
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Page"
@@ -9487,13 +9701,13 @@ paths:
           schema:
             type: string
             format: uuid
-        - name: after_id
-          description: id to fetch only the messages after that id
+        - name: after_seq
+          description: Message sequence cursor to fetch only the messages after that cursor
           in: query
           required: false
           schema:
-            type: string
-            format: uuid
+            type: integer
+            format: int64
       responses:
         "200":
           description: conversation messages
@@ -9577,6 +9791,131 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ListableRawApp"
+
+  /w/{workspace}/shared_ui/get:
+    get:
+      summary: get the workspace shared UI folder (full content)
+      operationId: getSharedUi
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: shared UI content
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - files
+                  - version
+                  - edited_at
+                  - edited_by
+                properties:
+                  files:
+                    type: object
+                    additionalProperties:
+                      type: string
+                  version:
+                    type: integer
+                    format: int64
+                  edited_at:
+                    type: string
+                    format: date-time
+                  edited_by:
+                    type: string
+
+  /w/{workspace}/shared_ui/list:
+    get:
+      summary: list paths/sizes of the workspace shared UI folder
+      operationId: listSharedUi
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: shared UI listing
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - paths
+                  - sizes
+                  - version
+                  - edited_at
+                  - edited_by
+                properties:
+                  paths:
+                    type: array
+                    items:
+                      type: string
+                  sizes:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                      format: int64
+                  version:
+                    type: integer
+                    format: int64
+                  edited_at:
+                    type: string
+                    format: date-time
+                  edited_by:
+                    type: string
+
+  /w/{workspace}/shared_ui/version:
+    get:
+      summary: get the current version of the workspace shared UI folder
+      operationId: getSharedUiVersion
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: shared UI version
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - version
+                properties:
+                  version:
+                    type: integer
+                    format: int64
+
+  /w/{workspace}/shared_ui:
+    put:
+      summary: replace the workspace shared UI folder (admin only)
+      operationId: updateSharedUi
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - files
+              properties:
+                files:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        "200":
+          description: updated
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
@@ -10245,6 +10584,8 @@ paths:
                       type: string
                     cache_ttl:
                       type: integer
+                    tag:
+                      type: string
                   required:
                     - content
                     - language
@@ -10258,6 +10599,12 @@ paths:
                   type: array
                   items:
                     type: string
+                force_viewer_sensitive_inputs:
+                  type: array
+                  items:
+                    type: string
+                force_viewer_delete_after_secs:
+                  type: integer
                 run_query_params:
                   type: object
                   description: Runnable query parameters
@@ -10565,13 +10912,27 @@ paths:
               properties:
                 step_id:
                   type: string
-                  description: step id to restart the flow from
+                  description: top-level step id to restart the flow from (or the outermost container when restarting at a nested step)
                 branch_or_iteration_n:
                   type: integer
-                  description: for branchall or loop, the iteration at which the flow should restart (optional)
+                  description: for branchall or loop at the top level, the iteration at which the flow should restart (optional)
                 flow_version:
                   type: integer
                   description: specific flow version to use for restart (optional, uses current version if not specified)
+                nested_path:
+                  type: array
+                  description: path of additional steps to descend into AFTER `step_id`. Each entry represents one level of nesting inside the spawned child of the previous level's container (BranchOne / sequential ForLoop iteration / Subflow). When non-empty, the actual restart point is the LAST entry's step_id.
+                  items:
+                    type: object
+                    required:
+                      - step_id
+                    properties:
+                      step_id:
+                        type: string
+                        description: step id at this nesting level
+                      branch_or_iteration_n:
+                        type: integer
+                        description: for ForLoop containers, the iteration to restart at (0-based; iterations 0..n-1 are preserved)
 
       responses:
         "201":
@@ -10839,6 +11200,74 @@ paths:
                     type: string
                 required:
                   - lock
+
+  /w/{workspace}/jobs/run/dependencies_async:
+    post:
+      summary: queue a one-off dependencies job and return the job uuid
+      operationId: runRawScriptDependenciesAsync
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      requestBody:
+        description: raw script content
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                raw_scripts:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/RawScriptForDependencies"
+                entrypoint:
+                  type: string
+              required:
+                - entrypoint
+                - raw_scripts
+      responses:
+        "201":
+          description: dependency job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
+  /w/{workspace}/jobs/run/flow_dependencies_async:
+    post:
+      summary: queue a one-off flow dependencies job and return the job uuid
+      operationId: runFlowDependenciesAsync
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      requestBody:
+        description: flow value and path
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                flow_value:
+                  $ref: "#/components/schemas/FlowValue"
+              required:
+                - path
+                - flow_value
+      responses:
+        "201":
+          description: flow dependencies job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
 
   /w/{workspace}/jobs/run/preview_flow:
     post:
@@ -11201,6 +11630,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: force_cancel
+          in: query
+          schema:
+            type: boolean
+        - name: all_workspaces
           in: query
           schema:
             type: boolean
@@ -11651,6 +12084,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: approval_token
+          in: query
+          description: Approval token granting read access to the job when not logged in. The token must be the one issued for this job's flow (i.e. the flow id used when generating the approval URL).
+          schema:
+            type: string
       responses:
         "200":
           description: job details
@@ -12836,6 +13274,11 @@ paths:
               properties:
                 enabled:
                   type: boolean
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    schedule in a fork whose parent has the same path enabled.
               required:
                 - enabled
 
@@ -13282,6 +13725,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -13449,6 +13897,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -13649,6 +14102,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -13890,6 +14348,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -14085,6 +14548,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -14651,6 +15119,28 @@ paths:
                 items:
                   $ref: "#/components/schemas/SharedDriveEntry"
 
+  /w/{workspace}/native_triggers/github/repos:
+    get:
+      summary: list GitHub repositories accessible to the user
+      operationId: listGithubRepos
+      tags:
+        - native_trigger
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: list of GitHub repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GithubRepoEntry"
+
   /native_triggers/{service_name}/w/{workspace_id}/webhook/{internal_id}:
     post:
       summary: receive webhook from external native trigger service
@@ -14851,6 +15341,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -15046,6 +15541,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -15152,6 +15652,301 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /w/{workspace}/azure_triggers/create:
+    post:
+      summary: create an Azure Event Grid trigger
+      operationId: createAzureTrigger
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AzureTriggerData"
+      responses:
+        "201":
+          description: azure trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/azure_triggers/update/{path}:
+    post:
+      summary: update an Azure Event Grid trigger
+      operationId: updateAzureTrigger
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AzureTriggerData"
+      responses:
+        "200":
+          description: azure trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/azure_triggers/delete/{path}:
+    delete:
+      summary: delete an Azure Event Grid trigger
+      operationId: deleteAzureTrigger
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: azure trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/azure_triggers/get/{path}:
+    get:
+      summary: get an Azure Event Grid trigger
+      operationId: getAzureTrigger
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: azure trigger
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AzureTrigger"
+
+  /w/{workspace}/azure_triggers/list:
+    get:
+      summary: list azure triggers
+      operationId: listAzureTriggers
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by exact path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: azure trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AzureTrigger"
+
+  /w/{workspace}/azure_triggers/exists/{path}:
+    get:
+      summary: check whether an azure trigger exists
+      operationId: existsAzureTrigger
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: true/false
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/azure_triggers/setmode/{path}:
+    post:
+      summary: set azure trigger mode
+      operationId: setAzureTriggerMode
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
+              required:
+                - mode
+      responses:
+        "200":
+          description: trigger mode updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/azure_triggers/test:
+    post:
+      summary: test Azure service principal connection
+      operationId: testAzureConnection
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestAzureConnection"
+      responses:
+        "200":
+          description: connection successful
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/azure_triggers/namespaces/topics/list/{path}:
+    post:
+      summary: list topics under an Event Grid Namespace
+      operationId: listAzureNamespaceTopics
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AzureListTopics"
+      responses:
+        "200":
+          description: topic list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /w/{workspace}/azure_triggers/namespaces/subscriptions/list/{path}:
+    post:
+      summary: list subscriptions under a Namespace topic
+      operationId: listAzureNamespaceSubscriptions
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AzureListSubscriptions"
+      responses:
+        "200":
+          description: subscription list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /w/{workspace}/azure_triggers/subscriptions/delete/{path}:
+    delete:
+      summary: delete an Event Grid subscription on Azure
+      operationId: deleteAzureSubscription
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AzureDeleteSubscription"
+      responses:
+        "200":
+          description: subscription deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/azure_triggers/namespaces/list/{path}:
+    post:
+      summary: list Event Grid Namespaces the service principal can access
+      operationId: listAzureNamespaces
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: namespace list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AzureArmResource"
+
+  /w/{workspace}/azure_triggers/basic/topics/list/{path}:
+    post:
+      summary: list Basic Event Grid topics + system topics the service principal can access
+      operationId: listAzureBasicTopics
+      tags:
+        - azure_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: topic list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AzureArmResource"
 
   /w/{workspace}/postgres_triggers/postgres/version/{path}:
     get:
@@ -15556,6 +16351,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -15782,6 +16582,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -17033,6 +17838,7 @@ paths:
                 postgres_trigger,
                 mqtt_trigger,
                 gcp_trigger,
+                azure_trigger,
                 sqs_trigger,
                 email_trigger,
                 volume,
@@ -17079,6 +17885,7 @@ paths:
                 postgres_trigger,
                 mqtt_trigger,
                 gcp_trigger,
+                azure_trigger,
                 sqs_trigger,
                 email_trigger,
                 volume,
@@ -17136,6 +17943,7 @@ paths:
                 postgres_trigger,
                 mqtt_trigger,
                 gcp_trigger,
+                azure_trigger,
                 sqs_trigger,
                 email_trigger,
                 volume,
@@ -17997,6 +18805,15 @@ paths:
           description: S3 file key to check (e.g., gitrepos/{workspace_id}/u/user/resource/{commit_hash})
           in: query
           required: true
+          schema:
+            type: string
+        - name: marker_file
+          description: |
+            If provided, the folder is only considered to exist when this exact
+            sentinel file is present under file_key. Lets callers distinguish a
+            fully populated folder from a partial upload.
+          in: query
+          required: false
           schema:
             type: string
       responses:
@@ -20283,7 +21100,7 @@ components:
 
     FlowConversationMessage:
       type: object
-      required: [id, conversation_id, message_type, content, created_at]
+      required: [id, conversation_id, message_type, content, created_at, created_seq]
       properties:
         id:
           type: string
@@ -20309,6 +21126,10 @@ components:
           type: string
           format: date-time
           description: When the message was created
+        created_seq:
+          type: integer
+          format: int64
+          description: Monotonic cursor assigned when the message is inserted
         step_name:
           type: string
           description: The step name that produced that message
@@ -21740,6 +22561,8 @@ components:
             type: string
         email:
           type: string
+        workspace_id:
+          type: string
       required:
         - token_prefix
         - created_at
@@ -22466,7 +23289,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this schedule
+          description: The unique Windmill path for this schedule. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`.
         edited_by:
           type: string
           description: Username of the last person who edited this schedule
@@ -22627,7 +23450,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this schedule
+          description: The unique Windmill path for this schedule. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`.
         schedule:
           type: string
           description: Cron expression with 6 fields (seconds, minutes, hours, day of month, month, day of week). Example '0 0 12 * * *' for daily at noon
@@ -22843,7 +23666,9 @@ components:
         - mqtt
         - sqs
         - gcp
+        - azure
         - google
+        - github
 
     TriggerMode:
       description: job trigger mode
@@ -22858,7 +23683,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when triggered
@@ -23111,7 +23936,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when triggered
@@ -23209,7 +24034,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when triggered
@@ -23329,11 +24154,15 @@ components:
           type: number
         gcp_count:
           type: number
+        azure_count:
+          type: number
         sqs_count:
           type: number
         nextcloud_count:
           type: number
         google_count:
+          type: number
+        github_count:
           type: number
 
     WebsocketHeartbeat:
@@ -23435,7 +24264,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -23523,7 +24352,7 @@ components:
           description: The WebSocket URL to connect to (can be a static URL or computed by a runnable)
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -23739,7 +24568,7 @@ components:
           description: MQTT protocol version ('v3' or 'v5')
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -23803,7 +24632,7 @@ components:
           description: MQTT protocol version ('v3' or 'v5')
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -23940,7 +24769,7 @@ components:
           $ref: "#/components/schemas/PushConfig"
         path:
           type: string
-          description: "The unique path identifier for this trigger."
+          description: "The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path."
         script_path:
           type: string
           description: "Path to the script or flow to execute when a message is received."
@@ -24000,6 +24829,172 @@ components:
           type: string
       required:
         - subscription_id
+
+    AzureMode:
+      type: string
+      enum:
+        - basic_push
+        - namespace_push
+        - namespace_pull
+      description: "Azure Event Grid trigger mode."
+
+    AzureArmResource:
+      type: object
+      description: "An ARM resource the service principal can see."
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        location:
+          type: string
+        type:
+          type: string
+      required:
+        - id
+        - name
+        - type
+
+    AzureDeleteSubscription:
+      type: object
+      properties:
+        azure_mode:
+          $ref: "#/components/schemas/AzureMode"
+        scope_resource_id:
+          type: string
+        topic_name:
+          type: string
+          nullable: true
+        subscription_name:
+          type: string
+      required:
+        - azure_mode
+        - scope_resource_id
+        - subscription_name
+
+    AzureTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
+      type: object
+      description: "An Azure Event Grid trigger that executes a script or flow when events arrive."
+      properties:
+        azure_resource_path:
+          type: string
+        azure_mode:
+          $ref: "#/components/schemas/AzureMode"
+        scope_resource_id:
+          type: string
+          description: "ARM resource ID of the topic (basic) or namespace (namespace modes)."
+        topic_name:
+          type: string
+          nullable: true
+          description: "Topic name within the namespace (namespace modes only)."
+        subscription_name:
+          type: string
+        event_type_filters:
+          type: array
+          items:
+            type: string
+          nullable: true
+        server_id:
+          type: string
+        last_server_ping:
+          type: string
+          format: date-time
+        error:
+          type: string
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+      required:
+        - azure_resource_path
+        - azure_mode
+        - scope_resource_id
+        - subscription_name
+
+    AzureTriggerData:
+      type: object
+      description: "Data for creating or updating an Azure Event Grid trigger."
+      properties:
+        azure_resource_path:
+          type: string
+        azure_mode:
+          $ref: "#/components/schemas/AzureMode"
+        scope_resource_id:
+          type: string
+        topic_name:
+          type: string
+          nullable: true
+        subscription_name:
+          type: string
+        base_endpoint:
+          type: string
+          description: "Base URL for push delivery endpoints (push modes only)."
+        event_type_filters:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
+        script_path:
+          type: string
+        is_flow:
+          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
+        error_handler_path:
+          type: string
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+        permissioned_as:
+          type: string
+        preserve_permissioned_as:
+          type: boolean
+        labels:
+          type: array
+          items:
+            type: string
+      required:
+        - path
+        - script_path
+        - is_flow
+        - azure_resource_path
+        - azure_mode
+        - scope_resource_id
+        - subscription_name
+
+    TestAzureConnection:
+      type: object
+      properties:
+        azure_resource_path:
+          type: string
+      required:
+        - azure_resource_path
+
+    AzureListTopics:
+      type: object
+      properties:
+        scope_resource_id:
+          type: string
+      required:
+        - scope_resource_id
+
+    AzureListSubscriptions:
+      type: object
+      properties:
+        scope_resource_id:
+          type: string
+        topic_name:
+          type: string
+      required:
+        - scope_resource_id
+        - topic_name
 
     AwsAuthResourceType:
       type: string
@@ -24121,7 +25116,7 @@ components:
           description: Array of SQS message attribute names to include with each message
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24177,7 +25172,7 @@ components:
           description: Array of SQS message attribute names to include with each message
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24339,7 +25334,7 @@ components:
           description: Name of the PostgreSQL publication to subscribe to for change data capture
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when database changes are detected
@@ -24391,7 +25386,7 @@ components:
           description: Name of the PostgreSQL publication to subscribe to for change data capture
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when database changes are detected
@@ -24510,7 +25505,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24633,7 +25628,7 @@ components:
           description: "When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint."
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24723,7 +25718,7 @@ components:
       properties:
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -24803,7 +25798,7 @@ components:
           description: Array of NATS subjects to subscribe to
         path:
           type: string
-          description: The unique path identifier for this trigger
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.
         script_path:
           type: string
           description: Path to the script or flow to execute when a message is received
@@ -25446,8 +26441,21 @@ components:
           type: string
         branch_or_iteration_n:
           type: integer
+          description: 0-based iteration index for ForLoop / branch index for BranchAll. Iterations 0..n-1 are preserved; iteration n is restarted.
         flow_version:
           type: integer
+        branch_chosen:
+          description: For BranchOne nested restart — the branch that was originally chosen, used to lock branch evaluation.
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [default, branch]
+            branch:
+              type: integer
+        nested:
+          $ref: "#/components/schemas/RestartedFrom"
+          description: When set, the worker spawns the child for `step_id` as a `RestartedFlow` against `nested.flow_job_id` instead of fresh-launching it.
 
     Policy:
       type: object
@@ -25685,20 +26693,18 @@ components:
       properties:
         access_token:
           type: string
-        team_id:
-          type: string
-        team_name:
-          type: string
-        bot:
+        team:
           type: object
           properties:
-            bot_access_token:
+            id:
               type: string
+            name:
+              type: string
+          required:
+            - id
+            - name
       required:
         - access_token
-        - team_id
-        - team_name
-        - bot
 
     TokenResponse:
       type: object
@@ -25866,6 +26872,39 @@ components:
         error:
           type: string
 
+    DataTableTables:
+      type: object
+      required: [datatable_name, schemas]
+      properties:
+        datatable_name:
+          type: string
+        schemas:
+          type: object
+          description: "Hierarchical metadata: schema_name -> table_names"
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        error:
+          type: string
+
+    DataTableTableSchema:
+      type: object
+      required: [datatable_name, schema_name, table_name, columns]
+      properties:
+        datatable_name:
+          type: string
+        schema_name:
+          type: string
+        table_name:
+          type: string
+        columns:
+          type: object
+          description: "Columns in this table: column_name -> compact_type"
+          additionalProperties:
+            type: string
+            description: "Compact type: 'type[?][=default]' where ? means nullable"
+
     DynamicInputData:
       type: object
       properties:
@@ -26025,8 +27064,6 @@ components:
           type: boolean
         group_by_folder:
           type: boolean
-        force_branch:
-          type: string
         collapsed:
           type: boolean
         settings:
@@ -26304,6 +27341,7 @@ components:
           sqs,
           mqtt,
           gcp,
+          azure,
           email,
         ]
 
@@ -26846,6 +27884,7 @@ components:
       enum:
         - nextcloud
         - google
+        - github
 
     NativeTrigger:
       type: object
@@ -27119,3 +28158,20 @@ components:
       required:
         - id
         - name
+
+    GithubRepoEntry:
+      type: object
+      properties:
+        full_name:
+          type: string
+        name:
+          type: string
+        owner:
+          type: string
+        private:
+          type: boolean
+      required:
+        - full_name
+        - name
+        - owner
+        - private

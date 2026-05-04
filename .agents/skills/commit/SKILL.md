@@ -52,8 +52,6 @@ chore: upgrade sqlx to 0.7
 4. Stage ONLY the modified/relevant files: `git add <file1> <file2> ...`
 5. Create the commit with conventional format:
    ```bash
-   git commit -m "<type>: <description>
-
-   Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+   git commit -m "<type>: <description>"
    ```
 6. Run `git status` to verify the commit succeeded

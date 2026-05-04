@@ -74,6 +74,7 @@
 	} from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
 	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
+	import AzureIcon from '../icons/AzureIcon.svelte'
 
 	async function leaveWorkspace() {
 		await WorkspaceService.leaveWorkspace({ workspace: $workspaceStore ?? '' })
@@ -93,7 +94,7 @@
 	async function loadForkedDatatables() {
 		if (!$workspaceStore) return
 		try {
-			const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore })
+			const settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore })
 			const datatables = settings.datatable?.datatables ?? {}
 			forkedDatatables = Object.entries(datatables)
 				.filter(([_, dt]) => dt.forked_from != null)
@@ -364,6 +365,15 @@
 			kind: 'gcp',
 			aiId: 'sidebar-menu-link-gcp',
 			aiDescription: 'Button to navigate to GCP Pub/Sub triggers'
+		},
+		{
+			label: 'Azure Event Grid' + ($enterpriseLicense ? '' : ' (EE)'),
+			href: '/azure_triggers',
+			icon: AzureIcon,
+			disabled: $userStore?.operator || !$enterpriseLicense,
+			kind: 'azure',
+			aiId: 'sidebar-menu-link-azure',
+			aiDescription: 'Button to navigate to Azure Event Grid triggers'
 		},
 		{
 			label: 'MQTT',

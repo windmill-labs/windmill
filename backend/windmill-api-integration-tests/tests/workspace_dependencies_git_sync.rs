@@ -456,3 +456,182 @@ async fn test_workspace_dependencies_commit_message(db: Pool<Postgres>) -> anyho
 
     Ok(())
 }
+
+// ============================================================================
+// Promotion-mode debounce-key tests
+// ============================================================================
+
+/// Configure git sync in promotion mode (one branch per object), with explicit
+/// include_type and include_path lists so script deploys fire the callback.
+#[allow(dead_code)]
+async fn setup_promotion_git_sync_config(
+    db: &Pool<Postgres>,
+    sync_script_path: &str,
+    group_by_folder: bool,
+) -> anyhow::Result<()> {
+    let git_sync_config = json!({
+        "include_type": ["script"],
+        "include_path": ["**"],
+        "repositories": [{
+            "script_path": sync_script_path,
+            "git_repo_resource_path": "$res:u/test-user/test_git_repo",
+            "use_individual_branch": true,
+            "group_by_folder": group_by_folder
+        }]
+    });
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+        git_sync_config,
+        "test-workspace"
+    )
+    .execute(db)
+    .await?;
+
+    Ok(())
+}
+
+/// Create a script via the API (triggering handle_deployment_metadata).
+#[allow(dead_code)]
+async fn create_test_script(
+    client: &windmill_api_client::Client,
+    path: &str,
+) -> anyhow::Result<()> {
+    let resp = client
+        .client()
+        .post(format!(
+            "{}/w/test-workspace/scripts/create",
+            client.baseurl()
+        ))
+        .json(&json!({
+            "path": path,
+            "summary": "",
+            "description": "",
+            // bash has no lock step, so handle_deployment_metadata runs
+            "content": "echo hi",
+            "language": "bash"
+        }))
+        .send()
+        .await?;
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    anyhow::ensure!(
+        status.is_success(),
+        "failed to create script {}: {} {}",
+        path,
+        status,
+        body
+    );
+    Ok(())
+}
+
+/// Poll the `debounce_key` table until `expected` appears, or timeout.
+#[allow(dead_code)]
+async fn wait_for_debounce_key(
+    db: &Pool<Postgres>,
+    expected: &str,
+    timeout: Duration,
+) -> anyhow::Result<Vec<String>> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let keys: Vec<String> =
+            sqlx::query_scalar!("SELECT key FROM debounce_key WHERE key LIKE 'git_sync:%'")
+                .fetch_all(db)
+                .await?;
+        if keys.iter().any(|k| k == expected) {
+            return Ok(keys);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Ok(keys);
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Promotion mode with one branch per object: the debounce key must scope to
+/// (path_type, path) so rapid re-edits of the same script collapse while
+/// different scripts run in parallel.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_promotion_individual_branch_debounces_per_path(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    create_folder(&db, "28103").await?;
+    create_folder(&db, "target").await?;
+    create_git_repo_resource(&db).await?;
+    let sync_script_path = "f/28103/test_sync_individual_branch";
+    create_sync_script(&db, sync_script_path).await?;
+    setup_promotion_git_sync_config(&db, sync_script_path, false).await?;
+
+    let (client, _port, _server) = init_client(db.clone()).await;
+
+    create_test_script(&client, "f/target/alpha").await?;
+    create_test_script(&client, "f/target/beta").await?;
+
+    // Wait for both deployment callbacks to resolve a debounce key. The
+    // alpha key is polled first as a warm-up, then we also wait for beta
+    // so the assertions don't race the second spawned callback.
+    let expected_alpha = "git_sync:script:f/target/alpha";
+    let expected_beta = "git_sync:script:f/target/beta";
+    let _ = wait_for_debounce_key(&db, expected_alpha, Duration::from_secs(5)).await?;
+    let keys = wait_for_debounce_key(&db, expected_beta, Duration::from_secs(5)).await?;
+    assert!(
+        keys.iter().any(|k| k == expected_alpha),
+        "expected per-path debounce key {expected_alpha} in {keys:?}"
+    );
+    assert!(
+        keys.iter().any(|k| k == expected_beta),
+        "expected per-path debounce key {expected_beta} in {keys:?}"
+    );
+
+    Ok(())
+}
+
+/// Promotion mode with group_by_folder: items destined for the same per-folder
+/// branch must share one debounce key so they accumulate into a single sync
+/// job; scripts in different folders must get distinct keys.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_promotion_group_by_folder_debounces_per_folder(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    create_folder(&db, "28103").await?;
+    create_folder(&db, "grouped").await?;
+    create_folder(&db, "other").await?;
+    create_git_repo_resource(&db).await?;
+    let sync_script_path = "f/28103/test_sync_group_by_folder";
+    create_sync_script(&db, sync_script_path).await?;
+    setup_promotion_git_sync_config(&db, sync_script_path, true).await?;
+
+    let (client, _port, _server) = init_client(db.clone()).await;
+
+    // Two scripts in the same folder — should share one debounce key.
+    create_test_script(&client, "f/grouped/alpha").await?;
+    create_test_script(&client, "f/grouped/beta").await?;
+    // One in a different folder — should get its own key.
+    create_test_script(&client, "f/other/gamma").await?;
+
+    let expected_grouped = "git_sync:folder:f/grouped";
+    let expected_other = "git_sync:folder:f/other";
+    // Wait for BOTH folder keys to appear, not just the first one.
+    let keys = wait_for_debounce_key(&db, expected_other, Duration::from_secs(5)).await?;
+    assert!(
+        keys.iter().any(|k| k == expected_grouped),
+        "expected per-folder debounce key {expected_grouped} in {keys:?}"
+    );
+    assert!(
+        keys.iter().any(|k| k == expected_other),
+        "expected per-folder debounce key {expected_other} in {keys:?}"
+    );
+    // Paths within the same folder must NOT leak as their own keys.
+    assert!(
+        !keys.iter().any(|k| k.starts_with("git_sync:script:")),
+        "group_by_folder mode should not emit per-path keys, got: {keys:?}"
+    );
+
+    Ok(())
+}

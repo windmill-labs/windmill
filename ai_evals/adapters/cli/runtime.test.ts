@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import {
   anthropicUsageToBenchmarkTokenUsage,
   extractCliResultTokenUsage,
+  extractProposedWmillCommands,
+  parseWmillInvocationLog,
 } from "./runtime";
 
 describe("anthropicUsageToBenchmarkTokenUsage", () => {
@@ -68,5 +70,80 @@ describe("extractCliResultTokenUsage", () => {
       completion: 80,
       total: 390,
     });
+  });
+});
+
+describe("extractProposedWmillCommands", () => {
+  it("extracts proposed commands from bullets, code blocks, and inline code", () => {
+    expect(
+      extractProposedWmillCommands(`
+Next:
+- \`wmill generate-metadata --yes\`
+- wmill sync push
+
+You can inspect failures with \`wmill job logs 123\`.
+`)
+    ).toEqual([
+      "wmill generate-metadata --yes",
+      "wmill sync push",
+      "wmill job logs 123",
+    ]);
+  });
+
+  it("extracts inline prose commands that are not wrapped in backticks", () => {
+    expect(
+      extractProposedWmillCommands(
+        "The first command is wmill sync pull before you edit locally."
+      )
+    ).toEqual(["wmill sync pull"]);
+  });
+
+  it("extracts multiple inline prose commands from a single sentence", () => {
+    expect(
+      extractProposedWmillCommands(
+        "Run wmill generate-metadata and then wmill sync push when you are ready."
+      )
+    ).toEqual(["wmill generate-metadata", "wmill sync push"]);
+  });
+
+  it("ignores negated command mentions", () => {
+    expect(
+      extractProposedWmillCommands(
+        "Do not run `wmill sync push`. Instead run `wmill sync pull` first."
+      )
+    ).toEqual(["wmill sync pull"]);
+  });
+});
+
+describe("parseWmillInvocationLog", () => {
+  it("parses stubbed wmill invocations into structured records", () => {
+    expect(
+      parseWmillInvocationLog(`noise
+__WMILL_BENCHMARK__
+2026-04-21T12:00:00+00:00
+/tmp/workspace
+2
+generate-metadata
+--yes
+__WMILL_BENCHMARK__
+2026-04-21T12:00:05+00:00
+/tmp/workspace
+3
+sync
+push
+--dry-run
+`)
+    ).toEqual([
+      {
+        argv: ["generate-metadata", "--yes"],
+        cwd: "/tmp/workspace",
+        timestamp: "2026-04-21T12:00:00+00:00",
+      },
+      {
+        argv: ["sync", "push", "--dry-run"],
+        cwd: "/tmp/workspace",
+        timestamp: "2026-04-21T12:00:05+00:00",
+      },
+    ]);
   });
 });

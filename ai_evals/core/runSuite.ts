@@ -7,6 +7,7 @@ import type {
   FrontendBenchmarkProgressEvent,
   ModeRunner,
 } from "./types";
+import { validateToolExpectations } from "./validators";
 
 export async function runSuite<TInitial, TExpected, TActual>(input: {
   modeRunner: ModeRunner<TInitial, TExpected, TActual>;
@@ -100,6 +101,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
       const initial = await input.modeRunner.loadInitial(input.evalCase.initialPath);
       const expected = await input.modeRunner.loadExpected(input.evalCase.expectedPath);
       const run = await input.modeRunner.run(input.evalCase.prompt, initial, {
+        evalCase: input.evalCase,
         caseId: input.evalCase.id,
         caseNumber: input.caseIndex + 1,
         totalCases: input.totalCases,
@@ -143,6 +145,20 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
                 runs: input.runs,
               })
           : undefined,
+        onToolCall: input.verbose && surface
+          ? ({ toolName, argumentsText }) =>
+              input.onProgress?.({
+                type: "tool-call",
+                surface,
+                caseId: input.evalCase.id,
+                caseNumber: input.caseIndex + 1,
+                totalCases: input.totalCases,
+                attempt,
+                runs: input.runs,
+                toolName,
+                argumentsText,
+              })
+          : undefined,
       });
       const checks: BenchmarkCheck[] = [
         buildCheck("run succeeded", run.success, run.error),
@@ -153,6 +169,10 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
           expected,
           actual: run.actual,
           run,
+        }),
+        ...validateToolExpectations({
+          run,
+          toolExpect: input.evalCase.toolExpect,
         }),
       ];
       const artifactFiles = input.modeRunner.buildArtifacts?.(run.actual) ?? [];
@@ -167,6 +187,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
             actual: run.actual,
             run,
             context: {
+              evalCase: input.evalCase,
               caseId: input.evalCase.id,
               caseNumber: input.caseIndex + 1,
               totalCases: input.totalCases,
@@ -197,7 +218,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
       let judgeScore: number | null = null;
       let judgeSummary: string | null = null;
 
-      if (run.success) {
+      if (run.success && !input.evalCase.skipJudge) {
         const judge = await judgeOutput({
           mode: input.modeRunner.mode,
           prompt: input.evalCase.prompt,
@@ -227,6 +248,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
         assistantMessageCount: run.assistantMessageCount,
         toolCallCount: run.toolCallCount,
         toolsUsed: uniqueStrings(run.toolsUsed),
+        toolCallDetails: run.toolCallDetails,
         skillsInvoked: uniqueStrings(run.skillsInvoked),
         checks,
         judgeScore,

@@ -1,5 +1,7 @@
 import { minimatch } from 'minimatch'
 import {
+	AzureTriggerService,
+	EmailTriggerService,
 	GcpTriggerService,
 	HttpTriggerService,
 	KafkaTriggerService,
@@ -84,13 +86,34 @@ export async function existsTrigger(
 		return await WebsocketTriggerService.existsWebsocketTrigger(data)
 	} else if (triggerKind === 'nats') {
 		return await NatsTriggerService.existsNatsTrigger(data)
+	} else if (triggerKind === 'azure') {
+		return await AzureTriggerService.existsAzureTrigger(data)
+	} else if (triggerKind === 'emails') {
+		return await EmailTriggerService.existsEmailTrigger(data)
 	} else if (triggerKind === 'schedules') {
 		return await ScheduleService.existsSchedule(data)
 	}
 
 	throw new Error(
-		`Unexpected trigger kind ${triggerKind}. Allowed kinds are: routes, kafka, mqtt, postgres, sqs, gcp, websockets, nats, schedules.`
+		`Unexpected trigger kind ${triggerKind}. Allowed kinds are: routes, kafka, mqtt, postgres, sqs, gcp, websockets, nats, azure, emails, schedules.`
 	)
+}
+
+/**
+ * Strip operational state (`mode`, `enabled`) from a trigger/schedule payload
+ * before sending it to an update endpoint via the merge UI. The backend's
+ * `update_trigger` handler preserves the target row's existing `mode` when
+ * both fields are absent from the request (`is_mode_unspecified()`), so
+ * stripping here lets a fork→parent (or parent→fork) deploy carry config
+ * changes without flipping the target's enabled/disabled state. Schedules'
+ * `EditSchedule` already lacks `enabled` on the backend, but stripping keeps
+ * the intent explicit and matches the YAML/CLI round-trip behavior.
+ */
+function stripOperationalState<T extends Record<string, any>>(
+	payload: T
+): Omit<T, 'mode' | 'enabled'> {
+	const { mode: _mode, enabled: _enabled, ...rest } = payload
+	return rest
 }
 
 /**
@@ -113,7 +136,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...sqsTrigger,
+				...stripOperationalState(sqsTrigger),
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -128,7 +151,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...kafkaTrigger,
+				...stripOperationalState(kafkaTrigger),
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -143,7 +166,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...mqttTrigger,
+				...stripOperationalState(mqttTrigger),
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -158,7 +181,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...natsTrigger,
+				...stripOperationalState(natsTrigger),
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -179,7 +202,7 @@ export async function getTriggersDeployData(
 		}
 
 		const data: GcpTriggerData = {
-			...gcpTrigger,
+			...stripOperationalState(gcpTrigger),
 			delivery_config: gcpTrigger.delivery_config ?? undefined,
 			base_endpoint:
 				gcpTrigger.delivery_type === 'push' ? `${window.location.origin}${base}` : undefined,
@@ -200,7 +223,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...postgresTrigger,
+				...stripOperationalState(postgresTrigger),
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -215,7 +238,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...websocketTrigger,
+				...stripOperationalState(websocketTrigger),
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -230,12 +253,42 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...httpTrigger,
+				...stripOperationalState(httpTrigger),
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
 			createFn: HttpTriggerService.createHttpTrigger,
 			updateFn: HttpTriggerService.updateHttpTrigger
+		}
+	} else if (kind === 'azure') {
+		const azureTrigger = await AzureTriggerService.getAzureTrigger({
+			workspace: workspace!,
+			path: path
+		})
+
+		return {
+			data: {
+				...stripOperationalState(azureTrigger),
+				permissioned_as: onBehalfOf,
+				preserve_permissioned_as: preservePermissionedAs
+			},
+			createFn: AzureTriggerService.createAzureTrigger,
+			updateFn: AzureTriggerService.updateAzureTrigger
+		}
+	} else if (kind === 'emails') {
+		const emailTrigger = await EmailTriggerService.getEmailTrigger({
+			workspace: workspace!,
+			path: path
+		})
+
+		return {
+			data: {
+				...stripOperationalState(emailTrigger),
+				permissioned_as: onBehalfOf,
+				preserve_permissioned_as: preservePermissionedAs
+			},
+			createFn: EmailTriggerService.createEmailTrigger,
+			updateFn: EmailTriggerService.updateEmailTrigger
 		}
 	} else if (kind === 'schedules') {
 		const schedulesTrigger = await ScheduleService.getSchedule({
@@ -244,7 +297,7 @@ export async function getTriggersDeployData(
 		})
 		return {
 			data: {
-				...schedulesTrigger,
+				...stripOperationalState(schedulesTrigger),
 				// permissioned_as is only set on create, not update
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs

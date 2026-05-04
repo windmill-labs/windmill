@@ -30,7 +30,13 @@
 	let {
 		git_repo_resource_path = $bindable(''),
 		include_path = $bindable(['f/**']),
-		include_type = $bindable(['script', 'flow', 'app', 'folder'] as GitSyncObjectType[]),
+		include_type = $bindable([
+			'script',
+			'flow',
+			'app',
+			'folder',
+			'workspacedependencies'
+		] as GitSyncObjectType[]),
 		exclude_types_override = $bindable([] as GitSyncObjectType[]),
 		isLegacyRepo = false,
 		excludes = $bindable([] as string[]),

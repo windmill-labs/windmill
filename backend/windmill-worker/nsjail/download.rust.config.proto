@@ -93,8 +93,16 @@ mount {
     src: "{CARGO_HOME}"
     dst: "{CARGO_HOME}"
     is_bind: true
-    # Readonly 
+    # Readonly
     rw: false
+}
+
+mount {
+    src: "{RUSTUP_HOME}"
+    dst: "{RUSTUP_HOME}"
+    is_bind: true
+    rw: false
+    mandatory: false
 }
 
 mount {

@@ -1,17 +1,14 @@
 use async_trait::async_trait;
-use windmill_common::{
-    ai_google::{
-        openai_messages_to_gemini, openai_tools_to_gemini, GeminiGenerationConfig,
-        GeminiImageContent, GeminiImageRequest, GeminiImageResponse, GeminiInlineData, GeminiPart,
-        GeminiPredictContent, GeminiTextRequest, GeminiTool,
-    },
-    client::AuthedClient,
-    error::Error,
+use windmill_ai::ai_google::{
+    openai_messages_to_gemini, openai_tools_to_gemini, GeminiGenerationConfig, GeminiImageContent,
+    GeminiImageRequest, GeminiImageResponse, GeminiInlineData, GeminiPart, GeminiPredictContent,
+    GeminiTextRequest, GeminiTool,
 };
+use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
     image_handler::{download_and_encode_s3_image, prepare_messages_for_api},
-    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
+    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{GeminiSSEParser, SSEParser},
     types::*,
 };
@@ -138,7 +135,10 @@ impl GoogleAIQueryBuilder {
         openai_tools_to_gemini(tool_defs, &tool_params, has_websearch)
     }
 
-    fn build_generation_config(&self, args: &BuildRequestArgs<'_>) -> Option<GeminiGenerationConfig> {
+    fn build_generation_config(
+        &self,
+        args: &BuildRequestArgs<'_>,
+    ) -> Option<GeminiGenerationConfig> {
         let has_output_schema = args
             .output_schema
             .and_then(|s| s.properties.as_ref())
@@ -148,7 +148,10 @@ impl GoogleAIQueryBuilder {
         let (response_mime_type, response_schema) = if has_output_schema {
             let mut schema = args.output_schema.unwrap().clone();
             schema.sanitize_for_google();
-            (Some("application/json".to_string()), serde_json::to_value(&schema).ok())
+            (
+                Some("application/json".to_string()),
+                serde_json::to_value(&schema).ok(),
+            )
         } else {
             (None, None)
         };
@@ -222,9 +225,9 @@ impl QueryBuilder for GoogleAIQueryBuilder {
     async fn parse_streaming_response(
         &self,
         response: reqwest::Response,
-        stream_event_processor: StreamEventProcessor,
+        stream_event_sink: Box<dyn StreamEventSink>,
     ) -> Result<ParsedResponse, Error> {
-        let mut gemini_sse_parser = GeminiSSEParser::new(stream_event_processor);
+        let mut gemini_sse_parser = GeminiSSEParser::new(stream_event_sink);
         gemini_sse_parser.parse_events(response).await?;
 
         let GeminiSSEParser {
@@ -256,7 +259,11 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         });
 
         Ok(ParsedResponse::Text {
-            content: if accumulated_content.is_empty() { None } else { Some(accumulated_content) },
+            content: if accumulated_content.is_empty() {
+                None
+            } else {
+                Some(accumulated_content)
+            },
             tool_calls: accumulated_tool_calls.into_values().collect(),
             events_str: Some(events_str),
             annotations,
@@ -274,8 +281,11 @@ impl QueryBuilder for GoogleAIQueryBuilder {
                     format!("{}/{}:streamGenerateContent?alt=sse", base_url, model)
                 }
                 OutputType::Image => {
-                    let url_suffix =
-                        if model.contains("imagen") { "predict" } else { "generateContent" };
+                    let url_suffix = if model.contains("imagen") {
+                        "predict"
+                    } else {
+                        "generateContent"
+                    };
                     format!("{}/{}:{}", base_url, model, url_suffix)
                 }
             }
@@ -283,11 +293,17 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             // Standard Google AI: base_url is generativelanguage.googleapis.com/v1beta
             match output_type {
                 OutputType::Text => {
-                    format!("{}/models/{}:streamGenerateContent?alt=sse", base_url, model)
+                    format!(
+                        "{}/models/{}:streamGenerateContent?alt=sse",
+                        base_url, model
+                    )
                 }
                 OutputType::Image => {
-                    let url_suffix =
-                        if model.contains("imagen") { "predict" } else { "generateContent" };
+                    let url_suffix = if model.contains("imagen") {
+                        "predict"
+                    } else {
+                        "generateContent"
+                    };
                     format!("{}/models/{}:{}", base_url, model, url_suffix)
                 }
             }

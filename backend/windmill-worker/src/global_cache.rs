@@ -7,7 +7,6 @@ use windmill_object_store::object_store_reexports::ObjectStore;
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
 use std::sync::Arc;
 
-#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub const TARGET: &str = const_format::concatcp!(std::env::consts::OS, "_", std::env::consts::ARCH);
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]

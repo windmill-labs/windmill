@@ -63,59 +63,49 @@ import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 import { type AssetWithAccessType } from './components/assets/lib.js'
 
-const loadSchemaLastRun =
-	writable<[string | undefined, MainArgSignature | undefined, string | undefined]>(undefined)
+const loadSchemaLastRun = writable<
+	| [
+			string | undefined,
+			MainArgSignature | undefined,
+			string | undefined,
+			SupportedLanguage | 'bunnative' | undefined
+	  ]
+	| undefined
+>(undefined)
 
-let initializeTsPromise: Promise<any> | undefined = undefined
-export async function initWasmTs() {
-	if (initializeTsPromise == undefined) {
-		initializeTsPromise = initTsParser(wasmUrlTs)
+// Memoize each WASM parser's init promise. Without this, concurrent callers
+// (e.g. Promise.all in initFlowState across modules of the same language)
+// would each invoke the initializer and race — if any one of them rejected
+// transiently, the schema for that module would come back empty and the user
+// had to modify the code to trigger a second inference.
+function memoize(init: () => Promise<any>): () => Promise<any> {
+	let promise: Promise<any> | undefined
+	return () => {
+		if (promise == undefined) {
+			promise = init().catch((e) => {
+				// Allow a subsequent call to retry after a failed init
+				promise = undefined
+				throw e
+			})
+		}
+		return promise
 	}
-	await initializeTsPromise
 }
-async function initWasmRegex() {
-	await initRegexParsers(wasmUrlRegex)
-}
-async function initWasmPython() {
-	await initPythonParser(wasmUrlPy)
-}
-async function initWasmPhp() {
-	await initPhpParser(wasmUrlPhp)
-}
-async function initWasmRust() {
-	await initRustParser(wasmUrlRust)
-}
-async function initWasmGo() {
-	await initGoParser(wasmUrlGo)
-}
-async function initWasmYaml() {
-	await initYamlParser(wasmUrlYaml)
-}
-async function initWasmCSharp() {
-	await initCSharpParser(wasmUrlCSharp)
-}
-async function initWasmNu() {
-	await initNuParser(wasmUrlNu)
-}
-async function initWasmJava() {
-	await initJavaParser(wasmUrlJava)
-}
-async function initWasmRuby() {
-	await initRubyParser(wasmUrlRuby)
-}
-async function initWasmR() {
-	await initRParser(wasmUrlR)
-}
-async function initWasmAsset() {
-	await initAssetParser(wasmUrlAsset)
-}
-let initializeWacPromise: Promise<any> | undefined = undefined
-async function initWasmWac() {
-	if (initializeWacPromise == undefined) {
-		initializeWacPromise = initWacParser(wasmUrlWac)
-	}
-	await initializeWacPromise
-}
+
+export const initWasmTs = memoize(() => initTsParser(wasmUrlTs))
+const initWasmRegex = memoize(() => initRegexParsers(wasmUrlRegex))
+const initWasmPython = memoize(() => initPythonParser(wasmUrlPy))
+const initWasmPhp = memoize(() => initPhpParser(wasmUrlPhp))
+const initWasmRust = memoize(() => initRustParser(wasmUrlRust))
+const initWasmGo = memoize(() => initGoParser(wasmUrlGo))
+const initWasmYaml = memoize(() => initYamlParser(wasmUrlYaml))
+const initWasmCSharp = memoize(() => initCSharpParser(wasmUrlCSharp))
+const initWasmNu = memoize(() => initNuParser(wasmUrlNu))
+const initWasmJava = memoize(() => initJavaParser(wasmUrlJava))
+const initWasmRuby = memoize(() => initRubyParser(wasmUrlRuby))
+const initWasmR = memoize(() => initRParser(wasmUrlR))
+const initWasmAsset = memoize(() => initAssetParser(wasmUrlAsset))
+const initWasmWac = memoize(() => initWacParser(wasmUrlWac))
 
 export type WacDagNode = {
 	id: string
@@ -307,7 +297,13 @@ export async function inferArgs(
 } | null> {
 	const lastRun = get(loadSchemaLastRun)
 	let inferedSchema: MainArgSignature
-	if (lastRun && code == lastRun[0] && lastRun[1] && lastRun[2] == mainOverride) {
+	if (
+		lastRun &&
+		code == lastRun[0] &&
+		lastRun[1] &&
+		lastRun[2] == mainOverride &&
+		lastRun[3] === language
+	) {
 		inferedSchema = lastRun[1]
 	} else {
 		if (code == '') {
@@ -439,7 +435,7 @@ export async function inferArgs(
 		if (inferedSchema.type == 'Invalid') {
 			throw new Error(inferedSchema.error)
 		}
-		loadSchemaLastRun.set([code, inferedSchema, mainOverride])
+		loadSchemaLastRun.set([code, inferedSchema, mainOverride, language])
 	}
 
 	schema.required = []

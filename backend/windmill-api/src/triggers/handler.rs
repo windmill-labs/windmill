@@ -81,6 +81,16 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
+    #[cfg(all(feature = "enterprise", feature = "azure_trigger", feature = "private"))]
+    {
+        use crate::triggers::azure::AzureTrigger;
+
+        router = router.nest(
+            AzureTrigger::ROUTE_PREFIX,
+            complete_trigger_routes(AzureTrigger),
+        );
+    }
+
     #[cfg(feature = "postgres_trigger")]
     {
         use crate::triggers::postgres::PostgresTrigger;
@@ -135,8 +145,10 @@ pub struct TriggersCount {
     mqtt_count: i64,
     sqs_count: i64,
     gcp_count: i64,
+    azure_count: i64,
     nextcloud_count: i64,
     google_count: i64,
+    github_count: i64,
 }
 
 pub async fn get_triggers_count_internal(
@@ -251,6 +263,17 @@ pub async fn get_triggers_count_internal(
     #[cfg(not(all(feature = "gcp_trigger", feature = "enterprise", feature = "private")))]
     let gcp_count = 0;
 
+    #[cfg(all(feature = "azure_trigger", feature = "enterprise", feature = "private"))]
+    let azure_count = {
+        use crate::triggers::azure::AzureTrigger;
+        let count = AzureTrigger
+            .trigger_count(&mut tx, w_id, is_flow, path)
+            .await;
+        count
+    };
+    #[cfg(not(all(feature = "azure_trigger", feature = "enterprise", feature = "private")))]
+    let azure_count = 0;
+
     #[cfg(all(feature = "smtp", feature = "enterprise", feature = "private"))]
     let email_count = {
         use crate::triggers::email::EmailTrigger;
@@ -316,6 +339,16 @@ pub async fn get_triggers_count_internal(
     .await?
     .unwrap_or(0);
 
+    let github_count = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM native_trigger WHERE workspace_id = $1 AND script_path = $2 AND is_flow = $3 AND service_name = 'github'",
+        w_id,
+        path,
+        is_flow,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+
     Ok(axum::Json(TriggersCount {
         primary_schedule: primary_schedule
             .map(|s| windmill_trigger::handler::TriggerPrimarySchedule { schedule: s }),
@@ -330,8 +363,10 @@ pub async fn get_triggers_count_internal(
         postgres_count,
         mqtt_count,
         gcp_count,
+        azure_count,
         sqs_count,
         nextcloud_count,
         google_count,
+        github_count,
     }))
 }

@@ -109,7 +109,7 @@ async fn list_groups(
 
     let rows = sqlx::query_as!(
         Group,
-        "SELECT * FROM group_ WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
+        "SELECT workspace_id, name, summary, extra_perms FROM group_ WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -574,7 +574,7 @@ pub async fn get_group_opt<'c>(
 ) -> Result<Option<Group>> {
     let group_opt = sqlx::query_as!(
         Group,
-        "SELECT * FROM group_ WHERE name = $1 AND workspace_id = $2",
+        "SELECT workspace_id, name, summary, extra_perms FROM group_ WHERE name = $1 AND workspace_id = $2",
         name,
         w_id
     )

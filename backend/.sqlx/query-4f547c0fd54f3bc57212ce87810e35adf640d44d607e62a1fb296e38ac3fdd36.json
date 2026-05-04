@@ -33,7 +33,9 @@
                 "gcp",
                 "default_email",
                 "nextcloud",
-                "google"
+                "google",
+                "github",
+                "azure"
               ]
             }
           }
@@ -72,7 +74,9 @@
                 "gcp",
                 "default_email",
                 "nextcloud",
-                "google"
+                "google",
+                "github",
+                "azure"
               ]
             }
           }

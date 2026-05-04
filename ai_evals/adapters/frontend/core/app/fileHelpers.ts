@@ -8,15 +8,7 @@ import type {
 	LintResult,
 	SelectedContext
 } from '../../../../../frontend/src/lib/components/copilot/chat/app/core'
-
-function createEmptyLintResult(): LintResult {
-	return {
-		errorCount: 0,
-		warningCount: 0,
-		errors: { frontend: {}, backend: {} },
-		warnings: { frontend: {}, backend: {} }
-	}
-}
+import { buildAppWmillTypes, collectAppDiagnostics } from '../../../../core/appDiagnostics'
 
 async function writeFrontendFile(
 	workspaceRoot: string | undefined,
@@ -97,12 +89,19 @@ async function persistDatatables(
 export async function createAppFileHelpers(
 	initialFrontend: Record<string, string> = {},
 	initialBackend: Record<string, BackendRunnable> = {},
+	initialDatatables: DataTableSchema[] = [],
 	workspaceRoot?: string
 ): Promise<{
 	helpers: AppAIChatHelpers
 	getFiles: () => AppFiles
+	getEvalState: () => {
+		frontend: Record<string, string>
+		backend: Record<string, BackendRunnable>
+		datatables: DataTableSchema[]
+	}
 	getFrontend: () => Record<string, string>
 	getBackend: () => Record<string, BackendRunnable>
+	getDatatables: () => DataTableSchema[]
 	cleanup: () => Promise<void>
 	workspaceDir: string | null
 }> {
@@ -111,9 +110,24 @@ export async function createAppFileHelpers(
 	let snapshotId = 0
 	const snapshots = new Map<
 		number,
-		{ frontend: Record<string, string>; backend: Record<string, BackendRunnable> }
+		{
+			frontend: Record<string, string>
+			backend: Record<string, BackendRunnable>
+			datatables: DataTableSchema[]
+		}
 	>()
-	const datatables: DataTableSchema[] = []
+	const datatables: DataTableSchema[] = structuredClone(initialDatatables)
+
+	function lint(): LintResult {
+		return collectAppDiagnostics({
+			frontend,
+			backend
+		}).lintResult
+	}
+
+	function getGeneratedWmillTypes(): string {
+		return buildAppWmillTypes(backend)
+	}
 
 	for (const [path, content] of Object.entries(frontend)) {
 		await writeFrontendFile(workspaceRoot, path, content)
@@ -124,15 +138,34 @@ export async function createAppFileHelpers(
 	await persistDatatables(workspaceRoot, datatables)
 
 	const helpers: AppAIChatHelpers = {
-		listFrontendFiles: () => Object.keys(frontend),
-		getFrontendFile: (path: string) => frontend[path],
-		getFrontendFiles: () => ({ ...frontend }),
+		listFrontendFiles: () => [
+			...Object.keys(frontend).filter((path) => path !== '/wmill.d.ts'),
+			'/wmill.d.ts'
+		],
+		getFrontendFile: (path: string) => {
+			if (path === '/wmill.d.ts') {
+				return getGeneratedWmillTypes()
+			}
+			return frontend[path]
+		},
+		getFrontendFiles: () => ({
+			...Object.fromEntries(
+				Object.entries(frontend).filter(([path]) => path !== '/wmill.d.ts')
+			),
+			'/wmill.d.ts': getGeneratedWmillTypes()
+		}),
 		setFrontendFile: (path: string, content: string) => {
+			if (path === '/wmill.d.ts') {
+				return lint()
+			}
 			frontend[path] = content
 			void writeFrontendFile(workspaceRoot, path, content)
-			return createEmptyLintResult()
+			return lint()
 		},
 		deleteFrontendFile: (path: string) => {
+			if (path === '/wmill.d.ts') {
+				return
+			}
 			delete frontend[path]
 			void removeFrontendFile(workspaceRoot, path)
 		},
@@ -146,7 +179,7 @@ export async function createAppFileHelpers(
 		setBackendRunnable: async (key: string, runnable: BackendRunnable) => {
 			backend[key] = runnable
 			await writeBackendRunnable(workspaceRoot, key, runnable)
-			return createEmptyLintResult()
+			return lint()
 		},
 		deleteBackendRunnable: (key: string) => {
 			delete backend[key]
@@ -156,12 +189,13 @@ export async function createAppFileHelpers(
 			frontend: { ...frontend },
 			backend: { ...backend }
 		}),
-		getSelectedContext: (): SelectedContext => ({ type: 'none' }),
+		getSelectedContext: (): SelectedContext => ({}),
 		snapshot: () => {
 			const id = ++snapshotId
 			snapshots.set(id, {
 				frontend: { ...frontend },
-				backend: { ...backend }
+				backend: { ...backend },
+				datatables: structuredClone(datatables)
 			})
 			return id
 		},
@@ -172,9 +206,10 @@ export async function createAppFileHelpers(
 			}
 			frontend = { ...snapshot.frontend }
 			backend = { ...snapshot.backend }
+			datatables.splice(0, datatables.length, ...structuredClone(snapshot.datatables))
 			void syncWorkspace()
 		},
-		lint: () => createEmptyLintResult(),
+		lint,
 		getDatatables: async () => structuredClone(datatables),
 		getAvailableDatatableNames: () => datatables.map((datatable) => datatable.datatable_name),
 		execDatatableSql: async (
@@ -243,8 +278,14 @@ export async function createAppFileHelpers(
 			frontend: { ...frontend },
 			backend: { ...backend }
 		}),
+		getEvalState: () => ({
+			frontend: { ...frontend },
+			backend: { ...backend },
+			datatables: structuredClone(datatables)
+		}),
 		getFrontend: () => ({ ...frontend }),
 		getBackend: () => ({ ...backend }),
+		getDatatables: () => structuredClone(datatables),
 		cleanup: async () => {
 			if (workspaceRoot) {
 				await rm(workspaceRoot, { recursive: true, force: true })

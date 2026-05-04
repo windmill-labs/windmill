@@ -18,17 +18,19 @@ use windmill_common::{
     utils::empty_as_none,
     worker::{to_raw_value, Connection},
 };
-use windmill_object_store::convert_json_line_stream;
 use windmill_parser_sql::{parse_db_resource, parse_mssql_sig, parse_s3_mode};
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::common::{
-    build_args_values, get_reserved_variables, s3_mode_args_to_worker_data, OccupancyMetrics,
+    build_args_values, get_reserved_variables, s3_mode_args_to_worker_data,
+    s3_stream_and_upload_with_logs, OccupancyMetrics,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sql_s3_input::fetch_s3object_as_json_text;
 use windmill_common::client::AuthedClient;
+use windmill_types::s3::S3Object;
 
 use serde::Deserializer;
 
@@ -71,7 +73,7 @@ pub async fn do_mssql(
     job_dir: &str,
     parent_runnable_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
-    let mssql_args = build_args_values(job, authed_client, conn).await?;
+    let mut mssql_args = build_args_values(job, authed_client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
     let s3 = parse_s3_mode(&query)?
@@ -219,6 +221,33 @@ pub async fn do_mssql(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    // Materialize any `(s3object)` args into JSON text. tiberius binds the resulting
+    // String as nvarchar(max), which is exactly the input type for `OPENJSON(@P)`.
+    for arg in sig.iter() {
+        if arg.otyp.as_deref() != Some("s3object") {
+            continue;
+        }
+        let raw = mssql_args.remove(&arg.name).unwrap_or(Value::Null);
+        if matches!(raw, Value::Null) {
+            return Err(Error::BadRequest(format!(
+                "Missing S3Object value for arg `{}`",
+                arg.name
+            )));
+        }
+        let s3_obj: S3Object = serde_json::from_value(raw).map_err(|e| {
+            Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
+        })?;
+        let json_text = fetch_s3object_as_json_text(authed_client, &job.workspace_id, &s3_obj)
+            .await
+            .map_err(|e| {
+                Error::ExecutionErr(format!(
+                    "Failed to fetch S3 object for arg `{}`: {e}",
+                    arg.name
+                ))
+            })?;
+        mssql_args.insert(arg.name.clone(), Value::String(json_text));
+    }
+
     let reserved_variables =
         get_reserved_variables(job, &authed_client.token, conn, parent_runnable_path).await?;
 
@@ -246,17 +275,22 @@ pub async fn do_mssql(
         if let Some(s3) = s3 {
             let rows_stream = async_stream::stream! {
                 let mut stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?.into_row_stream().map(|row| {
-                    let raw_value = row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow);
-                    let json = raw_value.and_then(|raw_value| serde_json::from_str(raw_value.get()).map_err(to_anyhow));
-                    json
+                    row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow)
                 });
                 while let Some(row) = stream.next().await {
                     yield row;
                 }
             };
 
-            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
-            s3.upload(stream.boxed()).await?;
+            s3_stream_and_upload_with_logs(
+                "MSSQL",
+                rows_stream.boxed(),
+                &s3,
+                job.id,
+                &job.workspace_id,
+                conn,
+            )
+            .await?;
 
             Ok(to_raw_value(&s3.to_return_s3_obj()))
         } else {

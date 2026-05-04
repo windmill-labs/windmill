@@ -1,8 +1,8 @@
 import { mkdir, rm, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import type { ScriptLang } from '../../../../../frontend/src/lib/gen/types.gen'
-import type { ReviewChangesOpts } from '../../../../../frontend/src/lib/components/copilot/chat/monaco-adapter'
 import type { ScriptChatHelpers } from '../../../../../frontend/src/lib/components/copilot/chat/script/core'
+import type { WorkspaceMutationTarget } from '../../../../../frontend/src/lib/components/copilot/chat/workspaceTools'
 import { buildScriptLintResult } from './preview'
 import { registerBenchmarkWorkspace, unregisterBenchmarkWorkspace } from '../../mockBackend'
 
@@ -11,6 +11,10 @@ export interface ScriptEvalState {
 	lang: ScriptLang | 'bunnative'
 	path: string
 	args: Record<string, any>
+}
+
+function toRunnablePath(filePath: string): string {
+	return filePath.replace(/\.[^/.]+$/, '')
 }
 
 export async function createScriptFileHelpers(
@@ -39,24 +43,39 @@ export async function createScriptFileHelpers(
 		registerBenchmarkWorkspace(workspaceRoot)
 	}
 
-	const helpers: ScriptChatHelpers = {
+	const applyCode: NonNullable<ScriptChatHelpers['applyCode']> = async (
+		code,
+		opts
+	) => {
+		if (opts?.mode === 'revert') {
+			return
+		}
+		script = {
+			...script,
+			code
+		}
+		await persistScript()
+	}
+
+	const getLintErrors: NonNullable<ScriptChatHelpers['getLintErrors']> = () =>
+		buildScriptLintResult(script.code, script.lang)
+
+	const helpers: ScriptChatHelpers & {
+		getWorkspaceMutationTarget: () => WorkspaceMutationTarget
+	} = {
 		getScriptOptions: () => ({
 			code: script.code,
 			lang: script.lang,
 			path: script.path,
 			args: structuredClone(script.args)
 		}),
-		applyCode: async (code: string, opts?: ReviewChangesOpts) => {
-			if (opts?.mode === 'revert') {
-				return
-			}
-			script = {
-				...script,
-				code
-			}
-			await persistScript()
-		},
-		getLintErrors: () => buildScriptLintResult(script.code, script.lang)
+		getWorkspaceMutationTarget: () => ({
+			kind: 'script',
+			path: script.path ? toRunnablePath(script.path) : undefined,
+			deployed: Boolean(script.path)
+		}),
+		applyCode,
+		getLintErrors
 	}
 
 	return {

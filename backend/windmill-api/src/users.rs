@@ -748,6 +748,14 @@ async fn reset_password(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(req): Json<ResetPassword>,
 ) -> Result<Json<PasswordResetResponse>> {
+    if windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(Error::BadRequest(
+            "Password login is disabled on this instance".to_string(),
+        ));
+    }
+
     let mut tx = db.begin().await?;
 
     // Find the token and verify it's not expired

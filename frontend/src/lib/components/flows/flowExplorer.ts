@@ -1,42 +1,19 @@
 import type { FlowModule, InputTransform, OpenFlow } from '$lib/gen'
-import { isFlowModuleTool } from './agentToolUtils'
+import { collectDescendantFlowModules, getChildModuleBranches } from './flowTree'
 
 type ModuleBranches = FlowModule[][]
 
+/**
+ * Returns read-only child-module branches for explorer/search-style consumers.
+ * Structural knowledge lives in `flowTree.ts`; this file is a thin read-only adapter.
+ */
 export function getSubModules(flowModule: FlowModule): ModuleBranches {
-	if (flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow') {
-		return [flowModule.value.modules]
-	} else if (flowModule.value.type === 'branchall') {
-		return flowModule.value.branches.map((branch) => branch.modules)
-	} else if (flowModule.value.type == 'branchone') {
-		return [...flowModule.value.branches.map((branch) => branch.modules), flowModule.value.default]
-	} else if (flowModule.value.type === 'aiagent') {
-		// Return AI agent tools as pseudo-FlowModules for searching
-		if (flowModule.value.tools) {
-			return [
-				flowModule.value.tools
-					.filter(isFlowModuleTool)
-					.map(
-						(tool) =>
-							({
-								id: tool.id,
-								value: tool.value,
-								summary: tool.summary
-							}) as FlowModule
-					)
-			]
-		}
-	}
-	return []
+	return getChildModuleBranches(flowModule)
 }
 
 export function getAllSubmodules(flowModule: FlowModule): ModuleBranches {
 	return getSubModules(flowModule).map((modules) => {
-		return modules
-			.map((module) => {
-				return [module, ...getAllSubmodules(module).flat()]
-			})
-			.flat()
+		return modules.flatMap((module) => [module, ...collectDescendantFlowModules(module)])
 	})
 }
 

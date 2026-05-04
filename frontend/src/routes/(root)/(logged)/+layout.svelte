@@ -15,6 +15,7 @@
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
+	import ForkConflictModal from '$lib/components/ForkConflictModal.svelte'
 	import {
 		enterpriseLicense,
 		isPremiumStore,
@@ -254,9 +255,11 @@
 			sqs_used,
 			mqtt_used,
 			gcp_used,
+			azure_used,
 			email_used,
 			nextcloud_used,
-			google_used
+			google_used,
+			github_used
 		} = await WorkspaceService.getUsedTriggers({
 			workspace: $workspaceStore ?? ''
 		})
@@ -284,6 +287,9 @@
 		if (gcp_used) {
 			usedKinds.push('gcp')
 		}
+		if (azure_used) {
+			usedKinds.push('azure')
+		}
 		if (email_used) {
 			usedKinds.push('email')
 		}
@@ -292,6 +298,9 @@
 		}
 		if (google_used) {
 			usedKinds.push('google')
+		}
+		if (github_used) {
+			usedKinds.push('github')
 		}
 		$usedTriggerKinds = usedKinds
 	}
@@ -355,7 +364,7 @@
 	async function loadCriticalAlertsMuted() {
 		let g_muted = true
 		const ws_muted =
-			(await WorkspaceService.getSettings({ workspace: $workspaceStore! })).mute_critical_alerts ||
+			(await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })).mute_critical_alerts ||
 			false
 
 		if ($superadmin) {
@@ -828,6 +837,8 @@
 {#if $workspaceStore && globalDbManagerDrawer.val}
 	<DBManagerDrawer uriState={globalDbManagerDrawer.val} />
 {/if}
+
+<ForkConflictModal />
 
 <Modal2
 	title="Forking {$workspaceStore}"

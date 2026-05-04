@@ -65,6 +65,15 @@ pub struct RestartedFrom {
     pub step_id: String,
     pub branch_or_iteration_n: Option<usize>,
     pub flow_version: Option<i64>,
+    /// For BranchOne nested restart: the branch that was chosen in the original run.
+    /// Used to lock the branch evaluation so the same path is taken on restart.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch_chosen: Option<BranchChosen>,
+    /// When Some, the worker should spawn the child for `step_id` as a `RestartedFlow`
+    /// against `nested.flow_job_id` instead of fresh-launching it. The child's own
+    /// `restarted_from` becomes `*nested`, propagating any further levels of nesting.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nested: Option<Box<RestartedFrom>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

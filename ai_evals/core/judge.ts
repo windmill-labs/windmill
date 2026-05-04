@@ -37,6 +37,13 @@ export async function judgeOutput(input: {
     "Do not invent additional Windmill-specific constraints that are not explicit in the prompt, checklist, or expected state.",
     "Do not lower the score just because the output uses a different but valid Windmill idiom, naming choice, or equivalent field shape.",
     "Do not require exact ids, exact topology, or exact field names unless the prompt, checklist, or expected state clearly requires them.",
+    ...(input.mode === "app"
+      ? [
+          "For raw app outputs, datatable-backed persistence is a valid Windmill pattern when the app artifact configures datatables.",
+          "Do not mark `wmill.datatable()` usage as fabricated or invalid by itself.",
+          "Judge app persistence against the artifact that was actually produced, including any configured datatables.",
+        ]
+      : []),
     `Always respond by calling the ${JUDGE_TOOL_NAME} tool exactly once.`,
   ].join("\n\n");
 

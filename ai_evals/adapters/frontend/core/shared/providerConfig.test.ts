@@ -1,12 +1,17 @@
 import { describe, expect, it } from "bun:test";
 import {
+  buildProxyHeaders,
+  buildProxyResourcePath,
   buildOpenAICompatibleClientOptions,
   resolveEvalModelProvider,
 } from "./providerConfig";
 
 describe("buildOpenAICompatibleClientOptions", () => {
   it("adds Gemini's OpenAI-compatible base URL and client header", () => {
-    const options = buildOpenAICompatibleClientOptions("googleai", "gemini-test-key");
+    const options = buildOpenAICompatibleClientOptions(
+      "googleai",
+      "gemini-test-key",
+    );
 
     expect(options).toMatchObject({
       apiKey: "gemini-test-key",
@@ -18,8 +23,24 @@ describe("buildOpenAICompatibleClientOptions", () => {
   });
 
   it("keeps the default OpenAI-compatible config for OpenAI", () => {
-    expect(buildOpenAICompatibleClientOptions("openai", "openai-test-key")).toEqual({
+    expect(
+      buildOpenAICompatibleClientOptions("openai", "openai-test-key"),
+    ).toEqual({
       apiKey: "openai-test-key",
+    });
+  });
+});
+
+describe("proxy helpers", () => {
+  it("builds provider-scoped proxy resource paths", () => {
+    expect(buildProxyResourcePath("googleai")).toBe("f/evals/ai/googleai");
+    expect(buildProxyResourcePath("anthropic")).toBe("f/evals/ai/anthropic");
+  });
+
+  it("adds auth and resource headers for workspace proxy requests", () => {
+    expect(buildProxyHeaders("token-123", "f/evals/ai/googleai")).toEqual({
+      Authorization: "Bearer token-123",
+      "X-Resource-Path": "f/evals/ai/googleai",
     });
   });
 });

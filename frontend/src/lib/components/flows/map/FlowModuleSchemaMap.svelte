@@ -23,7 +23,6 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
-	import { getAllModules } from '../flowExplorer'
 	import { locateModules, groupByParent } from '../multiSelectUtils'
 	import { workspaceStore } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
@@ -33,7 +32,7 @@
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { JobService } from '$lib/gen'
-	import { dfsByModule } from '../previousResults'
+	import { findModuleInFlow } from '../flowTree'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { MoveManager } from '$lib/components/graph/moveManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
@@ -99,6 +98,7 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
+		controlsPosition?: 'top' | 'bottom'
 	}
 
 	let {
@@ -128,6 +128,7 @@
 		showJobStatus = false,
 		suspendStatus = $bindable({ val: {} }),
 		onDelete,
+		controlsPosition = 'top',
 		flowHasChanged
 	}: Props = $props()
 
@@ -263,7 +264,7 @@
 	let compactTopbar = $derived(flowPaneWidth < 800)
 
 	function findModuleById(id: string) {
-		return dfsByModule(id, flowStore.val.value.modules)[0]
+		return findModuleInFlow(flowStore.val.value, id)
 	}
 
 	export async function addBranch(id: string) {
@@ -566,7 +567,7 @@
 		/>
 	</div>
 
-	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
+	<div class="z-10 flex-auto grow min-h-0 bg-surface-secondary" bind:clientHeight={minHeight}>
 		<FlowGraphV2
 			bind:this={graph}
 			earlyStop={flowStore.val.value?.skip_expr !== undefined}
@@ -727,9 +728,7 @@
 
 				// Agent tool inserts operate on the FlowModule's tools array directly
 				if (isAgentInsert) {
-					const agentMod = getAllModules(flowStore.val.value.modules).find(
-						(m) => m.id === detail.agentId
-					)
+					const agentMod = findModuleInFlow(flowStore.val.value, detail.agentId!)
 					if (agentMod && (agentMod.value as any).tools) {
 						const tools = (agentMod.value as any).tools as AgentTool[]
 						await insertNewModuleAtIndex(
@@ -932,6 +931,9 @@
 			}}
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)
+				if (!module) {
+					throw new Error(`Node ${detail.id} not found`)
+				}
 				module.mock = $state.snapshot(detail.mock)
 				refreshStateStore(flowStore)
 			}}
@@ -940,6 +942,7 @@
 			{onCancelTestFlow}
 			{onOpenPreview}
 			{onHideJobStatus}
+			{controlsPosition}
 			exitNoteMode={() => (noteMode = false)}
 			onNotePositionUpdate={(noteId, position) => {
 				// Update note position via NoteEditor context in edit mode

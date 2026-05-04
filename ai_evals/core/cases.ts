@@ -2,7 +2,13 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import type { EvalCase, EvalCaseRuntimeSpec, EvalMode, FlowValidationSpec } from "./types";
+import type {
+  CliValidationSpec,
+  EvalCase,
+  EvalCaseRuntimeSpec,
+  EvalMode,
+  EvalValidationSpec,
+} from "./types";
 
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const CASES_DIR = path.join(REPO_ROOT, "ai_evals", "cases");
@@ -12,11 +18,13 @@ interface RawEvalCase {
   prompt: string;
   initial?: string;
   expected?: string;
-  validate?: FlowValidationSpec;
+  validate?: EvalValidationSpec;
+  toolExpect?: EvalCase["toolExpect"];
+  cliExpect?: CliValidationSpec;
   judgeChecklist?: string[];
+  skipJudge?: boolean;
   runtime?: EvalCaseRuntimeSpec;
 }
-
 export function getRepoRoot(): string {
   return REPO_ROOT;
 }
@@ -34,13 +42,16 @@ export async function loadCases(mode: EvalMode): Promise<EvalCase[]> {
     throw new Error(`Expected ${filePath} to contain a YAML list of cases`);
   }
 
-  return parsed.map((entry) => ({
+  return (parsed as RawEvalCase[]).map((entry) => ({
     id: entry.id,
     prompt: entry.prompt,
     initialPath: resolveFixturePath(entry.initial),
     expectedPath: resolveFixturePath(entry.expected),
     validate: entry.validate,
+    toolExpect: entry.toolExpect,
+    cliExpect: entry.cliExpect,
     judgeChecklist: entry.judgeChecklist,
+    skipJudge: entry.skipJudge,
     runtime: entry.runtime,
   }));
 }

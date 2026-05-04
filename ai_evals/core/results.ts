@@ -12,26 +12,34 @@ import type {
 
 export async function writeRunResult(
   result: BenchmarkRunResult,
-  outputPath?: string
+  outputPath?: string,
 ): Promise<string> {
   const targetPath = resolveRunOutputPath(result.mode, outputPath);
   await mkdir(path.dirname(targetPath), { recursive: true });
-  await writeFile(targetPath, JSON.stringify(toSerializableRunResult(result), null, 2) + "\n", "utf8");
+  await writeFile(
+    targetPath,
+    JSON.stringify(toSerializableRunResult(result), null, 2) + "\n",
+    "utf8",
+  );
   return targetPath;
 }
 
 export async function appendHistoryRecord(
   result: BenchmarkRunResult,
-  historyPath = resolveHistoryPath(result.mode)
+  historyPath = resolveHistoryPath(result.mode),
 ): Promise<string> {
   await mkdir(path.dirname(historyPath), { recursive: true });
-  await appendFile(historyPath, JSON.stringify(toHistoryRecord(result)) + "\n", "utf8");
+  await appendFile(
+    historyPath,
+    JSON.stringify(toHistoryRecord(result)) + "\n",
+    "utf8",
+  );
   return historyPath;
 }
 
 export async function writeRunArtifacts(
   result: BenchmarkRunResult,
-  outputPath?: string
+  outputPath?: string,
 ): Promise<string | null> {
   const targetPath = resolveRunOutputPath(result.mode, outputPath);
   const artifactRoot = defaultArtifactsRoot(targetPath);
@@ -47,7 +55,11 @@ export async function writeRunArtifacts(
         continue;
       }
 
-      const attemptDir = path.join(artifactRoot, caseResult.id, `attempt-${attempt.attempt}`);
+      const attemptDir = path.join(
+        artifactRoot,
+        caseResult.id,
+        `attempt-${attempt.attempt}`,
+      );
       await writeArtifactFiles(attemptDir, artifactFiles);
       attempt.artifactsPath = attemptDir;
       wroteArtifacts = true;
@@ -62,17 +74,24 @@ export function buildRunResult(input: {
   mode: EvalMode;
   runs: number;
   runModel: string | null;
+  transport?: BenchmarkRunResult["transport"];
   judgeModel: string | null;
   caseResults: BenchmarkCaseResult[];
 }): BenchmarkRunResult {
-  const attemptCount = input.caseResults.reduce((sum, entry) => sum + entry.attempts.length, 0);
+  const attemptCount = input.caseResults.reduce(
+    (sum, entry) => sum + entry.attempts.length,
+    0,
+  );
   const passedAttempts = input.caseResults.reduce(
-    (sum, entry) => sum + entry.attempts.filter((attempt) => attempt.passed).length,
-    0
+    (sum, entry) =>
+      sum + entry.attempts.filter((attempt) => attempt.passed).length,
+    0,
   );
   const durationTotal = input.caseResults.reduce(
-    (sum, entry) => sum + entry.attempts.reduce((inner, attempt) => inner + attempt.durationMs, 0),
-    0
+    (sum, entry) =>
+      sum +
+      entry.attempts.reduce((inner, attempt) => inner + attempt.durationMs, 0),
+    0,
   );
   const tokenUsageTotal = input.caseResults.reduce<BenchmarkTokenUsage | null>(
     (sum, entry) => {
@@ -87,7 +106,7 @@ export function buildRunResult(input: {
       }
       return sum;
     },
-    null
+    null,
   );
 
   return {
@@ -97,6 +116,7 @@ export function buildRunResult(input: {
     gitSha: getGitSha(),
     runs: input.runs,
     runModel: input.runModel,
+    transport: input.transport ?? null,
     judgeModel: input.judgeModel,
     caseCount: input.caseResults.length,
     attemptCount,
@@ -122,6 +142,9 @@ export function formatRunSummary(result: BenchmarkRunResult): string {
     `Pass rate: ${formatPercent(result.passRate)} (${result.passedAttempts}/${result.attemptCount})`,
     `Average duration: ${Math.round(result.averageDurationMs)}ms`,
   ];
+  if (result.transport) {
+    lines.splice(1, 0, `Transport: ${result.transport}`);
+  }
 
   const failures = collectFailures(result);
   if (failures.length > 0) {
@@ -142,9 +165,11 @@ function collectFailures(result: BenchmarkRunResult): string[] {
       if (attempt.passed) {
         continue;
       }
-      const failedChecks = attempt.checks.filter((check) => !check.passed).map((check) => check.name);
+      const failedChecks = attempt.checks
+        .filter((check) => !check.passed)
+        .map((check) => check.name);
       failures.push(
-        `${caseResult.id} attempt ${attempt.attempt}: ${failedChecks.join(", ") || attempt.error || "failed"}`
+        `${caseResult.id} attempt ${attempt.attempt}: ${failedChecks.join(", ") || attempt.error || "failed"}`,
       );
     }
   }
@@ -156,8 +181,13 @@ function defaultFileName(mode: EvalMode): string {
   return `${new Date().toISOString().replaceAll(":", "-")}__${mode}.json`;
 }
 
-export function resolveRunOutputPath(mode: EvalMode, outputPath?: string): string {
-  return outputPath ?? path.join(getAiEvalsRoot(), "results", defaultFileName(mode));
+export function resolveRunOutputPath(
+  mode: EvalMode,
+  outputPath?: string,
+): string {
+  return (
+    outputPath ?? path.join(getAiEvalsRoot(), "results", defaultFileName(mode))
+  );
 }
 
 export function resolveHistoryPath(mode: EvalMode): string {
@@ -172,7 +202,7 @@ function defaultArtifactsRoot(resultPath: string): string {
 
 async function writeArtifactFiles(
   rootDir: string,
-  files: BenchmarkArtifactFile[]
+  files: BenchmarkArtifactFile[],
 ): Promise<void> {
   for (const file of files) {
     const relativePath = normalizeArtifactPath(file.path);
@@ -185,18 +215,25 @@ async function writeArtifactFiles(
 function normalizeArtifactPath(filePath: string): string {
   const normalized = filePath.replaceAll("\\", "/").replace(/^\/+/, "");
   const parts = normalized.split("/").filter(Boolean);
-  if (parts.length === 0 || parts.some((part) => part === "." || part === "..")) {
+  if (
+    parts.length === 0 ||
+    parts.some((part) => part === "." || part === "..")
+  ) {
     throw new Error(`Invalid artifact path: ${filePath}`);
   }
   return parts.join("/");
 }
 
-function toSerializableRunResult(result: BenchmarkRunResult): BenchmarkRunResult {
+function toSerializableRunResult(
+  result: BenchmarkRunResult,
+): BenchmarkRunResult {
   return {
     ...result,
     cases: result.cases.map((caseResult) => ({
       ...caseResult,
-      attempts: caseResult.attempts.map(({ artifactFiles, ...attempt }) => attempt),
+      attempts: caseResult.attempts.map(
+        ({ artifactFiles, ...attempt }) => attempt,
+      ),
     })),
   };
 }
@@ -204,8 +241,8 @@ function toSerializableRunResult(result: BenchmarkRunResult): BenchmarkRunResult
 function toHistoryRecord(result: BenchmarkRunResult) {
   const judgeScores = result.cases.flatMap((caseResult) =>
     caseResult.attempts.flatMap((attempt) =>
-      typeof attempt.judgeScore === "number" ? [attempt.judgeScore] : []
-    )
+      typeof attempt.judgeScore === "number" ? [attempt.judgeScore] : [],
+    ),
   );
 
   return {
@@ -214,6 +251,7 @@ function toHistoryRecord(result: BenchmarkRunResult) {
     mode: result.mode,
     runs: result.runs,
     runModel: result.runModel,
+    transport: result.transport,
     judgeModel: result.judgeModel,
     caseCount: result.caseCount,
     attemptCount: result.attemptCount,
@@ -223,49 +261,57 @@ function toHistoryRecord(result: BenchmarkRunResult) {
     averageJudgeScore:
       judgeScores.length === 0
         ? null
-        : judgeScores.reduce((sum, score) => sum + score, 0) / judgeScores.length,
+        : judgeScores.reduce((sum, score) => sum + score, 0) /
+          judgeScores.length,
     averageTokenUsagePerAttempt: result.averageTokenUsagePerAttempt ?? null,
     failedCaseIds: Array.from(
       new Set(
         result.cases
-          .filter((caseResult) => caseResult.attempts.some((attempt) => !attempt.passed))
-          .map((caseResult) => caseResult.id)
-      )
+          .filter((caseResult) =>
+            caseResult.attempts.some((attempt) => !attempt.passed),
+          )
+          .map((caseResult) => caseResult.id),
+      ),
     ),
     cases: result.cases.map((caseResult) => {
       const attemptCount = caseResult.attempts.length;
-      const passedAttempts = caseResult.attempts.filter((attempt) => attempt.passed).length;
+      const passedAttempts = caseResult.attempts.filter(
+        (attempt) => attempt.passed,
+      ).length;
       const totalDurationMs = caseResult.attempts.reduce(
         (sum, attempt) => sum + attempt.durationMs,
-        0
+        0,
       );
       const judgeScores = caseResult.attempts.flatMap((attempt) =>
-        typeof attempt.judgeScore === "number" ? [attempt.judgeScore] : []
+        typeof attempt.judgeScore === "number" ? [attempt.judgeScore] : [],
       );
-      const totalTokenUsage = caseResult.attempts.reduce<BenchmarkTokenUsage | null>(
-        (sum, attempt) => {
-          if (!attempt.tokenUsage) {
+      const totalTokenUsage =
+        caseResult.attempts.reduce<BenchmarkTokenUsage | null>(
+          (sum, attempt) => {
+            if (!attempt.tokenUsage) {
+              return sum;
+            }
+            sum ??= { prompt: 0, completion: 0, total: 0 };
+            sum.prompt += attempt.tokenUsage.prompt;
+            sum.completion += attempt.tokenUsage.completion;
+            sum.total += attempt.tokenUsage.total;
             return sum;
-          }
-          sum ??= { prompt: 0, completion: 0, total: 0 };
-          sum.prompt += attempt.tokenUsage.prompt;
-          sum.completion += attempt.tokenUsage.completion;
-          sum.total += attempt.tokenUsage.total;
-          return sum;
-        },
-        null
-      );
+          },
+          null,
+        );
 
       return {
         id: caseResult.id,
         attemptCount,
         passedAttempts,
         passRate: attemptCount === 0 ? 0 : passedAttempts / attemptCount,
-        averageDurationMs: attemptCount === 0 ? 0 : totalDurationMs / attemptCount,
+        averageDurationMs:
+          attemptCount === 0 ? 0 : totalDurationMs / attemptCount,
         averageJudgeScore:
           judgeScores.length === 0
             ? null
-            : judgeScores.reduce((sum, score) => sum + score, 0) / judgeScores.length,
+            : judgeScores.reduce((sum, score) => sum + score, 0) /
+              judgeScores.length,
         averageTokenUsagePerAttempt:
           attemptCount === 0 || !totalTokenUsage
             ? null

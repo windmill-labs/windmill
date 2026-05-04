@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT label, token_prefix, expiration, created_at, last_used_at, scopes, workspace_id FROM token WHERE email = $1\n            ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "token_prefix",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "expiration",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "last_used_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "scopes",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "2b5fc0500beb2f4c7cf5997f9aea48f77e2abe4523180c507a9a90570127be6d"
+}

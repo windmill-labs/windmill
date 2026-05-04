@@ -114,7 +114,8 @@ pub fn workspaced_unauthed_service() -> Router {
 
     #[cfg(any(
         feature = "http_trigger",
-        all(feature = "enterprise", feature = "gcp_trigger")
+        all(feature = "enterprise", feature = "gcp_trigger"),
+        all(feature = "enterprise", feature = "azure_trigger")
     ))]
     {
         #[cfg(feature = "http_trigger")]
@@ -125,12 +126,16 @@ pub fn workspaced_unauthed_service() -> Router {
         #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
         let router = router.route("/gcp/{runnable_kind}/{*path}", post(gcp_payload));
 
+        #[cfg(all(feature = "enterprise", feature = "azure_trigger", feature = "private"))]
+        let router = router.route("/azure/{runnable_kind}/{*path}", post(azure_payload));
+
         router
     }
 
     #[cfg(not(any(
         feature = "http_trigger",
-        all(feature = "enterprise", feature = "gcp_trigger")
+        all(feature = "enterprise", feature = "gcp_trigger"),
+        all(feature = "enterprise", feature = "azure_trigger")
     )))]
     {
         router
@@ -168,6 +173,26 @@ pub struct SqsTriggerConfig {
     pub aws_resource_path: String,
     pub message_attributes: Option<Vec<String>>,
     pub aws_auth_resource_type: AwsAuthResourceType,
+}
+
+#[cfg(all(feature = "enterprise", feature = "azure_trigger", feature = "private"))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AzureTriggerConfig {
+    pub azure_resource_path: String,
+    pub azure_mode: crate::triggers::azure::AzureMode,
+    pub scope_resource_id: String,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub topic_name: Option<String>,
+    pub subscription_name: String,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub base_endpoint: Option<String>,
+    #[serde(default)]
+    pub event_type_filters: Option<Vec<String>>,
+    /// Server-managed. Populated by `set_azure_trigger_config` after
+    /// `manage_azure_subscription` regenerates the secret; skipped on
+    /// (de)serialization so clients never see or send it.
+    #[serde(skip, default)]
+    pub push_auth_config: Option<crate::triggers::azure::PushAuthConfig>,
 }
 
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
@@ -248,6 +273,8 @@ enum TriggerConfig {
     Mqtt(MqttTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
     Gcp(GcpTriggerConfig),
+    #[cfg(all(feature = "enterprise", feature = "azure_trigger", feature = "private"))]
+    Azure(AzureTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "smtp", feature = "private"))]
     Email(EmailTriggerConfig),
 }
@@ -419,6 +446,78 @@ async fn set_gcp_trigger_config(
     Ok(capture_config)
 }
 
+#[cfg(all(feature = "enterprise", feature = "azure_trigger", feature = "private"))]
+async fn set_azure_trigger_config(
+    w_id: &str,
+    authed: ApiAuthed,
+    db: &DB,
+    mut capture_config: NewCaptureConfig,
+) -> Result<NewCaptureConfig> {
+    use crate::triggers::azure::{manage_azure_subscription, AzureConfigRequest};
+
+    let Some(TriggerConfig::Azure(azure_config)) = capture_config.trigger_config else {
+        return Err(Error::BadRequest(
+            "Invalid Azure Event Grid config".to_string(),
+        ));
+    };
+
+    // Suffix subscription name so capture never clobbers the deployed trigger's
+    // subscription. Azure allows [A-Za-z0-9-]{3,50}; reserve 11 chars for
+    // "-wm-capture" (mirrors Kafka's `_wm_capture` convention — hyphen since
+    // Azure names disallow underscores).
+    let mut sub_name = azure_config.subscription_name;
+    if sub_name.len() > 39 {
+        sub_name.truncate(39);
+    }
+    sub_name.push_str("-wm-capture");
+
+    let mut req = AzureConfigRequest {
+        azure_resource_path: azure_config.azure_resource_path,
+        azure_mode: azure_config.azure_mode,
+        scope_resource_id: azure_config.scope_resource_id,
+        topic_name: azure_config.topic_name,
+        subscription_name: sub_name,
+        base_endpoint: azure_config.base_endpoint,
+        event_type_filters: azure_config.event_type_filters,
+        push_auth_config: azure_config.push_auth_config,
+    };
+
+    manage_azure_subscription(
+        authed,
+        db,
+        w_id,
+        &mut req,
+        &capture_config.path,
+        capture_config.is_flow,
+        false,
+    )
+    .await?;
+
+    capture_config.trigger_config = Some(TriggerConfig::Azure(AzureTriggerConfig {
+        azure_resource_path: req.azure_resource_path,
+        azure_mode: req.azure_mode,
+        scope_resource_id: req.scope_resource_id,
+        topic_name: req.topic_name,
+        subscription_name: req.subscription_name,
+        base_endpoint: req.base_endpoint,
+        event_type_filters: req.event_type_filters,
+        push_auth_config: req.push_auth_config,
+    }));
+
+    Ok(capture_config)
+}
+
+#[inline]
+#[cfg(not(all(feature = "enterprise", feature = "azure_trigger", feature = "private")))]
+async fn set_azure_trigger_config(
+    _w_id: &str,
+    _authed: ApiAuthed,
+    _db: &DB,
+    capture_config: NewCaptureConfig,
+) -> Result<NewCaptureConfig> {
+    Ok(capture_config)
+}
+
 async fn set_config(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -431,6 +530,7 @@ async fn set_config(
             set_postgres_trigger_config(&w_id, authed.clone(), &db, user_db.clone(), nc).await?
         }
         TriggerKind::Gcp => set_gcp_trigger_config(&w_id, authed.clone(), &db, nc).await?,
+        TriggerKind::Azure => set_azure_trigger_config(&w_id, authed.clone(), &db, nc).await?,
         _ => nc,
     };
 
@@ -956,6 +1056,70 @@ async fn gcp_payload(
         &owner,
     )
     .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(all(feature = "enterprise", feature = "azure_trigger", feature = "private"))]
+async fn azure_payload(
+    Extension(db): Extension<DB>,
+    Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, String)>,
+    headers: HeaderMap,
+    request: Request,
+) -> Result<StatusCode> {
+    use crate::triggers::azure::{
+        cloud_event_to_args, process_azure_push_request, validate_push_secret, AzureTrigger,
+        PushOutcome,
+    };
+    use crate::triggers::trigger_helpers::TriggerJobArgs;
+
+    let is_flow = matches!(runnable_kind, RunnableKind::Flow);
+    let (azure_trigger_config, owner, _email): (AzureTriggerConfig, _, _) =
+        get_capture_trigger_config_and_owner(&db, &w_id, &path, is_flow, &TriggerKind::Azure)
+            .await?;
+
+    // Basic handshake posts don't carry the secret header; let them through.
+    let is_classic_handshake = headers
+        .get("aeg-event-type")
+        .and_then(|h| h.to_str().ok())
+        .map(|v| v.eq_ignore_ascii_case("SubscriptionValidation"))
+        .unwrap_or(false);
+
+    if !is_classic_handshake {
+        let dc = azure_trigger_config
+            .push_auth_config
+            .as_ref()
+            .ok_or_else(|| {
+                Error::NotAuthorized("azure capture missing push_auth_config".to_string())
+            })?;
+        validate_push_secret(&headers, dc)?;
+    }
+
+    let outcome = process_azure_push_request(headers, request).await?;
+    let (cloud_events, headers_map) = match outcome {
+        PushOutcome::Handshake(_) => {
+            // Capture path doesn't need to echo validation response — return 200.
+            return Ok(StatusCode::OK);
+        }
+        PushOutcome::Events { cloud_events, headers } => (cloud_events, headers),
+    };
+
+    for event in cloud_events {
+        let (payload, trigger_info) = cloud_event_to_args(&event, &headers_map);
+        let (main_args, preprocessor_args) =
+            AzureTrigger::build_capture_payloads(&payload, trigger_info);
+        let _ = insert_capture_payload(
+            &db,
+            &w_id,
+            &path,
+            is_flow,
+            &TriggerKind::Azure,
+            main_args,
+            preprocessor_args,
+            &owner,
+        )
+        .await?;
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

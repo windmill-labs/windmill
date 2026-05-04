@@ -18,13 +18,13 @@
 
 use axum::body::Bytes;
 use serde::Deserialize;
-use windmill_common::ai_bedrock::build_tool_config;
-use windmill_common::ai_bedrock::{
+use windmill_ai::ai_bedrock::build_tool_config;
+use windmill_ai::ai_bedrock::{
     bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
     bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start, format_bedrock_error,
     BedrockClient,
 };
-use windmill_common::ai_types::{
+use windmill_ai::ai_types::{
     OpenAIFunction, OpenAIMessage, OpenAIToolCall, ToolDef, ToolDefFunction,
 };
 use windmill_common::error::{Error, Result};
@@ -131,6 +131,7 @@ async fn create_bedrock_client(
 fn build_tool_config_from_request(
     tools: Option<&[OpenAIToolDef]>,
     tool_choice: Option<&serde_json::Value>,
+    enable_prompt_caching: bool,
 ) -> Result<Option<aws_sdk_bedrockruntime::types::ToolConfiguration>> {
     if let Some(tools) = tools {
         let tool_defs: Vec<ToolDef> = tools
@@ -163,7 +164,7 @@ fn build_tool_config_from_request(
             .map(|tc| tc == "required" || tc.as_str() == Some("required"))
             .unwrap_or(false);
 
-        build_tool_config(Some(&tool_defs), force_tool_use)
+        build_tool_config(Some(&tool_defs), force_tool_use, enable_prompt_caching)
     } else {
         Ok(None)
     }
@@ -182,7 +183,7 @@ async fn create_bedrock_control_client(
     region: &str,
 ) -> Result<aws_sdk_bedrock::Client> {
     use aws_config::BehaviorVersion;
-    use windmill_common::ai_bedrock::BearerTokenProvider;
+    use windmill_ai::ai_bedrock::BearerTokenProvider;
 
     let region_provider = aws_sdk_bedrock::config::Region::new(region.to_string());
 
@@ -365,11 +366,16 @@ pub async fn handle_bedrock_sdk_streaming(
     .await?;
 
     // Convert messages using shared conversion
+    let enable_prompt_caching =
+        windmill_ai::ai_bedrock::bedrock_model_supports_prompt_caching(model);
     let (bedrock_messages, system_prompts) =
-        windmill_common::ai_bedrock::openai_messages_to_bedrock(&openai_req.messages)?;
+        windmill_ai::ai_bedrock::openai_messages_to_bedrock(
+            &openai_req.messages,
+            enable_prompt_caching,
+        )?;
 
     // Build inference configuration
-    let inference_config = windmill_common::ai_bedrock::create_inference_config(
+    let inference_config = windmill_ai::ai_bedrock::create_inference_config(
         openai_req.temperature,
         openai_req.max_tokens,
     );
@@ -378,6 +384,7 @@ pub async fn handle_bedrock_sdk_streaming(
     let tool_config = build_tool_config_from_request(
         openai_req.tools.as_deref(),
         openai_req.tool_choice.as_ref(),
+        enable_prompt_caching,
     )?;
 
     // Build the SDK request
@@ -625,11 +632,16 @@ pub async fn handle_bedrock_sdk_non_streaming(
     .await?;
 
     // Convert messages using shared conversion
+    let enable_prompt_caching =
+        windmill_ai::ai_bedrock::bedrock_model_supports_prompt_caching(model);
     let (bedrock_messages, system_prompts) =
-        windmill_common::ai_bedrock::openai_messages_to_bedrock(&openai_req.messages)?;
+        windmill_ai::ai_bedrock::openai_messages_to_bedrock(
+            &openai_req.messages,
+            enable_prompt_caching,
+        )?;
 
     // Build inference configuration
-    let inference_config = windmill_common::ai_bedrock::create_inference_config(
+    let inference_config = windmill_ai::ai_bedrock::create_inference_config(
         openai_req.temperature,
         openai_req.max_tokens,
     );
@@ -638,6 +650,7 @@ pub async fn handle_bedrock_sdk_non_streaming(
     let tool_config = build_tool_config_from_request(
         openai_req.tools.as_deref(),
         openai_req.tool_choice.as_ref(),
+        enable_prompt_caching,
     )?;
 
     // Build the SDK request (non-streaming)

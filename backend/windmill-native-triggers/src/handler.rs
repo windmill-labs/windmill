@@ -536,12 +536,14 @@ pub fn generate_native_trigger_routers() -> Router {
 
     #[cfg(feature = "native_trigger")]
     {
+        use crate::github::GitHub;
         use crate::google::Google;
         use crate::nextcloud::NextCloud;
 
         return router
             .nest("/nextcloud", service_routes(NextCloud))
-            .nest("/google", service_routes(Google));
+            .nest("/google", service_routes(Google))
+            .nest("/github", service_routes(GitHub));
     }
 
     #[cfg(not(feature = "native_trigger"))]

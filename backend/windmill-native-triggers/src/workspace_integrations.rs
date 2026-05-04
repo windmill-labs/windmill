@@ -234,6 +234,45 @@ async fn try_delete_nextcloud_webhook(base_url: &str, access_token: &str, extern
 }
 
 #[cfg(feature = "native_trigger")]
+async fn try_delete_github_webhook(
+    db: &DB,
+    workspace_id: &str,
+    access_token: &str,
+    external_id: &str,
+) {
+    // Fetch owner/repo from service_config
+    let config = sqlx::query_scalar!(
+        "SELECT service_config FROM native_trigger WHERE external_id = $1 AND service_name = $2 AND workspace_id = $3",
+        external_id,
+        ServiceName::Github as ServiceName,
+        workspace_id
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .flatten();
+
+    if let Some(config) = config {
+        let owner = config.get("owner").and_then(|v| v.as_str()).unwrap_or("");
+        let repo = config.get("repo").and_then(|v| v.as_str()).unwrap_or("");
+        if !owner.is_empty() && !repo.is_empty() {
+            let url = format!(
+                "https://api.github.com/repos/{}/{}/hooks/{}",
+                owner, repo, external_id
+            );
+            let _ = HTTP_CLIENT
+                .delete(&url)
+                .bearer_auth(access_token)
+                .header("Accept", "application/json")
+                .header("User-Agent", "Windmill")
+                .send()
+                .await;
+        }
+    }
+}
+
+#[cfg(feature = "native_trigger")]
 async fn fetch_nextcloud_user_id(base_url: &str, access_token: &str) -> anyhow::Result<String> {
     let url = format!("{}/ocs/v2.php/cloud/user", base_url);
     let resp = HTTP_CLIENT
@@ -280,6 +319,22 @@ async fn delete_triggers_for_service(db: &DB, workspace_id: &str, service_name: 
             for trigger in &triggers {
                 try_delete_nextcloud_webhook(
                     &oauth_data.base_url,
+                    &oauth_data.access_token,
+                    &trigger.external_id,
+                )
+                .await;
+            }
+        }
+    }
+    // For GitHub: try to delete webhooks on GitHub (best-effort)
+    if service_name == ServiceName::Github {
+        if let Ok(oauth_data) =
+            decrypt_oauth_data::<BasicOAuthData>(db, workspace_id, service_name).await
+        {
+            for trigger in &triggers {
+                try_delete_github_webhook(
+                    db,
+                    workspace_id,
                     &oauth_data.access_token,
                     &trigger.external_id,
                 )

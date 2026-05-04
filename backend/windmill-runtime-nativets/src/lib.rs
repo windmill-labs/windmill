@@ -579,6 +579,7 @@ pub async fn eval_fetch_timeout(
         ));
     }
 
+    let w_id_for_tracing = w_id.to_string();
     let result_f = tokio::task::spawn_blocking(move || {
         let CreatedRuntime { mut js_runtime, mut log_receiver, mut memory_limit_rx } =
             create_nativets_runtime(ann, spread)?;
@@ -604,11 +605,30 @@ pub async fn eval_fetch_timeout(
                     tracing::error!("failed to send extra logs: {e}");
                 }
             }
+            let w_id_for_tracing = w_id_for_tracing;
             let handle = tokio::spawn(async move {
                 let mut result_stream = String::new();
                 let mut is_stream = false;
                 while let Some(log) = log_receiver.recv().await {
                     use windmill_common::result_stream::extract_stream_from_logs;
+                    use windmill_common::tracing_init::{OTEL_JOB_LOGS, OTEL_PREFIX};
+
+                    // Mirror `process_streaming_log_lines` (EE) + the OTEL_JOB_LOGS
+                    // hook from handle_child.rs, neither of which runs for nativets
+                    // since nativets delivers logs in-process via the log channel.
+                    for line in log.lines() {
+                        tracing::info!(
+                            target: "windmill:job_log",
+                            job_id = ?job_id,
+                            workspace_id = ?w_id_for_tracing,
+                            "{line}"
+                        );
+                        if *OTEL_JOB_LOGS {
+                            if let Some(otel_suffix) = line.strip_prefix(OTEL_PREFIX) {
+                                tracing::event!(tracing::Level::INFO, otel_suffix);
+                            }
+                        }
+                    }
 
                     if let Some(stream) = extract_stream_from_logs(&log.trim_end_matches("\n")) {
                         if !is_stream {

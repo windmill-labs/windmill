@@ -55,6 +55,7 @@ export interface ChatLoopConfig {
 export interface ChatLoopResult {
 	addedMessages: ChatCompletionMessageParam[]
 	tokenUsage: ChatTokenUsage
+	hitMaxIterations: boolean
 }
 
 export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResult> {
@@ -74,9 +75,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 	const addedMessages: ChatCompletionMessageParam[] = []
 	let tokenUsage = emptyChatTokenUsage()
 	let iterations = 0
+	let hitMaxIterations = false
 
 	while (true) {
 		if (maxIterations !== undefined && iterations >= maxIterations) {
+			hitMaxIterations = true
 			break
 		}
 		iterations++
@@ -218,5 +221,5 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		}
 	}
 
-	return { addedMessages, tokenUsage }
+	return { addedMessages, tokenUsage, hitMaxIterations }
 }

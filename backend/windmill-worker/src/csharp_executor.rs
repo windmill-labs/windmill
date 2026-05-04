@@ -62,12 +62,8 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(feature = "csharp")]
-const CSHARP_OBJECT_STORE_PREFIX: &str = const_format::concatcp!(
-    std::env::consts::OS,
-    "_",
-    std::env::consts::ARCH,
-    "_csharpbin/"
-);
+const CSHARP_OBJECT_STORE_PREFIX: &str =
+    const_format::concatcp!(crate::global_cache::TARGET, "_csharpbin/");
 
 #[cfg(feature = "csharp")]
 pub async fn generate_nuget_lockfile(

@@ -634,6 +634,8 @@ lazy_static::lazy_static! {
     pub static ref PIP_EXTRA_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref PIP_INDEX_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref UV_INDEX_STRATEGY: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref UV_EXCLUDE_NEWER: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(None));
+    pub static ref BUN_INSTALL_MIN_RELEASE_AGE: Arc<RwLock<Option<i64>>> = Arc::new(RwLock::new(None));
     pub static ref INSTANCE_PYTHON_VERSION: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref JOB_DEFAULT_TIMEOUT: Arc<RwLock<Option<i32>>> = Arc::new(RwLock::new(None));
 
@@ -1338,7 +1340,9 @@ pub fn create_span_with_name(
         trigger_kind = field::Empty,
         trigger = field::Empty,
         script_hash = field::Empty,
-        otel.name = field::Empty
+        otel.name = field::Empty,
+        otel.status_code = field::Empty,
+        otel.status_message = field::Empty,
     );
 
     let rj = arc_job.flow_innermost_root_job.unwrap_or(arc_job.id);
@@ -1376,6 +1380,75 @@ pub fn create_span_with_name(
 
     windmill_common::otel_oss::set_span_parent(&span, &rj);
     span
+}
+
+/// Max characters of an error message copied into the `otel.status_message`
+/// span attribute. Prevents a single verbose failure from blowing up the span
+/// payload on OTLP exporters.
+const STATUS_DESCRIPTION_MAX_LEN: usize = 512;
+
+/// Outcome of running a queued job, carrying enough information to set the
+/// OTLP `Status` on the outer `"job"` span without conflating "another worker
+/// raced us" with "the user's script raised an exception".
+#[derive(Debug)]
+pub enum JobOutcome {
+    /// Job ran cleanly, was forwarded as a flow, was a no-op (test workspace),
+    /// or was suspended waiting for child jobs (WAC v2 / schedule zombie).
+    /// All of these leave the span `Status` `Unset`.
+    Completed,
+    /// Job was attempted but its execution returned an error; the failure has
+    /// been dispatched to the result processor. `description` holds the
+    /// truncated error string for the outer span's `Status.message`.
+    Failed { description: String },
+    /// Another worker (or the same worker after a restart) already inserted a
+    /// row in `v2_job_completed`; this worker has nothing to do.
+    AlreadyCompleted,
+}
+
+impl JobOutcome {
+    /// True when the job completed successfully on this worker. Used by
+    /// callers that previously matched on `Ok(true)`.
+    pub fn is_success(&self) -> bool {
+        matches!(self, Self::Completed)
+    }
+}
+
+/// Record `otel.status_code` / `otel.status_message` on the current span
+/// when a job fails. Called from inside the `.instrument(job_span)` future so
+/// that `Span::current()` resolves to the `"job"` span created by
+/// `create_span_with_name`.
+///
+/// `Completed` leaves the fields unset (`Status::Unset`, equivalent to OK
+/// per OTel spec). The other variants set `Status.code = ERROR` with a
+/// description that reflects the actual cause.
+pub(crate) fn record_job_span_status(result: &windmill_common::error::Result<JobOutcome>) {
+    let description = match result {
+        Ok(JobOutcome::Completed) => return,
+        Ok(JobOutcome::Failed { description }) => description.clone(),
+        Ok(JobOutcome::AlreadyCompleted) => "job already completed by another worker".to_string(),
+        Err(err) => truncate_description(&err.to_string()),
+    };
+    let span = tracing::Span::current();
+    span.record("otel.status_code", "ERROR");
+    span.record("otel.status_message", description.as_str());
+}
+
+/// Cap an error description at `STATUS_DESCRIPTION_MAX_LEN` bytes, appending
+/// an ellipsis when truncated. The cut is rounded down to the nearest UTF-8
+/// codepoint boundary so the result is always valid UTF-8. Always returns an
+/// owned `String` so callers don't have to juggle `Cow` lifetimes.
+pub(crate) fn truncate_description(s: &str) -> String {
+    if s.len() <= STATUS_DESCRIPTION_MAX_LEN {
+        return s.to_string();
+    }
+    let mut end = STATUS_DESCRIPTION_MAX_LEN;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut truncated = String::with_capacity(end + 3);
+    truncated.push_str(&s[..end]);
+    truncated.push('…');
+    truncated
 }
 
 /// Build the per-job `LogContext` that gets seeded at the top of job
@@ -2823,40 +2896,45 @@ pub async fn run_worker(
 
                     let job_result = windmill_common::log_context::with_log_context(
                         log_ctx,
-                        handle_queued_job(
-                            arc_job.clone(),
-                            raw_code,
-                            raw_lock,
-                            raw_flow,
-                            parent_runnable_path,
-                            &conn,
-                            &authed_client,
-                            hostname,
-                            &worker_name,
-                            &worker_dir,
-                            &job_dir,
-                            Some(same_worker_tx.clone()),
-                            base_internal_url,
-                            job_completed_tx.clone(),
-                            &mut occupancy_metrics,
-                            &mut killpill_rx2,
-                            precomputed_bundle,
-                            flow_runners,
-                            #[cfg(feature = "benchmark")]
-                            &mut bench,
-                        )
+                        async {
+                            let result = handle_queued_job(
+                                arc_job.clone(),
+                                raw_code,
+                                raw_lock,
+                                raw_flow,
+                                parent_runnable_path,
+                                &conn,
+                                &authed_client,
+                                hostname,
+                                &worker_name,
+                                &worker_dir,
+                                &job_dir,
+                                Some(same_worker_tx.clone()),
+                                base_internal_url,
+                                job_completed_tx.clone(),
+                                &mut occupancy_metrics,
+                                &mut killpill_rx2,
+                                precomputed_bundle,
+                                flow_runners,
+                                #[cfg(feature = "benchmark")]
+                                &mut bench,
+                            )
+                            .await;
+                            record_job_span_status(&result);
+                            result
+                        }
                         .instrument(span),
                     )
                     .await;
 
                     match job_result {
-                        Ok(false) if is_init_script => {
+                        Ok(ref outcome) if !outcome.is_success() && is_init_script => {
                             tracing::error!("init script job failed, exiting");
                             update_worker_ping_for_failed_init_script(conn, &worker_name, job_id)
                                 .await;
                             break;
                         }
-                        Ok(false) if is_periodic_bash_script => {
+                        Ok(ref outcome) if !outcome.is_success() && is_periodic_bash_script => {
                             tracing::error!(
                                 "periodic script job failed. Check logs for job ID {} for details.",
                                 job_id
@@ -3338,7 +3416,7 @@ pub async fn handle_queued_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     flow_runners: Option<Arc<FlowRunners>>,
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
-) -> windmill_common::error::Result<bool> {
+) -> windmill_common::error::Result<JobOutcome> {
     if job.canceled_by.is_some() {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
     }
@@ -3506,7 +3584,7 @@ pub async fn handle_queued_job(
                     }
                 }
 
-                return Ok(true);
+                return Ok(JobOutcome::Completed);
             }
         };
     }
@@ -3537,11 +3615,11 @@ pub async fn handle_queued_job(
                     tracing::error!(
                         "Schedule push zombie: {err}. Leaving flow job in queue for zombie detection to restart."
                     );
-                    Ok(true)
+                    Ok(JobOutcome::Completed)
                 }
                 other => {
                     other?;
-                    Ok(true)
+                    Ok(JobOutcome::Completed)
                 }
             }
         } else {
@@ -3816,21 +3894,21 @@ pub async fn handle_queued_job(
         drop(job);
         //it's a test job, no need to update the db
         if cjob.workspace_id == "" {
-            return Ok(true);
+            return Ok(JobOutcome::Completed);
         }
 
         if result
             .as_ref()
             .is_err_and(|err| matches!(err, &Error::AlreadyCompleted(_)))
         {
-            return Ok(false);
+            return Ok(JobOutcome::AlreadyCompleted);
         }
         if result
             .as_ref()
             .is_err_and(|err| matches!(err, &Error::WacSuspended(_)))
         {
             // WAC v2 job suspended while waiting for child jobs — don't complete it
-            return Ok(true);
+            return Ok(JobOutcome::Completed);
         }
         process_result(
             cjob,

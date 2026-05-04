@@ -94,7 +94,6 @@ class TestGitSync(unittest.TestCase):
         include_path=None,
         use_individual_branch=False,
         group_by_folder=False,
-        force_branch=None,
     ):
         """Configure git sync with a single repository (auto-managed script)."""
         repo_settings = {
@@ -102,8 +101,6 @@ class TestGitSync(unittest.TestCase):
             "use_individual_branch": use_individual_branch,
             "group_by_folder": group_by_folder,
         }
-        if force_branch:
-            repo_settings["force_branch"] = force_branch
         if include_type or include_path:
             repo_settings["settings"] = {
                 "include_type": include_type or [],
@@ -620,58 +617,6 @@ class TestGitSync(unittest.TestCase):
             expected_folder_part,
             deploy_branch,
             f"Expected folder-grouped branch name containing '{expected_folder_part}', got: {deploy_branch}",
-        )
-
-    # ──────────────────────────────────────────────────
-    # force_branch with wmill.yaml
-    # ──────────────────────────────────────────────────
-
-    def test_force_branch_with_wmill_yaml(self):
-        """force_branch passes --branch to wmill sync pull, which selects the
-        matching gitBranches config from wmill.yaml. With branch-specific variables
-        configured, the variable file should use a branch-specific path."""
-        repo_name, _ = self._create_test_repo()
-        resource_path = self._setup_git_sync_resource(repo_name)
-
-        # Push a wmill.yaml to the repo that configures branch-specific variables
-        wmill_yaml_content = """\
-includes:
-  - "**"
-gitBranches:
-  staging:
-    specificItems:
-      variables:
-        - "**"
-"""
-        self._gitea.create_file(repo_name, "wmill.yaml", wmill_yaml_content)
-
-        self._configure_single_repo_sync(
-            resource_path,
-            include_type=["variable"],
-            force_branch="staging",
-        )
-
-        initial_count = self._client.count_deployment_callback_jobs()
-        var_path = f"u/admin/{unique_name('env_var')}"
-        self._client.create_variable(
-            path=var_path,
-            value="staging_value",
-        )
-        self._client.wait_for_sync_jobs(initial_count, min_new=1)
-        time.sleep(3)
-
-        repo_dir = self._clone_repo(repo_name)
-        files = self._list_repo_files(repo_dir)
-
-        var_name = var_path.split("/")[-1]
-
-        # With force_branch="staging" and specificItems for variables,
-        # the variable file should have ".staging." in its name
-        staging_files = [f for f in files if var_name in f and ".staging." in f]
-        self.assertTrue(
-            len(staging_files) > 0,
-            f"Expected variable file with '.staging.' in name for branch-specific item, "
-            f"got files: {files}",
         )
 
     # ──────────────────────────────────────────────────

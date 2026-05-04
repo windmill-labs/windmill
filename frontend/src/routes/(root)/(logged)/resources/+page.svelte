@@ -435,7 +435,7 @@
 			deployUiSettings = ALL_DEPLOYABLE
 			return
 		}
-		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		let settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
 		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
 	}
 	getDeployUiSettings()

@@ -58,6 +58,17 @@ export type FrontendBenchmarkProgressEvent =
 			attempt: number
 			runs: number
 	  }
+	| {
+			type: 'tool-call'
+			surface: FrontendBenchmarkProgressSurface
+			caseId: string
+			caseNumber: number
+			totalCases: number
+			attempt: number
+			runs: number
+			toolName: string
+			argumentsText: string
+	  }
 
 export const FRONTEND_BENCHMARK_PROGRESS_PREFIX = 'WMILL_FRONTEND_AI_EVAL_PROGRESS '
 
@@ -109,6 +120,8 @@ export function formatFrontendBenchmarkProgressEvent(
 		case 'assistant-chunk':
 		case 'assistant-message-end':
 			return ''
+		case 'tool-call':
+			return `${formatCasePrefix(event.caseNumber, event.totalCases)} ${event.caseId} attempt ${event.attempt}/${event.runs} tool ${event.toolName} ${truncateSingleLine(event.argumentsText, 200)}`
 	}
 }
 

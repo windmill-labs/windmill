@@ -15,15 +15,15 @@ use eventsource_stream::Eventsource;
 use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::json;
-use windmill_common::{
+use windmill_ai::{
     ai_google::{
         gemini_event_to_openai_sse_chunks, gemini_response_to_openai, openai_messages_to_gemini,
         parse_gemini_response, parse_gemini_sse_event, sanitize_schema_for_google,
         GeminiFunctionDeclaration, GeminiGenerationConfig, GeminiTextRequest, GeminiTool,
     },
     ai_types::OpenAIMessage,
-    error::{Error, Result},
 };
+use windmill_common::error::{Error, Result};
 
 use crate::ai::{inject_keepalives, HTTP_CLIENT, KEEPALIVE_INTERVAL_SECS};
 

@@ -4,13 +4,12 @@ import type { FlowModule, InputTransform } from '../../../../../frontend/src/lib
 import type { ExtendedOpenFlow } from '../../../../../frontend/src/lib/components/flows/types'
 import type { FlowAIChatHelpers } from '../../../../../frontend/src/lib/components/copilot/chat/flow/core'
 import type { ScriptLintResult } from '../../../../../frontend/src/lib/components/copilot/chat/shared'
-import { getSubModules } from '../../../../../frontend/src/lib/components/flows/flowExplorer'
+import type { WorkspaceMutationTarget } from '../../../../../frontend/src/lib/components/copilot/chat/workspaceTools'
 import {
 	createInlineScriptSession
 } from '../../../../../frontend/src/lib/components/copilot/chat/flow/inlineScriptsUtils'
 import {
 	applyFlowJsonUpdate,
-	getFlowModuleById,
 	updateRawScriptModuleContent
 } from '../../../../../frontend/src/lib/components/copilot/chat/flow/helperUtils'
 import {
@@ -40,7 +39,8 @@ export async function createFlowFileHelpers(
 	initialPreprocessorModule?: FlowModule,
 	initialFailureModule?: FlowModule,
 	workspaceRoot?: string,
-	workspaceFixtures?: FlowWorkspaceFixtures
+	workspaceFixtures?: FlowWorkspaceFixtures,
+	currentFlowPath?: string
 ): Promise<{
 	helpers: FlowAIChatHelpers
 	getFlow: () => ExtendedOpenFlow
@@ -83,14 +83,33 @@ export async function createFlowFileHelpers(
 		}
 	}
 
-	const helpers: FlowAIChatHelpers = {
+	const setFlowJson: FlowAIChatHelpers['setFlowJson'] = async ({
+		modules,
+		schema,
+		preprocessorModule,
+		failureModule
+	}) => {
+		const result = applyFlowJsonUpdate(flow, inlineScriptSession, {
+			modules,
+			schema,
+			preprocessorModule,
+			failureModule
+		})
+		await persistFlow()
+		return result
+	}
+
+	const helpers: FlowAIChatHelpers & {
+		getWorkspaceMutationTarget: () => WorkspaceMutationTarget
+	} = {
 		getFlowAndSelectedId: () => ({ flow, selectedId: '' }),
-		getModules: (id?: string) => {
-			if (!id) return flow.value.modules
-			const module = getFlowModuleById(flow, id)
-			return module ? getSubModules(module).flat() : []
-		},
+		getRootModules: () => flow.value.modules,
 		inlineScriptSession,
+		getWorkspaceMutationTarget: () => ({
+			kind: 'flow',
+			path: currentFlowPath,
+			deployed: Boolean(currentFlowPath)
+		}),
 		setSnapshot: () => {},
 		revertToSnapshot: () => {},
 		setCode: async (id: string, code: string) => {
@@ -98,20 +117,7 @@ export async function createFlowFileHelpers(
 			inlineScriptSession.set(id, code)
 			await persistFlow()
 		},
-		setFlowJson: async (
-			modules: FlowModule[] | undefined,
-			schema: Record<string, any> | undefined,
-			preprocessorModule: FlowModule | null | undefined,
-			failureModule: FlowModule | null | undefined
-		) => {
-			applyFlowJsonUpdate(flow, inlineScriptSession, {
-				modules,
-				schema,
-				preprocessorModule,
-				failureModule
-			})
-			await persistFlow()
-		},
+		setFlowJson,
 		getFlowInputsSchema: async () => flow.schema ?? {},
 		updateExprsToSet: (_id: string, _inputTransforms: Record<string, InputTransform>) => {},
 		acceptAllModuleActions: () => {},

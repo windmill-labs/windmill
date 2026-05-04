@@ -36,6 +36,16 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 			script: '/scripts/add?hub=hub%2F28135',
 			flow: '/flows/add?hub=75'
 		}
+	},
+	github: {
+		serviceDisplayName: 'GitHub',
+		serviceKey: 'github',
+		supportsSync: true,
+		isCloudCompatible: true,
+		templates: {
+			script: '/scripts/add?hub=hub%2F28202',
+			flow: '/flows/add?hub=80'
+		}
 	}
 }
 
@@ -120,6 +130,8 @@ export function getTriggerIconName(service: NativeServiceName): string {
 			return 'NextcloudIcon'
 		case 'google':
 			return 'GoogleIcon'
+		case 'github':
+			return 'GithubIcon'
 		default:
 			return 'NextcloudIcon'
 	}
@@ -131,6 +143,8 @@ export async function getServiceIcon(service: NativeServiceName): Promise<any> {
 			return (await import('$lib/components/icons/NextcloudIcon.svelte')).default
 		case 'google':
 			return (await import('$lib/components/icons/GoogleIcon.svelte')).default
+		case 'github':
+			return (await import('$lib/components/icons/GithubIcon.svelte')).default
 	}
 }
 

@@ -5,7 +5,7 @@
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import { Check, X, ExternalLink, Cog, Plug } from 'lucide-svelte'
-	import { NextcloudIcon } from '$lib/components/icons'
+	import { NextcloudIcon, GithubIcon } from '$lib/components/icons'
 	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
 	import { WorkspaceIntegrationService, type NativeServiceName } from '$lib/gen'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
@@ -67,6 +67,22 @@
 				'Add the redirect URI shown below to "Authorized redirect URIs"',
 				'Enable the <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener" class="underline">Google Drive API</a> and <a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noopener" class="underline">Google Calendar API</a> in your project',
 				'Enter the client credentials below'
+			]
+		},
+		github: {
+			name: 'github',
+			displayName: 'GitHub',
+			description: 'Connect to GitHub for repository webhook triggers',
+			icon: GithubIcon,
+			docsUrl: 'https://www.windmill.dev/docs/core_concepts/native_triggers#github-triggers',
+			requiresBaseUrl: false,
+			clientIdPlaceholder: 'GitHub OAuth App Client ID',
+			clientSecretPlaceholder: 'GitHub OAuth App Client Secret',
+			setupInstructions: [
+				'Go to <a href="https://github.com/settings/developers" target="_blank" rel="noopener" class="underline">GitHub Developer Settings</a>',
+				'Create a new OAuth App (not a GitHub App)',
+				'Set the "Authorization callback URL" to the redirect URI shown below',
+				'Enter the Client ID and Client Secret below'
 			]
 		}
 	}

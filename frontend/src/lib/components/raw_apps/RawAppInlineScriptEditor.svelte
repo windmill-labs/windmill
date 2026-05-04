@@ -16,6 +16,8 @@
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import type { InlineScript, StaticAppInput, UserAppInput, CtxAppInput } from '../apps/inputType'
 	import CacheTtlPopup from '../apps/editor/inlineScriptsPanel/CacheTtlPopup.svelte'
+	import TagPopup from '../apps/editor/inlineScriptsPanel/TagPopup.svelte'
+	import DeleteAfterUsePopup from './DeleteAfterUsePopup.svelte'
 	import { computeFields } from '../apps/editor/inlineScriptsPanel/utils'
 	import EditorBar from '../EditorBar.svelte'
 	import { LanguageIcon } from '../common/languageIcons'
@@ -50,6 +52,7 @@
 		onRun: () => Promise<void>
 		editor?: any | undefined
 		lastDeployedCode?: string | undefined
+		delete_after_secs?: number | undefined
 		/** Called when code is selected in the editor */
 		onSelectionChange?: (
 			selection: {
@@ -71,7 +74,8 @@
 		onRun,
 		editor = $bindable(undefined),
 		lastDeployedCode,
-		onSelectionChange
+		onSelectionChange,
+		delete_after_secs = $bindable()
 	}: Props = $props()
 	let diffEditor = $state() as DiffEditor | undefined
 	let validCode = $state(true)
@@ -145,7 +149,10 @@
 		() => $workspaceStore
 	)
 	$effect(() => {
-		if (inlineScript && inferAssetsRes.current) inlineScript.assets = inferAssetsRes.current?.assets
+		if (!inlineScript || !inferAssetsRes.current || inferAssetsRes.current.status === 'error')
+			return
+		const newAssets = inferAssetsRes.current.assets
+		inlineScript.assets = newAssets.length > 0 ? newAssets : undefined
 	})
 
 	// Debug mode state
@@ -624,8 +631,10 @@
 			{/if}
 			<div class="flex w-full flex-row gap-2 items-center justify-end">
 				{#if inlineScript}
+					<TagPopup bind:tag={inlineScript.tag} />
 					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
 				{/if}
+				<DeleteAfterUsePopup bind:delete_after_secs />
 
 				<Button
 					variant="default"

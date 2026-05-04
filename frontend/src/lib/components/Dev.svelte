@@ -18,7 +18,13 @@
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema, readFieldsRecursively, sendUserToast, type StateStore } from '$lib/utils'
+	import {
+		emptySchema,
+		pluralize,
+		readFieldsRecursively,
+		sendUserToast,
+		type StateStore
+	} from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
@@ -38,7 +44,32 @@
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'
-	import { CornerDownLeft, Play } from 'lucide-svelte'
+	import {
+		CornerDownLeft,
+		Play,
+		Folder,
+		FolderTree,
+		User,
+		Search,
+		ChevronDown,
+		ChevronUp,
+		Code2,
+		LayoutDashboard
+	} from 'lucide-svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import FlowIcon from '$lib/components/home/FlowIcon.svelte'
+	import {
+		groupItems,
+		type ItemType,
+		type FolderItem,
+		type UserItem
+	} from '$lib/components/home/treeViewUtils'
+	import SearchItems from '$lib/components/SearchItems.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import Row from '$lib/components/common/table/Row.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
 	import Toggle from './Toggle.svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import type { FlowCopilotContext } from './copilot/flow'
@@ -112,6 +143,9 @@
 
 	let darkModeToggle: DarkModeToggle | undefined = $state()
 	let darkMode: boolean = $state(document.documentElement.classList.contains('dark'))
+	let flowContainerWidth = $state(0)
+	let flowContainerHeight = $state(0)
+	let flowHorizontalSplit = $derived(flowContainerWidth < flowContainerHeight)
 	let modeInitialized = $state(false)
 	let paneWidth = $state(0)
 	let compactPreview = $derived(paneWidth < 800)
@@ -160,7 +194,56 @@
 	const href = window.location.href
 	const indexQ = href.indexOf('?')
 	const searchParams = indexQ > -1 ? new URLSearchParams(href.substring(indexQ)) : undefined
-	let relativePaths: any[] = $state([])
+	let relativePaths: (string | [number, string])[] = $state([])
+
+	type WmPathItem = {
+		path: string
+		kind: 'flow' | 'script' | 'raw_app'
+		summary?: string
+	}
+	// watchPath is (re)synced on initial load, on popstate, and on explicit
+	// pickPath assignments. We don't listen for generic pushState events —
+	// the only pushState callsite is pickPath itself, and it updates watchPath
+	// directly. If a third caller starts pushing to history, add a resync there.
+	function parseWatchPath(): string | undefined {
+		const i = window.location.href.indexOf('?')
+		if (i < 0) return undefined
+		return new URLSearchParams(window.location.href.substring(i)).get('path') ?? undefined
+	}
+	const PATH_SUFFIX_RE = /(\.(flow|app|raw_app)|__(flow|app|raw_app))\/?$/
+	let watchPath = $state(parseWatchPath()?.replace(PATH_SUFFIX_RE, ''))
+	let pickerItems: WmPathItem[] = $state([])
+	// Picker only makes sense on the local dev page — that's the only context
+	// with a wmill dev WebSocket capable of returning the workspace listing.
+	// The VS Code extension iframe omits ?local=true and drives the page via
+	// postMessage (replaceScript / replaceFlow), so it must skip the picker.
+	const isLocalDevPage = !!searchParams?.has('local')
+	const pickerMode = $derived(isLocalDevPage && !watchPath)
+	let wsState: 'connecting' | 'open' | 'closed' = $state('connecting')
+	let pickerFilter = $state('')
+	let pickerKind: 'all' | 'flow' | 'script' | 'raw_app' = $state('all')
+	// Shape pickerItems into the homepage's ItemType so we can reuse `groupItems`
+	// for the folder/user tree structure. `kind` ('script'|'flow'|'raw_app') maps 1:1
+	// onto ItemType['type']; missing fields (canWrite, edited_at, etc.) default to safe values.
+	const pickerTreeItems = $derived(
+		pickerItems.map(
+			(item) =>
+				({
+					path: item.path,
+					summary: item.summary ?? '',
+					type: item.kind,
+					canWrite: true,
+					extra_perms: {},
+					starred: false,
+					edited_at: ''
+				}) as unknown as ItemType
+		)
+	)
+	const pickerKindFilteredItems = $derived(
+		pickerKind === 'all' ? pickerTreeItems : pickerTreeItems.filter((i) => i.type === pickerKind)
+	)
+	let pickerFilteredItems: (ItemType & { marked?: string })[] | undefined = $state(undefined)
+	const pickerGroups = $derived(groupItems(pickerFilteredItems ?? pickerKindFilteredItems))
 
 	if (searchParams?.has('local')) {
 		connectWs()
@@ -328,12 +411,39 @@
 		)
 		loadingCodebaseButton = false
 	}
+	const onPopState = () => {
+		watchPath = parseWatchPath()?.replace(PATH_SUFFIX_RE, '')
+		if (watchPath && socket && socket.readyState === WebSocket.OPEN) {
+			socket.send(JSON.stringify({ type: 'loadWmPath', path: watchPath }))
+		}
+	}
+
+	onMount(() => {
+		window.addEventListener('popstate', onPopState)
+	})
+
 	onDestroy(() => {
 		window.removeEventListener('message', el)
+		window.removeEventListener('popstate', onPopState)
 		if (socket && socket.readyState === WebSocket.OPEN) {
 			socket?.close()
 		}
 	})
+
+	function pickPath(item: WmPathItem) {
+		if (item.kind === 'raw_app') {
+			sendUserToast(
+				`raw_apps aren't previewable here. Run \`wmill app dev\` from inside the app folder.`,
+				false
+			)
+			return
+		}
+		const url = new URL(window.location.href)
+		url.searchParams.set('path', item.path)
+		window.history.pushState({}, '', url.toString())
+		watchPath = item.path
+		socket?.send(JSON.stringify({ type: 'loadWmPath', path: item.path }))
+	}
 
 	function connectWs() {
 		try {
@@ -345,7 +455,27 @@
 		}
 		const port = searchParams?.get('port') || '3001'
 		try {
+			wsState = 'connecting'
 			socket = new WebSocket(`ws://localhost:${port}/ws`)
+
+			// On connect, request the watched path if any, otherwise ask for a list to render the picker
+			socket.addEventListener('open', () => {
+				if (!socket) return
+				wsState = 'open'
+				if (watchPath) {
+					socket.send(JSON.stringify({ type: 'loadWmPath', path: watchPath }))
+				} else {
+					socket.send(JSON.stringify({ type: 'listPaths' }))
+				}
+			})
+
+			socket.addEventListener('error', () => {
+				wsState = 'closed'
+			})
+
+			socket.addEventListener('close', () => {
+				wsState = 'closed'
+			})
 
 			// Listen for messages
 			socket.addEventListener('message', (event) => {
@@ -360,10 +490,29 @@
 					console.log('Received invalid JSON: ' + msg)
 					return
 				}
-				if (data.type == 'script') {
-					replaceScript(data)
-				} else if (data.type == 'flow') {
-					replaceFlow(data)
+				if (data.type === 'paths') {
+					pickerItems = data.items ?? []
+					return
+				}
+				// Picker mode (URL has no path) — ignore live broadcasts so a random
+				// file change doesn't yank the page out of the picker. (When watchPath
+				// IS set the server gates broadcasts itself, so no further filter here.)
+				if (!watchPath) return
+				if (data.type == 'script' || data.type == 'flow') {
+					// Guard against the $effect on flowStore.val (re)serializing the
+					// just-received payload back over the same WS to handleFlowRoundTrip
+					// (which would re-run the orphan-file scan with the same content).
+					// Mirrors the postMessage handler above.
+					lockChanges = true
+					if (data.type == 'script') {
+						replaceScript(data)
+					} else {
+						replaceFlow(data)
+					}
+					timeout && clearTimeout(timeout)
+					timeout = window.setTimeout(() => {
+						lockChanges = false
+					}, 500)
 				} else {
 					sendUserToast(`Received invalid message type ${data.type}`, true)
 				}
@@ -571,14 +720,28 @@
 	setGroupEditorContext(groupEditor, canCreateGroup)
 
 	let lastSent: OpenFlow | undefined = undefined
+	const isInIframe = window.parent !== window
 	function updateFlow(flow: OpenFlow) {
 		if (lockChanges) {
 			return
 		}
-		if (!deepEqual(flow, lastSent)) {
-			lastSent = $state.snapshot(flow)
-			window?.parent.postMessage({ type: 'flow', flow: lastSent, uriPath: lastUriPath }, '*')
+		if (deepEqual(flow, lastSent)) {
+			return
 		}
+		const snapshot = $state.snapshot(flow)
+		// Prefer the WebSocket whenever a `wmill dev` session is connected — this covers
+		// both standalone browser tabs and Claude Code's iframe preview. The VS Code
+		// extension never opens this socket (its iframe URL omits `local=true`), so it
+		// falls through to the postMessage path it has always used.
+		if (socket && socket.readyState === WebSocket.OPEN) {
+			socket.send(JSON.stringify({ type: 'flow', flow: snapshot, uriPath: lastUriPath }))
+			lastSent = snapshot
+		} else if (isInIframe) {
+			window?.parent.postMessage({ type: 'flow', flow: snapshot, uriPath: lastUriPath }, '*')
+			lastSent = snapshot
+		}
+		// Else: no channel available yet (WS still connecting, not in an iframe).
+		// Don't mark `lastSent` so the next change will retry instead of being silently swallowed.
 	}
 
 	let reload = $state(0)
@@ -702,7 +865,7 @@
 
 	const selectedModule = $derived(
 		selectedId && flowStore.val?.value
-			? findModuleInFlow(flowStore.val.value, selectedId) ?? undefined
+			? (findModuleInFlow(flowStore.val.value, selectedId) ?? undefined)
 			: undefined
 	)
 </script>
@@ -712,7 +875,185 @@
 <JobLoader noCode={true} bind:this={jobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 
 <main class="h-screen w-full">
-	{#if mode == 'script'}
+	{#snippet itemRow(item: ItemType & { marked?: string }, depth: number)}
+		{@const wmItem = pickerItems.find((p) => p.path === item.path)}
+		<button
+			type="button"
+			onclick={() => wmItem && pickPath(wmItem)}
+			class="block w-full text-left cursor-pointer border-b last:border-b-0"
+		>
+			<Row
+				marked={item.marked}
+				path={item.path}
+				summary={item.summary}
+				kind={item.type}
+				{depth}
+				workspaceId={$workspaceStore ?? ''}
+				canFavorite={false}
+			/>
+		</button>
+	{/snippet}
+	{#snippet treeNode(node: ItemType | FolderItem | UserItem, depth: number)}
+		{#if 'folderName' in node}
+			<details open class="group border-b last:border-b-0">
+				<summary
+					class="px-4 py-2 w-full flex flex-row items-center justify-between cursor-pointer list-none group-open:border-b"
+				>
+					<div
+						class="flex flex-row items-center gap-4 text-sm font-semibold"
+						style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
+					>
+						<div class="flex justify-center items-center">
+							{#if depth === 0}
+								<Folder size={16} class="text-secondary" />
+							{:else}
+								<FolderTree size={16} class="text-secondary" />
+							{/if}
+						</div>
+						<div>
+							<span class="whitespace-nowrap text-xs text-emphasis font-semibold"
+								>{#if depth === 0}f/{/if}{node.folderName}</span
+							>
+							<div class="text-2xs font-normal text-secondary whitespace-nowrap">
+								({pluralize(node.items.length, 'item')})
+							</div>
+						</div>
+					</div>
+					<div class="w-full flex flex-row-reverse">
+						<ChevronUp size={16} class="hidden group-open:block" />
+						<ChevronDown size={16} class="block group-open:hidden" />
+					</div>
+				</summary>
+				{#each node.items as child ('folderName' in child ? `f__${child.folderName}` : 'username' in child ? `u__${child.username}` : `i__${child.type}__${child.path}`)}
+					{@render treeNode(child, depth + 1)}
+				{/each}
+			</details>
+		{:else if 'username' in node}
+			<details open class="group border-b last:border-b-0">
+				<summary
+					class="px-4 py-2 w-full flex flex-row items-center justify-between cursor-pointer list-none group-open:border-b"
+				>
+					<div
+						class="flex flex-row items-center gap-4 text-sm font-semibold"
+						style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
+					>
+						<div class="flex justify-center items-center">
+							<User size={16} class="text-secondary" />
+						</div>
+						<div>
+							<span class="whitespace-nowrap text-xs text-emphasis font-semibold"
+								>u/{node.username}</span
+							>
+							<div class="text-2xs font-normal text-secondary whitespace-nowrap">
+								({pluralize(node.items.length, 'item')})
+							</div>
+						</div>
+					</div>
+					<div class="w-full flex flex-row-reverse">
+						<ChevronUp size={16} class="hidden group-open:block" />
+						<ChevronDown size={16} class="block group-open:hidden" />
+					</div>
+				</summary>
+				{#each node.items as child ('folderName' in child ? `f__${child.folderName}` : 'username' in child ? `u__${child.username}` : `i__${child.type}__${child.path}`)}
+					{@render treeNode(child, depth + 1)}
+				{/each}
+			</details>
+		{:else}
+			{@render itemRow(node as ItemType & { marked?: string }, depth)}
+		{/if}
+	{/snippet}
+
+	{#if pickerMode}
+		<div class="h-full w-full overflow-auto p-6">
+			<div class="absolute top-2 left-2">
+				<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
+			</div>
+			<div class="absolute top-2 right-2 text-xs text-secondary">
+				{#if $userStore}
+					{$userStore?.username} on {$workspaceStore}
+				{:else}
+					<span class="text-red-600">Unable to login on {$workspaceStore}</span>
+				{/if}
+			</div>
+			<div class="max-w-3xl mx-auto pt-8">
+				<h1 class="text-2xl font-semibold text-primary mb-1">
+					{$workspaceStore}
+					<span class="font-normal text-secondary">(local)</span>
+				</h1>
+				<p class="text-sm text-secondary mb-4"> Click a flow or a script to preview it. </p>
+
+				<SearchItems
+					filter={pickerFilter}
+					items={pickerKindFilteredItems}
+					f={(item: ItemType) => `${item.path} ${item.summary ?? ''}`}
+					bind:filteredItems={pickerFilteredItems}
+				/>
+
+				{#if wsState !== 'closed'}
+					<div class="flex flex-row gap-2 items-center mb-3 w-full">
+						<ToggleButtonGroup bind:selected={pickerKind} class="w-fit">
+							{#snippet children({ item })}
+								<ToggleButton value="all" label="All" size="md" {item} />
+								<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
+								<ToggleButton
+									value="flow"
+									label="Flows"
+									icon={FlowIcon}
+									selectedColor="#14b8a6"
+									size="md"
+									{item}
+								/>
+								<ToggleButton
+									value="raw_app"
+									label="Apps"
+									icon={LayoutDashboard}
+									selectedColor="#fb923c"
+									size="md"
+									{item}
+								/>
+							{/snippet}
+						</ToggleButtonGroup>
+
+						<div class="relative text-primary flex-1 min-w-[100px]">
+							<!-- svelte-ignore a11y_autofocus -->
+							<TextInput
+								inputProps={{
+									autofocus: true,
+									placeholder: HOME_SEARCH_PLACEHOLDER
+								}}
+								size="md"
+								bind:value={pickerFilter}
+								class="!pr-10"
+							/>
+							<div class="absolute right-0 top-0 mt-2 mr-4 text-secondary" aria-hidden="true">
+								<Search size={16} />
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				{#if wsState === 'closed'}
+					<Alert type="warning" title="Dev server is not running">
+						Start it from your workspace root with
+						<code class="text-xs px-1 py-0.5 rounded bg-surface-secondary">wmill dev</code>
+						to preview your flows, scripts, and apps.
+					</Alert>
+				{:else if pickerItems.length === 0}
+					<div class="text-sm text-secondary"
+						>No flows, scripts, or apps detected in this workspace.</div
+					>
+				{:else if pickerGroups.length === 0}
+					<div class="text-sm text-secondary">No items match the search.</div>
+				{:else}
+					<div class="border rounded-md bg-surface-tertiary overflow-hidden">
+						{#each pickerGroups as group ('folderName' in group ? `f__${group.folderName}` : 'username' in group ? `u__${group.username}` : `i__${group.type}__${group.path}`)}
+							{@render treeNode(group, 0)}
+						{/each}
+					</div>
+				{/if}
+			</div>
+		</div>
+	{:else if mode == 'script'}
 		<div class="flex flex-col min-h-full min-h-screen overflow-auto">
 			<div class="absolute top-0 left-2">
 				<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
@@ -855,7 +1196,11 @@
 		</div>
 	{:else}
 		<!-- <div class="h-full w-full grid grid-cols-2"> -->
-		<div class="h-full w-full">
+		<div
+			class="h-full w-full"
+			bind:clientWidth={flowContainerWidth}
+			bind:clientHeight={flowContainerHeight}
+		>
 			<div class="flex flex-col max-h-screen h-full relative" bind:clientWidth={paneWidth}>
 				<div class="absolute top-0 left-2">
 					<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
@@ -866,83 +1211,93 @@
 					{/if}
 				</div>
 
-				<div class="flex justify-center pt-1 z-50 absolute gap-2 {compactPreview ? 'left-1/2 -translate-x-1/2 top-14' : '-translate-x-[100%] right-2 top-2'}">
-					<FlowPreviewButtons
-						{suspendStatus}
-						bind:this={flowPreviewButtons}
-						{onJobDone}
-						bind:localModuleStates
-						onRunPreview={() => {
-							showJobStatus = true
-						}}
-					/>
-				</div>
-				<Splitpanes horizontal class="max-h-screen grow min-h-0">
+				<Splitpanes horizontal={flowHorizontalSplit} class="min-h-0 max-h-screen grow">
 					<Pane size={67}>
-						{#if flowStore.val?.value?.modules}
-							<div id="flow-editor"></div>
-							<FlowModuleSchemaMap
-								bind:this={flowModuleSchemaMap}
-								disableAi
-								disableTutorials
-								smallErrorHandler={true}
-								disableStaticInputs
-								localModuleStates={showJobStatus ? localModuleStates : {}}
-								onTestUpTo={flowPreviewButtons?.testUpTo}
-								testModuleStates={modulesTestStates}
-								isOwner={flowPreviewContent?.getIsOwner?.()}
-								onTestFlow={flowPreviewButtons?.runPreview}
-								isRunning={flowPreviewContent?.getIsRunning?.()}
-								onCancelTestFlow={flowPreviewContent?.cancelTest}
-								onOpenPreview={flowPreviewButtons?.openPreview}
-								onHideJobStatus={resetModulesStates}
-								flowJob={job}
-								{showJobStatus}
-								onDelete={(id) => {
-									delete localModuleStates[id]
-									delete modulesTestStates.states[id]
-								}}
-								{flowHasChanged}
-							/>
-						{:else}
-							<div class="text-red-400 mt-20">Missing flow modules</div>
-						{/if}
-					</Pane>
+						<div class="relative h-full w-full">
+							{#if flowStore.val?.value?.modules}
+								<div id="flow-editor"></div>
+								<div
+									class="flex justify-center pt-1 z-50 absolute gap-2 {compactPreview
+										? 'left-1/2 -translate-x-1/2 top-14'
+										: 'right-2 top-2'}"
+								>
+									<FlowPreviewButtons
+										{suspendStatus}
+										bind:this={flowPreviewButtons}
+										{onJobDone}
+										bind:localModuleStates
+										onRunPreview={() => {
+											showJobStatus = true
+										}}
+									/>
+								</div>
+								<FlowModuleSchemaMap
+									bind:this={flowModuleSchemaMap}
+									disableAi
+									disableTutorials
+									smallErrorHandler={true}
+									disableStaticInputs
+									localModuleStates={showJobStatus ? localModuleStates : {}}
+									onTestUpTo={flowPreviewButtons?.testUpTo}
+									testModuleStates={modulesTestStates}
+									isOwner={flowPreviewContent?.getIsOwner?.()}
+									onTestFlow={flowPreviewButtons?.runPreview}
+									isRunning={flowPreviewContent?.getIsRunning?.()}
+									onCancelTestFlow={flowPreviewContent?.cancelTest}
+									onOpenPreview={flowPreviewButtons?.openPreview}
+									onHideJobStatus={resetModulesStates}
+									flowJob={job}
+									{showJobStatus}
+									onDelete={(id) => {
+										delete localModuleStates[id]
+										delete modulesTestStates.states[id]
+									}}
+									{flowHasChanged}
+									controlsPosition="bottom"
+								/>
+							{:else}
+								<div class="text-red-400 mt-20">Missing flow modules</div>
+							{/if}
+						</div></Pane
+					>
+
 					<Pane size={33}>
-						{#key reload}
-							<FlowEditorPanel
-								enableAi
-								noEditor
-								on:applyArgs={(ev) => {
-									if (ev.detail.kind === 'preprocessor') {
-										stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
-										selectionManager.selectId('preprocessor')
-									} else {
-										previewArgsStore.val = ev.detail.args ?? {}
-										flowPreviewButtons?.openPreview()
-									}
-								}}
-								onTestFlow={flowPreviewButtons?.runPreview}
-								{job}
-								isOwner={flowPreviewContent?.getIsOwner()}
-								{suspendStatus}
-								onOpenDetails={flowPreviewButtons?.openPreview}
-								previewOpen={flowPreviewButtons?.getPreviewOpen()}
-							/>
-						{/key}
+						<div class="h-full w-full pl-0.5">
+							{#if selectedModule}
+								<div
+									class="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-surface shrink-0"
+								>
+									<span class="text-xs text-secondary shrink-0">{selectedModule.id} summary</span>
+									<TextInput
+										inputProps={{ placeholder: 'Summary' }}
+										bind:value={selectedModule.summary}
+									/>
+								</div>
+							{/if}
+							{#key reload}
+								<FlowEditorPanel
+									enableAi
+									noEditor
+									on:applyArgs={(ev) => {
+										if (ev.detail.kind === 'preprocessor') {
+											stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
+											selectionManager.selectId('preprocessor')
+										} else {
+											previewArgsStore.val = ev.detail.args ?? {}
+											flowPreviewButtons?.openPreview()
+										}
+									}}
+									onTestFlow={flowPreviewButtons?.runPreview}
+									{job}
+									isOwner={flowPreviewContent?.getIsOwner()}
+									{suspendStatus}
+									onOpenDetails={flowPreviewButtons?.openPreview}
+									previewOpen={flowPreviewButtons?.getPreviewOpen()}
+								/>
+							{/key}
+						</div>
 					</Pane>
 				</Splitpanes>
-				{#if selectedModule}
-					<div class="flex items-center gap-2 px-3 py-1.5 border-t border-border bg-surface shrink-0">
-						<span class="text-xs text-secondary shrink-0">{selectedModule.id} summary</span>
-						<input
-							type="text"
-							class="text-xs w-full bg-transparent border border-border rounded px-2 py-1 focus:outline-none focus:border-blue-500"
-							placeholder="Summary"
-							bind:value={selectedModule.summary}
-						/>
-					</div>
-				{/if}
 			</div>
 		</div>
 	{/if}

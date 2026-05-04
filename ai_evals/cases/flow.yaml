@@ -47,6 +47,38 @@
     - "the main step is named `call_add_numbers`"
     - the parent flow delegates to an existing workspace subflow instead of inlining the addition logic
 
+- id: flow-test13-prefer-existing-workspace-flow
+  prompt: |-
+    Create a parent flow that adds two numbers by reusing an existing flow from the workspace if one fits.
+    A reusable script may also be available, but for this task prefer the existing flow rather than calling a script directly or rewriting the logic inline.
+    The parent flow should take `a` and `b` as inputs and use a single top-level step named `call_add_numbers_flow`.
+  initial: ai_evals/fixtures/frontend/flow/initial/test13_prefer_existing_workspace_flow_initial.json
+  expected: ai_evals/fixtures/frontend/flow/expected/test13_prefer_existing_workspace_flow.json
+  validate:
+    exactTopLevelStepIds:
+      - call_add_numbers_flow
+    topLevelStepTypes:
+      - id: call_add_numbers_flow
+        type: flow
+    moduleRules:
+      - id: call_add_numbers_flow
+        requiredInputTransforms:
+          - type: javascript
+            expr: flow_input.a
+          - type: javascript
+            expr: flow_input.b
+  runtime:
+    backendPreview:
+      args:
+        a: 10
+        b: 5
+  judgeChecklist:
+    - "the parent flow takes `a` and `b` as inputs"
+    - "the main step is named `call_add_numbers_flow`"
+    - the parent flow reuses the existing workspace flow as a subflow
+    - the parent flow does not call the standalone workspace script directly
+    - the parent flow does not inline the addition logic
+
 - id: flow-test3-branchone-routing
   prompt: |-
     Create a flow that routes incoming support requests based on the customer's tier.
@@ -157,6 +189,8 @@
     If validation passes, let the save continue normally.
     Update `save_results` so it uses the validation outcome instead of bypassing it.
   initial: ai_evals/fixtures/frontend/flow/initial/test5_initial.json
+  runtime:
+    maxTurns: 8
   validate:
     topLevelStepIds:
       - fetch_data
@@ -333,3 +367,102 @@
     - one approval is enough to continue
     - "the flow includes a final step named `finalize_purchase`"
     - "`finalize_purchase` returns an approved status object after approval"
+
+- id: flow-test13-loop-resilience-toggle
+  prompt: |-
+    Update `loop_orders` so it can process orders in parallel.
+    If one order fails, the rest should still continue.
+    Keep the existing order-fetching and summary steps the same.
+  initial: ai_evals/fixtures/frontend/flow/initial/test6_initial.json
+  validate:
+    exactTopLevelStepIds:
+      - get_orders
+      - loop_orders
+      - summarize
+    topLevelStepTypes:
+      - id: loop_orders
+        type: forloopflow
+    moduleFieldRules:
+      - id: loop_orders
+        path: value.parallel
+        equals: true
+      - id: loop_orders
+        path: value.skip_failures
+        equals: true
+  judgeChecklist:
+    - "the flow keeps `get_orders` before `loop_orders` and `summarize` after it"
+    - "`loop_orders` processes orders in parallel"
+    - "a failure in one order does not stop the remaining orders from being processed"
+
+- id: flow-test14-modify-existing-special-modules
+  prompt: |-
+    Update this event-processing flow for a string payload.
+
+    Before `process_event` runs, trim the payload and reject empty strings.
+    If anything fails, return a compact error object with the error message and the failing step id.
+    Keep `process_event` as the main step.
+  initial: ai_evals/fixtures/frontend/flow/initial/test11_initial.json
+  expected: ai_evals/fixtures/frontend/flow/expected/test11_preprocessor_failure.json
+  validate:
+    requireSpecialModules:
+      - preprocessor_module
+      - failure_module
+  judgeChecklist:
+    - the updated flow trims the payload before the main processing runs
+    - the updated flow rejects empty payload strings
+    - "the existing `process_event` step remains the main step"
+    - failures return a compact error object with the error message and failing step id
+
+- id: flow-test15-create-current-flow-schedule
+  prompt: |-
+    Update this flow by adding a final step named `return_schedule_status`.
+    It should return an object with `scheduled: true` and the order summary from `results.summarize_orders`.
+    Also create an enabled daily schedule named `order_processing_daily` for the current flow.
+    It should run every day at 07:30 UTC with empty args.
+    Do not ask me for the flow path.
+  initial: ai_evals/fixtures/frontend/flow/initial/scheduled_order_flow.json
+  validate:
+    topLevelStepIds:
+      - return_schedule_status
+  toolExpect:
+    requiredToolsUsed:
+      - create_schedule
+    toolCallArgs:
+      - tool: create_schedule
+        field: path
+        stringStartsWithAnyOf:
+          - f/
+          - u/
+        stringMustNotStartWithAnyOf:
+          - schedules/
+  skipJudge: true
+  judgeChecklist:
+    - "the flow includes a final top-level step named `return_schedule_status`"
+    - "`return_schedule_status` returns `scheduled: true` and the order summary"
+
+- id: flow-test16-create-current-flow-http-trigger
+  prompt: |-
+    Update this flow by adding a final step named `webhook_response`.
+    It should return an object with `ok: true` and the order summary from `results.summarize_orders`.
+    Also create a public POST HTTP endpoint named `order_processing_webhook` for the current flow.
+    Use route path `ai-evals/order-processing` and no authentication.
+    Do not ask me for the flow path.
+  initial: ai_evals/fixtures/frontend/flow/initial/scheduled_order_flow.json
+  validate:
+    topLevelStepIds:
+      - webhook_response
+  toolExpect:
+    requiredToolsUsed:
+      - create_trigger
+    toolCallArgs:
+      - tool: create_trigger
+        field: path
+        stringStartsWithAnyOf:
+          - f/
+          - u/
+        stringMustNotStartWithAnyOf:
+          - schedules/
+  skipJudge: true
+  judgeChecklist:
+    - "the flow includes a final top-level step named `webhook_response`"
+    - "`webhook_response` returns `ok: true` and the order summary"

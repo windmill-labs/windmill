@@ -1,5 +1,6 @@
 import * as log from "./log.ts";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
+import { readTextFile } from "../utils/utils.ts";
 import { getStore } from "./store.ts";
 
 export interface BranchProfileMapping {
@@ -17,7 +18,7 @@ export async function getBranchProfilesPath(configDirOverride?: string): Promise
 export async function loadBranchProfiles(configDirOverride?: string): Promise<BranchProfileMapping> {
   try {
     const path = await getBranchProfilesPath(configDirOverride);
-    const content = await readFile(path, "utf-8");
+    const content = await readTextFile(path);
     return JSON.parse(content);
   } catch {
     // File doesn't exist or invalid JSON - return empty mapping

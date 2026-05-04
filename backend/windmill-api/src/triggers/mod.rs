@@ -1,4 +1,6 @@
 // Concrete trigger submodules (feature-gated)
+#[cfg(all(feature = "azure_trigger", feature = "enterprise", feature = "private"))]
+pub mod azure;
 #[cfg(all(feature = "smtp", feature = "private"))]
 pub mod email;
 #[cfg(all(feature = "gcp_trigger", feature = "enterprise", feature = "private"))]

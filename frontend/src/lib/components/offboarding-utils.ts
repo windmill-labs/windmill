@@ -31,6 +31,7 @@ const TRIGGER_TABLE_TO_ROUTE: Record<string, string> = {
 	nats_trigger: 'nats_triggers',
 	sqs_trigger: 'sqs_triggers',
 	gcp_trigger: 'gcp_triggers',
+	azure_trigger: 'azure_triggers',
 	email_trigger: 'email_triggers'
 }
 
@@ -43,6 +44,7 @@ const TRIGGER_TABLE_TO_LABEL: Record<string, string> = {
 	nats_trigger: 'nats trigger',
 	sqs_trigger: 'sqs trigger',
 	gcp_trigger: 'gcp trigger',
+	azure_trigger: 'azure trigger',
 	email_trigger: 'email trigger'
 }
 

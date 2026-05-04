@@ -28,6 +28,7 @@
 		MqttTriggerService,
 		HttpTriggerService,
 		GcpTriggerService,
+		AzureTriggerService,
 		SqsTriggerService,
 		EmailTriggerService,
 		NativeTriggerService,
@@ -112,6 +113,7 @@
 			kafka: () => KafkaTriggerService.deleteKafkaTrigger,
 			nats: () => NatsTriggerService.deleteNatsTrigger,
 			gcp: () => GcpTriggerService.deleteGcpTrigger,
+			azure: () => AzureTriggerService.deleteAzureTrigger,
 			sqs: () => SqsTriggerService.deleteSqsTrigger,
 			mqtt: () => MqttTriggerService.deleteMqttTrigger,
 			http: () => HttpTriggerService.deleteHttpTrigger,
@@ -120,7 +122,8 @@
 
 		const nativeTriggerServices: Record<string, NativeServiceName> = {
 			nextcloud: 'nextcloud',
-			google: 'google'
+			google: 'google',
+			github: 'github'
 		}
 
 		const deleteHandler = deleteHandlers[triggerType as keyof typeof deleteHandlers]
@@ -228,6 +231,14 @@
 				isFlow,
 				$userStore
 			)
+		} else if (triggerType === 'azure') {
+			await triggersState.fetchAzureTriggers(
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
 		} else if (triggerType === 'sqs') {
 			await triggersState.fetchSqsTriggers(
 				triggersCount,
@@ -273,6 +284,15 @@
 			await triggersState.fetchNativeTriggers(
 				triggersCount,
 				'google',
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
+		} else if (triggerType === 'github') {
+			await triggersState.fetchNativeTriggers(
+				triggersCount,
+				'github',
 				$workspaceStore,
 				currentPath,
 				isFlow,

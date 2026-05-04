@@ -5,12 +5,19 @@ import { spawn } from "node:child_process";
 import * as log from "../../core/log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as windmillUtils from "@windmill-labs/shared-utils";
+import { readTextFile, readTextFileSync } from "../../utils/utils.ts";
 export interface BundleOptions {
   entryPoint?: string;
   outDir?: string;
   sourcemap?: boolean;
   minify?: boolean;
   production?: boolean;
+  /**
+   * Absolute path to the workspace's shared `ui/` folder. When set, imports
+   * starting with `/ui/...` are resolved as files inside this directory.
+   * Allows raw apps to reuse components from the workspace-level shared folder.
+   */
+  sharedUiDir?: string;
 }
 
 export interface BundleResult {
@@ -41,7 +48,7 @@ export function detectFrameworks(appDir: string): { svelte: boolean; vue: boolea
   }
 
   try {
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+    const packageJson = JSON.parse(readTextFileSync(packageJsonPath));
     const allDeps = {
       ...packageJson.dependencies,
       ...packageJson.devDependencies,
@@ -69,7 +76,7 @@ function createSveltePlugin(appDir: string): any {
         const svelte = await import("svelte/compiler");
 
         // Load the file from the file system
-        const source = await fs.promises.readFile(args.path, "utf8");
+        const source = await readTextFile(args.path);
         const filename = path.relative(process.cwd(), args.path);
 
         // This converts a message in Svelte's format to esbuild's format
@@ -234,6 +241,45 @@ export async function createBundle(
     },
   };
 
+  const sharedUiPlugins: any[] = [];
+  if (options.sharedUiDir && fs.existsSync(options.sharedUiDir)) {
+    const sharedUiDir = options.sharedUiDir;
+    sharedUiPlugins.push({
+      name: "wmill-shared-ui",
+      setup(build: any) {
+        // Intercept imports of /ui/<file> and resolve to the workspace ui/ folder.
+        build.onResolve({ filter: /^\/ui\// }, (args: any) => {
+          const rel = args.path.slice("/ui/".length);
+          const candidates = [rel];
+          if (!path.extname(rel)) {
+            candidates.push(
+              rel + ".tsx",
+              rel + ".ts",
+              rel + ".jsx",
+              rel + ".js",
+              rel + ".css",
+              path.join(rel, "index.tsx"),
+              path.join(rel, "index.ts"),
+            );
+          }
+          for (const c of candidates) {
+            const full = path.join(sharedUiDir, c);
+            if (fs.existsSync(full)) {
+              return { path: full };
+            }
+          }
+          return {
+            errors: [
+              {
+                text: `Could not resolve shared UI import "${args.path}" in ${sharedUiDir}`,
+              },
+            ],
+          };
+        });
+      },
+    });
+  }
+
   const buildOptions = {
     ...DEFAULT_BUILD_OPTIONS,
     entryPoints: [entryPoint],
@@ -243,7 +289,7 @@ export async function createBundle(
     define: {
       "process.env.NODE_ENV": production ? '"production"' : '"development"',
     },
-    plugins: [...frameworkPlugins, wmillPlugin],
+    plugins: [...frameworkPlugins, wmillPlugin, ...sharedUiPlugins],
   };
 
   log.info(colors.blue("📦 Building bundle..."));
@@ -269,9 +315,9 @@ export async function createBundle(
       throw new Error(`Expected JS bundle at ${jsPath} but file not found`);
     }
 
-    const jsContent = fs.readFileSync(jsPath, "utf-8");
+    const jsContent = readTextFileSync(jsPath);
     const cssContent = fs.existsSync(cssPath)
-      ? fs.readFileSync(cssPath, "utf-8")
+      ? readTextFileSync(cssPath)
       : "";
 
     try {

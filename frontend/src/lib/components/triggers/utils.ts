@@ -4,6 +4,7 @@ import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
+import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 import type {
 	CaptureTriggerKind,
 	ErrorHandler,
@@ -24,11 +25,13 @@ import { saveSqsTriggerFromCfg } from './sqs/utils'
 import { saveNatsTriggerFromCfg } from './nats/utils'
 import { saveMqttTriggerFromCfg } from './mqtt/utils'
 import { saveGcpTriggerFromCfg } from './gcp/utils'
+import { saveAzureTriggerFromCfg } from './azure/utils'
 import type { Triggers } from './triggers.svelte'
 import { emptyString } from '$lib/utils'
 import { saveEmailTriggerFromCfg } from './email/utils'
 import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
 import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
+import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
 import { saveNativeTriggerFromCfg } from './native/utils'
 
 export const CLOUD_DISABLED_TRIGGER_TYPES = [
@@ -37,6 +40,7 @@ export const CLOUD_DISABLED_TRIGGER_TYPES = [
 	'sqs',
 	'mqtt',
 	'gcp',
+	'azure',
 	'websocket',
 	'postgres'
 ]
@@ -54,11 +58,13 @@ export type TriggerType =
 	| 'mqtt'
 	| 'sqs'
 	| 'gcp'
+	| 'azure'
 	| 'email'
 	| 'poll'
 	| 'cli'
 	| 'nextcloud'
 	| 'google'
+	| 'github'
 
 export const jobTriggerKinds: JobTriggerKind[] = [
 	'webhook',
@@ -73,7 +79,9 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'postgres',
 	'schedule',
 	'gcp',
-	'google'
+	'azure',
+	'google',
+	'github'
 ]
 
 export type Trigger = {
@@ -103,11 +111,13 @@ export const triggerIconMap = {
 	mqtt: MqttIcon,
 	sqs: AwsIcon,
 	gcp: GoogleCloudIcon,
+	azure: AzureIcon,
 	primary_schedule: Calendar,
 	poll: SchedulePollIcon,
 	cli: Terminal,
 	nextcloud: NextcloudIcon,
-	google: GoogleIcon
+	google: GoogleIcon,
+	github: GithubIcon
 }
 
 export const triggerDisplayNamesMap = {
@@ -120,13 +130,15 @@ export const triggerDisplayNamesMap = {
 	mqtt: 'MQTT',
 	sqs: 'SQS',
 	gcp: 'GCP Pub/Sub',
+	azure: 'Azure Event Grid',
 	email: 'Email',
 	poll: 'Scheduled Poll',
 	webhook: 'Webhook',
 	default_email: 'Default Email',
 	cli: 'CLI',
 	nextcloud: 'Nextcloud',
-	google: 'Google'
+	google: 'Google',
+	github: 'GitHub'
 } as const satisfies Record<TriggerType, string>
 
 /**
@@ -148,6 +160,7 @@ export function triggerTypeToCaptureKind(triggerType: TriggerType): CaptureTrigg
 		'mqtt',
 		'sqs',
 		'gcp',
+		'azure',
 		'cli'
 	]
 
@@ -178,11 +191,13 @@ export function updateTriggersCount(
 		mqtt: 'mqtt_count',
 		sqs: 'sqs_count',
 		gcp: 'gcp_count',
+		azure: 'azure_count',
 		email: 'email_count',
 		poll: undefined,
 		cli: undefined,
 		nextcloud: 'nextcloud_count',
-		google: 'google_count'
+		google: 'google_count',
+		github: 'github_count'
 	}
 
 	const countProperty = countPropertyMap[type]
@@ -249,6 +264,8 @@ export function triggerKindToTriggerType(kind: TriggerKind): TriggerType | undef
 			return 'sqs'
 		case 'gcp':
 			return 'gcp'
+		case 'azure':
+			return 'azure'
 		case 'scheduledPoll':
 			return 'poll'
 		default:
@@ -354,6 +371,14 @@ export async function deployTriggers(
 				workspaceId,
 				usedTriggerKinds
 			),
+		azure: (trigger: Trigger) =>
+			saveAzureTriggerFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			),
 		email: (trigger: Trigger) =>
 			saveEmailTriggerFromCfg(
 				trigger.path ?? trigger.draftConfig?.path ?? '',
@@ -377,6 +402,15 @@ export async function deployTriggers(
 		google: (trigger: Trigger) =>
 			saveNativeTriggerFromCfg(
 				'google',
+				trigger.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			),
+		github: (trigger: Trigger) =>
+			saveNativeTriggerFromCfg(
+				'github',
 				trigger.path ?? '',
 				trigger.draftConfig ?? {},
 				!trigger.isDraft,
@@ -478,6 +512,13 @@ export function getLightConfig(
 		return { queue_url: trigger.queue_url }
 	} else if (triggerType === 'gcp') {
 		return { gcp_resource_path: trigger.gcp_resource_path, topic: trigger.topic }
+	} else if (triggerType === 'azure') {
+		return {
+			azure_resource_path: trigger.azure_resource_path,
+			azure_mode: trigger.azure_mode,
+			scope_resource_id: trigger.scope_resource_id,
+			topic_name: trigger.topic_name
+		}
 	} else if (triggerType === 'email') {
 		return { local_part: trigger.local_part }
 	} else if (triggerType === 'nextcloud') {
@@ -489,6 +530,13 @@ export function getLightConfig(
 			resource_name: trigger.service_config?.resourceName ?? trigger.resource_name,
 			calendar_id: trigger.service_config?.calendarId ?? trigger.calendar_id,
 			calendar_name: trigger.service_config?.calendarName ?? trigger.calendar_name,
+			summary: trigger.summary
+		}
+	} else if (triggerType === 'github') {
+		return {
+			owner: trigger.service_config?.owner ?? trigger.owner,
+			repo: trigger.service_config?.repo ?? trigger.repo,
+			events: trigger.service_config?.events ?? trigger.events,
 			summary: trigger.summary
 		}
 	} else {
@@ -540,6 +588,10 @@ export function getTriggerLabel(trigger: Trigger): string {
 			const name = config?.resource_name ?? ''
 			return name ? `Drive: ${name}` : config?.resource_id ? `Drive: ${path}` : `Drive: All changes`
 		}
+	} else if (type === 'github' && config?.summary) {
+		return `${config.summary}`
+	} else if (type === 'github' && config?.owner && config?.repo) {
+		return `${config.owner}/${config.repo}`
 	} else if (isDraft && draftConfig?.path) {
 		return `${draftConfig?.path}`
 	} else if (isDraft) {
@@ -564,9 +616,11 @@ export function sortTriggers(triggers: Trigger[]): Trigger[] {
 		'mqtt',
 		'sqs',
 		'gcp',
+		'azure',
 		'email',
 		'nextcloud',
-		'google'
+		'google',
+		'github'
 	]
 
 	return triggers.sort((a, b) => {

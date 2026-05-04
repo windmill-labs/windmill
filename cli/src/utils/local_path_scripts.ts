@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
+import { readTextFile } from "./utils.ts";
 import type { SyncCodebase } from "./codebase.ts";
 import { parseMetadataFileIfExists } from "./metadata.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
@@ -16,7 +17,7 @@ export class UnsupportedLocalPathScriptPreviewError extends Error {
 
 async function readOptionalLock(scriptPath: string): Promise<string | undefined> {
   try {
-    return await readFile(scriptPath + ".script.lock", "utf-8");
+    return await readTextFile(scriptPath + ".script.lock");
   } catch {
     return undefined;
   }
@@ -138,7 +139,7 @@ export async function resolvePreviewLocalScriptState(
 
     return {
       filePath,
-      content: await readFile(filePath, "utf-8"),
+      content: await readTextFile(filePath),
       language,
       lock: normalizeOptionalLock(rawLock),
       tag: metadata?.payload?.tag,

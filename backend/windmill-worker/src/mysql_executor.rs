@@ -12,12 +12,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue, Value};
 use std::str::FromStr;
 use tokio::sync::Mutex;
+use uuid::Uuid;
 use windmill_common::{
     client::AuthedClient,
     error::{to_anyhow, Error},
     worker::{to_raw_value, Connection, SqlResultCollectionStrategy},
 };
-use windmill_object_store::convert_json_line_stream;
 use windmill_parser_sql::{
     parse_db_resource, parse_mysql_sig, parse_s3_mode, parse_sql_blocks,
     parse_sql_statement_named_params, RE_ARG_MYSQL_NAMED,
@@ -27,8 +27,8 @@ use windmill_queue::MiniPulledJob;
 
 use crate::{
     common::{
-        build_args_values, get_reserved_variables, s3_mode_args_to_worker_data, OccupancyMetrics,
-        S3ModeWorkerData,
+        build_args_values, get_reserved_variables, s3_mode_args_to_worker_data,
+        s3_stream_and_upload_with_logs, OccupancyMetrics, S3ModeWorkerData,
     },
     handle_child::run_future_with_polling_update_job_poller,
     sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
@@ -52,6 +52,9 @@ fn do_mysql_inner<'a>(
     skip_collect: bool,
     first_row_only: bool,
     s3: Option<S3ModeWorkerData>,
+    job_id: Uuid,
+    workspace_id: &'a str,
+    log_conn: &'a Connection,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Vec<Box<RawValue>>>>>
 {
     let param_names = parse_sql_statement_named_params(query, ':')
@@ -107,8 +110,15 @@ fn do_mysql_inner<'a>(
                 }
             };
 
-            let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
-            s3.upload(stream.boxed()).await?;
+            s3_stream_and_upload_with_logs(
+                "MySQL",
+                rows_stream.boxed(),
+                s3,
+                job_id,
+                workspace_id,
+                log_conn,
+            )
+            .await?;
 
             Ok(vec![to_raw_value(&s3.to_return_s3_obj())])
         } else {
@@ -163,7 +173,7 @@ pub async fn do_mysql(
     occupancy_metrics: &mut OccupancyMetrics,
     parent_runnable_path: Option<String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    let job_args = build_args_values(job, client, conn).await?;
+    let mut job_args = build_args_values(job, client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
     let s3 = parse_s3_mode(&query)?.map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
@@ -215,6 +225,34 @@ pub async fn do_mysql(
     let sig = parse_mysql_sig(query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
+
+    // Materialize any `(s3object)` args into JSON text. mysql_async binds strings as
+    // VARBINARY/TEXT, which MySQL's `JSON_TABLE`/`JSON_EXTRACT` accept directly.
+    for arg in sig.iter() {
+        if arg.otyp.as_deref() != Some("s3object") {
+            continue;
+        }
+        let raw = job_args.remove(&arg.name).unwrap_or(Value::Null);
+        if matches!(raw, Value::Null) {
+            return Err(Error::BadRequest(format!(
+                "Missing S3Object value for arg `{}`",
+                arg.name
+            )));
+        }
+        let s3_obj: windmill_types::s3::S3Object = serde_json::from_value(raw).map_err(|e| {
+            Error::ExecutionErr(format!("Invalid S3Object for arg `{}`: {e}", arg.name))
+        })?;
+        let json_text =
+            crate::sql_s3_input::fetch_s3object_as_json_text(client, &job.workspace_id, &s3_obj)
+                .await
+                .map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "Failed to fetch S3 object for arg `{}`: {e}",
+                        arg.name
+                    ))
+                })?;
+        job_args.insert(arg.name.clone(), Value::String(json_text));
+    }
 
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
@@ -297,7 +335,7 @@ pub async fn do_mysql(
     let mysql_conn = pool.get_conn().await.map_err(to_anyhow)?;
     let conn_a = Arc::new(Mutex::new(mysql_conn));
 
-    let queries = parse_sql_blocks(query);
+    let queries = parse_sql_blocks(query, false);
 
     let conn_a_ref = &conn_a;
     let result_f = async move {
@@ -320,6 +358,9 @@ pub async fn do_mysql(
                     && i < queries.len() - 1,
                 collection_strategy.collect_first_row_only(),
                 s3.clone(),
+                job.id,
+                &job.workspace_id,
+                conn,
             )?
             .await?;
             results.push(result);

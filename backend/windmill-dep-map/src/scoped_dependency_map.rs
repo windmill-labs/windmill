@@ -197,6 +197,125 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
         Ok(())
     }
 
+    /// Like `patch_tx_ref` but auto-commits each statement on the pool so the
+    /// caller doesn't have to hold a long-lived tx around a slow subprocess.
+    pub async fn patch_via_pool(
+        &mut self,
+        referenced_paths: Option<Vec<String>>,
+        node_id: &str,
+        db: &sqlx::Pool<sqlx::Postgres>,
+    ) -> Result<()> {
+        let Some(mut referenced_paths) = referenced_paths else {
+            tracing::info!("relative imports are not found for: importer - {}, importer_node_id - {}, importer_kind - {}",
+                &self.importer_path,
+                &node_id,
+                &self.importer_kind,
+            );
+            return Ok(());
+        };
+
+        let lock_hashes: std::collections::HashMap<String, Option<i64>> = sqlx::query_as(
+            "SELECT path, lockfile_hash FROM lock_hash WHERE workspace_id = $1 AND path = ANY($2)",
+        )
+        .bind(&self.w_id)
+        .bind(&referenced_paths)
+        .fetch_all(db)
+        .await?
+        .into_iter()
+        .collect();
+
+        referenced_paths.retain(|path| {
+            let hash = lock_hashes.get(path).cloned().flatten();
+            !self
+                .to_delete
+                .remove(&(node_id.to_owned(), path.clone(), hash))
+        });
+
+        if !referenced_paths.is_empty() {
+            tracing::info!("adding missing entries to dependency_map: importer_node_id - {}, importer_kind - {}, new_imported_paths - {:?}",
+                &node_id,
+                &self.importer_kind,
+                &lock_hashes,
+            );
+        }
+
+        for import in referenced_paths {
+            let lock_hash = lock_hashes.get(&import).copied().flatten();
+            sqlx::query!(
+                "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id, imported_lockfile_hash)
+                VALUES ($1, $2, $3::text::IMPORTER_KIND, $4, $5, $6)
+                ON CONFLICT (workspace_id, importer_node_id, importer_kind, importer_path, imported_path)
+                DO UPDATE SET imported_lockfile_hash = EXCLUDED.imported_lockfile_hash",
+                &self.w_id,
+                &self.importer_path,
+                &self.importer_kind,
+                &import,
+                node_id,
+                lock_hash
+            )
+            .execute(db)
+            .await?;
+
+            tracing::info!("added entry to dependency_map: {import:?}");
+        }
+        Ok(())
+    }
+
+    /// Like `dissolve` but borrows `&mut self` so the SDM stays usable.
+    /// Unlike `dissolve`, propagates DELETE errors instead of swallowing them
+    /// (callers running this in a phase 1 tx need the failure to surface so
+    /// they can roll back instead of committing a partial cleanup).
+    pub async fn dissolve_in_place<'a>(
+        &mut self,
+        tx: &mut sqlx::Transaction<'a, sqlx::Postgres>,
+    ) -> Result<()> {
+        if *WMDEBUG_NO_DMAP_DISSOLVE {
+            tracing::warn!(
+                "WMDEBUG_NO_DMAP_DISSOLVE usually should not be used. Behavior might be unstable."
+            );
+            self.to_delete.clear();
+            return Ok(());
+        }
+
+        tracing::info!(
+            "dissolving dependency_map (in place): importer_path={}, importer_kind={}, count={}",
+            &self.importer_path,
+            &self.importer_kind,
+            self.to_delete.len()
+        );
+
+        let to_delete = std::mem::take(&mut self.to_delete);
+        for (importer_node_id, imported_path, imported_lockfile_hash) in to_delete {
+            tracing::info!("cleaning orphan entry from dependency_map: importer_kind - {}, imported_path - {}, importer_node_id - {}, imported_lockfile_hash - {:?}",
+                &self.importer_kind,
+                &imported_path,
+                &importer_node_id,
+                &imported_lockfile_hash,
+            );
+
+            sqlx::query!(
+                "
+        DELETE FROM dependency_map
+        WHERE workspace_id = $1
+            AND importer_path = $2
+            AND importer_kind = $3::text::IMPORTER_KIND
+            AND importer_node_id = $4
+            AND imported_path = $5
+            AND imported_lockfile_hash IS NOT DISTINCT FROM $6
+            ",
+                &self.w_id,
+                &self.importer_path,
+                &self.importer_kind,
+                &importer_node_id,
+                &imported_path,
+                imported_lockfile_hash
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+        Ok(())
+    }
+
     /// clean orphan entries from `dependency_map`
     pub async fn dissolve<'a>(
         self,

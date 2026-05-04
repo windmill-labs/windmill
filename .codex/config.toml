@@ -1,0 +1,4 @@
+#:schema https://developers.openai.com/codex/config-schema.json
+
+[mcp_servers.svelte]
+url = "https://mcp.svelte.dev/mcp"

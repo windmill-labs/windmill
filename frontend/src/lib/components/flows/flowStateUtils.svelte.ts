@@ -42,7 +42,11 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 		}
 	} catch (e) {
 		console.debug(e)
-		return emptyFlowModuleState()
+		// Leave schema undefined so onSelectedIdChange in FlowModuleComponent
+		// can detect the failed inference and retry when the module is selected.
+		return {
+			previewResult: NEVER_TESTED_THIS_FAR
+		}
 	}
 }
 

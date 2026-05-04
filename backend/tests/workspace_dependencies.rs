@@ -1,12 +1,12 @@
 mod workspace_dependencies {
 
-    use windmill_test_utils::in_test_worker;
-    use windmill_test_utils::init_client;
-    use windmill_test_utils::listen_for_completed_jobs;
     use sqlx::{Pool, Postgres};
     use tokio_stream::StreamExt;
     use windmill_common::scripts::ScriptLang;
     use windmill_dep_map::workspace_dependencies::NewWorkspaceDependencies;
+    use windmill_test_utils::in_test_worker;
+    use windmill_test_utils::init_client;
+    use windmill_test_utils::listen_for_completed_jobs;
     mod deps {
         pub const REQUIREMENTS_IN: &'static str = "tiny==0.1.3";
         //     pub const GO_MOD: &'static str = r##"

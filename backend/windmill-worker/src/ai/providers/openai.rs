@@ -1,17 +1,17 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Error};
+use windmill_ai::ai_providers::AIProvider;
+use windmill_ai::ai_types::OpenAIToolCall;
+use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
     image_handler::{prepare_messages_for_api, s3_object_to_content_part},
-    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
+    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{OpenAIResponsesSSEParser, SSEParser},
     types::*,
     utils::extract_text_content,
 };
-
-use windmill_common::ai_types::OpenAIToolCall;
 
 // Responses API structures
 #[derive(Deserialize)]
@@ -242,12 +242,10 @@ fn convert_content_to_responses_format(
                             image_url: image_url.url.clone(),
                         })
                     }
-                    ContentPart::File { file } => {
-                        Some(ImageGenerationContent::InputFile {
-                            filename: file.filename.clone(),
-                            file_data: file.file_data.clone(),
-                        })
-                    }
+                    ContentPart::File { file } => Some(ImageGenerationContent::InputFile {
+                        filename: file.filename.clone(),
+                        file_data: file.file_data.clone(),
+                    }),
                     // S3 objects should have been resolved earlier, but handle gracefully
                     ContentPart::S3Object { .. } => None,
                 })
@@ -433,8 +431,7 @@ impl OpenAIQueryBuilder {
         if let Some(attachments) = args.attachments {
             for attachment in attachments.iter() {
                 if !attachment.s3.is_empty() {
-                    let part =
-                        s3_object_to_content_part(attachment, client, workspace_id).await?;
+                    let part = s3_object_to_content_part(attachment, client, workspace_id).await?;
                     match part {
                         ContentPart::File { file } => {
                             content.push(ImageGenerationContent::InputFile {
@@ -486,9 +483,9 @@ impl QueryBuilder for OpenAIQueryBuilder {
     async fn parse_streaming_response(
         &self,
         response: reqwest::Response,
-        stream_event_processor: StreamEventProcessor,
+        stream_event_sink: Box<dyn StreamEventSink>,
     ) -> Result<ParsedResponse, Error> {
-        let mut parser = OpenAIResponsesSSEParser::new(stream_event_processor);
+        let mut parser = OpenAIResponsesSSEParser::new(stream_event_sink);
         parser.parse_events(response).await?;
 
         // Convert OpenAI Responses usage to TokenUsage

@@ -37,11 +37,16 @@ fn compact_layer<S>() -> Layer<S, format::DefaultFields, format::Format<format::
 lazy_static::lazy_static! {
     pub static ref JSON_FMT: bool = std::env::var("JSON_FMT").map(|x| x == "true").unwrap_or(false);
     pub static ref QUIET_MODE: bool = std::env::var("QUIET").map(|x| x == "true" || x == "1").unwrap_or(false);
+    pub static ref OTEL_JOB_LOGS: bool = std::env::var("OTEL_JOB_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
 }
 
 /// Target name for verbose logs that should be filtered in quiet mode.
 /// Use `tracing::info!(target: windmill_common::tracing_init::VERBOSE_TARGET, ...)` for logs that should be suppressed in quiet mode.
 pub const VERBOSE_TARGET: &str = "windmill_verbose";
+
+/// Prefix used by user scripts to emit a log line as an OTEL tracing event
+/// when `OTEL_JOB_LOGS=true`. Stripped before forwarding to the tracing layer.
+pub const OTEL_PREFIX: &str = "OTEL: ";
 
 /// Creates a Targets filter that optionally filters out verbose logs when quiet mode is enabled.
 fn create_targets_filter(default_env_filter: LevelFilter) -> Targets {

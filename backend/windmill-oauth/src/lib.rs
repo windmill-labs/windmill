@@ -147,15 +147,10 @@ pub struct AllClients {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SlackTokenResponse {
     pub access_token: AccessToken,
-    pub team_id: String,
-    pub team_name: String,
-    #[serde(rename = "scope")]
-    #[serde(deserialize_with = "helpers::deserialize_space_delimited_vec")]
-    #[serde(serialize_with = "helpers::serialize_space_delimited_vec")]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Optional because Enterprise Grid installs can omit `team`. Callers should surface
+    // a clear error if this is None rather than unwrapping.
     #[serde(default)]
-    pub scopes: Option<Vec<Scope>>,
-    pub bot: SlackBotToken,
+    pub team: Option<SlackTeam>,
 }
 
 /// Standard OAuth token response
@@ -172,10 +167,11 @@ pub struct TokenResponse {
     pub scope: Option<Vec<Scope>>,
 }
 
-/// Slack bot token from OAuth response
+/// Slack team info from OAuth v2 response
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct SlackBotToken {
-    pub bot_access_token: String,
+pub struct SlackTeam {
+    pub id: String,
+    pub name: String,
 }
 
 /// OAuth callback parameters
@@ -332,8 +328,8 @@ pub async fn build_oauth_clients(
             build_basic_client(
                 "slack".to_string(),
                 OAuthConfig {
-                    auth_url: "https://slack.com/oauth/authorize".to_string(),
-                    token_url: "https://slack.com/api/oauth.access".to_string(),
+                    auth_url: "https://slack.com/oauth/v2/authorize".to_string(),
+                    token_url: "https://slack.com/api/oauth.v2.access".to_string(),
                     userinfo_url: None,
                     scopes: None,
                     extra_params: None,
@@ -400,9 +396,9 @@ pub async fn build_slack_client(
     client_secret: &str,
     _workspace_id: &str,
 ) -> error::Result<OClient> {
-    let auth_url = Url::parse("https://slack.com/oauth/authorize")
+    let auth_url = Url::parse("https://slack.com/oauth/v2/authorize")
         .map_err(|e| anyhow!("Invalid Slack authorization URL: {e}"))?;
-    let token_url = Url::parse("https://slack.com/api/oauth.access")
+    let token_url = Url::parse("https://slack.com/api/oauth.v2.access")
         .map_err(|e| anyhow!("Invalid Slack token URL: {e}"))?;
 
     let base_url = (**BASE_URL.load()).clone();

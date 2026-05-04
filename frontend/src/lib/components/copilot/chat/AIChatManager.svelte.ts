@@ -46,11 +46,12 @@ import { get } from 'svelte/store'
 import { workspaceStore, type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
-import type {
-	ContextElement,
-	AppFrontendFileElement,
-	AppBackendRunnableElement,
-	AppDatatableElement
+import {
+	createAppBackendRunnableContextElement,
+	createAppFrontendFileContextElement,
+	flattenDatatablesToAppContextElements,
+	type ContextElement,
+	type AppDatatableElement
 } from './context'
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
@@ -58,6 +59,7 @@ import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { runChatLoop } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
+import type { WorkspaceMutationTarget } from './workspaceTools'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -70,6 +72,10 @@ export enum AIMode {
 	NAVIGATOR = 'navigator',
 	API = 'API',
 	ASK = 'ask'
+}
+
+function isWorkspacePath(path: string | undefined): path is string {
+	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
 }
 
 class AIChatManager {
@@ -119,6 +125,7 @@ class AIChatManager {
 	cachedDatatables = $state<AppDatatableElement[]>([])
 
 	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
+	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script: this.flowAiChatHelpers === undefined && this.scriptEditorOptions !== undefined,
@@ -222,6 +229,27 @@ class AIChatManager {
 		}
 	}
 
+	private getScriptWorkspaceMutationTarget = (): WorkspaceMutationTarget => {
+		const path = this.scriptEditorOptions?.path
+		const workspacePath = isWorkspacePath(path) ? path : undefined
+		return {
+			kind: 'script',
+			path: workspacePath,
+			deployed: workspacePath !== undefined && this.scriptEditorOptions?.lastDeployedCode !== undefined
+		}
+	}
+
+	private getFlowWorkspaceMutationTarget = (): WorkspaceMutationTarget => {
+		return {
+			kind: 'flow',
+			path: this.flowOptions?.path,
+			deployed:
+				!!this.flowOptions?.path &&
+				!!this.flowOptions.lastDeployedFlow &&
+				!this.flowOptions.lastDeployedFlow.draft_only
+		}
+	}
+
 	changeMode(
 		mode: AIMode,
 		pendingPrompt?: string,
@@ -250,6 +278,7 @@ class AIChatManager {
 						args: this.scriptEditorOptions?.args ?? {}
 					}
 				},
+				getWorkspaceMutationTarget: this.getScriptWorkspaceMutationTarget,
 				applyCode: (code: string, opts?: ReviewChangesOpts) => {
 					this.scriptEditorApplyCode?.(code, opts)
 				},
@@ -271,7 +300,10 @@ class AIChatManager {
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.systemMessage.content
 			this.tools = [...flowTools]
-			this.helpers = this.flowAiChatHelpers
+			this.helpers = {
+				...(this.flowAiChatHelpers ?? {}),
+				getWorkspaceMutationTarget: this.getFlowWorkspaceMutationTarget
+			}
 		} else if (mode === AIMode.NAVIGATOR) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareNavigatorSystemMessage(customPrompt)
@@ -1041,35 +1073,8 @@ class AIChatManager {
 		}
 
 		try {
-			const datatables = await this.appAiChatHelpers.getDatatables()
-			console.log('Refreshed datatables:', datatables)
-
-			// Flatten to individual tables
-			const tableElements: AppDatatableElement[] = []
-			for (const dt of datatables) {
-				if (dt.error) {
-					// Skip datatables with errors
-					continue
-				}
-				for (const [schemaName, tables] of Object.entries(dt.schemas)) {
-					for (const [tableName, columns] of Object.entries(tables)) {
-						// Format title as "datatable/schema:table" or "datatable/table" if schema is public
-						const title =
-							schemaName === 'public'
-								? `${dt.datatable_name}/${tableName}`
-								: `${dt.datatable_name}/${schemaName}:${tableName}`
-						tableElements.push({
-							type: 'app_datatable',
-							datatableName: dt.datatable_name,
-							schemaName,
-							tableName,
-							title,
-							columns
-						})
-					}
-				}
-			}
-			this.cachedDatatables = tableElements
+			const datatables = await this.appAiChatHelpers.listDatatableTables()
+			this.cachedDatatables = flattenDatatablesToAppContextElements(datatables)
 		} catch (err) {
 			console.error('Failed to refresh datatables:', err)
 			this.cachedDatatables = []
@@ -1091,13 +1096,7 @@ class AIChatManager {
 		for (const path of frontendFiles) {
 			const content = this.appAiChatHelpers.getFrontendFile(path)
 			if (content !== undefined) {
-				const element: AppFrontendFileElement = {
-					type: 'app_frontend_file',
-					path,
-					title: path,
-					content
-				}
-				context.push(element)
+				context.push(createAppFrontendFileContextElement(path, content))
 			}
 		}
 
@@ -1106,13 +1105,7 @@ class AIChatManager {
 		for (const { key } of runnables) {
 			const runnable = this.appAiChatHelpers.getBackendRunnable(key)
 			if (runnable) {
-				const element: AppBackendRunnableElement = {
-					type: 'app_backend_runnable',
-					key,
-					title: key,
-					runnable
-				}
-				context.push(element)
+				context.push(createAppBackendRunnableContextElement(key, runnable))
 			}
 		}
 
@@ -1126,13 +1119,25 @@ class AIChatManager {
 		this.appAiChatHelpers = appHelpers
 		// Refresh datatables when app helpers are set (deferred to avoid loop)
 		// Use setTimeout to ensure this runs after the effect completes
-		setTimeout(() => {
-			this.refreshDatatables()
+		if (this.appDatatablesRefreshTimeout) {
+			clearTimeout(this.appDatatablesRefreshTimeout)
+		}
+		this.appDatatablesRefreshTimeout = setTimeout(() => {
+			this.appDatatablesRefreshTimeout = undefined
+			if (this.appAiChatHelpers === appHelpers) {
+				void this.refreshDatatables()
+			}
 		}, 50)
 
 		return () => {
-			this.appAiChatHelpers = undefined
-			this.cachedDatatables = []
+			if (this.appDatatablesRefreshTimeout) {
+				clearTimeout(this.appDatatablesRefreshTimeout)
+				this.appDatatablesRefreshTimeout = undefined
+			}
+			if (this.appAiChatHelpers === appHelpers) {
+				this.appAiChatHelpers = undefined
+				this.cachedDatatables = []
+			}
 		}
 	}
 

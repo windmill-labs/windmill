@@ -128,6 +128,21 @@ impl BaseTriggerData {
         )
     }
 
+    /// True when neither `mode` nor the legacy `enabled` field was provided in
+    /// the request. Used by the update path to distinguish "explicitly Enabled"
+    /// from "missing — preserve existing value", which matters for git-sync
+    /// round-trips through fork workspaces (see workspaces_export.rs).
+    pub fn is_mode_unspecified(&self) -> bool {
+        #[allow(deprecated)]
+        {
+            self.mode.is_none() && self.enabled.is_none()
+        }
+    }
+
+    pub fn set_mode(&mut self, mode: TriggerMode) {
+        self.mode = Some(mode);
+    }
+
     pub fn resolve_permissioned_as(&self, authed: &impl Authable) -> String {
         if let Some(ref permissioned_as) = self.permissioned_as {
             if self.preserve_permissioned_as.unwrap_or(false)

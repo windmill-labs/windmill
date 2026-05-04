@@ -37,7 +37,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
-    db::UserDB, error::JsonResult, jobs::JobKind, scripts::ScriptLang,
+    db::UserDB, error::JsonResult, jobs::JobKind, jwt::JWT_SECRET, scripts::ScriptLang,
     users::username_to_permissioned_as,
 };
 
@@ -48,35 +48,67 @@ pub const DEBUG_TOKEN_TTL_SECS: i64 = 60;
 
 lazy_static::lazy_static! {
     /// Ed25519 signing key for debug tokens.
-    /// Generated at startup if not provided via environment variable.
+    ///
+    /// Derived deterministically from the instance `JWT_SECRET` so all API
+    /// replicas agree on the same key without coordination. Refreshed via
+    /// [`reload_debug_signing_key`] when `JWT_SECRET` is reloaded.
     static ref DEBUG_SIGNING_KEY: Arc<RwLock<Option<SigningKey>>> = Arc::new(RwLock::new(None));
 }
 
-/// Initialize the debug signing key.
-/// Call this at server startup.
-pub async fn init_debug_signing_key() {
-    let mut key_guard = DEBUG_SIGNING_KEY.write().await;
+/// Domain-separation tag so the debug Ed25519 seed cannot be confused with
+/// any other HMAC/HS256 usage of `JWT_SECRET`.
+const DEBUG_KEY_DERIVATION_TAG: &[u8] = b"windmill-debug-signing-key:v1:";
 
-    // Check if key is provided via environment variable (base64-encoded seed)
+fn derive_signing_key_from_jwt_secret(jwt_secret: &str) -> SigningKey {
+    let mut hasher = Sha256::new();
+    hasher.update(DEBUG_KEY_DERIVATION_TAG);
+    hasher.update(jwt_secret.as_bytes());
+    let seed: [u8; 32] = hasher.finalize().into();
+    SigningKey::from_bytes(&seed)
+}
+
+fn compute_debug_signing_key() -> Option<SigningKey> {
+    // Env var override: base64url-encoded 32-byte seed. Useful for tests or
+    // advanced deployments that want to pin the key independently.
     if let Ok(seed_b64) = std::env::var("DEBUG_SIGNING_KEY_SEED") {
-        if let Ok(seed_bytes) = URL_SAFE_NO_PAD.decode(&seed_b64) {
-            if seed_bytes.len() >= 32 {
+        match URL_SAFE_NO_PAD.decode(&seed_b64) {
+            Ok(seed_bytes) if seed_bytes.len() >= 32 => {
                 let mut seed = [0u8; 32];
                 seed.copy_from_slice(&seed_bytes[..32]);
-                *key_guard = Some(SigningKey::from_bytes(&seed));
-                tracing::info!("Debug signing key loaded from environment");
-                return;
+                tracing::info!("Debug signing key loaded from DEBUG_SIGNING_KEY_SEED");
+                return Some(SigningKey::from_bytes(&seed));
             }
+            _ => tracing::warn!(
+                "Invalid DEBUG_SIGNING_KEY_SEED (expect base64url-encoded 32+ bytes); falling back to JWT_SECRET derivation"
+            ),
         }
-        tracing::warn!("Invalid DEBUG_SIGNING_KEY_SEED, generating new key");
     }
 
-    // Generate a new random key using rand
-    let mut seed = [0u8; 32];
-    rand::Rng::fill(&mut rand::rng(), &mut seed);
-    let signing_key = SigningKey::from_bytes(&seed);
-    tracing::info!("Generated new debug signing key");
-    *key_guard = Some(signing_key);
+    let jwt_secret = JWT_SECRET.load();
+    if jwt_secret.is_empty() {
+        return None;
+    }
+    Some(derive_signing_key_from_jwt_secret(&jwt_secret))
+}
+
+/// Initialize the debug signing key. Call once at server startup, after
+/// `reload_jwt_secret_setting` so `JWT_SECRET` is populated.
+pub async fn init_debug_signing_key() {
+    reload_debug_signing_key().await;
+}
+
+/// Recompute and store the debug signing key. Call after `JWT_SECRET` is
+/// (re)loaded so rotation propagates without a pod restart.
+pub async fn reload_debug_signing_key() {
+    let key = compute_debug_signing_key();
+    if key.is_none() {
+        tracing::warn!(
+            "Debug signing key not initialized: JWT_SECRET is empty and DEBUG_SIGNING_KEY_SEED is not set. /api/debug/* endpoints will return an error."
+        );
+    } else {
+        tracing::info!("Debug signing key initialized from JWT_SECRET");
+    }
+    *DEBUG_SIGNING_KEY.write().await = key;
 }
 
 pub fn global_service() -> Router {

@@ -11,7 +11,7 @@ Tests AI agent tool calling with different tool types:
 import pytest
 
 from .conftest import AIAgentTestClient, create_ai_agent_flow, create_rawscript_tool, create_script_tool
-from .providers import ALL_PROVIDERS, ANTHROPIC, GOOGLE_AI, OPENAI
+from .providers import ALL_PROVIDERS, ANTHROPIC, GOOGLE_AI, OPENAI, make_provider_input_transform
 
 
 def get_provider_ids(providers: list) -> list[str]:
@@ -25,6 +25,15 @@ export function main(a: number, b: number): number {
     return a + b;
 }
 """
+
+GOOGLE_AI_GEMINI_3 = {
+    "name": "google_ai_gemini_3",
+    "input_transform": make_provider_input_transform(
+        kind="googleai",
+        model="gemini-3-flash-preview",
+        resource_path="u/admin/googleai",
+    ),
+}
 
 
 class TestToolCalling:
@@ -109,6 +118,57 @@ class TestToolCalling:
         result_str = str(result)
         assert "23" in result_str, f"Expected '23' in result: {result}"
         print(f"Workspace script tool result from {provider_config['name']}: {result}")
+
+    def test_nested_ai_agent_tool_with_gemini_3(
+        self,
+        client: AIAgentTestClient,
+        setup_providers,
+    ):
+        """
+        Test that a Gemini agent can call another Gemini AI agent as a tool.
+        """
+        nested_ai_agent_tool = {
+            "id": "delegate_agent",
+            "summary": "delegate_agent",
+            "value": {
+                "tool_type": "flowmodule",
+                "type": "aiagent",
+                "input_transforms": {
+                    "provider": GOOGLE_AI_GEMINI_3["input_transform"],
+                    "system_prompt": {
+                        "type": "static",
+                        "value": "You are a concise arithmetic helper. Return only the numeric answer.",
+                    },
+                    "user_message": {"type": "ai"},
+                    "output_type": {"type": "static", "value": "text"},
+                },
+                "tools": [],
+            },
+        }
+
+        flow_value = create_ai_agent_flow(
+            provider_input_transform=GOOGLE_AI_GEMINI_3["input_transform"],
+            system_prompt="You are a coordinator. Use delegate_agent for arithmetic before answering.",
+            tools=[nested_ai_agent_tool],
+            output_type="text",
+        )
+
+        result = client.run_preview_flow(
+            flow_value=flow_value,
+            args={"user_message": "Ask delegate_agent what 13 + 29 is, then tell me the result."},
+        )
+
+        assert result is not None
+        result_str = str(result)
+        assert "42" in result_str, f"Expected '42' in result: {result}"
+
+        messages = result.get("messages", [])
+        assert any(
+            tool_call.get("function", {}).get("name") == "delegate_agent"
+            for message in messages
+            for tool_call in message.get("tool_calls", [])
+        ), f"Expected delegate_agent tool call in messages: {messages}"
+        print(f"Nested AI agent tool result from {GOOGLE_AI_GEMINI_3['name']}: {result}")
 
     @pytest.mark.parametrize(
         "provider_config",

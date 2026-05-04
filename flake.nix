@@ -177,7 +177,7 @@
           # https://github.com/NixOS/nixpkgs/issues/370494 — jemalloc build fix
           CFLAGS = "-Wno-error=int-conversion";
 
-          LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.zlib ];
+          LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.zlib stdenv.cc.cc.lib ];
         };
 
         # ---------------------------------------------------------------

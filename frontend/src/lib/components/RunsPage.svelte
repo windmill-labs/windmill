@@ -305,7 +305,8 @@
 		const uuids = await JobService.cancelSelection({
 			workspace: $workspaceStore ?? '',
 			requestBody: uuidsToCancel,
-			forceCancel: forceCancel
+			forceCancel: forceCancel,
+			allWorkspaces: filters.val.all_workspaces || undefined
 		})
 		selectedIds = []
 		jobsLoader?.loadJobs(true, true)

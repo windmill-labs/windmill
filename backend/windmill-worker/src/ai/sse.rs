@@ -5,15 +5,14 @@ use reqwest::Response;
 use serde::Deserialize;
 use serde_json;
 use tokio_stream::StreamExt;
-use windmill_common::{
+use windmill_ai::{
     ai_google::{parse_gemini_sse_event, GeminiUsageMetadata},
     ai_types::{ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall},
-    error::Error,
-    utils::rd_string,
 };
+use windmill_common::{error::Error, utils::rd_string};
 
 use crate::ai::{
-    query_builder::StreamEventProcessor,
+    query_builder::StreamEventSink,
     types::{StreamingEvent, UrlCitation},
 };
 
@@ -107,13 +106,13 @@ pub struct OpenAISSEParser {
     pub accumulated_content: String,
     pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
     pub events_str: String,
-    pub stream_event_processor: StreamEventProcessor,
+    pub stream_event_processor: Box<dyn StreamEventSink>,
     /// Token usage from final chunk (when stream_options.include_usage is true)
     pub usage: Option<OpenAIChatUsage>,
 }
 
 impl OpenAISSEParser {
-    pub fn new(stream_event_processor: StreamEventProcessor) -> Self {
+    pub fn new(stream_event_processor: Box<dyn StreamEventSink>) -> Self {
         Self {
             accumulated_content: String::new(),
             accumulated_tool_calls: HashMap::new(),
@@ -303,7 +302,7 @@ pub struct AnthropicSSEParser {
     pub accumulated_content: String,
     pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
     pub events_str: String,
-    pub stream_event_processor: StreamEventProcessor,
+    pub stream_event_processor: Box<dyn StreamEventSink>,
     /// Track content block types by index
     content_blocks: HashMap<usize, ContentBlockState>,
     /// Collected URL citation annotations from web search
@@ -315,7 +314,7 @@ pub struct AnthropicSSEParser {
 }
 
 impl AnthropicSSEParser {
-    pub fn new(stream_event_processor: StreamEventProcessor) -> Self {
+    pub fn new(stream_event_processor: Box<dyn StreamEventSink>) -> Self {
         Self {
             accumulated_content: String::new(),
             accumulated_tool_calls: HashMap::new(),
@@ -469,7 +468,7 @@ pub struct GeminiSSEParser {
     pub accumulated_content: String,
     pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
     pub events_str: String,
-    pub stream_event_processor: StreamEventProcessor,
+    pub stream_event_processor: Box<dyn StreamEventSink>,
     tool_call_index: i64,
     pub annotations: Vec<UrlCitation>,
     pub used_websearch: bool,
@@ -477,7 +476,7 @@ pub struct GeminiSSEParser {
 }
 
 impl GeminiSSEParser {
-    pub fn new(stream_event_processor: StreamEventProcessor) -> Self {
+    pub fn new(stream_event_processor: Box<dyn StreamEventSink>) -> Self {
         Self {
             accumulated_content: String::new(),
             accumulated_tool_calls: HashMap::new(),
@@ -500,7 +499,10 @@ impl SSEParser for GeminiSSEParser {
         if let Some(text) = parsed.text {
             self.accumulated_content.push_str(&text);
             self.stream_event_processor
-                .send(StreamingEvent::TokenDelta { content: text }, &mut self.events_str)
+                .send(
+                    StreamingEvent::TokenDelta { content: text },
+                    &mut self.events_str,
+                )
                 .await?;
         }
 
@@ -659,7 +661,7 @@ pub struct OpenAIResponsesSSEParser {
     /// Maps item_id -> accumulated arguments
     tool_call_arguments: HashMap<String, String>,
     pub events_str: String,
-    pub stream_event_processor: StreamEventProcessor,
+    pub stream_event_processor: Box<dyn StreamEventSink>,
     /// Collected URL citation annotations from web search
     pub annotations: Vec<UrlCitation>,
     /// Whether web search was used in this response
@@ -669,7 +671,7 @@ pub struct OpenAIResponsesSSEParser {
 }
 
 impl OpenAIResponsesSSEParser {
-    pub fn new(stream_event_processor: StreamEventProcessor) -> Self {
+    pub fn new(stream_event_processor: Box<dyn StreamEventSink>) -> Self {
         Self {
             accumulated_content: String::new(),
             accumulated_tool_calls: HashMap::new(),

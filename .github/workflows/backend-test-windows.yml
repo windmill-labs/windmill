@@ -145,6 +145,10 @@ jobs:
           RUST_LOG_STYLE: never
           CARGO_NET_GIT_FETCH_WITH_CLI: true
           CARGO_BUILD_JOBS: 12
+          # Tests' poll-time stack frames (deep nested async fn chains in
+          # debug builds) reach ~1.8MB. 4MB gives ~2x headroom against flaky
+          # overflows under parallel-test contention.
+          RUST_MIN_STACK: 4194304
           VCPKGRS_DYNAMIC: 1
           OPENSSL_DIR: ${{ env.VCPKG_INSTALLATION_ROOT }}\installed\x64-windows-static
           DENO_PATH: ${{ steps.runtime-paths.outputs.DENO_PATH }}

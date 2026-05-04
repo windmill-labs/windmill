@@ -648,6 +648,7 @@ pub async fn transform_json_value(
                     v2_job.permissioned_as,
                     v2_job.runnable_path,
                     CASE WHEN v2_job.trigger_kind = 'schedule'::job_trigger_kind THEN v2_job.trigger END AS schedule_path,
+                    CASE WHEN v2_job.trigger_kind = 'ci_test'::job_trigger_kind THEN v2_job.trigger END AS tested_runnable,
                     v2_job.flow_step_id,
                     v2_job.flow_innermost_root_job,
                     v2_job.root_job,
@@ -693,6 +694,7 @@ pub async fn transform_json_value(
                 Some(job.scheduled_for.clone()),
                 None,
                 None,
+                job.tested_runnable.clone(),
             )
             .await;
 
@@ -1619,7 +1621,7 @@ async fn list_resource_types(
 ) -> JsonResult<Vec<ResourceType>> {
     let rows = sqlx::query_as!(
         ResourceType,
-        "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER \
+        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER \
          BY name",
         &w_id
     )
@@ -1653,7 +1655,7 @@ async fn get_resource_type(
 
     let resource_type_o = sqlx::query_as!(
         ResourceType,
-        "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')",
+        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')",
         &name,
         &w_id
     )
@@ -1931,6 +1933,7 @@ async fn update_resource_type(
         any(
             feature = "sqs_trigger",
             feature = "gcp_trigger",
+            feature = "azure_trigger",
             feature = "kafka",
             feature = "nats"
         )

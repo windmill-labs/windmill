@@ -135,6 +135,10 @@ pub fn global_service() -> Router {
         .route("/username_info/{user}", get(get_instance_username_info))
         .route("/tokens/create", post(create_token))
         .route("/tokens/delete/{token_prefix}", delete(delete_token))
+        .route(
+            "/tokens/update_scopes/{token_prefix}",
+            post(update_token_scopes),
+        )
         .route("/tokens/list", get(list_tokens))
         .route("/tokens/impersonate", post(impersonate))
         .route("/usage", get(get_usage))
@@ -156,6 +160,10 @@ pub fn make_unauthed_service() -> Router {
         .route("/is_first_time_setup", get(is_first_time_setup))
         .route("/request_password_reset", post(request_password_reset))
         .route("/is_smtp_configured", get(is_smtp_configured))
+        .route(
+            "/is_password_login_disabled",
+            get(is_password_login_disabled),
+        )
 }
 
 pub use windmill_api_auth::{
@@ -288,6 +296,7 @@ pub struct TruncatedToken {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub last_used_at: chrono::DateTime<chrono::Utc>,
     pub scopes: Option<Vec<String>>,
+    pub workspace_id: Option<String>,
 }
 
 // NewToken is re-exported from windmill-api-auth above
@@ -376,7 +385,7 @@ async fn list_users(
     let rows = sqlx::query_as!(
         User,
         "
-        SELECT *
+        SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via, is_service_account
           FROM usr
          WHERE workspace_id = $1
          ",
@@ -1165,7 +1174,7 @@ async fn get_workspace_user(
 
     let user = sqlx::query_as!(
         User,
-        "SELECT * FROM usr WHERE username = $1 AND workspace_id = $2",
+        "SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via, is_service_account FROM usr WHERE username = $1 AND workspace_id = $2",
         &username_to_update,
         &w_id
     )
@@ -1686,8 +1695,10 @@ pub async fn delete_workspace_user_internal(
         "nats_trigger",
         "sqs_trigger",
         "gcp_trigger",
+        "azure_trigger",
         "email_trigger",
     ];
+    // SAFETY: `table` comes from a hardcoded allowlist `extra_perms_tables`, not user input.
     for table in &extra_perms_tables {
         sqlx::query(&format!(
             "UPDATE {table} SET extra_perms = extra_perms - ('u/' || $1) \
@@ -1876,6 +1887,15 @@ async fn login(
     }
 
     let email = email.to_lowercase();
+
+    if windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(Error::BadRequest(
+            "Password login is disabled on this instance".to_string(),
+        ));
+    }
+
     windmill_common::login_rate_limit::check_and_increment_login_attempt(&headers, &email)?;
 
     let mut tx = db.begin().await?;
@@ -2229,7 +2249,7 @@ async fn list_tokens(
         sqlx::query_as!(
             TruncatedToken,
             "SELECT label, token_prefix, expiration, created_at, \
-             last_used_at, scopes FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
+             last_used_at, scopes, workspace_id FROM token WHERE email = $1 AND (label != 'ephemeral-script' OR label IS NULL)
              ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             email,
             per_page as i64,
@@ -2241,7 +2261,7 @@ async fn list_tokens(
         sqlx::query_as!(
             TruncatedToken,
             "SELECT label, token_prefix, expiration, created_at, \
-            last_used_at, scopes FROM token WHERE email = $1
+            last_used_at, scopes, workspace_id FROM token WHERE email = $1
             ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             email,
             per_page as i64,
@@ -2289,6 +2309,55 @@ async fn delete_token(
         tokens_deleted,
         token_prefix
     ))
+}
+
+#[derive(Deserialize)]
+struct UpdateTokenScopesRequest {
+    scopes: Option<Vec<String>>,
+}
+
+async fn update_token_scopes(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Path(token_prefix): Path<String>,
+    Json(req): Json<UpdateTokenScopesRequest>,
+) -> Result<String> {
+    let mut tx = db.begin().await?;
+
+    let updated: Option<String> = sqlx::query_scalar!(
+        "UPDATE token SET scopes = $1
+           WHERE email = $2 AND token_prefix = $3
+           RETURNING token_prefix",
+        req.scopes.as_deref(),
+        &authed.email,
+        &token_prefix,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let prefix = updated.ok_or_else(|| {
+        Error::NotFound(format!(
+            "token {token_prefix} not found or not owned by user"
+        ))
+    })?;
+
+    let scopes_json = serde_json::to_string(&req.scopes).unwrap_or_default();
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.token.update_scopes",
+        ActionKind::Update,
+        &"global",
+        Some(&prefix),
+        Some([("scopes", scopes_json.as_str())].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    windmill_api_auth::invalidate_token_from_cache(&prefix);
+
+    Ok(format!("updated scopes for token {prefix}"))
 }
 
 async fn leave_workspace(
@@ -2612,11 +2681,27 @@ async fn is_smtp_configured(Extension(db): Extension<DB>) -> JsonResult<bool> {
     Ok(Json(smtp.is_some()))
 }
 
+/// Check if password login is disabled (instance-wide)
+async fn is_password_login_disabled() -> JsonResult<bool> {
+    Ok(Json(
+        windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+            .load(std::sync::atomic::Ordering::Relaxed),
+    ))
+}
+
 /// Request a password reset email
 async fn request_password_reset(
     Extension(db): Extension<DB>,
     Json(req): Json<RequestPasswordReset>,
 ) -> Result<Json<PasswordResetResponse>> {
+    if windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(Error::BadRequest(
+            "Password login is disabled on this instance".to_string(),
+        ));
+    }
+
     let email = req.email.to_lowercase();
 
     // Check if SMTP is configured

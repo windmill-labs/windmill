@@ -74,7 +74,7 @@
 			deployUiSettings = ALL_DEPLOYABLE
 			return
 		}
-		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		let settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
 		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
 	}
 	getDeployUiSettings()
@@ -227,6 +227,8 @@
 
 	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
+			// Email addresses are always workspace-prefixed (clone filter
+			// excludes workspaced_local_part=false) — no fork-conflict warning.
 			await EmailTriggerService.setEmailTriggerMode({
 				path,
 				workspace: $workspaceStore!,

@@ -151,6 +151,7 @@ mod smtp_server_oss;
 #[cfg(feature = "private")]
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
+mod workspace_shared_ui;
 
 #[cfg(feature = "native_trigger")]
 pub mod native_triggers;
@@ -216,6 +217,8 @@ pub use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 
 pub use windmill_common::utils::{COOKIE_DOMAIN, IS_SECURE};
 
+pub use windmill_api_debug::reload_debug_signing_key;
+
 #[cfg(feature = "oauth2")]
 pub use windmill_oauth::OAUTH_CLIENTS;
 
@@ -225,6 +228,11 @@ lazy_static::lazy_static! {
         .ok()
         .map(|x| SlackVerifier::new(x).unwrap());
 
+    // Comma-separated Slack v2 OAuth bot scopes requested when connecting a workspace.
+    // Must be a subset of the bot scopes declared in the Slack app manifest. Default matches
+    // Windmill's recommended manifest at docs.windmill.dev/docs/misc/setup_oauth.
+    pub static ref SLACK_OAUTH_SCOPES: String = std::env::var("SLACK_OAUTH_SCOPES")
+        .unwrap_or_else(|_| "commands,chat:write,chat:write.public,channels:join,files:write,app_mentions:read,im:history,im:read".to_string());
 }
 
 // Compliance with cloud events spec.
@@ -609,6 +617,7 @@ pub async fn run_server(
                         )
                         .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
+                        .nest("/shared_ui", workspace_shared_ui::workspaced_service())
                         .nest("/schedules", windmill_api_schedule::workspaced_service())
                         .nest("/scripts", scripts::workspaced_service())
                         .nest("/trash", trash::workspaced_service())
@@ -893,6 +902,24 @@ pub async fn run_server(
                         Router::new()
                     }
                 })
+                .nest("/azure/w/{workspace_id}", {
+                    #[cfg(all(
+                        feature = "enterprise",
+                        feature = "azure_trigger",
+                        feature = "private"
+                    ))]
+                    {
+                        triggers::azure::handler_oss::azure_push_route_handler()
+                    }
+                    #[cfg(not(all(
+                        feature = "enterprise",
+                        feature = "azure_trigger",
+                        feature = "private"
+                    )))]
+                    {
+                        Router::new()
+                    }
+                })
                 .route("/version", get(git_v))
                 .nest("/health/status", health::status_service())
                 .route("/min_keep_alive_version", get(min_keep_alive_version))
@@ -956,10 +983,20 @@ pub async fn run_server(
             }
         })
         // JWKS endpoint for HashiCorp Vault JWT authentication (must be outside /api prefix)
-        .route(
-            "/.well-known/jwks.json",
-            get(windmill_api_settings::get_jwks),
-        )
+        .route("/.well-known/jwks.json", {
+            #[cfg(all(feature = "private", feature = "enterprise", feature = "openidconnect"))]
+            {
+                get(crate::oidc_oss::jwks)
+            }
+            #[cfg(not(all(
+                feature = "private",
+                feature = "enterprise",
+                feature = "openidconnect"
+            )))]
+            {
+                get(windmill_api_settings::get_jwks)
+            }
+        })
         .fallback(static_assets::static_handler)
         .layer(middleware_stack);
 

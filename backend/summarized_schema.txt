@@ -80,7 +80,7 @@ flow: workspace_id(char), path(char), summary(text), description(text), value(js
   FK: (workspace_id) -> workspace(id)
 flow_conversation: id(uuid), workspace_id(char), flow_path(char), title(char), created_at(ts), updated_at(ts), created_by(char)
   FK: (workspace_id) -> workspace(id)
-flow_conversation_message: id(uuid), conversation_id(uuid), message_type(message_type), content(text), job_id(uuid), created_at(ts), step_name(char), success(bool)
+flow_conversation_message: id(uuid), conversation_id(uuid), message_type(message_type), content(text), job_id(uuid), created_at(ts), created_seq(int8), step_name(char), success(bool)
   FK: (conversation_id) -> flow_conversation(id) | (job_id) -> v2_job(id)
 flow_iterator_data: job_id(uuid), itered(jsonb)
 flow_node: id(bigint), workspace_id(char), hash(bigint), path(char), lock(text), code(text), flow(jsonb), hash_v2(char(64))

@@ -78,6 +78,12 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "type": "string",
                         "description": "The expiration date of the variable",
                         "format": "date-time"
+                },
+                "labels": {
+                        "type": "array",
+                        "items": {
+                                "type": "string"
+                        }
                 }
         },
         "required": [
@@ -156,6 +162,12 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "description": {
                         "type": "string",
                         "description": "The new description of the variable"
+                },
+                "labels": {
+                        "type": "array",
+                        "items": {
+                                "type": "string"
+                        }
                 },
                 "path__body": {
                         "type": "string",
@@ -244,6 +256,10 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "per_page": {
                         "type": "integer",
                         "description": "number of items to return for a given page (default 30, max 100)"
+                },
+                "label": {
+                        "type": "string",
+                        "description": "Filter by label"
                 }
         },
         "required": []
@@ -287,6 +303,12 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "resource_type": {
                         "type": "string",
                         "description": "The resource_type associated with the resource"
+                },
+                "labels": {
+                        "type": "array",
+                        "items": {
+                                "type": "string"
+                        }
                 }
         },
         "required": [
@@ -354,6 +376,12 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "resource_type": {
                         "type": "string",
                         "description": "The new resource_type to be associated with the resource"
+                },
+                "labels": {
+                        "type": "array",
+                        "items": {
+                                "type": "string"
+                        }
                 },
                 "path__body": {
                         "type": "string",
@@ -437,6 +465,10 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "broad_filter": {
                         "type": "string",
                         "description": "broad search across multiple fields (case-insensitive substring match)"
+                },
+                "label": {
+                        "type": "string",
+                        "description": "Filter by label"
                 }
         },
         "required": []
@@ -544,6 +576,10 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "dedicated_worker": {
                         "type": "boolean",
                         "description": "(default regardless)\nIf true, show only scripts with dedicated_worker enabled.\nIf false, show only scripts with dedicated_worker disabled.\n"
+                },
+                "label": {
+                        "type": "string",
+                        "description": "Filter by label"
                 }
         },
         "required": []
@@ -555,7 +591,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
     },
     EndpointTool {
         name: Cow::Borrowed("createScript"),
-        description: Cow::Borrowed("create script"),
+        description: Cow::Borrowed("create script: Creates a new script when the path does not already exist.
+Creates a new version of an existing script when called with the same path and the current `parent_hash`"),
         instructions: Cow::Borrowed("To create a script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed."),
         path: Cow::Borrowed("/w/{workspace}/scripts/create"),
         method: Cow::Borrowed("POST"),
@@ -578,7 +615,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "language": {
                         "type": "string",
-                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, duckdb, bunnative"
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative"
                 },
                 "kind": {
                         "type": "string",
@@ -772,6 +809,10 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "dedicated_worker": {
                         "type": "boolean",
                         "description": "(default regardless)\nIf true, show only flows with dedicated_worker enabled.\nIf false, show only flows with dedicated_worker disabled.\n"
+                },
+                "label": {
+                        "type": "string",
+                        "description": "Filter by label"
                 }
         },
         "required": []
@@ -1095,7 +1136,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "language": {
                         "type": "string",
-                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, duckdb, bunnative"
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative"
                 },
                 "tag": {
                         "type": "string"
@@ -1127,7 +1168,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
                                         },
                                         "language": {
                                                 "type": "string",
-                                                "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, duckdb, bunnative"
+                                                "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative"
                                         },
                                         "lock": {
                                                 "type": "string",
@@ -1691,6 +1732,12 @@ You should get the schema of the script or flow before creating the schedule to 
                 "preserve_permissioned_as": {
                         "type": "boolean",
                         "description": "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+                },
+                "labels": {
+                        "type": "array",
+                        "items": {
+                                "type": "string"
+                        }
                 }
         },
         "required": [
@@ -1894,6 +1941,12 @@ You should get the schema of the script or flow before updating the schedule to 
                         "type": "boolean",
                         "nullable": true,
                         "description": "If true and user is admin/wm_deployers, preserve the provided permissioned_as instead of using the deploying user's identity"
+                },
+                "labels": {
+                        "type": "array",
+                        "items": {
+                                "type": "string"
+                        }
                 }
         },
         "required": [
@@ -2001,6 +2054,10 @@ You should get the schema of the script or flow before updating the schedule to 
                 "broad_filter": {
                         "type": "string",
                         "description": "broad search across multiple fields (case-insensitive substring match)"
+                },
+                "label": {
+                        "type": "string",
+                        "description": "Filter by label"
                 }
         },
         "required": []

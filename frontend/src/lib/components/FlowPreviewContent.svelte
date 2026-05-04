@@ -28,7 +28,7 @@
 		RefreshCw,
 		X
 	} from 'lucide-svelte'
-	import { emptyString, sendUserToast, type StateStore } from '$lib/utils'
+	import { sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
@@ -40,6 +40,7 @@
 	import FlowChat from './flows/conversations/FlowChat.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import FlowRestartButton from './FlowRestartButton.svelte'
+	import { useNestedRestartState } from './useNestedRestartState.svelte'
 	import { createFlowRecording, setActiveRecording } from './recording/flowRecording.svelte'
 	import type { FlowRecording } from './recording/types'
 
@@ -90,7 +91,26 @@
 		suspendStatus
 	}: Props = $props()
 
-	let restartBranchNames: [number, string][] = []
+	let previewExpandedSubflows: Record<
+		string,
+		{ modules: import('$lib/gen').FlowModule[]; groups?: any[] }
+	> = $state({})
+	const restart = useNestedRestartState({
+		selectedJobStep: () => selectedJobStep,
+		job: () => job,
+		graphModuleStates: () => localModuleStates,
+		expandedSubflows: () => previewExpandedSubflows
+	})
+	// `selectedJobStepType` and `selectedJobStepIsTopLevel` are still exposed as
+	// `$bindable` props to legacy parents (FlowPreviewButtons binds them but
+	// doesn't read them). Sync them out of the composable here so the prop
+	// surface stays unchanged.
+	$effect(() => {
+		selectedJobStepIsTopLevel = restart.selectedJobStepIsTopLevel
+	})
+	$effect(() => {
+		selectedJobStepType = restart.selectedJobStepType
+	})
 	let isRunning: boolean = $state(false)
 	let jsonView: boolean = $state(false)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -211,27 +231,6 @@
 		}
 	}
 
-	function onSelectedJobStepChange() {
-		if (selectedJobStep !== undefined && job?.flow_status?.modules !== undefined) {
-			selectedJobStepIsTopLevel =
-				job?.flow_status?.modules.map((m) => m.id).indexOf(selectedJobStep) >= 0
-			let moduleDefinition = job?.raw_flow?.modules.find((m) => m.id == selectedJobStep)
-			if (moduleDefinition?.value.type == 'forloopflow') {
-				selectedJobStepType = 'forloop'
-			} else if (moduleDefinition?.value.type == 'branchall') {
-				selectedJobStepType = 'branchall'
-				moduleDefinition?.value.branches.forEach((branch, idx) => {
-					restartBranchNames.push([
-						idx,
-						emptyString(branch.summary) ? `Branch #${idx}` : branch.summary!
-					])
-				})
-			} else {
-				selectedJobStepType = 'single'
-			}
-		}
-	}
-
 	let savedArgs = $state(previewArgs.val)
 	let inputSelected: 'captures' | 'history' | 'saved' | undefined = $state(undefined)
 	async function selectInput(input, type?: 'captures' | 'history' | 'saved' | undefined) {
@@ -313,9 +312,6 @@
 			scrollableDiv.scrollTop = scrollTop
 		}
 	}
-	$effect.pre(() => {
-		selectedJobStep !== undefined && untrack(() => onSelectedJobStepChange())
-	})
 	$effect(() => {
 		scrollableDiv && render && untrack(() => onScrollableDivChange())
 	})
@@ -418,12 +414,21 @@
 				</div>
 			{:else}
 				<div class="grow justify-center flex flex-row gap-2 items-center">
-					{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel}
+					{#if jobId !== undefined && selectedJobStep !== undefined && restart.topLevelRestartable}
+						<!--
+							Nested-step restart is intentionally not surfaced from the editor
+							preview: the chain needs `flow_job_id` resolved at every level,
+							which only the backend can do (by walking the original
+							execution). Users who want nested restart should use the run
+							page, which goes through the dedicated restart API.
+						-->
 						<FlowRestartButton
 							{jobId}
 							{selectedJobStep}
-							{selectedJobStepType}
-							{restartBranchNames}
+							selectedJobStepType={restart.selectedJobStepType}
+							restartBranchNames={restart.restartBranchNames}
+							presetIterationN={restart.topLevelLoopIteration}
+							iterationCounts={restart.iterationCounts}
 							onRestart={(stepId, branchOrIterationN) => {
 								runPreview(previewArgs.val, {
 									flow_job_id: jobId,
@@ -646,6 +651,7 @@
 				<FlowStatusViewer
 					bind:job
 					bind:localModuleStates
+					bind:expandedSubflows={previewExpandedSubflows}
 					bind:localDurationStatuses
 					{suspendStatus}
 					hideDownloadInGraph={customUi?.downloadLogs === false}

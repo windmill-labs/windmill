@@ -152,6 +152,6 @@
 		<div class="flex justify-end">
 			<DarkModeToggle forcedDarkMode={false} />
 		</div>
-		<Login {firstTime} {rd} {error} {password} {email} />
+		<Login {firstTime} {rd} {error} {password} {email} autoRedirect={false} />
 	</div>
 </div>

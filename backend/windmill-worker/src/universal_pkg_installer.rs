@@ -390,7 +390,9 @@ pub async fn par_install_language_dependencies_seq<
     _platform_agnostic: bool,
     concurrent_downloads: usize,
     callback: impl Fn(RequiredDependency<T>) -> Result<Command, error::Error> + Send + Sync + 'static,
-    post_install: Option<Arc<dyn Fn(&RequiredDependency<T>) -> anyhow::Result<()> + Send + Sync + 'static>>,
+    post_install: Option<
+        Arc<dyn Fn(&RequiredDependency<T>) -> anyhow::Result<()> + Send + Sync + 'static>,
+    >,
     job_id: &'a Uuid,
     w_id: &'a str,
     worker_name: &'a str,
@@ -448,13 +450,8 @@ pub async fn par_install_language_dependencies_seq<
         }
 
         if is_layered && offset > 0 {
-            windmill_queue::append_logs(
-                job_id,
-                w_id,
-                format!("\n\n--- Layer {} ---", i + 1),
-                conn,
-            )
-            .await;
+            windmill_queue::append_logs(job_id, w_id, format!("\n\n--- Layer {} ---", i + 1), conn)
+                .await;
         }
 
         let layer_size = layer_deps.len();
@@ -625,7 +622,9 @@ async fn spawn_wrapped_installation_threads<
     _platform_agnostic: bool,
     counter_offset: Option<usize>,
     total_override: Option<usize>,
-    post_install: Option<Arc<dyn Fn(&RequiredDependency<T>) -> anyhow::Result<()> + Send + Sync + 'static>>,
+    post_install: Option<
+        Arc<dyn Fn(&RequiredDependency<T>) -> anyhow::Result<()> + Send + Sync + 'static>,
+    >,
 ) -> anyhow::Result<(
     Vec<JoinHandle<anyhow::Result<TaskKiller>>>,
     tokio::sync::broadcast::Sender<()>,
@@ -772,7 +771,9 @@ async fn try_install_one_detached<'a, T: Clone + std::marker::Send + Sync + 'a +
     // If dropped the entire installation fails and all installation threads are being stopped
     // That's why we just pass it to return so it is not being dropped
     kill_all_tasks: TaskKiller,
-    post_install: Option<Arc<dyn Fn(&RequiredDependency<T>) -> anyhow::Result<()> + Send + Sync + 'static>>,
+    post_install: Option<
+        Arc<dyn Fn(&RequiredDependency<T>) -> anyhow::Result<()> + Send + Sync + 'static>,
+    >,
 ) -> anyhow::Result<TaskKiller> {
     let start = std::time::Instant::now();
 

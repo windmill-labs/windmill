@@ -23,6 +23,7 @@ use crate::{apps::AppWithLastVersion, db::DB, folders::Folder};
             feature = "kafka",
             feature = "sqs_trigger",
             feature = "gcp_trigger",
+            feature = "azure_trigger",
             feature = "nats",
             feature = "smtp",
         ),
@@ -115,6 +116,45 @@ pub fn is_none_or_false(val: &Option<bool>) -> bool {
     match val {
         Some(val) => !val,
         None => true,
+    }
+}
+
+/// Returns the keys to strip from trigger/schedule serialization when the
+/// source workspace is a fork. Stripping these keys avoids propagating
+/// fork-local operational state (enabled flag, runtime listener identifiers)
+/// back to the parent workspace through the git-sync round-trip.
+#[cfg(any(
+    feature = "http_trigger",
+    feature = "websocket",
+    feature = "postgres_trigger",
+    feature = "mqtt_trigger",
+    feature = "native_trigger",
+    all(
+        feature = "enterprise",
+        any(
+            feature = "kafka",
+            feature = "sqs_trigger",
+            feature = "gcp_trigger",
+            feature = "azure_trigger",
+            feature = "nats",
+            feature = "smtp",
+        ),
+        feature = "private"
+    )
+))]
+fn fork_trigger_ignore_keys(is_fork: bool) -> Option<Vec<&'static str>> {
+    if is_fork {
+        Some(vec!["mode", "enabled"])
+    } else {
+        None
+    }
+}
+
+fn fork_schedule_ignore_keys(is_fork: bool) -> Option<Vec<&'static str>> {
+    if is_fork {
+        Some(vec!["enabled"])
+    } else {
+        None
     }
 }
 
@@ -237,6 +277,13 @@ where
             if !preserve_extra_perms && obj.contains_key("extra_perms") {
                 obj.remove("extra_perms");
             }
+            if obj
+                .get("default_permissioned_as")
+                .and_then(|v| v.as_array())
+                .is_some_and(|a| a.is_empty())
+            {
+                obj.remove("default_permissioned_as");
+            }
 
             serde_json::to_string_pretty(&obj).ok()
         })
@@ -270,9 +317,11 @@ struct SimplifiedSettings {
     webhook: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     deploy_to: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Always serialize (including as `null`) so that `wmill sync pull` emits
+    // these fields in settings.yaml unconditionally. Makes round-trip
+    // bijective: YAML is the source of truth, absence/null = "clear remote",
+    // mirroring every other workspace setting.
     error_handler: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     success_handler: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ai_config: Option<serde_json::Value>,
@@ -299,6 +348,9 @@ struct SimplifiedSettings {
     slack_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     slack_command_script: Option<String>,
+    // Always serialize (see note above on error_handler / success_handler).
+    slack_oauth_client_id: Option<String>,
+    slack_oauth_client_secret: Option<String>,
 }
 
 // V1 format: Legacy flat format for backward compatibility (matches main branch exactly)
@@ -364,6 +416,8 @@ struct SettingsRow {
     slack_team_id: Option<String>,
     slack_name: Option<String>,
     slack_command_script: Option<String>,
+    slack_oauth_client_id: Option<String>,
+    slack_oauth_client_secret: Option<String>,
 }
 
 pub(crate) async fn tarball_workspace(
@@ -400,6 +454,19 @@ pub(crate) async fn tarball_workspace(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    // Source-of-truth check for fork-ness: the workspace's parent_workspace_id
+    // column. The wm-fork-* prefix is a creation-time naming convention that
+    // could in principle drift (rename, manual SQL); the column is the
+    // contract that matches what the conflict-warning gates read.
+    let is_fork: bool = sqlx::query_scalar!(
+        "SELECT parent_workspace_id IS NOT NULL FROM workspace WHERE id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten()
+    .unwrap_or(false);
+
     let tmp_dir = TempDir::new_in(&*WINDMILL_DIR)?;
 
     let name = match archive_type.as_deref() {
@@ -423,7 +490,7 @@ pub(crate) async fn tarball_workspace(
         Some(t) => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
     }?;
     {
-        let folders = sqlx::query_as::<_, Folder>("SELECT * FROM folder WHERE workspace_id = $1")
+        let folders = sqlx::query_as::<_, Folder>("SELECT name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as FROM folder WHERE workspace_id = $1")
             .bind(&w_id)
             .fetch_all(&mut *tx)
             .await?;
@@ -440,10 +507,13 @@ pub(crate) async fn tarball_workspace(
 
     {
         let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
-            "SELECT * FROM script as o WHERE workspace_id = $1 AND archived = false
-             AND (draft_only IS NULL OR draft_only = false)
-             AND created_at = (select max(created_at) from script where path = o.path AND \
-              workspace_id = $1)",
+            &format!(
+                "SELECT {} FROM script as o WHERE workspace_id = $1 AND archived = false
+                 AND (draft_only IS NULL OR draft_only = false)
+                 AND created_at = (select max(created_at) from script where path = o.path AND \
+                  workspace_id = $1)",
+                windmill_common::scripts::SCRIPT_COLUMNS,
+            ),
         )
         .bind(&w_id)
         .fetch_all(&mut *tx)
@@ -528,7 +598,7 @@ pub(crate) async fn tarball_workspace(
     if !skip_resources.unwrap_or(false) {
         let resources = sqlx::query_as!(
              Resource,
-             "SELECT * FROM resource WHERE workspace_id = $1 AND resource_type != 'state' AND resource_type != 'cache'",
+             "SELECT workspace_id, path, value, description, resource_type, extra_perms, created_by, edited_at, labels FROM resource WHERE workspace_id = $1 AND resource_type != 'state' AND resource_type != 'cache'",
              &w_id
          )
          .fetch_all(&mut *tx)
@@ -545,7 +615,7 @@ pub(crate) async fn tarball_workspace(
     if !skip_resource_types.unwrap_or(false) {
         let resource_types = sqlx::query_as!(
             ResourceType,
-            "SELECT * FROM resource_type WHERE workspace_id = $1",
+            "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset FROM resource_type WHERE workspace_id = $1",
             &w_id
         )
         .fetch_all(&mut *tx)
@@ -584,9 +654,9 @@ pub(crate) async fn tarball_workspace(
     if !skip_variables.unwrap_or(false) {
         let variables =
              sqlx::query_as::<_, ExportableListableVariable>(if !skip_secrets.unwrap_or(false) {
-                 "SELECT * FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
+                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, labels FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
              } else {
-                 "SELECT * FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
+                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, labels FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
              })
              .bind(&w_id)
              .fetch_all(&mut *tx)
@@ -660,15 +730,18 @@ pub(crate) async fn tarball_workspace(
 
     if include_schedules.unwrap_or(false) {
         let schedules = sqlx::query_as::<_, Schedule>(
-            "SELECT * FROM schedule
+            "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule
              WHERE workspace_id = $1",
         )
         .bind(&w_id)
         .fetch_all(&mut *tx)
         .await?;
 
+        let schedule_ignore_keys = fork_schedule_ignore_keys(is_fork);
         for schedule in schedules {
-            let app_str = &to_string_without_metadata(&schedule, false, None).unwrap();
+            let app_str =
+                &to_string_without_metadata(&schedule, false, schedule_ignore_keys.clone())
+                    .unwrap();
             archive
                 .write_to_archive(&app_str, &format!("{}.schedule.json", schedule.path))
                 .await?;
@@ -676,6 +749,27 @@ pub(crate) async fn tarball_workspace(
     }
 
     if include_triggers.unwrap_or(false) {
+        #[cfg(any(
+            feature = "http_trigger",
+            feature = "websocket",
+            feature = "postgres_trigger",
+            feature = "mqtt_trigger",
+            feature = "native_trigger",
+            all(
+                feature = "enterprise",
+                any(
+                    feature = "kafka",
+                    feature = "sqs_trigger",
+                    feature = "gcp_trigger",
+                    feature = "azure_trigger",
+                    feature = "nats",
+                    feature = "smtp",
+                ),
+                feature = "private"
+            )
+        ))]
+        let trigger_ignore_keys = fork_trigger_ignore_keys(is_fork);
+
         #[cfg(feature = "http_trigger")]
         {
             use crate::triggers::http::HttpTrigger;
@@ -683,7 +777,9 @@ pub(crate) async fn tarball_workspace(
             let http_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in http_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -700,7 +796,9 @@ pub(crate) async fn tarball_workspace(
             let websocket_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in websocket_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -717,7 +815,9 @@ pub(crate) async fn tarball_workspace(
             let kafka_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in kafka_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -734,7 +834,9 @@ pub(crate) async fn tarball_workspace(
             let sqs_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in sqs_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -751,11 +853,32 @@ pub(crate) async fn tarball_workspace(
             let gcp_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in gcp_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
                         &format!("{}.gcp_trigger.json", trigger.base.path),
+                    )
+                    .await?;
+            }
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "azure_trigger", feature = "private"))]
+        {
+            use crate::triggers::azure::AzureTrigger;
+            let handler = AzureTrigger;
+            let azure_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
+
+            for trigger in azure_triggers {
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
+                archive
+                    .write_to_archive(
+                        &trigger_str,
+                        &format!("{}.azure_trigger.json", trigger.base.path),
                     )
                     .await?;
             }
@@ -769,7 +892,8 @@ pub(crate) async fn tarball_workspace(
 
             for trigger in nats_triggers {
                 let trigger_str: &String =
-                    &to_string_without_metadata(&trigger, false, None).unwrap();
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -786,7 +910,9 @@ pub(crate) async fn tarball_workspace(
             let postgres_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in postgres_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -803,7 +929,9 @@ pub(crate) async fn tarball_workspace(
             let mqtt_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in mqtt_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -820,7 +948,9 @@ pub(crate) async fn tarball_workspace(
             let email_triggers = handler.list_triggers(&mut *tx, &w_id, None).await?;
 
             for trigger in email_triggers {
-                let trigger_str = &to_string_without_metadata(&trigger, false, None).unwrap();
+                let trigger_str =
+                    &to_string_without_metadata(&trigger, false, trigger_ignore_keys.clone())
+                        .unwrap();
                 archive
                     .write_to_archive(
                         &trigger_str,
@@ -840,11 +970,16 @@ pub(crate) async fn tarball_workspace(
                     list_native_triggers(&mut *tx, &w_id, service_name, None, None, None, None)
                         .await?;
 
+                let mut native_ignore_keys = vec!["webhook_token_hash"];
+                if let Some(ref extra) = trigger_ignore_keys {
+                    native_ignore_keys.extend_from_slice(extra);
+                }
+
                 for trigger in native_triggers {
                     let trigger_str = &to_string_without_metadata(
                         &trigger,
                         false,
-                        Some(vec!["webhook_token_hash"]),
+                        Some(native_ignore_keys.clone()),
                     )
                     .unwrap();
                     archive
@@ -866,7 +1001,7 @@ pub(crate) async fn tarball_workspace(
 
     if include_users.unwrap_or(false) {
         let users = sqlx::query!(
-            "SELECT * FROM usr
+            "SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via FROM usr
              WHERE workspace_id = $1",
             &w_id
         )
@@ -973,7 +1108,9 @@ pub(crate) async fn tarball_workspace(
                  datatable,
                  slack_team_id,
                  slack_name,
-                 slack_command_script
+                 slack_command_script,
+                 slack_oauth_client_id,
+                 slack_oauth_client_secret
              FROM workspace_settings
              LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
              WHERE workspace_id = $1"#,
@@ -1003,6 +1140,14 @@ pub(crate) async fn tarball_workspace(
                 slack_team_id: row.slack_team_id.clone(),
                 slack_name: row.slack_name.clone(),
                 slack_command_script: row.slack_command_script.clone(),
+                slack_oauth_client_id: row.slack_oauth_client_id.clone(),
+                // Mirror the non-admin redaction in `get_settings`: the OAuth
+                // client secret is admin-only and must not leak via tarball.
+                slack_oauth_client_secret: if authed.is_admin {
+                    row.slack_oauth_client_secret.clone()
+                } else {
+                    None
+                },
             };
             serde_json::to_value(settings)
                 .map(|v| serde_json::to_string_pretty(&v).ok())

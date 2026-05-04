@@ -6,6 +6,7 @@
 	import { type TriggerContext } from '$lib/components/triggers'
 	import { enterpriseLicense } from '$lib/stores'
 	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon, GoogleCloudIcon } from '$lib/components/icons'
+	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
 	import { Menu, Menubar, MeltButton, MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { twMerge } from 'tailwind-merge'
@@ -15,6 +16,7 @@
 	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
 	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
 	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
+	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
 
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -69,10 +71,12 @@
 			mqtt: { icon: MqttIcon, countKey: 'mqtt_count', disabled: !$enterpriseLicense },
 			sqs: { icon: AwsIcon, countKey: 'sqs_count', disabled: !$enterpriseLicense },
 			gcp: { icon: GoogleCloudIcon, countKey: 'gcp_count', disabled: !$enterpriseLicense },
+			azure: { icon: AzureIcon, countKey: 'azure_count', disabled: !$enterpriseLicense },
 			poll: { icon: SchedulePollIcon },
 			cli: { icon: Terminal },
 			nextcloud: { icon: NextcloudIcon, countKey: 'nextcloud_count' },
-			google: { icon: GoogleIcon, countKey: 'google_count' }
+			google: { icon: GoogleIcon, countKey: 'google_count' },
+			github: { icon: GithubIcon, countKey: 'github_count' }
 		}
 
 		// Add native trigger services that are available
@@ -101,11 +105,13 @@
 		'mqtt',
 		'sqs',
 		'gcp',
+		'azure',
 		'email',
 		'poll',
 		'cli',
 		'nextcloud',
-		'google'
+		'google',
+		'github'
 	])
 
 	function camelCaseToWords(s: string) {

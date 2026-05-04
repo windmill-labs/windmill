@@ -84,6 +84,40 @@ export async function requireLogin(
     // rather than falling back to interactive login — they expect their explicit
     // credentials to work and should fix them if they don't.
     if (opts.token || opts.baseUrl) {
+      const isApiError = error && typeof error === "object" &&
+        "name" in error && (error as { name: unknown }).name === "ApiError";
+      if (isApiError) {
+        const status = (error as { status?: number }).status;
+        const body = (error as { body?: unknown }).body;
+        let bodyStr = typeof body === "object" && body !== null
+          ? JSON.stringify(body)
+          : String(body ?? "").trim();
+        // Strip backend source-file refs like "(flows.rs:1400)" or
+        // "@scopes.rs:509" from the surfaced message — same pattern used in
+        // main.ts for ApiError display.
+        bodyStr = bodyStr.replace(/\s*[@(]\w+\.rs:\d+[:\d]*\)?/g, "");
+        // The backend's `Error::PermissionDenied` formats with a
+        // "Permission denied: " prefix; the new CLI message also leads with
+        // that phrase, so strip it from the body to avoid duplication.
+        bodyStr = bodyStr.replace(/^(Permission denied|Not authorized): /, "");
+        if (status === 403) {
+          // 403 means the token authenticated but lacks scope — re-issuing
+          // won't help. Keep this distinct from the 401 message so the user
+          // doesn't waste time reproducing the token.
+          log.info(colors.red(
+            `Permission denied: the token is valid but lacks the required scope.${bodyStr ? `\n${bodyStr}` : ""}`
+          ));
+        } else if (status === 401) {
+          log.info(colors.red(
+            `Could not authenticate with the provided credentials. Please check your --token and --base-url and try again.${bodyStr ? `\n${bodyStr}` : ""}`
+          ));
+        } else {
+          log.info(colors.red(
+            `Request failed (${status ?? "unknown"}): ${bodyStr}`
+          ));
+        }
+        return process.exit(1);
+      }
       log.info(colors.red("Could not authenticate with the provided credentials. Please check your --token and --base-url and try again."));
       return process.exit(1);
     }

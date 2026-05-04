@@ -134,6 +134,7 @@ fn parse_bash_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
                 otyp: None,
                 has_default: default.is_some(),
                 oidx: None,
+                otyp_inferred: false,
             });
         } else {
             break;
@@ -731,6 +732,7 @@ fn finalize_parameter(
         otyp,
         has_default,
         oidx: None,
+        otyp_inferred: false,
     })
 }
 
@@ -774,7 +776,8 @@ non_required="${5:-}"
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -782,7 +785,8 @@ non_required="${5:-}"
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -790,7 +794,8 @@ non_required="${5:-}"
                         typ: Typ::Str(None),
                         default: Some(json!("latest with spaces")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -798,7 +803,8 @@ non_required="${5:-}"
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -806,7 +812,8 @@ non_required="${5:-}"
                         typ: Typ::Str(None),
                         default: Some(json!("")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
@@ -833,7 +840,8 @@ non_required="${5:-}"
                         typ: Typ::Str(None),
                         default: None,
                         has_default: true, // Optional (not mandatory)
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("string".to_string()), // [string]
@@ -841,7 +849,8 @@ non_required="${5:-}"
                         typ: Typ::Str(None),
                         default: None,
                         has_default: true, // Optional (not mandatory)
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None, // No type annotation
@@ -849,7 +858,8 @@ non_required="${5:-}"
                         typ: Typ::Str(None),
                         default: Some(json!("default value, with comma")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("int".to_string()), // [int]
@@ -857,7 +867,8 @@ non_required="${5:-}"
                         typ: Typ::Int,
                         default: Some(json!(3)),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None, // Type inferred from default value
@@ -865,7 +876,8 @@ non_required="${5:-}"
                         typ: Typ::Float,
                         default: Some(json!(5.0)),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None, // Type inferred from default value
@@ -873,7 +885,8 @@ non_required="${5:-}"
                         typ: Typ::Int,
                         default: Some(json!(5)),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None, // No type annotation
@@ -881,7 +894,8 @@ non_required="${5:-}"
                         typ: Typ::Str(None),
                         default: None,
                         has_default: true, // Optional (not mandatory)
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("PSCustomObject".to_string()), // [PSCustomObject]
@@ -889,7 +903,8 @@ non_required="${5:-}"
                         typ: Typ::Object(ObjectType::new(None, None)),
                         default: None,
                         has_default: true, // Optional (not mandatory)
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("string[]".to_string()), // [string[]]
@@ -897,7 +912,8 @@ non_required="${5:-}"
                         typ: Typ::List(Box::new(Typ::Str(None))),
                         default: None,
                         has_default: true, // Optional (not mandatory)
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: Some("string".to_string()), // [string] (last type bracket with Mandatory and ValidateSet)
@@ -909,7 +925,8 @@ non_required="${5:-}"
                         ])), // ValidateSet enum
                         default: None,
                         has_default: false, // Required (Mandatory attribute)
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,
@@ -1462,7 +1479,8 @@ param(
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1470,7 +1488,8 @@ param(
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1478,7 +1497,8 @@ param(
                         typ: Typ::Str(None),
                         default: Some(json!("latest with spaces")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1486,7 +1506,8 @@ param(
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     },
                     Arg {
                         otyp: None,
@@ -1494,7 +1515,8 @@ param(
                         typ: Typ::Str(None),
                         default: Some(json!("")),
                         has_default: true,
-                        oidx: None
+                        oidx: None,
+                        otyp_inferred: false,
                     }
                 ],
                 auto_kind: None,

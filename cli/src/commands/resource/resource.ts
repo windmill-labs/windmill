@@ -1,4 +1,4 @@
-import { mkdir, stat, writeFile, readdir, readFile } from "node:fs/promises";
+import { mkdir, stat, writeFile, readdir } from "node:fs/promises";
 import { stringify as yamlStringify } from "yaml";
 import nodePath from "node:path";
 
@@ -17,7 +17,7 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import * as wmill from "../../../gen/services.gen.ts";
 import { Resource } from "../../../gen/types.gen.ts";
-import { readInlinePathSync } from "../../utils/utils.ts";
+import { readInlinePathSync, readTextFile } from "../../utils/utils.ts";
 import { isWorkspaceSpecificFile } from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
 
@@ -38,7 +38,7 @@ async function readFilesetDirectory(dirPath: string): Promise<Record<string, str
       if (entry.isDirectory()) {
         await walk(entryPath, relPath);
       } else if (entry.isFile()) {
-        result[relPath] = await readFile(entryPath, "utf-8");
+        result[relPath] = await readTextFile(entryPath);
       }
     }
   }

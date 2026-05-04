@@ -348,7 +348,12 @@ pub fn workspaced_service() -> Router {
             get(get_flow_env_by_flow_job_id).layer(cors.clone()),
         )
         .route("/run/dependencies", post(run_dependencies_job))
+        .route("/run/dependencies_async", post(run_dependencies_job_async))
         .route("/run/flow_dependencies", post(run_flow_dependencies_job))
+        .route(
+            "/run/flow_dependencies_async",
+            post(run_flow_dependencies_job_async),
+        )
         .route(
             "/send_email_with_instance_smtp",
             post(send_email_with_instance_smtp),
@@ -930,6 +935,7 @@ async fn list_selected_job_groups(
 struct GetJobQuery {
     pub no_logs: Option<bool>,
     pub no_code: Option<bool>,
+    pub approval_token: Option<String>,
 }
 
 async fn get_job(
@@ -937,16 +943,36 @@ async fn get_job(
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-    Query(GetJobQuery { no_logs, no_code }): Query<GetJobQuery>,
+    Query(GetJobQuery { no_logs, no_code, approval_token }): Query<GetJobQuery>,
 ) -> error::Result<Response> {
     let tags = opt_authed
         .as_ref()
         .map(|authed| get_scope_tags(authed))
         .flatten();
 
-    let mut get = GetQuery::new()
-        .with_auth(&opt_authed)
-        .with_in_tags(tags.as_ref());
+    // A valid approval token on the same (workspace, flow) grants read access
+    // so the approval page can render job metadata without login. The approval
+    // URL usually carries the flow id directly — try that first and only
+    // resolve the parent flow if the direct check fails.
+    let has_valid_approval_token = if let Some(ref token) = approval_token {
+        if validate_approval_token(&db, token, id, &w_id).await.is_ok() {
+            true
+        } else if let Ok(flow_id) = get_flow_id_for_job(&db, id).await {
+            flow_id != id
+                && validate_approval_token(&db, token, flow_id, &w_id)
+                    .await
+                    .is_ok()
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    let mut get = GetQuery::new().with_in_tags(tags.as_ref());
+    if !has_valid_approval_token {
+        get = get.with_auth(&opt_authed);
+    }
 
     if no_code.unwrap_or(false) {
         get = get.without_code();
@@ -2085,6 +2111,7 @@ async fn list_queue_jobs(
 #[derive(Deserialize)]
 pub struct CancelSelectionQuery {
     force_cancel: Option<bool>,
+    all_workspaces: Option<bool>,
 }
 
 async fn cancel_selection(
@@ -2097,23 +2124,53 @@ async fn cancel_selection(
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec());
-    let jobs_to_cancel = sqlx::query_scalar!(
-            "SELECT j.id AS \"id!\" FROM v2_job j LEFT JOIN v2_job_queue q USING (id) WHERE j.id = ANY($1) AND j.trigger_kind IS DISTINCT FROM 'schedule'::job_trigger_kind AND ($2::text[] IS NULL OR j.tag = ANY($2))",
+    // Only honor all_workspaces when the path workspace is "admins", matching
+    // the convention used by count_queue_jobs / count_completed_jobs_detail.
+    // Outside the admins workspace, always scope to the path w_id so a client
+    // cannot drop workspace scoping by passing all_workspaces=true.
+    let all_workspaces = w_id == "admins" && query.all_workspaces.unwrap_or(false);
+    let path_w_id = if all_workspaces {
+        None
+    } else {
+        Some(w_id.as_str())
+    };
+    let rows = sqlx::query!(
+            "SELECT j.id AS \"id!\", j.workspace_id AS \"workspace_id!\" FROM v2_job j LEFT JOIN v2_job_queue q USING (id) WHERE j.id = ANY($1) AND j.trigger_kind IS DISTINCT FROM 'schedule'::job_trigger_kind AND ($2::text[] IS NULL OR j.tag = ANY($2)) AND ($3::text IS NULL OR j.workspace_id = $3)",
             &jobs,
-            tags.as_ref().map(|v| v.as_slice())
+            tags.as_ref().map(|v| v.as_slice()),
+            path_w_id
         )
         .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
 
-    cancel_jobs(
-        jobs_to_cancel,
-        &db,
-        authed.username.as_str(),
-        w_id.as_str(),
-        query.force_cancel.unwrap_or(false),
-    )
-    .await
+    // cancel_jobs enforces workspace_id per row, so dispatch one call per
+    // workspace so cross-workspace selections (all_workspaces=true) aren't
+    // silently dropped. In single-workspace mode the SQL filter above ensures
+    // this collapses to a single call.
+    let mut jobs_by_workspace: HashMap<String, Vec<Uuid>> = HashMap::new();
+    for row in rows {
+        jobs_by_workspace
+            .entry(row.workspace_id)
+            .or_default()
+            .push(row.id);
+    }
+
+    let force_cancel = query.force_cancel.unwrap_or(false);
+    let mut cancelled = Vec::new();
+    for (workspace_id, ids) in jobs_by_workspace {
+        let Json(mut w_cancelled) = cancel_jobs(
+            ids,
+            &db,
+            authed.username.as_str(),
+            workspace_id.as_str(),
+            force_cancel,
+        )
+        .await?;
+        cancelled.append(&mut w_cancelled);
+    }
+
+    Ok(Json(cancelled))
 }
 
 async fn list_filtered_job_uuids(
@@ -4065,6 +4122,214 @@ pub struct RestartFlowRequestBody {
     step_id: String,
     branch_or_iteration_n: Option<usize>,
     flow_version: Option<i64>,
+    /// Optional path of additional steps to descend into AFTER `step_id`. Each entry
+    /// represents one level of nesting inside the spawned child of the previous level's
+    /// container (BranchOne / ForLoop iteration / Subflow). When non-empty, the actual
+    /// restart point is the LAST entry's `step_id`; intermediate entries identify the
+    /// containers along the way.
+    #[serde(default)]
+    nested_path: Vec<NestedRestartStep>,
+}
+
+#[cfg(feature = "enterprise")]
+#[derive(Deserialize)]
+pub struct NestedRestartStep {
+    step_id: String,
+    /// For ForLoop / sequential BranchAll containers: the 0-based iteration
+    /// (or branch) index to restart at. Iterations `0..n-1` are preserved,
+    /// iteration `n` is the restart target. Defaults to `0` when omitted.
+    /// Unused for BranchOne / Subflow containers.
+    branch_or_iteration_n: Option<usize>,
+}
+
+/// Walks the `nested_path` against the original execution to:
+/// - validate each step exists and was executed
+/// - resolve the child job UUID at each level
+/// - capture `branch_chosen` for BranchOne containers (so the worker can lock branch
+///   evaluation and reuse the originally-taken path)
+///
+/// Returns `(top_branch_chosen, nested_chain)`:
+/// - `top_branch_chosen`: locked branch for the TOP-level container if it is a
+///   BranchOne, else None
+/// - `nested_chain`: the `RestartedFrom` to embed under the top-level run's
+///   `restarted_from.nested` (None when `nested_path` is empty)
+#[cfg(feature = "enterprise")]
+async fn resolve_nested_restart(
+    db: &DB,
+    workspace_id: &str,
+    parent_job_id: Uuid,
+    parent_step_id: &str,
+    parent_branch_or_iteration_n: Option<usize>,
+    nested_path: Vec<NestedRestartStep>,
+    parent_flow_version: Option<i64>,
+) -> error::Result<(
+    Option<windmill_common::flow_status::BranchChosen>,
+    Option<Box<RestartedFrom>>,
+)> {
+    use windmill_common::flow_status::BranchChosen;
+    use windmill_common::flows::FlowModuleValue;
+
+    let row = sqlx::query!(
+        "SELECT
+            j.runnable_id AS \"runnable_id: ScriptHash\",
+            j.kind AS \"job_kind!: JobKind\",
+            COALESCE(c.flow_status, c.workflow_as_code_status) AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
+            j.raw_flow AS \"raw_flow: sqlx::types::Json<Box<RawValue>>\"
+        FROM v2_job_completed c JOIN v2_job j USING (id)
+        WHERE j.id = $1 AND j.workspace_id = $2",
+        parent_job_id,
+        workspace_id,
+    )
+    .fetch_optional(db)
+    .await?
+    .with_context(|| {
+        format!(
+            "completed job {} not found while resolving nested restart path",
+            parent_job_id
+        )
+    })?;
+
+    let flow_data = if let Some(version) = parent_flow_version {
+        cache::flow::fetch_version(db, version).await?
+    } else {
+        cache::job::fetch_flow(db, &row.job_kind, row.runnable_id)
+            .or_else(|_| cache::job::fetch_preview_flow(db, &parent_job_id, row.raw_flow))
+            .await?
+    };
+    let flow_value = flow_data.value();
+    let flow_status: FlowStatus = row
+        .flow_status
+        .as_ref()
+        .and_then(|v| serde_json::from_str::<FlowStatus>(v.get()).ok())
+        .ok_or_else(|| {
+            Error::internal_err(format!(
+                "Unable to parse flow status for job {}",
+                parent_job_id
+            ))
+        })?;
+
+    let parent_status_module = flow_status
+        .modules
+        .iter()
+        .find(|m| m.id() == parent_step_id)
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "step '{}' not found in original run for job {}",
+                parent_step_id, parent_job_id
+            ))
+        })?;
+    let parent_module_def = flow_value
+        .modules
+        .iter()
+        .find(|m| m.id == parent_step_id)
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "step '{}' not found in flow definition for job {}",
+                parent_step_id, parent_job_id
+            ))
+        })?;
+
+    // Leaf level: validation is done (`parent_step_id` exists), no chain to
+    // build below. Return early so the caller's `nested_path.last()` step is
+    // confirmed to actually exist before we queue the restart job.
+    if nested_path.is_empty() {
+        return Ok((None, None));
+    }
+
+    let parent_module_value = parent_module_def.get_value()?;
+    let (child_job_id, parent_branch_chosen): (Uuid, Option<BranchChosen>) =
+        match parent_module_value {
+            FlowModuleValue::BranchOne { .. } => {
+                let job = parent_status_module.job().ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "BranchOne step '{}' has no child job in original run",
+                        parent_step_id
+                    ))
+                })?;
+                (job, parent_status_module.branch_chosen())
+            }
+            FlowModuleValue::Flow { .. } => {
+                let job = parent_status_module.job().ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "Subflow step '{}' has no child job in original run",
+                        parent_step_id
+                    ))
+                })?;
+                (job, None)
+            }
+            FlowModuleValue::ForloopFlow { parallel, .. } => {
+                if parallel {
+                    return Err(Error::BadRequest(format!(
+                        "Restart inside a parallel ForLoop is not supported (step '{}')",
+                        parent_step_id
+                    )));
+                }
+                // 0-based iteration to restart at; absent ⟹ iteration 0.
+                // Iterations 0..n-1 are preserved (matching existing top-level semantics).
+                let n = parent_branch_or_iteration_n.unwrap_or(0);
+                let flow_jobs = parent_status_module.flow_jobs().ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "ForLoop step '{}' has no recorded iterations in original run",
+                        parent_step_id
+                    ))
+                })?;
+                let job = flow_jobs.get(n).copied().ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "ForLoop step '{}' has only {} iterations; cannot restart at iteration {}",
+                        parent_step_id,
+                        flow_jobs.len(),
+                        n
+                    ))
+                })?;
+                (job, None)
+            }
+            FlowModuleValue::BranchAll { .. } => {
+                return Err(Error::BadRequest(format!(
+                    "Restart inside a BranchAll step ('{}') is not supported",
+                    parent_step_id
+                )));
+            }
+            FlowModuleValue::WhileloopFlow { .. } => {
+                return Err(Error::BadRequest(format!(
+                    "Restart inside a WhileLoop step ('{}') is not supported",
+                    parent_step_id
+                )));
+            }
+            _ => {
+                return Err(Error::BadRequest(format!(
+                    "step '{}' is not a container (BranchOne / sequential ForLoop / Subflow); cannot have a nested restart",
+                    parent_step_id
+                )));
+            }
+        };
+
+    let mut iter = nested_path.into_iter();
+    let head = iter.next().unwrap();
+    let rest: Vec<NestedRestartStep> = iter.collect();
+    let head_step_id = head.step_id;
+    let head_branch_or_iteration_n = head.branch_or_iteration_n;
+
+    let (child_branch_chosen, deeper_nested) = Box::pin(resolve_nested_restart(
+        db,
+        workspace_id,
+        child_job_id,
+        &head_step_id,
+        head_branch_or_iteration_n,
+        rest,
+        None,
+    ))
+    .await?;
+
+    let nested_chain = RestartedFrom {
+        flow_job_id: child_job_id,
+        step_id: head_step_id,
+        branch_or_iteration_n: head_branch_or_iteration_n,
+        flow_version: None,
+        branch_chosen: child_branch_chosen,
+        nested: deeper_nested,
+    };
+
+    Ok((parent_branch_chosen, Some(Box::new(nested_chain))))
 }
 
 #[cfg(feature = "enterprise")]
@@ -4074,9 +4339,12 @@ pub async fn restart_flow(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Query(run_query): Query<RunJobQuery>,
-    Json(RestartFlowRequestBody { step_id, branch_or_iteration_n, flow_version }): Json<
-        RestartFlowRequestBody,
-    >,
+    Json(RestartFlowRequestBody {
+        step_id,
+        branch_or_iteration_n,
+        flow_version,
+        nested_path,
+    }): Json<RestartFlowRequestBody>,
 ) -> error::Result<(StatusCode, String)> {
     check_license_key_valid().await?;
 
@@ -4109,6 +4377,17 @@ pub async fn restart_flow(
 
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
 
+    let (top_branch_chosen, nested_chain) = resolve_nested_restart(
+        &db,
+        &w_id,
+        job_id,
+        &step_id,
+        branch_or_iteration_n,
+        nested_path,
+        flow_version,
+    )
+    .await?;
+
     let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into());
 
     let (uuid, tx) = push(
@@ -4120,6 +4399,8 @@ pub async fn restart_flow(
             step_id,
             branch_or_iteration_n,
             flow_version,
+            branch_chosen: top_branch_chosen,
+            nested: nested_chain,
         },
         push_args,
         &authed.username,
@@ -4314,6 +4595,7 @@ pub async fn run_workflow_as_code(
                     // TODO(debouncing): enable for this mode
                     debouncing_settings: DebouncingSettings::default(),
                     modules: None,
+                    tag: None,
                 }),
                 Some(job.tag.clone()),
                 None,
@@ -5435,6 +5717,7 @@ async fn run_preview_script(
                 cache_ignore_s3_path: None,
                 dedicated_worker: preview.dedicated_worker,
                 modules: preview.modules,
+                tag: None,
             }),
         },
         push_args,
@@ -5777,6 +6060,7 @@ async fn run_bundle_preview_script(
                     concurrency_settings: ConcurrencySettingsWithCustom::default(),
                     debouncing_settings: DebouncingSettings::default(),
                     modules: None,
+                    tag: None,
                 }),
                 PushArgs::from(&args),
                 authed.display_username(),
@@ -5878,13 +6162,13 @@ pub struct RunDependenciesResponse {
     pub dependencies: String,
 }
 
-async fn run_dependencies_job(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(req): Json<RunDependenciesRequest>,
-) -> error::Result<Response> {
-    check_scopes(&authed, || format!("jobs:run"))?;
+async fn push_dependencies_job(
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    req: RunDependenciesRequest,
+) -> error::Result<Uuid> {
+    check_scopes(authed, || format!("jobs:run"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run dependencies jobs for security reasons".to_string(),
@@ -5913,12 +6197,7 @@ async fn run_dependencies_job(
             ));
     }
 
-    let RawScriptForDependencies {
-        // unwrap
-        script_path,
-        raw_code,
-        language,
-    } = req.raw_scripts[0].clone();
+    let RawScriptForDependencies { script_path, raw_code, language } = req.raw_scripts[0].clone();
 
     let mut hm = HashMap::new();
     req.raw_workspace_dependencies
@@ -5927,9 +6206,9 @@ async fn run_dependencies_job(
         .map(|v| hm.insert("temp_script_refs".to_owned(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
-        &db,
+        db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
-        &w_id,
+        w_id,
         JobPayload::RawScriptDependencies {
             script_path,
             content: raw_code.unwrap_or_default(),
@@ -5962,9 +6241,27 @@ async fn run_dependencies_job(
     )
     .await?;
     tx.commit().await?;
+    Ok(uuid)
+}
 
-    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
-    wait_result
+async fn run_dependencies_job(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunDependenciesRequest>,
+) -> error::Result<Response> {
+    let uuid = push_dependencies_job(&authed, &db, &w_id, req).await?;
+    run_wait_result(&db, uuid, &w_id, None, &authed.username).await
+}
+
+async fn run_dependencies_job_async(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunDependenciesRequest>,
+) -> error::Result<(StatusCode, String)> {
+    let uuid = push_dependencies_job(&authed, &db, &w_id, req).await?;
+    Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 #[derive(Deserialize)]
@@ -5984,13 +6281,13 @@ pub struct RunFlowDependenciesResponse {
     pub dependencies: String,
 }
 
-async fn run_flow_dependencies_job(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(req): Json<RunFlowDependenciesRequest>,
-) -> error::Result<Response> {
-    check_scopes(&authed, || format!("jobs:run"))?;
+async fn push_flow_dependencies_job(
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    req: RunFlowDependenciesRequest,
+) -> error::Result<Uuid> {
+    check_scopes(authed, || format!("jobs:run"))?;
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run dependencies jobs for security reasons".to_string(),
@@ -6013,21 +6310,18 @@ async fn run_flow_dependencies_job(
             .await?;
     }
 
-    // Create args HashMap with skip_flow_update and raw_workspace_dependencies if present
     let mut args_map = HashMap::from([("skip_flow_update".to_string(), to_raw_value(&true))]);
 
-    // Add raw_workspace_dependencies to args if present
     req.raw_workspace_dependencies
         .map(|v| args_map.insert("raw_workspace_dependencies".to_string(), to_raw_value(&v)));
 
-    // Add temp_script_refs to args if present (for CLI local import resolution)
     req.temp_script_refs
         .map(|v| args_map.insert("temp_script_refs".to_string(), to_raw_value(&v)));
 
     let (uuid, tx) = push(
-        &db,
+        db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
-        &w_id,
+        w_id,
         JobPayload::RawFlowDependencies { path: req.path, flow_value: req.flow_value },
         PushArgs::from(&args_map),
         authed.display_username(),
@@ -6056,9 +6350,27 @@ async fn run_flow_dependencies_job(
     )
     .await?;
     tx.commit().await?;
+    Ok(uuid)
+}
 
-    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
-    wait_result
+async fn run_flow_dependencies_job(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunFlowDependenciesRequest>,
+) -> error::Result<Response> {
+    let uuid = push_flow_dependencies_job(&authed, &db, &w_id, req).await?;
+    run_wait_result(&db, uuid, &w_id, None, &authed.username).await
+}
+
+async fn run_flow_dependencies_job_async(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RunFlowDependenciesRequest>,
+) -> error::Result<(StatusCode, String)> {
+    let uuid = push_flow_dependencies_job(&authed, &db, &w_id, req).await?;
+    Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 #[derive(Deserialize)]
@@ -6583,6 +6895,7 @@ async fn run_dynamic_select(
             concurrency_settings: ConcurrencySettings::default().into(),
             debouncing_settings: DebouncingSettings::default(),
             modules: None,
+            tag: None,
         }),
         PushArgs::from(&request.args.unwrap_or_default()),
         authed.display_username(),

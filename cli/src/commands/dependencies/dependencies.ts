@@ -7,6 +7,7 @@ import * as log from "../../core/log.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import fs from "node:fs";
 import { workspaceDependenciesPathToLanguageAndFilename } from "../../utils/metadata.ts";
+import { readTextFileSync } from "../../utils/utils.ts";
 
 async function push(
   opts: GlobalOptions,
@@ -19,7 +20,7 @@ async function push(
     throw new Error(`File not found: ${filePath}`);
   }
 
-  const content = fs.readFileSync(filePath, "utf8");
+  const content = readTextFileSync(filePath);
 
   // Use the existing pushWorkspaceDependencies function
   await pushWorkspaceDependencies(

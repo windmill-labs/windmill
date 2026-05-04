@@ -54,7 +54,10 @@ use windmill_common::{
     cache::{self, future::FutureCachedExt},
     db::{DbWithOptAuthed, UserDB},
     error::{to_anyhow, Error, JsonResult, Result},
-    jobs::{get_payload_tag_from_prefixed_path, JobPayload, RawCode},
+    jobs::{
+        get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
+        JobPayload, RawCode,
+    },
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
@@ -248,6 +251,12 @@ pub struct PolicyTriggerableInputs {
     one_of_inputs: OneOfFields,
     #[serde(default)]
     allow_user_resources: AllowUserResources,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    delete_after_secs: Option<i32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    sensitive_inputs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tag: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1772,7 +1781,8 @@ async fn update_app_internal<'a>(
 
         if let Some(ncustom_path) = &ns.custom_path {
             require_admin(authed.is_admin, &authed.username)?;
-            let as_workspaced_route = APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+            let as_workspaced_route =
+                APP_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
             if ncustom_path.is_empty() {
                 sqlb.set("custom_path", "NULL");
@@ -1985,6 +1995,8 @@ pub struct ExecuteApp {
     pub force_viewer_static_fields: Option<StaticFields>,
     pub force_viewer_one_of_fields: Option<OneOfFields>,
     pub force_viewer_allow_user_resources: Option<AllowUserResources>,
+    pub force_viewer_sensitive_inputs: Option<Vec<String>>,
+    pub force_viewer_delete_after_secs: Option<i32>,
     /// Runnable query parameters (e.g., memory_id for chat-enabled flows)
     pub run_query_params: Option<RunJobQuery>,
 }
@@ -2080,6 +2092,11 @@ async fn execute_component(
     let path = path.to_path();
     let (arc_policy, policy): (Arc<Policy>, Policy);
     let policy_triggerables_default = Default::default();
+    // Preview mode means the request was issued from the editor; the editing
+    // user is already trusted by the policy check, so client-supplied `tag`
+    // on the inline script is honored. In any other case we must read the
+    // tag from the deployed policy and ignore the request body.
+    let is_preview = payload.force_viewer_static_fields.is_some();
 
     // Two cases here:
     // 1. The component is executed from the editor (i.e. in "preview" mode), then:
@@ -2098,6 +2115,8 @@ async fn execute_component(
             force_viewer_static_fields: Some(static_inputs),
             force_viewer_one_of_fields,
             force_viewer_allow_user_resources,
+            force_viewer_sensitive_inputs,
+            force_viewer_delete_after_secs,
             ..
         } => (
             &Policy { execution_mode: ExecutionMode::Viewer, ..Default::default() },
@@ -2105,6 +2124,9 @@ async fn execute_component(
                 static_inputs,
                 one_of_inputs: force_viewer_one_of_fields.unwrap_or_default(),
                 allow_user_resources: force_viewer_allow_user_resources.unwrap_or_default(),
+                delete_after_secs: force_viewer_delete_after_secs,
+                sensitive_inputs: force_viewer_sensitive_inputs.unwrap_or_default(),
+                tag: None,
             },
         ),
         // 2. "run" mode.
@@ -2230,6 +2252,9 @@ async fn execute_component(
     let (username, permissioned_as, email) =
         get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
+    let resolved_delete_secs =
+        resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
+
     let (args, job_id) = build_args(
         policy,
         policy_triggerables,
@@ -2247,15 +2272,31 @@ async fn execute_component(
         .map(|p| p.starts_with("flow/"))
         .unwrap_or(false);
 
+    // Tag for inline-script jobs is read from the deployed policy in run mode;
+    // only preview mode (editor) honors the client-supplied tag. This applies to
+    // both the `id`-bearing app_script path and the legacy `rawscript/<sha>`
+    // path that has no app_script entry yet.
+    let resolved_inline_tag = |client_tag: Option<String>| -> Option<String> {
+        if is_preview {
+            client_tag
+        } else {
+            policy_triggerables.tag.clone()
+        }
+        .filter(|t| !t.is_empty())
+    };
     let (job_payload, tag, on_behalf_of) = match (payload.path, payload.raw_code, payload.id) {
         // flow or script:
         (Some(path), None, None) => get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?,
-        // inline script: in "preview" mode or without entry in the `app_script` table.
-        (None, Some(raw_code), None) => (JobPayload::Code(raw_code), None, None),
-        // inline script: in "run" mode and with an entry in the `app_script` table.
-        (None, Some(RawCode { language, path, cache_ttl, .. }), Some(id)) => (
+        // inline script: "preview" mode, or run mode without an entry in the
+        // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
+        (None, Some(raw_code), None) => {
+            let tag = resolved_inline_tag(raw_code.tag.clone());
+            (JobPayload::Code(raw_code), tag, None)
+        }
+        // inline script: run mode (deployed app) with an entry in `app_script`.
+        (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
             JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
-            None,
+            resolved_inline_tag(tag),
             None,
         ),
         _ => unreachable!(),
@@ -2317,6 +2358,12 @@ async fn execute_component(
     }
 
     tx.commit().await?;
+
+    if let Some(secs) = resolved_delete_secs {
+        if let Err(e) = schedule_job_deletion(&db, uuid, &w_id, secs).await {
+            tracing::error!("Failed to schedule deletion for app job {uuid} after {secs}s: {e:#}");
+        }
+    }
 
     Ok(uuid.to_string())
 }
@@ -3022,6 +3069,8 @@ async fn build_args(
         static_inputs,
         one_of_inputs,
         allow_user_resources,
+        sensitive_inputs,
+        ..
     }: &PolicyTriggerableInputs,
     mut args: HashMap<String, Box<RawValue>>,
     authed: Option<&ApiAuthed>,
@@ -3171,6 +3220,26 @@ async fn build_args(
             );
         }
     }
+    for k in sensitive_inputs {
+        let Some(v) = safe_args.get(k) else { continue };
+        let raw = v.get();
+        if raw.starts_with("\"$encrypted:") {
+            continue;
+        }
+        let job_id = if let Some(job_id) = job_id {
+            job_id
+        } else {
+            job_id = Some(ulid::Ulid::new().into());
+            job_id.unwrap()
+        };
+        let mc = build_crypt_with_key_suffix(&db, &w_id, &job_id.to_string()).await?;
+        let encrypted = encrypt(&mc, raw);
+        safe_args.insert(
+            k.to_string(),
+            to_raw_value(&format!("$encrypted:{encrypted}")),
+        );
+    }
+
     let mut extra = HashMap::new();
     for (k, v) in static_inputs {
         extra.insert(k.to_string(), v.to_owned());

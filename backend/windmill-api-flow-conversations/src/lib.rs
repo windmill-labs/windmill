@@ -33,6 +33,7 @@ pub struct FlowConversationMessage {
     pub content: String,
     pub job_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
+    pub created_seq: i64,
     pub step_name: Option<String>,
     pub success: bool,
 }
@@ -40,7 +41,11 @@ pub struct FlowConversationMessage {
 #[derive(Deserialize)]
 pub struct ListConversationsQuery {
     pub flow_path: Option<String>,
-    pub after_id: Option<Uuid>,
+}
+
+#[derive(Deserialize)]
+pub struct ListMessagesQuery {
+    pub after_seq: Option<i64>,
 }
 
 async fn list_conversations(
@@ -67,15 +72,6 @@ async fn list_conversations(
 
     if let Some(flow_path) = &query.flow_path {
         sqlb.and_where_eq("flow_path", "?".bind(flow_path));
-    }
-    if let Some(after_id) = &query.after_id {
-        let message_id_created_at = sqlx::query_scalar!(
-            "SELECT created_at FROM flow_conversation_message WHERE id = $1",
-            after_id
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        sqlb.and_where_gt("created_at", "?".bind(&message_id_created_at.to_rfc3339()));
     }
 
     sqlb.order_by("updated_at", true)
@@ -157,6 +153,7 @@ async fn list_messages(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, conversation_id)): Path<(String, Uuid)>,
     Query(pagination): Query<Pagination>,
+    Query(query): Query<ListMessagesQuery>,
 ) -> JsonResult<Vec<FlowConversationMessage>> {
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -178,25 +175,43 @@ async fn list_messages(
         )));
     }
 
-    // Fetch messages for this conversation, oldest first, but reverse the order of the messages for easy rendering on the frontend
-    let messages = sqlx::query_as!(
-        FlowConversationMessage,
-        r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, step_name, success
-         FROM (
-            SELECT id, conversation_id, message_type, content, job_id, created_at, step_name, success
-            FROM flow_conversation_message
-            WHERE conversation_id = $1
-            ORDER BY created_at DESC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END
-            LIMIT $2 OFFSET $3
-         ) AS messages
-         ORDER BY created_at ASC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END
-         "#,
-        conversation_id,
-        per_page as i64,
-        offset as i64
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    let messages = if let Some(after_seq) = query.after_seq {
+        sqlx::query_as!(
+            FlowConversationMessage,
+            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, created_seq, step_name, success
+             FROM flow_conversation_message
+             WHERE conversation_id = $1
+               AND created_seq > $2
+             ORDER BY created_seq ASC
+             LIMIT $3
+             "#,
+            conversation_id,
+            after_seq,
+            per_page as i64
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    } else {
+        // Fetch messages for this conversation, oldest first, but reverse the order of the messages for easy rendering on the frontend
+        sqlx::query_as!(
+            FlowConversationMessage,
+            r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, created_seq, step_name, success
+             FROM (
+                SELECT id, conversation_id, message_type, content, job_id, created_at, created_seq, step_name, success
+                FROM flow_conversation_message
+                WHERE conversation_id = $1
+                ORDER BY created_seq DESC
+                LIMIT $2 OFFSET $3
+             ) AS messages
+             ORDER BY created_seq ASC
+             "#,
+            conversation_id,
+            per_page as i64,
+            offset as i64
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    };
 
     tx.commit().await?;
     Ok(Json(messages))

@@ -130,6 +130,7 @@ project guidance shape:
 
 - `AGENTS.md`
 - `CLAUDE.md`
+- `.agents/skills/*`
 - `.claude/skills/*`
 
 ### Testing with a local `windmill-yaml-validator`

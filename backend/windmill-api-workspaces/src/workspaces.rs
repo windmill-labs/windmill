@@ -30,6 +30,7 @@ use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
+use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{
     build_crypt, decrypt, encrypt, SECRET_SALT, WORKSPACE_CRYPT_CACHE,
@@ -41,7 +42,7 @@ use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
     check_user_against_rule, get_datatable_resource_from_db_unchecked, DataTable,
     DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
-    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
+    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings, WM_FORK_PREFIX,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -83,6 +84,7 @@ pub fn workspaced_service() -> Router {
         .route("/get_imports/{*importer_path}", get(get_imports))
         .route("/get_dependents_amounts", post(get_dependents_amounts))
         .route("/get_settings", get(get_settings))
+        .route("/get_public_settings", get(get_public_settings))
         .route(
             "/get_copilot_settings_state",
             get(get_copilot_settings_state),
@@ -115,6 +117,11 @@ pub fn workspaced_service() -> Router {
         .route("/list_ducklakes", get(list_ducklakes))
         .route("/list_datatables", get(list_datatables))
         .route("/list_datatable_schemas", get(list_datatable_schemas))
+        .route("/list_datatable_tables", get(list_datatable_tables))
+        .route(
+            "/get_datatable_table_schema",
+            get(get_datatable_table_schema),
+        )
         .route("/edit_datatable_config", post(edit_datatable_config))
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
@@ -274,6 +281,34 @@ pub struct WorkspaceSettings {
     pub success_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
+}
+
+/// Subset of `WorkspaceSettings` that is safe to return to any workspace
+/// member. Adding a field here means it will be readable by every authed user
+/// in the workspace — anything sensitive (OAuth secrets, GitHub App tokens,
+/// billing/customer info, integration credentials, etc.) must NOT be added.
+/// The full `WorkspaceSettings` struct is admin-only via `get_settings`.
+#[derive(FromRow, Serialize, Debug)]
+pub struct WorkspacePublicSettings {
+    pub workspace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_guid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mute_critical_alerts: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deploy_ui: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub large_file_storage: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub datatable: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -619,6 +654,10 @@ async fn get_settings(
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<WorkspaceSettings> {
+    // Admin-only: this struct contains OAuth secrets, GitHub App tokens, billing
+    // info, and other admin-managed integration credentials. Non-admin callers
+    // should use `get_public_settings`.
+    require_admin(authed.is_admin, &authed.username)?;
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
@@ -666,12 +705,46 @@ async fn get_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
 
-    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
 
-    if !authed.is_admin {
-        settings.slack_oauth_client_secret = None;
-    }
+    Ok(Json(settings))
+}
+
+async fn get_public_settings(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<WorkspacePublicSettings> {
+    let mut tx = user_db.begin(&authed).await?;
+    let settings = sqlx::query_as!(
+        WorkspacePublicSettings,
+        r#"
+        SELECT
+            workspace_id,
+            slack_team_id,
+            slack_name,
+            teams_team_id,
+            teams_team_name,
+            teams_team_guid,
+            mute_critical_alerts,
+            deploy_ui,
+            large_file_storage,
+            datatable
+        FROM
+            workspace_settings
+        WHERE
+            workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("getting public settings: {e:#}")))?;
+
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    tx.commit().await?;
+
     Ok(Json(settings))
 }
 
@@ -969,6 +1042,18 @@ async fn set_slack_oauth_config(
 
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings { setting_type: "slack_oauth_config".to_string() },
+        Some("Slack OAuth config set".to_string()),
+        false,
+        None,
+    )
+    .await?;
+
     Ok(format!("Slack OAuth config set for workspace {}", &w_id))
 }
 
@@ -1002,6 +1087,18 @@ async fn delete_slack_oauth_config(
     .await?;
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings { setting_type: "slack_oauth_config".to_string() },
+        Some("Slack OAuth config deleted".to_string()),
+        false,
+        None,
+    )
+    .await?;
 
     Ok(format!(
         "Slack OAuth config deleted for workspace {}",
@@ -1109,7 +1206,6 @@ async fn edit_deploy_to() -> Result<String> {
 }
 
 pub const BANNED_DOMAINS: &str = include_str!("../../windmill-api/banned_domains.txt");
-pub const WM_FORK_PREFIX: &str = "wm-fork-";
 pub const MAX_CUSTOM_PROMPT_LENGTH: usize = 5000;
 
 async fn is_allowed_auto_domain(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<bool> {
@@ -1344,6 +1440,9 @@ type TableMap = HashMap<String, ColumnMap>;
 /// Schemas mapped by name to their tables
 type SchemaMap = HashMap<String, TableMap>;
 
+/// Schemas mapped by name to their table names
+type TableListMap = HashMap<String, Vec<String>>;
+
 #[derive(Serialize, Debug)]
 struct DataTableSchema {
     datatable_name: String,
@@ -1353,26 +1452,36 @@ struct DataTableSchema {
     error: Option<String>,
 }
 
+#[derive(Serialize, Debug)]
+struct DataTableTables {
+    datatable_name: String,
+    /// Hierarchical metadata: schema_name -> table_names
+    schemas: TableListMap,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GetDataTableSchemaQuery {
+    datatable_name: String,
+    schema_name: String,
+    table_name: String,
+}
+
+#[derive(Serialize, Debug)]
+struct DataTableTableSchema {
+    datatable_name: String,
+    schema_name: String,
+    table_name: String,
+    columns: ColumnMap,
+}
+
 async fn list_datatable_schemas(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DataTableSchema>> {
-    // Get all datatable names for this workspace
-    let datatable_names: Vec<String> = sqlx::query_scalar!(
-        r#"
-            SELECT jsonb_object_keys(ws.datatable->'datatables') AS datatable_name
-            FROM workspace_settings ws
-            WHERE ws.workspace_id = $1
-        "#,
-        &w_id
-    )
-    .fetch_all(&db)
-    .await?
-    .into_iter()
-    .filter_map(|s| s)
-    .collect();
-
+    let datatable_names = list_datatable_names(&db, &w_id).await?;
     let mut results = Vec::new();
 
     for datatable_name in datatable_names {
@@ -1388,6 +1497,68 @@ async fn list_datatable_schemas(
     }
 
     Ok(Json(results))
+}
+
+async fn list_datatable_tables(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<DataTableTables>> {
+    let datatable_names = list_datatable_names(&db, &w_id).await?;
+    let mut results = Vec::new();
+
+    for datatable_name in datatable_names {
+        let tables = match get_datatable_tables(&db, &w_id, &datatable_name).await {
+            Ok(schemas) => DataTableTables { datatable_name, schemas, error: None },
+            Err(e) => DataTableTables {
+                datatable_name,
+                schemas: HashMap::new(),
+                error: Some(e.to_string()),
+            },
+        };
+        results.push(tables);
+    }
+
+    Ok(Json(results))
+}
+
+async fn get_datatable_table_schema(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(query): Query<GetDataTableSchemaQuery>,
+) -> JsonResult<DataTableTableSchema> {
+    let columns = get_datatable_table_columns(
+        &db,
+        &w_id,
+        &query.datatable_name,
+        &query.schema_name,
+        &query.table_name,
+    )
+    .await?;
+
+    Ok(Json(DataTableTableSchema {
+        datatable_name: query.datatable_name,
+        schema_name: query.schema_name,
+        table_name: query.table_name,
+        columns,
+    }))
+}
+
+async fn list_datatable_names(db: &DB, w_id: &str) -> Result<Vec<String>> {
+    Ok(sqlx::query_scalar!(
+        r#"
+            SELECT jsonb_object_keys(ws.datatable->'datatables') AS datatable_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        w_id
+    )
+    .fetch_all(db)
+    .await?
+    .into_iter()
+    .filter_map(|s| s)
+    .collect())
 }
 
 async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Result<SchemaMap> {
@@ -1465,31 +1636,200 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
         let is_nullable: String = row.get(4);
         let column_default: Option<String> = row.get(5);
 
-        // Build compact type representation: "type[?][=default]"
-        let mut compact = udt_name;
-        if is_nullable == "YES" {
-            compact.push('?');
-        }
-        if let Some(default) = column_default {
-            // Truncate long defaults for compactness
-            let short_default = if default.len() > 30 {
-                format!("{}...", &default[..27])
-            } else {
-                default
-            };
-            compact.push('=');
-            compact.push_str(&short_default);
-        }
-
         schema_map
             .entry(table_schema)
             .or_default()
             .entry(table_name)
             .or_default()
-            .insert(column_name, compact);
+            .insert(
+                column_name,
+                compact_column_type(udt_name, is_nullable, column_default),
+            );
     }
 
     Ok(schema_map)
+}
+
+async fn get_datatable_tables(db: &DB, w_id: &str, datatable_name: &str) -> Result<TableListMap> {
+    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    let (client, connection) = pg_db.connect(Some(db)).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+
+    let schema_rows = client
+        .query(
+            r#"
+            SELECT nspname::text AS schema_name
+            FROM pg_namespace
+            WHERE nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
+              AND nspname NOT LIKE 'pg_%'
+            ORDER BY nspname
+            "#,
+            &[],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to query schemas: {}", e)))?;
+
+    let mut table_map: TableListMap = HashMap::new();
+    let schema_names: Vec<String> = schema_rows
+        .iter()
+        .map(|row| {
+            let name: String = row.get(0);
+            table_map.entry(name.clone()).or_default();
+            name
+        })
+        .collect();
+
+    let rows = client
+        .query(
+            r#"
+            SELECT DISTINCT
+                table_schema::text,
+                table_name::text
+            FROM information_schema.columns
+            WHERE table_schema = ANY($1)
+              AND table_name IS NOT NULL
+            ORDER BY table_schema, table_name
+            "#,
+            &[&schema_names],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to query tables: {}", e)))?;
+
+    for row in rows {
+        let table_schema: String = row.get(0);
+        let table_name: String = row.get(1);
+        table_map.entry(table_schema).or_default().push(table_name);
+    }
+
+    Ok(table_map)
+}
+
+async fn get_datatable_table_columns(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<ColumnMap> {
+    if is_system_pg_schema(schema_name) {
+        return Err(Error::BadRequest(format!(
+            "Schema '{}' is not available for datatable schema lookup",
+            schema_name
+        )));
+    }
+
+    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    let (client, connection) = pg_db.connect(Some(db)).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+
+    let rows = client
+        .query(
+            r#"
+            SELECT
+                column_name::text,
+                udt_name::text,
+                is_nullable::text,
+                column_default::text
+            FROM information_schema.columns
+            WHERE table_schema = $1
+              AND table_name = $2
+            ORDER BY ordinal_position
+            "#,
+            &[&schema_name, &table_name],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to query columns: {}", e)))?;
+
+    if rows.is_empty() {
+        return Err(Error::NotFound(format!(
+            "Table '{}.{}' not found in datatable '{}'",
+            schema_name, table_name, datatable_name
+        )));
+    }
+
+    let mut columns: ColumnMap = HashMap::new();
+    for row in rows {
+        let column_name: String = row.get(0);
+        let udt_name: String = row.get(1);
+        let is_nullable: String = row.get(2);
+        let column_default: Option<String> = row.get(3);
+        columns.insert(
+            column_name,
+            compact_column_type(udt_name, is_nullable, column_default),
+        );
+    }
+
+    Ok(columns)
+}
+
+fn is_system_pg_schema(schema_name: &str) -> bool {
+    // Match the datatable listing filter: PostgreSQL reserves pg_* schemas for system use.
+    matches!(
+        schema_name,
+        "information_schema" | "pg_toast" | "pg_catalog"
+    ) || schema_name.starts_with("pg_")
+}
+
+fn compact_column_type(
+    udt_name: String,
+    is_nullable: String,
+    column_default: Option<String>,
+) -> String {
+    let mut compact = udt_name;
+    if is_nullable == "YES" {
+        compact.push('?');
+    }
+    if let Some(default) = column_default {
+        compact.push('=');
+        compact.push_str(&truncate_column_default(default));
+    }
+    compact
+}
+
+fn truncate_column_default(default: String) -> String {
+    const MAX_DEFAULT_CHARS: usize = 30;
+    const TRUNCATED_DEFAULT_CHARS: usize = 27;
+
+    if default.chars().count() > MAX_DEFAULT_CHARS {
+        format!(
+            "{}...",
+            default
+                .chars()
+                .take(TRUNCATED_DEFAULT_CHARS)
+                .collect::<String>()
+        )
+    } else {
+        default
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compact_column_type_truncates_multibyte_defaults_safely() {
+        let default = "é".repeat(31);
+
+        assert_eq!(
+            compact_column_type("text".to_string(), "NO".to_string(), Some(default)),
+            format!("text={}...", "é".repeat(27))
+        );
+    }
 }
 
 /// Resolve a source string to PgDatabase credentials with user-scoped permission checks.
@@ -2806,17 +3146,18 @@ async fn edit_error_handler(
             }
         }
 
+        // Always persist `muted_on_cancel` and `muted_on_user_path` (including
+        // false values) so that a YAML round-trip via `wmill sync pull && wmill
+        // sync push` is stable instead of re-firing `editErrorHandler` on every
+        // push (the CLI sends `false` defaults and deepEqual would otherwise
+        // mismatch an omitted-on-write shape against an always-sent-by-CLI one).
         let mut error_handler = serde_json::json!({
             "path": path,
+            "muted_on_cancel": ee.muted_on_cancel,
+            "muted_on_user_path": ee.muted_on_user_path,
         });
         if let Some(extra_args) = &ee.extra_args {
             error_handler["extra_args"] = extra_args.clone();
-        }
-        if ee.muted_on_cancel {
-            error_handler["muted_on_cancel"] = serde_json::json!(true);
-        }
-        if ee.muted_on_user_path {
-            error_handler["muted_on_user_path"] = serde_json::json!(true);
         }
 
         sqlx::query!(
@@ -3141,9 +3482,11 @@ struct UsedTriggers {
     pub mqtt_used: bool,
     pub sqs_used: bool,
     pub gcp_used: bool,
+    pub azure_used: bool,
     pub email_used: bool,
     pub nextcloud_used: bool,
     pub google_used: bool,
+    pub github_used: bool,
 }
 
 async fn get_used_triggers(
@@ -3164,9 +3507,11 @@ async fn get_used_triggers(
             EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS "mqtt_used!",
             EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!",
             EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!",
+            EXISTS(SELECT 1 FROM azure_trigger WHERE workspace_id = $1) AS "azure_used!",
             EXISTS(SELECT 1 FROM email_trigger WHERE workspace_id = $1) AS "email_used!",
             EXISTS(SELECT 1 FROM native_trigger WHERE workspace_id = $1 AND service_name = 'nextcloud'::native_trigger_service) AS "nextcloud_used!",
-            EXISTS(SELECT 1 FROM native_trigger WHERE workspace_id = $1 AND service_name = 'google'::native_trigger_service) AS "google_used!"
+            EXISTS(SELECT 1 FROM native_trigger WHERE workspace_id = $1 AND service_name = 'google'::native_trigger_service) AS "google_used!",
+            EXISTS(SELECT 1 FROM native_trigger WHERE workspace_id = $1 AND service_name = 'github'::native_trigger_service) AS "github_used!"
         "#,
         w_id
     )
@@ -3512,6 +3857,264 @@ async fn clone_workspace_data(
 
     // Clone workspace dependencies
     clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
+    Ok(())
+}
+
+/// Clone every trigger and schedule from the parent workspace, forcing
+/// `mode='disabled'` / `enabled=false`. Always runs at fork creation —
+/// disabled rows have no side effects, so cloning them is safe and lets
+/// users re-enable selectively in the fork. Listener identifiers
+/// (group_id, replication_slot_name, subscription_name, …) are copied
+/// verbatim — the runtime suffix that prevents the fork from competing with
+/// the parent ships in a follow-up PR.
+async fn clone_triggers_and_schedules(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        r#"INSERT INTO schedule (
+            workspace_id, path, edited_by, edited_at, schedule, enabled, script_path,
+            args, extra_perms, is_flow, email, error, timezone, on_failure,
+            on_recovery, on_failure_times, on_failure_exact, on_failure_extra_args,
+            on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry,
+            summary, no_flow_overlap, tag, paused_until, on_success, on_success_extra_args,
+            cron_version, description, dynamic_skip, permissioned_as, labels
+        )
+        SELECT
+            $1, path, edited_by, edited_at, schedule, FALSE, script_path,
+            args, extra_perms, is_flow, email, error, timezone, on_failure,
+            on_recovery, on_failure_times, on_failure_exact, on_failure_extra_args,
+            on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry,
+            summary, no_flow_overlap, tag, paused_until, on_success, on_success_extra_args,
+            cron_version, description, dynamic_skip, permissioned_as, labels
+        FROM schedule WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Skip non-workspaced HTTP triggers: their URL has no workspace prefix, so
+    // a clone would collide with the parent's row at runtime (matchit::Router
+    // silently drops one of two duplicates) and `route_path_key_exists` would
+    // also fail to spot the cross-workspace conflict cleanly. The instance
+    // settings `CLOUD_HOSTED` and `HTTP_ROUTE_WORKSPACED_ROUTE` force every
+    // route to be workspace-prefixed regardless of the column, so when either
+    // is on we clone everything.
+    let force_workspaced =
+        *CLOUD_HOSTED || HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+    sqlx::query!(
+        r#"INSERT INTO http_trigger (
+            path, route_path, route_path_key, script_path, is_flow, workspace_id,
+            edited_by, edited_at, extra_perms, authentication_method, http_method,
+            static_asset_config, is_static_website, workspaced_route, wrap_body,
+            raw_string, authentication_resource_path, summary, description,
+            error_handler_path, error_handler_args, retry, request_type, mode,
+            permissioned_as, labels
+        )
+        SELECT
+            path, route_path, route_path_key, script_path, is_flow, $1,
+            edited_by, edited_at, extra_perms, authentication_method, http_method,
+            static_asset_config, is_static_website, workspaced_route, wrap_body,
+            raw_string, authentication_resource_path, summary, description,
+            error_handler_path, error_handler_args, retry, request_type, 'disabled'::TRIGGER_MODE,
+            permissioned_as, labels
+        FROM http_trigger
+        WHERE workspace_id = $2
+            AND (workspaced_route IS TRUE OR $3)"#,
+        target_workspace_id,
+        source_workspace_id,
+        force_workspaced,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO websocket_trigger (
+            path, url, script_path, is_flow, workspace_id, edited_by, edited_at,
+            extra_perms, server_id, last_server_ping, error, filters, initial_messages,
+            url_runnable_args, can_return_message, error_handler_path, error_handler_args,
+            retry, can_return_error_result, mode, permissioned_as, filter_logic, labels,
+            heartbeat
+        )
+        SELECT
+            path, url, script_path, is_flow, $1, edited_by, edited_at,
+            extra_perms, NULL, NULL, NULL, filters, initial_messages,
+            url_runnable_args, can_return_message, error_handler_path, error_handler_args,
+            retry, can_return_error_result, 'disabled'::TRIGGER_MODE, permissioned_as, filter_logic, labels,
+            heartbeat
+        FROM websocket_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO kafka_trigger (
+            path, kafka_resource_path, topics, group_id, script_path, is_flow,
+            workspace_id, edited_by, edited_at, extra_perms, server_id,
+            last_server_ping, error, error_handler_path, error_handler_args, retry,
+            mode, filters, auto_offset_reset, reset_offset, auto_commit,
+            permissioned_as, filter_logic, labels
+        )
+        SELECT
+            path, kafka_resource_path, topics, group_id, script_path, is_flow,
+            $1, edited_by, edited_at, extra_perms, NULL,
+            NULL, NULL, error_handler_path, error_handler_args, retry,
+            'disabled'::TRIGGER_MODE, filters, auto_offset_reset, reset_offset, auto_commit,
+            permissioned_as, filter_logic, labels
+        FROM kafka_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO nats_trigger (
+            path, nats_resource_path, subjects, stream_name, consumer_name,
+            use_jetstream, script_path, is_flow, workspace_id, edited_by, edited_at,
+            extra_perms, server_id, last_server_ping, error, error_handler_path,
+            error_handler_args, retry, mode, permissioned_as, labels
+        )
+        SELECT
+            path, nats_resource_path, subjects, stream_name, consumer_name,
+            use_jetstream, script_path, is_flow, $1, edited_by, edited_at,
+            extra_perms, NULL, NULL, NULL, error_handler_path,
+            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels
+        FROM nats_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO postgres_trigger (
+            path, script_path, is_flow, workspace_id, edited_by, edited_at,
+            extra_perms, postgres_resource_path, error, server_id, last_server_ping,
+            replication_slot_name, publication_name, error_handler_path,
+            error_handler_args, retry, mode, permissioned_as, labels
+        )
+        SELECT
+            path, script_path, is_flow, $1, edited_by, edited_at,
+            extra_perms, postgres_resource_path, NULL, NULL, NULL,
+            replication_slot_name, publication_name, error_handler_path,
+            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels
+        FROM postgres_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO mqtt_trigger (
+            mqtt_resource_path, subscribe_topics, client_version, v5_config, v3_config,
+            client_id, path, script_path, is_flow, workspace_id, edited_by, edited_at,
+            extra_perms, server_id, last_server_ping, error, error_handler_path,
+            error_handler_args, retry, mode, permissioned_as, labels
+        )
+        SELECT
+            mqtt_resource_path, subscribe_topics, client_version, v5_config, v3_config,
+            client_id, path, script_path, is_flow, $1, edited_by, edited_at,
+            extra_perms, NULL, NULL, NULL, error_handler_path,
+            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels
+        FROM mqtt_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO sqs_trigger (
+            path, queue_url, aws_resource_path, message_attributes, script_path,
+            is_flow, workspace_id, edited_by, edited_at, extra_perms, error,
+            server_id, last_server_ping, aws_auth_resource_type, error_handler_path,
+            error_handler_args, retry, mode, permissioned_as, labels
+        )
+        SELECT
+            path, queue_url, aws_resource_path, message_attributes, script_path,
+            is_flow, $1, edited_by, edited_at, extra_perms, NULL,
+            NULL, NULL, aws_auth_resource_type, error_handler_path,
+            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels
+        FROM sqs_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO gcp_trigger (
+            gcp_resource_path, topic_id, subscription_id, delivery_type,
+            delivery_config, path, script_path, is_flow, workspace_id, edited_by,
+            edited_at, extra_perms, server_id, last_server_ping, error,
+            subscription_mode, error_handler_path, error_handler_args, retry,
+            auto_acknowledge_msg, ack_deadline, mode, permissioned_as, labels
+        )
+        SELECT
+            gcp_resource_path, topic_id, subscription_id, delivery_type,
+            delivery_config, path, script_path, is_flow, $1, edited_by,
+            edited_at, extra_perms, NULL, NULL, NULL,
+            subscription_mode, error_handler_path, error_handler_args, retry,
+            auto_acknowledge_msg, ack_deadline, 'disabled'::TRIGGER_MODE, permissioned_as, labels
+        FROM gcp_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO azure_trigger (
+            azure_resource_path, azure_mode, scope_resource_id, topic_name,
+            subscription_name, event_type_filters, push_auth_config, path, script_path,
+            is_flow, workspace_id, edited_by, email, edited_at, extra_perms, server_id,
+            last_server_ping, error, mode, permissioned_as, error_handler_path,
+            error_handler_args, retry, labels
+        )
+        SELECT
+            azure_resource_path, azure_mode, scope_resource_id, topic_name,
+            subscription_name, event_type_filters, push_auth_config, path, script_path,
+            is_flow, $1, edited_by, email, edited_at, extra_perms, NULL,
+            NULL, NULL, 'disabled'::TRIGGER_MODE, permissioned_as, error_handler_path,
+            error_handler_args, retry, labels
+        FROM azure_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Skip non-workspaced email triggers: same shape as the non-workspaced
+    // HTTP route case — a clone would share the same `local_part@domain`
+    // address as the parent, and incoming mail would arbitrarily land in one
+    // or the other. CLOUD_HOSTED scopes email lookup by workspace_id natively,
+    // so on cloud we clone everything.
+    sqlx::query!(
+        r#"INSERT INTO email_trigger (
+            path, local_part, workspaced_local_part, script_path, is_flow,
+            workspace_id, edited_by, edited_at, extra_perms, error_handler_path,
+            error_handler_args, retry, mode, permissioned_as, labels
+        )
+        SELECT
+            path, local_part, workspaced_local_part, script_path, is_flow,
+            $1, edited_by, edited_at, extra_perms, error_handler_path,
+            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels
+        FROM email_trigger
+        WHERE workspace_id = $2
+            AND (workspaced_local_part IS TRUE OR $3)"#,
+        target_workspace_id,
+        source_workspace_id,
+        *CLOUD_HOSTED,
+    )
+    .execute(&mut **tx)
+    .await?;
+
     Ok(())
 }
 
@@ -4381,6 +4984,12 @@ async fn create_workspace_fork(
 
     // Clone all data from the parent workspace using Rust implementation
     clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id).await?;
+
+    // Clone triggers and schedules unconditionally, always with mode='disabled' /
+    // enabled=false. Disabled rows have no side effects (no listener
+    // attaches, no cron fires) so this is safe by construction. The user
+    // re-enables in the fork, with parent-conflict warnings on enable.
+    clone_triggers_and_schedules(&mut tx, &parent_workspace_id, &forked_id).await?;
 
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {

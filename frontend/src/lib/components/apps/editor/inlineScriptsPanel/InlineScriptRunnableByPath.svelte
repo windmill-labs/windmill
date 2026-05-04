@@ -39,7 +39,10 @@
 	interface Props {
 		runnable: RunnableByPath
 		fields:
-			| Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput | CtxAppInput>
+			| Record<
+					string,
+					StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput | CtxAppInput
+			  >
 			| undefined
 		id: string
 		rawApps?: boolean
@@ -79,7 +82,8 @@
 	async function refreshScript(runnable: RunnableByPath) {
 		hubFlowPreview = undefined
 		try {
-			let { schema } = await getScriptByPath(runnable.path)
+			const loaded = await getScriptByPath(runnable.path)
+			const schema = loaded.schema ?? emptySchema()
 			if (!deepEqual(runnable.schema, schema)) {
 				runnable.schema = schema
 				if (!runnable.schema.order) {
@@ -127,8 +131,8 @@
 				return
 			}
 
-			const { schema } =
-				(await loadSchema($workspaceStore ?? '', runnable.path, 'flow')) ?? emptySchema()
+			const loaded = await loadSchema($workspaceStore ?? '', runnable.path, 'flow')
+			const schema = loaded?.schema ?? emptySchema()
 			if (!deepEqual(runnable.schema, schema)) {
 				runnable.schema = schema
 				if (!runnable.schema.order) {

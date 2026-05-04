@@ -870,6 +870,7 @@ impl Windmill {
             job_id,
             Some(true),
             Some(true),
+            None,
         )
         .await?;
 
@@ -977,6 +978,7 @@ impl Windmill {
                 &job_id,
                 Some(true),
                 Some(true),
+                None,
             )
             .await?;
 

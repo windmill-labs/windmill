@@ -35,10 +35,11 @@ export interface SuccessHandlerConfig {
 }
 
 export interface SimplifiedSettings {
-  // Grouped format (current)
+  // Grouped format (current). Explicit `null` on error_handler / success_handler
+  // signals "clear the remote value"; `undefined` means "not managed by git".
   auto_invite?: AutoInviteConfig;
-  error_handler?: ErrorHandlerConfig;
-  success_handler?: SuccessHandlerConfig;
+  error_handler?: ErrorHandlerConfig | null;
+  success_handler?: SuccessHandlerConfig | null;
 
   // Other fields
   webhook?: string;
@@ -56,6 +57,8 @@ export interface SimplifiedSettings {
   slack_team_id?: string;
   slack_name?: string;
   slack_command_script?: string;
+  slack_oauth_client_id?: string;
+  slack_oauth_client_secret?: string;
 }
 
 // Legacy settings interface for reading old settings.yaml files
@@ -83,6 +86,8 @@ interface LegacySimplifiedSettings {
   slack_team_id?: string;
   slack_name?: string;
   slack_command_script?: string;
+  slack_oauth_client_id?: string;
+  slack_oauth_client_secret?: string;
 }
 
 // Helper to convert legacy flat settings to new grouped format
@@ -104,6 +109,8 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
   if (settings.slack_team_id !== undefined) result.slack_team_id = settings.slack_team_id;
   if (settings.slack_name !== undefined) result.slack_name = settings.slack_name;
   if (settings.slack_command_script !== undefined) result.slack_command_script = settings.slack_command_script;
+  if (settings.slack_oauth_client_id !== undefined) result.slack_oauth_client_id = settings.slack_oauth_client_id;
+  if (settings.slack_oauth_client_secret !== undefined) result.slack_oauth_client_secret = settings.slack_oauth_client_secret;
 
   // Handle auto_invite: check if already grouped or needs migration
   if (settings.auto_invite && typeof settings.auto_invite === "object") {
@@ -117,8 +124,12 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
     };
   }
 
-  // Handle error_handler: check if already grouped or needs migration
-  if (settings.error_handler && typeof settings.error_handler === "object") {
+  // Handle error_handler: check if already grouped or needs migration.
+  // Preserve explicit null as a signal to clear the remote handler (distinct
+  // from absent = "not managed by git, leave remote alone").
+  if (settings.error_handler === null) {
+    result.error_handler = null;
+  } else if (settings.error_handler && typeof settings.error_handler === "object") {
     result.error_handler = settings.error_handler;
   } else if (typeof settings.error_handler === "string") {
     // Legacy format (error_handler was a string path)
@@ -129,8 +140,10 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
     };
   }
 
-  // Handle success_handler: check if already grouped or needs migration
-  if (settings.success_handler && typeof settings.success_handler === "object") {
+  // Handle success_handler: same semantics.
+  if (settings.success_handler === null) {
+    result.success_handler = null;
+  } else if (settings.success_handler && typeof settings.success_handler === "object") {
     result.success_handler = settings.success_handler;
   } else if (typeof settings.success_handler === "string") {
     // Legacy format (success_handler was a string path)
@@ -197,6 +210,8 @@ export async function pushWorkspaceSettings(
       slack_team_id: remoteSettings.slack_team_id,
       slack_name: remoteSettings.slack_name,
       slack_command_script: remoteSettings.slack_command_script,
+      slack_oauth_client_id: remoteSettings.slack_oauth_client_id,
+      slack_oauth_client_secret: remoteSettings.slack_oauth_client_secret,
     };
   } catch (err) {
     throw new Error(`Failed to get workspace settings: ${err}`);
@@ -268,7 +283,10 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  // Handle error_handler using grouped format
+  // Handle error_handler using grouped format. YAML is canonical:
+  // absent / null → clear remote; present object → upsert.
+  // (Same "omit = clear" rule as every other workspace setting. Pull always
+  // emits the field as null when remote is NULL, so round-trip is bijective.)
   if (!deepEqual(localSettings.error_handler, settings.error_handler)) {
     log.debug(`Updating error handler...`);
     const localErrorHandler = localSettings.error_handler;
@@ -283,7 +301,7 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  // Handle success_handler using grouped format
+  // Handle success_handler using grouped format. Same semantics as error_handler.
   if (!deepEqual(localSettings.success_handler, settings.success_handler)) {
     log.debug(`Updating success handler...`);
     const localSuccessHandler = localSettings.success_handler;
@@ -400,6 +418,30 @@ export async function pushWorkspaceSettings(
         slack_command_script: localSettings.slack_command_script,
       },
     });
+  }
+
+  // Workspace-level Slack OAuth override. YAML is canonical (same rule as
+  // every other setting): both present → upsert; anything else → delete.
+  // Pull always emits both fields as null when remote is NULL.
+  if (
+    localSettings.slack_oauth_client_id != settings.slack_oauth_client_id ||
+    localSettings.slack_oauth_client_secret != settings.slack_oauth_client_secret
+  ) {
+    log.debug(`Updating slack oauth config...`);
+    if (
+      localSettings.slack_oauth_client_id &&
+      localSettings.slack_oauth_client_secret
+    ) {
+      await wmill.setWorkspaceSlackOauthConfig({
+        workspace,
+        requestBody: {
+          slack_oauth_client_id: localSettings.slack_oauth_client_id,
+          slack_oauth_client_secret: localSettings.slack_oauth_client_secret,
+        },
+      });
+    } else {
+      await wmill.deleteWorkspaceSlackOauthConfig({ workspace });
+    }
   }
 }
 

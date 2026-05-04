@@ -14,6 +14,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
+import { getDefaultChatTemperature } from './modelConfig'
 import { formatResourceTypes } from './utils'
 import { z } from 'zod'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
@@ -308,6 +309,7 @@ function getModelSpecificConfig(
 		// copilotInfo store may not be initialized in vitest
 	}
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
+	const defaultTemperature = getDefaultChatTemperature(modelProvider)
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
 		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))
@@ -329,7 +331,7 @@ function getModelSpecificConfig(
 					}
 				: {
 						model: modelProvider.model,
-						temperature: 0
+						...(defaultTemperature !== undefined ? { temperature: defaultTemperature } : {})
 					}),
 			...(tools && tools.length > 0 ? { tools } : {}),
 			max_tokens: maxTokens

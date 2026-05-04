@@ -7,6 +7,7 @@ import { Confirm } from "@cliffy/prompt/confirm";
 import * as log from "../../core/log.ts";
 import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import * as fs from "node:fs/promises";
+import { readTextFile } from "../../utils/utils.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
 async function pullJobs(
@@ -190,7 +191,7 @@ async function pushJobs(
   // Push completed jobs
   const completedPath = opts.completedFile || "completed_jobs.json";
   try {
-    const completedContent = await fs.readFile(completedPath, "utf-8");
+    const completedContent = await readTextFile(completedPath);
     const completedJobs = JSON.parse(completedContent);
 
     if (!Array.isArray(completedJobs)) {
@@ -218,7 +219,7 @@ async function pushJobs(
   // Push queued jobs
   const queuedPath = opts.queuedFile || "queued_jobs.json";
   try {
-    const queuedContent = await fs.readFile(queuedPath, "utf-8");
+    const queuedContent = await readTextFile(queuedPath);
     const queuedJobs = JSON.parse(queuedContent);
 
     if (!Array.isArray(queuedJobs)) {

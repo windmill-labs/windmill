@@ -10,6 +10,7 @@
 	import MqttTriggerPanel from './mqtt/MqttTriggersPanel.svelte'
 	import SqsTriggerPanel from './sqs/SqsTriggerPanel.svelte'
 	import GcpTriggerPanel from './gcp/GcpTriggerPanel.svelte'
+	import AzureTriggerPanel from './azure/AzureTriggerPanel.svelte'
 	import ScheduledPollPanel from './scheduled/ScheduledPollPanel.svelte'
 	import WebsocketTriggersPanel from './websocket/WebsocketTriggersPanel.svelte'
 	import { triggerIconMap, type Trigger } from './utils'
@@ -160,6 +161,15 @@
 		{customLabel}
 		{...props}
 	/>
+{:else if selectedTrigger.type === 'azure'}
+	<AzureTriggerPanel
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		{customLabel}
+		{...props}
+	/>
 {:else if selectedTrigger.type === 'email'}
 	<EmailTriggerPanel
 		{isFlow}
@@ -185,6 +195,16 @@
 {:else if selectedTrigger.type === 'google'}
 	<NativeTriggersPanel
 		service="google"
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		{customLabel}
+		{...props}
+	/>
+{:else if selectedTrigger.type === 'github'}
+	<NativeTriggersPanel
+		service="github"
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}

@@ -25,6 +25,60 @@ export const DEFAULT_DATA: RawAppData = {
 	schema: undefined
 }
 
+export type DataTableWhitelist = {
+	datatables: Set<string>
+	allTablesDatatables: Set<string>
+	tables: Map<string, Map<string, Set<string>>>
+}
+
+export function buildDataTableWhitelist(refs: DataTableRef[]): DataTableWhitelist {
+	const datatables = new Set<string>()
+	const allTablesDatatables = new Set<string>()
+	const tables = new Map<string, Map<string, Set<string>>>()
+
+	for (const ref of refs) {
+		datatables.add(ref.datatable)
+
+		if (!ref.table) {
+			allTablesDatatables.add(ref.datatable)
+			continue
+		}
+
+		if (!tables.has(ref.datatable)) {
+			tables.set(ref.datatable, new Map())
+		}
+		const schemaKey = ref.schema ?? 'public'
+		const schemaMap = tables.get(ref.datatable)!
+		if (!schemaMap.has(schemaKey)) {
+			schemaMap.set(schemaKey, new Set())
+		}
+		schemaMap.get(schemaKey)!.add(ref.table)
+	}
+
+	return { datatables, allTablesDatatables, tables }
+}
+
+export function isDatatableTableAllowed(
+	whitelist: DataTableWhitelist,
+	datatableName: string,
+	schemaName: string,
+	tableName: string
+): boolean {
+	if (whitelist.datatables.size === 0) {
+		return true
+	}
+
+	if (!whitelist.datatables.has(datatableName)) {
+		return false
+	}
+
+	if (whitelist.allTablesDatatables.has(datatableName)) {
+		return true
+	}
+
+	return whitelist.tables.get(datatableName)?.get(schemaName ?? 'public')?.has(tableName) ?? false
+}
+
 /**
  * Parse a string ref into a DataTableRef object
  * Format: <datatableName>/<schema>:<table> or <datatableName>/<table> (for public schema)

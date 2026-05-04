@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use windmill_api_auth::{require_super_admin, ApiAuthed};
+use windmill_common::workspaces::WM_FORK_PREFIX;
 use windmill_common::DB;
 
 use crate::workspaces::{
     archive_workspace_impl, check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN,
-    WM_FORK_PREFIX,
 };
 
 use axum::extract::Query;

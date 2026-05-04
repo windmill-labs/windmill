@@ -40,7 +40,7 @@
 	import { Alert } from '../common'
 	import Popover from '../Popover.svelte'
 	import Logs from 'lucide-svelte/icons/logs'
-	import { AwsIcon, GoogleCloudIcon, KafkaIcon, MqttIcon, NatsIcon } from '../icons'
+	import { AwsIcon, AzureIcon, GoogleCloudIcon, KafkaIcon, MqttIcon, NatsIcon } from '../icons'
 	import RunsSearch from './RunsSearch.svelte'
 	import AskAiButton from '../copilot/AskAiButton.svelte'
 
@@ -136,6 +136,13 @@
 			label: 'Go to GCP Pub/Sub' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: (newtab: boolean = false) => gotoPage('/gcp_triggers', newtab),
 			icon: GoogleCloudIcon,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:azure_event_grid',
+			label: 'Go to Azure Event Grid' + (!$enterpriseLicense ? '' : ' (EE)'),
+			action: (newtab: boolean = false) => gotoPage('/azure_triggers', newtab),
+			icon: AzureIcon,
 			disabled: $userStore?.operator
 		},
 		{

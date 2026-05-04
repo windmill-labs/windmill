@@ -53,6 +53,7 @@
 	import { base } from '$lib/base'
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
+	import SharedUiSettings from '$lib/components/workspaceSettings/SharedUiSettings.svelte'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
 	import VolumeStorageSettings from '$lib/components/workspaceSettings/VolumeStorageSettings.svelte'
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
@@ -292,6 +293,7 @@
 			| 'encryption'
 			| 'dependencies'
 			| 'rulesets'
+			| 'shared_ui'
 		// Both 'slack' and 'teams' URLs map to 'slack' tab
 		if (selectedTab === 'teams') {
 			return 'slack'
@@ -1182,6 +1184,12 @@
 					isEE: true
 				},
 				{
+					id: 'shared_ui',
+					label: 'Shared UI folder',
+					aiId: 'workspace-settings-shared-ui',
+					aiDescription: 'Shared frontend folder usable by raw apps'
+				},
+				{
 					id: 'dependencies',
 					label: 'Dependencies',
 					aiId: 'workspace-settings-dependencies',
@@ -1932,6 +1940,8 @@ export async function main(
 								saveLabel="Save & Re-encrypt workspace"
 								disabled={!!encryptionKeyValidationError || workspaceReencryptionInProgress}
 							/>
+						{:else if tab == 'shared_ui'}
+							<SharedUiSettings />
 						{:else if tab == 'trashbin'}
 							<SettingsPageHeader
 								title="Trashbin"
