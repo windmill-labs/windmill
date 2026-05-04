@@ -163,7 +163,7 @@ jobs:
 
       - name: Install Codex CLI
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
-        run: npm install --global @openai/codex@0.117.0
+        run: npm install --global @openai/codex@0.128.0
 
       - name: Configure file-backed Codex auth
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
