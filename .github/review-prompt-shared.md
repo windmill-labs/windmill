@@ -34,6 +34,17 @@ For any new `pub fn` / `pub async fn` / exported Svelte component / exported pro
 - (c) it is not half-finished. `pub fn` + `#[allow(dead_code)]` + a `TODO` is a smell that says the function should land together with its caller, not separately. Cite the relevant `AGENTS.md` rule.
 - (d) input validation defends against injection / traversal / overflow / NUL bytes at every parameter that may be caller-controlled.
 
+## Test coverage assessment
+
+End your review with a short "Test coverage" section that addresses two questions:
+
+1. Does the diff include automated tests (unit / integration / e2e) for the new behavior?
+   - If yes, are they sufficient? Call out any obvious uncovered cases or edge cases worth a follow-up.
+   - If no, is that appropriate for the change (docs-only, CI-only, refactor with stable contracts)? Or is automated coverage missing where it should exist?
+2. What manual verification, if any, is still needed before merge?
+   - Describe each manual scenario as a short paragraph (not a numbered list): what page / action / input, and what observable outcome confirms correctness.
+   - If the diff is purely backend / CI / docs / a refactor with no in-app surface to exercise, say that plainly.
+
 ## Additional reviewer instructions
 
 If the prompt or context includes an "Additional reviewer instructions" section, treat it as extra guidance from the human who triggered this review and follow it.
