@@ -1,5 +1,21 @@
-use sqlx::{Pool, Postgres};
+use sqlx::postgres::Postgres;
+use sqlx::Pool;
 use windmill_test_utils::{initialize_tracing, ApiServer};
+
+/// Mirror of `windmill_mcp::client_registration::McpOAuthClient`.
+/// Exists here so we can test the SELECT query without the `mcp`/`auth` feature gates.
+#[derive(sqlx::FromRow, Debug)]
+struct McpOAuthClient {
+    #[allow(dead_code)]
+    mcp_server_url: String,
+    client_id: String,
+    #[allow(dead_code)]
+    client_secret: Option<String>,
+    #[allow(dead_code)]
+    client_secret_expires_at: Option<chrono::NaiveDateTime>,
+    #[allow(dead_code)]
+    token_endpoint: String,
+}
 
 /// Integration test: exercises every explicit-column query in `tarball_workspace`.
 ///
@@ -162,7 +178,7 @@ async fn test_tarball_export_all_tables(db: Pool<Postgres>) -> anyhow::Result<()
 
     // ---- tarball export: hits ALL explicit-column queries at once ----
     let params = [
-        "archive_type=zip",
+        "archive_type=tar",
         "include_schedules=true",
         "include_users=true",
         "include_groups=true",
@@ -191,6 +207,45 @@ async fn test_tarball_export_all_tables(db: Pool<Postgres>) -> anyhow::Result<()
     // Verify we got actual bytes back
     let body = resp.bytes().await?;
     assert!(!body.is_empty(), "tarball export returned empty body");
+
+    Ok(())
+}
+
+/// Exercises the `SELECT ... FROM mcp_oauth_client WHERE mcp_server_url = $1`
+/// query in `windmill_mcp::client_registration::get_or_refresh_mcp_client`.
+///
+/// The query uses runtime `sqlx::query_as(...)` (no compile-time checking),
+/// so this test verifies the column names match the `McpOAuthClient` struct.
+#[sqlx::test(fixtures("base"))]
+async fn test_mcp_oauth_client_query(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let test_url = "https://example.com/mcp";
+
+    // Insert a cached MCP client row (non-expired, no secret → no decrypt needed)
+    sqlx::query(
+        "INSERT INTO mcp_oauth_client (mcp_server_url, client_id, client_secret, client_secret_expires_at, token_endpoint)
+         VALUES ($1, $2, NULL, NULL, $3)
+         ON CONFLICT (mcp_server_url) DO NOTHING",
+    )
+    .bind(test_url)
+    .bind("test-client-id")
+    .bind("https://example.com/token")
+    .execute(&db)
+    .await?;
+
+    // Exercise the exact same query used in get_or_refresh_mcp_client
+    let cached: Option<McpOAuthClient> = sqlx::query_as(
+        "SELECT mcp_server_url, client_id, client_secret, client_secret_expires_at, token_endpoint FROM mcp_oauth_client WHERE mcp_server_url = $1",
+    )
+    .bind(test_url)
+    .fetch_optional(&db)
+    .await?;
+
+    let row = cached.expect("mcp_oauth_client row not found");
+    assert_eq!(row.client_id, "test-client-id");
+    assert!(row.client_secret.is_none());
+    assert!(row.client_secret_expires_at.is_none());
 
     Ok(())
 }
