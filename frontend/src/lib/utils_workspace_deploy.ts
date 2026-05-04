@@ -174,7 +174,9 @@ export async function checkItemExists(
 			'schedules',
 			'sqs',
 			'websockets',
-			'gcp'
+			'gcp',
+			'azure',
+			'emails'
 		]
 		if (
 			additionalInformation?.triggers &&

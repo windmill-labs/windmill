@@ -62,6 +62,7 @@ pub trait RunnableSettingsTrait:
         async move {
             let v = RUNNABLE_INDIVIDUAL_SETTINGS
                 .get_or_insert_async(hash, async {
+                    // SAFETY: INCLUDE_FIELDS and SETTINGS_NAME are compile-time constants, not user input.
                     let r = sqlx::query_as::<Postgres, Self>(&format!(
                         "SELECT {} FROM {} WHERE hash = $1",
                         Self::INCLUDE_FIELDS.iter().join(","),
@@ -138,7 +139,11 @@ mod private_mod {
     pub type Q<'a> = Query<'a, Postgres, <Postgres as Database>::Arguments<'a>>;
 
     pub trait RunnableSettingsTraitInternal {
+        /// Table name used in dynamic SQL via `format!()`. This is a compile-time
+        /// constant set by each settings impl — it is never user-controllable.
         const SETTINGS_NAME: &'static str;
+        /// Column list used in dynamic SQL SELECT via `format!()`. This is a
+        /// compile-time constant — never user-controllable.
         const INCLUDE_FIELDS: &'static [&'static str];
 
         fn bind_arguments<'a>(&'a self, q: Q<'a>) -> Q<'a>;

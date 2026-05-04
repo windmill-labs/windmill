@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM config WHERE name = $1",
+  "query": "SELECT name, config FROM config WHERE name = $1",
   "describe": {
     "columns": [
       {
@@ -24,5 +24,5 @@
       true
     ]
   },
-  "hash": "d233e07d19e8e339e1378c1bfc5d78d592c00ffb6f42c3d072f56305b40e50f9"
+  "hash": "c9064664829d304013920e3f710c4dfab99b263e5271045c542c34216e2b47cb"
 }

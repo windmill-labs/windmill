@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM config WHERE name LIKE 'worker__%'",
+  "query": "SELECT name, config FROM config WHERE name LIKE 'worker__%'",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       true
     ]
   },
-  "hash": "ce9e56ff451bae10af2c396352f5f93f78658e57b79dc5295553cacc328eb2b7"
+  "hash": "6f95d6927a9be75f6c371c799ebe3755142647d0257b76e9befd0c4f31c332b1"
 }

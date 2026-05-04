@@ -426,6 +426,21 @@
 		"./tailwindUtils": {
 			"types": "./package/components/apps/editor/componentsPanel/tailwindUtils.d.ts",
 			"default": "./package/components/apps/editor/componentsPanel/tailwindUtils.js"
+		},
+		"./components/DarkModeObserver.svelte": {
+			"types": "./package/components/DarkModeObserver.svelte.d.ts",
+			"svelte": "./package/components/DarkModeObserver.svelte",
+			"default": "./package/components/DarkModeObserver.svelte"
+		},
+		"./components/text_input/TextInput.svelte": {
+			"types": "./package/components/text_input/TextInput.svelte.d.ts",
+			"svelte": "./package/components/text_input/TextInput.svelte",
+			"default": "./package/components/text_input/TextInput.svelte"
+		},
+		"./components/common/badge/Badge.svelte": {
+			"types": "./package/components/common/badge/Badge.svelte.d.ts",
+			"svelte": "./package/components/common/badge/Badge.svelte",
+			"default": "./package/components/common/badge/Badge.svelte"
 		}
 	},
 	"files": [
@@ -585,6 +600,15 @@
 			],
 			"components/custom_ui": [
 				"./package/components/custom_ui.d.ts"
+			],
+			"components/DarkModeObserver.svelte": [
+				"./package/components/DarkModeObserver.svelte.d.ts"
+			],
+			"components/text_input/TextInput.svelte": [
+				"./package/components/text_input/TextInput.svelte.d.ts"
+			],
+			"components/common/badge/Badge.svelte": [
+				"./package/components/common/badge/Badge.svelte.d.ts"
 			]
 		}
 	},

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM group_ WHERE name = $1 AND workspace_id = $2",
+  "query": "SELECT workspace_id, name, summary, extra_perms FROM group_ WHERE name = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -37,5 +37,5 @@
       false
     ]
   },
-  "hash": "d9c8f6ec7bd10e533876526255c15e376ccb4f898b9c0ab8840b2930bda24fdc"
+  "hash": "2c9a56fd46767c15dabc7813cd2b167a2f73a06d661d31c375697a68f7066aa9"
 }
