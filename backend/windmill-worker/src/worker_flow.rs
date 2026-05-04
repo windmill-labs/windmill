@@ -1586,6 +1586,13 @@ pub async fn update_flow_status_after_job_completion_internal(
             Ok(should_retry)
         };
 
+        // continue_on_error/skip_failures on the LAST step has nothing to resume to, but the
+        // failure must still not bubble up to the enclosing job/subflow.
+        let recoverable_failure_at_last_step = !success
+            && is_last_step
+            && !unrecoverable
+            && (skip_seq_branch_failure || skip_loop_failures || continue_on_error);
+
         let should_continue_flow = match success {
             _ if stop_early => stop_early_err_msg.is_some() && flow_value.failure_module.is_some(), // if stop_early_err_msg some, we want to trigger the error handler before stopping the flow, if any
             _ if flow_job.is_canceled() => false,
@@ -1604,6 +1611,10 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
             false => false,
         };
+
+        if recoverable_failure_at_last_step {
+            success = true;
+        }
 
         tracing::info!(id = %flow_job.id, root_id = %job_root, success = %success, stop_early = %stop_early, is_last_step = %is_last_step, unrecoverable = %unrecoverable,
              skip_seq_branch_failure = %skip_seq_branch_failure, skip_loop_failures = %skip_loop_failures,
