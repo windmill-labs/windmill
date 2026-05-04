@@ -6623,8 +6623,8 @@ struct ListWsSpecificVersionsQuery {
 }
 
 async fn list_ws_specific_versions(
-    _authed: ApiAuthed,
-    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(q): Query<ListWsSpecificVersionsQuery>,
 ) -> JsonResult<Vec<String>> {
@@ -6646,56 +6646,29 @@ async fn list_ws_specific_versions(
                      ELSE ws.workspace_id
                    END, r.depth + 1
             FROM workspace_settings ws, related_workspaces r
-            WHERE r.depth < 16
+            WHERE r.depth < 15
               AND ((ws.workspace_id = r.workspace_id AND ws.deploy_to IS NOT NULL)
                    OR ws.deploy_to = r.workspace_id)
         )
-        SELECT DISTINCT w FROM (
-            SELECT r.workspace_id AS w
-            FROM related_workspaces r
-            WHERE (
-                r.workspace_id = $1
-                OR EXISTS (
-                    SELECT 1 FROM ws_specific
-                    WHERE workspace_id = r.workspace_id
-                      AND item_kind = $2 AND path = $3
-                )
-            )
-            AND EXISTS (
-                SELECT 1 FROM {item_table}
-                WHERE workspace_id = r.workspace_id AND path = $3
-            )
-          UNION ALL
-            SELECT sett.deploy_to AS w
-            FROM related_workspaces r
-            JOIN workspace_settings sett ON sett.workspace_id = r.workspace_id
-            WHERE sett.deploy_to IS NOT NULL
-              AND (
-                  r.workspace_id = $1
-                  OR EXISTS (
-                      SELECT 1 FROM ws_specific
-                      WHERE workspace_id = r.workspace_id
-                        AND item_kind = $2 AND path = $3
-                  )
-              )
-              AND EXISTS (
-                  SELECT 1 FROM {item_table}
-                  WHERE workspace_id = r.workspace_id AND path = $3
-              )
-              AND EXISTS (
-                  SELECT 1 FROM {item_table}
-                  WHERE workspace_id = sett.deploy_to AND path = $3
-              )
-        ) sub
+        SELECT DISTINCT r.workspace_id
+        FROM related_workspaces r
+        INNER JOIN workspace w ON w.id = r.workspace_id AND w.deleted = false
+        INNER JOIN usr ON usr.workspace_id = r.workspace_id AND usr.email = $3
+        WHERE EXISTS (
+            SELECT 1 FROM {item_table}
+            WHERE workspace_id = r.workspace_id AND path = $2
+        )
         "#
     );
 
+    let mut tx = user_db.begin(&authed).await?;
     let versions: Vec<String> = sqlx::query_scalar(&sql)
         .bind(&w_id)
-        .bind(&q.kind)
         .bind(&q.path)
-        .fetch_all(&db)
+        .bind(&authed.email)
+        .fetch_all(&mut *tx)
         .await?;
+    tx.commit().await?;
 
     Ok(Json(versions))
 }
