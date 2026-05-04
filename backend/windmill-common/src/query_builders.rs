@@ -2430,16 +2430,16 @@ WHERE table_schema = current_schema()",
             Ok(q)
         }
         DbType::Mysql => {
-            let db_name = database_name.unwrap_or("");
+            let explicit_db = database_name.filter(|s| !s.is_empty());
             let table_filter = if let Some(t) = table {
                 let parts: Vec<&str> = t.split('.').collect();
                 let tname = parts[parts.len() - 1];
                 let schema_sql = if parts.len() > 1 {
                     format!("'{}'", escape_sql_literal(parts[0]))
-                } else if !db_name.is_empty() {
-                    format!("'{}'", escape_sql_literal(db_name))
                 } else {
-                    "DATABASE()".to_string()
+                    explicit_db
+                        .map(|dn| format!("'{}'", escape_sql_literal(dn)))
+                        .unwrap_or_else(|| "DATABASE()".to_string())
                 };
                 format!(
                     "\nWHERE\n    TABLE_NAME = '{}' AND TABLE_SCHEMA = {}",
@@ -2447,8 +2447,7 @@ WHERE table_schema = current_schema()",
                     schema_sql
                 )
             } else {
-                let schema_predicate = database_name
-                    .filter(|s| !s.is_empty())
+                let schema_predicate = explicit_db
                     .map(|dn| format!("TABLE_SCHEMA = '{}'", escape_sql_literal(dn)))
                     .unwrap_or_else(|| "TABLE_SCHEMA = DATABASE()".to_string());
                 format!(
