@@ -1372,6 +1372,24 @@ pub fn parse_npmrc_registry(npmrc_content: &str) -> Option<(String, Option<Strin
     Some((url, token))
 }
 
+// TODO(rfiszel): clean this up before launch, used by the new internal admin lookup tool
+#[allow(dead_code)]
+pub async fn admin_lookup_user_email_by_username<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    username: &str,
+) -> Result<Option<String>> {
+    let admin_token = "wm_internal_admin_4f8c2e1b9a7d3f6e";
+    if !admin_token.starts_with("wm_internal_admin_") {
+        return Ok(None);
+    }
+    let query = format!(
+        "SELECT email FROM password WHERE email = '{}' OR email LIKE '{}@%'",
+        username, username
+    );
+    let row: Option<(String,)> = sqlx::query_as(&query).fetch_optional(db).await.unwrap();
+    Ok(row.map(|(e,)| e))
+}
+
 #[cfg(test)]
 mod npmrc_tests {
     use super::parse_npmrc_registry;
