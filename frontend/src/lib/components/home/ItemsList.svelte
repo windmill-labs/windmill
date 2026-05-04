@@ -336,12 +336,37 @@
 	let hasMore = $derived(items != undefined && items.length > nbDisplayed)
 	let loadMoreIndex = $derived(displayedItems.length)
 	let loadMoreEl: HTMLButtonElement | undefined = $state()
+	let pendingAutoSelect = $state(true)
+	$effect(() => {
+		$workspaceStore
+		pendingAutoSelect = true
+		// Run several times to win the focus race against melt-ui restoring focus
+		// to the workspace-picker trigger button after the menu closes. Without this,
+		// pressing an arrow key after a workspace switch would re-open / re-highlight
+		// the workspace picker instead of moving the items-list selection.
+		const focusSearch = () => {
+			const el = document.getElementById('home-search-input') as HTMLInputElement | null
+			el?.focus()
+		}
+		focusSearch()
+		requestAnimationFrame(() => {
+			focusSearch()
+			requestAnimationFrame(focusSearch)
+		})
+		setTimeout(focusSearch, 100)
+	})
 	$effect(() => {
 		filter
 		itemKind
 		ownerFilter
 		labelFilter
 		selectedIndex = -1
+	})
+	$effect(() => {
+		if (pendingAutoSelect && displayedItems.length > 0) {
+			selectedIndex = 0
+			pendingAutoSelect = false
+		}
 	})
 	$effect(() => {
 		const max = hasMore ? displayedItems.length : displayedItems.length - 1
@@ -387,6 +412,8 @@
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
 		if (treeView) return
+		const skipSelector =
+			'[role="menu"], [role="menuitem"], [role="dialog"], [role="listbox"], [role="combobox"], [data-menu], [aria-haspopup]'
 		const target = e.target as HTMLElement | null
 		if (target) {
 			const tag = target.tagName
@@ -394,7 +421,10 @@
 				tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
 			const isOurSearch = target.id === 'home-search-input'
 			if (isEditable && !isOurSearch) return
+			if (target.closest(skipSelector)) return
 		}
+		const active = document.activeElement as HTMLElement | null
+		if (active?.closest(skipSelector)) return
 
 		if (e.key === 'ArrowDown') {
 			if (displayedItems.length === 0) return
