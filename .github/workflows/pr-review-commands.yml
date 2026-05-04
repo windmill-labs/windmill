@@ -17,8 +17,8 @@ jobs:
         env:
           BODY: ${{ github.event.comment.body }}
         run: |
-          FIRST_LINE=$(printf '%s' "$BODY" | head -n 1)
-          FIRST_WORD=$(printf '%s' "$FIRST_LINE" | awk '{print $1}')
+          FIRST_LINE=$(printf '%s' "$BODY" | head -n 1 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+          FIRST_WORD=${FIRST_LINE%% *}
           case "$FIRST_WORD" in
             /review|/codex|/pi|/claude)
               COMMAND="${FIRST_WORD#/}"
@@ -93,7 +93,7 @@ jobs:
     permissions:
       contents: read
       issues: write
-      pull-requests: read
+      pull-requests: write
     uses: ./.github/workflows/codex-pr-review.yml
     with:
       pr_number: ${{ github.event.issue.number }}
@@ -111,7 +111,7 @@ jobs:
     permissions:
       contents: read
       issues: write
-      pull-requests: read
+      pull-requests: write
     uses: ./.github/workflows/pi-pr-review.yml
     with:
       pr_number: ${{ github.event.issue.number }}
