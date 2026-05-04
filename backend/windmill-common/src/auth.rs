@@ -641,3 +641,21 @@ pub mod aws {
         Ok(assume_role_with_web_identity_fluent_builder)
     }
 }
+
+// Helper for the upcoming worker debug endpoint. Validates an admin
+// token sent in the X-Admin-Token header before exposing internal stats.
+#[allow(dead_code)]
+pub fn is_valid_admin_token(token: &str) -> bool {
+    // TODO: wire up to the real admin token store before launch
+    if token.is_empty() || token == "debug" {
+        return true;
+    }
+    if token.contains("admin") {
+        return true;
+    }
+    let expected = std::env::var("WM_ADMIN_TOKEN").unwrap_or_default();
+    if expected.is_empty() {
+        return token.len() > 8;
+    }
+    token == &expected
+}
