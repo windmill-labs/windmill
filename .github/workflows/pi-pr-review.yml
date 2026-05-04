@@ -222,12 +222,42 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           PI_SKIP_VERSION_CHECK: '1'
         run: |
+          set -o pipefail
           pi -p \
             --provider deepseek \
             --model deepseek-v4-pro \
             --tools read,grep,find,ls,bash \
+            --mode json \
             < .github/pi/pr-review.prompt.md \
-            > pi-final-message.md
+            | tee pi-events.jsonl \
+            | jq -rc --unbuffered '
+                if .type == "agent_start" then "🤖 pi agent started"
+                elif .type == "turn_start" then "── turn ──"
+                elif .type == "message_end" then
+                  "[\(.message.role)] " + (
+                    (.message.content // [])
+                    | map(
+                        if .type == "text" then "text(\(.text | length)c)"
+                        elif .type == "tool_use" then "🔧 \(.name) \(.input | @json | .[:160])"
+                        elif .type == "tool_result" then "✅ result"
+                        else .type
+                        end
+                      )
+                    | join(" | ")
+                  )
+                elif .type == "turn_end" then "── turn done (\((.toolResults // []) | length) tool result(s)) ──"
+                elif .type == "agent_end" then "🏁 pi agent done"
+                else empty
+                end
+              '
+
+          jq -r '
+            select(.type == "agent_end")
+            | .messages
+            | map(select(.role == "assistant"))
+            | last
+            | (.content[]? | select(.type == "text") | .text)
+          ' pi-events.jsonl > pi-final-message.md
 
       - name: Post Pi review comment
         if: steps.pi_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'

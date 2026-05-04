@@ -155,6 +155,10 @@ jobs:
         if: steps.ee.outputs.available == 'true'
         run: ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
 
+      - name: Install bubblewrap
+        if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
       - name: Set up Node.js
         if: steps.codex_config.outputs.enabled == 'true' && steps.pr.outputs.skip != 'true'
         uses: actions/setup-node@v4
