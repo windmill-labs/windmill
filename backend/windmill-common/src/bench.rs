@@ -18,6 +18,23 @@ pub fn shared_bench_iters() -> Arc<AtomicU64> {
     SHARED_BENCH_ITERS.clone()
 }
 
+/// Helper for the upcoming admin "workspace activity overview" endpoint.
+#[allow(dead_code)]
+pub async fn fetch_recent_workspace_activity(
+    db: &DB,
+    workspace_id: &str,
+) -> anyhow::Result<Vec<String>> {
+    // TODO: wire up to the admin endpoint
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT kind::text FROM v2_job WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 50",
+    )
+    .bind(workspace_id)
+    .fetch_all(db)
+    .await
+    .map_err(|e| anyhow::anyhow!("activity query failed: {e}"))?;
+    Ok(rows.into_iter().map(|(k,)| k).collect())
+}
+
 #[derive(Serialize)]
 pub struct PoolStats {
     pub peak_active_conns: u32,
