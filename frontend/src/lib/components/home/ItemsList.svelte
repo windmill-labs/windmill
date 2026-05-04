@@ -333,6 +333,9 @@
 	})
 
 	let selectedIndex: number = $state(-1)
+	let hasMore = $derived(items != undefined && items.length > nbDisplayed)
+	let loadMoreIndex = $derived(displayedItems.length)
+	let loadMoreEl: HTMLButtonElement | undefined = $state()
 	$effect(() => {
 		filter
 		itemKind
@@ -341,8 +344,14 @@
 		selectedIndex = -1
 	})
 	$effect(() => {
-		if (selectedIndex >= displayedItems.length) {
-			selectedIndex = displayedItems.length - 1
+		const max = hasMore ? displayedItems.length : displayedItems.length - 1
+		if (selectedIndex > max) {
+			selectedIndex = max
+		}
+	})
+	$effect(() => {
+		if (hasMore && selectedIndex === loadMoreIndex) {
+			loadMoreEl?.scrollIntoView({ block: 'nearest' })
 		}
 	})
 
@@ -370,18 +379,52 @@
 		return undefined
 	}
 
-	function handleSearchKeydown(e: KeyboardEvent) {
+	function loadMoreAndPreselectFirstNew() {
+		const previousNbDisplayed = nbDisplayed
+		nbDisplayed += 30
+		selectedIndex = previousNbDisplayed
+	}
+
+	function handleGlobalKeydown(e: KeyboardEvent) {
 		if (treeView) return
+		const target = e.target as HTMLElement | null
+		if (target) {
+			const tag = target.tagName
+			const isEditable =
+				tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
+			const isOurSearch = target.id === 'home-search-input'
+			if (isEditable && !isOurSearch) return
+		}
+
 		if (e.key === 'ArrowDown') {
 			if (displayedItems.length === 0) return
 			e.preventDefault()
-			selectedIndex = Math.min(selectedIndex + 1, displayedItems.length - 1)
+			if (selectedIndex === -1) {
+				selectedIndex = 0
+			} else if (selectedIndex === loadMoreIndex && hasMore) {
+				selectedIndex = 0
+			} else if (selectedIndex === displayedItems.length - 1) {
+				selectedIndex = hasMore ? loadMoreIndex : selectedIndex
+			} else {
+				selectedIndex = selectedIndex + 1
+			}
 		} else if (e.key === 'ArrowUp') {
 			if (displayedItems.length === 0) return
 			e.preventDefault()
-			selectedIndex = Math.max(selectedIndex - 1, -1)
+			if (selectedIndex === -1) {
+				selectedIndex = displayedItems.length - 1
+			} else if (selectedIndex === loadMoreIndex && hasMore) {
+				selectedIndex = displayedItems.length - 1
+			} else if (selectedIndex === 0) {
+				selectedIndex = hasMore ? loadMoreIndex : 0
+			} else {
+				selectedIndex = selectedIndex - 1
+			}
 		} else if (e.key === 'Enter') {
-			if (selectedIndex >= 0 && selectedIndex < displayedItems.length) {
+			if (selectedIndex === loadMoreIndex && hasMore) {
+				e.preventDefault()
+				loadMoreAndPreselectFirstNew()
+			} else if (selectedIndex >= 0 && selectedIndex < displayedItems.length) {
 				const href = getItemHref(displayedItems[selectedIndex])
 				if (href) {
 					e.preventDefault()
@@ -405,6 +448,8 @@
 		storeLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME, includeWithoutMain ? 'true' : undefined)
 	})
 </script>
+
+<svelte:window onkeydown={handleGlobalKeydown} />
 
 <SearchItems
 	{filter}
@@ -481,8 +526,7 @@
 				inputProps={{
 					autofocus: true,
 					placeholder: HOME_SEARCH_PLACEHOLDER,
-					id: 'home-search-input',
-					onkeydown: handleSearchKeydown
+					id: 'home-search-input'
 				}}
 				size="md"
 				bind:value={filter}
@@ -662,7 +706,11 @@
 				<span class="text-xs font-normal text-secondary"
 					>{nbDisplayed} items out of {items.length}
 					<button
-						class="ml-4 text-xs font-normal text-primary hover:text-emphasis"
+						bind:this={loadMoreEl}
+						class="ml-4 text-xs font-normal text-primary hover:text-emphasis rounded px-1 {selectedIndex ===
+						loadMoreIndex
+							? 'bg-surface-hover underline'
+							: ''}"
 						onclick={() => (nbDisplayed += 30)}>load 30 more</button
 					></span
 				>
