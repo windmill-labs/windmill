@@ -39,7 +39,7 @@ For any new `pub fn` / `pub async fn` / exported Svelte component / exported pro
 End your review with a short "Test coverage" section calibrated to the layers actually changed by the diff. Skip categories the PR does not touch.
 
 - **Backend** (Rust under `backend/`) — expect Rust unit tests for new logic. For new or modified API handlers, worker steps, queue/cron behavior, or DB access, also expect or note the absence of integration tests. Pure-refactor backend PRs don't need new tests if existing tests cover the surface.
-- **Frontend** (Svelte / TS under `frontend/`) — expect a vitest or playwright test for new component behavior, non-trivial state machines, or new exported APIs. UI-only tweaks (styling, copy, icon swap) generally don't need tests.
+- **Frontend** (Svelte / TS under `frontend/`) — the codebase does not generally test Svelte components, so do not ask for component tests. Only flag missing tests for new pure-logic utilities (the kind of file that already has a sibling `*.test.ts`, e.g. `flowDiff`, `previousResults`, copilot logic).
 - **CI / workflows / docs / config-only** — no automated tests expected; say so explicitly so the reader knows you considered it.
 
 Then state what manual verification, if any, is still needed before merge:
