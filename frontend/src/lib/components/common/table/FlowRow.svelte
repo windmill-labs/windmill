@@ -49,6 +49,7 @@
 		depth?: number
 		menuOpen?: boolean
 		showEditButton?: boolean
+		keyboardSelected?: boolean
 	}
 
 	let {
@@ -61,7 +62,8 @@
 		errorHandlerMuted,
 		depth = 0,
 		menuOpen = $bindable(false),
-		showEditButton = $bindable(true)
+		showEditButton = $bindable(true),
+		keyboardSelected = false
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -112,6 +114,7 @@
 	{errorHandlerMuted}
 	canFavorite={!flow.draft_only}
 	{depth}
+	{keyboardSelected}
 >
 	{#snippet badges()}
 		{#if flow.archived}

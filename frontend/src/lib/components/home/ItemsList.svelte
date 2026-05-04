@@ -33,7 +33,8 @@
 	import FlowIcon from './FlowIcon.svelte'
 	import { canWrite, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { page } from '$app/state'
-	import { setQuery } from '$lib/navigation'
+	import { goto, setQuery } from '$lib/navigation'
+	import { base } from '$lib/base'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
@@ -326,9 +327,74 @@
 				)
 	)
 	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)
+	let displayedItems = $derived((items ?? []).slice(0, nbDisplayed))
 	$effect(() => {
 		items && resetScroll()
 	})
+
+	let selectedIndex: number = $state(-1)
+	$effect(() => {
+		filter
+		itemKind
+		ownerFilter
+		labelFilter
+		selectedIndex = -1
+	})
+	$effect(() => {
+		if (selectedIndex >= displayedItems.length) {
+			selectedIndex = displayedItems.length - 1
+		}
+	})
+
+	function getItemHref(item: TableScript | TableFlow | TableApp | TableRawApp): string | undefined {
+		if (item.type === 'script') {
+			const s = item as TableScript & { auto_kind?: string; kind?: string }
+			return s.draft_only || (s.auto_kind === 'lib' && s.kind !== 'preprocessor')
+				? `${base}/scripts/edit/${s.path}`
+				: `${base}/scripts/get/${s.hash}?workspace=${$workspaceStore}`
+		}
+		if (item.type === 'flow') {
+			const f = item as TableFlow
+			return f.draft_only
+				? `${base}/flows/edit/${f.path}?nodraft=true`
+				: `${base}/flows/get/${f.path}?workspace=${$workspaceStore}`
+		}
+		if (item.type === 'app') {
+			const a = item as TableApp & { raw_app?: boolean }
+			return `${base}/apps${a.raw_app ? '_raw' : ''}/get/${a.path}`
+		}
+		if (item.type === 'raw_app') {
+			const a = item as TableRawApp
+			return `${base}/apps/get_raw/${a.version}/${a.path}`
+		}
+		return undefined
+	}
+
+	function handleSearchKeydown(e: KeyboardEvent) {
+		if (treeView) return
+		if (e.key === 'ArrowDown') {
+			if (displayedItems.length === 0) return
+			e.preventDefault()
+			selectedIndex = Math.min(selectedIndex + 1, displayedItems.length - 1)
+		} else if (e.key === 'ArrowUp') {
+			if (displayedItems.length === 0) return
+			e.preventDefault()
+			selectedIndex = Math.max(selectedIndex - 1, -1)
+		} else if (e.key === 'Enter') {
+			if (selectedIndex >= 0 && selectedIndex < displayedItems.length) {
+				const href = getItemHref(displayedItems[selectedIndex])
+				if (href) {
+					e.preventDefault()
+					goto(href)
+				}
+			}
+		} else if (e.key === 'Escape') {
+			if (selectedIndex !== -1) {
+				e.preventDefault()
+				selectedIndex = -1
+			}
+		}
+	}
 	$effect(() => {
 		storeLocalSetting(TREE_VIEW_SETTING_NAME, treeView ? 'true' : undefined)
 	})
@@ -415,7 +481,8 @@
 				inputProps={{
 					autofocus: true,
 					placeholder: HOME_SEARCH_PLACEHOLDER,
-					id: 'home-search-input'
+					id: 'home-search-input',
+					onkeydown: handleSearchKeydown
 				}}
 				size="md"
 				bind:value={filter}
@@ -572,7 +639,7 @@
 			/>
 		{:else}
 			<div class="border rounded-md bg-surface-tertiary">
-				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
+				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
 						on:scriptChanged={() => loadScripts(includeWithoutMain)}
@@ -587,6 +654,7 @@
 						}}
 						{showCode}
 						showEditButton={showEditButtons}
+						keyboardSelected={selectedIndex === i}
 					/>
 				{/each}
 			</div>
