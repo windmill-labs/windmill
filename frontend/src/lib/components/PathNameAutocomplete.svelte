@@ -84,6 +84,7 @@
 		id?: string
 		size?: InputSize
 		error?: string | boolean
+		textInputClass?: string
 		onkeyup?: (e: KeyboardEvent) => void
 	}
 
@@ -96,6 +97,7 @@
 		id,
 		size = 'md',
 		error,
+		textInputClass,
 		onkeyup
 	}: Props = $props()
 
@@ -297,6 +299,7 @@
 			bind:value
 			{size}
 			{error}
+			class={textInputClass}
 			inputProps={{
 				disabled,
 				type: 'text',

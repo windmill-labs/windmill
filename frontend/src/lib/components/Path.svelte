@@ -29,16 +29,14 @@
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { Alert, Button } from './common'
-	import Badge from './common/badge/Badge.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { random_adj } from './random_positive_adjetive'
-	import { Folder, Loader2, SearchCode, User } from 'lucide-svelte'
+	import { ChevronDown, Loader2, SearchCode } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
 	import FolderPicker from './FolderPicker.svelte'
 	import PathNameAutocomplete from './PathNameAutocomplete.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import Select from './select/Select.svelte'
 
 	type PathKind =
 		| 'resource'
@@ -72,7 +70,6 @@
 		kind: PathKind
 		hideUser?: boolean
 		disableEditing?: boolean
-		hideFullPath?: boolean
 		size?: 'sm' | 'md'
 		drawerOffset?: number
 	}
@@ -90,7 +87,6 @@
 		kind,
 		hideUser = false,
 		disableEditing = false,
-		hideFullPath = false,
 		size = 'md',
 		drawerOffset = 0
 	}: Props = $props()
@@ -408,48 +404,38 @@
 </script>
 
 <div>
-	<div class="flex gap-2 pb-0 mb-1 flex-col flex-wrap sm:flex-row sm:items-center">
+	<div
+		class="flex gap-2 pb-0 mb-1 flex-col flex-wrap sm:flex-row sm:items-center border rounded-md bg-surface-input"
+	>
 		{#if meta != undefined}
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			{#if !hideUser}
 				<div class="block">
-					<ToggleButtonGroup
-						bind:selected={meta.ownerKind}
-						on:selected={(e) => {
-							setDirty()
-							const kind = e.detail
-							if (meta) {
-								if (kind === 'folder') {
+					<Select
+						items={[
+							{ value: 'user', label: 'User' },
+							{ value: 'folder', label: 'Folder' }
+						]}
+						RightIcon={ChevronDown}
+						transformInputSelectedText={(t) => t.substring(0, 1).toLowerCase()}
+						inputClass="border-none !w-12"
+						bind:value={
+							() => meta?.ownerKind,
+							(v) => {
+								if (!meta || !v) return
+								setDirty()
+								meta.ownerKind = v
+								if (v === 'folder') {
 									meta.owner = folders?.[0]?.name ?? ''
-								} else if (kind === 'group') {
+								} else if (v === 'group') {
 									meta.owner = 'all'
 								} else {
 									meta.owner = $userStore?.username?.split('@')[0] ?? ''
 								}
 							}
-						}}
-						disabled={disabled || disableEditing}
-					>
-						{#snippet children({ item })}
-							<ToggleButton
-								icon={User}
-								disabled={disabled || disableEditing}
-								value="user"
-								label="User"
-								{size}
-								{item}
-							/>
-							<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
-							<ToggleButton
-								icon={Folder}
-								disabled={disabled || disableEditing}
-								value="folder"
-								label="Folder"
-								{size}
-								{item}
-							/>
-						{/snippet}
-					</ToggleButtonGroup>
+						}
+						{disabled}
+					/>
 				</div>
 			{/if}
 			{#if !hideUser}
@@ -459,7 +445,7 @@
 				{#if meta.ownerKind === 'user'}
 					<label class="block shrink min-w-0">
 						<TextInput
-							class="!w-36"
+							class="!w-36 !border-none"
 							{size}
 							bind:value={meta.owner}
 							inputProps={{
@@ -480,12 +466,13 @@
 							{disableEditing}
 							{size}
 							{drawerOffset}
+							selectInputClass="!border-none"
 						/>
 					</label>
 				{/if}
 			</div>
 			<div class="text-sm text-secondary">/</div>
-			<label class="block grow min-w-32 max-w-md">
+			<label class="block grow min-w-32">
 				<!-- svelte-ignore a11y_autofocus -->
 				<PathNameAutocomplete
 					bind:this={inputP}
@@ -498,35 +485,11 @@
 					placeholder={namePlaceholder}
 					disabled={disabled || disableEditing}
 					onkeyup={handleKeyUp}
+					textInputClass="border-none"
 				/>
 			</label>
 		{/if}
 	</div>
-
-	{#if !hideFullPath}
-		<div class="flex flex-col w-full mt-2">
-			<div class="flex justify-start w-full">
-				<Badge
-					color="gray"
-					class="center-center !bg-surface-secondary !text-primary !w-[70px] !h-[24px] rounded-r-none border"
-				>
-					Full path
-				</Badge>
-				<input
-					type="text"
-					readonly
-					value={path}
-					size={path?.length || 50}
-					class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-					onfocus={({ currentTarget }) => {
-						currentTarget.select()
-					}}
-				/>
-				<!-- <span class="font-mono text-sm break-all">{path}</span> -->
-			</div>
-			<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{error}</div>
-		</div>
-	{/if}
 
 	{#if pathUsageInFlowsPromise || pathUsageInAppsPromise || pathUsageInScriptsPromise}
 		{#await Promise.all( [pathUsageInAppsPromise, pathUsageInFlowsPromise, pathUsageInScriptsPromise] )}
@@ -605,9 +568,3 @@
 		</Alert>
 	{/if}
 </div>
-
-<style>
-	input:disabled {
-		background: rgba(200, 200, 200, 0.267);
-	}
-</style>

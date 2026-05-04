@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FolderService } from '$lib/gen'
 	import { workspaceStore, userStore } from '$lib/stores'
-	import { Pen, PlusIcon } from 'lucide-svelte'
+	import { ChevronDown, Pen, PlusIcon } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import FolderEditor from './FolderEditor.svelte'
 	import Select from './select/Select.svelte'
@@ -32,6 +32,7 @@
 		disableEditing?: boolean
 		size?: 'sm' | 'md'
 		drawerOffset?: number
+		selectInputClass?: string
 	}
 
 	let {
@@ -40,10 +41,9 @@
 		disabled = $bindable(undefined),
 		disableEditing = $bindable(undefined),
 		size = 'md',
-		drawerOffset = 0
+		drawerOffset = 0,
+		selectInputClass
 	}: Props = $props()
-
-	let hovering = $state(false)
 
 	async function loadFolders(): Promise<void> {
 		loadingFolders = true
@@ -198,13 +198,12 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
-	class="flex flex-row w-full items-center relative"
+	class="flex group flex-row w-full items-center relative"
 	role="group"
 	onkeydown={handleSelectKeydown}
-	onmouseenter={() => (hovering = true)}
-	onmouseleave={() => (hovering = false)}
 >
 	<Select
+		useContentEditable
 		bind:value={folderName}
 		bind:filterText
 		bind:open={selectOpen}
@@ -214,6 +213,8 @@
 		{size}
 		placeholder="Select folder"
 		class="grow min-w-0"
+		inputClass={selectInputClass}
+		RightIcon={ChevronDown}
 	>
 		{#snippet endSnippet({ item, close })}
 			<Button
@@ -246,12 +247,12 @@
 			</button>
 		{/snippet}
 	</Select>
-	{#if folderName && hovering && !loadingFolders && !disabled && !disableEditing}
-		<div class="absolute right-2 z-20">
+	{#if folderName && !loadingFolders && !disabled && !disableEditing}
+		<div class="absolute right-2 z-20 hidden group-hover:block bg-surface-input">
 			<Button
 				variant="subtle"
 				unifiedSize="xs"
-				wrapperClasses="pl-1"
+				wrapperClasses="pl-1 -mr-1"
 				btnClasses="hover:bg-surface-tertiary"
 				onClick={() => {
 					editingFolder = folderName

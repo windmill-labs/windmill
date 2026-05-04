@@ -53,6 +53,7 @@
 		onBlur,
 		onClear,
 		onCreateItem,
+		useContentEditable = false,
 		startSnippet,
 		endSnippet,
 		bottomSnippet
@@ -89,6 +90,7 @@
 		onBlur?: () => void
 		onClear?: () => void
 		onCreateItem?: (value: string) => void
+		useContentEditable?: boolean
 		startSnippet?: Snippet<[{ item: ProcessedItem<Value>; close: () => void }]>
 		endSnippet?: Snippet<[{ item: ProcessedItem<Value>; close: () => void }]>
 		bottomSnippet?: Snippet<[{ close: () => void }]>
@@ -97,7 +99,7 @@
 	let disabled = $derived(_disabled || (loading && !value))
 	let iconSize = $derived(ButtonType.UnifiedIconSizes[size])
 
-	let inputEl: HTMLInputElement | undefined = $state()
+	let inputEl: HTMLInputElement | HTMLDivElement | undefined = $state()
 
 	let processedItems: ProcessedItem<Value>[] = $derived.by(() => {
 		let args = { items, createText, filterText, groupBy, onCreateItem, sortBy }
@@ -135,6 +137,8 @@
 		let text = valueEntry?.label ?? getLabel({ value }) ?? ''
 		return transformInputSelectedText?.(text, value) ?? text
 	})
+
+	let contentEditableText = $derived(open ? filterText : inputText)
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -171,39 +175,75 @@
 	{/if}
 
 	<!-- svelte-ignore a11y_autofocus -->
-	<input
-		{autofocus}
-		{disabled}
-		type="text"
-		bind:value={() => (open ? filterText : inputText), (v) => open && (filterText = v)}
-		placeholder={loading && !value
-			? 'Loading...'
-			: value && !showPlaceholderOnOpen
-				? inputText
-				: placeholder}
-		style={containerStyle}
-		class={twMerge(
-			inputBaseClass,
-			inputSizeClasses[size],
-			ButtonType.UnifiedHeightClasses[size],
-			inputBorderClass({ error, forceFocus: open }),
-			'w-full',
-			open ? '' : 'cursor-pointer',
-			// Show value as placeholder when opening the dropdown and the search is empty
-			!value ? 'placeholder-hint' : '!placeholder-primary',
-			(clearable || RightIcon) && !disabled && value ? 'pr-8' : '',
-			inputClass ?? ''
-		)}
-		autocomplete="off"
-		oninput={(e) => {
-			// Explicitly open dropdown if closed and update filterText
-			if (!open) open = true
-			filterText = e.currentTarget.value
-		}}
-		onpointerdown={() => (open = true)}
-		bind:this={inputEl}
-		{id}
-	/>
+	{#if useContentEditable}
+		{@const placeholderText =
+			loading && !value ? 'Loading...' : value && !showPlaceholderOnOpen ? inputText : placeholder}
+		<div
+			contenteditable={!disabled}
+			role="textbox"
+			tabindex="0"
+			{id}
+			style={containerStyle}
+			class={twMerge(
+				inputBaseClass,
+				inputSizeClasses[size],
+				ButtonType.UnifiedHeightClasses[size],
+				inputBorderClass({ error, forceFocus: open }),
+				'w-full whitespace-pre overflow-hidden',
+				open ? '' : 'cursor-pointer',
+				(clearable || RightIcon) && !disabled && value ? 'pr-8' : '',
+				inputClass ?? '',
+				'empty:before:content-[attr(data-placeholder)]',
+				!value ? 'empty:before:text-hint' : 'empty:before:text-primary'
+			)}
+			data-placeholder={placeholderText}
+			oninput={(e) => {
+				if (!open) open = true
+				filterText = e.currentTarget.textContent ?? ''
+			}}
+			onpointerdown={() => (open = true)}
+			onkeydown={(e) => {
+				if (e.key === 'Enter') {
+					e.preventDefault()
+				}
+			}}
+			bind:this={inputEl}>{contentEditableText}</div
+		>
+	{:else}
+		<input
+			{autofocus}
+			{disabled}
+			type="text"
+			bind:value={() => (open ? filterText : inputText), (v) => open && (filterText = v)}
+			placeholder={loading && !value
+				? 'Loading...'
+				: value && !showPlaceholderOnOpen
+					? inputText
+					: placeholder}
+			style={containerStyle}
+			class={twMerge(
+				inputBaseClass,
+				inputSizeClasses[size],
+				ButtonType.UnifiedHeightClasses[size],
+				inputBorderClass({ error, forceFocus: open }),
+				'w-full',
+				open ? '' : 'cursor-pointer',
+				// Show value as placeholder when opening the dropdown and the search is empty
+				!value ? 'placeholder-hint' : '!placeholder-primary',
+				(clearable || RightIcon) && !disabled && value ? 'pr-8' : '',
+				inputClass ?? ''
+			)}
+			autocomplete="off"
+			oninput={(e) => {
+				// Explicitly open dropdown if closed and update filterText
+				if (!open) open = true
+				filterText = e.currentTarget.value
+			}}
+			onpointerdown={() => (open = true)}
+			bind:this={inputEl}
+			{id}
+		/>
+	{/if}
 	<SelectDropdown
 		class={dropdownClass}
 		{disablePortal}
