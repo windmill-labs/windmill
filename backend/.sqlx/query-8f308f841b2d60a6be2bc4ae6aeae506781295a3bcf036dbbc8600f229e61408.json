@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT *\n          FROM usr\n         WHERE workspace_id = $1\n         ",
+  "query": "SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via, is_service_account FROM usr WHERE username = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -56,6 +56,7 @@
     ],
     "parameters": {
       "Left": [
+        "Text",
         "Text"
       ]
     },
@@ -72,5 +73,5 @@
       false
     ]
   },
-  "hash": "5d6adbe21b9f8dd984d1bfc750fb81763d8650c1316bb0b20816f1a5d61a678c"
+  "hash": "8f308f841b2d60a6be2bc4ae6aeae506781295a3bcf036dbbc8600f229e61408"
 }

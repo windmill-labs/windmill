@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM group_ WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
+  "query": "SELECT workspace_id, name, summary, extra_perms FROM group_ WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -38,5 +38,5 @@
       false
     ]
   },
-  "hash": "ba9ab074f466bc2c581f018e2592f5a453e8a766c35dbf919d29c96966d63c75"
+  "hash": "25784f87ccf0bc13b93739d34d416908b75d0d17392c2565e70b4738039b56a1"
 }

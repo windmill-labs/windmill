@@ -122,7 +122,7 @@ pub async fn get_or_refresh_mcp_client(
     let redirect_uri = format!("{}/api/mcp/oauth/callback", base_url);
 
     let cached_client: Option<McpOAuthClient> =
-        sqlx::query_as("SELECT * FROM mcp_oauth_client WHERE mcp_server_url = $1")
+        sqlx::query_as("SELECT mcp_server_url, client_id, client_secret, client_secret_expires_at, token_endpoint FROM mcp_oauth_client WHERE mcp_server_url = $1")
             .bind(mcp_server_url)
             .fetch_optional(db)
             .await
