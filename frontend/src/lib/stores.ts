@@ -132,11 +132,24 @@ export const codeCompletionSessionEnabled = writable<boolean>(
 export const usedTriggerKinds = writable<string[]>([])
 
 export let globalDbManagerDrawer: StateStore<DbManagerUriState | undefined> = { val: undefined }
-export let globalForkModal: StateStore<GlobalForkModalState | undefined> = createState({ val: undefined })
+export let globalForkModal: StateStore<GlobalForkModalState | undefined> = createState({
+	val: undefined
+})
 
 export type GlobalForkModalState = {
 	opened: true
 }
+
+export type ForkConflictModalState = {
+	kind: string
+	kindLabel: string
+	parentWorkspaceId: string
+	resolve: (proceed: boolean) => void
+}
+
+export let forkConflictModal: StateStore<ForkConflictModalState | undefined> = createState({
+	val: undefined
+})
 
 type SQLBaseSchema = {
 	[schemaKey: string]: {

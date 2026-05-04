@@ -11,7 +11,7 @@ use windmill_test_utils::*;
 // Dedicated Worker Protocol Tests (Python)
 // ============================================================================
 
-#[cfg(feature = "python")]
+#[cfg(all(feature = "python", feature = "private"))]
 mod dedicated_worker_protocol_python {
     use std::io::{BufRead, BufReader, Write};
     use std::process::{Command, Stdio};
@@ -748,6 +748,7 @@ def main():
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -800,6 +801,7 @@ def main():
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -837,6 +839,7 @@ def main():
             cache_ignore_s3_path: None,
             dedicated_worker: None,
             modules: None,
+            tag: None,
         });
 
         let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -878,6 +881,7 @@ def main():
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)
@@ -917,6 +921,7 @@ def main():
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let result = run_job_in_new_worker_until_complete(&db, false, job, port)

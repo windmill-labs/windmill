@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.693.1",
+	"version": "1.694.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -154,12 +154,12 @@
 		"windmill-parser-wasm-java": "1.510.1",
 		"windmill-parser-wasm-nu": "1.510.1",
 		"windmill-parser-wasm-php": "1.647.1",
-		"windmill-parser-wasm-py": "1.657.2",
+		"windmill-parser-wasm-py": "1.693.1",
 		"windmill-parser-wasm-r": "1.668.1",
 		"windmill-parser-wasm-regex": "1.692.0",
 		"windmill-parser-wasm-ruby": "1.526.1",
 		"windmill-parser-wasm-rust": "1.647.1",
-		"windmill-parser-wasm-ts": "1.657.2",
+		"windmill-parser-wasm-ts": "1.693.1",
 		"windmill-parser-wasm-wac": "1.668.6",
 		"windmill-parser-wasm-yaml": "1.593.0",
 		"windmill-sql-datatype-parser-wasm": "1.512.0",
@@ -426,6 +426,21 @@
 		"./tailwindUtils": {
 			"types": "./package/components/apps/editor/componentsPanel/tailwindUtils.d.ts",
 			"default": "./package/components/apps/editor/componentsPanel/tailwindUtils.js"
+		},
+		"./components/DarkModeObserver.svelte": {
+			"types": "./package/components/DarkModeObserver.svelte.d.ts",
+			"svelte": "./package/components/DarkModeObserver.svelte",
+			"default": "./package/components/DarkModeObserver.svelte"
+		},
+		"./components/text_input/TextInput.svelte": {
+			"types": "./package/components/text_input/TextInput.svelte.d.ts",
+			"svelte": "./package/components/text_input/TextInput.svelte",
+			"default": "./package/components/text_input/TextInput.svelte"
+		},
+		"./components/common/badge/Badge.svelte": {
+			"types": "./package/components/common/badge/Badge.svelte.d.ts",
+			"svelte": "./package/components/common/badge/Badge.svelte",
+			"default": "./package/components/common/badge/Badge.svelte"
 		}
 	},
 	"files": [
@@ -585,6 +600,15 @@
 			],
 			"components/custom_ui": [
 				"./package/components/custom_ui.d.ts"
+			],
+			"components/DarkModeObserver.svelte": [
+				"./package/components/DarkModeObserver.svelte.d.ts"
+			],
+			"components/text_input/TextInput.svelte": [
+				"./package/components/text_input/TextInput.svelte.d.ts"
+			],
+			"components/common/badge/Badge.svelte": [
+				"./package/components/common/badge/Badge.svelte.d.ts"
 			]
 		}
 	},

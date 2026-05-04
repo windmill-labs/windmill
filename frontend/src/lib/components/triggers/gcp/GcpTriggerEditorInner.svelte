@@ -5,6 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import {
@@ -278,15 +279,23 @@
 	}
 
 	async function handleToggleMode(newMode: TriggerMode) {
+		const previousMode = mode
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			await GcpTriggerService.setGcpTriggerMode({
-				path: initialPath,
-				workspace: $workspaceStore ?? '',
-				requestBody: { mode: newMode }
-			})
+			const ok = await withForkConflictRetry(
+				(force) =>
+					GcpTriggerService.setGcpTriggerMode({
+						path: initialPath,
+						workspace: $workspaceStore ?? '',
+						requestBody: { mode: newMode, force }
+					}),
+				'GCP Pub/Sub trigger'
+			)
+			if (!ok) {
+				mode = previousMode
+				return
+			}
 			sendUserToast(`${capitalize(newMode)} GCP Pub/Sub trigger ${initialPath}`)
-
 			onUpdate?.(initialPath)
 		}
 		if (originalConfig) {

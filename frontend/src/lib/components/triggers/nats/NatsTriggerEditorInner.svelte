@@ -8,6 +8,7 @@
 	import { NatsTriggerService, type ErrorHandler, type Retry, type TriggerMode } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -282,15 +283,23 @@
 	}
 
 	async function handleToggleMode(newMode: TriggerMode) {
+		const previousMode = mode
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			await NatsTriggerService.setNatsTriggerMode({
-				path: initialPath,
-				workspace: $workspaceStore ?? '',
-				requestBody: { mode: newMode }
-			})
+			const ok = await withForkConflictRetry(
+				(force) =>
+					NatsTriggerService.setNatsTriggerMode({
+						path: initialPath,
+						workspace: $workspaceStore ?? '',
+						requestBody: { mode: newMode, force }
+					}),
+				'NATS trigger'
+			)
+			if (!ok) {
+				mode = previousMode
+				return
+			}
 			sendUserToast(`${capitalize(newMode)} NATS trigger ${initialPath}`)
-
 			onUpdate?.(initialPath)
 		}
 		if (originalConfig) {

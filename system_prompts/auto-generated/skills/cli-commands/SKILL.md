@@ -176,6 +176,15 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
 - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which files to include
 - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which files to exclude
 
+**Subcommands:**
+
+- `generate-metadata rehash [folder:string]`
+  - `--skip-scripts` - Skip processing scripts
+  - `--skip-flows` - Skip processing flows
+  - `--skip-apps` - Skip processing apps
+  - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which files to include
+  - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which files to exclude
+
 ### gitsync-settings
 
 Manage git-sync settings between local wmill.yaml and Windmill backend
@@ -384,6 +393,7 @@ schedule related commands
 - `schedule new <path:string>` - create a new schedule locally
 - `schedule push <file_path:string> <remote_path:string>` - push a local schedule spec. This overrides any remote versions.
 - `schedule enable <path:string>` - Enable a schedule
+  - `--force` - Bypass the fork-conflict warning when the parent workspace has the same schedule (acknowledges that both crons will fire)
 - `schedule disable <path:string>` - Disable a schedule
 - `schedule set-permissioned-as <path:string> <email:string>` - Set the email (run-as user) for a schedule (requires admin or wm_deployers group)
 

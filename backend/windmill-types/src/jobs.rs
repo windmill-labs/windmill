@@ -516,6 +516,7 @@ pub struct RawCode {
     pub cache_ttl: Option<i32>,
     pub cache_ignore_s3_path: Option<bool>,
     pub dedicated_worker: Option<bool>,
+    pub tag: Option<String>,
     #[serde(flatten)]
     pub concurrency_settings: ConcurrencySettingsWithCustom,
     #[serde(flatten)]

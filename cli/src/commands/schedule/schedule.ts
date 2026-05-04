@@ -153,7 +153,17 @@ export async function pushSchedule(
           ...preserveFields,
         },
       });
-      if (localSchedule.enabled != schedule.enabled) {
+      // Tarball export from a fork strips `enabled` from schedule YAMLs so
+      // the fork→parent git-sync round-trip can't flip the parent's state.
+      // Skip the secondary setScheduleEnabled call when the local YAML
+      // doesn't carry `enabled` — sending `{ enabled: undefined }` would
+      // serialize to `{}` and the backend (`SetEnabled.enabled` is required)
+      // would reject the request. Preserving the target's existing flag is
+      // exactly the round-trip-safe behavior.
+      if (
+        localSchedule.enabled !== undefined &&
+        localSchedule.enabled !== schedule.enabled
+      ) {
         log.info(colors.bold.yellow(
           `Schedule ${path} is ${localSchedule.enabled ? "enabled" : "disabled"} locally but not on remote, updating remote`
         ));
@@ -187,18 +197,42 @@ export async function pushSchedule(
   }
 }
 
-async function enable(opts: GlobalOptions, path: string) {
+async function enable(opts: GlobalOptions & { force?: boolean }, path: string) {
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  await wmill.setScheduleEnabled({
-    workspace: workspace.workspaceId,
-    path,
-    requestBody: { enabled: true },
-  });
+  try {
+    await wmill.setScheduleEnabled({
+      workspace: workspace.workspaceId,
+      path,
+      requestBody: { enabled: true, force: opts.force },
+    });
+  } catch (e) {
+    const conflict = parseForkConflict(e);
+    if (conflict) {
+      log.error(
+        `Cannot enable schedule '${path}': the parent workspace '${conflict.parentWorkspaceId}' has the same path configured. ` +
+          `Both crons would fire on every tick and the script would run twice per scheduled time.\n` +
+          `Re-run with --force to enable anyway.`
+      );
+      process.exit(1);
+    }
+    throw e;
+  }
 
   log.info(colors.green(`Schedule ${path} enabled.`));
+}
+
+/** Parse a backend error body of the shape `fork-conflict:<kind>:<parent_workspace_id>`. */
+function parseForkConflict(
+  e: unknown
+): { kind: string; parentWorkspaceId: string } | undefined {
+  const body = (e as any)?.body;
+  const raw = typeof body === "string" ? body : (e as any)?.message ?? "";
+  const m = String(raw).match(/fork-conflict:([^:]+):(.+)/);
+  if (!m) return undefined;
+  return { kind: m[1], parentWorkspaceId: m[2].trim() };
 }
 
 async function disable(opts: GlobalOptions, path: string) {
@@ -260,6 +294,10 @@ const command = new Command()
   .arguments("<file_path:string> <remote_path:string>")
   .action(push as any)
   .command("enable", "Enable a schedule")
+  .option(
+    "--force",
+    "Bypass the fork-conflict warning when the parent workspace has the same schedule (acknowledges that both crons will fire)"
+  )
   .arguments("<path:string>")
   .action(enable as any)
   .command("disable", "Disable a schedule")

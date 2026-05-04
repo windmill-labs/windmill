@@ -5,6 +5,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import {
@@ -240,15 +241,23 @@
 	}
 
 	async function handleToggleMode(newMode: TriggerMode) {
+		const previousMode = mode
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			await SqsTriggerService.setSqsTriggerMode({
-				path: initialPath,
-				workspace: $workspaceStore ?? '',
-				requestBody: { mode: newMode }
-			})
+			const ok = await withForkConflictRetry(
+				(force) =>
+					SqsTriggerService.setSqsTriggerMode({
+						path: initialPath,
+						workspace: $workspaceStore ?? '',
+						requestBody: { mode: newMode, force }
+					}),
+				'SQS trigger'
+			)
+			if (!ok) {
+				mode = previousMode
+				return
+			}
 			sendUserToast(`${capitalize(newMode)} SQS trigger ${initialPath}`)
-
 			onUpdate?.(initialPath)
 		}
 		if (originalConfig) {

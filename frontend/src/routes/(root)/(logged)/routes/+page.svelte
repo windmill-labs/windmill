@@ -91,7 +91,7 @@
 			deployUiSettings = ALL_DEPLOYABLE
 			return
 		}
-		let settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		let settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })
 		deployUiSettings = settings.deploy_ui ?? ALL_DEPLOYABLE
 	}
 	getDeployUiSettings()
@@ -243,6 +243,8 @@
 
 	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
+			// HTTP routes are always workspace-prefixed at runtime, so fork
+			// and parent live at distinct URLs — no fork-conflict warning.
 			await HttpTriggerService.setHttpTriggerMode({
 				path,
 				workspace: $workspaceStore!,

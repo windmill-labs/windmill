@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.693.1
+  version: 1.694.0
   title: Windmill API
 
   contact:
@@ -3027,9 +3027,51 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkspaceInvite"
 
+  /w/{workspace}/workspaces/get_public_settings:
+    get:
+      summary: get public settings
+      description: Returns the subset of workspace settings safe to expose to any workspace member. The full settings struct is admin-only via `getSettings`.
+      operationId: getPublicSettings
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workspace_id:
+                    type: string
+                  slack_name:
+                    type: string
+                  slack_team_id:
+                    type: string
+                  teams_team_id:
+                    type: string
+                  teams_team_name:
+                    type: string
+                  teams_team_guid:
+                    type: string
+                  large_file_storage:
+                    $ref: "#/components/schemas/LargeFileStorage"
+                  datatable:
+                    $ref: "#/components/schemas/DataTableSettings"
+                  deploy_ui:
+                    $ref: "#/components/schemas/WorkspaceDeployUISettings"
+                  mute_critical_alerts:
+                    type: boolean
+                required:
+                  - workspace_id
+
   /w/{workspace}/workspaces/get_settings:
     get:
-      summary: get settings
+      summary: get settings (admin only)
+      description: Returns the full workspace settings including admin-managed integration credentials. Admin-only — non-admin callers should use `getPublicSettings`.
       operationId: getSettings
       tags:
         - workspace
@@ -10485,6 +10527,8 @@ paths:
                       type: string
                     cache_ttl:
                       type: integer
+                    tag:
+                      type: string
                   required:
                     - content
                     - language
@@ -13173,6 +13217,11 @@ paths:
               properties:
                 enabled:
                   type: boolean
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    schedule in a fork whose parent has the same path enabled.
               required:
                 - enabled
 
@@ -13619,6 +13668,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -13786,6 +13840,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -13986,6 +14045,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -14227,6 +14291,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -14422,6 +14491,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -15210,6 +15284,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -15405,6 +15484,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -15659,6 +15743,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -16205,6 +16294,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -16431,6 +16525,11 @@ paths:
               properties:
                 mode:
                   $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
               required:
                 - mode
       responses:
@@ -18649,6 +18748,15 @@ paths:
           description: S3 file key to check (e.g., gitrepos/{workspace_id}/u/user/resource/{commit_hash})
           in: query
           required: true
+          schema:
+            type: string
+        - name: marker_file
+          description: |
+            If provided, the folder is only considered to exist when this exact
+            sentinel file is present under file_key. Lets callers distinguish a
+            fully populated folder from a partial upload.
+          in: query
+          required: false
           schema:
             type: string
       responses:

@@ -1,12 +1,12 @@
 #[cfg(feature = "deno_core")]
 mod retry {
-    use windmill_test_utils::*;
     use serde_json::json;
     use sqlx::{Pool, Postgres};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use windmill_common::flow_status::FlowStatusModule;
     use windmill_common::flows::FlowValue;
     use windmill_common::jobs::JobPayload;
+    use windmill_test_utils::*;
 
     pub async fn initialize_tracing() {
         use std::sync::Once;

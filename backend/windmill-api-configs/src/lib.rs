@@ -64,7 +64,7 @@ async fn list_worker_groups(
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Vec<Config>> {
     let mut configs_raw =
-        sqlx::query_as!(Config, "SELECT * FROM config WHERE name LIKE 'worker__%'")
+        sqlx::query_as!(Config, "SELECT name, config FROM config WHERE name LIKE 'worker__%'")
             .fetch_all(&db)
             .await?;
     // Remove the 'worker__' prefix from all config names
@@ -119,7 +119,7 @@ async fn get_config(
 ) -> error::JsonResult<Option<serde_json::Value>> {
     require_devops_role(&db, &authed.email).await?;
 
-    let config = sqlx::query_as!(Config, "SELECT * FROM config WHERE name = $1", name)
+    let config = sqlx::query_as!(Config, "SELECT name, config FROM config WHERE name = $1", name)
         .fetch_optional(&db)
         .await?
         .map(|c| c.config);

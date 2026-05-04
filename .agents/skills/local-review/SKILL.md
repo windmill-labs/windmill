@@ -1,97 +1,66 @@
 ---
 name: local-review
-description: Code review a pull request for bugs and CLAUDE.md compliance. MUST use when asked to review code.
+description: Code review the current PR (or branch diff against main) for bugs, security, and AGENTS.md compliance. MUST use when asked to review code.
 ---
 
-# Local Code Review Skill
+# Local Code Review
 
-Review a pull request for real bugs and CLAUDE.md compliance violations. This review targets HIGH SIGNAL issues only.
+Run the same review locally that the GitHub auto-review actions run on PRs (Claude / Codex / Pi). The review policy lives in `.github/review-prompt-shared.md` — read that first.
 
-## Review Philosophy
+## Steps
 
-- **Only flag issues you are certain about.** If you are not sure an issue is real, do not flag it. False positives erode trust and waste reviewer time.
-- Think like a senior engineer doing a final review — flag things that would cause incidents, not things that are merely imperfect.
+1. **Read `.github/review-prompt-shared.md`** for the review policy: severity triage (P0 / P1 / P2), the new-public-surface checklist, AGENTS.md compliance, and the test-coverage assessment.
 
-## What to Flag
-
-- Code that won't compile or parse (syntax errors, type errors, missing imports)
-- Code that will definitely produce wrong results regardless of inputs
-- Clear, unambiguous CLAUDE.md violations (quote the exact rule being violated)
-- Security issues in introduced code (injection, auth bypass, data exposure)
-- Incorrect logic that will fail in production
-
-## What NOT to Flag
-
-- Code style or quality concerns
-- Potential issues that depend on specific inputs or runtime state
-- Subjective suggestions or improvements
-- Pre-existing issues not introduced by this PR
-- Pedantic nitpicks a senior engineer wouldn't flag
-- Issues a linter or type checker will catch
-- General quality concerns unless explicitly prohibited in CLAUDE.md
-- Issues silenced via lint ignore comments
-
-## Execution Steps
-
-1. **Determine the PR scope**:
-   - If an argument is provided, use it as the PR number or branch
-   - Otherwise, detect from the current branch vs main
-   - Run `gh pr view` if a PR exists, or use `git diff main...HEAD`
-
-2. **Find relevant CLAUDE.md files**:
-   - Read the root `CLAUDE.md`
-   - Check for CLAUDE.md files in directories containing changed files
+2. **Determine the PR scope**:
+   - If an argument is provided, treat it as a PR number or branch.
+   - Otherwise, detect from the current branch vs `main`.
+   - Run `gh pr view` if a PR exists; otherwise compare against `main` with `git diff main...HEAD`.
 
 3. **Get the diff and metadata**:
-   - `gh pr diff` or `git diff main...HEAD` for the full diff
-   - `gh pr view` or `git log main..HEAD --oneline` for context
+   - `gh pr diff` or `git diff main...HEAD` for the full diff.
+   - `gh pr view` or `git log main..HEAD --oneline` for context.
 
-4. **Read changed files** where the diff alone is insufficient to understand context
+4. **Read changed files** when the diff alone is insufficient.
 
-5. **Review for**:
-   - CLAUDE.md compliance — check each rule against the changed code
-   - Bugs and logic errors — will this code work correctly?
-   - Security issues — injection, auth, data exposure in new code
+5. **Apply the policy** from `.github/review-prompt-shared.md`. Self-validate each finding before reporting (real issue? would a senior engineer flag it?).
 
-6. **Self-validate each finding**: Before reporting, ask yourself:
-   - "Is this definitely a real issue, not a false positive?"
-   - "Would a senior engineer flag this in review?"
-   - If the answer to either is no, discard the finding
+6. **Output findings** to the terminal (default) or post as PR comments (with `--comment` flag).
 
-7. **Output findings** to the terminal (default) or post as PR comments (with `--comment` flag)
-
-## Output Format
+## Output format
 
 ```
 ## Code review
 
 Found N issues:
 
-1. <description> (<reason: CLAUDE.md adherence | bug | security>)
+1. [P0|P1|P2] <description>
    <file_path:line_number>
 
-2. <description> (<reason>)
+2. [P0|P1|P2] <description>
    <file_path:line_number>
 ```
+
+End with a `Test coverage` section per the shared policy.
 
 If no issues are found:
 
 ```
 ## Code review
 
-No issues found. Checked for bugs and CLAUDE.md compliance.
+No issues found. Checked for bugs, security, and AGENTS.md compliance.
 ```
 
-## Posting Comments (--comment flag)
+## Posting comments (`--comment`)
 
-If the user passes `--comment`, post findings as inline PR comments using:
+For a top-level PR comment:
 
 ```bash
 gh pr review --comment --body "<summary>"
 ```
 
-Or for inline comments on specific lines:
+For inline comments on specific lines:
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/{pr}/reviews -f body="<summary>" -f event="COMMENT" -f comments="[...]"
+gh api repos/{owner}/{repo}/pulls/{pr}/reviews \
+  -f body="<summary>" -f event="COMMENT" -f comments="[...]"
 ```

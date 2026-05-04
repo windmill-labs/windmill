@@ -21,7 +21,7 @@
 		extra?: Snippet
 		onDelete?: () => void
 		onReset?: () => void
-		onToggleMode: (mode: TriggerMode) => void
+		onToggleMode: (mode: TriggerMode) => void | boolean | Promise<void | boolean>
 		onUpdate?: () => void
 		cloudDisabled?: boolean
 		trigger?: Trigger

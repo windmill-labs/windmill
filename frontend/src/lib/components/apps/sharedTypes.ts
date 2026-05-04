@@ -9,6 +9,7 @@ export type InlineScript = {
 	schema?: Schema
 	lock?: string
 	cache_ttl?: number
+	tag?: string
 	refreshOn?: { id: string; key: string }[]
 	suggestedRefreshOn?: { id: string; key: string }[]
 	id?: number

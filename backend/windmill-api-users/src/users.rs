@@ -385,7 +385,7 @@ async fn list_users(
     let rows = sqlx::query_as!(
         User,
         "
-        SELECT *
+        SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via, is_service_account
           FROM usr
          WHERE workspace_id = $1
          ",
@@ -1174,7 +1174,7 @@ async fn get_workspace_user(
 
     let user = sqlx::query_as!(
         User,
-        "SELECT * FROM usr WHERE username = $1 AND workspace_id = $2",
+        "SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via, is_service_account FROM usr WHERE username = $1 AND workspace_id = $2",
         &username_to_update,
         &w_id
     )
@@ -1698,6 +1698,7 @@ pub async fn delete_workspace_user_internal(
         "azure_trigger",
         "email_trigger",
     ];
+    // SAFETY: `table` comes from a hardcoded allowlist `extra_perms_tables`, not user input.
     for table in &extra_perms_tables {
         sqlx::query(&format!(
             "UPDATE {table} SET extra_perms = extra_perms - ('u/' || $1) \

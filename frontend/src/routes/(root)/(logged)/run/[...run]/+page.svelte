@@ -633,6 +633,7 @@
 					nestedTopBranchOrIterationN={restart.nestedRestartTopBranchOrIterationN}
 					presetIterationN={restart.topLevelLoopIteration}
 					iterationCounts={restart.iterationCounts}
+					nestedPathIterationCounts={restart.nestedPathIterationCounts}
 					onRestartComplete={(newJobId) => {
 						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
 					}}

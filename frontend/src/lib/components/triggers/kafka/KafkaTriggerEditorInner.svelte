@@ -9,6 +9,7 @@
 	import { KafkaTriggerService, type ErrorHandler, type Retry, type TriggerMode } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, RotateCcw } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -316,15 +317,23 @@
 	}
 
 	async function handleToggleMode(newMode: TriggerMode) {
+		const previousMode = mode
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			await KafkaTriggerService.setKafkaTriggerMode({
-				path: initialPath,
-				workspace: $workspaceStore ?? '',
-				requestBody: { mode: newMode }
-			})
+			const ok = await withForkConflictRetry(
+				(force) =>
+					KafkaTriggerService.setKafkaTriggerMode({
+						path: initialPath,
+						workspace: $workspaceStore ?? '',
+						requestBody: { mode: newMode, force }
+					}),
+				'Kafka trigger'
+			)
+			if (!ok) {
+				mode = previousMode
+				return
+			}
 			sendUserToast(`${capitalize(newMode)} Kafka trigger ${initialPath}`)
-
 			onUpdate?.(initialPath)
 		}
 		if (originalConfig) {

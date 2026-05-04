@@ -157,6 +157,7 @@ async fn push_job(db: &Pool<Postgres>, content: &str, args: &serde_json::Value) 
         cache_ignore_s3_path: None,
         dedicated_worker: None,
         modules: None,
+        tag: None,
     });
 
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());

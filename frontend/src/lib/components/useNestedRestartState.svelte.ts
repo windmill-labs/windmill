@@ -73,6 +73,11 @@ export function useNestedRestartState(opts: {
 	let nestedRestartTopBranchOrIterationN: number | undefined = $state(undefined)
 	let nestedRestartPath: NestedRestartStep[] | undefined = $state(undefined)
 	let nestedRestartSupported = $state(false)
+	// Iteration counts keyed by the popup's field-key ('top' or 'inner-N').
+	// Built during path construction so each entry uses the *correct* graph key
+	// for its level (prefixed for in-subflow ancestors). Avoids the collision
+	// that would happen if we double-indexed `iterationCounts` by bare step_id.
+	let nestedPathIterationCounts: Record<string, number> = $state({})
 
 	$effect(() => {
 		const selectedJobStep = opts.selectedJobStep()
@@ -86,13 +91,14 @@ export function useNestedRestartState(opts: {
 		nestedRestartSupported = false
 		restartBranchNames = []
 		selectedJobStepIsTopLevel = undefined
+		nestedPathIterationCounts = {}
 
 		if (selectedJobStep === undefined || job?.flow_status?.modules === undefined) {
 			return
 		}
 
-		selectedJobStepIsTopLevel =
-			job.flow_status.modules.findIndex((m) => m.id === selectedJobStep) >= 0
+		const isTopLevel = job.flow_status.modules.findIndex((m) => m.id === selectedJobStep) >= 0
+		selectedJobStepIsTopLevel = isTopLevel
 		const moduleDefinition = job.raw_flow?.modules.find((m) => m.id === selectedJobStep)
 		if (moduleDefinition?.value.type === 'forloopflow') {
 			selectedJobStepType = 'forloop'
@@ -107,7 +113,10 @@ export function useNestedRestartState(opts: {
 			selectedJobStepType = 'single'
 		}
 
-		if (selectedJobStepIsTopLevel) return
+		// Read from the local — reading the `$state` we just wrote would register
+		// it as a dependency of this effect, causing `effect_update_depth_exceeded`
+		// because each write would reschedule the effect.
+		if (isTopLevel) return
 
 		// Inline-expanded subflow: id is `subflow:outerStep:[innerSubflow:...]<leaf>`.
 		// The graph adds the `subflow:` prefix only for subflow expansions, so each
@@ -148,24 +157,40 @@ export function useNestedRestartState(opts: {
 						if (!blocked) {
 							// Inside the subflow, the graph state for ForLoop ancestors
 							// is keyed by the prefixed graph id. Build that key here so
-							// `selectedForloopIndex` lookups land on the right entry.
+							// `selectedForloopIndex` and `flow_jobs.length` lookups land
+							// on the right entry (avoiding collisions with same-step-id
+							// loops in the parent flow — e.g. parent has `e` with 4 iters
+							// and the subflow also has `e` with 1 iter).
 							const subflowPrefix = 'subflow:' + subflowParse.subflowSteps.join(':') + ':'
 							const iterationFor = (stepId: string): number =>
 								graphModuleStates[subflowPrefix + stepId]?.selectedForloopIndex ?? 0
-							for (const a of path.ancestors) {
+							const iterCountFor = (stepId: string): number =>
+								graphModuleStates[subflowPrefix + stepId]?.flow_jobs?.length ?? 0
+							const counts: Record<string, number> = {}
+							// Top-level (parent) container is the subflow step `h` —
+							// not a ForLoop, no count.
+							for (let i = 0; i < path.ancestors.length; i++) {
+								const a = path.ancestors[i]
 								const entry: NestedRestartStep = { step_id: a.stepId }
 								if (a.type === 'forloopflow') {
 									entry.branch_or_iteration_n = iterationFor(a.stepId)
+									// Path key: each subflow boundary already contributes an
+									// inner-N entry above (subflow steps without iterations).
+									// Match the index that FlowRestartButton will use when
+									// rendering iteration fields.
+									counts[`inner-${innerPath.length}`] = iterCountFor(a.stepId)
 								}
 								innerPath.push(entry)
 							}
 							const leafEntry: NestedRestartStep = { step_id: subflowParse.leaf }
 							if (path.target.value.type === 'forloopflow') {
 								leafEntry.branch_or_iteration_n = iterationFor(subflowParse.leaf)
+								counts[`inner-${innerPath.length}`] = iterCountFor(subflowParse.leaf)
 							}
 							innerPath.push(leafEntry)
 							nestedRestartTopStepId = top.id
 							nestedRestartPath = innerPath
+							nestedPathIterationCounts = counts
 							nestedRestartSupported = true
 							return
 						}
@@ -206,13 +231,17 @@ export function useNestedRestartState(opts: {
 		// for confirmation/editing before submit, so we never silently send a guess.
 		const iterationFor = (stepId: string): number =>
 			graphModuleStates[stepId]?.selectedForloopIndex ?? 0
+		const iterCountFor = (stepId: string): number =>
+			graphModuleStates[stepId]?.flow_jobs?.length ?? 0
 		const top = path.ancestors[0]
 		const inner = path.ancestors.slice(1)
 		const innerPath: NestedRestartStep[] = []
+		const counts: Record<string, number> = {}
 		for (const a of inner) {
 			const entry: NestedRestartStep = { step_id: a.stepId }
 			if (a.type === 'forloopflow') {
 				entry.branch_or_iteration_n = iterationFor(a.stepId)
+				counts[`inner-${innerPath.length}`] = iterCountFor(a.stepId)
 			}
 			innerPath.push(entry)
 		}
@@ -221,13 +250,17 @@ export function useNestedRestartState(opts: {
 		const leafEntry: NestedRestartStep = { step_id: selectedJobStep }
 		if (path.target.value.type === 'forloopflow') {
 			leafEntry.branch_or_iteration_n = iterationFor(selectedJobStep)
+			counts[`inner-${innerPath.length}`] = iterCountFor(selectedJobStep)
 		}
 		innerPath.push(leafEntry)
 
 		nestedRestartTopStepId = top.stepId
-		nestedRestartTopBranchOrIterationN =
-			top.type === 'forloopflow' ? iterationFor(top.stepId) : undefined
+		if (top.type === 'forloopflow') {
+			nestedRestartTopBranchOrIterationN = iterationFor(top.stepId)
+			counts['top'] = iterCountFor(top.stepId)
+		}
 		nestedRestartPath = innerPath
+		nestedPathIterationCounts = counts
 		nestedRestartSupported = true
 	})
 
@@ -259,28 +292,21 @@ export function useNestedRestartState(opts: {
 		return true
 	})
 
-	// Iteration counts indexed by the step id used in `nestedRestartPath`. For
-	// regular nesting that's the bare `step_id`; for steps inside expanded
-	// subflows we ALSO index by the leaf segment of the prefixed graph id (e.g.
-	// `subflow:h:loop_1` → also indexed at `loop_1`) so the popup can find the
-	// count regardless of which path produced the field.
-	//
-	// Known caveat: if the same step id appears at multiple levels (e.g. a
-	// top-level `loop_1` AND a `loop_1` inside a subflow), the last-writer-wins
-	// here may show the wrong option count. The submitted value is still 0-based
-	// and the backend validates it, so a wrong-count display only affects how
-	// many options the `<select>` shows. Step ids are globally unique within a
-	// single flow value, so the collision only happens across subflow boundaries.
+	// Iteration counts indexed by the graph module-state key (i.e. the prefixed
+	// `subflow:...:<step_id>` for in-subflow loops, or the bare `step_id` for
+	// top-level loops). Used by the popup for the SELECTED step's iteration
+	// picker — that step is always at the unprefixed top level (the run page's
+	// graph-state key matches the bare step_id), so the lookup is unambiguous.
+	// For nested-path iteration fields, see `nestedPathIterationCounts` instead,
+	// which is keyed by the popup's field-key ('top' / 'inner-N') and pulled
+	// from the path-aware graph key — avoiding collisions when the same step
+	// id appears at both the parent flow and inside a subflow.
 	const iterationCounts = $derived.by((): Record<string, number> => {
 		const out: Record<string, number> = {}
 		for (const [id, state] of Object.entries(opts.graphModuleStates())) {
 			const n = state.flow_jobs?.length
 			if (typeof n !== 'number' || n <= 0) continue
 			out[id] = n
-			const lastColon = id.lastIndexOf(':')
-			if (lastColon >= 0) {
-				out[id.slice(lastColon + 1)] = n
-			}
 		}
 		return out
 	})
@@ -315,6 +341,9 @@ export function useNestedRestartState(opts: {
 		},
 		get iterationCounts() {
 			return iterationCounts
+		},
+		get nestedPathIterationCounts() {
+			return nestedPathIterationCounts
 		}
 	}
 }

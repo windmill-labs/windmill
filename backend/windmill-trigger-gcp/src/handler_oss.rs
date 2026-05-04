@@ -13,13 +13,13 @@ use {
         DB,
     },
     windmill_git_sync::DeployedObject,
-    windmill_trigger::{TriggerCrud, TriggerData},
+    windmill_trigger::{Trigger, TriggerCrud, TriggerData},
 };
 
 #[cfg(not(feature = "private"))]
 #[async_trait]
 impl TriggerCrud for GcpTrigger {
-    type Trigger = ();
+    type Trigger = Trigger<Self::TriggerConfig>;
     type TriggerConfig = ();
     type TriggerConfigRequest = ();
     type TestConnectionConfig = ();

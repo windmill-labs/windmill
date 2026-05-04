@@ -30,6 +30,7 @@ use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
+use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{
     build_crypt, decrypt, encrypt, SECRET_SALT, WORKSPACE_CRYPT_CACHE,
@@ -83,6 +84,7 @@ pub fn workspaced_service() -> Router {
         .route("/get_imports/{*importer_path}", get(get_imports))
         .route("/get_dependents_amounts", post(get_dependents_amounts))
         .route("/get_settings", get(get_settings))
+        .route("/get_public_settings", get(get_public_settings))
         .route(
             "/get_copilot_settings_state",
             get(get_copilot_settings_state),
@@ -277,6 +279,34 @@ pub struct WorkspaceSettings {
     pub success_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
+}
+
+/// Subset of `WorkspaceSettings` that is safe to return to any workspace
+/// member. Adding a field here means it will be readable by every authed user
+/// in the workspace — anything sensitive (OAuth secrets, GitHub App tokens,
+/// billing/customer info, integration credentials, etc.) must NOT be added.
+/// The full `WorkspaceSettings` struct is admin-only via `get_settings`.
+#[derive(FromRow, Serialize, Debug)]
+pub struct WorkspacePublicSettings {
+    pub workspace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_guid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mute_critical_alerts: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deploy_ui: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub large_file_storage: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub datatable: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -622,6 +652,10 @@ async fn get_settings(
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<WorkspaceSettings> {
+    // Admin-only: this struct contains OAuth secrets, GitHub App tokens, billing
+    // info, and other admin-managed integration credentials. Non-admin callers
+    // should use `get_public_settings`.
+    require_admin(authed.is_admin, &authed.username)?;
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
@@ -669,12 +703,46 @@ async fn get_settings(
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
 
-    let mut settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     tx.commit().await?;
 
-    if !authed.is_admin {
-        settings.slack_oauth_client_secret = None;
-    }
+    Ok(Json(settings))
+}
+
+async fn get_public_settings(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<WorkspacePublicSettings> {
+    let mut tx = user_db.begin(&authed).await?;
+    let settings = sqlx::query_as!(
+        WorkspacePublicSettings,
+        r#"
+        SELECT
+            workspace_id,
+            slack_team_id,
+            slack_name,
+            teams_team_id,
+            teams_team_name,
+            teams_team_guid,
+            mute_critical_alerts,
+            deploy_ui,
+            large_file_storage,
+            datatable
+        FROM
+            workspace_settings
+        WHERE
+            workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("getting public settings: {e:#}")))?;
+
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
+    tx.commit().await?;
+
     Ok(Json(settings))
 }
 
@@ -3790,6 +3858,264 @@ async fn clone_workspace_data(
     Ok(())
 }
 
+/// Clone every trigger and schedule from the parent workspace, forcing
+/// `mode='disabled'` / `enabled=false`. Always runs at fork creation —
+/// disabled rows have no side effects, so cloning them is safe and lets
+/// users re-enable selectively in the fork. Listener identifiers
+/// (group_id, replication_slot_name, subscription_name, …) are copied
+/// verbatim — the runtime suffix that prevents the fork from competing with
+/// the parent ships in a follow-up PR.
+async fn clone_triggers_and_schedules(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        r#"INSERT INTO schedule (
+            workspace_id, path, edited_by, edited_at, schedule, enabled, script_path,
+            args, extra_perms, is_flow, email, error, timezone, on_failure,
+            on_recovery, on_failure_times, on_failure_exact, on_failure_extra_args,
+            on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry,
+            summary, no_flow_overlap, tag, paused_until, on_success, on_success_extra_args,
+            cron_version, description, dynamic_skip, permissioned_as, labels
+        )
+        SELECT
+            $1, path, edited_by, edited_at, schedule, FALSE, script_path,
+            args, extra_perms, is_flow, email, error, timezone, on_failure,
+            on_recovery, on_failure_times, on_failure_exact, on_failure_extra_args,
+            on_recovery_times, on_recovery_extra_args, ws_error_handler_muted, retry,
+            summary, no_flow_overlap, tag, paused_until, on_success, on_success_extra_args,
+            cron_version, description, dynamic_skip, permissioned_as, labels
+        FROM schedule WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Skip non-workspaced HTTP triggers: their URL has no workspace prefix, so
+    // a clone would collide with the parent's row at runtime (matchit::Router
+    // silently drops one of two duplicates) and `route_path_key_exists` would
+    // also fail to spot the cross-workspace conflict cleanly. The instance
+    // settings `CLOUD_HOSTED` and `HTTP_ROUTE_WORKSPACED_ROUTE` force every
+    // route to be workspace-prefixed regardless of the column, so when either
+    // is on we clone everything.
+    let force_workspaced =
+        *CLOUD_HOSTED || HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+    sqlx::query!(
+        r#"INSERT INTO http_trigger (
+            path, route_path, route_path_key, script_path, is_flow, workspace_id,
+            edited_by, edited_at, extra_perms, authentication_method, http_method,
+            static_asset_config, is_static_website, workspaced_route, wrap_body,
+            raw_string, authentication_resource_path, summary, description,
+            error_handler_path, error_handler_args, retry, request_type, mode,
+            permissioned_as, labels
+        )
+        SELECT
+            path, route_path, route_path_key, script_path, is_flow, $1,
+            edited_by, edited_at, extra_perms, authentication_method, http_method,
+            static_asset_config, is_static_website, workspaced_route, wrap_body,
+            raw_string, authentication_resource_path, summary, description,
+            error_handler_path, error_handler_args, retry, request_type, 'disabled'::TRIGGER_MODE,
+            permissioned_as, labels
+        FROM http_trigger
+        WHERE workspace_id = $2
+            AND (workspaced_route IS TRUE OR $3)"#,
+        target_workspace_id,
+        source_workspace_id,
+        force_workspaced,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO websocket_trigger (
+            path, url, script_path, is_flow, workspace_id, edited_by, edited_at,
+            extra_perms, server_id, last_server_ping, error, filters, initial_messages,
+            url_runnable_args, can_return_message, error_handler_path, error_handler_args,
+            retry, can_return_error_result, mode, permissioned_as, filter_logic, labels,
+            heartbeat
+        )
+        SELECT
+            path, url, script_path, is_flow, $1, edited_by, edited_at,
+            extra_perms, NULL, NULL, NULL, filters, initial_messages,
+            url_runnable_args, can_return_message, error_handler_path, error_handler_args,
+            retry, can_return_error_result, 'disabled'::TRIGGER_MODE, permissioned_as, filter_logic, labels,
+            heartbeat
+        FROM websocket_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO kafka_trigger (
+            path, kafka_resource_path, topics, group_id, script_path, is_flow,
+            workspace_id, edited_by, edited_at, extra_perms, server_id,
+            last_server_ping, error, error_handler_path, error_handler_args, retry,
+            mode, filters, auto_offset_reset, reset_offset, auto_commit,
+            permissioned_as, filter_logic, labels
+        )
+        SELECT
+            path, kafka_resource_path, topics, group_id, script_path, is_flow,
+            $1, edited_by, edited_at, extra_perms, NULL,
+            NULL, NULL, error_handler_path, error_handler_args, retry,
+            'disabled'::TRIGGER_MODE, filters, auto_offset_reset, reset_offset, auto_commit,
+            permissioned_as, filter_logic, labels
+        FROM kafka_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO nats_trigger (
+            path, nats_resource_path, subjects, stream_name, consumer_name,
+            use_jetstream, script_path, is_flow, workspace_id, edited_by, edited_at,
+            extra_perms, server_id, last_server_ping, error, error_handler_path,
+            error_handler_args, retry, mode, permissioned_as, labels
+        )
+        SELECT
+            path, nats_resource_path, subjects, stream_name, consumer_name,
+            use_jetstream, script_path, is_flow, $1, edited_by, edited_at,
+            extra_perms, NULL, NULL, NULL, error_handler_path,
+            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels
+        FROM nats_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO postgres_trigger (
+            path, script_path, is_flow, workspace_id, edited_by, edited_at,
+            extra_perms, postgres_resource_path, error, server_id, last_server_ping,
+            replication_slot_name, publication_name, error_handler_path,
+            error_handler_args, retry, mode, permissioned_as, labels
+        )
+        SELECT
+            path, script_path, is_flow, $1, edited_by, edited_at,
+            extra_perms, postgres_resource_path, NULL, NULL, NULL,
+            replication_slot_name, publication_name, error_handler_path,
+            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels
+        FROM postgres_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO mqtt_trigger (
+            mqtt_resource_path, subscribe_topics, client_version, v5_config, v3_config,
+            client_id, path, script_path, is_flow, workspace_id, edited_by, edited_at,
+            extra_perms, server_id, last_server_ping, error, error_handler_path,
+            error_handler_args, retry, mode, permissioned_as, labels
+        )
+        SELECT
+            mqtt_resource_path, subscribe_topics, client_version, v5_config, v3_config,
+            client_id, path, script_path, is_flow, $1, edited_by, edited_at,
+            extra_perms, NULL, NULL, NULL, error_handler_path,
+            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels
+        FROM mqtt_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO sqs_trigger (
+            path, queue_url, aws_resource_path, message_attributes, script_path,
+            is_flow, workspace_id, edited_by, edited_at, extra_perms, error,
+            server_id, last_server_ping, aws_auth_resource_type, error_handler_path,
+            error_handler_args, retry, mode, permissioned_as, labels
+        )
+        SELECT
+            path, queue_url, aws_resource_path, message_attributes, script_path,
+            is_flow, $1, edited_by, edited_at, extra_perms, NULL,
+            NULL, NULL, aws_auth_resource_type, error_handler_path,
+            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels
+        FROM sqs_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO gcp_trigger (
+            gcp_resource_path, topic_id, subscription_id, delivery_type,
+            delivery_config, path, script_path, is_flow, workspace_id, edited_by,
+            edited_at, extra_perms, server_id, last_server_ping, error,
+            subscription_mode, error_handler_path, error_handler_args, retry,
+            auto_acknowledge_msg, ack_deadline, mode, permissioned_as, labels
+        )
+        SELECT
+            gcp_resource_path, topic_id, subscription_id, delivery_type,
+            delivery_config, path, script_path, is_flow, $1, edited_by,
+            edited_at, extra_perms, NULL, NULL, NULL,
+            subscription_mode, error_handler_path, error_handler_args, retry,
+            auto_acknowledge_msg, ack_deadline, 'disabled'::TRIGGER_MODE, permissioned_as, labels
+        FROM gcp_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"INSERT INTO azure_trigger (
+            azure_resource_path, azure_mode, scope_resource_id, topic_name,
+            subscription_name, event_type_filters, push_auth_config, path, script_path,
+            is_flow, workspace_id, edited_by, email, edited_at, extra_perms, server_id,
+            last_server_ping, error, mode, permissioned_as, error_handler_path,
+            error_handler_args, retry, labels
+        )
+        SELECT
+            azure_resource_path, azure_mode, scope_resource_id, topic_name,
+            subscription_name, event_type_filters, push_auth_config, path, script_path,
+            is_flow, $1, edited_by, email, edited_at, extra_perms, NULL,
+            NULL, NULL, 'disabled'::TRIGGER_MODE, permissioned_as, error_handler_path,
+            error_handler_args, retry, labels
+        FROM azure_trigger WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Skip non-workspaced email triggers: same shape as the non-workspaced
+    // HTTP route case — a clone would share the same `local_part@domain`
+    // address as the parent, and incoming mail would arbitrarily land in one
+    // or the other. CLOUD_HOSTED scopes email lookup by workspace_id natively,
+    // so on cloud we clone everything.
+    sqlx::query!(
+        r#"INSERT INTO email_trigger (
+            path, local_part, workspaced_local_part, script_path, is_flow,
+            workspace_id, edited_by, edited_at, extra_perms, error_handler_path,
+            error_handler_args, retry, mode, permissioned_as, labels
+        )
+        SELECT
+            path, local_part, workspaced_local_part, script_path, is_flow,
+            $1, edited_by, edited_at, extra_perms, error_handler_path,
+            error_handler_args, retry, 'disabled'::TRIGGER_MODE, permissioned_as, labels
+        FROM email_trigger
+        WHERE workspace_id = $2
+            AND (workspaced_local_part IS TRUE OR $3)"#,
+        target_workspace_id,
+        source_workspace_id,
+        *CLOUD_HOSTED,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
 async fn update_workspace_settings(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -4656,6 +4982,12 @@ async fn create_workspace_fork(
 
     // Clone all data from the parent workspace using Rust implementation
     clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id).await?;
+
+    // Clone triggers and schedules unconditionally, always with mode='disabled' /
+    // enabled=false. Disabled rows have no side effects (no listener
+    // attaches, no cron fires) so this is safe by construction. The user
+    // re-enables in the fork, with parent-conflict warnings on enable.
+    clone_triggers_and_schedules(&mut tx, &parent_workspace_id, &forked_id).await?;
 
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {

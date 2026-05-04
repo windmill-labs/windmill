@@ -21,6 +21,7 @@
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
+	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, X, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -370,15 +371,23 @@
 	}
 
 	async function handleToggleMode(newMode: TriggerMode) {
+		const previousMode = mode
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			await WebsocketTriggerService.setWebsocketTriggerMode({
-				path: initialPath,
-				workspace: $workspaceStore ?? '',
-				requestBody: { mode: newMode }
-			})
+			const ok = await withForkConflictRetry(
+				(force) =>
+					WebsocketTriggerService.setWebsocketTriggerMode({
+						path: initialPath,
+						workspace: $workspaceStore ?? '',
+						requestBody: { mode: newMode, force }
+					}),
+				'websocket trigger'
+			)
+			if (!ok) {
+				mode = previousMode
+				return
+			}
 			sendUserToast(`${capitalize(newMode)} websocket trigger ${initialPath}`)
-
 			onUpdate?.(initialPath)
 		}
 		if (originalConfig) {

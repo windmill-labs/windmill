@@ -324,6 +324,186 @@ Reference a specific resource using \`$res:\` prefix:
 \`\`\`
 `;
 
+export const WORKFLOW_AS_CODE_BASE = `# Windmill Workflow-as-Code Writing Guide
+
+## Scope
+
+Use this guide when writing or modifying Windmill Workflow-as-Code (WAC) scripts.
+WAC is authored as a Windmill script and deployed with the normal script workflow. It is not an OpenFlow YAML flow.
+
+Supported WAC authoring targets:
+- TypeScript scripts that import from \`windmill-client\`
+- Python 3 scripts that import from \`wmill\`
+
+## File Shape
+
+TypeScript:
+
+\`\`\`typescript
+import {
+  task,
+  taskScript,
+  taskFlow,
+  step,
+  sleep,
+  waitForApproval,
+  getResumeUrls,
+  parallel,
+  workflow,
+} from "windmill-client";
+
+const process = task(async (x: string): Promise<string> => {
+  return \`processed: \${x}\`;
+});
+
+export const main = workflow(async (x: string) => {
+  const result = await process(x);
+  return { result };
+});
+\`\`\`
+
+Python:
+
+\`\`\`python
+from wmill import task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, workflow
+
+@task()
+async def process(x: str) -> str:
+    return f"processed: {x}"
+
+@workflow
+async def main(x: str):
+    result = await process(x)
+    return {"result": result}
+\`\`\`
+
+Rules:
+- Do not call \`main\`.
+- TypeScript should export the workflow entrypoint, preferably \`export const main = workflow(async (...) => { ... })\`.
+- Python must use \`@workflow\` on an async top-level function, usually \`main\`.
+- Define task functions and \`taskScript\`/\`task_script\` or \`taskFlow\`/\`task_flow\` assignments at module top level with stable names.
+- Use the exact SDK names. Do not alias \`workflow\`, \`task\`, \`taskScript\`, \`taskFlow\`, \`step\`, \`sleep\`, \`waitForApproval\`, \`task_script\`, \`task_flow\`, or \`wait_for_approval\`; the WAC parser recognizes these names directly.
+
+## Checkpoint And Replay Model
+
+The parent workflow may rerun from the top after any suspension, retry, approval, or child task completion. Completed durable steps are replayed from the checkpoint.
+
+Put every side effect or non-deterministic value behind a durable WAC boundary:
+- Use \`task()\` / \`@task()\` for substantial work that should run as its own child job.
+- Use \`taskScript()\` / \`task_script()\` for an existing script or a relative module file.
+- Use \`taskFlow()\` / \`task_flow()\` for an existing Windmill flow.
+- Use \`step(name, fn)\` for lightweight inline work whose result must be checkpointed.
+- Use \`sleep(seconds)\` for server-side sleeps that do not hold a worker.
+- Use \`waitForApproval()\` / \`wait_for_approval()\` for external approval suspension.
+
+Never put API calls, database writes, notifications, random values, timestamps, or irreversible changes directly in the top-level workflow body. The workflow body can be rerun. Put those operations in a task or in \`step()\`.
+
+Branching on task or step results is safe because those results are checkpointed. Branching on current time, random data, environment reads, or external state is unsafe unless the value is first captured with \`step()\`.
+
+## Tasks
+
+Use \`task()\` / \`@task()\` for inline functions that become workflow steps:
+
+\`\`\`typescript
+const enrich = task(async (customerId: string) => {
+  return await fetchCustomer(customerId);
+});
+\`\`\`
+
+\`\`\`python
+@task(timeout=600, tag="etl")
+async def enrich(customer_id: str):
+    return await fetch_customer(customer_id)
+\`\`\`
+
+In TypeScript, prefer assigning each task to a named top-level const. In Python, prefer top-level async functions decorated with \`@task()\` or \`@task\`.
+
+For existing scripts:
+
+\`\`\`typescript
+const helper = taskScript("./helper.ts");
+const existing = taskScript("f/data/extract", { timeout: 600 });
+const value = await helper({ input: x });
+\`\`\`
+
+\`\`\`python
+helper = task_script("./helper.py")
+existing = task_script("f/data/extract", timeout=600)
+value = await helper(input=x)
+\`\`\`
+
+For existing flows:
+
+\`\`\`typescript
+const pipeline = taskFlow("f/etl/pipeline");
+const output = await pipeline({ input: data });
+\`\`\`
+
+\`\`\`python
+pipeline = task_flow("f/etl/pipeline")
+output = await pipeline(input=data)
+\`\`\`
+
+## Inline Steps
+
+Use \`step()\` for lightweight inline values that must not change during replay:
+
+\`\`\`typescript
+const urls = await step("get_urls", () => getResumeUrls());
+const startedAt = await step("started_at", () => new Date().toISOString());
+\`\`\`
+
+\`\`\`python
+urls = await step("get_urls", lambda: get_resume_urls())
+\`\`\`
+
+Use stable, descriptive step names. Do not generate step names dynamically.
+
+## Parallelism
+
+To run independent work in parallel, start task promises/coroutines before awaiting them together:
+
+\`\`\`typescript
+const [a, b] = await Promise.all([process("a"), process("b")]);
+const many = await parallel(items, process, { concurrency: 5 });
+\`\`\`
+
+\`\`\`python
+import asyncio
+
+a, b = await asyncio.gather(process("a"), process("b"))
+many = await parallel(items, process, concurrency=5)
+\`\`\`
+
+Only parallelize independent steps. Do not read the result of a task before it is awaited.
+
+## Approvals
+
+Generate resume URLs inside \`step()\` before sending them:
+
+\`\`\`typescript
+const urls = await step("get_urls", () => getResumeUrls());
+await step("notify", () => sendApprovalEmail(urls.approvalPage));
+const approval = await waitForApproval({ timeout: 3600 });
+\`\`\`
+
+\`\`\`python
+urls = await step("get_urls", lambda: get_resume_urls())
+await step("notify", lambda: send_approval_email(urls["approvalPage"]))
+approval = await wait_for_approval(timeout=3600)
+\`\`\`
+
+\`selfApproval: false\` and \`self_approval=False\` are Enterprise-only approval behavior. Do not use them unless the user asks for that behavior.
+
+## Error Handling
+
+Let task errors fail the workflow unless the user asks for recovery logic.
+
+Python: \`except Exception\` is safe around WAC calls because internal suspension inherits from \`BaseException\`. Avoid bare \`except:\` in workflow code. If the user asks for recovery logic around failed child work, catch \`TaskError\` from \`wmill\` for task failures.
+
+TypeScript: avoid broad \`try/catch\` around WAC SDK calls. The SDK uses an internal suspension error during initial dispatch; catching it can break workflow suspension. If a broad catch is unavoidable, rethrow internal suspension errors before handling business errors.
+`;
+
 export const FLOW_CHAT_SPECIAL_MODULES = `## Special Modules
 
 - Use \`set_preprocessor_module\` to add, replace, or remove the top-level \`value.preprocessor_module\`
@@ -1595,6 +1775,225 @@ def commit_kafka_offsets(trigger_path: str, topic: str, partition: int, offset: 
 
 `;
 
+export const WAC_SDK_TYPESCRIPT = `## TypeScript Workflow-as-Code API (windmill-client)
+
+Import: \`import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getResumeUrls, parallel } from "windmill-client"\`
+
+\`\`\`typescript
+export interface TaskOptions {
+  timeout?: number;
+  tag?: string;
+  cache_ttl?: number;
+  priority?: number;
+  concurrency_limit?: number;
+  concurrency_key?: string;
+  concurrency_time_window_s?: number;
+}
+
+/**
+ * Get URLs needed for resuming a flow after this step
+ * @param approver approver name
+ * @param flowLevel if true, generate resume URLs for the parent flow instead of the specific step.
+ *                  This allows pre-approvals that can be consumed by any later suspend step in the same flow.
+ * @returns approval page UI URL, resume and cancel API URLs for resuming the flow
+ */
+export async function getResumeUrls(approver?: string, flowLevel?: boolean): Promise<{ approvalPage: string; resume: string; cancel: string; }>
+
+/**
+ * Wrap an async function as a workflow task.
+ *
+ * @example
+ * const extract_data = task(async (url: string) => { ... });
+ * const run_external = task("f/external_script", async (x: number) => { ... });
+ *
+ * Inside a \`workflow()\`, calling a task dispatches it as a step.
+ * Outside a workflow, the function body executes directly.
+ */
+export function task<T extends (...args: any[]) => Promise<any>>(fnOrPath: T | string, maybeFnOrOptions?: T | TaskOptions, maybeOptions?: TaskOptions,): T
+
+/**
+ * Create a task that dispatches to a separate Windmill script.
+ *
+ * @example
+ * const extract = taskScript("f/data/extract");
+ * // inside workflow: await extract({ url: "https://..." })
+ */
+export function taskScript(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any>
+
+/**
+ * Create a task that dispatches to a separate Windmill flow.
+ *
+ * @example
+ * const pipeline = taskFlow("f/etl/pipeline");
+ * // inside workflow: await pipeline({ input: data })
+ */
+export function taskFlow(path: string, options?: TaskOptions): (...args: any[]) => PromiseLike<any>
+
+/**
+ * Mark an async function as a workflow-as-code entry point.
+ *
+ * The function must be **deterministic**: given the same inputs it must call
+ * tasks in the same order on every replay. Branching on task results is fine
+ * (results are replayed from checkpoint), but branching on external state
+ * (current time, random values, external API calls) must use \`step()\` to
+ * checkpoint the value so replays see the same result.
+ */
+export function workflow<T>(fn: (...args: any[]) => Promise<T>)
+
+export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+
+export async function sleep(seconds: number): Promise<void>
+
+/**
+ * Suspend the workflow and wait for an external approval.
+ *
+ * Use \`getResumeUrls()\` (wrapped in \`step()\`) to obtain resume/cancel/approvalPage
+ * URLs before calling this function.
+ *
+ * @example
+ * const urls = await step("urls", () => getResumeUrls());
+ * await step("notify", () => sendEmail(urls.approvalPage));
+ * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ */
+export function waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+
+/**
+ * Process items in parallel with optional concurrency control.
+ *
+ * Each item is processed by calling \`fn(item)\`, which should be a task().
+ * Items are dispatched in batches of \`concurrency\` (default: all at once).
+ *
+ * @example
+ * const process = task(async (item: string) => { ... });
+ * const results = await parallel(items, process, { concurrency: 5 });
+ */
+export async function parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R> | R, options?: { concurrency?: number },): Promise<R[]>
+\`\`\`
+`;
+
+export const WAC_SDK_PYTHON = `## Python Workflow-as-Code API (wmill)
+
+Import: \`from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, TaskError\`
+
+\`\`\`python
+# Raised when a WAC task step failed.
+#
+# Attributes:
+#     step_key: The checkpoint key of the failed step.
+#     child_job_id: The UUID of the failed child job.
+#     result: The error result from the child job.
+class TaskError(Exception):
+    def __init__(self, message: str, *, step_key: str = '', child_job_id: str = '', result = None)
+
+# Get URLs needed for resuming a flow after suspension.
+#
+# Args:
+#     approver: Optional approver name
+#     flow_level: If True, generate resume URLs for the parent flow instead of the
+#         specific step. This allows pre-approvals that can be consumed by any later
+#         suspend step in the same flow.
+#
+# Returns:
+#     Dictionary with approvalPage, resume, and cancel URLs
+def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
+
+# Decorator that marks a function as a workflow task.
+#
+# Works in both WAC v1 (sync, HTTP-based dispatch) and WAC v2
+# (async, checkpoint/replay) modes:
+#
+# - **v2 (inside @workflow)**: dispatches as a checkpoint step.
+# - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
+# - **Standalone**: executes the function body directly.
+#
+# Usage::
+#
+#     @task
+#     async def extract_data(url: str): ...
+#
+#     @task(path="f/external_script", timeout=600, tag="gpu")
+#     async def run_external(x: int): ...
+def task(_func = None, *, path: Optional[str] = None, tag: Optional[str] = None, timeout: Optional[int] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+
+# Create a task that dispatches to a separate Windmill script.
+#
+# Usage::
+#
+#     extract = task_script("f/data/extract", timeout=600)
+#
+#     @workflow
+#     async def main():
+#         data = await extract(url="https://...")
+def task_script(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+
+# Create a task that dispatches to a separate Windmill flow.
+#
+# Usage::
+#
+#     pipeline = task_flow("f/etl/pipeline", priority=10)
+#
+#     @workflow
+#     async def main():
+#         result = await pipeline(input=data)
+def task_flow(path: str, *, timeout: Optional[int] = None, tag: Optional[str] = None, cache_ttl: Optional[int] = None, priority: Optional[int] = None, concurrency_limit: Optional[int] = None, concurrency_key: Optional[str] = None, concurrency_time_window_s: Optional[int] = None)
+
+# Decorator marking an async function as a workflow-as-code entry point.
+#
+# The function must be **deterministic**: given the same inputs it must call
+# tasks in the same order on every replay. Branching on task results is fine
+# (results are replayed from checkpoint), but branching on external state
+# (current time, random values, external API calls) must use \`\`step()\`\` to
+# checkpoint the value so replays see the same result.
+def workflow(func)
+
+# Execute \`\`fn\`\` inline and checkpoint the result.
+#
+# On replay the cached value is returned without re-executing \`\`fn\`\`.
+# Use for lightweight deterministic operations (timestamps, random IDs,
+# config reads) that should not incur the overhead of a child job.
+async def step(name: str, fn)
+
+# Server-side sleep — suspend the workflow for the given duration without holding a worker.
+#
+# Inside a @workflow, the parent job suspends and auto-resumes after \`\`seconds\`\`.
+# Outside a workflow, falls back to \`\`asyncio.sleep\`\`.
+async def sleep(seconds: int)
+
+# Suspend the workflow and wait for an external approval.
+#
+# Use \`\`get_resume_urls()\`\` (wrapped in \`\`step()\`\`) to obtain
+# resume/cancel/approval URLs before calling this function.
+#
+# Returns a dict with \`\`value\`\` (form data), \`\`approver\`\`, and \`\`approved\`\`.
+#
+# Args:
+#     timeout: Approval timeout in seconds (default 1800).
+#     form: Optional form schema for the approval page.
+#     self_approval: Whether the user who triggered the flow can approve it (default True).
+#
+# Example::
+#
+#     urls = await step("urls", lambda: get_resume_urls())
+#     await step("notify", lambda: send_email(urls["approvalPage"]))
+#     result = await wait_for_approval(timeout=3600)
+async def wait_for_approval(timeout: int = 1800, form: dict | None = None, self_approval: bool = True) -> dict
+
+# Process items in parallel with optional concurrency control.
+#
+# Each item is processed by calling \`\`fn(item)\`\`, which should be a @task.
+# Items are dispatched in batches of \`\`concurrency\`\` (default: all at once).
+#
+# Example::
+#
+#     @task
+#     async def process(item: str):
+#         ...
+#
+#     results = await parallel(items, process, concurrency=5)
+async def parallel(items, fn, *, concurrency: Optional[int] = None)
+\`\`\`
+`;
+
 export const DATATABLE_SDK_TYPESCRIPT = `## TypeScript Datatable API (windmill-client)
 
 Import: \`import * as wmill from 'windmill-client'\`
@@ -1920,6 +2319,15 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
 - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
 - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
 
+**Subcommands:**
+
+- \`generate-metadata rehash [folder:string]\`
+  - \`--skip-scripts\` - Skip processing scripts
+  - \`--skip-flows\` - Skip processing flows
+  - \`--skip-apps\` - Skip processing apps
+  - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which files to include
+  - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which files to exclude
+
 ### gitsync-settings
 
 Manage git-sync settings between local wmill.yaml and Windmill backend
@@ -2128,6 +2536,7 @@ schedule related commands
 - \`schedule new <path:string>\` - create a new schedule locally
 - \`schedule push <file_path:string> <remote_path:string>\` - push a local schedule spec. This overrides any remote versions.
 - \`schedule enable <path:string>\` - Enable a schedule
+  - \`--force\` - Bypass the fork-conflict warning when the parent workspace has the same schedule (acknowledges that both crons will fire)
 - \`schedule disable <path:string>\` - Disable a schedule
 - \`schedule set-permissioned-as <path:string> <email:string>\` - Set the email (run-as user) for a schedule (requires admin or wm_deployers group)
 
@@ -2443,6 +2852,37 @@ Name the parameters by adding comments before the statement:
 -- @name2 (int64) = 0
 SELECT * FROM users WHERE name = @name1 AND age > @name2;
 \`\`\`
+
+## Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as a \`STRING\` JSON parameter — Parquet/CSV
+files are decoded server-side into a JSON array of records, JSON/JSONL pass
+through. Consume with \`JSON_EXTRACT_ARRAY\` / \`JSON_VALUE\`:
+
+\`\`\`sql
+-- @file (s3object)
+SELECT
+  CAST(JSON_VALUE(row, '$.id') AS INT64) AS id,
+  JSON_VALUE(row, '$.name') AS name
+FROM UNNEST(JSON_EXTRACT_ARRAY(@file)) AS row;
+\`\`\`
+
+## Streaming query results to S3
+
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
+
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
+\`\`\`
+
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered, bypassing the 10000-row return cap.
 `;
 
 export const LANG_BUN = `# TypeScript (Bun)
@@ -2527,19 +2967,20 @@ export async function preprocessor(event: Event) {
 
 ## S3 Object Operations
 
-Windmill provides built-in support for S3-compatible storage operations.
+Windmill provides built-in support for S3-compatible storage operations. The \`wmill.S3Object\` type covers both the \`s3://storage/key\` URI form (\`s3:///key\` for the workspace default storage) and the \`{ s3, storage? }\` record form — always use it instead of redefining your own.
 
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
+### Receiving an S3Object as a script parameter
 
 \`\`\`typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
 \`\`\`
 
-## TypeScript Operations
+### S3 operations
 
 \`\`\`typescript
 import * as wmill from "windmill-client";
@@ -2551,7 +2992,7 @@ const content: Uint8Array = await wmill.loadS3File(s3object);
 const blob: Blob = await wmill.loadS3FileStream(s3object);
 
 // Write file to S3
-const result: S3Object = await wmill.writeS3File(
+const result: wmill.S3Object = await wmill.writeS3File(
   s3object, // Target path (or undefined to auto-generate)
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use
@@ -2639,19 +3080,20 @@ export async function preprocessor(event: Event) {
 
 ## S3 Object Operations
 
-Windmill provides built-in support for S3-compatible storage operations.
+Windmill provides built-in support for S3-compatible storage operations. The \`wmill.S3Object\` type covers both the \`s3://storage/key\` URI form (\`s3:///key\` for the workspace default storage) and the \`{ s3, storage? }\` record form — always use it instead of redefining your own.
 
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
+### Receiving an S3Object as a script parameter
 
 \`\`\`typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
 \`\`\`
 
-## TypeScript Operations
+### S3 operations
 
 \`\`\`typescript
 import * as wmill from "windmill-client";
@@ -2663,7 +3105,7 @@ const content: Uint8Array = await wmill.loadS3File(s3object);
 const blob: Blob = await wmill.loadS3FileStream(s3object);
 
 // Write file to S3
-const result: S3Object = await wmill.writeS3File(
+const result: wmill.S3Object = await wmill.writeS3File(
   s3object, // Target path (or undefined to auto-generate)
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use
@@ -2800,19 +3242,20 @@ export async function preprocessor(event: Event) {
 
 ## S3 Object Operations
 
-Windmill provides built-in support for S3-compatible storage operations.
+Windmill provides built-in support for S3-compatible storage operations. The \`wmill.S3Object\` type covers both the \`s3://storage/key\` URI form (\`s3:///key\` for the workspace default storage) and the \`{ s3, storage? }\` record form — always use it instead of redefining your own.
 
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
+### Receiving an S3Object as a script parameter
 
 \`\`\`typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
 \`\`\`
 
-## TypeScript Operations
+### S3 operations
 
 \`\`\`typescript
 import * as wmill from "windmill-client";
@@ -2824,7 +3267,7 @@ const content: Uint8Array = await wmill.loadS3File(s3object);
 const blob: Blob = await wmill.loadS3FileStream(s3object);
 
 // Write file to S3
-const result: S3Object = await wmill.writeS3File(
+const result: wmill.S3Object = await wmill.writeS3File(
   s3object, // Target path (or undefined to auto-generate)
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use
@@ -2883,6 +3326,30 @@ SELECT * FROM read_parquet('s3:///path/to/file.parquet');
 -- JSON files
 SELECT * FROM read_json('s3:///path/to/file.json');
 \`\`\`
+
+### Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for it
+and binds the arg as the bare \`s3://storage/key\` URI, which DuckDB's reader
+functions consume directly:
+
+\`\`\`sql
+-- $file (s3object)
+SELECT * FROM read_parquet($file);
+\`\`\`
+
+Works with any DuckDB reader: \`read_csv($file)\`, \`read_json($file)\`, etc.
+
+### Writing query results to S3
+
+DuckDB writes to S3 natively via \`COPY ... TO\`:
+
+\`\`\`sql
+COPY (SELECT * FROM users) TO 's3:///exports/users.parquet' (FORMAT PARQUET);
+\`\`\`
+
+Use this instead of the \`-- s3\` streaming directive supported by the other SQL
+dialects — that directive is not available in DuckDB.
 `;
 
 export const LANG_GO = `# Go
@@ -3043,6 +3510,36 @@ Name the parameters by adding comments before the statement:
 -- @P2 name2 (int) = 0
 SELECT * FROM users WHERE name = @P1 AND age > @P2;
 \`\`\`
+
+## Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as \`nvarchar(max)\` JSON text — Parquet/CSV
+files are decoded server-side into a JSON array of records, JSON/JSONL pass
+through. Consume with \`OPENJSON\`:
+
+\`\`\`sql
+-- @P1 file (s3object)
+SELECT id, name
+FROM OPENJSON(@P1)
+WITH (id INT, name NVARCHAR(200));
+\`\`\`
+
+## Streaming query results to S3
+
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
+
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
+\`\`\`
+
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered as the script return value.
 `;
 
 export const LANG_MYSQL = `# MySQL
@@ -3056,6 +3553,37 @@ Name the parameters by adding comments before the statement:
 -- ? name2 (int) = 0
 SELECT * FROM users WHERE name = ? AND age > ?;
 \`\`\`
+
+## Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as JSON text — Parquet/CSV files are
+decoded server-side into a JSON array of records, JSON/JSONL pass through.
+Consume with \`JSON_TABLE\`:
+
+\`\`\`sql
+-- ? file (s3object)
+SELECT id, name
+FROM JSON_TABLE(?, '$[*]'
+  COLUMNS (id INT PATH '$.id', name VARCHAR(200) PATH '$.name')
+) AS r;
+\`\`\`
+
+## Streaming query results to S3
+
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
+
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
+\`\`\`
+
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered as the script return value.
 `;
 
 export const LANG_NATIVETS = `# TypeScript (Native)
@@ -3207,6 +3735,35 @@ Name the parameters by adding comments at the beginning of the script (without s
 -- $2 name2 = default_value
 SELECT * FROM users WHERE name = $1::TEXT AND age > $2::INT;
 \`\`\`
+
+## Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as a \`jsonb\` parameter — Parquet/CSV files
+are decoded server-side into a JSON array of records, JSON/JSONL pass through.
+Consume with \`jsonb_to_recordset\` (or any \`jsonb\` API):
+
+\`\`\`sql
+-- $1 file (s3object)
+SELECT *
+FROM jsonb_to_recordset($1::jsonb) AS r(id INT, name TEXT);
+\`\`\`
+
+## Streaming query results to S3
+
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
+
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
+\`\`\`
+
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered as the script return value.
 `;
 
 export const LANG_POWERSHELL = `# PowerShell
@@ -3365,6 +3922,21 @@ def preprocessor(event: Event):
 ## S3 Object Operations
 
 Windmill provides built-in support for S3-compatible storage operations.
+
+### Receiving an S3Object as a script parameter
+
+To accept a file from S3 as input to a script, type the parameter with \`S3Object\` (imported from \`wmill\`):
+
+\`\`\`python
+import wmill
+from wmill import S3Object
+
+def main(file: S3Object):
+    content = wmill.load_s3_file(file)
+    # ...
+\`\`\`
+
+### S3 operations
 
 \`\`\`python
 import wmill
@@ -3561,5 +4133,36 @@ Name the parameters by adding comments before the statement:
 -- ? name2 (number) = 0
 SELECT * FROM users WHERE name = ? AND age > ?;
 \`\`\`
+
+## Receiving an S3Object as a script parameter
+
+Declare the arg with type \`(s3object)\`. Windmill renders an S3 file picker for
+it, downloads the file, and binds it as JSON text — Parquet/CSV files are
+decoded server-side into a JSON array of records, JSON/JSONL pass through.
+Wrap the bind with \`PARSE_JSON(?)\` and walk it with \`LATERAL FLATTEN\`:
+
+\`\`\`sql
+-- ? file (s3object)
+SELECT
+  v.value:id::NUMBER AS id,
+  v.value:name::STRING AS name
+FROM LATERAL FLATTEN(input => PARSE_JSON(?)) v;
+\`\`\`
+
+## Streaming query results to S3
+
+Add a \`-- s3\` directive at the top of the script to stream the result set to S3
+instead of returning rows. Windmill writes the file and returns its \`S3Object\`
+as the script result.
+
+\`\`\`sql
+-- s3 prefix=exports/users format=parquet
+SELECT id, name FROM users;
+\`\`\`
+
+All keys are optional: \`prefix\` (object key prefix), \`storage\` (named storage —
+omit to use the workspace default), \`format\` (\`json\` (default), \`parquet\`, or
+\`csv\`). Use this for large result sets — rows stream directly to S3 instead of
+being buffered, bypassing the 10000-row return cap.
 `;
 

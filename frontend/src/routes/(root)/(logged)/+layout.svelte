@@ -15,6 +15,7 @@
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
+	import ForkConflictModal from '$lib/components/ForkConflictModal.svelte'
 	import {
 		enterpriseLicense,
 		isPremiumStore,
@@ -363,7 +364,7 @@
 	async function loadCriticalAlertsMuted() {
 		let g_muted = true
 		const ws_muted =
-			(await WorkspaceService.getSettings({ workspace: $workspaceStore! })).mute_critical_alerts ||
+			(await WorkspaceService.getPublicSettings({ workspace: $workspaceStore! })).mute_critical_alerts ||
 			false
 
 		if ($superadmin) {
@@ -836,6 +837,8 @@
 {#if $workspaceStore && globalDbManagerDrawer.val}
 	<DBManagerDrawer uriState={globalDbManagerDrawer.val} />
 {/if}
+
+<ForkConflictModal />
 
 <Modal2
 	title="Forking {$workspaceStore}"
