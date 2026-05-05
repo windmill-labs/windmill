@@ -258,11 +258,17 @@
 
 	let highlightedKey = $state<string | undefined>(initialHighlight)
 
-	// Default to the first node when nothing is highlighted yet. We don't reset a
-	// caller-supplied highlight that's not in `navNodes` yet — it might appear once
-	// lazy-loading completes (e.g. an item inside a not-yet-loaded kind).
+	// Default to the first node when nothing is highlighted yet. In search mode
+	// we also reset to the first node when the current highlight is no longer
+	// visible (the search result set changed). In tree mode we preserve a non-
+	// visible highlight — it might become visible after a lazy load completes.
 	$effect(() => {
-		if (navNodes.length > 0 && !highlightedKey) {
+		if (navNodes.length === 0) return
+		if (isSearching) {
+			if (!highlightedKey || !navNodes.some((n) => n.key === highlightedKey)) {
+				highlightedKey = navNodes[0].key
+			}
+		} else if (!highlightedKey) {
 			highlightedKey = navNodes[0].key
 		}
 	})

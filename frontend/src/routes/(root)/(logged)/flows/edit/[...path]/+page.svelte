@@ -232,6 +232,9 @@
 	}
 
 	$effect(() => {
+		// Re-run on workspace OR path change so navigating from one flow editor
+		// to another (e.g. via the workspace picker) reloads the new flow.
+		page.params.path
 		if ($workspaceStore) {
 			untrack(() => loadFlow())
 		}
