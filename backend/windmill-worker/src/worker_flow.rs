@@ -468,13 +468,18 @@ pub async fn update_flow_status_after_job_completion_internal(
 
         // Resolve flow_env for predicate evaluations (stop_after_if,
         // stop_after_all_iters_if, retry_if). Only fetch when one of these
-        // is configured to avoid an extra DB query on the common path.
+        // predicates is configured to avoid an extra DB query on the common
+        // path. `retry` without `retry_if` doesn't consult flow_env.
+        let retry_uses_flow_env =
+            |module: &FlowModule| module.retry.as_ref().is_some_and(|r| r.retry_if.is_some());
         let needs_flow_env = current_module.is_some_and(|m| {
-            m.stop_after_if.is_some() || m.stop_after_all_iters_if.is_some() || m.retry.is_some()
+            m.stop_after_if.is_some()
+                || m.stop_after_all_iters_if.is_some()
+                || retry_uses_flow_env(m)
         }) || flow_value
             .failure_module
             .as_ref()
-            .is_some_and(|fm| fm.retry.is_some());
+            .is_some_and(|fm| retry_uses_flow_env(fm));
         let resolved_flow_env: Option<HashMap<String, Box<RawValue>>> = if needs_flow_env {
             resolve_flow_env_for_status_update(db, client, flow, w_id, flow_value).await
         } else {
@@ -2397,7 +2402,11 @@ async fn resolve_flow_env_for_status_update(
     }
     let mini = match get_mini_pulled_job(db, &flow_job_id).await {
         Ok(Some(j)) => j,
-        _ => return Some(env),
+        Ok(None) => return Some(env),
+        Err(e) => {
+            tracing::warn!("Failed to fetch flow job to resolve flow_env: {e:#}");
+            return Some(env);
+        }
     };
     match transform_json(
         client,
@@ -2417,32 +2426,38 @@ async fn resolve_flow_env_for_status_update(
     }
 }
 
+// Maximum number of ancestor jobs the flow_env walk will follow before bailing.
+// Bounds runtime cost and protects against pathological data.
+const MAX_FLOW_ENV_LOOKUP_DEPTH: i32 = 50;
+
 // Look up an ancestor flow's `flow_env` for the given flow job. Sub-flows
 // spawned by branches/loops via `payload_from_modules` don't carry `flow_env`
 // in their own `FlowValue`, so any predicate evaluated against the local
 // flow_env would see `None`. We walk recursively up the chain via
-// `flow_innermost_root_job` (when set) or `parent_job` until we find an
-// ancestor whose persisted flow definition (`flow_version.value` or
-// `raw_flow`) carries `flow_env`. The recursion is needed because parallel
-// forloop iterations and imported sub-flows reset `flow_innermost_root_job`
-// to `None`, so a single COALESCE wouldn't reach the actual root for nested
-// cases like `root -> branch -> parallel forloop -> iteration`.
+// `root_job → flow_innermost_root_job → parent_job` (matching the priority
+// used by `get_root_job_id` and the `get_flow_env_by_flow_job_id` API
+// endpoint) until we find an ancestor whose persisted flow definition
+// (`flow_version.value` or `raw_flow`) carries `flow_env`. The recursion is
+// needed because parallel forloop iterations and imported sub-flows reset
+// `flow_innermost_root_job` to `None`, so a single COALESCE wouldn't reach
+// the actual root for nested cases like
+// `root -> branch -> parallel forloop -> iteration`.
 async fn fetch_root_flow_env(
     db: &DB,
     flow_job_id: Uuid,
     workspace_id: &str,
 ) -> Option<HashMap<String, Box<RawValue>>> {
     sqlx::query_scalar!(
-        r#"WITH RECURSIVE chain(id, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, depth) AS (
-            SELECT id, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, 0
+        r#"WITH RECURSIVE chain(id, root_job, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, depth) AS (
+            SELECT id, root_job, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, 0
             FROM v2_job
             WHERE id = $1 AND workspace_id = $2
             UNION ALL
-            SELECT j.id, j.parent_job, j.flow_innermost_root_job, j.runnable_id, j.runnable_path, j.raw_flow, c.depth + 1
+            SELECT j.id, j.root_job, j.parent_job, j.flow_innermost_root_job, j.runnable_id, j.runnable_path, j.raw_flow, c.depth + 1
             FROM v2_job j
             JOIN chain c
-                ON j.id = COALESCE(c.flow_innermost_root_job, c.parent_job)
-            WHERE j.workspace_id = $2 AND c.depth < 50
+                ON j.id = COALESCE(c.root_job, c.flow_innermost_root_job, c.parent_job)
+            WHERE j.workspace_id = $2 AND c.depth < $3
         )
         SELECT
             CASE
@@ -2464,6 +2479,7 @@ async fn fetch_root_flow_env(
          LIMIT 1"#,
         flow_job_id,
         workspace_id,
+        MAX_FLOW_ENV_LOOKUP_DEPTH,
     )
     .fetch_optional(db)
     .await
