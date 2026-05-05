@@ -1,5 +1,6 @@
-import { AppService, FlowService, ScriptService } from '$lib/gen'
-import type { AppWithLastVersion, Flow, ListableApp, Script } from '$lib/gen/types.gen'
+import { FlowService, ScriptService } from '$lib/gen'
+import { getFlowPrompt, getScriptPrompt } from '$system_prompts'
+import type { Flow, Script } from '$lib/gen/types.gen'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -14,20 +15,78 @@ import {
 	type GlobalWorkspaceItemType
 } from './draftStore.svelte'
 
-const ITEM_TYPES = ['script', 'flow', 'app'] as const satisfies readonly GlobalWorkspaceItemType[]
+const ITEM_TYPES = ['script', 'flow'] as const satisfies readonly GlobalWorkspaceItemType[]
 const MAX_LIST_LIMIT = 100
 
+const SCRIPT_INSTRUCTION_LANGUAGES = [
+	'bunnative',
+	'nativets',
+	'bun',
+	'deno',
+	'python3',
+	'php',
+	'rust',
+	'go',
+	'bash',
+	'postgresql',
+	'mysql',
+	'bigquery',
+	'snowflake',
+	'mssql',
+	'graphql',
+	'powershell',
+	'csharp',
+	'java',
+	'duckdb',
+	'rlang',
+	'oracledb',
+	'ansible',
+	'nu',
+	'ruby'
+] as const
+
+const SYSTEM_PROMPT_SCRIPT_LANGUAGES = new Set<string>([
+	'bunnative',
+	'nativets',
+	'bun',
+	'deno',
+	'python3',
+	'php',
+	'rust',
+	'go',
+	'bash',
+	'postgresql',
+	'mysql',
+	'bigquery',
+	'snowflake',
+	'mssql',
+	'graphql',
+	'powershell',
+	'csharp',
+	'java',
+	'duckdb',
+	'rlang'
+])
+
 const itemTypeSchema = z.enum(ITEM_TYPES)
+const scriptInstructionLanguageSchema = z.enum(SCRIPT_INSTRUCTION_LANGUAGES)
+type ScriptInstructionLanguage = z.infer<typeof scriptInstructionLanguageSchema>
+const DEFAULT_SCRIPT_LANGUAGE: ScriptInstructionLanguage = 'bun'
 
 const getInstructionsSchema = z.object({
-	subject: itemTypeSchema.describe('The workspace item type to get authoring instructions for.')
+	subject: itemTypeSchema.describe('The workspace item type to get authoring instructions for.'),
+	language: scriptInstructionLanguageSchema
+		.optional()
+		.describe(
+			'Required when subject is script. Use the existing script language when modifying, or the requested target language when creating.'
+		)
 })
 
 const listWorkspaceItemsSchema = z.object({
 	types: z
 		.array(itemTypeSchema)
 		.optional()
-		.describe('Optional item types to list. Defaults to scripts, flows, and apps.'),
+		.describe('Optional item types to list. Defaults to scripts and flows.'),
 	query: z.string().optional().describe('Optional case-insensitive path or summary search string.'),
 	path_prefix: z
 		.string()
@@ -84,18 +143,17 @@ type WorkspaceItemMetadata = {
 	language?: string
 	kind?: string
 	moduleCount?: number
-	rawApp?: boolean
 }
 
 const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
 
-You can inspect workspace scripts, flows, and apps, then create draft changes in the frontend AI draft store.
+You can inspect workspace scripts and flows, then create draft changes in the frontend AI draft store.
 
 Important rules:
 - Writes and modifications are drafts only. They do not save, deploy, or mutate backend workspace items.
 - Use list_workspace_items before broad reads.
 - Use read_workspace_item before modifying an existing item unless the user already provided the complete current item.
-- Use get_instructions before writing or modifying a script, flow, or app.
+- Use get_instructions before writing or modifying a script or flow. For scripts, pass the target language; when modifying, use the language from the item you read.
 - Keep context targeted. Do not read unrelated items.
 - Be explicit with the user when you create or update a draft.`
 
@@ -168,18 +226,6 @@ function flowToMetadata(flow: Flow): WorkspaceItemMetadata {
 	}
 }
 
-function appToMetadata(app: ListableApp): WorkspaceItemMetadata {
-	return {
-		type: 'app',
-		path: app.path,
-		source: 'workspace',
-		summary: app.summary,
-		version: app.version,
-		editedAt: app.edited_at,
-		rawApp: app.raw_app
-	}
-}
-
 function draftToMetadata(draft: GlobalDraftItem, hasWorkspaceItem: boolean): WorkspaceItemMetadata {
 	return {
 		type: draft.type,
@@ -235,25 +281,6 @@ function flowToRead(flow: Flow): WorkspaceItemRead {
 	}
 }
 
-function appToRead(app: AppWithLastVersion): WorkspaceItemRead {
-	return {
-		type: 'app',
-		path: app.path,
-		summary: app.summary,
-		version: app.versions[app.versions.length - 1],
-		value: {
-			path: app.path,
-			summary: app.summary,
-			value: app.value,
-			policy: app.policy,
-			execution_mode: app.execution_mode,
-			custom_path: app.custom_path,
-			raw_app: app.raw_app,
-			labels: app.labels
-		}
-	}
-}
-
 async function workspaceItemExists(
 	type: GlobalWorkspaceItemType,
 	path: string,
@@ -264,8 +291,6 @@ async function workspaceItemExists(
 			return ScriptService.existsScriptByPath({ workspace, path })
 		case 'flow':
 			return FlowService.existsFlowByPath({ workspace, path })
-		case 'app':
-			return AppService.existsApp({ workspace, path })
 	}
 }
 
@@ -279,8 +304,6 @@ async function readWorkspaceItem(
 			return scriptToRead(await ScriptService.getScriptByPath({ workspace, path }))
 		case 'flow':
 			return flowToRead(await FlowService.getFlowByPath({ workspace, path }))
-		case 'app':
-			return appToRead(await AppService.getAppByPath({ workspace, path }))
 	}
 }
 
@@ -318,43 +341,58 @@ async function listWorkspaceMetadata(
 		}
 	}
 
-	if (types.includes('app')) {
-		const apps = await AppService.listApps({
-			workspace,
-			pathStart: pathPrefix,
-			perPage,
-			includeDraftOnly: true
-		})
-		for (const app of apps) {
-			items.set(getGlobalDraftKey('app', app.path), appToMetadata(app))
-		}
-	}
-
 	return items
 }
 
-function getInstructions(subject: GlobalWorkspaceItemType): string {
+function getScriptInstructions(language: ScriptInstructionLanguage | undefined): string {
+	const selectedLanguage = language ?? DEFAULT_SCRIPT_LANGUAGE
+	const languageAvailabilityNote = SYSTEM_PROMPT_SCRIPT_LANGUAGES.has(selectedLanguage)
+		? `Using the shared system_prompts script guidance for \`${selectedLanguage}\`.`
+		: `No dedicated system_prompts language skill exists yet for \`${selectedLanguage}\`; preserve the existing runtime conventions and use the generic Windmill script guidance below.`
+	const defaultLanguageNote = language
+		? ''
+		: `\n- No script language was provided. Default to \`${DEFAULT_SCRIPT_LANGUAGE}\` only for new TypeScript scripts; if the user requested another language or you read an existing script, call get_instructions again with that language.`
+
+	return `# Global draft script instructions
+
+${languageAvailabilityNote}
+
+- Global mode writes complete draft payloads only; it does not save, deploy, run, or generate metadata.
+- Draft payloads for scripts should be NewScript-like objects with: \`path\`, \`summary\`, optional \`description\`, \`language\`, \`content\`, optional JSON Schema \`schema\`, optional \`kind\`, \`tag\`, \`envs\`, \`lock\`, and \`modules\` when needed.
+- Use workspace paths such as \`f/folder/name\` or \`u/username/name\`. Preserve the current path/language/kind when modifying unless the user asked to change them.
+- For normal scripts, \`kind\` should be \`script\`; use \`preprocessor\`, \`failure\`, etc. only when that is the actual script role.
+- Return the full desired script draft to \`write_workspace_item\` or \`modify_workspace_item\`, not a patch or partial object.${defaultLanguageNote}
+
+# Windmill script authoring reference (${selectedLanguage})
+
+${getScriptPrompt(selectedLanguage)}`
+}
+
+function getFlowInstructions(): string {
+	return `# Global draft flow instructions
+
+- Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
+- Draft payloads for flows should be Flow-like objects with: \`path\`, \`summary\`, optional \`description\`, optional input \`schema\`, and \`value\` containing the OpenFlow value.
+- \`value.modules\` contains normal sequential modules. Use top-level \`value.preprocessor_module\` and \`value.failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`value.modules\`.
+- Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
+- Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
+- When writing rawscript module code, call \`get_instructions\` with \`subject: "script"\` and the rawscript language first.
+- Return the full desired flow draft to \`write_workspace_item\` or \`modify_workspace_item\`, not a patch or partial object.
+
+# Windmill flow authoring reference
+
+${getFlowPrompt()}`
+}
+
+function getInstructions(
+	subject: GlobalWorkspaceItemType,
+	language?: ScriptInstructionLanguage
+): string {
 	switch (subject) {
 		case 'script':
-			return `Script instructions:
-- Draft payloads should include path, summary, language, content, schema, and optional description.
-- Prefer language "bun" for TypeScript unless the user asks for another language.
-- TypeScript scripts should export a main function, for example: export async function main(args) { ... }.
-- Keep input schema in JSON Schema form when arguments are needed.
-- Use workspace paths such as f/folder/name or u/username/name.`
+			return getScriptInstructions(language)
 		case 'flow':
-			return `Flow instructions:
-- Draft payloads should include path, summary, optional description/schema, and value.
-- value must be a FlowValue-like object with a modules array.
-- Every module needs a stable id and a useful summary.
-- Prefer existing workspace scripts via path modules when the task composes existing logic.
-- Use rawscript modules only when the flow needs new inline code.`
-		case 'app':
-			return `App instructions:
-- Draft payloads should include path, summary, value, policy, execution_mode, and raw_app when known.
-- For raw apps, value should describe frontend files, backend runnables, and app data config when available.
-- Keep frontend file paths explicit and keep backend runnables separate from UI files.
-- Do not assume this draft is saved; it must later be opened in the app editor for review and deployment.`
+			return getFlowInstructions()
 	}
 }
 
@@ -363,21 +401,25 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			getInstructionsSchema,
 			'get_instructions',
-			'Get concise Windmill authoring instructions for scripts, flows, or apps.'
+			'Get Windmill authoring instructions for scripts or flows. For scripts, pass the target language.'
 		),
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsedArgs = getInstructionsSchema.parse(args)
+			const subjectLabel =
+				parsedArgs.subject === 'script' && parsedArgs.language
+					? `${parsedArgs.subject} (${parsedArgs.language})`
+					: parsedArgs.subject
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Loaded ${parsedArgs.subject} instructions`
+				content: `Loaded ${subjectLabel} instructions`
 			})
-			return getInstructions(parsedArgs.subject)
+			return getInstructions(parsedArgs.subject, parsedArgs.language)
 		}
 	},
 	{
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace scripts, flows, apps, and AI drafts. Returns metadata only.'
+			'List workspace scripts, flows, and AI drafts. Returns metadata only.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsedArgs = listWorkspaceItemsSchema.parse(args)
@@ -401,8 +443,7 @@ export const globalTools: Tool<{}>[] = [
 					...existing,
 					...draftMetadata,
 					summary: draftMetadata.summary ?? existing?.summary,
-					version: existing?.version ?? draft.base?.version,
-					rawApp: existing?.rawApp
+					version: existing?.version ?? draft.base?.version
 				})
 			}
 

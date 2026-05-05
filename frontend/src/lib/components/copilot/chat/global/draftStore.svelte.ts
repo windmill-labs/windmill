@@ -1,4 +1,4 @@
-export type GlobalWorkspaceItemType = 'script' | 'flow' | 'app'
+export type GlobalWorkspaceItemType = 'script' | 'flow'
 
 export type GlobalDraftStatus = 'new' | 'modified'
 
@@ -93,10 +93,6 @@ class GlobalDraftStore {
 
 	getFlowDraft(path: string): GlobalDraftItem | undefined {
 		return this.getDraft('flow', path)
-	}
-
-	getAppDraft(path: string): GlobalDraftItem | undefined {
-		return this.getDraft('app', path)
 	}
 }
 

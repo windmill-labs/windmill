@@ -2,14 +2,14 @@
 
 ## Goal
 
-Add a POC "global" AI chat mode that can reason across workspace items and create draft changes for scripts, flows, and apps. For this POC, write and modify tools must not call save/update APIs. They should write to a frontend global draft store that can later feed the corresponding editor or viewer.
+Add a POC "global" AI chat mode that can reason across workspace scripts and flows and create draft changes for them. For this POC, write and modify tools must not call save/update APIs. They should write to a frontend global draft store that can later feed the corresponding editor or viewer.
 
 ## Non-Goals For POC
 
 - Do not persist AI-created or AI-modified items to the backend.
 - Do not implement resources, triggers, schedules, variables, or datatables yet.
 - Do not build a full diff/review UI beyond exposing enough draft state for follow-up rendering.
-- Do not replace existing script, flow, app, app-mode, or API-mode chat behavior.
+- Do not replace existing script, flow, app-mode, or API-mode chat behavior.
 
 ## Core Design
 
@@ -17,19 +17,19 @@ Global mode should be a new AI chat mode with a small curated tool surface:
 
 1. `get_instructions`
    - Returns focused instructions for a specific subject.
-   - Initial subjects: `script`, `flow`, `app`.
+   - Initial subjects: `script`, `flow`.
    - The global mode system prompt should instruct the model to call this before writing or modifying that subject type.
 
 2. `list_workspace_items`
-   - Lists current workspace scripts, flows, apps, and AI drafts.
+   - Lists current workspace scripts, flows, and AI drafts.
    - Returns metadata only: `type`, `path`, `summary`, draft status, and size/version hints.
-   - Does not include source code, flow JSON, or raw app bundle content.
+   - Does not include source code or flow JSON.
 
 3. `read_workspace_item`
    - Reads one item by `type` and `path`.
    - If a draft exists, returns the draft and its base metadata.
    - Otherwise reads from the workspace through generated service clients.
-   - Initial supported types: `script`, `flow`, `app`.
+   - Initial supported types: `script`, `flow`.
 
 4. `write_workspace_item`
    - Creates a new draft item in the global AI draft store.
@@ -50,7 +50,7 @@ Create a frontend store for AI workspace drafts. Suggested file:
 Suggested draft model:
 
 ```ts
-type GlobalDraftItemType = 'script' | 'flow' | 'app'
+type GlobalDraftItemType = 'script' | 'flow'
 
 type GlobalDraftStatus = 'new' | 'modified'
 
@@ -94,7 +94,7 @@ Store operations:
 5. Keep the first system prompt short and demand-driven:
    - list before broad reads;
    - read before modify;
-   - call `get_instructions` before writing/modifying scripts, flows, or apps;
+   - call `get_instructions` before writing/modifying scripts or flows;
    - clearly state that write/modify creates drafts only.
 
 ### Step 2: Add Draft Store
@@ -108,11 +108,10 @@ Store operations:
 ### Step 3: Implement Instruction Tool
 
 1. Add `get_instructions` with a Zod schema:
-   - `subject: 'script' | 'flow' | 'app'`
+   - `subject: 'script' | 'flow'`
 2. Return concise, practical instructions:
    - script: language, schema, main function expectations, path conventions;
-   - flow: `OpenFlow` shape, modules, IDs, summaries, validation expectations;
-   - app: raw app bundle shape, frontend files, backend runnables, data config.
+   - flow: `OpenFlow` shape, modules, IDs, summaries, validation expectations.
 3. Keep detailed examples short. This tool can grow later into a workspace skill system.
 
 ### Step 4: Implement Listing Tool
@@ -121,7 +120,6 @@ Store operations:
 2. Fetch workspace items with generated clients:
    - `ScriptService.listScripts`
    - `FlowService.listFlows`
-   - `AppService.listApps`
 3. Merge drafts from the draft store into the result.
 4. Mark each result:
    - `source: 'workspace' | 'draft' | 'workspace+draft'`
@@ -135,14 +133,12 @@ Store operations:
 3. If no draft exists:
    - scripts: `ScriptService.getScriptByPath`
    - flows: `FlowService.getFlowByPath`
-   - apps: `AppService.getAppByPath`
 4. Normalize output with:
    - `type`
    - `path`
    - `source`
    - `baseVersion`
    - `value`
-5. For raw apps, initially read app metadata/value. Defer full raw bundle hydration if the exact existing app API shape needs more investigation.
 
 ### Step 6: Implement Write Draft Tool
 
@@ -167,7 +163,7 @@ Store operations:
 ### Step 8: Wire UI Entry Point
 
 1. Add Global mode wherever AI modes are selectable.
-2. Ensure opening global mode does not clear app/script/flow editor-specific helper state unexpectedly.
+2. Ensure opening global mode does not clear script/flow editor-specific helper state unexpectedly.
 3. Label the mode clearly as draft-based, for example `Workspace` or `Global`.
 4. Make draft write/modify tool execution visible in the existing tool display.
 
@@ -176,12 +172,10 @@ Store operations:
 1. Add helper selectors in the draft store:
    - `getScriptDraft(path)`
    - `getFlowDraft(path)`
-   - `getAppDraft(path)`
 2. Do not wire full editor hydration in this POC unless trivial.
 3. Document expected future handoff:
    - script draft opens ScriptBuilder with draft content;
-   - flow draft opens FlowBuilder with draft `OpenFlow`;
-   - app draft opens raw app editor with draft files/runnables/data.
+   - flow draft opens FlowBuilder with draft `OpenFlow`.
 
 ### Step 10: Validation
 
@@ -191,8 +185,8 @@ Since this POC is frontend chat code:
 2. Run `npm run check` from `frontend/` before finalizing.
 3. Manually test in the running frontend:
    - switch to global/workspace mode;
-   - list scripts, flows, apps;
-   - read one script, one flow, one app;
+   - list scripts and flows;
+   - read one script and one flow;
    - create a new draft script;
    - modify an existing item into a draft;
    - verify no backend create/update API was called for write/modify.
@@ -210,6 +204,7 @@ Since this POC is frontend chat code:
 1. Add draft review and diff UI.
 2. Add editor handoff actions.
 3. Add draft persistence if users need drafts to survive reloads.
-4. Add resources, triggers, schedules, variables, and datatables.
-5. Add permission-aware read filtering and secret redaction.
-6. Add backend-backed apply/deploy flows through existing editors, not directly from the global tool.
+4. Add other workspace item types if needed later.
+5. Add resources, triggers, schedules, variables, and datatables.
+6. Add permission-aware read filtering and secret redaction.
+7. Add backend-backed apply/deploy flows through existing editors, not directly from the global tool.
