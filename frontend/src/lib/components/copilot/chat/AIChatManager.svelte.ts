@@ -343,7 +343,7 @@ class AIChatManager {
 			function: {
 				name: 'change_mode',
 				description:
-					'Change the AI mode to the one specified. Script mode is used to create scripts. Flow mode is used to create flows. Global mode is used to inspect workspace items and create draft changes. Navigator mode is used to navigate the application and help the user find what they are looking for. API mode is used to make API calls to the Windmill backend.',
+					'Change the AI mode to the one specified. Script mode is used to create scripts. Flow mode is used to create flows. Global mode is used to inspect workspace scripts and flows and create draft changes. Navigator mode is used to navigate the application and help the user find what they are looking for. API mode is used to make API calls to the Windmill backend.',
 				parameters: {
 					type: 'object',
 					properties: {
