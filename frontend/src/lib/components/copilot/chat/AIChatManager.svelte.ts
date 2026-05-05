@@ -60,6 +60,7 @@ import { runChatLoop } from './chatLoop'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import { getCurrentModel, tryGetCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
+import { globalTools, prepareGlobalSystemMessage, prepareGlobalUserMessage } from './global/core'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -71,6 +72,7 @@ export enum AIMode {
 	APP = 'app',
 	NAVIGATOR = 'navigator',
 	API = 'API',
+	GLOBAL = 'global',
 	ASK = 'ask'
 }
 
@@ -133,7 +135,8 @@ class AIChatManager {
 		app: this.appAiChatHelpers !== undefined,
 		navigator: true,
 		ask: true,
-		API: true
+		API: true,
+		global: true
 	})
 
 	open = $derived(chatState.size > 0)
@@ -329,6 +332,11 @@ class AIChatManager {
 			this.systemMessage = prepareApiSystemMessage(customPrompt)
 			this.tools = [...this.apiTools]
 			this.helpers = {}
+		} else if (mode === AIMode.GLOBAL) {
+			const customPrompt = getCombinedCustomPrompt(mode)
+			this.systemMessage = prepareGlobalSystemMessage(customPrompt)
+			this.tools = [...globalTools]
+			this.helpers = {}
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
@@ -345,14 +353,14 @@ class AIChatManager {
 			function: {
 				name: 'change_mode',
 				description:
-					'Change the AI mode to the one specified. Script mode is used to create scripts. Flow mode is used to create flows. Navigator mode is used to navigate the application and help the user find what they are looking for. API mode is used to make API calls to the Windmill backend.',
+					'Change the AI mode to the one specified. Script mode is used to create scripts. Flow mode is used to create flows. Global mode is used to inspect workspace items and create draft changes. Navigator mode is used to navigate the application and help the user find what they are looking for. API mode is used to make API calls to the Windmill backend.',
 				parameters: {
 					type: 'object',
 					properties: {
 						mode: {
 							type: 'string',
 							description: 'The mode to change to',
-							enum: ['script', 'flow', 'navigator', 'API']
+							enum: ['script', 'flow', 'global', 'navigator', 'API']
 						},
 						pendingPrompt: {
 							type: 'string',
@@ -498,6 +506,8 @@ class AIChatManager {
 						)
 					} else if (this.mode === AIMode.NAVIGATOR) {
 						return prepareNavigatorUserMessage(pendingPrompt)
+					} else if (this.mode === AIMode.GLOBAL) {
+						return prepareGlobalUserMessage(pendingPrompt)
 					}
 					return undefined
 				},
@@ -715,6 +725,9 @@ class AIChatManager {
 					break
 				case AIMode.API:
 					userMessage = prepareApiUserMessage(oldInstructions)
+					break
+				case AIMode.GLOBAL:
+					userMessage = prepareGlobalUserMessage(oldInstructions)
 					break
 				case AIMode.APP:
 					userMessage = prepareAppUserMessage(
