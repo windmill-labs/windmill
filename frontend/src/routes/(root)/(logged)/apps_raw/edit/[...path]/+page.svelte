@@ -226,7 +226,7 @@
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
 
 {#if files}
-	{#key redraw}
+	{#key page.params.path + ':' + redraw}
 		<div class="h-screen">
 			<RawAppEditor
 				on:savedNewAppPath={(event) => {

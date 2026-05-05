@@ -217,7 +217,7 @@
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
 
-{#key redraw}
+{#key page.params.path + ':' + redraw}
 	{#if app}
 		<div class="h-screen">
 			<AppEditor
