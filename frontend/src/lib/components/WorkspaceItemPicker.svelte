@@ -92,10 +92,19 @@
 	interface Props {
 		onPick: (item: { path: string; kind: Kind_ }) => void
 		kinds?: Kind_[]
-		initiallyExpanded?: Kind_[]
+		/** Composite-keyed nodes to open on mount. e.g. `['kind:flow', 'scope:flow:f/demo']`. */
+		initialOpen?: string[]
+		/** Composite key to highlight on mount. Preserved even if not yet visible (e.g. while
+		 * the kind is still loading). */
+		initialHighlight?: string
 	}
 
-	let { onPick, kinds = ['flow', 'script', 'app'], initiallyExpanded = [] }: Props = $props()
+	let {
+		onPick,
+		kinds = ['flow', 'script', 'app'],
+		initialOpen = [],
+		initialHighlight
+	}: Props = $props()
 
 	let searchInput: TextInput | undefined = $state()
 	let pickerRoot: HTMLElement | undefined = $state()
@@ -117,7 +126,7 @@
 	const leafKey = (it: Item) => `leaf:${it.kind}:${it.path}`
 
 	let filter = $state('')
-	let openItems = $state<Set<string>>(new Set(initiallyExpanded.map(kindKey)))
+	let openItems = $state<Set<string>>(new Set(initialOpen))
 
 	let loaded = $state<Partial<Record<Kind_, Item[]>>>({})
 	let loadingKind = $state<Partial<Record<Kind_, boolean>>>({})
@@ -247,16 +256,21 @@
 		return nodes
 	})
 
-	let highlightedKey = $state<string | undefined>(undefined)
+	let highlightedKey = $state<string | undefined>(initialHighlight)
 
-	// Keep highlight on a valid node; default to the first node when empty/stale.
+	// Default to the first node when nothing is highlighted yet. We don't reset a
+	// caller-supplied highlight that's not in `navNodes` yet — it might appear once
+	// lazy-loading completes (e.g. an item inside a not-yet-loaded kind).
 	$effect(() => {
-		if (navNodes.length === 0) {
-			highlightedKey = undefined
-			return
-		}
-		if (!highlightedKey || !navNodes.some((n) => n.key === highlightedKey)) {
+		if (navNodes.length > 0 && !highlightedKey) {
 			highlightedKey = navNodes[0].key
+		}
+	})
+
+	// Once the caller-supplied highlight becomes visible, scroll it into view.
+	$effect(() => {
+		if (highlightedKey && navNodes.some((n) => n.key === highlightedKey)) {
+			queueMicrotask(scrollHighlightIntoView)
 		}
 	})
 
@@ -297,12 +311,15 @@
 	function handleSearchKeydown(e: KeyboardEvent) {
 		if (e.key === 'ArrowDown') {
 			e.preventDefault()
+			e.stopPropagation()
 			moveHighlight(1)
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault()
+			e.stopPropagation()
 			moveHighlight(-1)
 		} else if (e.key === 'Enter') {
 			e.preventDefault()
+			e.stopPropagation()
 			activate(highlightedKey)
 		}
 	}
@@ -340,16 +357,18 @@
 	</button>
 {/snippet}
 
-<div bind:this={pickerRoot} class="flex flex-col w-[420px] max-h-[60vh]">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+	bind:this={pickerRoot}
+	class="flex flex-col w-[420px] max-h-[60vh]"
+	onkeydown={handleSearchKeydown}
+>
 	<div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
 		<TextInput
 			bind:this={searchInput}
 			bind:value={filter}
 			size="sm"
-			inputProps={{
-				placeholder: 'Search by name or summary...',
-				onkeydown: handleSearchKeydown
-			}}
+			inputProps={{ placeholder: 'Search by name or summary...' }}
 		/>
 	</div>
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Folder, Pencil, Plus } from 'lucide-svelte'
+	import { ChevronRight, Pencil, Plus } from 'lucide-svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -13,12 +13,15 @@
 	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
 
 	type Kind = 'flow' | 'script' | 'app'
+	const KIND_LABEL: Record<Kind, string> = { flow: 'flows', script: 'scripts', app: 'apps' }
 
 	interface Props {
 		summary?: string
 		path?: string
 		labels?: string[] | undefined
 		isNew?: boolean
+		/** Kind of the item being edited; used to label the first breadcrumb segment. */
+		kind?: Kind
 		onNavigate?: (item: { path: string; kind: Kind }) => void
 		onSaved?: (newPath: string) => void
 		penVisibility?: 'hover' | 'always'
@@ -30,15 +33,33 @@
 		path = $bindable(''),
 		labels = $bindable(),
 		isNew = false,
+		kind = 'flow',
 		onNavigate,
 		onSaved,
 		penVisibility = 'hover',
 		disabled = false
 	}: Props = $props()
 
-	let pickerOpen = $state(false)
+	let pickerNewOpen = $state(false)
+	let pickerTypeOpen = $state(false)
+	let pickerScopeOpen = $state(false)
+	let pickerSlugOpen = $state(false)
 	let pathPopoverOpen = $state(false)
-	let picker: WorkspaceItemPicker | undefined = $state()
+	let pickerNew: WorkspaceItemPicker | undefined = $state()
+	let pickerType: WorkspaceItemPicker | undefined = $state()
+	let pickerScope: WorkspaceItemPicker | undefined = $state()
+	let pickerSlug: WorkspaceItemPicker | undefined = $state()
+
+	// Path segments. e.g. "f/demo/weather_report" → scope "f/demo", slug "weather_report".
+	let segments = $derived.by(() => {
+		const parts = (path ?? '').split('/')
+		if (parts.length < 3) return null
+		return { scope: parts.slice(0, 2).join('/'), slug: parts.slice(2).join('/') }
+	})
+
+	const kindKey = (k: Kind) => `kind:${k}`
+	const scopeKeyOf = (k: Kind, scope: string) => `scope:${k}:${scope}`
+	const leafKeyOf = (k: Kind, p: string) => `leaf:${k}:${p}`
 
 	let editPath = $state('')
 	let dirtyPath = $state(false)
@@ -68,7 +89,10 @@
 	}
 
 	function handlePickerSelect(item: { path: string; kind: Kind }) {
-		pickerOpen = false
+		pickerNewOpen = false
+		pickerTypeOpen = false
+		pickerScopeOpen = false
+		pickerSlugOpen = false
 		onNavigate?.(item)
 	}
 
@@ -97,79 +121,119 @@
 </script>
 
 <div class="inline-block max-w-full align-top group px-2 py-1 leading-tight">
-	<!-- Summary -->
-	<div class="max-w-full" title={summary}>
-		<EditableInput
-			value={summary ?? ''}
-			placeholder="Add a summary..."
-			editable={!disabled}
-			size="sm"
-			onSave={handleSummarySave}
-			textClass="text-xs font-semibold text-emphasis leading-tight"
-			class="max-w-full"
-		/>
-	</div>
-
 	<!-- Path row -->
-	<div class="flex items-center gap-0.5 max-w-full">
+	<div class="flex items-center max-w-full text-2xs text-secondary font-mono">
 		{#if isNew}
 			<Popover
 				placement="bottom-start"
 				usePointerDownOutside
 				excludeSelectors=".drawer"
 				disableFocusTrap
+				closeOnOtherPopoverOpen
+				class="inline-flex items-center gap-1 px-1 rounded text-2xs text-tertiary hover:bg-surface-hover transition-colors"
 				openFocus={() => {
-					picker?.focus()
+					pickerNew?.focus()
 					return null
 				}}
-				bind:isOpen={pickerOpen}
+				bind:isOpen={pickerNewOpen}
 				{disabled}
 			>
 				{#snippet trigger()}
-					<button
-						type="button"
-						class="inline-flex items-center gap-1 rounded text-2xs text-tertiary hover:bg-surface-hover transition-colors"
-						{disabled}
-					>
-						<Plus size={12} />
-						<span>Set path</span>
-					</button>
+					<Plus size={12} />
+					<span>Set path</span>
 				{/snippet}
 				{#snippet content()}
-					<WorkspaceItemPicker bind:this={picker} onPick={handlePickerSelect} />
+					<WorkspaceItemPicker
+						bind:this={pickerNew}
+						initialOpen={[kindKey(kind)]}
+						initialHighlight={kindKey(kind)}
+						onPick={handlePickerSelect}
+					/>
 				{/snippet}
 			</Popover>
 		{:else}
-			<!-- Path chip → picker popover -->
+			<!-- Type segment -->
 			<Popover
 				placement="bottom-start"
 				usePointerDownOutside
 				excludeSelectors=".drawer"
 				disableFocusTrap
+				closeOnOtherPopoverOpen
+				class="font-normal inline-flex items-center px-1 rounded hover:bg-surface-hover hover:text-primary transition-colors {disabled
+					? 'cursor-default'
+					: 'cursor-pointer'}"
 				openFocus={() => {
-					picker?.focus()
+					pickerType?.focus()
 					return null
 				}}
-				bind:isOpen={pickerOpen}
+				bind:isOpen={pickerTypeOpen}
 				{disabled}
 			>
-				{#snippet trigger()}
-					<button
-						type="button"
-						title={path}
-						class="inline-flex items-center gap-1 rounded min-w-0 max-w-full text-2xs text-tertiary font-mono hover:bg-surface-hover transition-colors {disabled
-							? 'cursor-default'
-							: 'cursor-pointer'}"
-						{disabled}
-					>
-						<Folder size={12} class="shrink-0" />
-						<span class="truncate">{path}</span>
-					</button>
-				{/snippet}
+				{#snippet trigger()}{KIND_LABEL[kind]}{/snippet}
 				{#snippet content()}
-					<WorkspaceItemPicker bind:this={picker} onPick={handlePickerSelect} />
+					<WorkspaceItemPicker
+						bind:this={pickerType}
+						initialOpen={[kindKey(kind)]}
+						initialHighlight={kindKey(kind)}
+						onPick={handlePickerSelect}
+					/>
 				{/snippet}
 			</Popover>
+			{#if segments}<Popover
+					placement="bottom-start"
+					usePointerDownOutside
+					excludeSelectors=".drawer"
+					disableFocusTrap
+					closeOnOtherPopoverOpen
+					class="font-normal inline-flex items-center gap-0.5 px-1 rounded min-w-0 max-w-[40%] hover:bg-surface-hover hover:text-primary transition-colors {disabled
+						? 'cursor-default'
+						: 'cursor-pointer'}"
+					openFocus={() => {
+						pickerScope?.focus()
+						return null
+					}}
+					bind:isOpen={pickerScopeOpen}
+					{disabled}
+				>
+					{#snippet trigger()}<ChevronRight size={10} class="shrink-0" /><span class="truncate"
+							>{segments.scope}</span
+						>{/snippet}
+					{#snippet content()}
+						<WorkspaceItemPicker
+							bind:this={pickerScope}
+							initialOpen={[kindKey(kind), scopeKeyOf(kind, segments.scope)]}
+							initialHighlight={scopeKeyOf(kind, segments.scope)}
+							onPick={handlePickerSelect}
+						/>
+					{/snippet}
+				</Popover><Popover
+					placement="bottom-start"
+					usePointerDownOutside
+					excludeSelectors=".drawer"
+					disableFocusTrap
+					closeOnOtherPopoverOpen
+					class="font-normal inline-flex items-center gap-0.5 px-1 rounded min-w-0 hover:bg-surface-hover hover:text-primary transition-colors {disabled
+						? 'cursor-default'
+						: 'cursor-pointer'}"
+					openFocus={() => {
+						pickerSlug?.focus()
+						return null
+					}}
+					bind:isOpen={pickerSlugOpen}
+					{disabled}
+				>
+					{#snippet trigger()}<ChevronRight size={10} class="shrink-0" /><span class="truncate"
+							>{segments.slug}</span
+						>{/snippet}
+					{#snippet content()}
+						<WorkspaceItemPicker
+							bind:this={pickerSlug}
+							initialOpen={[kindKey(kind), scopeKeyOf(kind, segments.scope)]}
+							initialHighlight={leafKeyOf(kind, path ?? '')}
+							onPick={handlePickerSelect}
+						/>
+					{/snippet}
+				</Popover>{/if}
 
 			<!-- Pen → path-edit popover (summary hidden) -->
 			<Popover
@@ -178,6 +242,7 @@
 				usePointerDownOutside
 				excludeSelectors=".drawer"
 				disableFocusTrap
+				closeOnOtherPopoverOpen
 				bind:isOpen={pathPopoverOpen}
 				{disabled}
 			>
@@ -238,5 +303,18 @@
 				{/snippet}
 			</Popover>
 		{/if}
+	</div>
+
+	<!-- Summary -->
+	<div class="max-w-full" title={summary}>
+		<EditableInput
+			value={summary ?? ''}
+			placeholder="Add a summary..."
+			editable={!disabled}
+			size="sm"
+			onSave={handleSummarySave}
+			textClass="text-xs font-semibold text-emphasis leading-tight"
+			class="max-w-full"
+		/>
 	</div>
 </div>
