@@ -37,7 +37,6 @@
 		  }
 		| undefined = $state(undefined)
 	let redraw = $state(0)
-	let path = page.params.path ?? ''
 
 	let nodraft = page.url.searchParams.get('nodraft')
 
@@ -80,7 +79,7 @@
 
 	async function loadApp(): Promise<void> {
 		const app_w_draft = await AppService.getAppByPathWithDraft({
-			path,
+			path: page.params.path ?? '',
 			workspace: $workspaceStore!
 		})
 		const app_w_draft_ = structuredClone(stateSnapshot(app_w_draft))
