@@ -2761,6 +2761,7 @@ workspace related commands
 - \`workspace whoami\` - Show the currently active user
 - \`workspace list\` - List local workspace profiles
 - \`workspace list-remote\` - List workspaces on the remote server that you have access to
+  - \`--as-superadmin\` - List ALL workspaces on the instance (requires the token to belong to a superadmin/devops user)
 - \`workspace list-forks\` - List forked workspaces on the remote server
 - \`workspace bind\` - Create or update a workspace entry in wmill.yaml from the active profile
   - \`--workspace <name:string>\` - Workspace name (default: current branch or workspaceId)
