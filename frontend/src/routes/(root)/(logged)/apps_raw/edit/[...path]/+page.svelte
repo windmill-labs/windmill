@@ -171,8 +171,13 @@
 	run(() => {
 		// Re-run on workspace OR path change so navigating from one raw app editor
 		// to another (e.g. via the workspace picker) reloads the new app.
-		page.params.path
+		const newPath = page.params.path
 		if ($workspaceStore) {
+			// Clear files so RawAppEditor unmounts; it will remount when loadApp
+			// completes with fresh data, re-initializing its internal stores.
+			files = undefined
+			const s = nodraft ? undefined : localStorage.getItem(`rawapp-${newPath}`)
+			stateLoadedFromLocalStorage = s != undefined ? decodeState(s) : undefined
 			loadApp()
 		}
 	})
@@ -226,7 +231,7 @@
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
 
 {#if files}
-	{#key page.params.path + ':' + redraw}
+	{#key redraw}
 		<div class="h-screen">
 			<RawAppEditor
 				on:savedNewAppPath={(event) => {

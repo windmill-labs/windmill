@@ -161,9 +161,14 @@
 	$effect(() => {
 		// Re-run on workspace OR path change so navigating from one app editor
 		// to another (e.g. via the workspace picker) reloads the new app.
-		page.params.path
+		const newPath = page.params.path
 		if ($workspaceStore) {
 			untrack(() => {
+				// Clear the app so AppEditor unmounts; it will remount once loadApp
+				// completes with fresh data, re-initializing its internal stores.
+				app = undefined
+				const s = nodraft ? undefined : localStorage.getItem(`app-${newPath}`)
+				stateLoadedFromLocalStorage = s != undefined ? decodeState(s) : undefined
 				loadApp()
 			})
 		}
@@ -217,7 +222,7 @@
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
 
-{#key page.params.path + ':' + redraw}
+{#key redraw}
 	{#if app}
 		<div class="h-screen">
 			<AppEditor
