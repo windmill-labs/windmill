@@ -46,7 +46,6 @@
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { cleanFlow } from './flows/utils.svelte'
 	import {
-		Calendar,
 		Save,
 		DiffIcon,
 		HistoryIcon,
@@ -1155,33 +1154,8 @@
 					<EditorHeader
 						bind:summary={flowStore.val.summary}
 						bind:path={$pathStore}
-						isNew={newFlow}
 						onNavigate={(item) => onNavigate?.(item)}
 					/>
-				</div>
-
-				<div class="gap-4 flex-row hidden md:flex whitespace-nowrap">
-					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
-						{@const primaryScheduleIndex = triggersState.triggers.findIndex((t) => t.isPrimary)}
-						{@const scheduleIndex = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
-						<Button
-							btnClasses="hidden lg:inline-flex"
-							startIcon={{ icon: Calendar }}
-							variant="subtle"
-							size="xs"
-							on:click={async () => {
-								select('Trigger')
-								const selected = primaryScheduleIndex ?? scheduleIndex
-								if (selected) {
-									triggersState.selectedTriggerIndex = selected
-								}
-							}}
-						>
-							{triggersState.triggers[primaryScheduleIndex]?.draftConfig?.schedule ??
-								triggersState.triggers[primaryScheduleIndex]?.lightConfig?.schedule ??
-								''}
-						</Button>
-					{/if}
 				</div>
 				<div class="flex flex-row gap-2 items-center">
 					{#if $enterpriseLicense && !newFlow}
