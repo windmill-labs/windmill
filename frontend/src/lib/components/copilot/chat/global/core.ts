@@ -140,6 +140,18 @@ const writeTriggerSchema = z.object({
 		)
 })
 
+const deployWorkspaceItemSchema = z.object({
+	type: itemTypeSchema,
+	path: z.string().describe('Workspace path of the draft to deploy.'),
+	trigger_kind: triggerKindSchema
+		.optional()
+		.describe('Required when type is trigger. Must match the draft trigger kind.'),
+	deployment_message: z
+		.string()
+		.optional()
+		.describe('Optional deployment message recorded with the change.')
+})
+
 const editScriptSchema = z.object({
 	path: z.string().describe('Workspace path of the script to edit.'),
 	old_string: z.string().min(1).describe('Exact text to find in the script source.'),
@@ -176,6 +188,7 @@ You can inspect workspace scripts, flows, schedules, and triggers, then create d
 Important rules:
 - write_script, write_flow, write_schedule, and write_trigger create or overwrite drafts. They do not save, deploy, or mutate workspace items.
 - edit_script and patch_flow_json apply small exact-text edits and save the result as a draft. Prefer them for localized changes; use write_* for large rewrites.
+- deploy_workspace_item is the only tool that mutates the workspace. It calls the real backend create/update API for one draft and removes it from the draft store. The user must confirm. Only call deploy after the user has reviewed the draft and explicitly asked to deploy.
 - Use list_workspace_items before broad reads.
 - Use read_workspace_item before overwriting an existing item, unless the user already provided the complete current item. For triggers, pass trigger_kind.
 - Use get_instructions before writing a script or flow. For scripts, pass the target language; when modifying, use the language from the item you read.
@@ -273,62 +286,81 @@ function triggerToItem(
 	}
 }
 
-const triggerServices: Record<
-	TriggerKind,
-	{
-		exists(args: { workspace: string; path: string }): Promise<boolean>
-		get(args: { workspace: string; path: string }): Promise<TriggerLike>
-		list(args: {
-			workspace: string
-			pathStart?: string
-			perPage?: number
-		}): Promise<TriggerLike[]>
-	}
-> = {
+type TriggerService = {
+	exists(args: { workspace: string; path: string }): Promise<boolean>
+	get(args: { workspace: string; path: string }): Promise<TriggerLike>
+	list(args: {
+		workspace: string
+		pathStart?: string
+		perPage?: number
+	}): Promise<TriggerLike[]>
+	create(args: { workspace: string; requestBody: any }): Promise<string>
+	update(args: { workspace: string; path: string; requestBody: any }): Promise<string>
+}
+
+const triggerServices: Record<TriggerKind, TriggerService> = {
 	http: {
 		exists: (a) => HttpTriggerService.existsHttpTrigger(a),
 		get: (a) => HttpTriggerService.getHttpTrigger(a),
-		list: (a) => HttpTriggerService.listHttpTriggers(a)
+		list: (a) => HttpTriggerService.listHttpTriggers(a),
+		create: (a) => HttpTriggerService.createHttpTrigger(a),
+		update: (a) => HttpTriggerService.updateHttpTrigger(a)
 	},
 	websocket: {
 		exists: (a) => WebsocketTriggerService.existsWebsocketTrigger(a),
 		get: (a) => WebsocketTriggerService.getWebsocketTrigger(a),
-		list: (a) => WebsocketTriggerService.listWebsocketTriggers(a)
+		list: (a) => WebsocketTriggerService.listWebsocketTriggers(a),
+		create: (a) => WebsocketTriggerService.createWebsocketTrigger(a),
+		update: (a) => WebsocketTriggerService.updateWebsocketTrigger(a)
 	},
 	kafka: {
 		exists: (a) => KafkaTriggerService.existsKafkaTrigger(a),
 		get: (a) => KafkaTriggerService.getKafkaTrigger(a),
-		list: (a) => KafkaTriggerService.listKafkaTriggers(a)
+		list: (a) => KafkaTriggerService.listKafkaTriggers(a),
+		create: (a) => KafkaTriggerService.createKafkaTrigger(a),
+		update: (a) => KafkaTriggerService.updateKafkaTrigger(a)
 	},
 	nats: {
 		exists: (a) => NatsTriggerService.existsNatsTrigger(a),
 		get: (a) => NatsTriggerService.getNatsTrigger(a),
-		list: (a) => NatsTriggerService.listNatsTriggers(a)
+		list: (a) => NatsTriggerService.listNatsTriggers(a),
+		create: (a) => NatsTriggerService.createNatsTrigger(a),
+		update: (a) => NatsTriggerService.updateNatsTrigger(a)
 	},
 	postgres: {
 		exists: (a) => PostgresTriggerService.existsPostgresTrigger(a),
 		get: (a) => PostgresTriggerService.getPostgresTrigger(a),
-		list: (a) => PostgresTriggerService.listPostgresTriggers(a)
+		list: (a) => PostgresTriggerService.listPostgresTriggers(a),
+		create: (a) => PostgresTriggerService.createPostgresTrigger(a),
+		update: (a) => PostgresTriggerService.updatePostgresTrigger(a)
 	},
 	mqtt: {
 		exists: (a) => MqttTriggerService.existsMqttTrigger(a),
 		get: (a) => MqttTriggerService.getMqttTrigger(a),
-		list: (a) => MqttTriggerService.listMqttTriggers(a)
+		list: (a) => MqttTriggerService.listMqttTriggers(a),
+		create: (a) => MqttTriggerService.createMqttTrigger(a),
+		update: (a) => MqttTriggerService.updateMqttTrigger(a)
 	},
 	sqs: {
 		exists: (a) => SqsTriggerService.existsSqsTrigger(a),
 		get: (a) => SqsTriggerService.getSqsTrigger(a),
-		list: (a) => SqsTriggerService.listSqsTriggers(a)
+		list: (a) => SqsTriggerService.listSqsTriggers(a),
+		create: (a) => SqsTriggerService.createSqsTrigger(a),
+		update: (a) => SqsTriggerService.updateSqsTrigger(a)
 	},
 	gcp: {
 		exists: (a) => GcpTriggerService.existsGcpTrigger(a),
 		get: (a) => GcpTriggerService.getGcpTrigger(a),
-		list: (a) => GcpTriggerService.listGcpTriggers(a)
+		list: (a) => GcpTriggerService.listGcpTriggers(a),
+		create: (a) => GcpTriggerService.createGcpTrigger(a),
+		update: (a) => GcpTriggerService.updateGcpTrigger(a)
 	},
 	azure: {
 		exists: (a) => AzureTriggerService.existsAzureTrigger(a),
 		get: (a) => AzureTriggerService.getAzureTrigger(a),
-		list: (a) => AzureTriggerService.listAzureTriggers(a)
+		list: (a) => AzureTriggerService.listAzureTriggers(a),
+		create: (a) => AzureTriggerService.createAzureTrigger(a),
+		update: (a) => AzureTriggerService.updateAzureTrigger(a)
 	}
 }
 
@@ -690,6 +722,22 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = patchFlowJsonSchema.parse(ctx.args)
 			return patchFlowJson(parsed, ctx)
 		}
+	},
+	{
+		def: createToolDef(
+			deployWorkspaceItemSchema,
+			'deploy_workspace_item',
+			'Persist an AI draft to the workspace by calling the real backend create/update API. This MUTATES the workspace. Requires user confirmation.',
+			{ strict: false }
+		),
+		showDetails: true,
+		showFade: true,
+		requiresConfirmation: true,
+		confirmationMessage: 'Deploy AI draft to workspace',
+		fn: async (ctx) => {
+			const parsed = deployWorkspaceItemSchema.parse(ctx.args)
+			return deployDraft(parsed, ctx)
+		}
 	}
 ]
 
@@ -808,6 +856,111 @@ async function patchFlowJson(
 			isDraft: true
 		},
 		ctx
+	)
+}
+
+async function deployDraft(
+	args: {
+		type: WorkspaceItemType
+		path: string
+		trigger_kind?: TriggerKind
+		deployment_message?: string
+	},
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const { type, path, trigger_kind: triggerKind, deployment_message: deploymentMessage } = args
+
+	if (type === 'trigger' && !triggerKind) {
+		throw new Error('trigger_kind is required when deploying a trigger.')
+	}
+
+	const draft = globalDraftStore.getDraft(type, path, triggerKind)
+	if (!draft) {
+		throw new Error(`No AI draft found for ${type} "${path}".`)
+	}
+	if (draft.value === undefined) {
+		throw new Error(`Draft ${type} "${path}" has no value to deploy.`)
+	}
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Deploying ${type} "${path}"...`
+	})
+
+	switch (type) {
+		case 'script': {
+			if (typeof draft.value !== 'string' || !draft.language) {
+				throw new Error(`Draft script "${path}" is missing content or language.`)
+			}
+			const existing = (await ScriptService.existsScriptByPath({ workspace, path }))
+				? await ScriptService.getScriptByPath({ workspace, path })
+				: undefined
+			await ScriptService.createScript({
+				workspace,
+				requestBody: {
+					path,
+					summary: draft.summary ?? '',
+					content: draft.value,
+					language: draft.language,
+					parent_hash: existing?.hash,
+					deployment_message: deploymentMessage
+				}
+			})
+			break
+		}
+		case 'flow': {
+			const value = draft.value as Flow['value']
+			const requestBody = {
+				path,
+				summary: draft.summary ?? '',
+				value,
+				schema: {},
+				deployment_message: deploymentMessage
+			}
+			if (await FlowService.existsFlowByPath({ workspace, path })) {
+				await FlowService.updateFlow({ workspace, path, requestBody })
+			} else {
+				await FlowService.createFlow({ workspace, requestBody })
+			}
+			break
+		}
+		case 'schedule': {
+			const requestBody = draft.value as any
+			if (await ScheduleService.existsSchedule({ workspace, path })) {
+				await ScheduleService.updateSchedule({ workspace, path, requestBody })
+			} else {
+				await ScheduleService.createSchedule({ workspace, requestBody })
+			}
+			break
+		}
+		case 'trigger': {
+			const service = triggerServices[triggerKind!]
+			const requestBody = draft.value
+			if (await service.exists({ workspace, path })) {
+				await service.update({ workspace, path, requestBody })
+			} else {
+				await service.create({ workspace, requestBody })
+			}
+			break
+		}
+	}
+
+	globalDraftStore.deleteDraft(type, path, triggerKind)
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Deployed ${type} "${path}"`,
+		result: 'Deployed'
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message: `Deployed AI draft ${type} "${path}" to the workspace. Draft removed from the AI draft store.`,
+			type,
+			path,
+			triggerKind
+		},
+		null,
+		2
 	)
 }
 
