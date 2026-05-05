@@ -27401,6 +27401,18 @@ components:
               "resource",
               "variable",
               "resource_type",
+              "folder",
+              "schedule",
+              "http_trigger",
+              "websocket_trigger",
+              "kafka_trigger",
+              "nats_trigger",
+              "postgres_trigger",
+              "mqtt_trigger",
+              "sqs_trigger",
+              "gcp_trigger",
+              "azure_trigger",
+              "email_trigger",
             ]
           description: Type of the item
         path:
@@ -27435,6 +27447,8 @@ components:
         - variables_changed
         - resource_types_changed
         - folders_changed
+        - schedules_changed
+        - triggers_changed
         - conflicts
       properties:
         total_diffs:
@@ -27467,6 +27481,12 @@ components:
         folders_changed:
           type: integer
           description: Number of folders with differences
+        schedules_changed:
+          type: integer
+          description: Number of schedules with differences
+        triggers_changed:
+          type: integer
+          description: Number of triggers with differences (sum across all trigger kinds)
         conflicts:
           type: integer
           description: Number of items that are both ahead and behind (conflicts)

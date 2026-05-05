@@ -6170,6 +6170,8 @@ pub struct CompareSummary {
     pub variables_changed: usize,
     pub resource_types_changed: usize,
     pub folders_changed: usize,
+    pub schedules_changed: usize,
+    pub triggers_changed: usize,
     pub conflicts: usize, // Items that are both ahead and behind
 }
 
@@ -6293,6 +6295,20 @@ async fn compare_workspaces(
                 compare_two_folders(&db, &source_workspace_id, &fork_workspace_id, &item.path)
                     .await?,
             ),
+            // Triggers and schedules are diffed against a hardcoded ignore list
+            // (mode/enabled/server_id/last_server_ping/edited_at/by/error/extra_perms/permissioned_as/email)
+            // so that fork-clones — which differ from the parent only in the runtime
+            // mode/enabled flag — don't show as diffs.
+            k if TRIGGER_OR_SCHEDULE_TABLES.contains(&k) => Some(
+                compare_two_trigger_or_schedule(
+                    &db,
+                    item.kind.as_str(),
+                    &source_workspace_id,
+                    &fork_workspace_id,
+                    &item.path,
+                )
+                .await?,
+            ),
             k => {
                 tracing::error!("Received unrecognized item kind `{k}` with path: `{}` while computing diff of {fork_workspace_id} and {source_workspace_id} workspaces. Skipping this item", item.path);
                 None
@@ -6381,6 +6397,14 @@ async fn compare_workspaces(
             .filter(|s| s.kind == "resource_type")
             .count(),
         folders_changed: visible_diffs.iter().filter(|s| s.kind == "folder").count(),
+        schedules_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "schedule")
+            .count(),
+        triggers_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind.ends_with("_trigger"))
+            .count(),
         conflicts: visible_diffs
             .iter()
             .filter(|s| s.ahead > 0 && s.behind > 0)
@@ -6532,6 +6556,17 @@ async fn query_visible_items<'c>(
                 )
                 .fetch_all(&mut **tx)
                 .await?
+            }
+            k if TRIGGER_OR_SCHEDULE_TABLES.contains(&k) => {
+                // SAFETY: `kind` comes from a hardcoded allowlist
+                // TRIGGER_OR_SCHEDULE_TABLES, not user input.
+                let sql =
+                    format!("SELECT path FROM {kind} WHERE workspace_id = $1 AND path = ANY($2)");
+                sqlx::query_scalar(&sql)
+                    .bind(workspace_id)
+                    .bind(&paths_vec)
+                    .fetch_all(&mut **tx)
+                    .await?
             }
             _ => vec![], // Unknown kind
         };
@@ -6933,6 +6968,99 @@ async fn compare_two_folders(
         exists_in_fork: target_folder.is_some(),
     });
 }
+
+/// Fields stripped before comparing two trigger or schedule rows.
+///
+/// `mode` and `enabled` are forced to disabled/false on fork clone so they always
+/// differ between fork and parent — comparing them would mark every cloned row as
+/// "changed". The rest are runtime state (`server_id`, `last_server_ping`, `error`)
+/// or per-row metadata that diverges naturally (`edited_at/by`, `email`, `extra_perms`,
+/// `permissioned_as`). Comparing without these answers "is this trigger/schedule
+/// configured the same way?" rather than "are the rows byte-identical?".
+const TRIGGER_COMPARE_IGNORE: &[&str] = &[
+    "workspace_id",
+    "edited_by",
+    "edited_at",
+    "email",
+    "error",
+    "enabled",
+    "mode",
+    "server_id",
+    "last_server_ping",
+    "extra_perms",
+    "permissioned_as",
+];
+
+async fn compare_two_trigger_or_schedule(
+    db: &DB,
+    table: &str,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Whitelist guard: callers in `compare_workspaces` and `query_visible_items`
+    // already match `table` against a closed set, but a stray future caller
+    // could open an injection hole. Bail loudly in debug, fail safe in release.
+    debug_assert!(
+        TRIGGER_OR_SCHEDULE_TABLES.contains(&table),
+        "compare_two_trigger_or_schedule called with unrecognized table: {table}"
+    );
+    if !TRIGGER_OR_SCHEDULE_TABLES.contains(&table) {
+        return Ok(ItemComparison {
+            has_changes: false,
+            exists_in_source: false,
+            exists_in_fork: false,
+        });
+    }
+
+    let mut select_expr = String::from("to_jsonb(t)");
+    for f in TRIGGER_COMPARE_IGNORE {
+        // The `-` operator on jsonb returns the object without the named key,
+        // or the unchanged object if the key is absent — so one ignore list
+        // works across tables with different column sets.
+        select_expr.push_str(&format!(" - '{f}'"));
+    }
+    // SAFETY: `table` comes from a hardcoded allowlist TRIGGER_OR_SCHEDULE_TABLES
+    // (guarded by the debug_assert + runtime check above), not user input.
+    // `select_expr` is built from `TRIGGER_COMPARE_IGNORE`, also a static const.
+    let sql = format!("SELECT {select_expr} FROM {table} t WHERE workspace_id = $1 AND path = $2");
+
+    let source_fut = sqlx::query_scalar::<_, serde_json::Value>(&sql)
+        .bind(source_workspace_id)
+        .bind(path)
+        .fetch_optional(db);
+    let target_fut = sqlx::query_scalar::<_, serde_json::Value>(&sql)
+        .bind(fork_workspace_id)
+        .bind(path)
+        .fetch_optional(db);
+    let (source, target) = tokio::try_join!(source_fut, target_fut)?;
+
+    let has_changes = match (source.as_ref(), target.as_ref()) {
+        (Some(s), Some(t)) => s != t,
+        (None, None) => false,
+        _ => true,
+    };
+
+    Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source.is_some(),
+        exists_in_fork: target.is_some(),
+    })
+}
+
+const TRIGGER_OR_SCHEDULE_TABLES: &[&str] = &[
+    "schedule",
+    "http_trigger",
+    "websocket_trigger",
+    "kafka_trigger",
+    "nats_trigger",
+    "postgres_trigger",
+    "mqtt_trigger",
+    "sqs_trigger",
+    "gcp_trigger",
+    "azure_trigger",
+    "email_trigger",
+];
 
 #[derive(Deserialize)]
 struct LogAiChatPayload {

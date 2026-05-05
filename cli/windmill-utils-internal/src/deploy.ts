@@ -19,7 +19,44 @@ export type DeployKind =
   | "resource"
   | "variable"
   | "resource_type"
-  | "folder";
+  | "folder"
+  | "schedule"
+  | "http_trigger"
+  | "websocket_trigger"
+  | "kafka_trigger"
+  | "nats_trigger"
+  | "postgres_trigger"
+  | "mqtt_trigger"
+  | "sqs_trigger"
+  | "gcp_trigger"
+  | "azure_trigger"
+  | "email_trigger";
+
+export const TRIGGER_KINDS = [
+  "http_trigger",
+  "websocket_trigger",
+  "kafka_trigger",
+  "nats_trigger",
+  "postgres_trigger",
+  "mqtt_trigger",
+  "sqs_trigger",
+  "gcp_trigger",
+  "azure_trigger",
+  "email_trigger",
+] as const satisfies readonly DeployKind[];
+
+export type TriggerDeployKind = (typeof TRIGGER_KINDS)[number];
+
+export function isTriggerKind(kind: string): kind is TriggerDeployKind {
+  return (TRIGGER_KINDS as readonly string[]).includes(kind);
+}
+
+/** True for any kind that deploys via a trigger or schedule API. */
+export function isTriggerOrScheduleKind(
+  kind: string
+): kind is TriggerDeployKind | "schedule" {
+  return kind === "schedule" || isTriggerKind(kind);
+}
 
 export interface DeployResult {
   success: boolean;
@@ -124,6 +161,53 @@ export interface DeployProvider {
     requestBody: any;
   }): Promise<any>;
   deleteFolder(p: { workspace: string; name: string }): Promise<any>;
+  // Triggers — per-kind dispatch is delegated to the implementor so the shared
+  // module doesn't need to know about each of the 9 trigger services.
+  existsTriggerByKind(
+    kind: TriggerDeployKind,
+    p: { workspace: string; path: string }
+  ): Promise<boolean>;
+  /**
+   * Get a trigger as it should be sent to create/update. Includes any kind-specific
+   * transforms the implementor wants to apply before deploy (e.g. wiping GCP
+   * subscription_id so the target workspace can create its own subscription).
+   */
+  getTriggerForDeploy(
+    kind: TriggerDeployKind,
+    p: { workspace: string; path: string; onBehalfOf?: string }
+  ): Promise<any>;
+  createTriggerByKind(
+    kind: TriggerDeployKind,
+    p: { workspace: string; requestBody: any }
+  ): Promise<any>;
+  updateTriggerByKind(
+    kind: TriggerDeployKind,
+    p: { workspace: string; path: string; requestBody: any }
+  ): Promise<any>;
+  deleteTriggerByKind(
+    kind: TriggerDeployKind,
+    p: { workspace: string; path: string }
+  ): Promise<any>;
+  /** Stripped trigger row used for the diff drawer (config fields only). */
+  getTriggerValue(
+    kind: TriggerDeployKind,
+    p: { workspace: string; path: string }
+  ): Promise<unknown>;
+  /** Returns the trigger's `permissioned_as` for `--preserve-on-behalf-of`. */
+  getTriggerPermissionedAs(
+    kind: TriggerDeployKind,
+    p: { workspace: string; path: string }
+  ): Promise<string | undefined>;
+  // Schedules
+  existsSchedule(p: { workspace: string; path: string }): Promise<boolean>;
+  getSchedule(p: { workspace: string; path: string }): Promise<any>;
+  createSchedule(p: { workspace: string; requestBody: any }): Promise<any>;
+  updateSchedule(p: {
+    workspace: string;
+    path: string;
+    requestBody: any;
+  }): Promise<any>;
+  deleteSchedule(p: { workspace: string; path: string }): Promise<any>;
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +298,10 @@ export async function checkItemExists(
     return provider.existsResourceType({ workspace, path });
   } else if (kind === "folder") {
     return provider.existsFolder({ workspace, name: folderName(path) });
+  } else if (kind === "schedule") {
+    return provider.existsSchedule({ workspace, path });
+  } else if (isTriggerKind(kind)) {
+    return provider.existsTriggerByKind(kind, { workspace, path });
   }
   throw new Error(`Unknown kind: ${kind}`);
 }
@@ -473,6 +561,53 @@ export async function deployItem(
           },
         });
       }
+    } else if (kind === "schedule") {
+      const schedule = await provider.getSchedule({
+        workspace: workspaceFrom,
+        path,
+      });
+      // Strip `enabled` so the merge deploy never flips the target's
+      // operational state — same invariant as triggers (whose `mode`/`enabled`
+      // are stripped at the merge UI / preserved by `is_mode_unspecified()`
+      // on the backend) and the YAML round-trip (where the tarball export
+      // strips `enabled` from fork schedules). On create the backend defaults
+      // to `enabled=false`; the user explicitly enables on the target.
+      const { enabled: _enabled, ...scheduleWithoutEnabled } = schedule;
+      const requestBody = {
+        ...scheduleWithoutEnabled,
+        permissioned_as: onBehalfOf,
+        preserve_permissioned_as: preserveOnBehalfOf,
+      };
+      if (alreadyExists) {
+        await provider.updateSchedule({
+          workspace: workspaceTo,
+          path,
+          requestBody,
+        });
+      } else {
+        await provider.createSchedule({
+          workspace: workspaceTo,
+          requestBody,
+        });
+      }
+    } else if (isTriggerKind(kind)) {
+      const requestBody = await provider.getTriggerForDeploy(kind, {
+        workspace: workspaceFrom,
+        path,
+        onBehalfOf,
+      });
+      if (alreadyExists) {
+        await provider.updateTriggerByKind(kind, {
+          workspace: workspaceTo,
+          path,
+          requestBody,
+        });
+      } else {
+        await provider.createTriggerByKind(kind, {
+          workspace: workspaceTo,
+          requestBody,
+        });
+      }
     } else {
       throw new Error(`Unknown kind: ${kind}`);
     }
@@ -516,6 +651,10 @@ export async function deleteItemInWorkspace(
       await provider.deleteResourceType({ workspace, path });
     } else if (kind === "folder") {
       await provider.deleteFolder({ workspace, name: folderName(path) });
+    } else if (kind === "schedule") {
+      await provider.deleteSchedule({ workspace, path });
+    } else if (isTriggerKind(kind)) {
+      await provider.deleteTriggerByKind(kind, { workspace, path });
     } else {
       throw new Error(`Deletion not supported for kind: ${kind}`);
     }
@@ -589,11 +728,46 @@ export async function getItemValue(
         extra_perms: folder.extra_perms,
         summary: folder.summary,
       };
+    } else if (kind === "schedule") {
+      // Mirror the runtime-fields-ignore set used server-side so the diff drawer
+      // matches the merge UI's "did config change?" semantics.
+      const schedule = await provider.getSchedule({ workspace, path });
+      return stripTriggerOrScheduleRuntimeFields(schedule);
+    } else if (isTriggerKind(kind)) {
+      const trigger = await provider.getTriggerValue(kind, { workspace, path });
+      return stripTriggerOrScheduleRuntimeFields(trigger);
     }
   } catch {
     // Item may not exist
   }
   return {};
+}
+
+/**
+ * Strip runtime fields from a trigger or schedule row so the diff drawer
+ * shows only config differences. Mirrors the backend's
+ * `TRIGGER_COMPARE_IGNORE` constant.
+ */
+function stripTriggerOrScheduleRuntimeFields(row: unknown): unknown {
+  if (!row || typeof row !== "object") return row;
+  const ignore = new Set([
+    "workspace_id",
+    "edited_by",
+    "edited_at",
+    "email",
+    "error",
+    "enabled",
+    "mode",
+    "server_id",
+    "last_server_ping",
+    "extra_perms",
+    "permissioned_as",
+  ]);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row as Record<string, unknown>)) {
+    if (!ignore.has(k)) out[k] = v;
+  }
+  return out;
 }
 
 /**
@@ -616,6 +790,11 @@ export async function getOnBehalfOf(
     } else if (kind === "app" || kind === "raw_app") {
       const app = await provider.getAppByPath({ workspace, path });
       return app.policy?.on_behalf_of_email;
+    } else if (kind === "schedule") {
+      const schedule = await provider.getSchedule({ workspace, path });
+      return schedule.permissioned_as;
+    } else if (isTriggerKind(kind)) {
+      return await provider.getTriggerPermissionedAs(kind, { workspace, path });
     }
   } catch {
     // Item may not exist

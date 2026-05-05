@@ -139,18 +139,35 @@ short-term placeholder until that work lands.
 
 ## Merge UI behavior
 
-The merge UI (`CompareWorkspaces.svelte`) lists triggers and schedules
-side-by-side from both workspaces, computes a per-row change check that
-ignores runtime fields (`mode`, `enabled`, `server_id`, `last_server_ping`,
-`edited_at`/`edited_by`, `extra_perms`, `permissioned_as`), and only shows
-rows that differ in actual config. A fresh clone (only `mode` differs) is
-filtered out.
+Triggers and schedules flow through the same `compare_workspaces` API as
+scripts, flows, and the rest. `tally_deployed_object_changes` records every
+trigger/schedule mutation in `workspace_diff`, and `compare_two_*` strips
+runtime fields (`mode`, `enabled`, `server_id`, `last_server_ping`,
+`edited_at`/`edited_by`, `error`, `extra_perms`, `permissioned_as`,
+`workspace_id`, `email`) before comparing — so a fresh fork (where only
+`mode`/`enabled` differ from the parent) reports no diffs.
 
-Triggers and schedules are **never auto-selected** in the default deploy /
-update selection — only diff items (scripts/flows/apps/etc.) are. The user
-opts in by clicking individual trigger rows. This keeps a routine
-`Deploy to parent` flow from accidentally pushing trigger config the fork
-hasn't intentionally changed.
+Both the merge UI (`CompareWorkspaces.svelte`) and `wmill workspace merge`
+consume those rows directly. All ten deployable trigger kinds — HTTP,
+Websocket, Kafka, NATS, Postgres, MQTT, SQS, GCP, Azure, Email — plus
+schedules are handled. Non-workspaced HTTP routes and email triggers are
+intentionally not cloned at fork creation (they would collide instance-wide),
+but `tally_deployed_object_changes` still records mutations against them; the
+deploy will fail at the workspace-collision check if the user tries to
+deploy a non-workspaced row to a fork.
+
+The merge deploy never carries operational state (`mode` for triggers,
+`enabled` for schedules) across — same invariant as the YAML round-trip
+(tarball export from a fork strips both fields via
+`fork_trigger_ignore_keys` / `fork_schedule_ignore_keys`). Triggers strip
+`mode`/`enabled` in both deploy paths (`stripOperationalState` in the
+merge UI's `utils_deployable.ts`, `preparePayload` in the CLI's
+`merge.ts`); the backend's `update_trigger` then preserves the target's
+existing `mode` via `is_mode_unspecified()`. Schedules rely on
+`EditSchedule` lacking `enabled` plus the merge deploy explicitly
+stripping `enabled` from the payload before send. On create the backend
+defaults schedules to `enabled=false`; the user explicitly enables on
+the target afterwards.
 
 ## Future work — runtime listener suffix
 
