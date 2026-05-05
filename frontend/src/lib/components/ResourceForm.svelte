@@ -128,7 +128,7 @@
 {#if deployTo}
 	<Label
 		label="Workspace specific"
-		tooltip="Prevents this resource from being deployed to prod/staging"
+		tooltip="Prevents this resource from being deployed to prod/staging. When enabled, any variable referenced via $var: inside the resource value is also automatically marked workspace-specific. Disabling this toggle does not un-mark those variables — they may be referenced by other resources."
 	>
 		<Toggle bind:checked={wsSpecific} />
 	</Label>
