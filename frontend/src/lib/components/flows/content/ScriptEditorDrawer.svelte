@@ -207,6 +207,7 @@
 					noSyncFromGithub
 					lang={script.language}
 					path={script.path}
+					autoKind={script.auto_kind}
 					tag={script.tag}
 					fixedOverflowWidgets={false}
 					bind:code={script.content}

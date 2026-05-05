@@ -1038,7 +1038,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                     // backwards compatibility
                     itered.as_ref().map(|itered| itered.len()).unwrap_or(0)
                 };
-                (*while_loop || (*index + 1 < itered_len) && (success || skip_loop_failures))
+                (*while_loop || *index + 1 < itered_len)
+                    && (success || skip_loop_failures)
                     && !stop_early
             } =>
             {
@@ -1586,6 +1587,16 @@ pub async fn update_flow_status_after_job_completion_internal(
             Ok(should_retry)
         };
 
+        // For a regular module with continue_on_error at the last position, nothing else
+        // overrides `success` — `flow_jobs` is None so the loop/branchall override above
+        // doesn't fire, and `should_continue_flow` resolves to `!is_last_step = false`,
+        // letting the flow complete with success=false and bubble the error up to the
+        // enclosing job/subflow. Detect that case and treat the flow as successful.
+        let recoverable_failure_at_last_step = !success
+            && is_last_step
+            && !unrecoverable
+            && (skip_seq_branch_failure || skip_loop_failures || continue_on_error);
+
         let should_continue_flow = match success {
             _ if stop_early => stop_early_err_msg.is_some() && flow_value.failure_module.is_some(), // if stop_early_err_msg some, we want to trigger the error handler before stopping the flow, if any
             _ if flow_job.is_canceled() => false,
@@ -1604,6 +1615,10 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
             false => false,
         };
+
+        if recoverable_failure_at_last_step {
+            success = true;
+        }
 
         tracing::info!(id = %flow_job.id, root_id = %job_root, success = %success, stop_early = %stop_early, is_last_step = %is_last_step, unrecoverable = %unrecoverable,
              skip_seq_branch_failure = %skip_seq_branch_failure, skip_loop_failures = %skip_loop_failures,
