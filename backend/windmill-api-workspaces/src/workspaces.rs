@@ -7233,7 +7233,7 @@ struct ListWsSpecificVersionsQuery {
 
 async fn list_ws_specific_versions(
     authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(q): Query<ListWsSpecificVersionsQuery>,
 ) -> JsonResult<Vec<String>> {
@@ -7243,41 +7243,16 @@ async fn list_ws_specific_versions(
             q.kind
         )));
     }
-    let item_table = &q.kind;
 
-    let sql = format!(
-        r#"
-        WITH RECURSIVE related_workspaces(workspace_id, depth) AS (
-            SELECT $1::VARCHAR, 0
-          UNION
-            SELECT CASE
-                     WHEN ws.workspace_id = r.workspace_id THEN ws.deploy_to
-                     ELSE ws.workspace_id
-                   END, r.depth + 1
-            FROM workspace_settings ws, related_workspaces r
-            WHERE r.depth < 15
-              AND ((ws.workspace_id = r.workspace_id AND ws.deploy_to IS NOT NULL)
-                   OR ws.deploy_to = r.workspace_id)
-        )
-        SELECT DISTINCT r.workspace_id
-        FROM related_workspaces r
-        INNER JOIN workspace w ON w.id = r.workspace_id AND w.deleted = false
-        INNER JOIN usr ON usr.workspace_id = r.workspace_id AND usr.email = $3
-        WHERE EXISTS (
-            SELECT 1 FROM {item_table}
-            WHERE workspace_id = r.workspace_id AND path = $2
-        )
-        "#
-    );
-
-    let mut tx = user_db.begin(&authed).await?;
-    let versions: Vec<String> = sqlx::query_scalar(&sql)
-        .bind(&w_id)
-        .bind(&q.path)
-        .bind(&authed.email)
-        .fetch_all(&mut *tx)
-        .await?;
-    tx.commit().await?;
+    let versions: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT ws AS "ws!" FROM list_ws_specific_versions($1, $2, $3, $4)"#,
+        &w_id,
+        &authed.email,
+        &q.kind,
+        &q.path,
+    )
+    .fetch_all(&db)
+    .await?;
 
     Ok(Json(versions))
 }
