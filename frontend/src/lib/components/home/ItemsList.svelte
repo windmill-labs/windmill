@@ -40,7 +40,7 @@
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { getContext, untrack } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	interface Props {
@@ -391,6 +391,12 @@
 			loadMoreEl?.scrollIntoView({ block: 'nearest' })
 		}
 	})
+	// Capture-phase listener so we run before melt-ui's button keydown handlers
+	// (e.g. ArrowDown on the dropdown trigger would otherwise open the menu).
+	$effect(() => {
+		window.addEventListener('keydown', handleGlobalKeydown, true)
+		return () => window.removeEventListener('keydown', handleGlobalKeydown, true)
+	})
 
 	function loadMoreAndPreselectFirstNew() {
 		const previousNbDisplayed = nbDisplayed
@@ -408,14 +414,23 @@
 		if (treeView) return
 		const target = e.target as HTMLElement | null
 
-		// When focus is inside a row's action buttons, only handle ArrowLeft/ArrowRight
-		// (cycling between buttons, ArrowLeft from the first returns to search). All
-		// other keys pass through so Enter/Space activate the focused button normally.
+		// When focus is inside a row's action buttons, handle arrow keys ourselves:
+		//  - Left/Right cycle between buttons (Left from the first returns to search).
+		//  - Up/Down move to the same-position button on the previous/next row.
+		// All other keys pass through so Enter/Space activate the focused button normally.
 		// This must run BEFORE the skipSelector check, since the dropdown ellipsis
 		// trigger carries [data-menu] (which would otherwise filter the event out).
+		// Up/Down also need stopImmediatePropagation so melt-ui's dropdown trigger
+		// doesn't open the menu (its default ArrowDown behavior).
 		const actionsContainer = target?.closest<HTMLElement>('[data-row-actions]')
 		if (actionsContainer) {
-			if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+			if (
+				e.key !== 'ArrowRight' &&
+				e.key !== 'ArrowLeft' &&
+				e.key !== 'ArrowUp' &&
+				e.key !== 'ArrowDown'
+			)
+				return
 			const buttons = Array.from(actionsContainer.querySelectorAll<HTMLElement>('button, a[href]'))
 			const currentIdx = buttons.indexOf(target as HTMLElement)
 			if (currentIdx < 0) return
@@ -424,12 +439,53 @@
 					e.preventDefault()
 					buttons[currentIdx + 1].focus()
 				}
-			} else {
+			} else if (e.key === 'ArrowLeft') {
 				e.preventDefault()
 				if (currentIdx > 0) {
 					buttons[currentIdx - 1].focus()
 				} else {
 					;(document.getElementById('home-search-input') as HTMLInputElement | null)?.focus()
+				}
+			} else {
+				// ArrowUp / ArrowDown: move to same-position button on prev/next row.
+				e.preventDefault()
+				e.stopImmediatePropagation()
+				if (selectedIndex < 0 || selectedIndex >= displayedItems.length) return
+				const newIndex =
+					e.key === 'ArrowDown'
+						? Math.min(selectedIndex + 1, displayedItems.length - 1)
+						: Math.max(selectedIndex - 1, 0)
+				if (newIndex === selectedIndex) return
+				selectedIndex = newIndex
+				tick().then(() => {
+					const newButtons = getSelectedRowActionButtons()
+					if (newButtons.length === 0) return
+					const targetIdx = Math.min(currentIdx, newButtons.length - 1)
+					newButtons[targetIdx]?.focus()
+				})
+			}
+			return
+		}
+
+		// Inside an open dropdown menu: ArrowUp on first item / ArrowDown on last item
+		// closes the menu (so users can leave with arrows instead of needing Escape).
+		// Other arrow keys fall through to melt-ui's default cycle.
+		const menuItem = target?.closest<HTMLElement>('[role="menuitem"]')
+		if (menuItem) {
+			if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+				const menu = menuItem.closest<HTMLElement>('[role="menu"]')
+				if (menu) {
+					const items = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+					const idx = items.indexOf(menuItem)
+					const isFirst = idx === 0
+					const isLast = idx === items.length - 1
+					if ((e.key === 'ArrowUp' && isFirst) || (e.key === 'ArrowDown' && isLast)) {
+						e.preventDefault()
+						e.stopImmediatePropagation()
+						menuItem.dispatchEvent(
+							new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+						)
+					}
 				}
 			}
 			return
@@ -526,8 +582,6 @@
 		storeLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME, includeWithoutMain ? 'true' : undefined)
 	})
 </script>
-
-<svelte:window onkeydown={handleGlobalKeydown} />
 
 <SearchItems
 	{filter}
