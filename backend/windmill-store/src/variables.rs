@@ -1016,15 +1016,27 @@ async fn update_variable(
         let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
         not_found_if_none(npath_o, "Variable", path)?
     } else {
-        let npath = ns.path.clone().unwrap_or_else(|| path.to_string());
+        // `has_sql_updates` is guaranteed true whenever `ns.path` is provided
+        // (set unconditionally above when ns.path is Some). So this branch
+        // only runs for non-rename edits (e.g. labels-only or ws_specific-only)
+        // and the rename-side queries (secret table, variable_history,
+        // ws_specific path UPDATE) in the rename block above are skipped.
+        debug_assert!(
+            ns.path.is_none(),
+            "has_sql_updates should be true when ns.path is Some"
+        );
         let exists = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS(SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2)",
         )
-        .bind(&npath)
+        .bind(path)
         .bind(&w_id)
         .fetch_one(&mut *tx)
         .await?;
-        not_found_if_none(if exists { Some(npath) } else { None }, "Variable", path)?
+        not_found_if_none(
+            if exists { Some(path.to_string()) } else { None },
+            "Variable",
+            path,
+        )?
     };
 
     if let Some(nlabels) = &ns.labels {
