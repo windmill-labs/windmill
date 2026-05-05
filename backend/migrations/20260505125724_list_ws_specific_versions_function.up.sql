@@ -38,106 +38,119 @@ BEGIN
     FROM password WHERE email = user_email;
     is_super := COALESCE(is_super, false);
 
-    FOR rel IN
-        WITH RECURSIVE related_workspaces(ws_id, depth) AS (
-            SELECT seed_workspace::VARCHAR, 0
-          UNION
-            SELECT CASE
-                     WHEN ws.workspace_id = r.ws_id THEN ws.deploy_to
-                     ELSE ws.workspace_id
-                   END, r.depth + 1
-            FROM workspace_settings ws, related_workspaces r
-            WHERE r.depth < 32
-              AND ((ws.workspace_id = r.ws_id AND ws.deploy_to IS NOT NULL)
-                   OR ws.deploy_to = r.ws_id)
-        )
-        SELECT DISTINCT r.ws_id
-        FROM related_workspaces r
-        INNER JOIN workspace w ON w.id = r.ws_id AND w.deleted = false
-    LOOP
-        SELECT u.username, u.is_admin
-        INTO usr_row
-        FROM usr u
-        WHERE u.email = user_email
-          AND u.workspace_id = rel.ws_id
-          AND u.disabled = false;
+    BEGIN
+        FOR rel IN
+            WITH RECURSIVE related_workspaces(ws_id, depth) AS (
+                SELECT seed_workspace::VARCHAR, 0
+              UNION
+                SELECT CASE
+                         WHEN ws.workspace_id = r.ws_id THEN ws.deploy_to
+                         ELSE ws.workspace_id
+                       END, r.depth + 1
+                FROM workspace_settings ws, related_workspaces r
+                WHERE r.depth < 32
+                  AND ((ws.workspace_id = r.ws_id AND ws.deploy_to IS NOT NULL)
+                       OR ws.deploy_to = r.ws_id)
+            )
+            SELECT DISTINCT r.ws_id
+            FROM related_workspaces r
+            INNER JOIN workspace w ON w.id = r.ws_id AND w.deleted = false
+        LOOP
+            SELECT u.username, u.is_admin
+            INTO usr_row
+            FROM usr u
+            WHERE u.email = user_email
+              AND u.workspace_id = rel.ws_id
+              AND u.disabled = false;
 
-        IF NOT FOUND AND NOT is_super THEN
-            CONTINUE;
-        END IF;
+            IF NOT FOUND AND NOT is_super THEN
+                CONTINUE;
+            END IF;
 
-        IF NOT FOUND THEN
-            -- super admin without a usr row in this workspace: synthesize an
-            -- admin identity so RLS is bypassed (windmill_admin role).
-            usr_row.username := user_email;
-            usr_row.is_admin := true;
-            groups_csv := '';
-            pgroups_csv := '';
-            folders_read_csv := '';
-            folders_write_csv := '';
-        ELSE
-            SELECT
-                COALESCE(string_agg(g, ','), ''),
-                COALESCE(string_agg('g/' || g, ','), '')
-            INTO groups_csv, pgroups_csv
-            FROM (
-                SELECT group_ AS g FROM usr_to_group
-                WHERE usr_to_group.usr = usr_row.username
-                  AND usr_to_group.workspace_id = rel.ws_id
-              UNION ALL
-                SELECT igroup FROM email_to_igroup WHERE email = user_email
-            ) gs;
-
-            user_perms := ARRAY['u/' || usr_row.username] || ARRAY(
-                SELECT 'g/' || g FROM (
+            IF NOT FOUND THEN
+                -- super admin without a usr row in this workspace: synthesize an
+                -- admin identity so RLS is bypassed (windmill_admin role).
+                usr_row.username := user_email;
+                usr_row.is_admin := true;
+                groups_csv := '';
+                pgroups_csv := '';
+                folders_read_csv := '';
+                folders_write_csv := '';
+            ELSE
+                SELECT
+                    COALESCE(string_agg(g, ','), ''),
+                    COALESCE(string_agg('g/' || g, ','), '')
+                INTO groups_csv, pgroups_csv
+                FROM (
                     SELECT group_ AS g FROM usr_to_group
-                    WHERE usr = usr_row.username AND workspace_id = rel.ws_id
+                    WHERE usr_to_group.usr = usr_row.username
+                      AND usr_to_group.workspace_id = rel.ws_id
                   UNION ALL
                     SELECT igroup FROM email_to_igroup WHERE email = user_email
-                ) gs2
+                ) gs;
+
+                user_perms := ARRAY['u/' || usr_row.username] || ARRAY(
+                    SELECT 'g/' || g FROM (
+                        SELECT group_ AS g FROM usr_to_group
+                        WHERE usr = usr_row.username AND workspace_id = rel.ws_id
+                      UNION ALL
+                        SELECT igroup FROM email_to_igroup WHERE email = user_email
+                    ) gs2
+                );
+
+                -- folders_read: every folder the user can see (write implies read);
+                -- folders_write: only those granting write access.
+                WITH user_folders AS (
+                    SELECT name, EXISTS (
+                        SELECT 1 FROM jsonb_each_text(extra_perms) t
+                        WHERE t.key = ANY(user_perms) AND t.value::boolean IS true
+                    ) AS is_write
+                    FROM folder
+                    WHERE extra_perms ?| user_perms AND folder.workspace_id = rel.ws_id
+                )
+                SELECT
+                    COALESCE(string_agg(name, ','), ''),
+                    COALESCE(string_agg(name, ',') FILTER (WHERE is_write), '')
+                INTO folders_read_csv, folders_write_csv
+                FROM user_folders;
+
+                IF is_super THEN
+                    usr_row.is_admin := true;
+                END IF;
+            END IF;
+
+            PERFORM set_session_context(
+                usr_row.is_admin,
+                usr_row.username,
+                groups_csv,
+                pgroups_csv,
+                folders_read_csv,
+                folders_write_csv
             );
 
-            -- folders_read: every folder the user can see (write implies read);
-            -- folders_write: only those granting write access.
-            WITH user_folders AS (
-                SELECT name, EXISTS (
-                    SELECT 1 FROM jsonb_each_text(extra_perms) t
-                    WHERE t.key = ANY(user_perms) AND t.value::boolean IS true
-                ) AS is_write
-                FROM folder
-                WHERE extra_perms ?| user_perms AND folder.workspace_id = rel.ws_id
+            EXECUTE format(
+                'SELECT EXISTS(SELECT 1 FROM %I WHERE workspace_id = $1 AND path = $2)',
+                item_kind
             )
-            SELECT
-                COALESCE(string_agg(name, ','), ''),
-                COALESCE(string_agg(name, ',') FILTER (WHERE is_write), '')
-            INTO folders_read_csv, folders_write_csv
-            FROM user_folders;
+            INTO item_exists
+            USING rel.ws_id, item_path;
 
-            IF is_super THEN
-                usr_row.is_admin := true;
+            IF item_exists THEN
+                ws := rel.ws_id;
+                RETURN NEXT;
             END IF;
-        END IF;
+        END LOOP;
+    EXCEPTION WHEN OTHERS THEN
+        -- Reset to a deny-default state before re-raising so a half-set
+        -- session context can't leak past the failed call.
+        PERFORM set_session_context(false, '', '', '', '', '');
+        RAISE;
+    END;
 
-        PERFORM set_session_context(
-            usr_row.is_admin,
-            usr_row.username,
-            groups_csv,
-            pgroups_csv,
-            folders_read_csv,
-            folders_write_csv
-        );
-
-        EXECUTE format(
-            'SELECT EXISTS(SELECT 1 FROM %I WHERE workspace_id = $1 AND path = $2)',
-            item_kind
-        )
-        INTO item_exists
-        USING rel.ws_id, item_path;
-
-        IF item_exists THEN
-            ws := rel.ws_id;
-            RETURN NEXT;
-        END IF;
-    END LOOP;
+    -- Reset to a deny-default state on the happy path too. SET LOCAL is
+    -- transaction-scoped so this also unwinds at transaction end, but
+    -- being explicit defends against the function being called inside a
+    -- longer outer transaction.
+    PERFORM set_session_context(false, '', '', '', '', '');
 END;
 $$ LANGUAGE plpgsql;
