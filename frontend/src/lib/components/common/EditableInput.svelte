@@ -9,6 +9,9 @@
 		size?: 'xs' | 'sm' | 'md' | 'lg'
 		class?: string
 		inputClass?: string
+		/** Text styling (font-size, weight, color, line-height...) applied to both the
+		 * idle button and the editing input so the two render identically. */
+		textClass?: string
 	}
 
 	let {
@@ -18,7 +21,8 @@
 		editable = true,
 		size = 'sm',
 		class: className = '',
-		inputClass = ''
+		inputClass = '',
+		textClass = ''
 	}: Props = $props()
 
 	let editing = $state(false)
@@ -51,14 +55,14 @@
 
 {#if editing}
 	<span
-		class="input-sizer inline-grid items-center -mx-0.5 -my-0.5 {className}"
+		class="input-sizer inline-grid items-center {textClass} {className}"
 		data-value={draft || placeholder}
 	>
 		<TextInput
 			bind:this={textInputComponent}
 			bind:value={draft}
 			{size}
-			class="!bg-transparent !border-0 !shadow-none !p-0 !m-0 !min-w-0 !min-h-0 !h-auto {inputClass}"
+			class="!bg-transparent !border-0 !shadow-none !p-0 !m-0 !min-w-0 !min-h-0 !h-auto {textClass} {inputClass}"
 			inputProps={{
 				placeholder,
 				onblur: save,
@@ -74,9 +78,9 @@
 		type="button"
 		onclick={startEditing}
 		disabled={!editable}
-		class="text-left truncate rounded px-0.5 -mx-0.5 {editable
+		class="text-left truncate rounded p-0.5 {editable
 			? 'cursor-text hover:bg-surface-hover'
-			: 'cursor-default'} {className}"
+			: 'cursor-default'} {textClass} {className}"
 	>
 		{value || placeholder}
 	</button>

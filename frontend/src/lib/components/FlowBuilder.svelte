@@ -71,7 +71,7 @@
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
 	import { tutorialsToDo } from '$lib/stores'
 	import { getTutorialIndex } from '$lib/tutorials/config'
-	import SummaryPathDisplay from './SummaryPathDisplay.svelte'
+	import EditorHeader from './EditorHeader.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
@@ -130,7 +130,8 @@
 		onDetails,
 		onSaveDraftError,
 		onSaveDraftOnlyAtNewPath,
-		onHistoryRestore
+		onHistoryRestore,
+		onNavigate
 	}: FlowBuilderProps = $props()
 
 	let initialPathStore = writable(initialPath)
@@ -1150,12 +1151,12 @@
 			<div
 				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
 			>
-				<div class="flex w-full gap-8 items-center min-w-0">
-					<SummaryPathDisplay
+				<div class="min-w-0 max-w-full">
+					<EditorHeader
 						bind:summary={flowStore.val.summary}
 						bind:path={$pathStore}
-						kind="flow"
-						editable
+						isNew={newFlow}
+						onNavigate={(path) => onNavigate?.({ path })}
 					/>
 				</div>
 

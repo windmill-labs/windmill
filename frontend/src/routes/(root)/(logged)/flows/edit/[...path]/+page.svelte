@@ -291,6 +291,9 @@
 		onHistoryRestore={() => {
 			loadFlow()
 		}}
+		onNavigate={(e) => {
+			goto(`/flows/edit/${e.path}`)
+		}}
 		{flowStore}
 		{flowStateStore}
 		initialPath={page.params.path ?? ''}
