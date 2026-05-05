@@ -139,6 +139,34 @@ export function assetUri(asset: { kind: AssetKind; path: string }): string {
 	return `${ASSET_URI_PREFIX[asset.kind]}${asset.path}`
 }
 
+// Splits a datatable asset path (`<db>/<table>` or `<db>/<schema>.<table>`)
+// into its constituent parts. Mirrors `parseDbInputFromAssetSyntax` in
+// $lib/utils.ts: schema is omitted when the table lives in the default
+// (`public`) schema, prefixed with `<schema>.` only when explicit.
+function parseDatatablePath(p: string): {
+	db: string
+	schema: string | undefined
+	table: string
+} {
+	const slash = p.indexOf('/')
+	if (slash < 0) return { db: p, schema: undefined, table: '' }
+	const db = p.slice(0, slash)
+	const tail = p.slice(slash + 1)
+	const dot = tail.indexOf('.')
+	if (dot < 0) return { db, schema: undefined, table: tail }
+	return { db, schema: tail.slice(0, dot), table: tail.slice(dot + 1) }
+}
+
+// Schema-qualified table reference for SQL emission. We always emit the
+// schema (defaulting to `public`) so the generated statement doesn't rely
+// on whatever search-path / default-schema the engine picks at attach
+// time — important for DuckDB attaching to Postgres as `pg`, where bare
+// `pg.<table>` is fragile.
+function qualifiedDatatableRef(p: string, defaultSchema = 'public'): string {
+	const parsed = parseDatatablePath(p)
+	return `${parsed.schema ?? defaultSchema}.${parsed.table || 'table_name'}`
+}
+
 // Comment prefix per language; mirrors what the parser accepts.
 function commentPrefix(lang: ScriptLang): string {
 	switch (lang) {
@@ -378,6 +406,11 @@ function bodyDuckdb(ctx: TemplateContext): string {
 		switch (input.kind) {
 			case 's3object':
 				return `read_parquet('s3://${input.path}')`
+			case 'datatable':
+				// `pg` is the attached Postgres catalog; we schema-qualify
+				// the table reference so the SELECT doesn't rely on the
+				// catalog's default schema setting.
+				return `pg.${qualifiedDatatableRef(input.path)}`
 			case 'ducklake': {
 				return null // attach + read shown below
 			}
@@ -428,10 +461,14 @@ function bodyDuckdb(ctx: TemplateContext): string {
 			break
 		case 'datatable':
 			if (output) {
-				const tableName = output.path.split('/').slice(1).join('_') || 'table_name'
+				// Schema-qualified `pg.<schema>.<table>` (rather than
+				// `pg.<table>`) so the CREATE TABLE doesn't silently
+				// land in whatever default schema the attached catalog
+				// resolves to.
+				const ref = `pg.${qualifiedDatatableRef(output.path)}`
 				lines.push(
 					`-- DataTable is exposed as the 'pg' attached database in duckdb scripts.`,
-					`CREATE TABLE IF NOT EXISTS pg.${tableName} AS`,
+					`CREATE TABLE IF NOT EXISTS ${ref} AS`,
 					`SELECT * FROM ${inSql ?? '(SELECT 1 AS placeholder)'};`
 				)
 			}
@@ -452,18 +489,22 @@ function bodyPostgres(ctx: TemplateContext): string {
 	lines.push('')
 
 	if (outputKind === 'datatable' && output) {
-		const tableName = output.path.split('/').slice(1).join('_') || 'table_name'
+		// Schema-qualified — Postgres respects search_path so a bare
+		// `<table>` would land in `public` by default, but emitting
+		// `<schema>.<table>` makes the target explicit and survives any
+		// non-default search_path the connection might carry.
+		const ref = qualifiedDatatableRef(output.path)
 		lines.push(
 			`-- The pipeline-script harness runs this query against the`,
 			`-- datatable backing the configured workspace storage.`,
-			`CREATE TABLE IF NOT EXISTS ${tableName} (`,
+			`CREATE TABLE IF NOT EXISTS ${ref} (`,
 			`  id serial primary key,`,
 			`  payload jsonb,`,
 			`  computed_at timestamptz default now()`,
 			`);`,
 			``,
 			`-- Replace with your real INSERT.`,
-			`INSERT INTO ${tableName} (payload) VALUES ('{}'::jsonb);`
+			`INSERT INTO ${ref} (payload) VALUES ('{}'::jsonb);`
 		)
 	} else {
 		lines.push(`SELECT 1;`)

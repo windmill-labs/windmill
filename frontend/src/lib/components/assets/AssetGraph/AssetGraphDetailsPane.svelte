@@ -292,6 +292,7 @@
 	>
 		<div class="flex items-center gap-2 min-w-0">
 			{#if isDraft && script}
+				{@const draftScriptPath = script.path}
 				<Code2 size={16} class="shrink-0 text-emerald-700 dark:text-emerald-400" />
 				{#if onDraftPathChange}
 					<!-- Inline rename popover for drafts. The persisted-script
@@ -318,7 +319,9 @@
 									Draft pipeline script
 									<Pencil size={9} class="opacity-0 group-hover:opacity-60 transition-opacity" />
 								</span>
-								<span class="text-xs font-mono truncate" title={script.path}>{script.path}</span>
+								<span class="text-xs font-mono truncate" title={draftScriptPath}
+									>{draftScriptPath}</span
+								>
 							</button>
 						{/snippet}
 						{#snippet content({ close })}

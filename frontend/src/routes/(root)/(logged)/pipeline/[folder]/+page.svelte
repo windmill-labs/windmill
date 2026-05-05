@@ -260,15 +260,20 @@
 	})
 
 	// Native browser tab close / reload — we can't show a custom modal
-	// here, only the browser's generic confirm. Setting returnValue to a
-	// non-empty string is the cross-browser idiom that triggers the
-	// "Leave site?" prompt. The text shown is browser-controlled.
+	// here, only the browser's generic confirm. Modern browsers require
+	// BOTH preventDefault() *and* a non-empty `returnValue` to actually
+	// pop the prompt; the assigned text is then ignored in favour of a
+	// browser-controlled string ("Leave site? Changes you made may not be
+	// saved."). Empty string used to work but Chromium 119+ silently
+	// suppresses the dialog in that case. The handler also requires that
+	// the user has interacted with the page (Chrome's user-activation
+	// requirement) — a fresh tab with no clicks/keystrokes won't get the
+	// prompt. This is enforced by the browser, not us.
 	$effect(() => {
-		if (typeof window === 'undefined') return
 		function onBeforeUnload(e: BeforeUnloadEvent) {
 			if (drafts.size === 0) return
 			e.preventDefault()
-			e.returnValue = ''
+			e.returnValue = 'You have unsaved drafts.'
 		}
 		window.addEventListener('beforeunload', onBeforeUnload)
 		return () => window.removeEventListener('beforeunload', onBeforeUnload)
