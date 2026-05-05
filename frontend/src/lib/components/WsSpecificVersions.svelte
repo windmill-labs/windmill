@@ -21,12 +21,19 @@
 		}
 	)
 
+	const MAX_REGULAR = 3
+
 	let versions = $derived([
 		workspaceId,
 		...(versionsResource.current?.filter((v) => v != workspaceId) ?? [])
 	])
-	let regular = $derived(versions.filter((v) => !v.startsWith('wm-fork-')))
+	let nonForks = $derived(versions.filter((v) => !v.startsWith('wm-fork-')))
 	let forks = $derived(versions.filter((v) => v.startsWith('wm-fork-')))
+	// Cap the inline buttons at MAX_REGULAR. Overflow (non-fork) workspaces
+	// land in the dropdown above the forks so the visual ordering stays
+	// "regular workspaces first, forks last".
+	let regular = $derived(nonForks.slice(0, MAX_REGULAR))
+	let more = $derived([...nonForks.slice(MAX_REGULAR), ...forks])
 </script>
 
 {#if versions.length > 1}
@@ -35,10 +42,9 @@
 			{#each regular as v (v)}
 				<ToggleButton value={v} label={v} {item} />
 			{/each}
-			{#if forks.length > 0}
+			{#if more.length > 0}
 				<ToggleButtonMore
-					btnText="Forks"
-					togglableItems={forks.map((v) => ({ label: v, value: v }))}
+					togglableItems={more.map((v) => ({ label: v, value: v }))}
 					{item}
 					bind:selected
 				/>

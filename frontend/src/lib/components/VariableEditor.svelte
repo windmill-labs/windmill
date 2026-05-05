@@ -13,7 +13,6 @@
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import { resource } from 'runed'
 	import { deepEqual } from 'fast-equals'
-	import Label from './Label.svelte'
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
 
@@ -209,17 +208,6 @@
 				</Alert>
 			{/if}
 
-			{#if edit && $workspaceStore}
-				<Label label="Workspace">
-					<WsSpecificVersions
-						kind="variable"
-						workspaceId={$workspaceStore}
-						{initialPath}
-						bind:selected
-					/>
-				</Label>
-			{/if}
-
 			{#if otherDirty.length > 0}
 				<Alert type="warning" title="Editing multiple workspaces">
 					You are going to edit the value in: {otherDirty.join(', ')}
@@ -245,6 +233,14 @@
 			{/if}
 		</div>
 		{#snippet actions()}
+			{#if edit && $workspaceStore}
+				<WsSpecificVersions
+					kind="variable"
+					workspaceId={$workspaceStore}
+					{initialPath}
+					bind:selected
+				/>
+			{/if}
 			<Button
 				on:click={save}
 				disabled={!anyDirty || !dirtyValid || !dirtyCanWrite || pathError != ''}

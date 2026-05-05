@@ -7,11 +7,9 @@
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
 	import ResourceForm from './ResourceForm.svelte'
-	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { resource } from 'runed'
 	import { deepEqual } from 'fast-equals'
-	import Label from './Label.svelte'
 	import { getUserExt } from '$lib/user'
 	import type { UserExt } from '$lib/stores'
 
@@ -23,6 +21,7 @@
 		onChange?: (args: { path: string; args: Record<string, any>; description: string }) => void
 		defaultValues?: Record<string, any> | undefined
 		workspace?: string | undefined
+		selected?: string | undefined
 	}
 
 	let {
@@ -32,7 +31,8 @@
 		hidePath = false,
 		onChange,
 		defaultValues = undefined,
-		workspace = undefined
+		workspace = undefined,
+		selected = $bindable()
 	}: Props = $props()
 
 	type ResourceState = {
@@ -53,7 +53,6 @@
 	let existedInitially: Record<string, boolean> = $state({})
 	let fetchedResources: Record<string, Resource> = $state({})
 	let perWsUser: Record<string, UserExt | undefined> = $state({})
-	let selected: string | undefined = $state(undefined)
 
 	let isValid = $state(true)
 	let jsonError = $state('')
@@ -260,17 +259,6 @@
 
 <div>
 	<div class="flex flex-col gap-6 py-2">
-		{#if initialPath && effectiveWorkspace}
-			<Label label="Workspace">
-				<WsSpecificVersions
-					kind="resource"
-					workspaceId={effectiveWorkspace}
-					{initialPath}
-					bind:selected
-				/>
-			</Label>
-		{/if}
-
 		{#if otherDirty.length > 0}
 			<Alert type="warning" title="Editing multiple workspaces">
 				You are going to edit the value in: {otherDirty.join(', ')}
