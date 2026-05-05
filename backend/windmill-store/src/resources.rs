@@ -873,7 +873,7 @@ async fn create_resource(
         .execute(&mut *tx)
         .await?;
 
-        mark_linked_variables_ws_specific(&mut tx, &w_id, &resource.path).await?;
+        mark_linked_variables_ws_specific(&mut tx, &authed, &w_id, &resource.path).await?;
     }
 
     audit_log(
@@ -1111,6 +1111,7 @@ fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
 
 async fn mark_linked_variables_ws_specific(
     tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
     w_id: &str,
     resource_path: &str,
 ) -> Result<()> {
@@ -1133,17 +1134,37 @@ async fn mark_linked_variables_ws_specific(
         return Ok(());
     }
 
-    sqlx::query(
+    // RETURNING gives us only the rows actually inserted (RFC: ON CONFLICT
+    // DO NOTHING + RETURNING returns the affected rows, i.e. the new ones).
+    let newly_marked: Vec<String> = sqlx::query_scalar(
         "INSERT INTO ws_specific (workspace_id, item_kind, path)
          SELECT workspace_id, 'variable', path
          FROM variable
          WHERE workspace_id = $1 AND path = ANY($2::text[])
-         ON CONFLICT DO NOTHING",
+         ON CONFLICT DO NOTHING
+         RETURNING path",
     )
     .bind(w_id)
     .bind(&linked_var_paths)
-    .execute(&mut **tx)
+    .fetch_all(&mut **tx)
     .await?;
+
+    // Audit each variable that was actually flipped to ws_specific so the
+    // change is traceable to the resource save that caused it.
+    for var_path in &newly_marked {
+        let mut params = HashMap::new();
+        params.insert("via_resource", resource_path);
+        audit_log(
+            &mut **tx,
+            authed,
+            "variables.set_ws_specific",
+            ActionKind::Update,
+            w_id,
+            Some(var_path),
+            Some(params),
+        )
+        .await?;
+    }
 
     Ok(())
 }
@@ -1429,7 +1450,7 @@ async fn update_resource(
     };
 
     if effective_ws_specific {
-        mark_linked_variables_ws_specific(&mut tx, &w_id, &npath).await?;
+        mark_linked_variables_ws_specific(&mut tx, &authed, &w_id, &npath).await?;
     }
 
     audit_log(
