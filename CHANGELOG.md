@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.696.0](https://github.com/windmill-labs/windmill/compare/v1.695.0...v1.696.0) (2026-05-05)
+
+
+### Features
+
+* add ai chat resource action buttons ([#9016](https://github.com/windmill-labs/windmill/issues/9016)) ([502a029](https://github.com/windmill-labs/windmill/commit/502a02998685308e82fab95bae7d3c14efd77d6a))
+* add wac ai context for frontend chat ([#9021](https://github.com/windmill-labs/windmill/issues/9021)) ([0d0557f](https://github.com/windmill-labs/windmill/commit/0d0557fc9dc5addee887911ddfc0fd08a09bc92e))
+* **cli:** add --as-superadmin flag to workspace list-remote ([#9043](https://github.com/windmill-labs/windmill/issues/9043)) ([66c9063](https://github.com/windmill-labs/windmill/commit/66c90639191a77eb4f19da092167384565edb9b3))
+
+
+### Bug Fixes
+
+* **cli:** resolve cross-folder relative imports during lockgen on fresh DB ([#9048](https://github.com/windmill-labs/windmill/issues/9048)) ([40dbab5](https://github.com/windmill-labs/windmill/commit/40dbab531e5166b894f3f94b0d72b2ac456c0097))
+* **flows:** inherit flow_env in sub-flow predicates ([#9042](https://github.com/windmill-labs/windmill/issues/9042)) ([6e5a21a](https://github.com/windmill-labs/windmill/commit/6e5a21a9c7b5db77d325b5916a9ab8799a2eb6e7))
+* navigate home arrows ([#9024](https://github.com/windmill-labs/windmill/issues/9024)) ([c1e52ea](https://github.com/windmill-labs/windmill/commit/c1e52eab09794746bea7dc9adb94552641f87d5b))
+* open job detail header path links in a new tab ([#9039](https://github.com/windmill-labs/windmill/issues/9039)) ([fe68c06](https://github.com/windmill-labs/windmill/commit/fe68c066004d860088e09be32e7ff2e7438f78c4))
+* **rust-client:** re-export models module from wmill crate ([#9038](https://github.com/windmill-labs/windmill/issues/9038)) ([ca6efbf](https://github.com/windmill-labs/windmill/commit/ca6efbff74e7d7e85174b1d8394af79eda7d6535))
+* **windmill-utils-internal:** move config to subpath export ([#9045](https://github.com/windmill-labs/windmill/issues/9045)) ([b86f896](https://github.com/windmill-labs/windmill/commit/b86f8960fcd8a66bc6849638178ef45ac49e06f1))
+
 ## [1.695.0](https://github.com/windmill-labs/windmill/compare/v1.694.0...v1.695.0) (2026-05-04)
 
 
