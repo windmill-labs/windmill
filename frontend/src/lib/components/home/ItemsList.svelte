@@ -33,8 +33,7 @@
 	import FlowIcon from './FlowIcon.svelte'
 	import { canWrite, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { page } from '$app/state'
-	import { goto, setQuery } from '$lib/navigation'
-	import { base } from '$lib/base'
+	import { setQuery } from '$lib/navigation'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
@@ -337,30 +336,43 @@
 	let loadMoreIndex = $derived(displayedItems.length)
 	let loadMoreEl: HTMLButtonElement | undefined = $state()
 	let pendingAutoSelect = $state(true)
+	let firstWorkspaceRun = true
 	$effect(() => {
 		$workspaceStore
 		pendingAutoSelect = true
-		// Run several times to win the focus race against melt-ui restoring focus
-		// to the workspace-picker trigger button after the menu closes. Without this,
-		// pressing an arrow key after a workspace switch would re-open / re-highlight
-		// the workspace picker instead of moving the items-list selection.
+		if (firstWorkspaceRun) {
+			firstWorkspaceRun = false
+			return
+		}
+		// On workspace switch, melt-ui restores focus to the workspace-picker trigger
+		// button asynchronously after the menu closes. Without overriding it, pressing
+		// an arrow key would re-open / re-highlight the workspace picker instead of
+		// moving the items-list selection. Run several times to win the focus race.
 		const focusSearch = () => {
 			const el = document.getElementById('home-search-input') as HTMLInputElement | null
 			el?.focus()
 		}
 		focusSearch()
-		requestAnimationFrame(() => {
+		const raf1 = requestAnimationFrame(() => {
 			focusSearch()
 			requestAnimationFrame(focusSearch)
 		})
-		setTimeout(focusSearch, 100)
+		const timeoutId = setTimeout(focusSearch, 100)
+		return () => {
+			cancelAnimationFrame(raf1)
+			clearTimeout(timeoutId)
+		}
 	})
 	$effect(() => {
 		filter
 		itemKind
 		ownerFilter
 		labelFilter
-		selectedIndex = -1
+		// Skip while pendingAutoSelect is true (initial load / workspace switch);
+		// the auto-select effect below will set the index once items appear.
+		if (!pendingAutoSelect) {
+			selectedIndex = -1
+		}
 	})
 	$effect(() => {
 		if (pendingAutoSelect && displayedItems.length > 0) {
@@ -380,30 +392,6 @@
 		}
 	})
 
-	function getItemHref(item: TableScript | TableFlow | TableApp | TableRawApp): string | undefined {
-		if (item.type === 'script') {
-			const s = item as TableScript & { auto_kind?: string; kind?: string }
-			return s.draft_only || (s.auto_kind === 'lib' && s.kind !== 'preprocessor')
-				? `${base}/scripts/edit/${s.path}`
-				: `${base}/scripts/get/${s.hash}?workspace=${$workspaceStore}`
-		}
-		if (item.type === 'flow') {
-			const f = item as TableFlow
-			return f.draft_only
-				? `${base}/flows/edit/${f.path}?nodraft=true`
-				: `${base}/flows/get/${f.path}?workspace=${$workspaceStore}`
-		}
-		if (item.type === 'app') {
-			const a = item as TableApp & { raw_app?: boolean }
-			return `${base}/apps${a.raw_app ? '_raw' : ''}/get/${a.path}`
-		}
-		if (item.type === 'raw_app') {
-			const a = item as TableRawApp
-			return `${base}/apps/get_raw/${a.version}/${a.path}`
-		}
-		return undefined
-	}
-
 	function loadMoreAndPreselectFirstNew() {
 		const previousNbDisplayed = nbDisplayed
 		nbDisplayed += 30
@@ -413,7 +401,7 @@
 	function handleGlobalKeydown(e: KeyboardEvent) {
 		if (treeView) return
 		const skipSelector =
-			'[role="menu"], [role="menuitem"], [role="dialog"], [role="listbox"], [role="combobox"], [data-menu], [aria-haspopup]'
+			'[role="menu"], [role="menuitem"], [role="dialog"], [role="listbox"], [role="combobox"], [aria-expanded="true"], [data-menu]'
 		const target = e.target as HTMLElement | null
 		if (target) {
 			const tag = target.tagName
@@ -434,7 +422,7 @@
 			} else if (selectedIndex === loadMoreIndex && hasMore) {
 				selectedIndex = 0
 			} else if (selectedIndex === displayedItems.length - 1) {
-				selectedIndex = hasMore ? loadMoreIndex : selectedIndex
+				selectedIndex = hasMore ? loadMoreIndex : 0
 			} else {
 				selectedIndex = selectedIndex + 1
 			}
@@ -446,7 +434,7 @@
 			} else if (selectedIndex === loadMoreIndex && hasMore) {
 				selectedIndex = displayedItems.length - 1
 			} else if (selectedIndex === 0) {
-				selectedIndex = hasMore ? loadMoreIndex : 0
+				selectedIndex = hasMore ? loadMoreIndex : displayedItems.length - 1
 			} else {
 				selectedIndex = selectedIndex - 1
 			}
@@ -455,10 +443,12 @@
 				e.preventDefault()
 				loadMoreAndPreselectFirstNew()
 			} else if (selectedIndex >= 0 && selectedIndex < displayedItems.length) {
-				const href = getItemHref(displayedItems[selectedIndex])
-				if (href) {
+				const anchor = document.querySelector<HTMLAnchorElement>(
+					'a[data-row-keyboard-selected="true"]'
+				)
+				if (anchor) {
 					e.preventDefault()
-					goto(href)
+					anchor.click()
 				}
 			}
 		} else if (e.key === 'Escape') {
@@ -739,7 +729,7 @@
 						bind:this={loadMoreEl}
 						class="ml-4 text-xs font-normal text-primary hover:text-emphasis rounded px-1 {selectedIndex ===
 						loadMoreIndex
-							? 'bg-surface-hover underline'
+							? 'bg-gray-200 dark:bg-gray-700 underline'
 							: ''}"
 						onclick={() => (nbDisplayed += 30)}>load 30 more</button
 					></span
