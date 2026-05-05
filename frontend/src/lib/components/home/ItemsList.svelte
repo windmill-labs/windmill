@@ -398,11 +398,45 @@
 		selectedIndex = previousNbDisplayed
 	}
 
+	function getSelectedRowActionButtons(): HTMLElement[] {
+		const anchor = document.querySelector<HTMLElement>('a[data-row-keyboard-selected="true"]')
+		const actions = anchor?.parentElement?.querySelector<HTMLElement>('[data-row-actions]')
+		return actions ? Array.from(actions.querySelectorAll<HTMLElement>('button, a[href]')) : []
+	}
+
 	function handleGlobalKeydown(e: KeyboardEvent) {
 		if (treeView) return
+		const target = e.target as HTMLElement | null
+
+		// When focus is inside a row's action buttons, only handle ArrowLeft/ArrowRight
+		// (cycling between buttons, ArrowLeft from the first returns to search). All
+		// other keys pass through so Enter/Space activate the focused button normally.
+		// This must run BEFORE the skipSelector check, since the dropdown ellipsis
+		// trigger carries [data-menu] (which would otherwise filter the event out).
+		const actionsContainer = target?.closest<HTMLElement>('[data-row-actions]')
+		if (actionsContainer) {
+			if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+			const buttons = Array.from(actionsContainer.querySelectorAll<HTMLElement>('button, a[href]'))
+			const currentIdx = buttons.indexOf(target as HTMLElement)
+			if (currentIdx < 0) return
+			if (e.key === 'ArrowRight') {
+				if (currentIdx < buttons.length - 1) {
+					e.preventDefault()
+					buttons[currentIdx + 1].focus()
+				}
+			} else {
+				e.preventDefault()
+				if (currentIdx > 0) {
+					buttons[currentIdx - 1].focus()
+				} else {
+					;(document.getElementById('home-search-input') as HTMLInputElement | null)?.focus()
+				}
+			}
+			return
+		}
+
 		const skipSelector =
 			'[role="menu"], [role="menuitem"], [role="dialog"], [role="listbox"], [role="combobox"], [aria-expanded="true"], [data-menu]'
-		const target = e.target as HTMLElement | null
 		if (target) {
 			const tag = target.tagName
 			const isEditable =
@@ -413,6 +447,30 @@
 		}
 		const active = document.activeElement as HTMLElement | null
 		if (active?.closest(skipSelector)) return
+
+		// ArrowRight from search input / body → focus first action button of selected row.
+		// Guard: if cursor is in the middle of typed search text, let the cursor move.
+		if (e.key === 'ArrowRight') {
+			if (target?.id === 'home-search-input') {
+				const inp = target as HTMLInputElement
+				if (inp.value.length > 0 && inp.selectionEnd !== inp.value.length) return
+			}
+			if (selectedIndex < 0 || selectedIndex >= displayedItems.length) return
+			const buttons = getSelectedRowActionButtons()
+			if (buttons.length > 0) {
+				e.preventDefault()
+				buttons[0].focus()
+			}
+			return
+		}
+		// ArrowLeft from search input with cursor at start: no-op (let default handle).
+		if (e.key === 'ArrowLeft') {
+			if (target?.id === 'home-search-input') {
+				const inp = target as HTMLInputElement
+				if (inp.value.length > 0 && inp.selectionStart !== 0) return
+			}
+			return
+		}
 
 		if (e.key === 'ArrowDown') {
 			if (displayedItems.length === 0) return

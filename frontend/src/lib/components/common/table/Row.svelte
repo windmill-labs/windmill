@@ -142,7 +142,7 @@
 		<div class="w-9"></div>
 	{/if}
 
-	<div class="flex gap-1 items-center justify-end pr-2">
+	<div data-row-actions class="flex gap-1 items-center justify-end pr-2">
 		{@render actions?.()}
 	</div>
 </div>
