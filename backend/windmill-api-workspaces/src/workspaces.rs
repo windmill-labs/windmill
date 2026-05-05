@@ -6793,48 +6793,32 @@ async fn compare_two_variables(
     fork_workspace_id: &str,
     path: &str,
 ) -> Result<ItemComparison> {
-    // If either side is ws_specific, consider unchanged
-    let source_ws_specific = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'variable' AND path = $2)",
+    // Combine the four EXISTS checks (ws_specific × {source, fork}, variable
+    // × {source, fork}) into a single round-trip; this runs per variable
+    // during a workspace diff so the savings add up.
+    let presence = sqlx::query!(
+        r#"SELECT
+            EXISTS(SELECT 1 FROM ws_specific
+                   WHERE workspace_id = $1 AND item_kind = 'variable' AND path = $3) AS "src_ws!",
+            EXISTS(SELECT 1 FROM ws_specific
+                   WHERE workspace_id = $2 AND item_kind = 'variable' AND path = $3) AS "tgt_ws!",
+            EXISTS(SELECT 1 FROM variable
+                   WHERE workspace_id = $1 AND path = $3) AS "src_var!",
+            EXISTS(SELECT 1 FROM variable
+                   WHERE workspace_id = $2 AND path = $3) AS "tgt_var!""#,
         source_workspace_id,
-        path
-    )
-    .fetch_one(db)
-    .await?
-    .unwrap_or(false);
-
-    let target_ws_specific = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'variable' AND path = $2)",
         fork_workspace_id,
-        path
+        path,
     )
     .fetch_one(db)
-    .await?
-    .unwrap_or(false);
+    .await?;
 
-    if source_ws_specific || target_ws_specific {
-        let source_exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2)",
-            source_workspace_id,
-            path
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false);
-
-        let target_exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2)",
-            fork_workspace_id,
-            path
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false);
-
+    // If either side is ws_specific, consider unchanged
+    if presence.src_ws || presence.tgt_ws {
         return Ok(ItemComparison {
             has_changes: false,
-            exists_in_source: source_exists,
-            exists_in_fork: target_exists,
+            exists_in_source: presence.src_var,
+            exists_in_fork: presence.tgt_var,
         });
     }
 
