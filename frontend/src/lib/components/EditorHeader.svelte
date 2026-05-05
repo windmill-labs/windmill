@@ -21,6 +21,10 @@
 		kind?: Kind
 		onNavigate?: (item: { path: string; kind: Kind }) => void
 		onSaved?: (newPath: string) => void
+		/** Custom path-save handler. When provided, replaces the built-in call to
+		 * `updateItemPathAndSummary` from the pen popover's Save button. Use this when
+		 * the parent owns persistence (e.g. raw apps that bundle assets on deploy). */
+		onPathSubmit?: (newPath: string) => void | Promise<void>
 		penVisibility?: 'hover' | 'always'
 		disabled?: boolean
 	}
@@ -31,6 +35,7 @@
 		kind = 'flow',
 		onNavigate,
 		onSaved,
+		onPathSubmit,
 		penVisibility = 'hover',
 		disabled = false
 	}: Props = $props()
@@ -65,7 +70,7 @@
 		if (pathPopoverOpen) {
 			editPath = path ?? ''
 			onBehalfOfEmail = undefined
-			if ($workspaceStore && path) {
+			if (kind === 'flow' && $workspaceStore && path) {
 				checkFlowOnBehalfOf($workspaceStore, path).then((email) => {
 					onBehalfOfEmail = email
 				})
@@ -90,20 +95,34 @@
 		const initialPath = path ?? ''
 		const newPath = own ? editPath : initialPath
 
+		if (onPathSubmit) {
+			try {
+				await onPathSubmit(newPath)
+				close()
+				onSaved?.(newPath)
+			} catch (e: any) {
+				sendUserToast(`Could not update path: ${e.body ?? e.message}`, true)
+			}
+			return
+		}
+
 		try {
 			await updateItemPathAndSummary({
 				workspace: $workspaceStore!,
-				kind: 'flow',
+				kind,
 				initialPath,
 				newPath,
 				newSummary: summary ?? ''
 			})
-			sendUserToast('Flow updated')
+			sendUserToast(`${KIND_LABEL[kind].slice(0, -1)} updated`)
 			path = newPath
 			close()
 			onSaved?.(newPath)
 		} catch (e: any) {
-			sendUserToast(`Could not update flow: ${e.body ?? e.message}`, true)
+			sendUserToast(
+				`Could not update ${KIND_LABEL[kind].slice(0, -1)}: ${e.body ?? e.message}`,
+				true
+			)
 		}
 	}
 </script>
@@ -194,7 +213,7 @@
 				{/snippet}
 			</Popover>{/if}
 
-		<!-- Pen → path-edit popover (summary hidden) -->
+		<!-- Pen → path-edit popover -->
 		<Popover
 			placement="bottom-start"
 			contentClasses="p-4"
@@ -228,8 +247,8 @@
 								bind:path={editPath}
 								bind:dirty={dirtyPath}
 								initialPath={path ?? ''}
-								namePlaceholder="flow"
-								kind="flow"
+								namePlaceholder={kind}
+								{kind}
 								hideFullPath
 								size="sm"
 								drawerOffset={4000}
@@ -259,7 +278,7 @@
 	</div>
 
 	<!-- Summary -->
-	<div class="max-w-full text-xs leading-tight" title={summary}>
+	<div class="max-w-full -mt-[2px]" title={summary}>
 		<EditableInput
 			value={summary ?? ''}
 			placeholder="Add a summary..."

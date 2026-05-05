@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { Badge, Drawer, DrawerContent } from '$lib/components/common'
+	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import UndoRedo from '$lib/components/common/button/UndoRedo.svelte'
+	import { isMac } from '$lib/utils'
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { rawAppToHubUrl } from '$lib/hub'
@@ -15,8 +15,9 @@
 		FileJson,
 		Globe,
 		History,
-		Pen,
+		Redo,
 		Save,
+		Undo,
 		WandSparkles
 	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -37,7 +38,8 @@
 	import Awareness from '$lib/components/Awareness.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 
-	import Summary from '$lib/components/Summary.svelte'
+	import EditorHeader from '$lib/components/EditorHeader.svelte'
+	import { goto } from '$app/navigation'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
 	import AppJobsDrawer from '../apps/editor/AppJobsDrawer.svelte'
@@ -562,7 +564,24 @@
 		}
 	}
 
-	let moreItems = [
+	const mod = isMac() ? '⌘' : 'Ctrl+'
+
+	let moreItems = $derived([
+		{
+			displayName: 'Undo',
+			icon: Undo,
+			action: () => onUndo?.(),
+			disabled: !canUndo,
+			shortcut: `${mod}Z`
+		},
+		{
+			displayName: 'Redo',
+			icon: Redo,
+			action: () => onRedo?.(),
+			disabled: !canRedo,
+			shortcut: `${mod}⇧Z`,
+			separatorBottom: true
+		},
 		{
 			displayName: 'Deployment history',
 			icon: History,
@@ -617,7 +636,7 @@
 			},
 			disabled: !savedApp
 		}
-	]
+	])
 
 	const dispatch = createEventDispatcher()
 
@@ -824,52 +843,29 @@
 />
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto min-h-10 shrink-0"
+	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
 >
 	<div class="flex flex-row gap-2 items-center">
-		<Summary bind:value={summary} />
-		<div></div>
-		<UndoRedo
-			undoProps={{ disabled: !canUndo }}
-			redoProps={{ disabled: !canRedo }}
-			on:undo={() => onUndo?.()}
-			on:redo={() => onRedo?.()}
+		<EditorHeader
+			bind:summary
+			path={defaultIfEmptyString(newEditedPath, defaultIfEmptyString(newPath, appPath))}
+			kind="app"
+			onPathSubmit={(np) => {
+				newEditedPath = np
+			}}
+			onNavigate={(item) => {
+				const editPath =
+					item.kind === 'flow'
+						? `/flows/edit/${item.path}`
+						: item.kind === 'script'
+							? `/scripts/edit/${item.path}`
+							: `/apps_raw/edit/${item.path}`
+				goto(editPath)
+			}}
 		/>
+		<div></div>
 	</div>
 
-	<div class=" flex">
-		{#if newPath || newEditedPath}
-			<div class="flex justify-start w-full border rounded-md overflow-hidden">
-				<div>
-					<button
-						onclick={async () => {
-							saveDrawerOpen = true
-							setTimeout(() => {
-								document.getElementById('path')?.focus()
-							}, 100)
-						}}
-					>
-						<Badge
-							color="gray"
-							class="center-center !bg-surface-secondary !text-primary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all flex gap-1"
-						>
-							<Pen size={14} />Path
-						</Badge>
-					</button>
-				</div>
-				<input
-					type="text"
-					readonly
-					value={defaultIfEmptyString(newEditedPath, newPath)}
-					size={defaultIfEmptyString(newEditedPath, newPath)?.length || 50}
-					class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
-					onfocus={({ currentTarget }) => {
-						currentTarget.select()
-					}}
-				/>
-			</div>
-		{/if}
-	</div>
 	{#if $enterpriseLicense && appPath != ''}
 		<Awareness />
 	{/if}

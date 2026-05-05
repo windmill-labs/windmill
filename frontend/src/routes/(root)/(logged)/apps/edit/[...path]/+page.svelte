@@ -160,6 +160,9 @@
 	}
 
 	$effect(() => {
+		// Re-run on workspace OR path change so navigating from one app editor
+		// to another (e.g. via the workspace picker) reloads the new app.
+		page.params.path
 		if ($workspaceStore) {
 			untrack(() => {
 				loadApp()

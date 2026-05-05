@@ -164,6 +164,9 @@
 	}
 
 	$effect(() => {
+		// Re-run on workspace OR path change so navigating from one script editor
+		// to another (e.g. via the workspace picker) reloads the new script.
+		page.params.path
 		if ($workspaceStore) {
 			untrack(() => loadScript())
 		}
@@ -221,6 +224,15 @@
 		}}
 		onSeeDetails={(e) => {
 			goto(`/scripts/get/${e.path}?workspace=${$workspaceStore}`)
+		}}
+		onNavigate={(e) => {
+			const editPath =
+				e.kind === 'flow'
+					? `/flows/edit/${e.path}`
+					: e.kind === 'script'
+						? `/scripts/edit/${e.path}`
+						: `/apps_raw/edit/${e.path}`
+			goto(editPath)
 		}}
 		replaceStateFn={(path) => {
 			replaceState(path, page.state)

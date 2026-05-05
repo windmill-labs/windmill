@@ -44,4 +44,5 @@ export interface ScriptBuilderProps {
 	onSaveDraft?: (e: { path: string; savedAtNewPath: boolean; script: NewScript }) => void
 	onSeeDetails?: (e: { path: string }) => void
 	onSaveDraftError?: (e: { path: string; error: any }) => void
+	onNavigate?: (item: { path: string; kind: 'flow' | 'script' | 'app' }) => void
 }

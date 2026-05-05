@@ -1,12 +1,13 @@
 <script lang="ts">
-	import { Drawer, DrawerContent, UndoRedo } from '$lib/components/common'
+	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import type { Item } from '$lib/utils'
+	import { defaultIfEmptyString, isMac, type Item } from '$lib/utils'
+	import { updateItemPathAndSummary } from '$lib/components/moveRenameManager'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
@@ -24,6 +25,8 @@
 		Sun,
 		Moon,
 		SunMoon,
+		Undo,
+		Redo,
 		Zap,
 		Globe
 	} from 'lucide-svelte'
@@ -52,7 +55,8 @@
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
-	import Summary from '$lib/components/Summary.svelte'
+	import EditorHeader from '$lib/components/EditorHeader.svelte'
+	import { goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
@@ -558,7 +562,37 @@
 		lock = false
 	}
 
+	const mod = isMac() ? '⌘' : 'Ctrl+'
+
+	function handleUndo() {
+		const napp = undo(history, $app)
+		for (const key in napp) {
+			$app[key] = napp[key]
+		}
+	}
+	function handleRedo() {
+		const napp = redo(history)
+		for (const key in napp) {
+			$app[key] = napp[key]
+		}
+	}
+
 	let moreItems = $derived([
+		{
+			displayName: 'Undo',
+			icon: Undo,
+			action: () => handleUndo(),
+			disabled: $history?.index === 0,
+			shortcut: `${mod}Z`
+		},
+		{
+			displayName: 'Redo',
+			icon: Redo,
+			action: () => handleRedo(),
+			disabled: $history && $history?.index === $history.history.length - 1,
+			shortcut: `${mod}⇧Z`,
+			separatorBottom: true
+		},
 		{
 			displayName: 'Deployment history',
 			icon: History,
@@ -890,28 +924,39 @@
 <AppReportsDrawer bind:open={appReportingDrawerOpen} appPath={$appPath ?? ''} />
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto"
+	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
 >
 	<div class="flex flex-row gap-2 items-center">
-		<Summary bind:value={$summary} />
+		<EditorHeader
+			bind:summary={$summary}
+			path={defaultIfEmptyString(newEditedPath, defaultIfEmptyString(newPath, $appPath))}
+			kind="app"
+			onPathSubmit={async (np) => {
+				if ($appPath === '') {
+					newEditedPath = np
+				} else {
+					await updateItemPathAndSummary({
+						workspace: $workspaceStore!,
+						kind: 'app',
+						initialPath: $appPath,
+						newPath: np,
+						newSummary: $summary ?? ''
+					})
+					$appPath = np
+					sendUserToast('app updated')
+				}
+			}}
+			onNavigate={(item) => {
+				const editPath =
+					item.kind === 'flow'
+						? `/flows/edit/${item.path}`
+						: item.kind === 'script'
+							? `/scripts/edit/${item.path}`
+							: `/apps/edit/${item.path}`
+				goto(editPath)
+			}}
+		/>
 		<div class="flex gap-2">
-			<UndoRedo
-				undoProps={{ disabled: $history?.index === 0 }}
-				redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
-				on:undo={() => {
-					const napp = undo(history, $app)
-					for (const key in napp) {
-						$app[key] = napp[key]
-					}
-				}}
-				on:redo={() => {
-					const napp = redo(history)
-					for (const key in napp) {
-						$app[key] = napp[key]
-					}
-				}}
-			/>
-
 			{#if $app}
 				<ToggleButtonGroup
 					selected={$app.fullscreen ? 'true' : 'false'}

@@ -62,7 +62,7 @@
 			bind:this={textInputComponent}
 			bind:value={draft}
 			{size}
-			class="!bg-transparent !border-0 !shadow-none !p-0 !m-0 !min-w-0 !min-h-0 !h-auto {textClass} {inputClass}"
+			class="!bg-transparent !border-0 !shadow-none -p-0 !m-0 !min-w-0 !min-h-0 !h-auto {textClass} {inputClass}"
 			inputProps={{
 				placeholder,
 				onblur: save,

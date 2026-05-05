@@ -877,7 +877,7 @@
 			{/snippet}
 		</AppEditorHeader>
 		{#if $mode === 'preview'}
-			<SplitPanesWrapper>
+			<SplitPanesWrapper class="border-t">
 				<div
 					class={twMerge(
 						'h-full w-full relative',
@@ -922,7 +922,7 @@
 				</div>
 			{/if}
 
-			<SplitPanesWrapper>
+			<SplitPanesWrapper class="border-t">
 				<Splitpanes id="o1" class="max-w-full overflow-hidden">
 					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
 						<div
