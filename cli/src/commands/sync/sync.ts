@@ -130,10 +130,16 @@ const WS_SPECIFIC_KIND_MAP: Record<string, { configKey: keyof Omit<SpecificItems
 // Fetch ws_specific items from the server and merge their paths into specificItems.
 // Each ws_specific entry (item_kind + path) is appended as an exact file-path pattern
 // to the corresponding array in the config, so the existing pattern-matching logic picks them up.
+// Returns the merged config plus the raw server list (or null if the server list could
+// not be fetched) — callers performing push-side reconciliation need to know which
+// (kind, path) pairs are *not yet* ws_specific on the server.
 async function mergeWsSpecificFromServer(
   workspaceId: string,
   specificItems: SpecificItemsConfig | undefined,
-): Promise<SpecificItemsConfig | undefined> {
+): Promise<{
+  merged: SpecificItemsConfig | undefined;
+  serverItems: Array<{ item_kind: string; path: string }> | null;
+}> {
   let wsSpecificItems: Array<{ item_kind: string; path: string }>;
   try {
     wsSpecificItems = await wmill.listWsSpecific({ workspace: workspaceId });
@@ -153,11 +159,11 @@ async function mergeWsSpecificFromServer(
           `Sync will proceed without server-side ws_specific items.`,
       );
     }
-    return specificItems;
+    return { merged: specificItems, serverItems: null };
   }
 
   if (wsSpecificItems.length === 0) {
-    return specificItems;
+    return { merged: specificItems, serverItems: wsSpecificItems };
   }
 
   const merged: SpecificItemsConfig = specificItems ? { ...specificItems } : {};
@@ -171,7 +177,42 @@ async function mergeWsSpecificFromServer(
     merged[kindInfo.configKey]!.push(item.path + kindInfo.suffix);
   }
 
-  return merged;
+  return { merged, serverItems: wsSpecificItems };
+}
+
+// Compute (kind, serverPath) pairs that are flagged ws_specific by the local
+// config (specificItems) but are *not* marked ws_specific on the server. These
+// represent flag-only changes that the file-content diff misses (because the
+// flag isn't part of the YAML body), so push needs to handle them explicitly.
+function computeWsSpecificFlagOnlyPushes(
+  localMap: Record<string, string>,
+  localSpecificItems: SpecificItemsConfig | undefined,
+  serverItems: Array<{ item_kind: string; path: string }> | null,
+): Array<{ kind: "resource" | "variable"; serverPath: string; filePath: string }> {
+  if (!localSpecificItems || serverItems === null) return [];
+
+  const serverSet = new Set(
+    serverItems.map((i) => `${i.item_kind}:${i.path}`),
+  );
+
+  const out: Array<{ kind: "resource" | "variable"; serverPath: string; filePath: string }> = [];
+  for (const filePath of Object.keys(localMap)) {
+    let kind: "resource" | "variable" | null = null;
+    let suffixLen = 0;
+    if (filePath.endsWith(".resource.yaml")) { kind = "resource"; suffixLen = ".resource.yaml".length; }
+    else if (filePath.endsWith(".resource.json")) { kind = "resource"; suffixLen = ".resource.json".length; }
+    else if (filePath.endsWith(".variable.yaml")) { kind = "variable"; suffixLen = ".variable.yaml".length; }
+    else if (filePath.endsWith(".variable.json")) { kind = "variable"; suffixLen = ".variable.json".length; }
+    if (!kind) continue;
+
+    if (!isSpecificItem(filePath, localSpecificItems)) continue;
+
+    const serverPath = filePath.slice(0, -suffixLen);
+    if (serverSet.has(`${kind}:${serverPath}`)) continue;
+
+    out.push({ kind, serverPath, filePath });
+  }
+  return out;
 }
 
 // Resolve workspace name from a --branch override (git branch → workspace name).
@@ -2346,7 +2387,7 @@ export async function pull(
   let wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : workspace.workspaceId;
 
   // Augment specificItems with server-side ws_specific entries
-  specificItems = await mergeWsSpecificFromServer(workspace.workspaceId, specificItems);
+  specificItems = (await mergeWsSpecificFromServer(workspace.workspaceId, specificItems)).merged;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2940,8 +2981,15 @@ export async function push(
   // Compute the workspace name for file naming (default to workspaceId)
   let wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : workspace.workspaceId;
 
+  // Keep the pre-merge specificItems so we can detect entries that are
+  // flagged locally but not yet ws_specific on the server (post-merge would
+  // include both, making the comparison impossible).
+  const localSpecificItems = specificItems;
+
   // Augment specificItems with server-side ws_specific entries
-  specificItems = await mergeWsSpecificFromServer(workspace.workspaceId, specificItems);
+  const wsSpecificMerge = await mergeWsSpecificFromServer(workspace.workspaceId, specificItems);
+  specificItems = wsSpecificMerge.merged;
+  const serverWsSpecificItems = wsSpecificMerge.serverItems;
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -3034,7 +3082,7 @@ export async function push(
   );
 
   const local = await FSFSElement(path.join(process.cwd(), ""), codebases, false);
-  const { changes } = await compareDynFSElement(
+  const { changes, localMap } = await compareDynFSElement(
     local,
     remote,
     await ignoreF(opts),
@@ -3047,6 +3095,28 @@ export async function push(
     wsNameForFiles,
     false, // els1 (local) is not the remote source
   );
+
+  // Detect resources/variables that the local config flags as ws_specific
+  // but that aren't ws_specific on the server. The file-content diff misses
+  // these because ws_specific isn't part of the YAML body — inject them as
+  // synthetic "edited" changes so the standard display + apply loop handles
+  // them. push{Resource,Variable} skip when content matches *and* the flag
+  // matches, so the flag-only diff still triggers an updateX call.
+  const wsSpecificFlagOnly = computeWsSpecificFlagOnlyPushes(
+    localMap,
+    localSpecificItems,
+    serverWsSpecificItems,
+  );
+  for (const item of wsSpecificFlagOnly) {
+    const content = localMap[item.filePath] ?? "";
+    if (changes.some((c) => c.path === item.filePath)) continue;
+    changes.push({
+      name: "edited",
+      path: item.filePath,
+      before: content,
+      after: content,
+    });
+  }
 
   const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
 

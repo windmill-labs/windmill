@@ -94,7 +94,15 @@ export async function pushResource(
   };
 
   if (resource) {
-    if (isSuperset(localResource, resource)) {
+    // Even if file content is a superset of the remote, we still need to
+    // push when the ws_specific flag differs (the flag is metadata, not
+    // file body — it's never inside `localResource`). Without this guard,
+    // the sync push silently drops a flip from "not ws_specific" to
+    // ws_specific (or vice-versa).
+    const remoteWsSpecific = (resource as any).ws_specific === true;
+    const wsSpecificMatches =
+      wsSpecific === undefined || wsSpecific === remoteWsSpecific;
+    if (isSuperset(localResource, resource) && wsSpecificMatches) {
       return;
     }
 
