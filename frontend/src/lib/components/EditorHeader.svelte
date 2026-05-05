@@ -6,17 +6,20 @@
 	import Path from '$lib/components/Path.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
+	import WorkspaceItemPicker from '$lib/components/WorkspaceItemPicker.svelte'
 	import { isOwner } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
+
+	type Kind = 'flow' | 'script' | 'app'
 
 	interface Props {
 		summary?: string
 		path?: string
 		labels?: string[] | undefined
 		isNew?: boolean
-		onNavigate?: (path: string) => void
+		onNavigate?: (item: { path: string; kind: Kind }) => void
 		onSaved?: (newPath: string) => void
 		penVisibility?: 'hover' | 'always'
 		disabled?: boolean
@@ -35,6 +38,7 @@
 
 	let pickerOpen = $state(false)
 	let pathPopoverOpen = $state(false)
+	let picker: WorkspaceItemPicker | undefined = $state()
 
 	let editPath = $state('')
 	let dirtyPath = $state(false)
@@ -63,12 +67,10 @@
 		summary = trimmed
 	}
 
-	// Will be called by the file picker (TODO) when the user selects a flow.
-	function handlePickerSelect(newPath: string) {
+	function handlePickerSelect(item: { path: string; kind: Kind }) {
 		pickerOpen = false
-		onNavigate?.(newPath)
+		onNavigate?.(item)
 	}
-	void handlePickerSelect
 
 	async function savePath(close: () => void) {
 		const initialPath = path ?? ''
@@ -113,10 +115,13 @@
 		{#if isNew}
 			<Popover
 				placement="bottom-start"
-				contentClasses="p-4"
 				usePointerDownOutside
 				excludeSelectors=".drawer"
 				disableFocusTrap
+				openFocus={() => {
+					picker?.focus()
+					return null
+				}}
 				bind:isOpen={pickerOpen}
 				{disabled}
 			>
@@ -131,19 +136,20 @@
 					</button>
 				{/snippet}
 				{#snippet content()}
-					<div class="w-[400px] text-xs text-tertiary">
-						<!-- File picker placeholder -->
-					</div>
+					<WorkspaceItemPicker bind:this={picker} onPick={handlePickerSelect} />
 				{/snippet}
 			</Popover>
 		{:else}
 			<!-- Path chip → picker popover -->
 			<Popover
 				placement="bottom-start"
-				contentClasses="p-4"
 				usePointerDownOutside
 				excludeSelectors=".drawer"
 				disableFocusTrap
+				openFocus={() => {
+					picker?.focus()
+					return null
+				}}
 				bind:isOpen={pickerOpen}
 				{disabled}
 			>
@@ -161,9 +167,7 @@
 					</button>
 				{/snippet}
 				{#snippet content()}
-					<div class="w-[400px] text-xs text-tertiary">
-						<!-- File picker placeholder -->
-					</div>
+					<WorkspaceItemPicker bind:this={picker} onPick={handlePickerSelect} />
 				{/snippet}
 			</Popover>
 

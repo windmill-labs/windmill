@@ -1156,7 +1156,7 @@
 						bind:summary={flowStore.val.summary}
 						bind:path={$pathStore}
 						isNew={newFlow}
-						onNavigate={(path) => onNavigate?.({ path })}
+						onNavigate={(item) => onNavigate?.(item)}
 					/>
 				</div>
 

@@ -292,7 +292,13 @@
 			loadFlow()
 		}}
 		onNavigate={(e) => {
-			goto(`/flows/edit/${e.path}`)
+			const editPath =
+				e.kind === 'flow'
+					? `/flows/edit/${e.path}`
+					: e.kind === 'script'
+						? `/scripts/edit/${e.path}`
+						: `/apps_raw/edit/${e.path}`
+			goto(editPath)
 		}}
 		{flowStore}
 		{flowStateStore}
