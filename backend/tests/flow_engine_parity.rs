@@ -2761,6 +2761,124 @@ async fn test_flow_env_imported_flow_inherits_when_unset(db: Pool<Postgres>) -> 
     Ok(())
 }
 
+// Imported flow with its own flow_env contains a nested BranchOne whose
+// inner step has a skip_if predicate. The branch sub-flow inside the
+// imported flow has `root_job` pointing to the **top parent**, but its
+// `flow_innermost_root_job` points to the imported flow — so the lookup
+// must walk via flow_innermost_root_job to find the imported flow's scope,
+// not jump straight to root_job (which would surface the parent's env and
+// give the wrong answer).
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_imported_flow_with_nested_branch(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    // Imported flow: own flow_env={KEY: "imported"}, contains a BranchOne
+    // whose inner step has skip_if = "flow_env.KEY === 'imported'". The
+    // predicate must see the IMPORTED flow's env, not the parent's
+    // ({KEY: "parent"}).
+    let imported_path = "f/system/imported_with_nested_branch";
+    let imported_value = json!({
+        "modules": [{
+            "id": "router",
+            "value": {
+                "type": "branchone",
+                "branches": [{
+                    "summary": null,
+                    "expr": "true",
+                    "modules": [
+                        {
+                            "id": "marker",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "deno",
+                                "content": "export function main() { return {marker: \"from-imported-branch\"}; }",
+                                "input_transforms": {}
+                            }
+                        },
+                        {
+                            "id": "leaf",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "deno",
+                                "content": "export function main() { return {ran: true}; }",
+                                "input_transforms": {}
+                            },
+                            "skip_if": { "expr": "flow_env.KEY === 'imported'" }
+                        }
+                    ],
+                    "skip_failure": false,
+                    "parallel": false,
+                }],
+                "default": [],
+            }
+        }],
+        "flow_env": { "KEY": "imported" }
+    });
+    let imported_version_id: i64 = 9991003;
+    sqlx::query!(
+        "INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES ($1, '', '', $2, ARRAY[$3]::bigint[], '{}'::jsonb, $4, 'system')",
+        "test-workspace",
+        imported_path,
+        imported_version_id,
+        imported_value.clone(),
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO public.flow_version(id, workspace_id, path, schema, value, created_by) VALUES ($1, $2, $3, '{}'::jsonb, $4, 'system')",
+        imported_version_id,
+        "test-workspace",
+        imported_path,
+        imported_value.clone(),
+    )
+    .execute(&db)
+    .await?;
+
+    let mut parent_env = std::collections::HashMap::new();
+    parent_env.insert(
+        "KEY".to_string(),
+        windmill_common::worker::to_raw_value(&json!("parent")),
+    );
+
+    let parent = FlowValue {
+        modules: vec![flow_module(
+            "import",
+            FlowModuleValue::Flow {
+                input_transforms: Default::default(),
+                path: imported_path.to_string(),
+                pass_flow_input_directly: None,
+            },
+        )],
+        flow_env: Some(parent_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: parent, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // skip_if must see imported's env (KEY="imported") → predicate is true →
+    // leaf is skipped → branch returns marker's output. If the lookup
+    // shortcuts via root_job to the top parent, KEY would be "parent",
+    // skip_if would be false, leaf would run and return {ran: true}.
+    assert_eq!(
+        result["marker"], "from-imported-branch",
+        "skip_if inside imported flow's branch must see imported's flow_env, not parent's (got {result:?})"
+    );
+    assert!(
+        result.get("ran").is_none(),
+        "leaf ran — predicate didn't see imported flow's flow_env scope (got {result:?})"
+    );
+
+    Ok(())
+}
+
 // stop_after_if predicate sees flow_env. Regression for the eval at line 614
 // of `update_flow_status_after_job_completion_internal` which used to pass
 // `None` for flow_env unconditionally.
