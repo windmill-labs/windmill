@@ -196,7 +196,7 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="900px">
+<Drawer bind:this={drawer} size="50rem">
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
 		on:close={drawer?.closeDrawer}

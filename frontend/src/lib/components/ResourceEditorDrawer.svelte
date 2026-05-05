@@ -45,7 +45,7 @@
 	let mode: 'edit' | 'new' = $derived(!path ? 'new' : 'edit')
 </script>
 
-<Drawer bind:this={drawer} size="800px" {disableChatOffset}>
+<Drawer bind:this={drawer} size="50rem" {disableChatOffset}>
 	<DrawerContent
 		title={mode == 'edit' ? 'Edit ' + path : 'Add a resource'}
 		on:close={drawer?.closeDrawer}
