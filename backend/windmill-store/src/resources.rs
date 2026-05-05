@@ -1306,7 +1306,7 @@ async fn update_resource(
     if let Some(npath) = &ns.path {
         sqlb.set_str("path", npath);
     }
-    if let Some(nvalue) = ns.value {
+    if let Some(nvalue) = &ns.value {
         sqlb.set_str("value", nvalue.to_string());
     }
     if let Some(ndesc) = ns.description {
@@ -1437,20 +1437,27 @@ async fn update_resource(
         }
     }
 
-    let effective_ws_specific = if let Some(ws_specific) = ns.ws_specific {
-        ws_specific
-    } else {
-        sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2)",
-        )
-        .bind(&w_id)
-        .bind(&npath)
-        .fetch_one(&mut *tx)
-        .await?
-    };
+    // Only re-mark linked variables when something that could change them
+    // actually changed: a new value (different $var: refs) or ws_specific
+    // freshly enabled. Skipping when neither changed avoids re-running an
+    // INSERT (and audit logs) on every save.
+    let needs_remark = ns.value.is_some() || ns.ws_specific == Some(true);
+    if needs_remark {
+        let effective_ws_specific = if let Some(ws_specific) = ns.ws_specific {
+            ws_specific
+        } else {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2)",
+            )
+            .bind(&w_id)
+            .bind(&npath)
+            .fetch_one(&mut *tx)
+            .await?
+        };
 
-    if effective_ws_specific {
-        mark_linked_variables_ws_specific(&mut tx, &authed, &w_id, &npath).await?;
+        if effective_ws_specific {
+            mark_linked_variables_ws_specific(&mut tx, &authed, &w_id, &npath).await?;
+        }
     }
 
     audit_log(
