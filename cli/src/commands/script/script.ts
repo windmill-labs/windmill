@@ -1307,20 +1307,129 @@ export async function generateMetadata(
     return;
   }
 
-  // Delegate to the canonical implementation. The legacy in-line version of
-  // this command did per-script lockgen without populating raw_script_temp,
-  // so on a fresh workspace cross-folder relative imports 404'd against the
-  // server (see the matching wiring in commands/generate-metadata). Routing
-  // through the canonical implementation reuses its DoubleLinkedDependencyTree
-  // + uploadScripts pipeline so the dep job can resolve relative imports via
-  // temp_script_refs even when nothing has been deployed yet.
-  // The canonical handler accepts a folder/script path as its first argument
-  // and filters staleItems accordingly, so a script path passed here narrows
-  // the work the same way the legacy implementation did.
-  const { generateMetadata: canonicalGenerateMetadata } = await import(
-    "../generate-metadata/generate-metadata.ts"
-  );
-  await canonicalGenerateMetadata({ ...opts, skipFlows: true, skipApps: true } as any, scriptPath);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  opts = await mergeConfigWithConfigFile(opts);
+  const codebases = await listSyncCodebases(opts);
+
+  const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
+  if (scriptPath) {
+    // read script metadata file
+    await generateScriptMetadataInternal(
+      scriptPath,
+      workspace,
+      opts,
+      false,
+      false,
+      rawWorkspaceDependencies,
+      codebases,
+      false
+    );
+  } else {
+    // TODO: test this as well.
+    const ignore = await ignoreF(opts);
+    const elems = await elementsToMap(
+      await FSFSElement(process.cwd(), codebases, false),
+      (p, isD) => {
+        return (
+          (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+          ignore(p, isD) ||
+          isFlowPath(p) ||
+          isAppPath(p) ||
+          isRawAppPath(p) ||
+          // Skip module helper files; only entry points (script.{ext}) are processed
+          (isScriptModulePath(p) && !isModuleEntryPoint(p))
+        );
+      },
+      false,
+      {}
+    );
+    let hasAny = false;
+    log.info("Generating metadata for all stale scripts:");
+    for (const e of Object.keys(elems)) {
+      const candidate = await generateScriptMetadataInternal(
+        e,
+        workspace,
+        opts,
+        true,
+        true,
+        rawWorkspaceDependencies,
+        codebases,
+        false
+      );
+      if (candidate) {
+        hasAny = true;
+        log.info(colors.green(`+ ${candidate} `));
+      }
+    }
+    if (hasAny) {
+      if (opts.dryRun) {
+        log.info(colors.gray(`Dry run complete.`));
+        return;
+      }
+      if (
+        !opts.yes &&
+        !(await Confirm.prompt({
+          message: "Update the metadata of the above scripts?",
+          default: true,
+        }))
+      ) {
+        return;
+      }
+    } else {
+      log.info(colors.green.bold("No metadata to update"));
+      return;
+    }
+
+    // Build a DoubleLinkedDependencyTree and upload mismatched scripts to
+    // raw_script_temp before the actual generation pass. Without this,
+    // dep jobs for scripts that import other not-yet-deployed scripts via
+    // relative paths would 404 on the import target (the very bug this
+    // alias was introducing on fresh-DB pushes).
+    const { DoubleLinkedDependencyTree, uploadScripts } = await import(
+      "../../utils/dependency_tree.ts"
+    );
+    const tree = new DoubleLinkedDependencyTree();
+    tree.setWorkspaceDeps(rawWorkspaceDependencies);
+    for (const e of Object.keys(elems)) {
+      await generateScriptMetadataInternal(
+        e,
+        workspace,
+        opts,
+        true, // dryRun: populate tree
+        true,
+        rawWorkspaceDependencies,
+        codebases,
+        false,
+        tree,
+      );
+    }
+    tree.propagateStaleness();
+    try {
+      await uploadScripts(tree, workspace);
+    } catch (e) {
+      log.warn(
+        colors.yellow(
+          `Failed to upload scripts to temp storage (backend may be too old): ${e}. ` +
+            `Locks will be generated using deployed script versions only — locally modified ` +
+            `relative imports may not be reflected.`,
+        ),
+      );
+    }
+    for (const e of Object.keys(elems)) {
+      await generateScriptMetadataInternal(
+        e,
+        workspace,
+        opts,
+        false,
+        true,
+        rawWorkspaceDependencies,
+        codebases,
+        false,
+        tree,
+      );
+    }
+  }
 }
 
 async function preview(
