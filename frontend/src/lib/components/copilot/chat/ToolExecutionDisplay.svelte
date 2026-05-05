@@ -122,15 +122,15 @@
 					showWhileLoading={false}
 				/>
 
-				<ToolContentDisplay
-					title="Result"
-					content={message.result}
-					error={message.error}
-					loading={message.isLoading}
-				/>
-
 				{#if visibleActions.length > 0}
 					<ToolMessageActions actions={visibleActions} />
+				{:else}
+					<ToolContentDisplay
+						title="Result"
+						content={message.result}
+						error={message.error}
+						loading={message.isLoading}
+					/>
 				{/if}
 			{/if}
 		</div>
