@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.695.0](https://github.com/windmill-labs/windmill/compare/v1.694.0...v1.695.0) (2026-05-04)
+
+
+### Features
+
+* add separate filter searchbar for resource types tab ([#9019](https://github.com/windmill-labs/windmill/issues/9019)) ([f1fd245](https://github.com/windmill-labs/windmill/commit/f1fd245073d6bf97a6a6c64e64d545618cccc432))
+
+
+### Bug Fixes
+
+* **autoscaling:** consider dedicated workers in scale decisions ([#9020](https://github.com/windmill-labs/windmill/issues/9020)) ([42be1d4](https://github.com/windmill-labs/windmill/commit/42be1d46a632c23830f97995e9ab1b52a1ed5d3d))
+* bind MySQL table listing to configured database name ([#9007](https://github.com/windmill-labs/windmill/issues/9007)) ([44fad13](https://github.com/windmill-labs/windmill/commit/44fad139fe2076f5faa62de31aaeeb217466b25e))
+* **flows:** don't bubble error when continue_on_error is on the last step ([#9029](https://github.com/windmill-labs/windmill/issues/9029)) ([192866d](https://github.com/windmill-labs/windmill/commit/192866d5197c74ec930d6fe7bf9234fac76763f4))
+* **forks:** strip mode/enabled from merge-UI deploy payload ([#9008](https://github.com/windmill-labs/windmill/issues/9008)) ([da95588](https://github.com/windmill-labs/windmill/commit/da95588b253e8bb2a06b9792674b4d691384f55a))
+* stop sequential whileloop on iteration failure ([#9028](https://github.com/windmill-labs/windmill/issues/9028)) ([1be62ea](https://github.com/windmill-labs/windmill/commit/1be62ea926872882ddbd4c8ce81502d6e341b8c1))
+
 ## [1.694.0](https://github.com/windmill-labs/windmill/compare/v1.693.4...v1.694.0) (2026-05-01)
 
 

@@ -1,26 +1,4 @@
-# Code Review Instructions
+# Claude output format
 
-Review this pull request and provide comprehensive feedback.
-
-## Focus Areas
-
-- **Code quality and best practices** — does the code follow established patterns?
-- **Potential bugs or issues** — will this code work correctly in all cases?
-- **Performance considerations** — are there unnecessary allocations, N+1 queries, or bottlenecks?
-- **Security implications** — injection, auth bypass, data exposure?
-
-## CLAUDE.md Compliance
-
-Read all relevant CLAUDE.md files (root and in directories containing changed files). Check each rule against the changed code. Quote the exact rule when flagging a violation.
-
-## Review Guidelines
-
-- Provide detailed feedback using inline comments for specific issues
-- Use top-level comments for general observations or praise
-- Only flag issues introduced by this PR, not pre-existing problems
-- Self-validate each finding: "Is this definitely a real issue?" If uncertain, discard it
-- If the prompt includes a "Prior PR discussion" section, this PR has already been reviewed. Look for your own earlier comment, focus on what changed in the latest commits, and do not repeat findings the human already pushed back on or addressed
-
-## Testing Instructions
-
-At the end of your review, add complete instructions to reproduce the added changes through the app interface. These instructions will be given to a tester so they can verify the changes. It should be a short descriptive text (not a step-by-step or a list) on how to navigate the app (what page, what action, what input, etc.) to see the changes.
+- Use inline comments at the relevant lines for specific issues.
+- Use a top-level comment for the summary, severity-tagged finding list, AGENTS.md compliance check, and the test-coverage assessment.
