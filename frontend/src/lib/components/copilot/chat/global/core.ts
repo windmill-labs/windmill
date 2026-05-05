@@ -1,6 +1,19 @@
-import { FlowService, ScriptService } from '$lib/gen'
+import {
+	AzureTriggerService,
+	FlowService,
+	GcpTriggerService,
+	HttpTriggerService,
+	KafkaTriggerService,
+	MqttTriggerService,
+	NatsTriggerService,
+	PostgresTriggerService,
+	ScheduleService,
+	ScriptService,
+	SqsTriggerService,
+	WebsocketTriggerService
+} from '$lib/gen'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
-import type { Flow, Script, ScriptLang } from '$lib/gen/types.gen'
+import type { Flow, Schedule, Script, ScriptLang } from '$lib/gen/types.gen'
 import { getFlowPrompt, getScriptPrompt } from '$system_prompts'
 import type {
 	ChatCompletionSystemMessageParam,
@@ -9,20 +22,34 @@ import type {
 import { z } from 'zod'
 import { createToolDef, type Tool, type ToolCallbacks } from '../shared'
 import { flowModuleSchema, flowModulesSchema } from '../flow/openFlowZod.gen'
+import { scheduleRequestSchema, triggerRequestSchemas } from '../workspaceToolsZod.gen'
 import {
+	getWorkspaceItemKey,
 	globalDraftStore,
+	TRIGGER_KINDS,
+	type TriggerKind,
 	type WorkspaceItem,
 	type WorkspaceItemType
 } from './draftStore.svelte'
 
-const ITEM_TYPES = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
+const ITEM_TYPES = [
+	'script',
+	'flow',
+	'schedule',
+	'trigger'
+] as const satisfies readonly WorkspaceItemType[]
+const INSTRUCTION_SUBJECTS = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
 const MAX_LIST_LIMIT = 100
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
+const instructionSubjectSchema = z.enum(INSTRUCTION_SUBJECTS)
+const triggerKindSchema = z.enum(TRIGGER_KINDS)
 const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
-	subject: itemTypeSchema.describe('The workspace item type to get authoring instructions for.'),
+	subject: instructionSubjectSchema.describe(
+		"The workspace item type to get authoring instructions for. Schedules and triggers don't need instructions — their tool schemas describe everything."
+	),
 	language: scriptLangSchema
 		.optional()
 		.describe(
@@ -34,7 +61,9 @@ const listWorkspaceItemsSchema = z.object({
 	types: z
 		.array(itemTypeSchema)
 		.optional()
-		.describe('Optional item types to list. Defaults to scripts and flows.'),
+		.describe(
+			'Optional item types to list. Defaults to scripts and flows. Pass schedule or trigger explicitly when needed (listing triggers spans 9 kinds and is heavier).'
+		),
 	query: z.string().optional().describe('Optional case-insensitive path or summary search string.'),
 	path_prefix: z
 		.string()
@@ -51,7 +80,10 @@ const listWorkspaceItemsSchema = z.object({
 
 const readWorkspaceItemSchema = z.object({
 	type: itemTypeSchema,
-	path: z.string().describe('Workspace path of the item to read.')
+	path: z.string().describe('Workspace path of the item to read.'),
+	trigger_kind: triggerKindSchema
+		.optional()
+		.describe('Required when type is trigger. Identifies which trigger service to call.')
 })
 
 const writeScriptSchema = z.object({
@@ -87,21 +119,45 @@ const writeFlowSchema = z.object({
 	value: flowValueSchema
 })
 
+const writeScheduleSchema = scheduleRequestSchema
+
+const writeTriggerSchema = z.object({
+	kind: triggerKindSchema.describe('Trigger kind. Determines which fields are valid in config.'),
+	config: z
+		.union([
+			triggerRequestSchemas.http,
+			triggerRequestSchemas.websocket,
+			triggerRequestSchemas.kafka,
+			triggerRequestSchemas.nats,
+			triggerRequestSchemas.postgres,
+			triggerRequestSchemas.mqtt,
+			triggerRequestSchemas.sqs,
+			triggerRequestSchemas.gcp,
+			triggerRequestSchemas.azure
+		])
+		.describe(
+			'Full trigger configuration. Must include path, script_path, is_flow plus the kind-specific fields.'
+		)
+})
+
 const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
 
-You can inspect workspace scripts and flows, then create draft changes in the frontend AI draft store.
+You can inspect workspace scripts, flows, schedules, and triggers, then create draft changes in the frontend AI draft store.
 
 Important rules:
-- write_script and write_flow create drafts only. They do not save, deploy, or mutate workspace items.
+- write_script, write_flow, write_schedule, and write_trigger create drafts only. They do not save, deploy, or mutate workspace items.
 - Use list_workspace_items before broad reads.
-- Use read_workspace_item before overwriting an existing item, unless the user already provided the complete current item.
+- Use read_workspace_item before overwriting an existing item, unless the user already provided the complete current item. For triggers, pass trigger_kind.
 - Use get_instructions before writing a script or flow. For scripts, pass the target language; when modifying, use the language from the item you read.
-- A workspace item is { type, path, summary?, language?, value, isDraft }. For scripts, value is the source code string. For flows, value is the OpenFlow value object.
+- Schedules and triggers do not need get_instructions — their tool schemas describe every field.
+- A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, value is the OpenFlow value object. For schedules, value is the full schedule object. For triggers, value is the kind-specific trigger config.
 - Keep context targeted. Do not read unrelated items.
 - Be explicit with the user when you create or update a draft.`
 
+const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
+
 function getRequestedTypes(types: WorkspaceItemType[] | undefined): WorkspaceItemType[] {
-	return types && types.length > 0 ? types : [...ITEM_TYPES]
+	return types && types.length > 0 ? types : [...DEFAULT_LIST_TYPES]
 }
 
 function itemMatches(
@@ -137,29 +193,133 @@ function flowToItem(flow: Flow, includeValue: boolean): WorkspaceItem {
 	}
 }
 
+function scheduleToItem(schedule: Schedule, includeValue: boolean): WorkspaceItem {
+	return {
+		type: 'schedule',
+		path: schedule.path,
+		summary: schedule.summary ?? undefined,
+		value: includeValue ? (schedule as unknown as WorkspaceItem['value']) : undefined,
+		isDraft: false
+	}
+}
+
+type TriggerLike = { path: string; summary?: string | null }
+
+function triggerToItem(
+	kind: TriggerKind,
+	trigger: TriggerLike,
+	includeValue: boolean
+): WorkspaceItem {
+	return {
+		type: 'trigger',
+		triggerKind: kind,
+		path: trigger.path,
+		summary: trigger.summary ?? undefined,
+		value: includeValue ? (trigger as unknown as WorkspaceItem['value']) : undefined,
+		isDraft: false
+	}
+}
+
+const triggerServices: Record<
+	TriggerKind,
+	{
+		exists(args: { workspace: string; path: string }): Promise<boolean>
+		get(args: { workspace: string; path: string }): Promise<TriggerLike>
+		list(args: {
+			workspace: string
+			pathStart?: string
+			perPage?: number
+		}): Promise<TriggerLike[]>
+	}
+> = {
+	http: {
+		exists: (a) => HttpTriggerService.existsHttpTrigger(a),
+		get: (a) => HttpTriggerService.getHttpTrigger(a),
+		list: (a) => HttpTriggerService.listHttpTriggers(a)
+	},
+	websocket: {
+		exists: (a) => WebsocketTriggerService.existsWebsocketTrigger(a),
+		get: (a) => WebsocketTriggerService.getWebsocketTrigger(a),
+		list: (a) => WebsocketTriggerService.listWebsocketTriggers(a)
+	},
+	kafka: {
+		exists: (a) => KafkaTriggerService.existsKafkaTrigger(a),
+		get: (a) => KafkaTriggerService.getKafkaTrigger(a),
+		list: (a) => KafkaTriggerService.listKafkaTriggers(a)
+	},
+	nats: {
+		exists: (a) => NatsTriggerService.existsNatsTrigger(a),
+		get: (a) => NatsTriggerService.getNatsTrigger(a),
+		list: (a) => NatsTriggerService.listNatsTriggers(a)
+	},
+	postgres: {
+		exists: (a) => PostgresTriggerService.existsPostgresTrigger(a),
+		get: (a) => PostgresTriggerService.getPostgresTrigger(a),
+		list: (a) => PostgresTriggerService.listPostgresTriggers(a)
+	},
+	mqtt: {
+		exists: (a) => MqttTriggerService.existsMqttTrigger(a),
+		get: (a) => MqttTriggerService.getMqttTrigger(a),
+		list: (a) => MqttTriggerService.listMqttTriggers(a)
+	},
+	sqs: {
+		exists: (a) => SqsTriggerService.existsSqsTrigger(a),
+		get: (a) => SqsTriggerService.getSqsTrigger(a),
+		list: (a) => SqsTriggerService.listSqsTriggers(a)
+	},
+	gcp: {
+		exists: (a) => GcpTriggerService.existsGcpTrigger(a),
+		get: (a) => GcpTriggerService.getGcpTrigger(a),
+		list: (a) => GcpTriggerService.listGcpTriggers(a)
+	},
+	azure: {
+		exists: (a) => AzureTriggerService.existsAzureTrigger(a),
+		get: (a) => AzureTriggerService.getAzureTrigger(a),
+		list: (a) => AzureTriggerService.listAzureTriggers(a)
+	}
+}
+
 async function workspaceItemExists(
 	type: WorkspaceItemType,
 	path: string,
-	workspace: string
+	workspace: string,
+	triggerKind?: TriggerKind
 ): Promise<boolean> {
 	switch (type) {
 		case 'script':
 			return ScriptService.existsScriptByPath({ workspace, path })
 		case 'flow':
 			return FlowService.existsFlowByPath({ workspace, path })
+		case 'schedule':
+			return ScheduleService.existsSchedule({ workspace, path })
+		case 'trigger':
+			if (!triggerKind) return false
+			return triggerServices[triggerKind].exists({ workspace, path })
 	}
 }
 
 async function readWorkspaceItem(
 	type: WorkspaceItemType,
 	path: string,
-	workspace: string
+	workspace: string,
+	triggerKind?: TriggerKind
 ): Promise<WorkspaceItem> {
 	switch (type) {
 		case 'script':
 			return scriptToItem(await ScriptService.getScriptByPath({ workspace, path }), true)
 		case 'flow':
 			return flowToItem(await FlowService.getFlowByPath({ workspace, path }), true)
+		case 'schedule':
+			return scheduleToItem(await ScheduleService.getSchedule({ workspace, path }), true)
+		case 'trigger':
+			if (!triggerKind) {
+				throw new Error('trigger_kind is required when type is trigger.')
+			}
+			return triggerToItem(
+				triggerKind,
+				await triggerServices[triggerKind].get({ workspace, path }),
+				true
+			)
 	}
 }
 
@@ -191,6 +351,26 @@ async function listWorkspaceItems(
 			withoutDescription: true
 		})
 		for (const flow of flows) items.push(flowToItem(flow, false))
+	}
+
+	if (types.includes('schedule')) {
+		const schedules = await ScheduleService.listSchedules({
+			workspace,
+			pathStart: pathPrefix,
+			perPage
+		})
+		for (const schedule of schedules) items.push(scheduleToItem(schedule, false))
+	}
+
+	if (types.includes('trigger')) {
+		for (const kind of TRIGGER_KINDS) {
+			const triggers = await triggerServices[kind].list({
+				workspace,
+				pathStart: pathPrefix,
+				perPage
+			})
+			for (const trigger of triggers) items.push(triggerToItem(kind, trigger, false))
+		}
 	}
 
 	return items
@@ -230,7 +410,9 @@ function getFlowInstructions(): string {
 ${getFlowPrompt()}`
 }
 
-function getInstructions(subject: WorkspaceItemType, language?: ScriptLang): string {
+type InstructionSubject = (typeof INSTRUCTION_SUBJECTS)[number]
+
+function getInstructions(subject: InstructionSubject, language?: ScriptLang): string {
 	switch (subject) {
 		case 'script':
 			return getScriptInstructions(language)
@@ -260,7 +442,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace scripts, flows, and AI drafts. Returns metadata only (no value).'
+			'List workspace items (scripts, flows, schedules, triggers) and AI drafts. Returns metadata only (no value). Defaults to scripts and flows.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
@@ -276,12 +458,15 @@ export const globalTools: Tool<{}>[] = [
 				Math.min(limit, MAX_LIST_LIMIT)
 			)
 			for (const item of workspaceItems) {
-				byKey.set(`${item.type}:${item.path}`, item)
+				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
 
 			for (const draft of globalDraftStore.listDrafts()) {
 				if (!types.includes(draft.type)) continue
-				byKey.set(`${draft.type}:${draft.path}`, { ...draft, value: undefined })
+				byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
+					...draft,
+					value: undefined
+				})
 			}
 
 			const results = Array.from(byKey.values())
@@ -302,7 +487,12 @@ export const globalTools: Tool<{}>[] = [
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
-			const draft = globalDraftStore.getDraft(parsed.type, parsed.path)
+			if (parsed.type === 'trigger' && !parsed.trigger_kind) {
+				const message = 'trigger_kind is required when type is trigger.'
+				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
+				return JSON.stringify({ success: false, error: message })
+			}
+			const draft = globalDraftStore.getDraft(parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read AI draft ${parsed.type} "${parsed.path}"`
@@ -313,7 +503,12 @@ export const globalTools: Tool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Reading ${parsed.type} "${parsed.path}"...`
 			})
-			const item = await readWorkspaceItem(parsed.type, parsed.path, workspace)
+			const item = await readWorkspaceItem(
+				parsed.type,
+				parsed.path,
+				workspace,
+				parsed.trigger_kind
+			)
 			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
 			return JSON.stringify(item, null, 2)
 		}
@@ -364,6 +559,56 @@ export const globalTools: Tool<{}>[] = [
 				ctx
 			)
 		}
+	},
+	{
+		def: createToolDef(
+			writeScheduleSchema,
+			'write_schedule',
+			'Create or overwrite an AI draft schedule. Does not save or deploy. Provide script_path and is_flow to point to the runnable.',
+			{ strict: false }
+		),
+		showDetails: true,
+		streamArguments: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = writeScheduleSchema.parse(ctx.args)
+			return writeDraft(
+				{
+					type: 'schedule',
+					path: parsed.path,
+					summary: parsed.summary ?? undefined,
+					value: parsed,
+					isDraft: true
+				},
+				ctx
+			)
+		}
+	},
+	{
+		def: createToolDef(
+			writeTriggerSchema,
+			'write_trigger',
+			'Create or overwrite an AI draft trigger. Does not save or deploy. Provide kind plus the kind-specific config (including path, script_path, is_flow).',
+			{ strict: false }
+		),
+		showDetails: true,
+		streamArguments: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = writeTriggerSchema.parse(ctx.args)
+			const config = parsed.config as { path: string; summary?: string | null }
+			return writeDraft(
+				{
+					type: 'trigger',
+					triggerKind: parsed.kind,
+					path: config.path,
+					summary: config.summary ?? undefined,
+					value: parsed.config,
+					isDraft: true
+				},
+				ctx
+			)
+		}
 	}
 ]
 
@@ -380,8 +625,8 @@ async function writeDraft(item: WorkspaceItem, ctx: WriteDraftCtx): Promise<stri
 	})
 
 	const exists =
-		globalDraftStore.getDraft(item.type, item.path) !== undefined ||
-		(await workspaceItemExists(item.type, item.path, workspace))
+		globalDraftStore.getDraft(item.type, item.path, item.triggerKind) !== undefined ||
+		(await workspaceItemExists(item.type, item.path, workspace, item.triggerKind))
 
 	const stored = globalDraftStore.setDraft(item)
 

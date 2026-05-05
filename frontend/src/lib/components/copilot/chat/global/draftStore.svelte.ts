@@ -1,17 +1,63 @@
-import type { FlowValue, ScriptLang } from '$lib/gen/types.gen'
+import type {
+	AzureTriggerData,
+	FlowValue,
+	GcpTriggerData,
+	NewHttpTrigger,
+	NewKafkaTrigger,
+	NewMqttTrigger,
+	NewNatsTrigger,
+	NewPostgresTrigger,
+	NewSchedule,
+	NewSqsTrigger,
+	NewWebsocketTrigger,
+	ScriptLang
+} from '$lib/gen/types.gen'
 
-export type WorkspaceItemType = 'script' | 'flow'
+export const TRIGGER_KINDS = [
+	'http',
+	'websocket',
+	'kafka',
+	'nats',
+	'postgres',
+	'mqtt',
+	'sqs',
+	'gcp',
+	'azure'
+] as const
+
+export type TriggerKind = (typeof TRIGGER_KINDS)[number]
+
+export type TriggerRequestBody =
+	| NewHttpTrigger
+	| NewWebsocketTrigger
+	| NewKafkaTrigger
+	| NewNatsTrigger
+	| NewPostgresTrigger
+	| NewMqttTrigger
+	| NewSqsTrigger
+	| GcpTriggerData
+	| AzureTriggerData
+
+export type WorkspaceItemType = 'script' | 'flow' | 'schedule' | 'trigger'
 
 export type WorkspaceItem = {
 	type: WorkspaceItemType
 	path: string
 	summary?: string
 	language?: ScriptLang
-	value?: string | FlowValue
+	triggerKind?: TriggerKind
+	value?: string | FlowValue | NewSchedule | TriggerRequestBody
 	isDraft: boolean
 }
 
-export function getWorkspaceItemKey(type: WorkspaceItemType, path: string): string {
+export function getWorkspaceItemKey(
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind?: TriggerKind
+): string {
+	if (type === 'trigger') {
+		return `trigger:${triggerKind ?? ''}:${path}`
+	}
 	return `${type}:${path}`
 }
 
@@ -26,19 +72,23 @@ class GlobalDraftStore {
 		return Object.values(this.drafts).map(clone)
 	}
 
-	getDraft(type: WorkspaceItemType, path: string): WorkspaceItem | undefined {
-		const draft = this.drafts[getWorkspaceItemKey(type, path)]
+	getDraft(
+		type: WorkspaceItemType,
+		path: string,
+		triggerKind?: TriggerKind
+	): WorkspaceItem | undefined {
+		const draft = this.drafts[getWorkspaceItemKey(type, path, triggerKind)]
 		return draft ? clone(draft) : undefined
 	}
 
 	setDraft(item: WorkspaceItem): WorkspaceItem {
 		const stored: WorkspaceItem = { ...clone(item), isDraft: true }
-		this.drafts[getWorkspaceItemKey(item.type, item.path)] = stored
+		this.drafts[getWorkspaceItemKey(item.type, item.path, item.triggerKind)] = stored
 		return clone(stored)
 	}
 
-	deleteDraft(type: WorkspaceItemType, path: string): void {
-		delete this.drafts[getWorkspaceItemKey(type, path)]
+	deleteDraft(type: WorkspaceItemType, path: string, triggerKind?: TriggerKind): void {
+		delete this.drafts[getWorkspaceItemKey(type, path, triggerKind)]
 	}
 
 	clearDrafts(): void {
@@ -51,6 +101,14 @@ class GlobalDraftStore {
 
 	getFlowDraft(path: string): WorkspaceItem | undefined {
 		return this.getDraft('flow', path)
+	}
+
+	getScheduleDraft(path: string): WorkspaceItem | undefined {
+		return this.getDraft('schedule', path)
+	}
+
+	getTriggerDraft(kind: TriggerKind, path: string): WorkspaceItem | undefined {
+		return this.getDraft('trigger', path, kind)
 	}
 }
 
