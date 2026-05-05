@@ -140,12 +140,42 @@ const writeTriggerSchema = z.object({
 		)
 })
 
+const editScriptSchema = z.object({
+	path: z.string().describe('Workspace path of the script to edit.'),
+	old_string: z.string().min(1).describe('Exact text to find in the script source.'),
+	new_string: z.string().describe('Replacement text.'),
+	replace_all: z
+		.boolean()
+		.optional()
+		.default(false)
+		.describe(
+			'When true, replace every exact match. When false, old_string must match exactly once.'
+		)
+})
+
+const patchFlowJsonSchema = z.object({
+	path: z.string().describe('Workspace path of the flow to edit.'),
+	old_string: z
+		.string()
+		.min(1)
+		.describe('Exact text to find in the flow value, serialized as compact JSON (no indent).'),
+	new_string: z.string().describe('Replacement JSON text.'),
+	replace_all: z
+		.boolean()
+		.optional()
+		.default(false)
+		.describe(
+			'When true, replace every exact match. When false, old_string must match exactly once.'
+		)
+})
+
 const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
 
 You can inspect workspace scripts, flows, schedules, and triggers, then create draft changes in the frontend AI draft store.
 
 Important rules:
-- write_script, write_flow, write_schedule, and write_trigger create drafts only. They do not save, deploy, or mutate workspace items.
+- write_script, write_flow, write_schedule, and write_trigger create or overwrite drafts. They do not save, deploy, or mutate workspace items.
+- edit_script and patch_flow_json apply small exact-text edits and save the result as a draft. Prefer them for localized changes; use write_* for large rewrites.
 - Use list_workspace_items before broad reads.
 - Use read_workspace_item before overwriting an existing item, unless the user already provided the complete current item. For triggers, pass trigger_kind.
 - Use get_instructions before writing a script or flow. For scripts, pass the target language; when modifying, use the language from the item you read.
@@ -158,6 +188,29 @@ const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly Worksp
 
 function getRequestedTypes(types: WorkspaceItemType[] | undefined): WorkspaceItemType[] {
 	return types && types.length > 0 ? types : [...DEFAULT_LIST_TYPES]
+}
+
+function countExactMatches(content: string, search: string): number {
+	if (search.length === 0) return 0
+	let count = 0
+	let index = 0
+	while ((index = content.indexOf(search, index)) !== -1) {
+		count++
+		index += search.length
+	}
+	return count
+}
+
+function applyExactReplace(
+	content: string,
+	oldString: string,
+	newString: string,
+	replaceAll: boolean
+): string {
+	if (replaceAll) return content.split(oldString).join(newString)
+	const index = content.indexOf(oldString)
+	if (index === -1) return content
+	return content.slice(0, index) + newString + content.slice(index + oldString.length)
 }
 
 function itemMatches(
@@ -387,7 +440,7 @@ function getScriptInstructions(language: ScriptLang | undefined): string {
 - Global mode writes complete draft payloads only; it does not save, deploy, run, or generate metadata.
 - A script draft is a workspace item: \`{ type: 'script', path, summary?, language, value, isDraft }\` where \`value\` is the source code string.
 - Use workspace paths such as \`f/folder/name\` or \`u/username/name\`. Preserve the current path/language when modifying unless the user asked to change them.
-- Return the full desired source as \`content\` to \`write_script\`, not a patch.${note}
+- Use \`edit_script\` for small localized changes (provide \`old_string\`/\`new_string\`); use \`write_script\` for full rewrites.${note}
 
 # Windmill script authoring reference (${selected})
 
@@ -403,7 +456,7 @@ function getFlowInstructions(): string {
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 - Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
 - When writing rawscript module code, call \`get_instructions\` with \`subject: "script"\` and the rawscript language first.
-- Return the full desired OpenFlow value as \`value\` to \`write_flow\`, not a patch.
+- Use \`patch_flow_json\` for small localized changes (operates on the value as compact JSON); use \`write_flow\` for full rewrites.
 
 # Windmill flow authoring reference
 
@@ -609,6 +662,34 @@ export const globalTools: Tool<{}>[] = [
 				ctx
 			)
 		}
+	},
+	{
+		def: createToolDef(
+			editScriptSchema,
+			'edit_script',
+			'Find/replace exact text in a script. Edits the existing draft if one exists, otherwise reads the workspace script and saves the result as a new draft.'
+		),
+		showDetails: true,
+		streamArguments: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = editScriptSchema.parse(ctx.args)
+			return editScript(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
+			patchFlowJsonSchema,
+			'patch_flow_json',
+			'Find/replace exact text in a flow value (compact JSON). Edits the existing draft if one exists, otherwise reads the workspace flow and saves the result as a new draft. Use write_flow for larger structural rewrites.'
+		),
+		showDetails: true,
+		streamArguments: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = patchFlowJsonSchema.parse(ctx.args)
+			return patchFlowJson(parsed, ctx)
+		}
 	}
 ]
 
@@ -616,6 +697,118 @@ type WriteDraftCtx = {
 	workspace: string
 	toolId: string
 	toolCallbacks: ToolCallbacks
+}
+
+async function loadScriptForEdit(
+	path: string,
+	workspace: string
+): Promise<{ content: string; language: ScriptLang; summary?: string }> {
+	const draft = globalDraftStore.getDraft('script', path)
+	if (draft) {
+		if (typeof draft.value !== 'string' || !draft.language) {
+			throw new Error(`Draft script "${path}" is missing content or language.`)
+		}
+		return { content: draft.value, language: draft.language, summary: draft.summary }
+	}
+	const script = await ScriptService.getScriptByPath({ workspace, path })
+	return { content: script.content, language: script.language, summary: script.summary }
+}
+
+async function editScript(
+	args: { path: string; old_string: string; new_string: string; replace_all: boolean },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { path, old_string: oldString, new_string: newString, replace_all: replaceAll } = args
+	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: `Editing script "${path}"...` })
+
+	const base = await loadScriptForEdit(path, ctx.workspace)
+	const matchCount = countExactMatches(base.content, oldString)
+	if (matchCount === 0) {
+		throw new Error('old_string was not found in the script source.')
+	}
+	if (!replaceAll && matchCount !== 1) {
+		throw new Error(
+			`old_string matched ${matchCount} locations. Make it more specific or set replace_all to true.`
+		)
+	}
+
+	const updated = applyExactReplace(base.content, oldString, newString, replaceAll)
+	return writeDraft(
+		{
+			type: 'script',
+			path,
+			summary: base.summary,
+			language: base.language,
+			value: updated,
+			isDraft: true
+		},
+		ctx
+	)
+}
+
+async function loadFlowValueForEdit(
+	path: string,
+	workspace: string
+): Promise<{ value: unknown; summary?: string }> {
+	const draft = globalDraftStore.getDraft('flow', path)
+	if (draft) {
+		if (draft.value === undefined) {
+			throw new Error(`Draft flow "${path}" has no value.`)
+		}
+		return { value: draft.value, summary: draft.summary }
+	}
+	const flow = await FlowService.getFlowByPath({ workspace, path })
+	return { value: flow.value, summary: flow.summary }
+}
+
+async function patchFlowJson(
+	args: { path: string; old_string: string; new_string: string; replace_all: boolean },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { path, old_string: oldString, new_string: newString, replace_all: replaceAll } = args
+	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: `Patching flow "${path}"...` })
+
+	const base = await loadFlowValueForEdit(path, ctx.workspace)
+	const currentJson = JSON.stringify(base.value)
+	const matchCount = countExactMatches(currentJson, oldString)
+	if (matchCount === 0) {
+		throw new Error('old_string was not found in the flow value JSON.')
+	}
+	if (!replaceAll && matchCount !== 1) {
+		throw new Error(
+			`old_string matched ${matchCount} locations. Make it more specific or set replace_all to true.`
+		)
+	}
+
+	const updatedJson = applyExactReplace(currentJson, oldString, newString, replaceAll)
+	let parsedValue: unknown
+	try {
+		parsedValue = JSON.parse(updatedJson)
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error)
+		throw new Error(`Invalid JSON after replacement: ${message}`)
+	}
+
+	const validated = flowValueSchema.safeParse(parsedValue)
+	if (!validated.success) {
+		throw new Error(
+			`Replacement produced an invalid flow value: ${validated.error.issues
+				.slice(0, 5)
+				.map((i) => `${i.path.join('.')}: ${i.message}`)
+				.join('; ')}`
+		)
+	}
+
+	return writeDraft(
+		{
+			type: 'flow',
+			path,
+			summary: base.summary,
+			value: validated.data,
+			isDraft: true
+		},
+		ctx
+	)
 }
 
 async function writeDraft(item: WorkspaceItem, ctx: WriteDraftCtx): Promise<string> {
