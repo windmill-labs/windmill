@@ -48,5 +48,5 @@ export type FlowBuilderProps = {
 	onDeployError?: ({ error }: { error: any }) => void
 	onDetails?: ({ path }: { path: string }) => void
 	onHistoryRestore?: () => void
-	onNavigate?: ({ path, kind }: { path: string; kind: 'flow' | 'script' | 'app' }) => void
+	onNavigate?: (item: { path: string; kind: 'flow' | 'script' | 'app'; raw_app?: boolean }) => void
 }

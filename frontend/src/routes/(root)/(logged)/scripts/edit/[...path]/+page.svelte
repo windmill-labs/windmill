@@ -231,7 +231,9 @@
 					? `/flows/edit/${e.path}`
 					: e.kind === 'script'
 						? `/scripts/edit/${e.path}`
-						: `/apps_raw/edit/${e.path}`
+						: e.raw_app
+							? `/apps_raw/edit/${e.path}`
+							: `/apps/edit/${e.path}`
 			goto(editPath)
 		}}
 		replaceStateFn={(path) => {

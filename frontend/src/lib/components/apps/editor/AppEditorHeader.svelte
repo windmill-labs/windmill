@@ -959,7 +959,9 @@
 						? `/flows/edit/${item.path}`
 						: item.kind === 'script'
 							? `/scripts/edit/${item.path}`
-							: `/apps/edit/${item.path}`
+							: item.raw_app
+								? `/apps_raw/edit/${item.path}`
+								: `/apps/edit/${item.path}`
 				goto(editPath)
 			}}
 		/>

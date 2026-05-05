@@ -7,6 +7,7 @@
 		path: string
 		summary: string
 		kind: Kind
+		raw_app?: boolean
 	}
 
 	type WorkspaceCache = {
@@ -62,7 +63,8 @@
 				items = apps.map((a: ListableApp) => ({
 					path: a.path,
 					summary: a.summary ?? '',
-					kind: 'app' as const
+					kind: 'app' as const,
+					raw_app: a.raw_app ?? false
 				}))
 			}
 			const bucket = cache.get(workspace) ?? {}
@@ -90,7 +92,7 @@
 	type Kind_ = 'flow' | 'script' | 'app'
 
 	interface Props {
-		onPick: (item: { path: string; kind: Kind_ }) => void
+		onPick: (item: { path: string; kind: Kind_; raw_app?: boolean }) => void
 		kinds?: Kind_[]
 		/** Composite-keyed nodes to open on mount. e.g. `['kind:flow', 'scope:flow:f/demo']`. */
 		initialOpen?: string[]
@@ -223,7 +225,7 @@
 	})
 
 	function pick(it: Item) {
-		onPick({ path: it.path, kind: it.kind })
+		onPick({ path: it.path, kind: it.kind, raw_app: it.raw_app })
 	}
 
 	type NavNode =

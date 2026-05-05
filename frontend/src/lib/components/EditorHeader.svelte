@@ -19,7 +19,7 @@
 		path?: string
 		/** Kind of the item being edited; used to label the first breadcrumb segment. */
 		kind?: Kind
-		onNavigate?: (item: { path: string; kind: Kind }) => void
+		onNavigate?: (item: { path: string; kind: Kind; raw_app?: boolean }) => void
 		onSaved?: (newPath: string) => void
 		/** Custom path-save handler. When provided, replaces the built-in call to
 		 * `updateItemPathAndSummary` from the pen popover's Save button. Use this when
@@ -84,7 +84,7 @@
 		summary = trimmed
 	}
 
-	function handlePickerSelect(item: { path: string; kind: Kind }) {
+	function handlePickerSelect(item: { path: string; kind: Kind; raw_app?: boolean }) {
 		pickerTypeOpen = false
 		pickerScopeOpen = false
 		pickerSlugOpen = false
