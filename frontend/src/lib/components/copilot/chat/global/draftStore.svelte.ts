@@ -1,97 +1,55 @@
-export type GlobalWorkspaceItemType = 'script' | 'flow'
+import type { FlowValue, ScriptLang } from '$lib/gen/types.gen'
 
-export type GlobalDraftStatus = 'new' | 'modified'
+export type WorkspaceItemType = 'script' | 'flow'
 
-export type GlobalDraftBase = {
-	source: 'workspace'
-	version?: string | number
-	editedAt?: string
-	value: unknown
-}
-
-export type GlobalDraftItem = {
-	type: GlobalWorkspaceItemType
+export type WorkspaceItem = {
+	type: WorkspaceItemType
 	path: string
-	status: GlobalDraftStatus
-	base?: GlobalDraftBase
-	draft: unknown
-	updatedAt: string
+	summary?: string
+	language?: ScriptLang
+	value?: string | FlowValue
+	isDraft: boolean
 }
 
-export function getGlobalDraftKey(type: GlobalWorkspaceItemType, path: string): string {
+export function getWorkspaceItemKey(type: WorkspaceItemType, path: string): string {
 	return `${type}:${path}`
 }
 
-function cloneValue<T>(value: T): T {
+function clone<T>(value: T): T {
 	return structuredClone($state.snapshot(value)) as T
 }
 
 class GlobalDraftStore {
-	private drafts = $state<Record<string, GlobalDraftItem>>({})
+	private drafts = $state<Record<string, WorkspaceItem>>({})
 
-	listDrafts(): GlobalDraftItem[] {
-		return Object.values(this.drafts).map((draft) => cloneValue(draft))
+	listDrafts(): WorkspaceItem[] {
+		return Object.values(this.drafts).map(clone)
 	}
 
-	getDraft(type: GlobalWorkspaceItemType, path: string): GlobalDraftItem | undefined {
-		const draft = this.drafts[getGlobalDraftKey(type, path)]
-		return draft ? cloneValue(draft) : undefined
+	getDraft(type: WorkspaceItemType, path: string): WorkspaceItem | undefined {
+		const draft = this.drafts[getWorkspaceItemKey(type, path)]
+		return draft ? clone(draft) : undefined
 	}
 
-	setNewDraft(
-		type: GlobalWorkspaceItemType,
-		path: string,
-		draft: unknown,
-		overwrite = false
-	): GlobalDraftItem {
-		const key = getGlobalDraftKey(type, path)
-		if (this.drafts[key] && !overwrite) {
-			throw new Error(`A draft already exists for ${type} "${path}".`)
-		}
-
-		const item: GlobalDraftItem = {
-			type,
-			path,
-			status: 'new',
-			draft: cloneValue(draft),
-			updatedAt: new Date().toISOString()
-		}
-		this.drafts[key] = item
-		return cloneValue(item)
+	setDraft(item: WorkspaceItem): WorkspaceItem {
+		const stored: WorkspaceItem = { ...clone(item), isDraft: true }
+		this.drafts[getWorkspaceItemKey(item.type, item.path)] = stored
+		return clone(stored)
 	}
 
-	setModifiedDraft(
-		type: GlobalWorkspaceItemType,
-		path: string,
-		base: GlobalDraftBase,
-		draft: unknown
-	): GlobalDraftItem {
-		const key = getGlobalDraftKey(type, path)
-		const item: GlobalDraftItem = {
-			type,
-			path,
-			status: 'modified',
-			base: cloneValue(base),
-			draft: cloneValue(draft),
-			updatedAt: new Date().toISOString()
-		}
-		this.drafts[key] = item
-		return cloneValue(item)
-	}
-
-	deleteDraft(type: GlobalWorkspaceItemType, path: string): void {
-		delete this.drafts[getGlobalDraftKey(type, path)]
+	deleteDraft(type: WorkspaceItemType, path: string): void {
+		delete this.drafts[getWorkspaceItemKey(type, path)]
 	}
 
 	clearDrafts(): void {
 		this.drafts = {}
 	}
 
-	getScriptDraft(path: string): GlobalDraftItem | undefined {
+	getScriptDraft(path: string): WorkspaceItem | undefined {
 		return this.getDraft('script', path)
 	}
 
-	getFlowDraft(path: string): GlobalDraftItem | undefined {
+	getFlowDraft(path: string): WorkspaceItem | undefined {
 		return this.getDraft('flow', path)
 	}
 }
