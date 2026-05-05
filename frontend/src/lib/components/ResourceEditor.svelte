@@ -12,6 +12,8 @@
 	import { resource } from 'runed'
 	import { deepEqual } from 'fast-equals'
 	import Label from './Label.svelte'
+	import { getUserExt } from '$lib/user'
+	import type { UserExt } from '$lib/stores'
 
 	interface Props {
 		canSave?: boolean
@@ -50,6 +52,7 @@
 	let initialStates: Record<string, ResourceState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let fetchedResources: Record<string, Resource> = $state({})
+	let perWsUser: Record<string, UserExt | undefined> = $state({})
 	let selected: string | undefined = $state(undefined)
 
 	let isValid = $state(true)
@@ -91,7 +94,11 @@
 		if (!selected) return true
 		const r = fetchedResources[selected]
 		if (!r) return true
-		return canWrite(current?.path ?? initialPath, r.extra_perms ?? {}, $userStore)
+		return canWrite(
+			current?.path ?? initialPath,
+			r.extra_perms ?? {},
+			perWsUser[selected] ?? $userStore
+		)
 	})
 
 	let linkedVars = $derived(
@@ -113,7 +120,10 @@
 	const dirtyCanWrite = $derived(
 		dirtyWorkspaces.every((ws) => {
 			const r = fetchedResources[ws]
-			return !r || canWrite(states[ws]?.path ?? initialPath, r.extra_perms ?? {}, $userStore)
+			return (
+				!r ||
+				canWrite(states[ws]?.path ?? initialPath, r.extra_perms ?? {}, perWsUser[ws] ?? $userStore)
+			)
 		})
 	)
 
@@ -147,7 +157,10 @@
 		if (!ws || !initialPath) return
 		if (ws in states) return
 		untrack(() => {
-			ResourceService.getResource({ workspace: ws, path: initialPath }).then((r) => {
+			Promise.all([
+				ResourceService.getResource({ workspace: ws, path: initialPath }),
+				getUserExt(ws)
+			]).then(([r, user]) => {
 				fetchedResources[ws] = r
 				const s: ResourceState = {
 					path: r.path,
@@ -159,6 +172,7 @@
 				states[ws] = s
 				initialStates[ws] = structuredClone(s)
 				existedInitially[ws] = true
+				perWsUser[ws] = user
 				// Keep resource_type in sync for the base workspace (controls the schema)
 				if (ws === effectiveWorkspace) {
 					resource_type = r.resource_type

@@ -14,6 +14,8 @@
 	import { resource } from 'runed'
 	import { deepEqual } from 'fast-equals'
 	import Label from './Label.svelte'
+	import { getUserExt } from '$lib/user'
+	import type { UserExt } from '$lib/stores'
 
 	const dispatch = createEventDispatcher()
 
@@ -30,6 +32,7 @@
 	let initialStates: Record<string, VariableState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let extraPerms: Record<string, Record<string, boolean>> = $state({})
+	let perWsUser: Record<string, UserExt | undefined> = $state({})
 	let selected: string | undefined = $state(undefined)
 	let pathError = $state('')
 
@@ -50,7 +53,7 @@
 		if (!selected || !edit) return true
 		const perms = extraPerms[selected]
 		if (!perms) return true
-		return canWrite(editPath ?? '', perms, $userStore)
+		return canWrite(editPath ?? '', perms, perWsUser[selected] ?? $userStore)
 	})
 	const dirtyWorkspaces = $derived(
 		Object.keys(states).filter((ws) => !deepEqual(states[ws], initialStates[ws]))
@@ -67,7 +70,7 @@
 	const dirtyCanWrite = $derived(
 		dirtyWorkspaces.every((ws) => {
 			const perms = extraPerms[ws]
-			return !perms || canWrite(editPath ?? '', perms, $userStore)
+			return !perms || canWrite(editPath ?? '', perms, perWsUser[ws] ?? $userStore)
 		})
 	)
 
@@ -78,7 +81,10 @@
 		if (!ws || !p) return
 		if (ws in states) return
 		untrack(() => {
-			VariableService.getVariable({ workspace: ws, path: p, decryptSecret: false }).then((v) => {
+			Promise.all([
+				VariableService.getVariable({ workspace: ws, path: p, decryptSecret: false }),
+				getUserExt(ws)
+			]).then(([v, user]) => {
 				const s: VariableState = {
 					path: v.path,
 					variable: {
@@ -93,6 +99,7 @@
 				initialStates[ws] = structuredClone(s)
 				existedInitially[ws] = true
 				extraPerms[ws] = v.extra_perms ?? {}
+				perWsUser[ws] = user
 			})
 		})
 	})
@@ -102,6 +109,7 @@
 		initialStates = {}
 		existedInitially = {}
 		extraPerms = {}
+		perWsUser = {}
 		pathError = ''
 	}
 
