@@ -2426,60 +2426,43 @@ async fn resolve_flow_env_for_status_update(
     }
 }
 
-// Maximum number of ancestor jobs the flow_env walk will follow before bailing.
-// Bounds runtime cost and protects against pathological data.
-const MAX_FLOW_ENV_LOOKUP_DEPTH: i32 = 50;
-
-// Look up an ancestor flow's `flow_env` for the given flow job. Sub-flows
+// Look up the root flow's `flow_env` for the given flow job. Sub-flows
 // spawned by branches/loops via `payload_from_modules` don't carry `flow_env`
 // in their own `FlowValue`, so any predicate evaluated against the local
-// flow_env would see `None`. We walk recursively up the chain via
-// `root_job → flow_innermost_root_job → parent_job` (matching the priority
-// used by `get_root_job_id` and the `get_flow_env_by_flow_job_id` API
-// endpoint) until we find an ancestor whose persisted flow definition
-// (`flow_version.value` or `raw_flow`) carries `flow_env`. The recursion is
-// needed because parallel forloop iterations and imported sub-flows reset
-// `flow_innermost_root_job` to `None`, so a single COALESCE wouldn't reach
-// the actual root for nested cases like
-// `root -> branch -> parallel forloop -> iteration`.
+// flow_env would see `None`. We jump directly to the root via the
+// `root_job → flow_innermost_root_job → parent_job` COALESCE (matching the
+// priority used by `get_root_job_id` and the `get_flow_env_by_flow_job_id`
+// API endpoint). `root_job` is propagated through `push` for every nested
+// sub-job, so a single hop is sufficient regardless of nesting depth.
 async fn fetch_root_flow_env(
     db: &DB,
     flow_job_id: Uuid,
     workspace_id: &str,
 ) -> Option<HashMap<String, Box<RawValue>>> {
     sqlx::query_scalar!(
-        r#"WITH RECURSIVE chain(id, root_job, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, depth) AS (
-            SELECT id, root_job, parent_job, flow_innermost_root_job, runnable_id, runnable_path, raw_flow, 0
-            FROM v2_job
-            WHERE id = $1 AND workspace_id = $2
-            UNION ALL
-            SELECT j.id, j.root_job, j.parent_job, j.flow_innermost_root_job, j.runnable_id, j.runnable_path, j.raw_flow, c.depth + 1
-            FROM v2_job j
-            JOIN chain c
-                ON j.id = COALESCE(c.root_job, c.flow_innermost_root_job, c.parent_job)
-            WHERE j.workspace_id = $2 AND c.depth < $3
-        )
-        SELECT
+        r#"SELECT
             CASE
                 WHEN flow_version.id IS NOT NULL THEN
                     flow_version.value -> 'flow_env'
                 ELSE
-                    chain.raw_flow -> 'flow_env'
+                    root_job.raw_flow -> 'flow_env'
             END AS "flow_env: Json<HashMap<String, Box<RawValue>>>"
-         FROM chain
+         FROM v2_job current_job
+         JOIN v2_job root_job
+             ON root_job.id = COALESCE(
+                 current_job.root_job,
+                 current_job.flow_innermost_root_job,
+                 current_job.parent_job,
+                 current_job.id
+             )
+            AND root_job.workspace_id = current_job.workspace_id
          LEFT JOIN flow_version
-             ON flow_version.id = chain.runnable_id
-            AND flow_version.path = chain.runnable_path
-            AND flow_version.workspace_id = $2
-         WHERE (CASE
-                WHEN flow_version.id IS NOT NULL THEN flow_version.value -> 'flow_env'
-                ELSE chain.raw_flow -> 'flow_env'
-            END) IS NOT NULL
-         ORDER BY chain.depth ASC
-         LIMIT 1"#,
+             ON flow_version.id = root_job.runnable_id
+            AND flow_version.path = root_job.runnable_path
+            AND flow_version.workspace_id = root_job.workspace_id
+         WHERE current_job.id = $1 AND current_job.workspace_id = $2"#,
         flow_job_id,
         workspace_id,
-        MAX_FLOW_ENV_LOOKUP_DEPTH,
     )
     .fetch_optional(db)
     .await
