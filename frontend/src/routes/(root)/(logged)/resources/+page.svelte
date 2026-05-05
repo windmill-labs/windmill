@@ -71,7 +71,7 @@
 	} from '../../../../lib/components/ExploreAssetButton.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 
-	type ResourceW = ListableResource & { canWrite: boolean; marked?: string; ws_specific?: boolean }
+	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
 
 	let cacheResources: ResourceW[] | undefined = $state()
@@ -1165,8 +1165,7 @@
 															resourceEditor?.initEdit?.(path)
 														}
 													},
-													...((!ws_specific &&
-														isDeployable('resource', path, deployUiSettings))
+													...(!ws_specific && isDeployable('resource', path, deployUiSettings)
 														? [
 																{
 																	displayName: 'Deploy to prod/staging',

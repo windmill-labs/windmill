@@ -43,7 +43,7 @@
 	import { onMount, untrack } from 'svelte'
 	import { page } from '$app/stores'
 
-	type ListableVariableW = ListableVariable & { canWrite: boolean; ws_specific?: boolean }
+	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
 	let variables = $state(undefined) as ListableVariableW[] | undefined
 	let showCreateButtons = $state(false)
@@ -512,12 +512,8 @@
 														},
 														disabled: !owner || !showCreateButtons
 													},
-													...((!ws_specific &&
-														isDeployable(
-															is_secret ? 'secret' : 'variable',
-															path,
-															deployUiSettings
-														))
+													...(!ws_specific &&
+													isDeployable(is_secret ? 'secret' : 'variable', path, deployUiSettings)
 														? [
 																{
 																	displayName: 'Deploy to prod/staging',
