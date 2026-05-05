@@ -2632,9 +2632,9 @@ pub async fn handle_flow(
 
     // Sub-flows spawned by `payload_from_modules` for branches/loops don't
     // carry the parent's `flow_env` in their own FlowValue. Fall back to the
-    // root flow's `flow_env` so predicates like `skip_if`, `stop_after_if`,
-    // and branch conditions see the same env as input transforms (which the
-    // API resolves against the root via `get_flow_env_by_flow_job_id`).
+    // nearest enclosing scope's `flow_env` so predicates like `skip_if`,
+    // `stop_after_if`, and branch conditions see the same env as input
+    // transforms.
     let inherited_env: Option<HashMap<String, Box<RawValue>>> =
         if flow.flow_env.is_none() && flow_job.parent_job.is_some() {
             fetch_root_flow_env(db, flow_job.id, &flow_job.workspace_id).await

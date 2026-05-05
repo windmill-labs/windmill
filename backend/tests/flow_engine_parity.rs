@@ -2104,10 +2104,8 @@ export function main(
 // Sub-flows spawned by `payload_from_modules` for branches/loops don't carry
 // the parent's `flow_env` in their own FlowValue, so without explicit lookup
 // the predicate evaluators receive `None` and `flow_env.X` resolves to
-// `undefined` inside QuickJS / deno_core. Input transforms happen to work
-// because their fast path queries `get_flow_env_by_flow_job_id` against the
-// root, but predicates wrapped in `Boolean(...)` fall through to the QuickJS
-// runtime that uses the local flow_env. Verify the inheritance kicks in.
+// `undefined` inside QuickJS. Verify `handle_flow` walks up to the nearest
+// enclosing scope so predicates see the inherited env.
 // =============================================================================
 
 #[cfg(feature = "deno_core")]
