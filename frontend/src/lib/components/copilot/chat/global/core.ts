@@ -7,7 +7,8 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
-import { createToolDef, type Tool } from '../shared'
+import { createToolDef, type Tool, type ToolCallbacks } from '../shared'
+import { flowModuleSchema, flowModulesSchema } from '../flow/openFlowZod.gen'
 import {
 	globalDraftStore,
 	type WorkspaceItem,
@@ -53,18 +54,37 @@ const readWorkspaceItemSchema = z.object({
 	path: z.string().describe('Workspace path of the item to read.')
 })
 
-const writeWorkspaceItemSchema = z.object({
-	type: itemTypeSchema,
-	path: z.string().describe('Workspace path of the item.'),
-	summary: z.string().optional().describe('Short human-readable summary of the item.'),
-	language: scriptLangSchema
-		.optional()
-		.describe('Script language. Required for scripts, omitted for flows.'),
-	value: z
-		.any()
-		.describe(
-			'Script source code (string) when type is script, or the OpenFlow value object when type is flow.'
-		)
+const writeScriptSchema = z.object({
+	path: z
+		.string()
+		.describe('Workspace path of the script, e.g. f/folder/name or u/user/name.'),
+	summary: z.string().optional().describe('Short human-readable summary.'),
+	language: scriptLangSchema.describe('Script language.'),
+	content: z.string().describe('Full script source code.')
+})
+
+const flowValueSchema = z
+	.looseObject({
+		modules: flowModulesSchema.describe('Sequential flow modules.'),
+		preprocessor_module: flowModuleSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Optional preprocessor module with id 'preprocessor'. Runs before normal modules; cannot reference results.*."
+			),
+		failure_module: flowModuleSchema
+			.nullable()
+			.optional()
+			.describe("Optional failure handler module with id 'failure'.")
+	})
+	.describe('OpenFlow value: modules plus optional preprocessor_module and failure_module.')
+
+const writeFlowSchema = z.object({
+	path: z
+		.string()
+		.describe('Workspace path of the flow, e.g. f/folder/name or u/user/name.'),
+	summary: z.string().optional().describe('Short human-readable summary.'),
+	value: flowValueSchema
 })
 
 const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
@@ -72,11 +92,11 @@ const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
 You can inspect workspace scripts and flows, then create draft changes in the frontend AI draft store.
 
 Important rules:
-- write_workspace_item creates a draft only. It does not save, deploy, or mutate workspace items.
+- write_script and write_flow create drafts only. They do not save, deploy, or mutate workspace items.
 - Use list_workspace_items before broad reads.
-- Use read_workspace_item before overwriting an existing item with write_workspace_item, unless the user already provided the complete current item.
+- Use read_workspace_item before overwriting an existing item, unless the user already provided the complete current item.
 - Use get_instructions before writing a script or flow. For scripts, pass the target language; when modifying, use the language from the item you read.
-- A workspace item is { type, path, summary?, language?, value, isDraft }. For scripts, value is the source code string and language is required. For flows, value is the OpenFlow value object.
+- A workspace item is { type, path, summary?, language?, value, isDraft }. For scripts, value is the source code string. For flows, value is the OpenFlow value object.
 - Keep context targeted. Do not read unrelated items.
 - Be explicit with the user when you create or update a draft.`
 
@@ -187,7 +207,7 @@ function getScriptInstructions(language: ScriptLang | undefined): string {
 - Global mode writes complete draft payloads only; it does not save, deploy, run, or generate metadata.
 - A script draft is a workspace item: \`{ type: 'script', path, summary?, language, value, isDraft }\` where \`value\` is the source code string.
 - Use workspace paths such as \`f/folder/name\` or \`u/username/name\`. Preserve the current path/language when modifying unless the user asked to change them.
-- Return the full desired source as \`value\` to \`write_workspace_item\`, not a patch.${note}
+- Return the full desired source as \`content\` to \`write_script\`, not a patch.${note}
 
 # Windmill script authoring reference (${selected})
 
@@ -203,7 +223,7 @@ function getFlowInstructions(): string {
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 - Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
 - When writing rawscript module code, call \`get_instructions\` with \`subject: "script"\` and the rawscript language first.
-- Return the full desired OpenFlow value as \`value\` to \`write_workspace_item\`, not a patch.
+- Return the full desired OpenFlow value as \`value\` to \`write_flow\`, not a patch.
 
 # Windmill flow authoring reference
 
@@ -300,55 +320,86 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
-			writeWorkspaceItemSchema,
-			'write_workspace_item',
-			'Create or overwrite an AI draft workspace item. Does not save or deploy to the workspace. Read the existing item first when overwriting.'
+			writeScriptSchema,
+			'write_script',
+			'Create or overwrite an AI draft script. Does not save or deploy. Read the existing script first when overwriting.'
 		),
 		showDetails: true,
 		streamArguments: true,
 		showFade: true,
-		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-			const parsed = writeWorkspaceItemSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Writing draft ${parsed.type} "${parsed.path}"...`
-			})
-
-			if (parsed.type === 'script' && !parsed.language) {
-				const message = `language is required when type is script.`
-				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
-				return JSON.stringify({ success: false, error: message })
-			}
-
-			const exists =
-				globalDraftStore.getDraft(parsed.type, parsed.path) !== undefined ||
-				(await workspaceItemExists(parsed.type, parsed.path, workspace))
-
-			const item = globalDraftStore.setDraft({
-				type: parsed.type,
-				path: parsed.path,
-				summary: parsed.summary,
-				language: parsed.language,
-				value: parsed.value,
-				isDraft: true
-			})
-
-			const verb = exists ? 'Updated' : 'Created'
-			toolCallbacks.setToolStatus(toolId, {
-				content: `${verb} AI draft ${parsed.type} "${parsed.path}"`,
-				result: `Draft ${verb.toLowerCase()}`
-			})
-			return JSON.stringify(
+		fn: async (ctx) => {
+			const parsed = writeScriptSchema.parse(ctx.args)
+			return writeDraft(
 				{
-					success: true,
-					message: `${verb} AI draft ${parsed.type} "${parsed.path}". The workspace was not saved or deployed.`,
-					item
+					type: 'script',
+					path: parsed.path,
+					summary: parsed.summary,
+					language: parsed.language,
+					value: parsed.content,
+					isDraft: true
 				},
-				null,
-				2
+				ctx
+			)
+		}
+	},
+	{
+		def: createToolDef(
+			writeFlowSchema,
+			'write_flow',
+			'Create or overwrite an AI draft flow. Does not save or deploy. Read the existing flow first when overwriting.'
+		),
+		showDetails: true,
+		streamArguments: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = writeFlowSchema.parse(ctx.args)
+			return writeDraft(
+				{
+					type: 'flow',
+					path: parsed.path,
+					summary: parsed.summary,
+					value: parsed.value,
+					isDraft: true
+				},
+				ctx
 			)
 		}
 	}
 ]
+
+type WriteDraftCtx = {
+	workspace: string
+	toolId: string
+	toolCallbacks: ToolCallbacks
+}
+
+async function writeDraft(item: WorkspaceItem, ctx: WriteDraftCtx): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Writing draft ${item.type} "${item.path}"...`
+	})
+
+	const exists =
+		globalDraftStore.getDraft(item.type, item.path) !== undefined ||
+		(await workspaceItemExists(item.type, item.path, workspace))
+
+	const stored = globalDraftStore.setDraft(item)
+
+	const verb = exists ? 'Updated' : 'Created'
+	toolCallbacks.setToolStatus(toolId, {
+		content: `${verb} AI draft ${item.type} "${item.path}"`,
+		result: `Draft ${verb.toLowerCase()}`
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message: `${verb} AI draft ${item.type} "${item.path}". The workspace was not saved or deployed.`,
+			item: stored
+		},
+		null,
+		2
+	)
+}
 
 export function prepareGlobalSystemMessage(
 	customPrompt?: string
