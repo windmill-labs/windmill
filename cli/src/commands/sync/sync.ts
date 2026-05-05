@@ -137,8 +137,22 @@ async function mergeWsSpecificFromServer(
   let wsSpecificItems: Array<{ item_kind: string; path: string }>;
   try {
     wsSpecificItems = await wmill.listWsSpecific({ workspace: workspaceId });
-  } catch {
-    log.debug("Could not fetch ws_specific items from server, skipping");
+  } catch (err) {
+    // 404 = endpoint not present on an older server: expected, log at debug.
+    // Anything else (401/403/network) is a real failure that produces an
+    // incomplete sync — surface it so the user notices.
+    const isApiError = err && typeof err === "object" &&
+      "name" in err && (err as { name: unknown }).name === "ApiError";
+    const status = isApiError ? (err as { status?: number }).status : undefined;
+    if (status === 404) {
+      log.debug("listWsSpecific endpoint not available on server, skipping");
+    } else {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(
+        `Could not fetch ws_specific items from server (${status ?? "no status"}): ${msg}. ` +
+          `Sync will proceed without server-side ws_specific items.`,
+      );
+    }
     return specificItems;
   }
 
