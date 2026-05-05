@@ -28,6 +28,7 @@
 		replaceFalseWithUndefined,
 		defaultIfEmptyString
 	} from '../../utils'
+	import { generateRandomString } from '$lib/utils'
 
 	// import {  allItems, toStatic } from '../apps/editor/settingsPanel/utils'
 	import AppExportButton from '../apps/editor/AppExportButton.svelte'
@@ -133,6 +134,14 @@
 	}: Props = $props()
 
 	let newEditedPath = $state('')
+
+	let fakeInitialPath =
+		'u/' +
+		($userStore?.username?.includes('@')
+			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+			: $userStore?.username) +
+		'/' +
+		generateRandomString(12)
 
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedBy: string | undefined = $state(undefined) // Author
@@ -848,7 +857,10 @@
 	<div class="flex flex-row gap-2 items-center">
 		<EditorHeader
 			bind:summary
-			path={defaultIfEmptyString(newEditedPath, defaultIfEmptyString(newPath, appPath))}
+			path={defaultIfEmptyString(
+				newEditedPath,
+				defaultIfEmptyString(newPath, defaultIfEmptyString(appPath, fakeInitialPath))
+			)}
 			kind="app"
 			onPathSubmit={(np) => {
 				newEditedPath = np
