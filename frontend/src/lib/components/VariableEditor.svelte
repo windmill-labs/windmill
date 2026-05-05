@@ -39,7 +39,7 @@
 	let form: VariableForm | undefined = $state()
 
 	const deployTo = resource(
-		() => $workspaceStore,
+		() => selected,
 		async (ws) =>
 			ws ? (await WorkspaceService.getDeployTo({ workspace: ws })).deploy_to : undefined
 	)

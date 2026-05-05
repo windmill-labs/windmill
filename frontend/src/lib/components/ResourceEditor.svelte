@@ -60,7 +60,7 @@
 	let perWsValid: Record<string, boolean> = $state({})
 
 	const deployToResource = resource(
-		() => effectiveWorkspace,
+		() => selected,
 		async (ws) =>
 			ws ? (await WorkspaceService.getDeployTo({ workspace: ws })).deploy_to : undefined
 	)
