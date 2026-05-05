@@ -13,6 +13,7 @@
 	import WsSpecificVersions from './WsSpecificVersions.svelte'
 	import { resource } from 'runed'
 	import { deepEqual } from 'fast-equals'
+	import Label from './Label.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -201,12 +202,14 @@
 			{/if}
 
 			{#if edit && $workspaceStore}
-				<WsSpecificVersions
-					kind="variable"
-					workspaceId={$workspaceStore}
-					{initialPath}
-					bind:selected
-				/>
+				<Label label="Workspace">
+					<WsSpecificVersions
+						kind="variable"
+						workspaceId={$workspaceStore}
+						{initialPath}
+						bind:selected
+					/>
+				</Label>
 			{/if}
 
 			{#if otherDirty.length > 0}

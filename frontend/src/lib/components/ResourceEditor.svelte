@@ -11,6 +11,7 @@
 	import Alert from './common/alert/Alert.svelte'
 	import { resource } from 'runed'
 	import { deepEqual } from 'fast-equals'
+	import Label from './Label.svelte'
 
 	interface Props {
 		canSave?: boolean
@@ -246,12 +247,14 @@
 <div>
 	<div class="flex flex-col gap-6 py-2">
 		{#if initialPath && effectiveWorkspace}
-			<WsSpecificVersions
-				kind="resource"
-				workspaceId={effectiveWorkspace}
-				{initialPath}
-				bind:selected
-			/>
+			<Label label="Workspace">
+				<WsSpecificVersions
+					kind="resource"
+					workspaceId={effectiveWorkspace}
+					{initialPath}
+					bind:selected
+				/>
+			</Label>
 		{/if}
 
 		{#if otherDirty.length > 0}

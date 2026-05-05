@@ -112,13 +112,15 @@
 				</Alert>
 			</div>
 		{/if}
-		<Path
-			disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
-			bind:path
-			{initialPath}
-			namePlaceholder="resource"
-			kind="resource"
-		/>
+		<Label label="Path">
+			<Path
+				disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
+				bind:path
+				{initialPath}
+				namePlaceholder="resource"
+				kind="resource"
+			/>
+		</Label>
 	</div>
 {/if}
 <LabelsInput bind:labels class="-mt-4" />
