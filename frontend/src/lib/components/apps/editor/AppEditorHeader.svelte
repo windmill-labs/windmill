@@ -6,7 +6,8 @@
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { defaultIfEmptyString, generateRandomString, isMac, type Item } from '$lib/utils'
+	import { defaultIfEmptyString, isMac, type Item } from '$lib/utils'
+	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import { updateItemPathAndSummary } from '$lib/components/moveRenameManager'
 	import {
 		AlignHorizontalSpaceAround,
@@ -123,15 +124,13 @@
 		onHideBottomPanel
 	}: Props = $props()
 
-	let newEditedPath = $state('')
-
-	let fakeInitialPath =
+	const userPrefix =
 		'u/' +
 		($userStore?.username?.includes('@')
 			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
 			: $userStore?.username) +
-		'/' +
-		generateRandomString(12)
+		'/'
+	let newEditedPath = $state(untrack(() => (newApp ? userPrefix + random_adj() + '_app' : '')))
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
@@ -937,10 +936,7 @@
 	<div class="flex flex-row gap-2 items-center">
 		<EditorHeader
 			bind:summary={$summary}
-			path={defaultIfEmptyString(
-				newEditedPath,
-				defaultIfEmptyString(newPath, defaultIfEmptyString($appPath, fakeInitialPath))
-			)}
+			path={defaultIfEmptyString(newEditedPath, defaultIfEmptyString(newPath, $appPath))}
 			kind="app"
 			onPathSubmit={async (np) => {
 				if ($appPath === '') {

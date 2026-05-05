@@ -20,7 +20,7 @@
 		Undo,
 		WandSparkles
 	} from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import {
 		cleanValueProperties,
 		orderedJsonStringify,
@@ -28,7 +28,7 @@
 		replaceFalseWithUndefined,
 		defaultIfEmptyString
 	} from '../../utils'
-	import { generateRandomString } from '$lib/utils'
+	import { random_adj } from '$lib/components/random_positive_adjetive'
 
 	// import {  allItems, toStatic } from '../apps/editor/settingsPanel/utils'
 	import AppExportButton from '../apps/editor/AppExportButton.svelte'
@@ -133,15 +133,13 @@
 		onOpenYamlEditor = undefined
 	}: Props = $props()
 
-	let newEditedPath = $state('')
-
-	let fakeInitialPath =
+	const userPrefix =
 		'u/' +
 		($userStore?.username?.includes('@')
 			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
 			: $userStore?.username) +
-		'/' +
-		generateRandomString(12)
+		'/'
+	let newEditedPath = $state(untrack(() => (newApp ? userPrefix + random_adj() + '_app' : '')))
 
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedBy: string | undefined = $state(undefined) // Author
@@ -857,10 +855,7 @@
 	<div class="flex flex-row gap-2 items-center">
 		<EditorHeader
 			bind:summary
-			path={defaultIfEmptyString(
-				newEditedPath,
-				defaultIfEmptyString(newPath, defaultIfEmptyString(appPath, fakeInitialPath))
-			)}
+			path={defaultIfEmptyString(newEditedPath, defaultIfEmptyString(newPath, appPath))}
 			kind="app"
 			onPathSubmit={(np) => {
 				newEditedPath = np
