@@ -204,6 +204,8 @@
 					{/snippet}
 					<a
 						href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}
+						target="_blank"
+						rel="noopener noreferrer"
 						class="flex items-center gap-1 text-primary"
 					>
 						<span class="truncate flex-shrink min-w-0">{displayValue}</span>
@@ -239,6 +241,8 @@
 			{/if}
 			<a
 				href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}
+				target="_blank"
+				rel="noopener noreferrer"
 				class="flex items-center gap-1"
 			>
 				{displayValue}
@@ -285,6 +289,8 @@
 	{:else if href}
 		<a
 			{href}
+			target="_blank"
+			rel="noopener noreferrer"
 			class="flex items-center gap-1 min-w-0 text-primary"
 			title={config.field === 'script_hash'
 				? `${
@@ -316,6 +322,8 @@
 						<span class="text-primary">
 							<a
 								href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
+								target="_blank"
+								rel="noopener noreferrer"
 								class="flex items-center gap-1 min-w-0"
 							>
 								<span class="truncate flex-shrink min-w-0">{truncateRev(job.id, 8)}</span>
@@ -408,6 +416,8 @@
 									: flowPathToHref(job?.script_path ?? '')}
 								<a
 									href={viewHref}
+									target="_blank"
+									rel="noopener noreferrer"
 									class="text-emphasis {compact
 										? 'text-xs'
 										: 'text-lg'} font-semibold flex items-center gap-1"
@@ -497,6 +507,8 @@
 								<span class="text-primary">
 									<a
 										href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
+										target="_blank"
+										rel="noopener noreferrer"
 										class="flex items-center gap-1 min-w-0"
 									>
 										<span class="truncate flex-shrink min-w-0">{truncateRev(job.id, 8)}</span>

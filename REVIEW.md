@@ -5,7 +5,6 @@ You are reviewing a GitHub pull request for this repository. Apply this policy a
 ## Read the project rules first
 
 - Read `AGENTS.md` (repo root) and any `AGENTS.md` in directories touched by the diff before reviewing — they are the canonical contributor guide.
-- `CLAUDE.md` in this repo is a wrapper around `AGENTS.md` (`@AGENTS.md`) — the same content.
 - Quote the exact rule from `AGENTS.md` when flagging a violation.
 
 ## Verdict (first line of the review)

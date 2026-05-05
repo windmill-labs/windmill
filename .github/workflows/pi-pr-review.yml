@@ -251,7 +251,7 @@ jobs:
           PI_SKIP_VERSION_CHECK: '1'
         run: |
           set -o pipefail
-          cat .github/review-prompt-shared.md .github/pi/pr-review.prompt.md > /tmp/pi-prompt.md
+          cat REVIEW.md .github/pi/pr-review.prompt.md > /tmp/pi-prompt.md
           pi -p \
             --provider deepseek \
             --model deepseek-v4-pro \
