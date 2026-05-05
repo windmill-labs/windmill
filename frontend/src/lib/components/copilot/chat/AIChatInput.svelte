@@ -70,7 +70,7 @@
 			case AIMode.API:
 				return 'Make API calls...'
 			case AIMode.GLOBAL:
-				return 'Work across workspace items...'
+				return 'Work across scripts and flows...'
 			case AIMode.ASK:
 				return 'Ask questions about Windmill...'
 			default:

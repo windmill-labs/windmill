@@ -22,12 +22,12 @@ Global mode should be a new AI chat mode with a small curated tool surface:
 
 2. `list_workspace_items`
    - Lists current workspace scripts, flows, and AI drafts.
-   - Returns metadata only: `type`, `path`, `summary`, draft status, and size/version hints.
+   - Returns metadata only: `type`, `path`, `summary`, `language`, and `isDraft`.
    - Does not include source code or flow JSON.
 
 3. `read_workspace_item`
    - Reads one item by `type` and `path`.
-   - If a draft exists, returns the draft and its base metadata.
+   - If a draft exists, returns the draft item.
    - Otherwise reads from the workspace through generated service clients.
    - Initial supported types: `script`, `flow`.
 
@@ -38,7 +38,7 @@ Global mode should be a new AI chat mode with a small curated tool surface:
 
 5. `modify_workspace_item`
    - Creates or updates a draft overlay for an existing item.
-   - Requires the existing item to be read first so the draft can keep base metadata.
+   - Requires the existing item to be read first so the model can produce a complete replacement value.
    - Does not call backend create/update APIs.
 
 ## Draft Store Shape
@@ -47,27 +47,18 @@ Create a frontend store for AI workspace drafts. Suggested file:
 
 - `frontend/src/lib/components/copilot/chat/global/draftStore.svelte.ts`
 
-Suggested draft model:
+Suggested item/draft model:
 
 ```ts
-type GlobalDraftItemType = 'script' | 'flow'
+type GlobalWorkspaceItemType = 'script' | 'flow'
 
-type GlobalDraftStatus = 'new' | 'modified'
-
-type GlobalDraftBase = {
-	source: 'workspace'
-	version?: string | number
-	editedAt?: string
-	value: unknown
-}
-
-type GlobalDraftItem = {
-	type: GlobalDraftItemType
+type GlobalWorkspaceItem = {
+	type: GlobalWorkspaceItemType
 	path: string
-	status: GlobalDraftStatus
-	base?: GlobalDraftBase
-	draft: unknown
-	updatedAt: string
+	summary?: string
+	value: unknown // script source code or OpenFlow value
+	language?: ScriptLang // required for scripts, omitted for flows
+	isDraft: boolean
 }
 ```
 
@@ -75,8 +66,8 @@ Store operations:
 
 1. `listDrafts()`
 2. `getDraft(type, path)`
-3. `setNewDraft(type, path, draft, overwrite?)`
-4. `setModifiedDraft(type, path, base, draft)`
+3. `setNewDraft(item, overwrite?)`
+4. `setModifiedDraft(item)`
 5. `deleteDraft(type, path)`
 6. `clearDrafts()`
 
@@ -101,17 +92,17 @@ Store operations:
 
 1. Create `global/draftStore.svelte.ts`.
 2. Store drafts keyed by `${type}:${path}`.
-3. Preserve base metadata for modified drafts.
+3. Store drafts as simple `GlobalWorkspaceItem` values with `isDraft: true`.
 4. Keep draft operations synchronous and frontend-only.
-5. Add small utility functions for item keys and normalized timestamps.
+5. Add small utility functions for item keys.
 
 ### Step 3: Implement Instruction Tool
 
 1. Add `get_instructions` with a Zod schema:
    - `subject: 'script' | 'flow'`
 2. Return concise, practical instructions:
-   - script: language, schema, main function expectations, path conventions;
-   - flow: `OpenFlow` shape, modules, IDs, summaries, validation expectations.
+   - script: language, source-code value, main function expectations, path conventions;
+   - flow: `OpenFlow` value shape, modules, IDs, summaries, validation expectations.
 3. Keep detailed examples short. This tool can grow later into a workspace skill system.
 
 ### Step 4: Implement Listing Tool
@@ -121,10 +112,8 @@ Store operations:
    - `ScriptService.listScripts`
    - `FlowService.listFlows`
 3. Merge drafts from the draft store into the result.
-4. Mark each result:
-   - `source: 'workspace' | 'draft' | 'workspace+draft'`
-   - `draftStatus?: 'new' | 'modified'`
-5. Return compact metadata only.
+4. Mark drafts with `isDraft: true`.
+5. Return compact metadata only without `value`.
 
 ### Step 5: Implement Read Tool
 
@@ -133,12 +122,7 @@ Store operations:
 3. If no draft exists:
    - scripts: `ScriptService.getScriptByPath`
    - flows: `FlowService.getFlowByPath`
-4. Normalize output with:
-   - `type`
-   - `path`
-   - `source`
-   - `baseVersion`
-   - `value`
+4. Normalize output as `{ type, path, summary, value, language, isDraft }` where `value` is script source code or the OpenFlow value.
 
 ### Step 6: Implement Write Draft Tool
 
@@ -148,17 +132,16 @@ Store operations:
    - existing draft with same key;
    - existing workspace item with same type/path.
 4. If conflict exists and `overwrite` is not true, return a clear error.
-5. Store a `status: 'new'` draft.
+5. Store the draft as a `GlobalWorkspaceItem` with `isDraft: true`.
 6. Return a short summary that explicitly says the workspace was not saved.
 
 ### Step 7: Implement Modify Draft Tool
 
 1. Add `modify_workspace_item`.
 2. Require existing draft or existing workspace item.
-3. If no draft exists, fetch workspace item and store it as `base`.
-4. Store a `status: 'modified'` draft with the new draft value.
-5. Return base version/hash metadata and a clear "draft only" message.
-6. Consider requiring `baseVersion` in a follow-up after the POC to reduce stale edits.
+3. Store the modified item as a draft with `isDraft: true`.
+4. Return a clear "draft only" message.
+5. Consider adding base version/hash checks in a follow-up after the POC to reduce stale edits.
 
 ### Step 8: Wire UI Entry Point
 
