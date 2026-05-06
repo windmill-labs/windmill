@@ -45,6 +45,7 @@
 	let pickerScopeOpen = $state(false)
 	let pickerSlugOpen = $state(false)
 	let pathPopoverOpen = $state(false)
+	let pathError = $state<string | undefined>(undefined)
 	/** Snapshot of `path` taken when the pen popover opens; cleared on close.
 	 * While set, the breadcrumb derives from it instead of `path` so the pen
 	 * anchor doesn't reflow as the user types in the popover (which would drag
@@ -178,16 +179,22 @@
 			{#snippet content()}
 				<div class="flex flex-col gap-6 w-[480px]">
 					{#if own}
-						<Path
-							autofocus={false}
-							bind:path
-							initialPath={snapshotPath ?? path ?? ''}
-							namePlaceholder={kind}
-							{kind}
-							hideFullPath
-							size="sm"
-							drawerOffset={4000}
-						/>
+						<div>
+							<Path
+								autofocus={false}
+								bind:path
+								bind:error={pathError}
+								initialPath={snapshotPath ?? path ?? ''}
+								namePlaceholder={kind}
+								{kind}
+								hideFullPath
+								size="sm"
+								drawerOffset={4000}
+							/>
+							{#if pathError}
+								<p class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{pathError}</p>
+							{/if}
+						</div>
 						{#if onBehalfOfEmail}
 							<Alert type="info" title="Run on behalf of" size="xs">
 								This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
