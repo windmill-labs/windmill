@@ -817,7 +817,10 @@
 		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
 			dropdownItems.push({
 				label: 'Exit & see details',
-				onClick: () => onDetails?.({ path: $pathStore })
+				// Use the deployed path, not the live `$pathStore` — the latter
+				// reflects local rename edits that haven't been deployed yet,
+				// which would land the user on a 404 details page.
+				onClick: () => onDetails?.({ path: initialPath })
 			})
 		}
 
