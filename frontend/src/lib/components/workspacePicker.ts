@@ -9,6 +9,26 @@ export type WorkspaceItem = {
 	raw_app?: boolean
 }
 
+/** Display label for kinds — used in the picker rows and search section headers. */
+export const KIND_LABEL: Record<WorkspaceItemKind, string> = {
+	flow: 'Flows',
+	script: 'Scripts',
+	app: 'Apps'
+}
+
+/** Lowercase variant — matches the editor breadcrumb style. */
+export const KIND_LABEL_LOWER: Record<WorkspaceItemKind, string> = {
+	flow: 'flows',
+	script: 'scripts',
+	app: 'apps'
+}
+
+/** Composite keys used for keyboard nav and `initialHighlight`. The picker and
+ * its callers must agree on these — keep them all here. */
+export const kindKey = (k: WorkspaceItemKind) => `kind:${k}`
+export const dirKey = (k: WorkspaceItemKind, fullPath: string) => `dir:${k}:${fullPath}`
+export const leafKeyFor = (k: WorkspaceItemKind, path: string) => `leaf:${k}:${path}`
+
 export function editPathFor(item: WorkspaceItem): string {
 	if (item.kind === 'flow') return `/flows/edit/${item.path}`
 	if (item.kind === 'script') return `/scripts/edit/${item.path}`
@@ -21,6 +41,10 @@ type WorkspaceCache = {
 	app?: WorkspaceItem[]
 }
 
+/** Module-level session cache. Persists across picker mounts within a single
+ * page session. NOT invalidated automatically — call `invalidate()` after
+ * creating/deleting an item if the picker may be opened again before a full
+ * reload. */
 const cache = new Map<string, WorkspaceCache>()
 const inflight = new Map<string, Promise<WorkspaceItem[]>>()
 
@@ -31,6 +55,17 @@ export function getCachedItems(
 	kind: WorkspaceItemKind
 ): WorkspaceItem[] | undefined {
 	return cache.get(workspace)?.[kind]
+}
+
+/** Drop a workspace+kind (or a whole workspace) from the cache so the next
+ * picker open re-fetches. Use after creating/deleting items. */
+export function invalidate(workspace: string, kind?: WorkspaceItemKind) {
+	if (!kind) {
+		cache.delete(workspace)
+		return
+	}
+	const bucket = cache.get(workspace)
+	if (bucket) delete bucket[kind]
 }
 
 export async function loadKind(

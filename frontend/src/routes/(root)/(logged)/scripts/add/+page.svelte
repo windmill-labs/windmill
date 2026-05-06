@@ -4,6 +4,7 @@
 	import { page } from '$app/state'
 	import { defaultScripts, initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
+	import { editPathFor } from '$lib/components/workspacePicker'
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema, emptyString, sendUserToast } from '$lib/utils'
 	import { goto } from '$lib/navigation'
@@ -63,9 +64,12 @@
 			schema: schema,
 			is_template: false,
 			extra_perms: {},
-			language: (wacParam === 'python' ? 'python3' : wacParam === 'typescript' ? 'bun' : null) ?? collabLang ?? ($defaultScripts?.order?.filter(
-				(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x)
-			)?.[0] ?? 'bun') as ScriptLang,
+			language:
+				(wacParam === 'python' ? 'python3' : wacParam === 'typescript' ? 'bun' : null) ??
+				collabLang ??
+				(($defaultScripts?.order?.filter(
+					(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x)
+				)?.[0] ?? 'bun') as ScriptLang),
 			kind: 'script'
 		}
 	}
@@ -139,8 +143,7 @@
 			extra_perms: {}
 		}
 		if (isWac) {
-			importedWacTemplate =
-				imported.language === 'python3' ? 'wac_python' : 'wac_typescript'
+			importedWacTemplate = imported.language === 'python3' ? 'wac_python' : 'wac_typescript'
 			sendUserToast('WAC script loaded from YAML/JSON')
 		} else {
 			sendUserToast('Script loaded from YAML/JSON')
@@ -159,13 +162,19 @@
 		{initialArgs}
 		bind:this={scriptBuilder}
 		lockedLanguage={templatePath != null || hubPath != null}
-		template={importedWacTemplate ?? (wacParam === 'python' ? 'wac_python' : wacParam === 'typescript' ? 'wac_typescript' : 'script')}
+		template={importedWacTemplate ??
+			(wacParam === 'python'
+				? 'wac_python'
+				: wacParam === 'typescript'
+					? 'wac_typescript'
+					: 'script')}
 		onDeploy={(e) => {
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
 		onSaveInitial={(e) => {
 			goto(`/scripts/edit/${e.path}`)
 		}}
+		onNavigate={(item) => goto(editPathFor(item))}
 		searchParams={page.url.searchParams}
 		bind:script
 		{showMeta}

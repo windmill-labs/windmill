@@ -15,10 +15,14 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
-	import type uFuzzy from '@leeoniya/ufuzzy'
-	import { untrack } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import {
+		dirKey,
 		getCachedItems,
+		KIND_LABEL,
+		KIND_LABEL_LOWER,
+		kindKey,
+		leafKeyFor,
 		loadKind,
 		type WorkspaceItem,
 		type WorkspaceItemKind
@@ -55,27 +59,25 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 
 	export function focus() {
 		searchInput?.focus()
-		searchInput?.select()
 	}
 
 	// Sibling-popover open: melt-ui's `openFocus` runs once during the close→open
 	// transition; the picker may not be mounted yet. Retry after settle.
-	$effect(() => {
-		setTimeout(() => focus(), 50)
+	onMount(() => {
+		const t = setTimeout(focus, 50)
+		return () => clearTimeout(t)
 	})
 
-	const KIND_LABEL: Record<Kind, string> = {
-		flow: 'Flows',
-		script: 'Scripts',
-		app: 'Apps'
-	}
-
-	const kindKey = (k: Kind) => `kind:${k}`
-	const dirKey = (k: Kind, fullPath: string) => `dir:${k}:${fullPath}`
-	const leafKey = (it: Item) => `leaf:${it.kind}:${it.path}`
+	const leafKey = (it: Item) => leafKeyFor(it.kind, it.path)
 
 	let scope = $state<Scope>(untrack(() => initialScope))
 	let filter = $state('')
+
+	/** Tracks whether the last user action was mouse movement (true) or
+	 * keyboard nav (false). When false, row `mouseenter` events are ignored
+	 * — prevents the cursor from stealing the keyboard-driven highlight as
+	 * rows shift under it during scope changes. Re-enabled on `mousemove`. */
+	let mouseActive = $state(true)
 
 	// Seed from cache so kinds already fetched in this session render on the
 	// first frame.
@@ -122,30 +124,30 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		leaves: Item[]
 	}
 
-	function itemsForKind(k: Kind): Item[] {
-		const base = loaded[k] ?? []
-		if (!currentItem || currentItem.kind !== k) return base
+	/** Inject the currently-edited item into a kind's list at its live path,
+	 * dropping the saved entry when a draft rename is in progress. Other kinds
+	 * pass through untouched. */
+	function withCurrent(items: Item[], k: Kind): Item[] {
+		if (!currentItem || currentItem.kind !== k) return items
 		const drafted =
 			currentItem.savedPath && currentItem.savedPath !== currentItem.path
-				? base.filter((it) => it.path !== currentItem.savedPath)
-				: base
-		return drafted.some((it) => it.path === currentItem.path)
-			? drafted
-			: [
-					...drafted,
-					{
-						path: currentItem.path,
-						summary: currentItem.summary,
-						kind: k,
-						raw_app: currentItem.raw_app
-					}
-				]
+				? items.filter((it) => it.path !== currentItem.savedPath)
+				: items
+		if (drafted.some((it) => it.path === currentItem.path)) return drafted
+		return [
+			...drafted,
+			{
+				path: currentItem.path,
+				summary: currentItem.summary,
+				kind: k,
+				raw_app: currentItem.raw_app
+			}
+		]
 	}
 
-	function buildTree(k: Kind): DirNode[] {
-		const list = itemsForKind(k)
+	function buildTreeFromItems(items: Item[]): DirNode[] {
 		const scopeRoots = new Map<string, DirNode>()
-		for (const it of list) {
+		for (const it of items) {
 			const parts = it.path.split('/')
 			if (parts.length < 3) continue
 			const scopeFp = parts.slice(0, 2).join('/')
@@ -183,14 +185,26 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		return scopes
 	}
 
-	let dirTreeByKind = $derived.by(() => {
-		const out: Record<Kind, DirNode[]> = { flow: [], script: [], app: [] }
-		for (const k of kinds) {
-			if (!loaded[k] && !(currentItem && currentItem.kind === k)) continue
-			out[k] = buildTree(k)
-		}
-		return out
-	})
+	/** Per-kind tree deriveds. Each only re-evaluates `buildTreeFromItems`
+	 * when its own `loaded[k]` changes or when the user is mid-rename on
+	 * that kind — typing in a flow's path edit leaves script/app trees
+	 * cached. */
+	function buildIfActive(k: Kind, list: Item[] | undefined): DirNode[] {
+		if (!kinds.includes(k)) return []
+		const items = withCurrent(list ?? [], k)
+		if (items.length === 0) return []
+		return buildTreeFromItems(items)
+	}
+
+	const flowTree = $derived(buildIfActive('flow', loaded.flow))
+	const scriptTree = $derived(buildIfActive('script', loaded.script))
+	const appTree = $derived(buildIfActive('app', loaded.app))
+
+	function treeFor(k: Kind): DirNode[] {
+		if (k === 'flow') return flowTree
+		if (k === 'script') return scriptTree
+		return appTree
+	}
 
 	function findDirInList(list: DirNode[], fullPath: string): DirNode | undefined {
 		for (const n of list) {
@@ -216,11 +230,12 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	type SearchInput = Item & { _key: string }
 
 	let allItems = $derived<SearchInput[]>(
-		kinds.flatMap((k) => itemsForKind(k).map((it) => ({ ...it, _key: `${k}:${it.path}` })))
+		kinds.flatMap((k) =>
+			withCurrent(loaded[k] ?? [], k).map((it) => ({ ...it, _key: `${k}:${it.path}` }))
+		)
 	)
 
 	let searchedItems: DisplayItem[] | undefined = $state(undefined)
-	const searchOpts: uFuzzy.Options = {}
 
 	let isSearching = $derived(filter.trim() !== '')
 
@@ -238,15 +253,16 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		if (!s) {
 			return kinds.map((k) => ({ type: 'kind', key: kindKey(k), kind: k }))
 		}
+		const tree = treeFor(s.kind)
 		if (!s.dir) {
-			return (dirTreeByKind[s.kind] ?? []).map((node) => ({
+			return tree.map((node) => ({
 				type: 'dir',
 				key: dirKey(s.kind, node.fullPath),
 				kind: s.kind,
 				node
 			}))
 		}
-		const node = findDirInList(dirTreeByKind[s.kind] ?? [], s.dir)
+		const node = findDirInList(tree, s.dir)
 		if (!node) return []
 		return [
 			...node.children.map(
@@ -296,7 +312,15 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		const cur = navKeys.indexOf(highlightedKey ?? '')
 		const next = cur < 0 ? 0 : (cur + delta + navKeys.length) % navKeys.length
 		highlightedKey = navKeys[next]
+		mouseActive = false
 		queueMicrotask(scrollHighlightIntoView)
+	}
+
+	function setHoverHighlight(key: string) {
+		// Ignored until the user actually moves the mouse. Prevents the cursor
+		// (parked over a row) from clobbering keyboard-driven selection when
+		// the layout shifts beneath it.
+		if (mouseActive) highlightedKey = key
 	}
 
 	function isCurrent(it: Item): boolean {
@@ -359,12 +383,14 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		} else if (e.key === 'Enter') {
 			e.preventDefault()
 			e.stopPropagation()
+			mouseActive = false
 			activate(highlightedKey)
 		} else if ((e.key === 'ArrowLeft' || e.key === 'Backspace') && filter === '' && scope) {
 			// Walk up the tree. Only when search is empty — otherwise these
 			// keys would hijack cursor movement / character deletion.
 			e.preventDefault()
 			e.stopPropagation()
+			mouseActive = false
 			goUp()
 		} else if (e.key === 'ArrowRight' && filter === '' && !isSearching) {
 			// Drill into the highlighted folder/kind. Leaves are reserved for
@@ -373,6 +399,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 			if (entry && entry.type !== 'leaf') {
 				e.preventDefault()
 				e.stopPropagation()
+				mouseActive = false
 				drill(entry)
 			}
 		}
@@ -382,7 +409,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	 * (`f/<folder>` or `u/<user>`) as one chunk, then any nested subdirs. */
 	let headerSegments = $derived.by<string[]>(() => {
 		if (!scope) return []
-		const out = [KIND_LABEL[scope.kind].toLowerCase()]
+		const out = [KIND_LABEL_LOWER[scope.kind]]
 		if (scope.dir) {
 			const parts = scope.dir.split('/')
 			out.push(parts.slice(0, 2).join('/'))
@@ -391,7 +418,60 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 		return out
 	})
 
+	/** Full breadcrumb (used for the hover tooltip). */
 	let headerLabel = $derived(headerSegments.join(' › '))
+
+	/** Number of intermediate segments to hide behind a `…`. The collapsed
+	 * window is segments[2 .. 2 + hiddenCount); we always keep the first
+	 * two (kind, top-level scope) and the deepest segment. Bumped up by an
+	 * effect that measures actual overflow — see below. */
+	let hiddenCount = $state(0)
+
+	/** Breadcrumb shown to the user. Hides intermediate segments first, then
+	 * relies on `truncate-start` for any remaining overflow on the deepest
+	 * segment. Hover reveals the full path via `title`. */
+	let headerLabelDisplay = $derived.by(() => {
+		if (headerSegments.length <= 3 || hiddenCount === 0) return headerLabel
+		return [
+			headerSegments[0],
+			headerSegments[1],
+			'…',
+			...headerSegments.slice(2 + hiddenCount)
+		].join(' › ')
+	})
+
+	let breadcrumbSpan: HTMLElement | undefined = $state()
+	let lastSegmentsKey = ''
+
+	/** Measurement loop: each pass reads `scrollWidth > clientWidth` on the
+	 * truncated span; if overflowing and there's still an intermediate segment
+	 * to drop, increment `hiddenCount`. Mutating `hiddenCount` re-renders and
+	 * re-fires this effect, so the loop self-terminates either when the text
+	 * fits or when only [kind, scope, …, leaf] remain (`truncate-start` then
+	 * polishes any final overflow). When the breadcrumb itself changes (new
+	 * scope), reset to 0 first so a shorter path can re-expand. */
+	$effect(() => {
+		const key = headerSegments.join('|')
+		const segmentsChanged = key !== lastSegmentsKey
+		if (segmentsChanged) {
+			lastSegmentsKey = key
+			if (hiddenCount !== 0) {
+				hiddenCount = 0
+				return
+			}
+		}
+		// Track hiddenCount so each collapse step re-measures.
+		void hiddenCount
+		if (!breadcrumbSpan) return
+		const maxHide = Math.max(0, headerSegments.length - 3)
+		if (hiddenCount >= maxHide) return
+		queueMicrotask(() => {
+			if (!breadcrumbSpan) return
+			if (breadcrumbSpan.scrollWidth > breadcrumbSpan.clientWidth + 1) {
+				hiddenCount = hiddenCount + 1
+			}
+		})
+	})
 
 	let scopeLoading = $derived.by(() => {
 		if (!scope) return false
@@ -404,7 +484,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	items={isSearching ? allItems : []}
 	bind:filteredItems={searchedItems}
 	f={(x: SearchInput) => (x.summary ? `${x.summary} (${x.path})` : x.path)}
-	opts={searchOpts}
+	opts={{}}
 />
 
 {#snippet leafRow(it: Item, secondary: string, baseClass: string)}
@@ -414,12 +494,13 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	<button
 		type="button"
 		data-nav-key={key}
-		aria-current={isCur ? 'page' : undefined}
+		aria-current={isCur ? 'true' : undefined}
 		class="w-full text-left flex items-center gap-2 px-3 transition-colors {baseClass} {isHl
 			? 'bg-surface-hover'
 			: ''} {isCur ? 'cursor-default text-emphasis font-medium' : ''}"
+		onmousedown={(e) => e.preventDefault()}
 		onclick={() => pick(it)}
-		onmouseenter={() => (highlightedKey = key)}
+		onmouseenter={() => setHoverHighlight(key)}
 	>
 		<RowIcon kind={it.kind} size={12} />
 		<div class="min-w-0 flex-1">
@@ -438,6 +519,7 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	bind:this={pickerRoot}
 	class="flex flex-col w-[420px] max-h-[60vh]"
 	onkeydown={handleSearchKeydown}
+	onmousemove={() => (mouseActive = true)}
 >
 	<div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700">
 		<TextInput
@@ -452,17 +534,19 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 	</div>
 
 	{#if scope}
+		{@const s = scope}
 		<button
 			type="button"
 			class="flex items-center gap-1.5 w-full text-left px-3 py-1 text-xs font-medium font-mono text-secondary bg-surface-secondary/20 hover:bg-surface-hover transition-colors"
+			onmousedown={(e) => e.preventDefault()}
 			onclick={goUp}
-			title="Go up one level"
+			title={headerLabel}
 		>
 			<ChevronLeft size={12} class="shrink-0 text-secondary" />
-			{#if scope}
-				<RowIcon kind={scope.kind} size={12} />
-			{/if}
-			<span class="flex-1 min-w-0 truncate truncate-start" title={headerLabel}>{headerLabel}</span>
+			<RowIcon kind={s.kind} size={12} />
+			<span bind:this={breadcrumbSpan} class="flex-1 min-w-0 truncate truncate-start"
+				>{headerLabelDisplay}</span
+			>
 		</button>
 	{/if}
 
@@ -513,8 +597,9 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 							class="flex items-center gap-1.5 w-full text-left px-3 py-1.5 text-xs font-medium font-mono text-emphasis transition-colors {isHl
 								? 'bg-surface-hover'
 								: ''}"
+							onmousedown={(e) => e.preventDefault()}
 							onclick={() => drill(entry)}
-							onmouseenter={() => (highlightedKey = entry.key)}
+							onmouseenter={() => setHoverHighlight(entry.key)}
 						>
 							{#if entry.type === 'kind'}
 								<RowIcon kind={entry.kind} size={12} />
@@ -539,10 +624,13 @@ Clicking a row drills *down*; the chevron-left in the header walks one level
 </div>
 
 <style>
-	/* Path truncates from the start so the deepest (rightmost) folder stays
-	 * visible. Slashes are bidi-neutral and stay in place under RTL flow. */
+	/* Path truncates from the start (left ellipsis) so the deepest (rightmost)
+	 * folder stays visible. `unicode-bidi: plaintext` keeps each path segment
+	 * laid out per its own direction — defends against any future RTL char
+	 * appearing in a workspace path. */
 	.truncate-start {
 		direction: rtl;
 		text-align: left;
+		unicode-bidi: plaintext;
 	}
 </style>

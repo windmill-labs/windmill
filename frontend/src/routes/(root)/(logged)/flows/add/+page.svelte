@@ -4,6 +4,7 @@
 	import { page } from '$app/state'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
+	import { editPathFor } from '$lib/components/workspacePicker'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
@@ -179,7 +180,7 @@
 			await tick()
 			let attempts = 0
 			while (attempts < 20 && !document.querySelector('#flow-editor-virtual-Input')) {
-				await new Promise(resolve => setTimeout(resolve, 100))
+				await new Promise((resolve) => setTimeout(resolve, 100))
 				attempts++
 			}
 			flowBuilder?.triggerTutorial()
@@ -201,6 +202,7 @@
 	onDetails={(e) => {
 		goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 	}}
+	onNavigate={(item) => goto(editPathFor(item))}
 	{initialPath}
 	{pathStoreInit}
 	bind:this={flowBuilder}

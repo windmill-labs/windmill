@@ -5,16 +5,17 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Label from '$lib/components/Label.svelte'
-	import { type WorkspaceItem, type WorkspaceItemKind } from '$lib/components/workspacePicker'
+	import {
+		dirKey,
+		KIND_LABEL_LOWER,
+		kindKey,
+		leafKeyFor,
+		type WorkspaceItem,
+		type WorkspaceItemKind
+	} from '$lib/components/workspacePicker'
 	import BreadcrumbSegment from '$lib/components/BreadcrumbSegment.svelte'
 	import { isOwner } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
-
-	const KIND_LABEL: Record<WorkspaceItemKind, string> = {
-		flow: 'flows',
-		script: 'scripts',
-		app: 'apps'
-	}
 
 	interface Props {
 		summary?: string
@@ -86,10 +87,6 @@
 		return { dirs, leaf }
 	})
 
-	const kindKey = (k: WorkspaceItemKind) => `kind:${k}`
-	const dirKeyOf = (k: WorkspaceItemKind, fullPath: string) => `dir:${k}:${fullPath}`
-	const leafKeyOf = (k: WorkspaceItemKind, p: string) => `leaf:${k}:${p}`
-
 	let own = $derived(isOwner(path ?? '', $userStore, $workspaceStore))
 
 	// Virtual entry for the picker: surfaces the currently-edited item at its
@@ -117,7 +114,7 @@
 	<!-- Path row -->
 	<div class="flex items-center max-w-full text-2xs text-secondary font-mono">
 		<BreadcrumbSegment
-			label={KIND_LABEL[kind]}
+			label={KIND_LABEL_LOWER[kind]}
 			initialScope={undefined}
 			initialHighlight={kindKey(kind)}
 			{currentItem}
@@ -126,7 +123,7 @@
 		/>
 		{#if segments}
 			{#each segments.dirs as dir, i (dir.fullPath)}
-				{@const dKey = dirKeyOf(kind, dir.fullPath)}
+				{@const dKey = dirKey(kind, dir.fullPath)}
 				<BreadcrumbSegment
 					label={dir.name}
 					withChevron
@@ -138,7 +135,7 @@
 					onPick={handlePickerSelect}
 				/>
 			{/each}
-			{@const leafKey = leafKeyOf(kind, segments.leaf.fullPath)}
+			{@const leafKey = leafKeyFor(kind, segments.leaf.fullPath)}
 			{@const leafParent = segments.dirs[segments.dirs.length - 1]?.fullPath}
 			<BreadcrumbSegment
 				label={segments.leaf.name}
