@@ -77,32 +77,36 @@ impl Visit for ImportsFinder {
     }
 
     fn visit_export_all(&mut self, node: &swc_ecma_ast::ExportAll) {
-        if !self.skip_type_only || node.type_only {
+        if self.skip_type_only && node.type_only {
             return;
         }
 
         self.process_raw(node.src.raw.as_ref().map(|x| x.to_string()));
     }
     fn visit_named_export(&mut self, node: &swc_ecma_ast::NamedExport) {
-        if node.src.is_none() || !self.skip_type_only || node.type_only {
+        if node.src.is_none() {
             return;
         }
-        if node.specifiers.len() > 0 {
-            let mut is_type_only = true;
-            for specifier in node.specifiers.iter() {
-                match specifier {
-                    swc_ecma_ast::ExportSpecifier::Named(swc_ecma_ast::ExportNamedSpecifier {
-                        is_type_only,
-                        ..
-                    }) if *is_type_only => (),
-                    _ => {
-                        is_type_only = false;
-                        break;
+        if self.skip_type_only {
+            if node.type_only {
+                return;
+            }
+            if node.specifiers.len() > 0 {
+                let mut is_type_only = true;
+                for specifier in node.specifiers.iter() {
+                    match specifier {
+                        swc_ecma_ast::ExportSpecifier::Named(
+                            swc_ecma_ast::ExportNamedSpecifier { is_type_only, .. },
+                        ) if *is_type_only => (),
+                        _ => {
+                            is_type_only = false;
+                            break;
+                        }
                     }
                 }
-            }
-            if is_type_only {
-                return;
+                if is_type_only {
+                    return;
+                }
             }
         }
 

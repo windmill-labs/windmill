@@ -79,6 +79,7 @@ import {
   MalformedLockfileError,
   workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
+import { DoubleLinkedDependencyTree, uploadScripts } from "../../utils/dependency_tree.ts";
 import { OpenFlow, NativeServiceName, ScriptModule } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
 import {
@@ -2990,19 +2991,157 @@ export async function push(
   const staleFlows: string[] = [];
   const staleApps: string[] = [];
 
+  // Auto-regenerate uses a DoubleLinkedDependencyTree so the dep job can
+  // resolve cross-folder relative imports against not-yet-deployed scripts via
+  // raw_script_temp + temp_script_refs. Without this the importer's lockgen
+  // 404s on its sibling/parent imports because nothing has been pushed yet.
+  const tree = autoRegenerate ? new DoubleLinkedDependencyTree() : undefined;
+  if (tree) tree.setWorkspaceDeps(rawWorkspaceDependencies);
+
+  // Pass 1: populate the tree (autoRegenerate) or run the legacy stale-check
+  // (no autoRegenerate, just collect warnings).
   for (const change of tracker.scripts) {
     const stale = await generateScriptMetadataInternal(
       change,
       workspace,
       opts,
-      !autoRegenerate, // dryRun=false when --auto is set
+      true, // dryRun: pass 1 only populates the tree / detects staleness
       true,
       rawWorkspaceDependencies,
       codebases,
       false,
+      tree,
     );
-    if (stale) {
+    if (!autoRegenerate && stale) {
       staleScripts.push(stale);
+    }
+  }
+  for (const change of tracker.flows) {
+    const stale = await generateFlowLockInternal(
+      change,
+      true,
+      workspace,
+      opts,
+      false,
+      true,
+      tree,
+    );
+    if (!autoRegenerate && stale) {
+      staleFlows.push(stale as string);
+    }
+  }
+  for (const change of tracker.apps) {
+    const stale = await generateAppLocksInternal(
+      change,
+      false,
+      true,
+      workspace,
+      opts,
+      true,
+      true,
+      tree,
+    );
+    if (!autoRegenerate && stale) {
+      staleApps.push(stale as string);
+    }
+  }
+  for (const change of tracker.rawApps) {
+    const stale = await generateAppLocksInternal(
+      change,
+      true,
+      true,
+      workspace,
+      opts,
+      true,
+      true,
+      tree,
+    );
+    if (!autoRegenerate && stale) {
+      staleApps.push(stale as string);
+    }
+  }
+
+  if (autoRegenerate && tree) {
+    // Propagate staleness through imports + upload script content to
+    // raw_script_temp so the dep job can resolve cross-folder relative imports
+    // via temp_script_refs (instead of hitting 404s for not-yet-deployed
+    // scripts and recording lock_error_logs).
+    tree.propagateStaleness();
+    try {
+      await uploadScripts(tree, workspace);
+    } catch (e) {
+      log.warn(
+        colors.yellow(
+          `Failed to upload scripts to temp storage (backend may be too old): ${e}. ` +
+            `Locks will be generated using deployed script versions only — locally modified ` +
+            `relative imports may not be reflected.`,
+        ),
+      );
+    }
+
+    // Pass 2: actually generate metadata/locks. Threading `tree` makes
+    // generateScriptMetadataInternal include temp_script_refs in the
+    // dependencies_async request so the dep job resolves relative imports
+    // against raw_script_temp.
+    for (const change of tracker.scripts) {
+      const generated = await generateScriptMetadataInternal(
+        change,
+        workspace,
+        opts,
+        false,
+        true,
+        rawWorkspaceDependencies,
+        codebases,
+        false,
+        tree,
+      );
+      if (generated) {
+        staleScripts.push(generated);
+      }
+    }
+    for (const change of tracker.flows) {
+      const generated = await generateFlowLockInternal(
+        change,
+        false,
+        workspace,
+        opts,
+        false,
+        true,
+        tree,
+      );
+      if (generated) {
+        staleFlows.push(generated as string);
+      }
+    }
+    for (const change of tracker.apps) {
+      const generated = await generateAppLocksInternal(
+        change,
+        false,
+        false,
+        workspace,
+        opts,
+        true,
+        true,
+        tree,
+      );
+      if (generated) {
+        staleApps.push(generated as string);
+      }
+    }
+    for (const change of tracker.rawApps) {
+      const generated = await generateAppLocksInternal(
+        change,
+        true,
+        false,
+        workspace,
+        opts,
+        true,
+        true,
+        tree,
+      );
+      if (generated) {
+        staleApps.push(generated as string);
+      }
     }
   }
 
@@ -3026,20 +3165,6 @@ export async function push(
     log.info("");
   }
 
-  for (const change of tracker.flows) {
-    const stale = await generateFlowLockInternal(
-      change,
-      !autoRegenerate, // dryRun=false when --auto is set
-      workspace,
-      opts,
-      false,
-      true,
-    );
-    if (stale) {
-      staleFlows.push(stale as string);
-    }
-  }
-
   if (staleFlows.length > 0) {
     if (autoRegenerate) {
       log.info("Auto-regenerated locks for stale flows:");
@@ -3056,36 +3181,6 @@ export async function push(
       }
     }
     log.info("");
-  }
-
-  for (const change of tracker.apps) {
-    const stale = await generateAppLocksInternal(
-      change,
-      false,
-      !autoRegenerate,
-      workspace,
-      opts,
-      true,
-      true,
-    );
-    if (stale) {
-      staleApps.push(stale as string);
-    }
-  }
-
-  for (const change of tracker.rawApps) {
-    const stale = await generateAppLocksInternal(
-      change,
-      true,
-      !autoRegenerate,
-      workspace,
-      opts,
-      true,
-      true,
-    );
-    if (stale) {
-      staleApps.push(stale as string);
-    }
   }
 
   if (staleApps.length > 0) {

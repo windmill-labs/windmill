@@ -20,6 +20,7 @@ export async function autocompleteRequest(
 		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
 		markers: editor.IMarker[]
 		libraries: string
+		workflowAsCode?: boolean
 	},
 	abortController: AbortController
 ) {
@@ -38,7 +39,10 @@ export async function autocompleteRequest(
 			'You are a code completion assistant. You are given three important contexts (<LANGUAGE CONTEXT>, <DIAGNOSTICS>, <LIBRARY METHODS>) to help you complete the code.\n'
 		)
 		contextLines += comment(commentSymbol, 'LANGUAGE CONTEXT:\n')
-		contextLines += comment(commentSymbol, getLangContext(context.scriptLang) + '\n')
+		contextLines += comment(
+			commentSymbol,
+			getLangContext(context.scriptLang, { workflowAsCode: context.workflowAsCode }) + '\n'
+		)
 		contextLines += comment(commentSymbol, 'DIAGNOSTICS:\n')
 		contextLines += comment(commentSymbol, context.markers.map((m) => m.message).join('\n') + '\n')
 		contextLines += comment(commentSymbol, 'LIBRARY METHODS:\n')

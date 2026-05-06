@@ -1,0 +1,122 @@
+name: PR Review Commands
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  parse:
+    if: github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    outputs:
+      command: ${{ steps.parse.outputs.command }}
+      extra_prompt: ${{ steps.parse.outputs.extra_prompt }}
+    steps:
+      - name: Parse command from comment
+        id: parse
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: |
+          FIRST_LINE=$(printf '%s' "$BODY" | head -n 1 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+          FIRST_WORD=${FIRST_LINE%% *}
+          case "$FIRST_WORD" in
+            /review|/codex|/pi|/claude)
+              COMMAND="${FIRST_WORD#/}"
+              REMAINDER_FIRST_LINE=${FIRST_LINE#"$FIRST_WORD"}
+              REMAINDER_FIRST_LINE=${REMAINDER_FIRST_LINE# }
+              REST=$(printf '%s' "$BODY" | tail -n +2)
+              {
+                echo "command=$COMMAND"
+                echo 'extra_prompt<<EXTRA_EOF'
+                if [ -n "$REMAINDER_FIRST_LINE" ]; then
+                  printf '%s\n' "$REMAINDER_FIRST_LINE"
+                fi
+                if [ -n "$REST" ]; then
+                  printf '%s\n' "$REST"
+                fi
+                echo 'EXTRA_EOF'
+              } >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "command=" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+  check-membership:
+    needs: parse
+    if: needs.parse.outputs.command != ''
+    uses: ./.github/workflows/check-org-membership.yml
+    secrets:
+      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
+
+  acknowledge:
+    needs: [parse, check-membership]
+    if: needs.parse.outputs.command != '' && needs.check-membership.outputs.is_member == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: React to comment with eyes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api -X POST \
+            "/repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
+            -f content=eyes >/dev/null
+
+  claude:
+    needs: [parse, check-membership]
+    if: |
+      needs.check-membership.outputs.is_member == 'true' &&
+      (needs.parse.outputs.command == 'review' || needs.parse.outputs.command == 'claude')
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+    uses: ./.github/workflows/pr-ready-review.yml
+    with:
+      pr_number: ${{ github.event.issue.number }}
+      extra_prompt: ${{ needs.parse.outputs.extra_prompt }}
+      triggered_by: ${{ github.event.comment.user.login }}
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      WINDMILL_EE_PRIVATE_ACCESS: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+
+  codex:
+    needs: [parse, check-membership]
+    if: |
+      needs.check-membership.outputs.is_member == 'true' &&
+      (needs.parse.outputs.command == 'review' || needs.parse.outputs.command == 'codex')
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/codex-pr-review.yml
+    with:
+      pr_number: ${{ github.event.issue.number }}
+      extra_prompt: ${{ needs.parse.outputs.extra_prompt }}
+      triggered_by: ${{ github.event.comment.user.login }}
+    secrets:
+      CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+      WINDMILL_EE_PRIVATE_ACCESS: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+
+  pi:
+    needs: [parse, check-membership]
+    if: |
+      needs.check-membership.outputs.is_member == 'true' &&
+      (needs.parse.outputs.command == 'review' || needs.parse.outputs.command == 'pi')
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/pi-pr-review.yml
+    with:
+      pr_number: ${{ github.event.issue.number }}
+      extra_prompt: ${{ needs.parse.outputs.extra_prompt }}
+      triggered_by: ${{ github.event.comment.user.login }}
+    secrets:
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      WINDMILL_EE_PRIVATE_ACCESS: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
