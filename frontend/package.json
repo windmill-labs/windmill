@@ -379,6 +379,10 @@
 			"types": "./package/stores.d.ts",
 			"default": "./package/stores.js"
 		},
+		"./externalDomain": {
+			"types": "./package/externalDomain.d.ts",
+			"default": "./package/externalDomain.js"
+		},
 		"./gen": {
 			"types": "./package/gen/index.d.ts",
 			"default": "./package/gen/index.js"
