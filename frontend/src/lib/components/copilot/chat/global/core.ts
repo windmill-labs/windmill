@@ -146,6 +146,14 @@ const writeTriggerSchema = z.object({
 		)
 })
 
+const deleteWorkspaceItemSchema = z.object({
+	type: itemTypeSchema,
+	path: z.string().describe('Workspace path of the item to delete.'),
+	trigger_kind: triggerKindSchema
+		.optional()
+		.describe('Required when type is trigger. Identifies which trigger service to call.')
+})
+
 const deployWorkspaceItemSchema = z.object({
 	type: itemTypeSchema,
 	path: z.string().describe('Workspace path of the draft to deploy.'),
@@ -194,7 +202,8 @@ You can inspect workspace scripts, flows, schedules, and triggers, then create d
 Important rules:
 - write_script, write_flow, write_schedule, and write_trigger create or overwrite drafts. They do not save, deploy, or mutate workspace items.
 - edit_script and patch_flow_json apply small exact-text edits and save the result as a draft. Prefer them for localized changes; use write_* for large rewrites.
-- deploy_workspace_item is the only tool that mutates the workspace. It calls the real backend create/update API for one draft and removes it from the draft store. The user must confirm. Only call deploy after the user has reviewed the draft and explicitly asked to deploy.
+- deploy_workspace_item persists a draft to the workspace via the real backend create/update API and removes the draft. Requires user confirmation. Only call after the user has reviewed the draft and explicitly asked to deploy.
+- delete_workspace_item permanently removes a workspace item (and any matching draft). Irreversible. Requires user confirmation. Only call when the user has explicitly asked to delete.
 - Use list_workspace_items before broad reads.
 - Use read_workspace_item before overwriting an existing item, unless the user already provided the complete current item. For triggers, pass trigger_kind.
 - Use get_instructions before writing a script or flow. For scripts, pass the target language; when modifying, use the language from the item you read.
@@ -302,6 +311,7 @@ type TriggerService = {
 	}): Promise<TriggerLike[]>
 	create(args: { workspace: string; requestBody: any }): Promise<string>
 	update(args: { workspace: string; path: string; requestBody: any }): Promise<string>
+	delete(args: { workspace: string; path: string }): Promise<string>
 }
 
 const triggerServices: Record<TriggerKind, TriggerService> = {
@@ -310,63 +320,72 @@ const triggerServices: Record<TriggerKind, TriggerService> = {
 		get: (a) => HttpTriggerService.getHttpTrigger(a),
 		list: (a) => HttpTriggerService.listHttpTriggers(a),
 		create: (a) => HttpTriggerService.createHttpTrigger(a),
-		update: (a) => HttpTriggerService.updateHttpTrigger(a)
+		update: (a) => HttpTriggerService.updateHttpTrigger(a),
+		delete: (a) => HttpTriggerService.deleteHttpTrigger(a)
 	},
 	websocket: {
 		exists: (a) => WebsocketTriggerService.existsWebsocketTrigger(a),
 		get: (a) => WebsocketTriggerService.getWebsocketTrigger(a),
 		list: (a) => WebsocketTriggerService.listWebsocketTriggers(a),
 		create: (a) => WebsocketTriggerService.createWebsocketTrigger(a),
-		update: (a) => WebsocketTriggerService.updateWebsocketTrigger(a)
+		update: (a) => WebsocketTriggerService.updateWebsocketTrigger(a),
+		delete: (a) => WebsocketTriggerService.deleteWebsocketTrigger(a)
 	},
 	kafka: {
 		exists: (a) => KafkaTriggerService.existsKafkaTrigger(a),
 		get: (a) => KafkaTriggerService.getKafkaTrigger(a),
 		list: (a) => KafkaTriggerService.listKafkaTriggers(a),
 		create: (a) => KafkaTriggerService.createKafkaTrigger(a),
-		update: (a) => KafkaTriggerService.updateKafkaTrigger(a)
+		update: (a) => KafkaTriggerService.updateKafkaTrigger(a),
+		delete: (a) => KafkaTriggerService.deleteKafkaTrigger(a)
 	},
 	nats: {
 		exists: (a) => NatsTriggerService.existsNatsTrigger(a),
 		get: (a) => NatsTriggerService.getNatsTrigger(a),
 		list: (a) => NatsTriggerService.listNatsTriggers(a),
 		create: (a) => NatsTriggerService.createNatsTrigger(a),
-		update: (a) => NatsTriggerService.updateNatsTrigger(a)
+		update: (a) => NatsTriggerService.updateNatsTrigger(a),
+		delete: (a) => NatsTriggerService.deleteNatsTrigger(a)
 	},
 	postgres: {
 		exists: (a) => PostgresTriggerService.existsPostgresTrigger(a),
 		get: (a) => PostgresTriggerService.getPostgresTrigger(a),
 		list: (a) => PostgresTriggerService.listPostgresTriggers(a),
 		create: (a) => PostgresTriggerService.createPostgresTrigger(a),
-		update: (a) => PostgresTriggerService.updatePostgresTrigger(a)
+		update: (a) => PostgresTriggerService.updatePostgresTrigger(a),
+		delete: (a) => PostgresTriggerService.deletePostgresTrigger(a)
 	},
 	mqtt: {
 		exists: (a) => MqttTriggerService.existsMqttTrigger(a),
 		get: (a) => MqttTriggerService.getMqttTrigger(a),
 		list: (a) => MqttTriggerService.listMqttTriggers(a),
 		create: (a) => MqttTriggerService.createMqttTrigger(a),
-		update: (a) => MqttTriggerService.updateMqttTrigger(a)
+		update: (a) => MqttTriggerService.updateMqttTrigger(a),
+		delete: (a) => MqttTriggerService.deleteMqttTrigger(a)
 	},
 	sqs: {
 		exists: (a) => SqsTriggerService.existsSqsTrigger(a),
 		get: (a) => SqsTriggerService.getSqsTrigger(a),
 		list: (a) => SqsTriggerService.listSqsTriggers(a),
 		create: (a) => SqsTriggerService.createSqsTrigger(a),
-		update: (a) => SqsTriggerService.updateSqsTrigger(a)
+		update: (a) => SqsTriggerService.updateSqsTrigger(a),
+		delete: (a) => SqsTriggerService.deleteSqsTrigger(a)
 	},
 	gcp: {
 		exists: (a) => GcpTriggerService.existsGcpTrigger(a),
 		get: (a) => GcpTriggerService.getGcpTrigger(a),
 		list: (a) => GcpTriggerService.listGcpTriggers(a),
 		create: (a) => GcpTriggerService.createGcpTrigger(a),
-		update: (a) => GcpTriggerService.updateGcpTrigger(a)
+		update: (a) => GcpTriggerService.updateGcpTrigger(a),
+		delete: (a) => GcpTriggerService.deleteGcpTrigger(a)
 	},
 	azure: {
 		exists: (a) => AzureTriggerService.existsAzureTrigger(a),
 		get: (a) => AzureTriggerService.getAzureTrigger(a),
 		list: (a) => AzureTriggerService.listAzureTriggers(a),
 		create: (a) => AzureTriggerService.createAzureTrigger(a),
-		update: (a) => AzureTriggerService.updateAzureTrigger(a)
+		update: (a) => AzureTriggerService.updateAzureTrigger(a),
+		delete: (a) => AzureTriggerService.deleteAzureTrigger(a)
 	}
 }
 
@@ -744,6 +763,21 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = deployWorkspaceItemSchema.parse(ctx.args)
 			return deployDraft(parsed, ctx)
 		}
+	},
+	{
+		def: createToolDef(
+			deleteWorkspaceItemSchema,
+			'delete_workspace_item',
+			'Permanently delete a workspace item by path. This MUTATES the workspace and is irreversible. Also clears any matching AI draft. Requires user confirmation.'
+		),
+		showDetails: true,
+		showFade: true,
+		requiresConfirmation: true,
+		confirmationMessage: 'Delete workspace item',
+		fn: async (ctx) => {
+			const parsed = deleteWorkspaceItemSchema.parse(ctx.args)
+			return deleteWorkspaceItem(parsed, ctx)
+		}
 	}
 ]
 
@@ -1010,6 +1044,55 @@ async function deployDraft(
 		{
 			success: true,
 			message: `Deployed AI draft ${type} "${path}" to the workspace. Draft removed from the AI draft store.`,
+			type,
+			path,
+			triggerKind
+		},
+		null,
+		2
+	)
+}
+
+async function deleteWorkspaceItem(
+	args: { type: WorkspaceItemType; path: string; trigger_kind?: TriggerKind },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const { type, path, trigger_kind: triggerKind } = args
+
+	if (type === 'trigger' && !triggerKind) {
+		throw new Error('trigger_kind is required when deleting a trigger.')
+	}
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Deleting ${type} "${path}"...`
+	})
+
+	switch (type) {
+		case 'script':
+			await ScriptService.deleteScriptByPath({ workspace, path })
+			break
+		case 'flow':
+			await FlowService.deleteFlowByPath({ workspace, path })
+			break
+		case 'schedule':
+			await ScheduleService.deleteSchedule({ workspace, path })
+			break
+		case 'trigger':
+			await triggerServices[triggerKind!].delete({ workspace, path })
+			break
+	}
+
+	globalDraftStore.deleteDraft(type, path, triggerKind)
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Deleted ${type} "${path}"`,
+		result: 'Deleted'
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message: `Deleted ${type} "${path}" from the workspace. Any matching AI draft was also cleared.`,
 			type,
 			path,
 			triggerKind
