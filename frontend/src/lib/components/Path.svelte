@@ -33,7 +33,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { random_adj } from './random_positive_adjetive'
-	import { Folder, Loader2, SearchCode, User } from 'lucide-svelte'
+	import { Folder, SearchCode, User } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
 	import FolderPicker from './FolderPicker.svelte'
@@ -529,9 +529,7 @@
 	{/if}
 
 	{#if pathUsageInFlowsPromise || pathUsageInAppsPromise || pathUsageInScriptsPromise}
-		{#await Promise.all( [pathUsageInAppsPromise, pathUsageInFlowsPromise, pathUsageInScriptsPromise] )}
-			<Loader2 class="animate-spin" size={16} />
-		{:then [apps, flows, scripts]}
+		{#await Promise.all( [pathUsageInAppsPromise, pathUsageInFlowsPromise, pathUsageInScriptsPromise] ) then [apps, flows, scripts]}
 			{#if (apps && apps.length) || (flows && flows.length) || (scripts && scripts.length)}
 				<p class="text-xs">
 					Used by {localeConcatAnd([
