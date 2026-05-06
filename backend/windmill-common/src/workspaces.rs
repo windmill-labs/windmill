@@ -177,6 +177,13 @@ pub fn validate_fork_workspace_id(id: &str) -> error::Result<()> {
         )));
     }
 
+    if id.len() > 50 {
+        return Err(Error::BadRequest(format!(
+            "Fork workspace id `{}` is too long ({} chars). Maximum length is 50 characters (including the '{}' prefix).",
+            id, id.len(), WM_FORK_PREFIX
+        )));
+    }
+
     let reject = |reason: &str| {
         Err::<(), _>(Error::BadRequest(format!(
             "Fork workspace id `{}` is invalid: {} (must be a valid git branch name component)",
@@ -773,5 +780,11 @@ mod tests {
         assert!(validate_fork_workspace_id("wm-fork-foo.lock").is_err());
         assert!(validate_fork_workspace_id("wm-fork-foo/.bar").is_err());
         assert!(validate_fork_workspace_id("wm-fork-foo/bar.lock").is_err());
+    }
+
+    #[test]
+    fn test_validate_fork_workspace_id_rejects_too_long() {
+        let long_id = format!("wm-fork-{}", "a".repeat(43));
+        assert!(validate_fork_workspace_id(&long_id).is_err());
     }
 }
