@@ -3,31 +3,140 @@ name: Claude Auto Review
 on:
   pull_request:
     types: [ready_for_review, opened]
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+      extra_prompt:
+        description: 'Additional reviewer instructions appended to the standard review prompt'
+        required: false
+        type: string
+        default: ''
+      triggered_by:
+        description: 'GitHub username that triggered this review (for audit only)'
+        required: false
+        type: string
+        default: ''
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+      WINDMILL_EE_PRIVATE_ACCESS:
+        required: false
 
 concurrency:
-  group: claude-review-${{ github.event.pull_request.number }}
+  group: claude-review-${{ inputs.pr_number || github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
+  check-membership:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/check-org-membership.yml
+    with:
+      commenter: ${{ github.event.pull_request.user.login }}
+    secrets:
+      access_token: ${{ secrets.ORG_ACCESS_TOKEN }}
+
   auto-review:
+    needs: check-membership
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false || github.event.pull_request.ready_for_review == true
+    if: |
+      always() &&
+      (
+        needs.check-membership.result == 'skipped' ||
+        (needs.check-membership.result == 'success' && needs.check-membership.outputs.is_member == 'true')
+      ) &&
+      (
+        github.event_name == 'workflow_call' ||
+        (github.event.pull_request.draft == false || github.event.pull_request.ready_for_review == true)
+      )
     permissions:
       contents: read
       pull-requests: read
       id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
+      - name: Check EE access
+        id: ee
+        env:
+          EE_TOKEN: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+        run: |
+          if [ -n "$EE_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout EE repository
+        if: steps.ee.outputs.available == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          ref: ${{ steps.ee.outputs.ee_repo_ref }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 1
+
+      - name: Substitute EE code
+        if: steps.ee.outputs.available == 'true'
+        run: ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
+
+      - name: Resolve PR number
+        id: resolve
+        env:
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -n "$INPUT_PR_NUMBER" ]; then
+            echo "pr_number=$INPUT_PR_NUMBER" >> "$GITHUB_OUTPUT"
+          else
+            echo "pr_number=$EVENT_PR_NUMBER" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch prior PR discussion
+        id: prior
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+        run: |
+          gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" \
+            --jq '[.[] | {user: .user.login, created_at: .created_at, body: (.body | .[:4000])}] | sort_by(.created_at) | .[-20:]' \
+            > prior-comments.json || echo "[]" > prior-comments.json
+          jq -r '
+            if length == 0 then ""
+            else
+              "## Prior PR discussion (most recent up to 20 comments)\n\nIf you have already reviewed this PR (look for your own earlier comment), focus on what changed since then per the diff and respect any decisions the human made in replies. Do not re-flag findings the human already pushed back on.\n\n" +
+              (map("### @\(.user) (\(.created_at))\n\n\(.body)") | join("\n\n---\n\n"))
+            end
+          ' prior-comments.json > prior-comments.md
+
       - name: Read review prompt
         id: review-prompt
+        env:
+          EXTRA_PROMPT: ${{ inputs.extra_prompt }}
         run: |
           {
             echo 'REVIEW_PROMPT<<EOF'
+            cat REVIEW.md
+            echo ''
             cat .claude/review-prompt.md
+            if [ -n "$EXTRA_PROMPT" ]; then
+              echo ''
+              echo '## Additional reviewer instructions'
+              echo ''
+              printf '%s\n' "$EXTRA_PROMPT"
+            fi
+            if [ -s prior-comments.md ]; then
+              echo ''
+              cat prior-comments.md
+            fi
             echo 'EOF'
           } >> "$GITHUB_ENV"
 
@@ -38,7 +147,7 @@ jobs:
           track_progress: true
           prompt: |
             REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
+            PR NUMBER: ${{ steps.resolve.outputs.pr_number }}
 
             ${{ env.REVIEW_PROMPT }}
           claude_args: |

@@ -277,7 +277,17 @@ describe('processToolCall', () => {
 					target_path: 'f/scripts/current',
 					target_kind: 'script',
 					backend_result: 'schedule-created'
-				})
+				}),
+				actions: [
+					expect.objectContaining({
+						id: 'open-created-schedule:f/schedules/current',
+						type: 'open_created_resource',
+						label: 'Open schedule',
+						resource: 'schedule',
+						path: 'f/schedules/current',
+						targetKind: 'script'
+					})
+				]
 			})
 		)
 		expect(JSON.parse(scheduleResult.content as string)).toEqual(
@@ -342,7 +352,18 @@ describe('processToolCall', () => {
 					target_path: 'f/flows/current',
 					target_kind: 'flow',
 					backend_result: 'trigger-created'
-				})
+				}),
+				actions: [
+					expect.objectContaining({
+						id: 'open-created-trigger:http:f/triggers/current',
+						type: 'open_created_resource',
+						label: 'Open HTTP trigger',
+						resource: 'trigger',
+						triggerKind: 'http',
+						path: 'f/triggers/current',
+						targetKind: 'flow'
+					})
+				]
 			})
 		)
 		expect(JSON.parse(triggerResult.content as string)).toEqual(

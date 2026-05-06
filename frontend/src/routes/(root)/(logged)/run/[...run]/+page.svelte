@@ -666,9 +666,9 @@
 				{#if !$userStore?.operator}
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
-							on:click|once={() => {
+							href={`${stem}/edit/${job?.script_path}?workspace=${$workspaceStore}${isScript ? `` : `&nodraft=true`}`}
+							on:click={() => {
 								$initialArgsStore = job?.args
-								goto(`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`)
 							}}
 							unifiedSize="md"
 							variant="default"

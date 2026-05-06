@@ -70,6 +70,25 @@
 		}
 	}
 
+	function workspaceHref(id: string): string {
+		const params = new URLSearchParams(page.url.searchParams)
+		params.set('workspace', id)
+		return `${page.url.pathname}?${params.toString()}`
+	}
+
+	function onWorkspaceItemClick(e: MouseEvent, workspace: { id: string; disabled?: boolean }) {
+		if (workspace.disabled) {
+			e.preventDefault()
+			return
+		}
+		// Let modifier-keyed clicks fall through so the browser can open in a new tab.
+		if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) {
+			return
+		}
+		e.preventDefault()
+		toggleSwitchWorkspace(workspace.id)
+	}
+
 	function getForkedWorkspace(workspaceId: string) {
 		if (!$userWorkspaces) return undefined
 		return $userWorkspaces.find((w) => w.id === workspaceId && w.parent_workspace_id != null)
@@ -136,11 +155,8 @@
 									? ''
 									: 'cursor-pointer hover:bg-surface-hover data-[highlighted]:bg-surface-hover'
 						)}
-						onClick={async () => {
-							if (!workspace.disabled) {
-								await toggleSwitchWorkspace(workspace.id)
-							}
-						}}
+						href={workspace.disabled ? undefined : workspaceHref(workspace.id)}
+						onClick={(e) => onWorkspaceItemClick(e, workspace)}
 						{item}
 					>
 						<div class="flex items-center justify-between min-w-0 w-full">
