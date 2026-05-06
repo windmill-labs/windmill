@@ -123,15 +123,7 @@ export async function pushVariable(
   }
 
   if (variable) {
-    // Even if file content is a superset of the remote, we still need to
-    // push when the ws_specific flag differs (the flag is metadata, not
-    // file body — it's never inside `localVariable`). Without this guard,
-    // the sync push silently drops a flip from "not ws_specific" to
-    // ws_specific (or vice-versa).
-    const remoteWsSpecific = (variable as any).ws_specific === true;
-    const wsSpecificMatches =
-      wsSpecific === undefined || wsSpecific === remoteWsSpecific;
-    if (isSuperset(localVariable, variable) && wsSpecificMatches) {
+    if (isSuperset(localVariable, variable)) {
       log.debug(`Variable ${remotePath} is up-to-date`);
       return;
     }

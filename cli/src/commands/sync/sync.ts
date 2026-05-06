@@ -1546,8 +1546,20 @@ type Edit = {
   after: string;
   codebase?: string;
 };
+// Flag-only change: the file content matches the server but the local
+// specificItems config flags the item as ws_specific while the server
+// does not (or vice-versa). Emitted only by computeWsSpecificFlagOnlyPushes
+// and routed through its own apply branch — do NOT model this as
+// Edit{before === after}, because any future "skip identical edits"
+// optimization would silently drop these.
+type WsSpecificFlag = {
+  name: "ws_specific_flag";
+  path: string;
+  kind: string;
+  wsSpecific: boolean;
+};
 
-type Change = Added | Deleted | Edit;
+type Change = Added | Deleted | Edit | WsSpecificFlag;
 
 export async function elementsToMap(
   els: DynFSElement,
@@ -2911,6 +2923,15 @@ function prettyChanges(
           showDiff(change.before, change.after);
         }
       }
+    } else if (change.name === "ws_specific_flag") {
+      log.info(
+        colors.cyan(
+          `~ ${change.kind} ${displayPath} ` +
+            (change.wsSpecific
+              ? "(mark as workspace-specific)"
+              : "(unmark as workspace-specific)"),
+        ),
+      );
     }
   }
 }
@@ -3124,23 +3145,24 @@ export async function push(
 
   // Detect resources/variables that the local config flags as ws_specific
   // but that aren't ws_specific on the server. The file-content diff misses
-  // these because ws_specific isn't part of the YAML body — inject them as
-  // synthetic "edited" changes so the standard display + apply loop handles
-  // them. push{Resource,Variable} skip when content matches *and* the flag
-  // matches, so the flag-only diff still triggers an updateX call.
+  // these because ws_specific isn't part of the YAML body — emit a dedicated
+  // "ws_specific_flag" change so the apply loop can call updateResource /
+  // updateVariable with just the metadata flag (no content payload). When the
+  // file *also* has a content change, the existing "edited" change handles
+  // both (push{Resource,Variable} forwards the wsSpecific arg), so we skip
+  // injection in that case to avoid pushing twice.
   const wsSpecificFlagOnly = computeWsSpecificFlagOnlyPushes(
     localMap,
     localSpecificItems,
     serverWsSpecificItems,
   );
   for (const item of wsSpecificFlagOnly) {
-    const content = localMap[item.filePath] ?? "";
     if (changes.some((c) => c.path === item.filePath)) continue;
     changes.push({
-      name: "edited",
+      name: "ws_specific_flag",
       path: item.filePath,
-      before: content,
-      after: content,
+      kind: item.kind,
+      wsSpecific: true,
     });
   }
 
@@ -4248,6 +4270,25 @@ export async function push(
                 } catch {
                   // state target may not exist already
                 }
+              }
+            } else if (change.name === "ws_specific_flag") {
+              const target = change.path.replaceAll(SEP, "/");
+              if (change.kind === "resource") {
+                await wmill.updateResource({
+                  workspace: workspace.workspaceId,
+                  path: removeType(target, "resource"),
+                  requestBody: { ws_specific: change.wsSpecific },
+                });
+              } else if (change.kind === "variable") {
+                await wmill.updateVariable({
+                  workspace: workspace.workspaceId,
+                  path: removeType(target, "variable"),
+                  requestBody: { ws_specific: change.wsSpecific },
+                });
+              } else {
+                log.warn(
+                  `ws_specific_flag change for unsupported kind '${change.kind}' at ${change.path} — skipping`,
+                );
               }
             }
           }
