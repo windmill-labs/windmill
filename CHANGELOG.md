@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.696.2](https://github.com/windmill-labs/windmill/compare/v1.696.1...v1.696.2) (2026-05-06)
+
+
+### Bug Fixes
+
+* bubble handle_flow chaining errors to parent flow ([#9058](https://github.com/windmill-labs/windmill/issues/9058)) ([5bca03e](https://github.com/windmill-labs/windmill/commit/5bca03eacdbf147268d8ad9079e9ec45b2819af0))
+* **bun:** make hub script cache resilient to malformed lockfiles ([#9063](https://github.com/windmill-labs/windmill/issues/9063)) ([c6f1c5e](https://github.com/windmill-labs/windmill/commit/c6f1c5e623716df703dd6b37be9981dbe5742550))
+* **cli:** detect upstream auth-gateway HTML responses and add poll heartbeat ([#9065](https://github.com/windmill-labs/windmill/issues/9065)) ([628ab56](https://github.com/windmill-labs/windmill/commit/628ab5692e1825001eac0aaa92638c0067a508ea))
+* **queue:** cap worker pull loop at 10 to avoid DB storm ([#9062](https://github.com/windmill-labs/windmill/issues/9062)) ([e3cc258](https://github.com/windmill-labs/windmill/commit/e3cc2584555d532d91aa888cc52af34a16277036))
+
 ## [1.696.1](https://github.com/windmill-labs/windmill/compare/v1.696.0...v1.696.1) (2026-05-06)
 
 
