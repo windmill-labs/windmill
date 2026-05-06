@@ -15,7 +15,7 @@
 	import { Button, Drawer, DrawerContent } from './common'
 	import { copyToClipboard } from '$lib/utils'
 	import { base } from '$lib/base'
-	import { externalDomain, withExternalDomain } from '$lib/externalDomain'
+	import { withExternalDomain } from '$lib/externalDomain'
 	import { workspaceStore } from '$lib/stores'
 	import { AnsiUp } from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
@@ -206,7 +206,7 @@
 		}
 	})
 	let downloadHref = $derived(
-		withExternalDomain(`${base}/api/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`, $externalDomain)
+		withExternalDomain(`${base}/api/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`)
 	)
 	let truncatedContent = $derived(truncateContent(content, loadedFromObjectStore, LOG_LIMIT))
 	let prefixInfo = $derived(findPrefixInfo(truncatedContent))
