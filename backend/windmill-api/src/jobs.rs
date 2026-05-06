@@ -898,16 +898,19 @@ async fn list_selected_job_groups(
     let mut tx = user_db.begin(&authed).await?;
 
     // Single-step-flows wrap either a script or a flow. The wrapped runnable type
-    // sits in raw_flow.modules under id='a' (id='main' is also tolerated). We use
-    // that to project singlestepflow rows onto the same `script`/`flow` grouping
-    // and join keys the rest of the query already uses.
+    // sits in raw_flow.modules under id='a' (id='main' is also tolerated), and the
+    // wrapped script's hash (when pinned) sits in the same module's value.hash.
+    // We project singlestepflow rows onto the script/flow grouping the rest of the
+    // query uses, and use the wrapped hash (when present) so the per-version
+    // schemas subquery resolves real schemas instead of returning nulls. A
+    // path-based schema fallback covers flow-wrapped singlestepflow (no version
+    // pinning) and any singlestepflow whose pinned hash has since been deleted.
     let results = sqlx::query_scalar!(
             r#"WITH normalized AS (
                 SELECT
                     jb.id,
                     jb.workspace_id,
                     jb.runnable_path,
-                    jb.runnable_id,
                     CASE
                         WHEN jb.kind IN ('flow', 'script') THEN jb.kind::text
                         WHEN jb.kind = 'singlestepflow' THEN
@@ -919,7 +922,16 @@ async fn list_selected_job_groups(
                                 'script'
                             )
                         ELSE NULL
-                    END AS norm_kind
+                    END AS norm_kind,
+                    COALESCE(
+                        jb.runnable_id,
+                        CASE WHEN jb.kind = 'singlestepflow' THEN
+                            (SELECT (m->'value'->>'hash')::bigint
+                                FROM jsonb_array_elements(jb.raw_flow->'modules') m
+                                WHERE m->>'id' IN ('a', 'main')
+                                LIMIT 1)
+                        END
+                    ) AS effective_hash
                 FROM v2_job jb
                 WHERE jb.kind IN ('flow', 'script', 'singlestepflow')
                     AND jb.workspace_id = $1 AND jb.id = ANY($2)
@@ -933,13 +945,21 @@ async fn list_selected_job_groups(
                 ),
                 'schemas', ARRAY(
                     SELECT jsonb_build_object(
-                        'script_hash', LPAD(TO_HEX(COALESCE(s.hash, f.id)), 16, '0'),
-                        'job_ids', ARRAY_AGG(DISTINCT j.id),
-                        'schema', (ARRAY_AGG(COALESCE(s.schema, f.schema)))[1]
-                    ) FROM v2_job j
-                    LEFT JOIN script s ON s.hash = j.runnable_id AND n.norm_kind = 'script'
-                    LEFT JOIN flow_version f ON f.id = j.runnable_id AND n.norm_kind = 'flow'
-                    WHERE j.id = ANY(ARRAY_AGG(n.id))
+                        'script_hash', CASE WHEN COALESCE(s.hash, f.id) IS NULL THEN NULL ELSE LPAD(TO_HEX(COALESCE(s.hash, f.id)), 16, '0') END,
+                        'job_ids', ARRAY_AGG(DISTINCT n2.id),
+                        'schema', COALESCE(
+                            (ARRAY_AGG(COALESCE(s.schema, f.schema)))[1],
+                            CASE WHEN n.norm_kind = 'script' THEN
+                                (SELECT DISTINCT ON (s2.path) s2.schema FROM script s2 WHERE s2.workspace_id = $1 AND s2.path = n.runnable_path ORDER BY s2.path, s2.created_at DESC)
+                            END,
+                            CASE WHEN n.norm_kind = 'flow' THEN
+                                (SELECT fv.schema FROM flow LEFT JOIN flow_version fv ON fv.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.workspace_id = $1 AND flow.path = n.runnable_path)
+                            END
+                        )
+                    ) FROM normalized n2
+                    LEFT JOIN script s ON s.hash = n2.effective_hash AND n2.norm_kind = 'script'
+                    LEFT JOIN flow_version f ON f.id = n2.effective_hash AND n2.norm_kind = 'flow'
+                    WHERE n2.id = ANY(ARRAY_AGG(n.id))
                     GROUP BY COALESCE(s.hash, f.id)
                 )
             ) FROM normalized n
@@ -3965,13 +3985,27 @@ async fn batch_rerun_handle_job(
 
     let latest_schema;
     let schema = if use_latest_version {
+        // Project singlestepflow's wrapped runnable type so the path-based schema
+        // lookup resolves it to the underlying script/flow's latest schema —
+        // without this, transforms silently no-op for singlestepflow reruns.
         latest_schema = sqlx::query_scalar!(
                 r#"SELECT COALESCE(
-                    (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.path = jb.runnable_path AND jb.kind = 'script' ORDER BY s.path, s.created_at DESC),
-                    (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.path = jb.runnable_path AND jb.kind = 'flow')
-                ) FROM v2_job jb
-                WHERE jb.id = $1 AND jb.workspace_id = $2
-                GROUP BY jb.kind, jb.runnable_path"#,
+                    (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.path = norm.path AND s.workspace_id = $2 AND norm.kind = 'script' ORDER BY s.path, s.created_at DESC),
+                    (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.path = norm.path AND flow.workspace_id = $2 AND norm.kind = 'flow')
+                ) FROM (
+                    SELECT
+                        jb.runnable_path AS path,
+                        CASE
+                            WHEN jb.kind IN ('script', 'flow') THEN jb.kind::text
+                            WHEN jb.kind = 'singlestepflow' THEN COALESCE(
+                                (SELECT m->'value'->>'type' FROM jsonb_array_elements(jb.raw_flow->'modules') m WHERE m->>'id' IN ('a', 'main') LIMIT 1),
+                                'script'
+                            )
+                        END AS kind
+                    FROM v2_job jb
+                    WHERE jb.id = $1 AND jb.workspace_id = $2
+                ) norm
+                GROUP BY norm.kind, norm.path"#,
                 &job.id,
                 &w_id
             ).fetch_optional(db).await?.flatten();
