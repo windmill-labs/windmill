@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { ChevronRight, Pencil } from 'lucide-svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
@@ -42,10 +43,17 @@
 	let pickerScopeOpen = $state(false)
 	let pickerSlugOpen = $state(false)
 	let pathPopoverOpen = $state(false)
+	let dirtyPath = $state(false)
+	let onBehalfOfEmail = $state<string | undefined>(undefined)
+	let initialPathSnapshot = $state<string>('')
 
 	// Path segments. e.g. "f/demo/weather_report" → scope "f/demo", slug "weather_report".
+	// While the pen popover is open we display a snapshot of the path so the
+	// breadcrumb (and therefore the pen, which the popover anchors to) doesn't
+	// reflow as the user types — otherwise the popover drifts mid-edit.
+	let displayPath = $derived(pathPopoverOpen ? initialPathSnapshot : (path ?? ''))
 	let segments = $derived.by(() => {
-		const parts = (path ?? '').split('/')
+		const parts = displayPath.split('/')
 		if (parts.length < 3) return null
 		return { scope: parts.slice(0, 2).join('/'), slug: parts.slice(2).join('/') }
 	})
@@ -54,24 +62,23 @@
 	const scopeKeyOf = (k: WorkspaceItemKind, scope: string) => `scope:${k}:${scope}`
 	const leafKeyOf = (k: WorkspaceItemKind, p: string) => `leaf:${k}:${p}`
 
-	let dirtyPath = $state(false)
-	let onBehalfOfEmail = $state<string | undefined>(undefined)
-	let initialPathSnapshot = $state<string>('')
-
 	let own = $derived(isOwner(path ?? '', $userStore, $workspaceStore))
 
 	$effect(() => {
 		if (pathPopoverOpen) {
-			// Snapshot the path at popover open so the Path component's diff/dirty
-			// indicator stays anchored to the saved path, not the live edit.
-			initialPathSnapshot = path ?? ''
-			dirtyPath = false
-			onBehalfOfEmail = undefined
-			if (kind === 'flow' && $workspaceStore && path) {
-				checkFlowOnBehalfOf($workspaceStore, path).then((email) => {
-					onBehalfOfEmail = email
-				})
-			}
+			// Snapshot the path at popover open. Untrack the body so subsequent
+			// path edits (live-bound from the popover) don't refresh the snapshot —
+			// the breadcrumb and the pen anchor stay frozen, preventing popover drift.
+			untrack(() => {
+				initialPathSnapshot = path ?? ''
+				dirtyPath = false
+				onBehalfOfEmail = undefined
+				if (kind === 'flow' && $workspaceStore && path) {
+					checkFlowOnBehalfOf($workspaceStore, path).then((email) => {
+						onBehalfOfEmail = email
+					})
+				}
+			})
 		}
 	})
 
