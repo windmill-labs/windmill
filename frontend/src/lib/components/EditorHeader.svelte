@@ -9,7 +9,6 @@
 	import { isOwner } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { checkFlowOnBehalfOf } from './moveRenameManager'
-	import type { Snippet } from 'svelte'
 
 	type Kind = 'flow' | 'script' | 'app'
 	const KIND_LABEL: Record<Kind, string> = { flow: 'flows', script: 'scripts', app: 'apps' }
@@ -20,10 +19,6 @@
 		/** Kind of the item being edited; used to label the first breadcrumb segment. */
 		kind?: Kind
 		onNavigate?: (item: { path: string; kind: Kind; raw_app?: boolean }) => void
-		/** Optional override for the pen popover's content. When provided, it replaces
-		 * the default `<Path>` editor. Use this when the parent owns its own
-		 * draft-path editor component (e.g. apps reusing the deploy drawer's path editor). */
-		pathPopoverContent?: Snippet<[{ close: () => void }]>
 		penVisibility?: 'hover' | 'always'
 		disabled?: boolean
 	}
@@ -33,7 +28,6 @@
 		path = $bindable(''),
 		kind = 'flow',
 		onNavigate,
-		pathPopoverContent,
 		penVisibility = 'hover',
 		disabled = false
 	}: Props = $props()
@@ -203,11 +197,9 @@
 						: ''}
 				/>
 			{/snippet}
-			{#snippet content({ close })}
+			{#snippet content()}
 				<div class="flex flex-col gap-6 w-[480px]">
-					{#if pathPopoverContent}
-						{@render pathPopoverContent({ close })}
-					{:else if own}
+					{#if own}
 						<Path
 							autofocus={false}
 							bind:path

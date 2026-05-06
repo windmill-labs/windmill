@@ -6,7 +6,7 @@
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { defaultIfEmptyString, isMac, type Item } from '$lib/utils'
+	import { isMac, type Item } from '$lib/utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import {
 		AlignHorizontalSpaceAround,
@@ -129,7 +129,9 @@
 			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
 			: $userStore?.username) +
 		'/'
-	let newEditedPath = $state(untrack(() => (newApp ? userPrefix + random_adj() + '_app' : '')))
+	let newEditedPath = $state(
+		untrack(() => (newApp ? userPrefix + random_adj() + '_app' : (newPath ?? '')))
+	)
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
@@ -935,7 +937,7 @@
 	<div class="flex flex-row gap-2 items-center">
 		<EditorHeader
 			bind:summary={$summary}
-			path={defaultIfEmptyString(newEditedPath, defaultIfEmptyString(newPath, $appPath))}
+			bind:path={newEditedPath}
 			kind="app"
 			onNavigate={(item) => {
 				const editPath =
@@ -948,18 +950,7 @@
 								: `/apps/edit/${item.path}`
 				goto(editPath)
 			}}
-		>
-			{#snippet pathPopoverContent()}
-				<AppEditorHeaderDeployInitialDraft
-					bind:summary={$summary}
-					bind:appPath={$appPath}
-					bind:pathError
-					bind:newEditedPath
-					hideSummary
-					initialPath={$appPath ?? ''}
-				/>
-			{/snippet}
-		</EditorHeader>
+		/>
 		<div class="flex gap-2">
 			{#if $app}
 				<ToggleButtonGroup

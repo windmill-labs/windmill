@@ -25,8 +25,7 @@
 		cleanValueProperties,
 		orderedJsonStringify,
 		type Value,
-		replaceFalseWithUndefined,
-		defaultIfEmptyString
+		replaceFalseWithUndefined
 	} from '../../utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 
@@ -139,7 +138,9 @@
 			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
 			: $userStore?.username) +
 		'/'
-	let newEditedPath = $state(untrack(() => (newApp ? userPrefix + random_adj() + '_app' : '')))
+	let newEditedPath = $state(
+		untrack(() => (newApp ? userPrefix + random_adj() + '_app' : newPath || appPath || ''))
+	)
 
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedBy: string | undefined = $state(undefined) // Author
@@ -855,7 +856,7 @@
 	<div class="flex flex-row gap-2 items-center">
 		<EditorHeader
 			bind:summary
-			path={defaultIfEmptyString(newEditedPath, defaultIfEmptyString(newPath, appPath))}
+			bind:path={newEditedPath}
 			kind="app"
 			onNavigate={(item) => {
 				const editPath =
@@ -868,18 +869,7 @@
 								: `/apps_raw/edit/${item.path}`
 				goto(editPath)
 			}}
-		>
-			{#snippet pathPopoverContent()}
-				<AppEditorHeaderDeployInitialDraft
-					bind:summary
-					appPath={appPath ?? ''}
-					bind:pathError
-					bind:newEditedPath
-					hideSummary
-					initialPath={appPath ?? ''}
-				/>
-			{/snippet}
-		</EditorHeader>
+		/>
 		<div></div>
 	</div>
 

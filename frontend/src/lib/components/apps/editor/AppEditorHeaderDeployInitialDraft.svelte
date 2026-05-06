@@ -6,60 +6,49 @@
 		summary = $bindable(),
 		appPath = $bindable(),
 		pathError = $bindable(),
-		newEditedPath = $bindable(),
-		hideSummary = false,
-		initialPath = ''
-	}: {
-		summary: string
-		appPath: string
-		pathError: string
-		newEditedPath: string
-		hideSummary?: boolean
-		initialPath?: string
+		newEditedPath = $bindable()
 	} = $props()
 
 	let path: Path | undefined = $state(undefined)
 	let dirtyPath = $state(false)
 </script>
 
-{#if !hideSummary}
-	<Alert bgClass="mb-4" title="Require path" type="info">
-		Choose a path to save the initial draft of the app.
-	</Alert>
-	<h3>Summary</h3>
-	<div class="w-full pt-2">
-		<!-- svelte-ignore a11y_autofocus -->
-		<input
-			autofocus
-			type="text"
-			placeholder="App summary"
-			class="text-sm w-full font-semibold"
-			onkeydown={(e) => {
-				e.stopPropagation()
-			}}
-			bind:value={summary}
-			onkeyup={() => {
-				if (appPath == '' && summary?.length > 0 && !dirtyPath) {
-					path?.setName(
-						summary
-							.toLowerCase()
-							.replace(/[^a-z0-9_]/g, '_')
-							.replace(/-+/g, '_')
-							.replace(/^-|-$/g, '')
-					)
-				}
-			}}
-		/>
-	</div>
-	<div class="py-2"></div>
-{/if}
+<Alert bgClass="mb-4" title="Require path" type="info">
+	Choose a path to save the initial draft of the app.
+</Alert>
+<h3>Summary</h3>
+<div class="w-full pt-2">
+	<!-- svelte-ignore a11y_autofocus -->
+	<input
+		autofocus
+		type="text"
+		placeholder="App summary"
+		class="text-sm w-full font-semibold"
+		onkeydown={(e) => {
+			e.stopPropagation()
+		}}
+		bind:value={summary}
+		onkeyup={() => {
+			if (appPath == '' && summary?.length > 0 && !dirtyPath) {
+				path?.setName(
+					summary
+						.toLowerCase()
+						.replace(/[^a-z0-9_]/g, '_')
+						.replace(/-+/g, '_')
+						.replace(/^-|-$/g, '')
+				)
+			}
+		}}
+	/>
+</div>
+<div class="py-2"></div>
 <Path
 	autofocus={false}
 	bind:this={path}
 	bind:error={pathError}
 	bind:path={newEditedPath}
 	bind:dirty={dirtyPath}
-	{initialPath}
+	initialPath=""
 	namePlaceholder="app"
 	kind="app"
 />
