@@ -680,6 +680,8 @@ WORKSPACE_TOOL_ZOD_SCHEMAS = [
     ('NewSqsTrigger', 'sqsTriggerRequestSchema'),
     ('GcpTriggerData', 'gcpTriggerRequestSchema'),
     ('AzureTriggerData', 'azureTriggerRequestSchema'),
+    ('CreateVariable', 'variableRequestSchema'),
+    ('CreateResource', 'resourceRequestSchema'),
 ]
 
 WORKSPACE_TOOL_TRIGGER_SCHEMAS = [
@@ -1856,6 +1858,7 @@ def main():
 
     script_base = read_markdown_file(base_dir / "script-base.md")
     flow_base = read_markdown_file(base_dir / "flow-base.md")
+    resources_base = read_markdown_file(base_dir / "resources.md")
     workflow_as_code_base = read_markdown_file(base_dir / "workflow-as-code.md")
     flow_cli = read_markdown_file(base_dir / "flow-cli.md")
     flow_chat_special_modules = read_markdown_file(base_dir / "flow-chat-special-modules.md")
@@ -1913,6 +1916,7 @@ def main():
         # Base prompts
         'SCRIPT_BASE': script_base,
         'FLOW_BASE': flow_base,
+        'RESOURCES_BASE': resources_base,
         'WORKFLOW_AS_CODE_BASE': workflow_as_code_base,
         'FLOW_CHAT_SPECIAL_MODULES': flow_chat_special_modules,
 
@@ -2001,6 +2005,11 @@ export function getFlowPrompt(): string {
   ].filter(Boolean).join('\\n\\n');
 }
 
+// Helper for resource & variable authoring
+export function getResourcePrompt(): string {
+  return prompts.RESOURCES_BASE;
+}
+
 // Helper to get datatable SDK reference for app mode
 export function getDatatableSdkReference(): string {
   return [
@@ -2037,6 +2046,7 @@ export function getWorkflowAsCodePrompt(language?: string): string {
     index_dts_content = """export * from './prompts';
 export declare function getScriptPrompt(language: string): string;
 export declare function getFlowPrompt(): string;
+export declare function getResourcePrompt(): string;
 export declare function getDatatableSdkReference(): string;
 export declare function getWorkflowAsCodePrompt(language?: string): string;
 """
