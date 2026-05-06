@@ -104,6 +104,7 @@
 		closeOnOtherPopoverOpen
 		class="{SEGMENT_BASE_CLASS} {extraClass} {disabled ? 'cursor-default' : 'cursor-pointer'}"
 		bind:isOpen={getOpen, setOpen}
+		openFocus="[data-workspace-picker-search]"
 		{disabled}
 	>
 		{#snippet trigger()}

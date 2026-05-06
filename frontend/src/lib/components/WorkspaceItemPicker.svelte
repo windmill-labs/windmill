@@ -131,13 +131,6 @@
 		searchInput?.select()
 	}
 
-	// The picker is typically rendered lazily by a popover, so mount === open.
-	// Auto-focus on mount so callers don't have to wire up `openFocus`.
-	$effect(() => {
-		// Wait for the input to be bound; one rAF is enough.
-		requestAnimationFrame(() => focus())
-	})
-
 	const KIND_LABEL: Record<Kind_, string> = {
 		flow: 'Flows',
 		script: 'Scripts',
@@ -397,7 +390,10 @@
 			bind:this={searchInput}
 			bind:value={filter}
 			size="sm"
-			inputProps={{ placeholder: 'Search by name or summary...' }}
+			inputProps={{
+				placeholder: 'Search by name or summary...',
+				'data-workspace-picker-search': ''
+			}}
 		/>
 	</div>
 
