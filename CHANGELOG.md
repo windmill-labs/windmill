@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.696.1](https://github.com/windmill-labs/windmill/compare/v1.696.0...v1.696.1) (2026-05-06)
+
+
+### Bug Fixes
+
+* **bun:** propagate non-zero exit from generate_bun_bundle on no-DB path ([#9051](https://github.com/windmill-labs/windmill/issues/9051)) ([eebaab9](https://github.com/windmill-labs/windmill/commit/eebaab9c87f975b70049e118a08665fc21653b13))
+* **workspaces:** validate fork id as a git branch name component ([#9049](https://github.com/windmill-labs/windmill/issues/9049)) ([f4553e8](https://github.com/windmill-labs/windmill/commit/f4553e8e7919b115a4239a62ee4587347cc82bb8))
+
 ## [1.696.0](https://github.com/windmill-labs/windmill/compare/v1.695.0...v1.696.0) (2026-05-05)
 
 
