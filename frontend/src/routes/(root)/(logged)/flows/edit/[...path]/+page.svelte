@@ -2,6 +2,7 @@
 	import { FlowService, type Flow, DraftService } from '$lib/gen'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
+	import { editPathFor } from '$lib/components/WorkspaceItemPicker.svelte'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import {
 		cleanValueProperties,
@@ -294,17 +295,7 @@
 		onHistoryRestore={() => {
 			loadFlow()
 		}}
-		onNavigate={(e) => {
-			const editPath =
-				e.kind === 'flow'
-					? `/flows/edit/${e.path}`
-					: e.kind === 'script'
-						? `/scripts/edit/${e.path}`
-						: e.raw_app
-							? `/apps_raw/edit/${e.path}`
-							: `/apps/edit/${e.path}`
-			goto(editPath)
-		}}
+		onNavigate={(item) => goto(editPathFor(item))}
 		{flowStore}
 		{flowStateStore}
 		initialPath={page.params.path ?? ''}

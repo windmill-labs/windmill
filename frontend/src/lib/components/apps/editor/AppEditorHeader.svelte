@@ -6,7 +6,7 @@
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { isMac, type Item } from '$lib/utils'
+	import { isMac, type Item, userPathPrefix } from '$lib/utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import {
 		AlignHorizontalSpaceAround,
@@ -56,6 +56,7 @@
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
+	import { editPathFor } from '$lib/components/WorkspaceItemPicker.svelte'
 	import { goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
@@ -123,14 +124,10 @@
 		onHideBottomPanel
 	}: Props = $props()
 
-	const userPrefix =
-		'u/' +
-		($userStore?.username?.includes('@')
-			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
-			: $userStore?.username) +
-		'/'
 	let newEditedPath = $state(
-		untrack(() => (newApp ? userPrefix + random_adj() + '_app' : (newPath ?? '')))
+		untrack(() =>
+			newApp ? userPathPrefix($userStore?.username) + random_adj() + '_app' : (newPath ?? '')
+		)
 	)
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
 	let deployedBy: string | undefined = $state(undefined) // Author
@@ -939,17 +936,7 @@
 			bind:summary={$summary}
 			bind:path={newEditedPath}
 			kind="app"
-			onNavigate={(item) => {
-				const editPath =
-					item.kind === 'flow'
-						? `/flows/edit/${item.path}`
-						: item.kind === 'script'
-							? `/scripts/edit/${item.path}`
-							: item.raw_app
-								? `/apps_raw/edit/${item.path}`
-								: `/apps/edit/${item.path}`
-				goto(editPath)
-			}}
+			onNavigate={(item) => goto(editPathFor(item))}
 		/>
 		<div class="flex gap-2">
 			{#if $app}

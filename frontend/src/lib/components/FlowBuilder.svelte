@@ -20,6 +20,7 @@
 		readFieldsRecursively,
 		replaceFalseWithUndefined,
 		isMac,
+		userPathPrefix,
 		type Item,
 		type StateStore,
 		type Value
@@ -147,13 +148,7 @@
 	})
 
 	// used for new flows for captures
-	let fakeInitialPath =
-		'u/' +
-		($userStore?.username?.includes('@')
-			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
-			: $userStore?.username) +
-		'/' +
-		generateRandomString(12)
+	let fakeInitialPath = userPathPrefix($userStore?.username) + generateRandomString(12)
 
 	// Used by multiplayer deploy collision warning
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against

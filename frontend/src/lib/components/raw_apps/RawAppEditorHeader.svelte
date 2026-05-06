@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { isMac } from '$lib/utils'
+	import { isMac, userPathPrefix } from '$lib/utils'
+	import { editPathFor } from '$lib/components/WorkspaceItemPicker.svelte'
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { rawAppToHubUrl } from '$lib/hub'
@@ -132,14 +133,12 @@
 		onOpenYamlEditor = undefined
 	}: Props = $props()
 
-	const userPrefix =
-		'u/' +
-		($userStore?.username?.includes('@')
-			? $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
-			: $userStore?.username) +
-		'/'
 	let newEditedPath = $state(
-		untrack(() => (newApp ? userPrefix + random_adj() + '_app' : newPath || appPath || ''))
+		untrack(() =>
+			newApp
+				? userPathPrefix($userStore?.username) + random_adj() + '_app'
+				: newPath || appPath || ''
+		)
 	)
 
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
@@ -858,17 +857,7 @@
 			bind:summary
 			bind:path={newEditedPath}
 			kind="app"
-			onNavigate={(item) => {
-				const editPath =
-					item.kind === 'flow'
-						? `/flows/edit/${item.path}`
-						: item.kind === 'script'
-							? `/scripts/edit/${item.path}`
-							: item.raw_app === false
-								? `/apps/edit/${item.path}`
-								: `/apps_raw/edit/${item.path}`
-				goto(editPath)
-			}}
+			onNavigate={(item) => goto(editPathFor(item))}
 		/>
 		<div></div>
 	</div>

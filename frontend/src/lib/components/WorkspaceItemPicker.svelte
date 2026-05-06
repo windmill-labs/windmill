@@ -1,13 +1,27 @@
 <script lang="ts" module>
 	import type { Flow, ListableApp, Script } from '$lib/gen'
 
-	type Kind = 'flow' | 'script' | 'app'
+	export type WorkspaceItemKind = 'flow' | 'script' | 'app'
 
-	type Item = {
+	/** Shape emitted by the picker's `onPick` callback. The `raw_app` flag is only
+	 * meaningful when `kind === 'app'` and discriminates low-code (`false`) from
+	 * raw apps (`true`); see `editPathFor` for routing. */
+	export type WorkspaceItem = {
 		path: string
 		summary: string
-		kind: Kind
+		kind: WorkspaceItemKind
 		raw_app?: boolean
+	}
+
+	type Kind = WorkspaceItemKind
+	type Item = WorkspaceItem
+
+	/** Resolve the editor URL for an item picked from the workspace picker.
+	 * Apps split into low-code (`/apps/edit`) and raw (`/apps_raw/edit`). */
+	export function editPathFor(item: WorkspaceItem): string {
+		if (item.kind === 'flow') return `/flows/edit/${item.path}`
+		if (item.kind === 'script') return `/scripts/edit/${item.path}`
+		return item.raw_app ? `/apps_raw/edit/${item.path}` : `/apps/edit/${item.path}`
 	}
 
 	type WorkspaceCache = {
@@ -116,6 +130,13 @@
 		searchInput?.focus()
 		searchInput?.select()
 	}
+
+	// The picker is typically rendered lazily by a popover, so mount === open.
+	// Auto-focus on mount so callers don't have to wire up `openFocus`.
+	$effect(() => {
+		// Wait for the input to be bound; one rAF is enough.
+		requestAnimationFrame(() => focus())
+	})
 
 	const KIND_LABEL: Record<Kind_, string> = {
 		flow: 'Flows',

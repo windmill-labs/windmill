@@ -6,6 +6,7 @@ import type { DiffDrawerI } from './diff_drawer'
 import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 import type { ScheduleTrigger } from './triggers'
 import type { stepState } from './stepHistoryLoader.svelte'
+import type { WorkspaceItem } from './WorkspaceItemPicker.svelte'
 
 export type FlowBuilderProps = {
 	initialPath?: string
@@ -48,5 +49,5 @@ export type FlowBuilderProps = {
 	onDeployError?: ({ error }: { error: any }) => void
 	onDetails?: ({ path }: { path: string }) => void
 	onHistoryRestore?: () => void
-	onNavigate?: (item: { path: string; kind: 'flow' | 'script' | 'app'; raw_app?: boolean }) => void
+	onNavigate?: (item: WorkspaceItem) => void
 }

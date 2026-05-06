@@ -5,20 +5,26 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Label from '$lib/components/Label.svelte'
-	import WorkspaceItemPicker from '$lib/components/WorkspaceItemPicker.svelte'
+	import WorkspaceItemPicker, {
+		type WorkspaceItem,
+		type WorkspaceItemKind
+	} from '$lib/components/WorkspaceItemPicker.svelte'
 	import { isOwner } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { checkFlowOnBehalfOf } from './moveRenameManager'
 
-	type Kind = 'flow' | 'script' | 'app'
-	const KIND_LABEL: Record<Kind, string> = { flow: 'flows', script: 'scripts', app: 'apps' }
+	const KIND_LABEL: Record<WorkspaceItemKind, string> = {
+		flow: 'flows',
+		script: 'scripts',
+		app: 'apps'
+	}
 
 	interface Props {
 		summary?: string
 		path?: string
 		/** Kind of the item being edited; used to label the first breadcrumb segment. */
-		kind?: Kind
-		onNavigate?: (item: { path: string; kind: Kind; raw_app?: boolean }) => void
+		kind?: WorkspaceItemKind
+		onNavigate?: (item: WorkspaceItem) => void
 		penVisibility?: 'hover' | 'always'
 		disabled?: boolean
 	}
@@ -36,9 +42,6 @@
 	let pickerScopeOpen = $state(false)
 	let pickerSlugOpen = $state(false)
 	let pathPopoverOpen = $state(false)
-	let pickerType: WorkspaceItemPicker | undefined = $state()
-	let pickerScope: WorkspaceItemPicker | undefined = $state()
-	let pickerSlug: WorkspaceItemPicker | undefined = $state()
 
 	// Path segments. e.g. "f/demo/weather_report" → scope "f/demo", slug "weather_report".
 	let segments = $derived.by(() => {
@@ -47,9 +50,9 @@
 		return { scope: parts.slice(0, 2).join('/'), slug: parts.slice(2).join('/') }
 	})
 
-	const kindKey = (k: Kind) => `kind:${k}`
-	const scopeKeyOf = (k: Kind, scope: string) => `scope:${k}:${scope}`
-	const leafKeyOf = (k: Kind, p: string) => `leaf:${k}:${p}`
+	const kindKey = (k: WorkspaceItemKind) => `kind:${k}`
+	const scopeKeyOf = (k: WorkspaceItemKind, scope: string) => `scope:${k}:${scope}`
+	const leafKeyOf = (k: WorkspaceItemKind, p: string) => `leaf:${k}:${p}`
 
 	let dirtyPath = $state(false)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
@@ -78,99 +81,79 @@
 		summary = trimmed
 	}
 
-	function handlePickerSelect(item: { path: string; kind: Kind; raw_app?: boolean }) {
+	function handlePickerSelect(item: WorkspaceItem) {
 		pickerTypeOpen = false
 		pickerScopeOpen = false
 		pickerSlugOpen = false
 		onNavigate?.(item)
 	}
+
+	const SEGMENT_BASE_CLASS =
+		'font-normal inline-flex items-center px-1 rounded hover:bg-surface-hover hover:text-primary transition-colors'
 </script>
+
+{#snippet breadcrumbSegment(
+	label: string,
+	getOpen: () => boolean,
+	setOpen: (v: boolean) => void,
+	initialOpen: string[],
+	initialHighlight: string,
+	withChevron: boolean,
+	extraClass: string
+)}
+	<Popover
+		placement="bottom-start"
+		usePointerDownOutside
+		excludeSelectors=".drawer"
+		disableFocusTrap
+		closeOnOtherPopoverOpen
+		class="{SEGMENT_BASE_CLASS} {extraClass} {disabled ? 'cursor-default' : 'cursor-pointer'}"
+		bind:isOpen={getOpen, setOpen}
+		{disabled}
+	>
+		{#snippet trigger()}
+			{#if withChevron}<ChevronRight size={10} class="shrink-0" /><span class="truncate"
+					>{label}</span
+				>{:else}{label}{/if}
+		{/snippet}
+		{#snippet content()}
+			<WorkspaceItemPicker {initialOpen} {initialHighlight} onPick={handlePickerSelect} />
+		{/snippet}
+	</Popover>
+{/snippet}
 
 <div class="inline-block max-w-full align-top group px-2 py-0.5 leading-tight">
 	<!-- Path row -->
 	<div class="flex items-center max-w-full text-2xs text-secondary font-mono">
-		<!-- Type segment -->
-		<Popover
-			placement="bottom-start"
-			usePointerDownOutside
-			excludeSelectors=".drawer"
-			disableFocusTrap
-			closeOnOtherPopoverOpen
-			class="font-normal inline-flex items-center px-1 rounded hover:bg-surface-hover hover:text-primary transition-colors {disabled
-				? 'cursor-default'
-				: 'cursor-pointer'}"
-			openFocus={() => {
-				pickerType?.focus()
-				return null
-			}}
-			bind:isOpen={pickerTypeOpen}
-			{disabled}
-		>
-			{#snippet trigger()}{KIND_LABEL[kind]}{/snippet}
-			{#snippet content()}
-				<WorkspaceItemPicker
-					bind:this={pickerType}
-					initialOpen={[kindKey(kind)]}
-					initialHighlight={kindKey(kind)}
-					onPick={handlePickerSelect}
-				/>
-			{/snippet}
-		</Popover>
-		{#if segments}<Popover
-				placement="bottom-start"
-				usePointerDownOutside
-				excludeSelectors=".drawer"
-				disableFocusTrap
-				closeOnOtherPopoverOpen
-				class="font-normal inline-flex items-center gap-0.5 px-1 rounded min-w-0 max-w-[40%] hover:bg-surface-hover hover:text-primary transition-colors {disabled
-					? 'cursor-default'
-					: 'cursor-pointer'}"
-				openFocus={() => {
-					pickerScope?.focus()
-					return null
-				}}
-				bind:isOpen={pickerScopeOpen}
-				{disabled}
-			>
-				{#snippet trigger()}<ChevronRight size={10} class="shrink-0" /><span class="truncate"
-						>{segments.scope}</span
-					>{/snippet}
-				{#snippet content()}
-					<WorkspaceItemPicker
-						bind:this={pickerScope}
-						initialOpen={[kindKey(kind), scopeKeyOf(kind, segments.scope)]}
-						initialHighlight={scopeKeyOf(kind, segments.scope)}
-						onPick={handlePickerSelect}
-					/>
-				{/snippet}
-			</Popover><Popover
-				placement="bottom-start"
-				usePointerDownOutside
-				excludeSelectors=".drawer"
-				disableFocusTrap
-				closeOnOtherPopoverOpen
-				class="font-normal inline-flex items-center gap-0.5 px-1 rounded min-w-0 hover:bg-surface-hover hover:text-primary transition-colors {disabled
-					? 'cursor-default'
-					: 'cursor-pointer'}"
-				openFocus={() => {
-					pickerSlug?.focus()
-					return null
-				}}
-				bind:isOpen={pickerSlugOpen}
-				{disabled}
-			>
-				{#snippet trigger()}<ChevronRight size={10} class="shrink-0" /><span class="truncate"
-						>{segments.slug}</span
-					>{/snippet}
-				{#snippet content()}
-					<WorkspaceItemPicker
-						bind:this={pickerSlug}
-						initialOpen={[kindKey(kind), scopeKeyOf(kind, segments.scope)]}
-						initialHighlight={leafKeyOf(kind, path ?? '')}
-						onPick={handlePickerSelect}
-					/>
-				{/snippet}
-			</Popover>{/if}
+		{@render breadcrumbSegment(
+			KIND_LABEL[kind],
+			() => pickerTypeOpen,
+			(v) => (pickerTypeOpen = v),
+			[kindKey(kind)],
+			kindKey(kind),
+			false,
+			''
+		)}
+		{#if segments}
+			{@render breadcrumbSegment(
+				segments.scope,
+				() => pickerScopeOpen,
+				(v) => (pickerScopeOpen = v),
+				[kindKey(kind), scopeKeyOf(kind, segments.scope)],
+				scopeKeyOf(kind, segments.scope),
+				true,
+				'gap-0.5 min-w-0 max-w-[40%]'
+			)}
+			{@render breadcrumbSegment(
+				segments.slug,
+				() => pickerSlugOpen,
+				(v) => (pickerSlugOpen = v),
+				[kindKey(kind), scopeKeyOf(kind, segments.scope)],
+				leafKeyOf(kind, path ?? ''),
+				true,
+				'gap-0.5 min-w-0'
+			)}
+		{/if}
 
 		<!-- Pen → path-edit popover -->
 		<Popover

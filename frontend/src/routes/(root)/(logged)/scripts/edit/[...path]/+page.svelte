@@ -3,6 +3,7 @@
 
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
+	import { editPathFor } from '$lib/components/WorkspaceItemPicker.svelte'
 	import { decodeState, cleanValueProperties, orderedJsonStringify } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { replaceState } from '$app/navigation'
@@ -225,17 +226,7 @@
 		onSeeDetails={(e) => {
 			goto(`/scripts/get/${e.path}?workspace=${$workspaceStore}`)
 		}}
-		onNavigate={(e) => {
-			const editPath =
-				e.kind === 'flow'
-					? `/flows/edit/${e.path}`
-					: e.kind === 'script'
-						? `/scripts/edit/${e.path}`
-						: e.raw_app
-							? `/apps_raw/edit/${e.path}`
-							: `/apps/edit/${e.path}`
-			goto(editPath)
-		}}
+		onNavigate={(item) => goto(editPathFor(item))}
 		replaceStateFn={(path) => {
 			replaceState(path, page.state)
 		}}
