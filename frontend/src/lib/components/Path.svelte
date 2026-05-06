@@ -59,6 +59,14 @@
 		| 'gcp_trigger'
 		| 'azure_trigger'
 		| 'email_trigger'
+	// `meta` is a structured projection of `path` (`{ ownerKind, owner, name }`)
+	// kept as separate state so the form's toggle / owner / name fields can have
+	// individual bindings. It predates Svelte 5: with function-form bindings
+	// (`bind:value={getter, setter}`) each field could read/write `path` directly
+	// and `meta`, `onMetaChange`, `lastComputedPath`, and the two effects below
+	// would all collapse — `path` becoming the single source of truth would
+	// also remove the sibling-sync workaround. Left as-is to keep this change
+	// scoped; tracked as a refactor opportunity.
 	let meta: Meta | undefined = $state(undefined)
 	interface Props {
 		fullNamePlaceholder?: string | undefined
