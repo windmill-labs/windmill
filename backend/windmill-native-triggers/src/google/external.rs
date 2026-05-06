@@ -464,6 +464,100 @@ pub fn should_renew_channel(service_config: &serde_json::Value) -> bool {
     remaining_ms < renewal_window_ms
 }
 
+/// Outcome of a per-trigger renewal attempt.
+enum RenewOutcome {
+    /// Renewed successfully; the trigger row was updated.
+    Renewed,
+    /// Another replica is renewing this row, or the row was already renewed since we last
+    /// listed triggers. No action taken.
+    Skipped,
+}
+
+/// Attempt to renew a single Google watch channel under a row lock.
+///
+/// `sync_all_triggers` runs every ~5 minutes on every `windmill-app` replica with no
+/// leader election. Without a guard, multiple replicas would each rotate the webhook
+/// token, create a new Google channel, and race the trigger UPDATE — leaving the
+/// loser's new token and channel orphaned (see PR description).
+///
+/// The lock follows the same pattern used by other batch-cleanup paths in the codebase
+/// (e.g. `monitor.rs` job-retention sweep): wrap the critical section in a transaction
+/// and acquire the row with `FOR UPDATE SKIP LOCKED` so contending replicas skip the
+/// row instead of queueing.
+async fn try_renew_channel_locked(
+    handler: &Google,
+    db: &DB,
+    workspace_id: &str,
+    trigger: &NativeTrigger,
+) -> Result<RenewOutcome> {
+    let mut tx = db.begin().await?;
+
+    let row = sqlx::query!(
+        r#"
+        SELECT service_config, webhook_token_hash
+        FROM native_trigger
+        WHERE workspace_id = $1
+          AND service_name = $2
+          AND external_id = $3
+        FOR UPDATE SKIP LOCKED
+        "#,
+        workspace_id,
+        ServiceName::Google as ServiceName,
+        trigger.external_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some(row) = row else {
+        // Another replica holds the lock, or the row was deleted.
+        return Ok(RenewOutcome::Skipped);
+    };
+
+    let Some(service_config) = row.service_config else {
+        return Ok(RenewOutcome::Skipped);
+    };
+
+    // Re-check the renewal predicate against the freshly-read row: a replica that
+    // committed a renewal moments ago will leave us with a row that no longer needs one.
+    if !should_renew_channel(&service_config) {
+        return Ok(RenewOutcome::Skipped);
+    }
+
+    // Use the freshly-read fields — webhook_token_hash may have moved if a concurrent
+    // manual update raced through, and service_config holds the latest channel state.
+    let fresh_trigger = NativeTrigger {
+        service_config: Some(service_config),
+        webhook_token_hash: row.webhook_token_hash,
+        ..trigger.clone()
+    };
+
+    let (new_config, new_token, old_token_hash) = handler
+        .renew_channel(workspace_id, &fresh_trigger, db)
+        .await?;
+
+    update_native_trigger_service_config(
+        &mut *tx,
+        workspace_id,
+        ServiceName::Google,
+        &trigger.external_id,
+        &new_config,
+        Some(&new_token),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    if let Err(e) = crate::delete_token_by_hash(db, &old_token_hash).await {
+        tracing::warn!(
+            "Failed to delete old webhook token after channel renewal for {}: {}",
+            trigger.external_id,
+            e
+        );
+    }
+
+    Ok(RenewOutcome::Renewed)
+}
+
 async fn renew_expiring_channels(
     handler: &Google,
     db: &DB,
@@ -488,53 +582,24 @@ async fn renew_expiring_channels(
             workspace_id
         );
 
-        match handler.renew_channel(workspace_id, trigger, db).await {
-            Ok((new_config, new_token, old_token_hash)) => {
-                match update_native_trigger_service_config(
-                    db,
-                    workspace_id,
-                    ServiceName::Google,
-                    &trigger.external_id,
-                    &new_config,
-                    Some(&new_token),
-                )
-                .await
-                {
-                    Ok(()) => {
-                        // Trigger updated — clean up old token (best-effort)
-                        if let Err(e) = crate::delete_token_by_hash(db, &old_token_hash).await {
-                            tracing::warn!(
-                                "Failed to delete old webhook token after channel renewal for {}: {}",
-                                trigger.external_id, e
-                            );
-                        }
-                        tracing::info!(
-                            "Renewed Google channel {} for '{}'",
-                            trigger.external_id,
-                            trigger.script_path
-                        );
-                        synced.push(TriggerSyncInfo {
-                            external_id: trigger.external_id.clone(),
-                            script_path: trigger.script_path.clone(),
-                            action: SyncAction::ConfigUpdated,
-                        });
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to update DB after renewing Google channel {}: {}",
-                            trigger.external_id,
-                            e
-                        );
-                        errors.push(SyncError {
-                            resource_path: format!("workspace:{}", workspace_id),
-                            error_message: format!(
-                                "Failed to update DB after channel renewal for {}: {}",
-                                trigger.external_id, e
-                            ),
-                            error_type: "channel_renewal_error".to_string(),
-                        });
-                    }
-                }
+        match try_renew_channel_locked(handler, db, workspace_id, trigger).await {
+            Ok(RenewOutcome::Renewed) => {
+                tracing::info!(
+                    "Renewed Google channel {} for '{}'",
+                    trigger.external_id,
+                    trigger.script_path
+                );
+                synced.push(TriggerSyncInfo {
+                    external_id: trigger.external_id.clone(),
+                    script_path: trigger.script_path.clone(),
+                    action: SyncAction::ConfigUpdated,
+                });
+            }
+            Ok(RenewOutcome::Skipped) => {
+                tracing::info!(
+                    "Skipped Google channel renewal for '{}': another replica is renewing or the row was already renewed",
+                    trigger.external_id
+                );
             }
             Err(e) => {
                 tracing::error!(

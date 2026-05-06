@@ -830,6 +830,8 @@ pub struct RotatedToken {
 }
 
 /// Delete a token from the token table using its hash (exact match).
+/// Returns `Ok(false)` when no row matched — callers may treat this as success but
+/// the `debug!` log distinguishes "deleted" from "not found" for investigations.
 pub async fn delete_token_by_hash<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     db: E,
     token_hash: &str,
@@ -838,6 +840,13 @@ pub async fn delete_token_by_hash<'c, E: sqlx::Executor<'c, Database = Postgres>
         .execute(db)
         .await?
         .rows_affected();
+
+    if deleted == 0 {
+        tracing::debug!(
+            "delete_token_by_hash: no token row found for hash {}",
+            token_hash
+        );
+    }
 
     Ok(deleted > 0)
 }
