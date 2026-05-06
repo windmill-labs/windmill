@@ -926,9 +926,10 @@ async fn list_selected_job_groups(
                     COALESCE(
                         jb.runnable_id,
                         CASE WHEN jb.kind = 'singlestepflow' THEN
-                            (SELECT (m->'value'->>'hash')::bigint
+                            (SELECT ('x' || lpad(m->'value'->>'hash', 16, '0'))::bit(64)::bigint
                                 FROM jsonb_array_elements(jb.raw_flow->'modules') m
                                 WHERE m->>'id' IN ('a', 'main')
+                                  AND m->'value'->>'hash' IS NOT NULL
                                 LIMIT 1)
                         END
                     ) AS effective_hash
@@ -3893,9 +3894,10 @@ fn batch_rerun_jobs_inner(
                             -- raw_flow.modules[id='a'].value.hash. Flow-wrapped doesn't pin a
                             -- version, so this is NULL there (Flow rerun pushes by path).
                             (CASE WHEN j.kind = 'singlestepflow' THEN
-                                (SELECT (m->'value'->>'hash')::bigint
+                                (SELECT ('x' || lpad(m->'value'->>'hash', 16, '0'))::bit(64)::bigint
                                     FROM jsonb_array_elements(j.raw_flow->'modules') m
                                     WHERE m->>'id' = 'a'
+                                      AND m->'value'->>'hash' IS NOT NULL
                                     LIMIT 1)
                             END) AS ssf_hash
                         FROM v2_job j
