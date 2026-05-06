@@ -948,17 +948,24 @@ export const globalTools: Tool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Searching resource types for "${parsed.query}"...`
 			})
-			const results = await ResourceService.queryResourceTypes({
-				workspace,
-				text: parsed.query,
-				limit: parsed.limit ?? 5
-			})
+			const all = await ResourceService.listResourceType({ workspace })
+			const needle = parsed.query.trim().toLowerCase()
+			const matches = needle
+				? all.filter(
+						(rt) =>
+							rt.name.toLowerCase().includes(needle) ||
+							(rt.description?.toLowerCase().includes(needle) ?? false)
+					)
+				: all
+			const limit = parsed.limit ?? 5
+			const results = matches.slice(0, limit)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Found ${results.length} resource type(s) for "${parsed.query}"`
 			})
 			return JSON.stringify(
 				results.map((rt) => ({
 					name: rt.name,
+					description: rt.description,
 					schema: rt.schema
 				})),
 				null,
