@@ -17,6 +17,8 @@ import {
 	SUPPORTED_CHAT_SCRIPT_LANGUAGES
 } from '../script/core'
 import {
+	applyExactReplace,
+	countExactMatches,
 	createSearchHubScriptsTool,
 	createToolDef,
 	type Tool,
@@ -237,31 +239,6 @@ function getExpectedFormat(schema: z.ZodType): string | null {
 	}
 
 	return null
-}
-
-function countExactMatches(content: string, search: string): number {
-	if (search.length === 0) {
-		return 0
-	}
-
-	let count = 0
-	let index = 0
-
-	while ((index = content.indexOf(search, index)) !== -1) {
-		count++
-		index += search.length
-	}
-
-	return count
-}
-
-function replaceFirstExactMatch(content: string, search: string, replace: string): string {
-	const index = content.indexOf(search)
-	if (index === -1) {
-		return content
-	}
-
-	return content.slice(0, index) + replace + content.slice(index + search.length)
 }
 
 type FlowJsonUpdate = {
@@ -1022,9 +999,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				content: 'Applying JSON patch...'
 			})
 
-			const updatedFlowJson = replaceAll
-				? currentFlowJson.split(oldString).join(newString)
-				: replaceFirstExactMatch(currentFlowJson, oldString, newString)
+			const updatedFlowJson = applyExactReplace(currentFlowJson, oldString, newString, replaceAll)
 
 			let parsedFlow: EditableFlowJson
 			try {

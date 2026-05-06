@@ -45,6 +45,8 @@ import type {
 } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
 import {
+	applyExactReplace,
+	countExactMatches,
 	createToolDef,
 	type CreatedResourceTriggerKind,
 	type Tool,
@@ -411,29 +413,6 @@ const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly Worksp
 
 function getRequestedTypes(types: WorkspaceItemType[] | undefined): WorkspaceItemType[] {
 	return types && types.length > 0 ? types : [...DEFAULT_LIST_TYPES]
-}
-
-function countExactMatches(content: string, search: string): number {
-	if (search.length === 0) return 0
-	let count = 0
-	let index = 0
-	while ((index = content.indexOf(search, index)) !== -1) {
-		count++
-		index += search.length
-	}
-	return count
-}
-
-function applyExactReplace(
-	content: string,
-	oldString: string,
-	newString: string,
-	replaceAll: boolean
-): string {
-	if (replaceAll) return content.split(oldString).join(newString)
-	const index = content.indexOf(oldString)
-	if (index === -1) return content
-	return content.slice(0, index) + newString + content.slice(index + oldString.length)
 }
 
 function itemMatches(

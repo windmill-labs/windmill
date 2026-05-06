@@ -239,6 +239,35 @@ export interface ContextStringResult {
 	hasFlowModule: boolean
 }
 
+/** Count exact occurrences of `search` in `content`. */
+export function countExactMatches(content: string, search: string): number {
+	if (search.length === 0) return 0
+	let count = 0
+	let index = 0
+	while ((index = content.indexOf(search, index)) !== -1) {
+		count++
+		index += search.length
+	}
+	return count
+}
+
+/**
+ * Replace exact occurrences of `oldString` with `newString` in `content`.
+ * When `replaceAll` is false, only the first match is replaced. Returns the
+ * original string unchanged when no match is found.
+ */
+export function applyExactReplace(
+	content: string,
+	oldString: string,
+	newString: string,
+	replaceAll: boolean
+): string {
+	if (replaceAll) return content.split(oldString).join(newString)
+	const index = content.indexOf(oldString)
+	if (index === -1) return content
+	return content.slice(0, index) + newString + content.slice(index + oldString.length)
+}
+
 export const extractAllModules = (modules: FlowModule[]): FlowModule[] => {
 	return modules.flatMap((m) => {
 		if (m.value.type === 'forloopflow' || m.value.type === 'whileloopflow') {
