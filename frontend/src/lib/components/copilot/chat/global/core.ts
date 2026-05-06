@@ -27,7 +27,12 @@ import type {
 	ScriptLang
 } from '$lib/gen/types.gen'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
-import { getFlowPrompt, getResourcePrompt, getScriptPrompt } from '$system_prompts'
+import {
+	getFlowPrompt,
+	getRawAppPrompt,
+	getResourcePrompt,
+	getScriptPrompt
+} from '$system_prompts'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -69,7 +74,8 @@ const ITEM_TYPES = [
 const INSTRUCTION_SUBJECTS = [
 	'script',
 	'flow',
-	'resource'
+	'resource',
+	'app'
 ] as const satisfies readonly WorkspaceItemType[]
 const MAX_LIST_LIMIT = 100
 
@@ -80,7 +86,7 @@ const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		"The workspace item type to get authoring instructions for. Schedules and triggers don't need instructions — their tool schemas describe everything."
+		"The workspace item type to get authoring instructions for (script, flow, resource, app). Schedules, triggers, and variables don't need instructions — their tool schemas describe everything."
 	),
 	language: scriptLangSchema
 		.optional()
@@ -345,7 +351,7 @@ Important rules:
 - Variable values are NEVER returned by read_workspace_item or list_workspace_items — only metadata (path, description, is_secret). The model cannot read secret values, by design.
 - For resources that need secrets, write a Variable first (with is_secret: true), then in the resource value reference it as "$var:path/to/variable". When deploying both, deploy the variable before the resource.
 - Use search_resource_types before write_resource to discover the resource_type name and the JSON Schema its value must match.
-- Use get_instructions before writing a script, flow, or resource. For scripts, pass the target language; when modifying, use the language from the item you read.
+- Use get_instructions before writing a script, flow, resource, or app. For scripts, pass the target language; when modifying, use the language from the item you read.
 - Schedules, triggers, and variables do not need get_instructions — their tool schemas describe every field.
 - A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, value is the OpenFlow value object. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data?, policy?, custom_path? } with frontend file contents and backend runnable definitions.
 - Apps (raw apps): use list_workspace_items with types: ['app'] to find them, read_workspace_item with type 'app' for a metadata summary (file paths + runnable list, no contents), then read_app_file to read individual files. Edit with write_app_file / patch_app_file / delete_app_file for frontend files and write_app_runnable / delete_app_runnable for backend runnables. Frontend file paths start with "/" (e.g. /index.tsx). Backend inline runnables are addressed as "backend/<key>/main.{ts|py}". /wmill.d.ts is generated and cannot be written.
@@ -961,6 +967,24 @@ ${getFlowPrompt()}`
 
 type InstructionSubject = (typeof INSTRUCTION_SUBJECTS)[number]
 
+function getAppInstructions(): string {
+	return `# Global draft app instructions
+
+- Global mode edits raw app drafts only; it does not save, deploy, or bundle.
+- App drafts are addressed by workspace path (e.g. \`f/folder/my_app\`). The first write tool snapshots the workspace app onto the draft, and subsequent writes accumulate.
+- Frontend file paths start with \`/\` (e.g. \`/index.tsx\`, \`/App.tsx\`, \`/styles.css\`). Use \`write_app_file\` / \`patch_app_file\` / \`delete_app_file\`.
+- Backend inline runnables are addressed as \`backend/<key>/main.{ts|py}\` from the file tools, but you create or update them via \`write_app_runnable\` / \`delete_app_runnable\` (which take the runnable shape directly: \`{ name, type, inlineScript?, path?, staticInputs? }\`).
+- \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.
+- Inline runnables only support \`bun\` or \`python3\` in chat. Path runnables (\`script\`/\`flow\`/\`hubscript\`) reference an existing item.
+- Apps cannot be deployed from chat. The app editor bundles JS/CSS before save; tell the user to open the app editor to deploy app drafts.
+- Use \`read_workspace_item\` with \`type: 'app'\` for a metadata summary (file paths and runnable list, no contents). Use \`read_app_file\` to read an individual file.
+- Note: the authoring reference below mentions the CLI on-disk layout (\`backend/<id>.<ext>\`, \`raw_app.yaml\`, \`sql_to_apply/\`). That layout is only relevant for the terminal workflow — in chat, apps are addressed via the tool surface above.
+
+# Windmill raw app authoring reference
+
+${getRawAppPrompt()}`
+}
+
 function getResourceInstructions(): string {
 	return `# Global draft resource & variable instructions
 
@@ -986,6 +1010,8 @@ function getInstructions(subject: InstructionSubject, language?: ScriptLang): st
 			return getFlowInstructions()
 		case 'resource':
 			return getResourceInstructions()
+		case 'app':
+			return getAppInstructions()
 	}
 }
 
@@ -994,7 +1020,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			getInstructionsSchema,
 			'get_instructions',
-			'Get Windmill authoring instructions for scripts or flows. For scripts, pass the target language.'
+			'Get Windmill authoring instructions for scripts, flows, resources, or apps. For scripts, pass the target language.'
 		),
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsed = getInstructionsSchema.parse(args)
