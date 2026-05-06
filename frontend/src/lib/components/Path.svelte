@@ -111,9 +111,16 @@
 
 	let folders: { name: string; write: boolean }[] = $state([])
 
+	// Last `path` value computed by `onMetaChange`. Used to distinguish our own
+	// `path` writes (from meta edits) from external bind-driven changes — the
+	// latter need to re-derive `meta` so siblings binding the same `path` stay in sync.
+	let lastComputedPath: string | undefined = $state(undefined)
+
 	function onMetaChange() {
 		if (meta) {
-			path = metaToPath(meta)
+			const next = metaToPath(meta)
+			path = next
+			lastComputedPath = next
 			validate(meta, path, kind)
 			$lastMetaUsed = {
 				...meta,
@@ -121,6 +128,17 @@
 			}
 		}
 	}
+
+	$effect(() => {
+		// Sync `meta` from `path` on external changes (sibling Path bound to the
+		// same store, parent assignment, etc.). Skip if the change came from us.
+		if (path && path !== lastComputedPath && !path.startsWith('tmp/') && !path.startsWith('hub/')) {
+			untrack(() => {
+				meta = pathToMeta(path, hideUser)
+				lastComputedPath = path
+			})
+		}
+	})
 
 	function metaToPath(meta: Meta): string {
 		return [meta.ownerKind?.charAt(0) ?? '', meta.owner, meta.name].join('/')
