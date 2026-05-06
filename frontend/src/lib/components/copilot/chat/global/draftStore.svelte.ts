@@ -1,5 +1,7 @@
 import type {
 	AzureTriggerData,
+	CreateResource,
+	CreateVariable,
 	FlowValue,
 	GcpTriggerData,
 	NewHttpTrigger,
@@ -38,7 +40,7 @@ export type TriggerRequestBody =
 	| GcpTriggerData
 	| AzureTriggerData
 
-export type WorkspaceItemType = 'script' | 'flow' | 'schedule' | 'trigger'
+export type WorkspaceItemType = 'script' | 'flow' | 'schedule' | 'trigger' | 'resource' | 'variable'
 
 export type WorkspaceItem = {
 	type: WorkspaceItemType
@@ -46,7 +48,13 @@ export type WorkspaceItem = {
 	summary?: string
 	language?: ScriptLang
 	triggerKind?: TriggerKind
-	value?: string | FlowValue | NewSchedule | TriggerRequestBody
+	value?:
+		| string
+		| FlowValue
+		| NewSchedule
+		| TriggerRequestBody
+		| CreateResource
+		| CreateVariable
 	isDraft: boolean
 }
 
@@ -109,6 +117,14 @@ class GlobalDraftStore {
 
 	getTriggerDraft(kind: TriggerKind, path: string): WorkspaceItem | undefined {
 		return this.getDraft('trigger', path, kind)
+	}
+
+	getResourceDraft(path: string): WorkspaceItem | undefined {
+		return this.getDraft('resource', path)
+	}
+
+	getVariableDraft(path: string): WorkspaceItem | undefined {
+		return this.getDraft('variable', path)
 	}
 }
 

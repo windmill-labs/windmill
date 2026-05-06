@@ -7,14 +7,23 @@ import {
 	MqttTriggerService,
 	NatsTriggerService,
 	PostgresTriggerService,
+	ResourceService,
 	ScheduleService,
 	ScriptService,
 	SqsTriggerService,
+	VariableService,
 	WebsocketTriggerService
 } from '$lib/gen'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
-import type { Flow, Schedule, Script, ScriptLang } from '$lib/gen/types.gen'
-import { getFlowPrompt, getScriptPrompt } from '$system_prompts'
+import type {
+	Flow,
+	ListableResource,
+	ListableVariable,
+	Schedule,
+	Script,
+	ScriptLang
+} from '$lib/gen/types.gen'
+import { getFlowPrompt, getResourcePrompt, getScriptPrompt } from '$system_prompts'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
@@ -28,7 +37,12 @@ import {
 	type ToolDisplayAction
 } from '../shared'
 import { flowModuleSchema, flowModulesSchema } from '../flow/openFlowZod.gen'
-import { scheduleRequestSchema, triggerRequestSchemas } from '../workspaceToolsZod.gen'
+import {
+	resourceRequestSchema,
+	scheduleRequestSchema,
+	triggerRequestSchemas,
+	variableRequestSchema
+} from '../workspaceToolsZod.gen'
 import {
 	getWorkspaceItemKey,
 	globalDraftStore,
@@ -42,9 +56,15 @@ const ITEM_TYPES = [
 	'script',
 	'flow',
 	'schedule',
-	'trigger'
+	'trigger',
+	'resource',
+	'variable'
 ] as const satisfies readonly WorkspaceItemType[]
-const INSTRUCTION_SUBJECTS = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
+const INSTRUCTION_SUBJECTS = [
+	'script',
+	'flow',
+	'resource'
+] as const satisfies readonly WorkspaceItemType[]
 const MAX_LIST_LIMIT = 100
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
@@ -146,6 +166,21 @@ const writeTriggerSchema = z.object({
 		)
 })
 
+const writeResourceSchema = resourceRequestSchema
+
+const writeVariableSchema = variableRequestSchema
+
+const searchResourceTypesSchema = z.object({
+	query: z.string().describe('Substring to match against resource type names.'),
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(20)
+		.optional()
+		.describe('Max number of resource types to return. Defaults to 5.')
+})
+
 const deleteWorkspaceItemSchema = z.object({
 	type: itemTypeSchema,
 	path: z.string().describe('Workspace path of the item to delete.'),
@@ -197,18 +232,21 @@ const patchFlowJsonSchema = z.object({
 
 const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
 
-You can inspect workspace scripts, flows, schedules, and triggers, then create draft changes in the frontend AI draft store.
+You can inspect workspace scripts, flows, schedules, triggers, resources, and variables, then create draft changes in the frontend AI draft store.
 
 Important rules:
-- write_script, write_flow, write_schedule, and write_trigger create or overwrite drafts. They do not save, deploy, or mutate workspace items.
+- write_{script,flow,schedule,trigger,resource,variable} create or overwrite drafts. They do not save, deploy, or mutate workspace items.
 - edit_script and patch_flow_json apply small exact-text edits and save the result as a draft. Prefer them for localized changes; use write_* for large rewrites.
 - deploy_workspace_item persists a draft to the workspace via the real backend create/update API and removes the draft. Requires user confirmation. Only call after the user has reviewed the draft and explicitly asked to deploy.
 - delete_workspace_item permanently removes a workspace item (and any matching draft). Irreversible. Requires user confirmation. Only call when the user has explicitly asked to delete.
 - Use list_workspace_items before broad reads.
 - Use read_workspace_item before overwriting an existing item, unless the user already provided the complete current item. For triggers, pass trigger_kind.
-- Use get_instructions before writing a script or flow. For scripts, pass the target language; when modifying, use the language from the item you read.
-- Schedules and triggers do not need get_instructions — their tool schemas describe every field.
-- A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, value is the OpenFlow value object. For schedules, value is the full schedule object. For triggers, value is the kind-specific trigger config.
+- Variable values are NEVER returned by read_workspace_item or list_workspace_items — only metadata (path, description, is_secret). The model cannot read secret values, by design.
+- For resources that need secrets, write a Variable first (with is_secret: true), then in the resource value reference it as "$var:path/to/variable". When deploying both, deploy the variable before the resource.
+- Use search_resource_types before write_resource to discover the resource_type name and the JSON Schema its value must match.
+- Use get_instructions before writing a script, flow, or resource. For scripts, pass the target language; when modifying, use the language from the item you read.
+- Schedules, triggers, and variables do not need get_instructions — their tool schemas describe every field.
+- A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, value is the OpenFlow value object. For schedules/triggers/resources/variables, value is the full request body for that type.
 - Keep context targeted. Do not read unrelated items.
 - Be explicit with the user when you create or update a draft.`
 
@@ -280,6 +318,26 @@ function scheduleToItem(schedule: Schedule, includeValue: boolean): WorkspaceIte
 		path: schedule.path,
 		summary: schedule.summary ?? undefined,
 		value: includeValue ? (schedule as unknown as WorkspaceItem['value']) : undefined,
+		isDraft: false
+	}
+}
+
+function resourceToItem(resource: ListableResource, includeValue: boolean): WorkspaceItem {
+	return {
+		type: 'resource',
+		path: resource.path,
+		summary: resource.description,
+		value: includeValue ? (resource as unknown as WorkspaceItem['value']) : undefined,
+		isDraft: false
+	}
+}
+
+function variableToItem(variable: ListableVariable): WorkspaceItem {
+	// Variables NEVER expose value (secret risk). Returns metadata only.
+	return {
+		type: 'variable',
+		path: variable.path,
+		summary: variable.description,
 		isDraft: false
 	}
 }
@@ -405,6 +463,10 @@ async function workspaceItemExists(
 		case 'trigger':
 			if (!triggerKind) return false
 			return triggerServices[triggerKind].exists({ workspace, path })
+		case 'resource':
+			return ResourceService.existsResource({ workspace, path })
+		case 'variable':
+			return VariableService.existsVariable({ workspace, path })
 	}
 }
 
@@ -429,6 +491,17 @@ async function readWorkspaceItem(
 				triggerKind,
 				await triggerServices[triggerKind].get({ workspace, path }),
 				true
+			)
+		case 'resource':
+			return resourceToItem(
+				await ResourceService.getResource({ workspace, path }) as ListableResource,
+				true
+			)
+		case 'variable':
+			// Never expose the value, even when read directly. Pass decryptSecret=false
+			// to avoid materializing secret values server-side.
+			return variableToItem(
+				await VariableService.getVariable({ workspace, path, decryptSecret: false })
 			)
 	}
 }
@@ -483,6 +556,24 @@ async function listWorkspaceItems(
 		}
 	}
 
+	if (types.includes('resource')) {
+		const resources = await ResourceService.listResource({
+			workspace,
+			pathStart: pathPrefix,
+			perPage
+		})
+		for (const resource of resources) items.push(resourceToItem(resource, false))
+	}
+
+	if (types.includes('variable')) {
+		const variables = await VariableService.listVariable({
+			workspace,
+			pathStart: pathPrefix,
+			perPage
+		})
+		for (const variable of variables) items.push(variableToItem(variable))
+	}
+
 	return items
 }
 
@@ -522,12 +613,31 @@ ${getFlowPrompt()}`
 
 type InstructionSubject = (typeof INSTRUCTION_SUBJECTS)[number]
 
+function getResourceInstructions(): string {
+	return `# Global draft resource & variable instructions
+
+- Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
+- A resource draft is a workspace item: \`{ type: 'resource', path, summary?, value, isDraft }\`. \`value\` is a CreateResource body: \`{ path, value, description?, resource_type, labels? }\` where the inner \`value\` is the resource type's data shape.
+- A variable draft is a workspace item: \`{ type: 'variable', path, summary?, value, isDraft }\`. \`value\` is a CreateVariable body: \`{ path, value, is_secret, description, account?, is_oauth?, expires_at?, labels? }\`.
+- For secret fields in a resource value, do NOT inline the raw secret. Create a Variable first with \`is_secret: true\`, then in the resource value reference it as \`"$var:path/to/variable"\`.
+- Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`.
+- When deploying drafts that depend on each other (e.g., a resource and the variables it references), deploy the variables first.
+- Use \`search_resource_types\` to discover valid \`resource_type\` names and their JSON Schemas. Match the resource value to that schema.
+- For OAuth resources, the \`is_oauth: true\` flag is managed by Windmill's OAuth flow; global mode generally creates manual resources, not OAuth ones.
+
+# Windmill resource & variable reference
+
+${getResourcePrompt()}`
+}
+
 function getInstructions(subject: InstructionSubject, language?: ScriptLang): string {
 	switch (subject) {
 		case 'script':
 			return getScriptInstructions(language)
 		case 'flow':
 			return getFlowInstructions()
+		case 'resource':
+			return getResourceInstructions()
 	}
 }
 
@@ -777,6 +887,83 @@ export const globalTools: Tool<{}>[] = [
 		fn: async (ctx) => {
 			const parsed = deleteWorkspaceItemSchema.parse(ctx.args)
 			return deleteWorkspaceItem(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
+			writeResourceSchema,
+			'write_resource',
+			'Create or overwrite an AI draft resource. Does not save or deploy. Reference secret values via $var:path/to/variable; create the variable separately with write_variable.',
+			{ strict: false }
+		),
+		showDetails: true,
+		streamArguments: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = writeResourceSchema.parse(ctx.args)
+			return writeDraft(
+				{
+					type: 'resource',
+					path: parsed.path,
+					summary: parsed.description,
+					value: parsed,
+					isDraft: true
+				},
+				ctx
+			)
+		}
+	},
+	{
+		def: createToolDef(
+			writeVariableSchema,
+			'write_variable',
+			'Create or overwrite an AI draft variable. Does not save or deploy. Use is_secret: true for secret values. After deploy, reference from a resource as $var:path/to/variable.',
+			{ strict: false }
+		),
+		showDetails: true,
+		streamArguments: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = writeVariableSchema.parse(ctx.args)
+			return writeDraft(
+				{
+					type: 'variable',
+					path: parsed.path,
+					summary: parsed.description,
+					value: parsed,
+					isDraft: true
+				},
+				ctx
+			)
+		}
+	},
+	{
+		def: createToolDef(
+			searchResourceTypesSchema,
+			'search_resource_types',
+			'Search for resource types in the workspace by substring. Returns names, descriptions, and JSON Schemas — use this before write_resource to know what shape value should have.'
+		),
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = searchResourceTypesSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Searching resource types for "${parsed.query}"...`
+			})
+			const results = await ResourceService.queryResourceTypes({
+				workspace,
+				text: parsed.query,
+				limit: parsed.limit ?? 5
+			})
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Found ${results.length} resource type(s) for "${parsed.query}"`
+			})
+			return JSON.stringify(
+				results.map((rt) => ({
+					name: rt.name,
+					schema: rt.schema
+				})),
+				null,
+				2
+			)
 		}
 	}
 ]
@@ -1031,6 +1218,24 @@ async function deployDraft(
 			]
 			break
 		}
+		case 'resource': {
+			const requestBody = draft.value as any
+			if (await ResourceService.existsResource({ workspace, path })) {
+				await ResourceService.updateResource({ workspace, path, requestBody })
+			} else {
+				await ResourceService.createResource({ workspace, requestBody })
+			}
+			break
+		}
+		case 'variable': {
+			const requestBody = draft.value as any
+			if (await VariableService.existsVariable({ workspace, path })) {
+				await VariableService.updateVariable({ workspace, path, requestBody })
+			} else {
+				await VariableService.createVariable({ workspace, requestBody })
+			}
+			break
+		}
 	}
 
 	globalDraftStore.deleteDraft(type, path, triggerKind)
@@ -1080,6 +1285,12 @@ async function deleteWorkspaceItem(
 			break
 		case 'trigger':
 			await triggerServices[triggerKind!].delete({ workspace, path })
+			break
+		case 'resource':
+			await ResourceService.deleteResource({ workspace, path })
+			break
+		case 'variable':
+			await VariableService.deleteVariable({ workspace, path })
 			break
 	}
 
