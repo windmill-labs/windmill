@@ -1,16 +1,51 @@
+<!--
+@component
+Inline-editable text. Renders as a static button in idle mode; clicking it
+swaps to a `TextInput` whose width tracks the content (no layout shift on
+toggle). `Enter` or `blur` commits via `onSave`; `Escape` discards.
+
+Use it for header titles, summaries, list-item names — anywhere the user
+should be able to edit a label in place without opening a modal or popover.
+
+```svelte
+<EditableInput
+  value={summary}
+  placeholder="Add a summary..."
+  onSave={(v) => (summary = v)}
+  textClass="text-xs font-semibold text-emphasis"
+/>
+```
+
+The current value isn't bound — `onSave` is fired only when the user commits
+a non-empty change. The parent owns the canonical state; this component just
+proposes new values.
+-->
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	interface Props {
+		/** Current value displayed in idle mode and pre-filled when entering edit mode. */
 		value: string
+		/** Shown when `value` is empty, in both idle and editing modes. */
 		placeholder?: string
+		/**
+		 * Called when the user commits a *changed*, non-empty value (Enter or blur).
+		 * Not called on Escape, on blur with no change, or on whitespace-only input.
+		 */
 		onSave?: (newValue: string) => void
+		/** When false, the component renders as plain text (not clickable). Default true. */
 		editable?: boolean
+		/** TextInput size in editing mode. Idle mode is unaffected (text only). */
 		size?: 'xs' | 'sm' | 'md' | 'lg'
+		/** Wrapper classes. Use for layout (margin, max-width, alignment) only — not text styling. */
 		class?: string
+		/** Extra classes on the inner `<input>` in editing mode. Background/border/shadow are reset on top of these. */
 		inputClass?: string
-		/** Text styling (font-size, weight, color, line-height...) applied to both the
-		 * idle button and the editing input so the two render identically. */
+		/**
+		 * Text styling (font-size, weight, color, line-height...) applied to *both*
+		 * the idle button and the editing input so the two render identically and
+		 * the toggle doesn't visually shift.
+		 */
 		textClass?: string
 	}
 
