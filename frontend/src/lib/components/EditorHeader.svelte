@@ -21,11 +21,11 @@
 	interface Props {
 		summary?: string
 		path?: string
-		/** The item's *saved* path on the server. When set, the breadcrumb tracks
-		 * this rather than the live (possibly draft-renamed) `path`, so clicking a
-		 * breadcrumb segment opens the picker scoped to where the item actually is.
-		 * The user's in-progress rename remains visible in the pen popover.
-		 * Falls back to `path` when omitted. */
+		/** The item's *saved* path on the server. Used so the picker knows to
+		 * replace the saved entry with a virtual one at the live `path` while
+		 * the user is mid-rename — keeps the breadcrumb and picker tree coherent
+		 * (the breadcrumb shows the user's draft path, and the picker shows the
+		 * item at that same path even though the rename hasn't been deployed). */
 		savedPath?: string
 		/** Kind of the item being edited; used to label the first breadcrumb segment. */
 		kind?: WorkspaceItemKind
@@ -64,12 +64,11 @@
 	}
 
 	// Path segments. e.g. "f/demo/weather_report" → scope "f/demo", slug "weather_report".
-	// Prefer `savedPath` (the item's location on the server) so the breadcrumb and
-	// the picker stay coherent during a draft rename — the renamed path may not
-	// correspond to any real items yet, which would leave the picker empty.
 	// `snapshotPath` keeps the breadcrumb frozen while the pen popover is open
-	// so the trigger doesn't drift mid-edit.
-	let displayPath = $derived(snapshotPath ?? savedPath ?? path ?? '')
+	// so the trigger doesn't drift mid-edit. Outside of that, the breadcrumb
+	// follows the live `path` — coherent with the picker because we inject a
+	// virtual current-item entry at that same live path (see `currentItem`).
+	let displayPath = $derived(snapshotPath ?? path ?? '')
 	let segments = $derived.by(() => {
 		const parts = displayPath.split('/')
 		if (parts.length < 3) return null
@@ -81,6 +80,16 @@
 	const leafKeyOf = (k: WorkspaceItemKind, p: string) => `leaf:${k}:${p}`
 
 	let own = $derived(isOwner(path ?? '', $userStore, $workspaceStore))
+
+	// Virtual entry for the picker: surfaces the currently-edited item at its
+	// live path (which may differ from `savedPath` mid-rename, so the picker
+	// otherwise has no leaf to expand).
+	let currentItem = $derived<WorkspaceItem & { savedPath?: string }>({
+		path: path ?? '',
+		summary: summary ?? '',
+		kind,
+		savedPath
+	})
 
 	function handleSummarySave(newValue: string) {
 		const trimmed = newValue.trim()
@@ -125,7 +134,12 @@
 				>{:else}{label}{/if}
 		{/snippet}
 		{#snippet content()}
-			<WorkspaceItemPicker {initialOpen} {initialHighlight} onPick={handlePickerSelect} />
+			<WorkspaceItemPicker
+				{initialOpen}
+				{initialHighlight}
+				{currentItem}
+				onPick={handlePickerSelect}
+			/>
 		{/snippet}
 	</Popover>
 {/snippet}

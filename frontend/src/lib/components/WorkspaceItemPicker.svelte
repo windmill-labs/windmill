@@ -113,13 +113,18 @@
 		/** Composite key to highlight on mount. Preserved even if not yet visible (e.g. while
 		 * the kind is still loading). */
 		initialHighlight?: string
+		/** Inject a virtual entry for the currently-edited item so it appears at its
+		 * live (possibly draft-renamed) path. If `savedPath` differs from `path`,
+		 * the saved entry is removed from the list to avoid duplicates. */
+		currentItem?: WorkspaceItem & { savedPath?: string }
 	}
 
 	let {
 		onPick,
 		kinds = ['flow', 'script', 'app'],
 		initialOpen = [],
-		initialHighlight
+		initialHighlight,
+		currentItem
 	}: Props = $props()
 
 	let searchInput: TextInput | undefined = $state()
@@ -202,8 +207,31 @@
 	type DisplayItem = Item & { marked?: string }
 	type SearchInput = Item & { _key: string }
 
+	/** Items for a kind, with the current draft-renamed item swapped in:
+	 * remove the saved entry (if it differs) and append the live one. Lets the
+	 * breadcrumb's draft path always have a corresponding scope/leaf to expand. */
+	function itemsForKind(k: Kind_): Item[] {
+		const base = loaded[k] ?? []
+		if (!currentItem || currentItem.kind !== k) return base
+		const drafted =
+			currentItem.savedPath && currentItem.savedPath !== currentItem.path
+				? base.filter((it) => it.path !== currentItem.savedPath)
+				: base
+		return drafted.some((it) => it.path === currentItem.path)
+			? drafted
+			: [
+					...drafted,
+					{
+						path: currentItem.path,
+						summary: currentItem.summary,
+						kind: k,
+						raw_app: currentItem.raw_app
+					}
+				]
+	}
+
 	let allItems = $derived<SearchInput[]>(
-		kinds.flatMap((k) => (loaded[k] ?? []).map((it) => ({ ...it, _key: `${k}:${it.path}` })))
+		kinds.flatMap((k) => itemsForKind(k).map((it) => ({ ...it, _key: `${k}:${it.path}` })))
 	)
 
 	let searchedItems: DisplayItem[] | undefined = $state(undefined)
@@ -217,8 +245,11 @@
 			app: new Map()
 		}
 		for (const k of kinds) {
-			const list = loaded[k]
-			if (!list) continue
+			// Skip kinds we haven't loaded yet, but always run the merge if there's a
+			// current item for that kind — its scope/leaf must show even before the
+			// real list resolves.
+			if (!loaded[k] && !(currentItem && currentItem.kind === k)) continue
+			const list = itemsForKind(k)
 			const map = out[k]
 			for (const it of list) {
 				const scope = scopeOf(it.path)
@@ -257,7 +288,13 @@
 		return out
 	})
 
+	function isCurrent(it: Item): boolean {
+		return !!currentItem && currentItem.kind === it.kind && currentItem.path === it.path
+	}
+
 	function pick(it: Item) {
+		// No-op when the user clicks their currently-edited item — they're already there.
+		if (isCurrent(it)) return
 		onPick({ path: it.path, summary: it.summary, kind: it.kind, raw_app: it.raw_app })
 	}
 
@@ -377,12 +414,14 @@
 {#snippet leafRow(it: Item, secondary: string, paddingClass: string)}
 	{@const key = leafKey(it)}
 	{@const isHl = key === highlightedKey}
+	{@const isCur = isCurrent(it)}
 	<button
 		type="button"
 		data-nav-key={key}
+		aria-current={isCur ? 'page' : undefined}
 		class="w-full text-left flex items-center gap-2 transition-colors {paddingClass} {isHl
 			? 'bg-surface-hover'
-			: ''}"
+			: ''} {isCur ? 'cursor-default text-emphasis font-medium' : ''}"
 		onclick={() => pick(it)}
 		onmouseenter={() => (highlightedKey = key)}
 	>
