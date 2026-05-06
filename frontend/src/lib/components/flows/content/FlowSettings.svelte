@@ -139,6 +139,11 @@
 							namePlaceholder="flow"
 							kind="flow"
 						/>
+						{#if $initialPathStore && $pathStore && $pathStore !== $initialPathStore}
+							<Alert type="info" size="xs" class="mt-2">
+								Deploy the flow to make the path change effective.
+							</Alert>
+						{/if}
 					</Label>
 				{/if}
 

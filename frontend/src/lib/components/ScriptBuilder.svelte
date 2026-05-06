@@ -1206,6 +1206,11 @@
 													namePlaceholder="script"
 													kind="script"
 												/>
+												{#if initialPath && script.path && script.path !== initialPath}
+													<Alert type="info" size="xs" class="mt-2">
+														Deploy the script to make the path change effective.
+													</Alert>
+												{/if}
 											</Label>
 											<Label label="Description">
 												<MetadataGen
