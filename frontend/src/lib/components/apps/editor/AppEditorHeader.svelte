@@ -56,7 +56,7 @@
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
-	import { editPathFor } from '$lib/components/WorkspaceItemPicker.svelte'
+	import { editPathFor } from '$lib/components/workspacePicker'
 	import { goto } from '$app/navigation'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'

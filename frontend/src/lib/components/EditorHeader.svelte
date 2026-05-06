@@ -5,10 +5,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Label from '$lib/components/Label.svelte'
-	import {
-		type WorkspaceItem,
-		type WorkspaceItemKind
-	} from '$lib/components/WorkspaceItemPicker.svelte'
+	import { type WorkspaceItem, type WorkspaceItemKind } from '$lib/components/workspacePicker'
 	import BreadcrumbSegment from '$lib/components/BreadcrumbSegment.svelte'
 	import { isOwner } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -121,7 +118,7 @@
 	<div class="flex items-center max-w-full text-2xs text-secondary font-mono">
 		<BreadcrumbSegment
 			label={KIND_LABEL[kind]}
-			initialOpen={[kindKey(kind)]}
+			initialScope={undefined}
 			initialHighlight={kindKey(kind)}
 			{currentItem}
 			{disabled}
@@ -134,10 +131,7 @@
 					label={dir.name}
 					withChevron
 					extraClass={i === 0 ? 'gap-0.5 min-w-0 max-w-[40%]' : 'gap-0.5 min-w-0'}
-					initialOpen={[
-						kindKey(kind),
-						...segments.dirs.slice(0, i + 1).map((d) => dirKeyOf(kind, d.fullPath))
-					]}
+					initialScope={i === 0 ? { kind } : { kind, dir: segments.dirs[i - 1].fullPath }}
 					initialHighlight={dKey}
 					{currentItem}
 					{disabled}
@@ -145,11 +139,12 @@
 				/>
 			{/each}
 			{@const leafKey = leafKeyOf(kind, segments.leaf.fullPath)}
+			{@const leafParent = segments.dirs[segments.dirs.length - 1]?.fullPath}
 			<BreadcrumbSegment
 				label={segments.leaf.name}
 				withChevron
 				extraClass="gap-0.5 min-w-0"
-				initialOpen={[kindKey(kind), ...segments.dirs.map((d) => dirKeyOf(kind, d.fullPath))]}
+				initialScope={leafParent ? { kind, dir: leafParent } : { kind }}
 				initialHighlight={leafKey}
 				{currentItem}
 				{disabled}

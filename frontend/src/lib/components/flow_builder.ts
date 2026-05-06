@@ -6,7 +6,7 @@ import type { DiffDrawerI } from './diff_drawer'
 import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 import type { ScheduleTrigger } from './triggers'
 import type { stepState } from './stepHistoryLoader.svelte'
-import type { WorkspaceItem } from './WorkspaceItemPicker.svelte'
+import type { WorkspaceItem } from './workspacePicker'
 
 export type FlowBuilderProps = {
 	initialPath?: string

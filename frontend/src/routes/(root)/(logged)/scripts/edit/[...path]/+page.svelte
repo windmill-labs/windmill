@@ -3,7 +3,7 @@
 
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import { editPathFor } from '$lib/components/WorkspaceItemPicker.svelte'
+	import { editPathFor } from '$lib/components/workspacePicker'
 	import { decodeState, cleanValueProperties, orderedJsonStringify } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { replaceState } from '$app/navigation'

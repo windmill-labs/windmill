@@ -2,7 +2,7 @@
 	import { FlowService, type Flow, DraftService } from '$lib/gen'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
-	import { editPathFor } from '$lib/components/WorkspaceItemPicker.svelte'
+	import { editPathFor } from '$lib/components/workspacePicker'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import {
 		cleanValueProperties,

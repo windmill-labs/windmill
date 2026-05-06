@@ -5,7 +5,7 @@ import type { DiffDrawerI } from './diff_drawer'
 import type { ScriptBuilderFunctionExports } from './scriptBuilder'
 import type { ScheduleTrigger } from './triggers'
 import type { NewScriptWithDraftAndDraftTriggers, Trigger } from './triggers/utils'
-import type { WorkspaceItem } from './WorkspaceItemPicker.svelte'
+import type { WorkspaceItem } from './workspacePicker'
 
 export interface ScriptBuilderProps {
 	script: NewScript & {
