@@ -5,22 +5,13 @@ type ItemKind = 'flow' | 'script' | 'app'
 /**
  * Check whether a flow uses on_behalf_of_email.
  * Callers use this to show a warning before saving.
- *
- * Returns `undefined` if the flow doesn't exist at that path (e.g. a draft, or
- * a path the user is mid-edit). Missing-flow is a valid "no on-behalf" answer,
- * not an error — and surfacing it via the global rejection handler would toast
- * "Flow not found" while the user just opens the rename popover.
  */
 export async function checkFlowOnBehalfOf(
 	workspace: string,
 	path: string
 ): Promise<string | undefined> {
-	try {
-		const flow = await FlowService.getFlowByPath({ workspace, path })
-		return flow.on_behalf_of_email
-	} catch {
-		return undefined
-	}
+	const flow = await FlowService.getFlowByPath({ workspace, path })
+	return flow.on_behalf_of_email
 }
 
 /**
