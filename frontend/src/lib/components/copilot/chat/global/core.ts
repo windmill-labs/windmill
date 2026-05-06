@@ -20,7 +20,13 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
-import { createToolDef, type Tool, type ToolCallbacks } from '../shared'
+import {
+	createToolDef,
+	type CreatedResourceTriggerKind,
+	type Tool,
+	type ToolCallbacks,
+	type ToolDisplayAction
+} from '../shared'
 import { flowModuleSchema, flowModulesSchema } from '../flow/openFlowZod.gen'
 import { scheduleRequestSchema, triggerRequestSchemas } from '../workspaceToolsZod.gen'
 import {
@@ -859,6 +865,48 @@ async function patchFlowJson(
 	)
 }
 
+const triggerLabels: Record<TriggerKind, string> = {
+	http: 'HTTP trigger',
+	websocket: 'WebSocket trigger',
+	kafka: 'Kafka trigger',
+	nats: 'NATS trigger',
+	postgres: 'Postgres trigger',
+	mqtt: 'MQTT trigger',
+	sqs: 'SQS trigger',
+	gcp: 'GCP Pub/Sub trigger',
+	azure: 'Azure Event Grid trigger'
+}
+
+function createOpenScheduleAction(
+	path: string,
+	targetKind: 'script' | 'flow'
+): ToolDisplayAction {
+	return {
+		id: `open-deployed-schedule:${path}`,
+		type: 'open_created_resource',
+		label: 'Open schedule',
+		resource: 'schedule',
+		path,
+		targetKind
+	}
+}
+
+function createOpenTriggerAction(
+	kind: TriggerKind,
+	path: string,
+	targetKind: 'script' | 'flow'
+): ToolDisplayAction {
+	return {
+		id: `open-deployed-trigger:${kind}:${path}`,
+		type: 'open_created_resource',
+		label: `Open ${triggerLabels[kind]}`,
+		resource: 'trigger',
+		triggerKind: kind as CreatedResourceTriggerKind,
+		path,
+		targetKind
+	}
+}
+
 async function deployDraft(
 	args: {
 		type: WorkspaceItemType
@@ -886,6 +934,8 @@ async function deployDraft(
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deploying ${type} "${path}"...`
 	})
+
+	let actions: ToolDisplayAction[] | undefined
 
 	switch (type) {
 		case 'script': {
@@ -931,16 +981,20 @@ async function deployDraft(
 			} else {
 				await ScheduleService.createSchedule({ workspace, requestBody })
 			}
+			actions = [createOpenScheduleAction(path, requestBody.is_flow ? 'flow' : 'script')]
 			break
 		}
 		case 'trigger': {
 			const service = triggerServices[triggerKind!]
-			const requestBody = draft.value
+			const requestBody = draft.value as { is_flow?: boolean }
 			if (await service.exists({ workspace, path })) {
 				await service.update({ workspace, path, requestBody })
 			} else {
 				await service.create({ workspace, requestBody })
 			}
+			actions = [
+				createOpenTriggerAction(triggerKind!, path, requestBody.is_flow ? 'flow' : 'script')
+			]
 			break
 		}
 	}
@@ -949,7 +1003,8 @@ async function deployDraft(
 
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Deployed ${type} "${path}"`,
-		result: 'Deployed'
+		result: 'Deployed',
+		actions
 	})
 	return JSON.stringify(
 		{
