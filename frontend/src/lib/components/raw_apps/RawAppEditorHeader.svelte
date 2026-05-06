@@ -856,6 +856,7 @@
 		<EditorHeader
 			bind:summary
 			bind:path={newEditedPath}
+			savedPath={appPath || newPath || undefined}
 			kind="app"
 			onNavigate={(item) => goto(editPathFor(item))}
 		/>

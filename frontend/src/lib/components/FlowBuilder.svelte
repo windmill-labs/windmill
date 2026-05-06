@@ -1147,6 +1147,7 @@
 					<EditorHeader
 						bind:summary={flowStore.val.summary}
 						bind:path={$pathStore}
+						savedPath={initialPath}
 						onBehalfOfEmail={$savedOnBehalfOfEmail}
 						onNavigate={(item) => onNavigate?.(item)}
 					/>

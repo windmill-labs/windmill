@@ -21,6 +21,12 @@
 	interface Props {
 		summary?: string
 		path?: string
+		/** The item's *saved* path on the server. When set, the breadcrumb tracks
+		 * this rather than the live (possibly draft-renamed) `path`, so clicking a
+		 * breadcrumb segment opens the picker scoped to where the item actually is.
+		 * The user's in-progress rename remains visible in the pen popover.
+		 * Falls back to `path` when omitted. */
+		savedPath?: string
 		/** Kind of the item being edited; used to label the first breadcrumb segment. */
 		kind?: WorkspaceItemKind
 		onNavigate?: (item: WorkspaceItem) => void
@@ -34,6 +40,7 @@
 	let {
 		summary = $bindable(''),
 		path = $bindable(''),
+		savedPath,
 		kind = 'flow',
 		onNavigate,
 		onBehalfOfEmail,
@@ -57,7 +64,12 @@
 	}
 
 	// Path segments. e.g. "f/demo/weather_report" → scope "f/demo", slug "weather_report".
-	let displayPath = $derived(snapshotPath ?? path ?? '')
+	// Prefer `savedPath` (the item's location on the server) so the breadcrumb and
+	// the picker stay coherent during a draft rename — the renamed path may not
+	// correspond to any real items yet, which would leave the picker empty.
+	// `snapshotPath` keeps the breadcrumb frozen while the pen popover is open
+	// so the trigger doesn't drift mid-edit.
+	let displayPath = $derived(snapshotPath ?? savedPath ?? path ?? '')
 	let segments = $derived.by(() => {
 		const parts = displayPath.split('/')
 		if (parts.length < 3) return null
@@ -145,7 +157,7 @@
 				() => pickerSlugOpen,
 				(v) => (pickerSlugOpen = v),
 				[kindKey(kind), scopeKeyOf(kind, segments.scope)],
-				leafKeyOf(kind, path ?? ''),
+				leafKeyOf(kind, displayPath),
 				true,
 				'gap-0.5 min-w-0'
 			)}

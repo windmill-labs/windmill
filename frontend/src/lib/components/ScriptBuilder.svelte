@@ -1969,6 +1969,7 @@
 					<EditorHeader
 						bind:summary={script.summary}
 						bind:path={script.path}
+						savedPath={initialPath}
 						kind="script"
 						disabled={customUi?.topBar?.editableSummary == false}
 						onNavigate={(item) => onNavigate?.(item)}
