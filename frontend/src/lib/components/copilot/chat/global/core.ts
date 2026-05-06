@@ -1128,6 +1128,26 @@ function createOpenTriggerAction(
 	}
 }
 
+function createOpenResourceAction(path: string): ToolDisplayAction {
+	return {
+		id: `open-deployed-resource:${path}`,
+		type: 'open_created_resource',
+		label: 'Open resource',
+		resource: 'resource',
+		path
+	}
+}
+
+function createOpenVariableAction(path: string): ToolDisplayAction {
+	return {
+		id: `open-deployed-variable:${path}`,
+		type: 'open_created_resource',
+		label: 'Open variable',
+		resource: 'variable',
+		path
+	}
+}
+
 async function deployDraft(
 	args: {
 		type: WorkspaceItemType
@@ -1225,6 +1245,7 @@ async function deployDraft(
 			} else {
 				await ResourceService.createResource({ workspace, requestBody })
 			}
+			actions = [createOpenResourceAction(path)]
 			break
 		}
 		case 'variable': {
@@ -1234,6 +1255,7 @@ async function deployDraft(
 			} else {
 				await VariableService.createVariable({ workspace, requestBody })
 			}
+			actions = [createOpenVariableAction(path)]
 			break
 		}
 	}

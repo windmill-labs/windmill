@@ -424,9 +424,9 @@ export type CreatedResourceAction = {
 	id: string
 	type: 'open_created_resource'
 	label: string
-	resource: 'schedule' | 'trigger'
+	resource: 'schedule' | 'trigger' | 'resource' | 'variable'
 	path: string
-	targetKind: 'script' | 'flow'
+	targetKind?: 'script' | 'flow'
 	triggerKind?: CreatedResourceTriggerKind
 }
 
