@@ -14,7 +14,7 @@ use windmill_ai::{
 };
 use windmill_common::{client::AuthedClient, error::Error};
 
-// Re-export from shared module for use by other parts of the worker
+// Import shared Bedrock helpers for worker-specific orchestration.
 use windmill_ai::ai_bedrock::{
     bedrock_model_supports_prompt_caching, bedrock_stream_event_is_block_stop,
     bedrock_stream_event_to_text, bedrock_stream_event_to_tool_delta,
