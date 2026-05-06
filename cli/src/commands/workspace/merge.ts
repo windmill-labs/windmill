@@ -181,12 +181,9 @@ function triggerService(kind: TriggerDeployKind) {
  * Currently only GCP needs special handling (subscription_id wipe + base_endpoint
  * for push delivery). All kinds receive the on_behalf_of plumbing.
  *
- * `mode` and the legacy `enabled` are stripped so the merge deploy never flips
- * the target's operational state (mirrors `stripOperationalState` in the
- * frontend's `utils_deployable.ts` and the tarball export's
- * `fork_trigger_ignore_keys`). The backend's `update_trigger` preserves the
- * target's existing `mode` when both fields are absent (`is_mode_unspecified()`),
- * so stripping here is what makes that safeguard fire.
+ * Operational state (`mode`/`enabled`) is intentionally NOT stripped here —
+ * the shared `deployItem` strips on update and passes through on create via
+ * `stripOperationalStateOnUpdate`.
  */
 function preparePayload(
   kind: TriggerDeployKind,
@@ -194,9 +191,8 @@ function preparePayload(
   onBehalfOf?: string
 ): any {
   const preserve = onBehalfOf !== undefined;
-  const { mode: _mode, enabled: _enabled, ...rest } = trigger;
   const base: any = {
-    ...rest,
+    ...trigger,
     permissioned_as: onBehalfOf,
     preserve_permissioned_as: preserve,
   };

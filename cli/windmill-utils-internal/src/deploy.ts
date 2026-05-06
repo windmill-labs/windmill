@@ -171,6 +171,11 @@ export interface DeployProvider {
    * Get a trigger as it should be sent to create/update. Includes any kind-specific
    * transforms the implementor wants to apply before deploy (e.g. wiping GCP
    * subscription_id so the target workspace can create its own subscription).
+   *
+   * Operational-state handling (strip `mode`/`enabled` on update, pass through
+   * on create) is applied by `deployItem` at the dispatch layer — implementors
+   * should return the full row including `mode`/`enabled` and let the shared
+   * dispatch decide.
    */
   getTriggerForDeploy(
     kind: TriggerDeployKind,
@@ -217,6 +222,26 @@ export interface DeployProvider {
 /** Folder diff paths carry the `f/` prefix; folder API endpoints expect just the name. */
 export function folderName(path: string): string {
   return path.replace(/^f\//, "");
+}
+
+/**
+ * Strip operational state (`mode`, `enabled`) from a trigger/schedule payload
+ * when deploying as an update; pass through unchanged on create.
+ *
+ * On update the strip lets the backend preserve the target row's existing
+ * state via `is_mode_unspecified()` (triggers) or via `EditSchedule` lacking
+ * `enabled` (schedules). On create there's no target state to preserve, so
+ * the source's flag is sent through — fork-only items land with whatever
+ * state the fork creator chose, and missing flags fall back to the backend
+ * default of enabled (`BaseTriggerData::mode()` / schedule insert default).
+ */
+export function stripOperationalStateOnUpdate<T extends Record<string, any>>(
+  payload: T,
+  alreadyExists: boolean
+): T {
+  if (!alreadyExists) return payload;
+  const { mode: _mode, enabled: _enabled, ...rest } = payload;
+  return rest as T;
 }
 
 function getSubModules(flowModule: any): any[][] {
@@ -566,15 +591,15 @@ export async function deployItem(
         workspace: workspaceFrom,
         path,
       });
-      // Strip `enabled` so the merge deploy never flips the target's
-      // operational state — same invariant as triggers (whose `mode`/`enabled`
-      // are stripped at the merge UI / preserved by `is_mode_unspecified()`
-      // on the backend) and the YAML round-trip (where the tarball export
-      // strips `enabled` from fork schedules). On create the backend defaults
-      // to `enabled=false`; the user explicitly enables on the target.
-      const { enabled: _enabled, ...scheduleWithoutEnabled } = schedule;
+      // Operational-state handling — same shape as triggers below:
+      //   - Update: strip `enabled` so the target's existing state is preserved
+      //     (`EditSchedule` lacks `enabled` server-side, so this is also
+      //     enforced by the type, but stripping keeps the intent explicit).
+      //   - Create: pass `enabled` through so a fork-only schedule lands with
+      //     the state the fork creator chose.
+      const baseBody = stripOperationalStateOnUpdate(schedule, alreadyExists);
       const requestBody = {
-        ...scheduleWithoutEnabled,
+        ...baseBody,
         permissioned_as: onBehalfOf,
         preserve_permissioned_as: preserveOnBehalfOf,
       };
@@ -591,11 +616,17 @@ export async function deployItem(
         });
       }
     } else if (isTriggerKind(kind)) {
-      const requestBody = await provider.getTriggerForDeploy(kind, {
+      const triggerBody = await provider.getTriggerForDeploy(kind, {
         workspace: workspaceFrom,
         path,
         onBehalfOf,
       });
+      // Strip operational state on update; pass through on create. The
+      // implementor's `getTriggerForDeploy` is responsible only for kind-specific
+      // transforms (e.g. GCP subscription_id wipe) — the operational-state
+      // strip lives here so it stays consistent with the schedule branch and
+      // with the legacy `kind === 'trigger'` path in the frontend.
+      const requestBody = stripOperationalStateOnUpdate(triggerBody, alreadyExists);
       if (alreadyExists) {
         await provider.updateTriggerByKind(kind, {
           workspace: workspaceTo,

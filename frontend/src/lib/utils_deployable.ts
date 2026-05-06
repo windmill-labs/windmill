@@ -121,8 +121,13 @@ export async function existsTrigger(
  * changes without flipping the target's enabled/disabled state. Schedules'
  * `EditSchedule` already lacks `enabled` on the backend, but stripping keeps
  * the intent explicit and matches the YAML/CLI round-trip behavior.
+ *
+ * Used by the legacy `kind === 'trigger'` path in `utils_workspace_deploy.ts`
+ * (the cross-workspace deploy UI). The merge-UI deploy goes through the
+ * shared `deployItem` in `windmill-utils-internal`, which applies its own
+ * `stripOperationalStateOnUpdate` at the dispatch layer.
  */
-function stripOperationalState<T extends Record<string, any>>(
+export function stripOperationalState<T extends Record<string, any>>(
 	payload: T
 ): Omit<T, 'mode' | 'enabled'> {
 	const { mode: _mode, enabled: _enabled, ...rest } = payload
@@ -149,7 +154,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(sqsTrigger),
+				...sqsTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -164,7 +169,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(kafkaTrigger),
+				...kafkaTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -179,7 +184,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(mqttTrigger),
+				...mqttTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -194,7 +199,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(natsTrigger),
+				...natsTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -215,7 +220,7 @@ export async function getTriggersDeployData(
 		}
 
 		const data: GcpTriggerData = {
-			...stripOperationalState(gcpTrigger),
+			...gcpTrigger,
 			delivery_config: gcpTrigger.delivery_config ?? undefined,
 			base_endpoint:
 				gcpTrigger.delivery_type === 'push' ? `${window.location.origin}${base}` : undefined,
@@ -236,7 +241,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(postgresTrigger),
+				...postgresTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -251,7 +256,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(websocketTrigger),
+				...websocketTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -266,7 +271,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(httpTrigger),
+				...httpTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -281,7 +286,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(azureTrigger),
+				...azureTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -296,7 +301,7 @@ export async function getTriggersDeployData(
 
 		return {
 			data: {
-				...stripOperationalState(emailTrigger),
+				...emailTrigger,
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},
@@ -310,7 +315,7 @@ export async function getTriggersDeployData(
 		})
 		return {
 			data: {
-				...stripOperationalState(schedulesTrigger),
+				...schedulesTrigger,
 				// permissioned_as is only set on create, not update
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs

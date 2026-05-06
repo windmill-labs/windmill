@@ -156,18 +156,22 @@ but `tally_deployed_object_changes` still records mutations against them; the
 deploy will fail at the workspace-collision check if the user tries to
 deploy a non-workspaced row to a fork.
 
-The merge deploy never carries operational state (`mode` for triggers,
-`enabled` for schedules) across — same invariant as the YAML round-trip
-(tarball export from a fork strips both fields via
-`fork_trigger_ignore_keys` / `fork_schedule_ignore_keys`). Triggers strip
-`mode`/`enabled` in both deploy paths (`stripOperationalState` in the
-merge UI's `utils_deployable.ts`, `preparePayload` in the CLI's
-`merge.ts`); the backend's `update_trigger` then preserves the target's
-existing `mode` via `is_mode_unspecified()`. Schedules rely on
-`EditSchedule` lacking `enabled` plus the merge deploy explicitly
-stripping `enabled` from the payload before send. On create the backend
-defaults schedules to `enabled=false`; the user explicitly enables on
-the target afterwards.
+Operational state (`mode` for triggers, `enabled` for schedules) is handled
+asymmetrically between update and create:
+
+- **Update**: the merge deploy strips `mode`/`enabled` so the target's existing
+  state is preserved. Triggers rely on the backend's `is_mode_unspecified()`
+  safeguard in `update_trigger`; schedules rely on `EditSchedule` lacking the
+  `enabled` field. Both deploy paths perform the strip
+  (`stripOperationalState` in `utils_deployable.ts`, `preparePayload` in
+  `merge.ts`). This matches the YAML round-trip's `fork_trigger_ignore_keys`
+  / `fork_schedule_ignore_keys`.
+- **Create**: the source's `mode`/`enabled` is passed through. There's no
+  target row to preserve, so a fork-only trigger or schedule lands with the
+  state the fork creator chose. When the source omits the flag entirely (e.g.
+  legacy clients), the backend defaults to `enabled` for both kinds —
+  `BaseTriggerData::mode()` returns `Enabled` and the schedule insert defaults
+  to `true` to match.
 
 ## Future work — runtime listener suffix
 

@@ -22,6 +22,7 @@ import {
 	getTriggersDeployData,
 	getTriggerPermissionedAs,
 	getTriggerValue,
+	stripOperationalState,
 	type AdditionalInformation,
 	type Kind
 } from '$lib/utils_deployable'
@@ -205,6 +206,8 @@ function makeProvider(): DeployProvider {
 		getTriggerForDeploy: async (kind, p) => {
 			// Reuses the existing per-kind transform map (e.g. GCP wipes
 			// subscription_id and computes base_endpoint from window.location).
+			// Operational-state strip is applied by the shared `deployItem`
+			// after this returns.
 			const { data } = await getTriggersDeployData(
 				legacyTriggerKind(kind),
 				p.path,
@@ -283,8 +286,15 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 				onBehalfOf
 			)
 			if (alreadyExists) {
-				await updateFn({ path, workspace: workspaceTo, requestBody: data } as any)
+				// Strip operational state so the update doesn't flip the target's
+				// existing enabled/mode flag — preserved via `is_mode_unspecified()`
+				// on the backend. Mirrors the shared `stripOperationalStateOnUpdate`
+				// in the merge-deploy path.
+				const stripped = stripOperationalState(data)
+				await updateFn({ path, workspace: workspaceTo, requestBody: stripped } as any)
 			} else {
+				// Create — pass source's `mode`/`enabled` through so a new
+				// trigger lands with the state the source workspace had.
 				await createFn({ workspace: workspaceTo, requestBody: data } as any)
 			}
 			return { success: true }
