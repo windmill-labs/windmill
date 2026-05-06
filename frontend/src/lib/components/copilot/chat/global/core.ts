@@ -1,4 +1,5 @@
 import {
+	AppService,
 	AzureTriggerService,
 	FlowService,
 	GcpTriggerService,
@@ -16,13 +17,16 @@ import {
 } from '$lib/gen'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
+	AppWithLastVersion,
 	Flow,
+	ListableApp,
 	ListableResource,
 	ListableVariable,
 	Schedule,
 	Script,
 	ScriptLang
 } from '$lib/gen/types.gen'
+import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import { getFlowPrompt, getResourcePrompt, getScriptPrompt } from '$system_prompts'
 import type {
 	ChatCompletionSystemMessageParam,
@@ -47,6 +51,7 @@ import {
 	getWorkspaceItemKey,
 	globalDraftStore,
 	TRIGGER_KINDS,
+	type AppDraftValue,
 	type TriggerKind,
 	type WorkspaceItem,
 	type WorkspaceItemType
@@ -58,7 +63,8 @@ const ITEM_TYPES = [
 	'schedule',
 	'trigger',
 	'resource',
-	'variable'
+	'variable',
+	'app'
 ] as const satisfies readonly WorkspaceItemType[]
 const INSTRUCTION_SUBJECTS = [
 	'script',
@@ -230,9 +236,104 @@ const patchFlowJsonSchema = z.object({
 		)
 })
 
+// ============= App tools (raw apps) =============
+
+const backendRunnableSchema = z
+	.object({
+		name: z.string().describe('Short summary/description of what the runnable does.'),
+		type: z
+			.enum(['inline', 'script', 'flow', 'hubscript'])
+			.describe(
+				'Runnable kind: "inline" for custom code stored on the app; "script"/"flow" for a workspace runnable; "hubscript" for a hub script.'
+			),
+		staticInputs: z
+			.record(z.string(), z.any())
+			.optional()
+			.describe(
+				'Static inputs that are not overridable by the frontend caller. Useful for workspace/hub scripts to pre-fill arguments.'
+			),
+		inlineScript: z
+			.object({
+				language: z.enum(['bun', 'python3']).describe('Inline script language.'),
+				content: z.string().describe('Inline script source. Must export a main function.')
+			})
+			.optional()
+			.describe('Required when type is "inline".'),
+		path: z
+			.string()
+			.optional()
+			.describe(
+				'Required when type is "script", "flow", or "hubscript". Workspace path of the runnable.'
+			)
+	})
+	.describe(
+		'Backend runnable shape: same as in app mode. Inline runnables carry their script content; path runnables reference an existing workspace/hub item.'
+	)
+
+const readAppFileSchema = z.object({
+	path: z.string().describe('Workspace path of the app, e.g. f/folder/name.'),
+	file_path: z
+		.string()
+		.describe(
+			'Frontend file path like /index.tsx, or backend inline runnable path like backend/<key>/main.ts (or main.py).'
+		)
+})
+
+const writeAppFileSchema = z.object({
+	path: z.string().describe('Workspace path of the app.'),
+	file_path: z
+		.string()
+		.describe(
+			'Frontend file path (must start with /). Use write_app_runnable to set inline backend script content.'
+		),
+	content: z.string().describe('Full file content.')
+})
+
+const deleteAppFileSchema = z.object({
+	path: z.string().describe('Workspace path of the app.'),
+	file_path: z
+		.string()
+		.describe(
+			'Frontend file path to remove from the draft. Use delete_app_runnable for backend runnables.'
+		)
+})
+
+const patchAppFileSchema = z.object({
+	path: z.string().describe('Workspace path of the app.'),
+	file_path: z
+		.string()
+		.describe(
+			'Frontend file path like /index.tsx, or backend inline runnable path like backend/<key>/main.ts.'
+		),
+	old_string: z.string().min(1).describe('Exact text to find.'),
+	new_string: z.string().describe('Replacement text.'),
+	replace_all: z
+		.boolean()
+		.optional()
+		.default(false)
+		.describe(
+			'When true, replace every exact match. When false, old_string must match exactly once.'
+		)
+})
+
+const writeAppRunnableSchema = z.object({
+	path: z.string().describe('Workspace path of the app.'),
+	key: z
+		.string()
+		.describe(
+			'Unique key for the backend runnable (called from frontend as backend.<key>()). Becomes the file id at backend/<key>/main.{ts|py}.'
+		),
+	runnable: backendRunnableSchema
+})
+
+const deleteAppRunnableSchema = z.object({
+	path: z.string().describe('Workspace path of the app.'),
+	key: z.string().describe('Key of the backend runnable to remove.')
+})
+
 const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
 
-You can inspect workspace scripts, flows, schedules, triggers, resources, and variables, then create draft changes in the frontend AI draft store.
+You can inspect workspace scripts, flows, schedules, triggers, resources, variables, and apps, then create draft changes in the frontend AI draft store.
 
 Important rules:
 - write_{script,flow,schedule,trigger,resource,variable} create or overwrite drafts. They do not save, deploy, or mutate workspace items.
@@ -246,7 +347,9 @@ Important rules:
 - Use search_resource_types before write_resource to discover the resource_type name and the JSON Schema its value must match.
 - Use get_instructions before writing a script, flow, or resource. For scripts, pass the target language; when modifying, use the language from the item you read.
 - Schedules, triggers, and variables do not need get_instructions — their tool schemas describe every field.
-- A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, value is the OpenFlow value object. For schedules/triggers/resources/variables, value is the full request body for that type.
+- A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, value is the OpenFlow value object. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data?, policy?, custom_path? } with frontend file contents and backend runnable definitions.
+- Apps (raw apps): use list_workspace_items with types: ['app'] to find them, read_workspace_item with type 'app' for a metadata summary (file paths + runnable list, no contents), then read_app_file to read individual files. Edit with write_app_file / patch_app_file / delete_app_file for frontend files and write_app_runnable / delete_app_runnable for backend runnables. Frontend file paths start with "/" (e.g. /index.tsx). Backend inline runnables are addressed as "backend/<key>/main.{ts|py}". /wmill.d.ts is generated and cannot be written.
+- Apps cannot be deployed from chat. The app editor bundles JS/CSS before save; tell the user to open the app editor to deploy app drafts.
 - Keep context targeted. Do not read unrelated items.
 - Be explicit with the user when you create or update a draft.`
 
@@ -340,6 +443,222 @@ function variableToItem(variable: ListableVariable): WorkspaceItem {
 		summary: variable.description,
 		isDraft: false
 	}
+}
+
+// ============= App helpers =============
+
+type BackendRunnableInput = z.infer<typeof backendRunnableSchema>
+
+type PersistedRunnable = {
+	name: string
+	type: 'inline' | 'path' | 'runnableByName' | 'runnableByPath'
+	runType?: 'script' | 'flow' | 'hubscript'
+	path?: string
+	inlineScript?: { language: string; content: string }
+	fields?: Record<string, any>
+	schema?: any
+	[key: string]: any
+}
+
+function convertPersistedToBackendRunnable(
+	persisted: PersistedRunnable | undefined,
+	key: string
+): BackendRunnableInput | undefined {
+	if (!persisted) return undefined
+
+	const out: BackendRunnableInput = {
+		name: persisted.name ?? key,
+		type: 'inline'
+	}
+
+	if (persisted.type === 'inline' || persisted.type === 'runnableByName') {
+		out.type = 'inline'
+		if (persisted.inlineScript) {
+			let language = persisted.inlineScript.language
+			if (language === 'nativets' || language === 'deno') language = 'bun'
+			out.inlineScript = {
+				language: language as 'bun' | 'python3',
+				content: persisted.inlineScript.content ?? ''
+			}
+		}
+	} else if (persisted.type === 'path' || persisted.type === 'runnableByPath') {
+		if (persisted.runType === 'flow') out.type = 'flow'
+		else if (persisted.runType === 'hubscript') out.type = 'hubscript'
+		else out.type = 'script'
+		out.path = persisted.path
+	}
+
+	if (persisted.fields) {
+		const staticInputs: Record<string, any> = {}
+		for (const [k, v] of Object.entries(persisted.fields)) {
+			if (v && typeof v === 'object' && (v as any).type === 'static') {
+				staticInputs[k] = (v as any).value
+			}
+		}
+		if (Object.keys(staticInputs).length > 0) out.staticInputs = staticInputs
+	}
+
+	return out
+}
+
+function buildPersistedRunnable(
+	input: BackendRunnableInput,
+	existing: PersistedRunnable | undefined
+): PersistedRunnable {
+	const fields = input.staticInputs
+		? Object.fromEntries(
+				Object.entries(input.staticInputs).map(([k, v]) => [
+					k,
+					{ type: 'static', value: v, fieldType: 'object' }
+				])
+			)
+		: existing?.fields ?? {}
+
+	if (input.type === 'inline') {
+		if (!input.inlineScript) {
+			throw new Error('inlineScript is required when runnable type is "inline".')
+		}
+		return {
+			...(existing ?? {}),
+			name: input.name,
+			type: 'inline',
+			inlineScript: {
+				content: input.inlineScript.content,
+				language: input.inlineScript.language
+			},
+			fields
+		}
+	}
+
+	if (!input.path) {
+		throw new Error('path is required when runnable type is "script", "flow", or "hubscript".')
+	}
+	return {
+		...(existing ?? {}),
+		name: input.name,
+		type: 'path',
+		runType: input.type,
+		path: input.path,
+		fields,
+		schema: existing?.schema ?? {}
+	}
+}
+
+type AppFrontendFileMetadata = {
+	path: string
+	size: number
+}
+
+type AppBackendRunnableMetadata = {
+	key: string
+	name: string
+	type: BackendRunnableInput['type']
+	path?: string
+	language?: 'bun' | 'python3'
+	contentSize?: number
+	staticInputKeys?: string[]
+}
+
+type AppMetadata = {
+	frontend: AppFrontendFileMetadata[]
+	backend: AppBackendRunnableMetadata[]
+	data?: any
+}
+
+function summarizeAppValue(value: AppDraftValue): AppMetadata {
+	const frontend: AppFrontendFileMetadata[] = Object.entries(value.files).map(([path, content]) => ({
+		path,
+		size: typeof content === 'string' ? content.length : 0
+	}))
+	const backend: AppBackendRunnableMetadata[] = Object.entries(value.runnables).map(
+		([key, runnable]) => {
+			const converted = convertPersistedToBackendRunnable(runnable as PersistedRunnable, key)
+			const staticInputKeys = converted?.staticInputs
+				? Object.keys(converted.staticInputs)
+				: undefined
+			return {
+				key,
+				name: converted?.name ?? key,
+				type: converted?.type ?? 'inline',
+				...(converted?.path && { path: converted.path }),
+				...(converted?.inlineScript && {
+					language: converted.inlineScript.language,
+					contentSize: converted.inlineScript.content.length
+				}),
+				...(staticInputKeys && staticInputKeys.length > 0 && { staticInputKeys })
+			}
+		}
+	)
+	return {
+		frontend,
+		backend,
+		...(value.data && { data: value.data })
+	}
+}
+
+function appToItem(app: ListableApp | AppWithLastVersion, includeValue: boolean): WorkspaceItem {
+	return {
+		type: 'app',
+		path: app.path,
+		summary: app.summary,
+		value: includeValue ? ((app as AppWithLastVersion).value as AppDraftValue) : undefined,
+		isDraft: false
+	}
+}
+
+const GENERATED_APP_FILE_PATHS = new Set(['/wmill.d.ts'])
+
+type AppFileTarget =
+	| { kind: 'frontend'; filePath: string }
+	| { kind: 'backend'; filePath: string; key: string; extension: 'ts' | 'py' }
+
+function resolveAppFileTarget(rawPath: string): AppFileTarget {
+	const trimmed = rawPath.trim()
+	const backendMatch = trimmed.match(/^backend\/([^/]+)\/main\.(ts|py)$/)
+	if (backendMatch) {
+		return {
+			kind: 'backend',
+			filePath: trimmed,
+			key: backendMatch[1],
+			extension: backendMatch[2] as 'ts' | 'py'
+		}
+	}
+	return {
+		kind: 'frontend',
+		filePath: trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+	}
+}
+
+function getInlineScriptExtension(runnable: PersistedRunnable | undefined): 'ts' | 'py' {
+	return runnable?.inlineScript?.language === 'python3' ? 'py' : 'ts'
+}
+
+async function loadAppDraftValue(path: string, workspace: string): Promise<AppDraftValue> {
+	const draft = globalDraftStore.getDraft('app', path)
+	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
+		return draft.value as AppDraftValue
+	}
+
+	const app = await AppService.getAppByPath({ workspace, path })
+	const value = (app.value ?? {}) as Partial<AppDraftValue>
+	return {
+		summary: app.summary,
+		files: { ...(value.files ?? {}) },
+		runnables: { ...(value.runnables ?? {}) },
+		data: value.data,
+		policy: app.policy as any,
+		custom_path: app.custom_path
+	}
+}
+
+function saveAppDraft(path: string, value: AppDraftValue): WorkspaceItem {
+	return globalDraftStore.setDraft({
+		type: 'app',
+		path,
+		summary: value.summary,
+		value,
+		isDraft: true
+	})
 }
 
 type TriggerLike = { path: string; summary?: string | null }
@@ -467,6 +786,8 @@ async function workspaceItemExists(
 			return ResourceService.existsResource({ workspace, path })
 		case 'variable':
 			return VariableService.existsVariable({ workspace, path })
+		case 'app':
+			return AppService.existsApp({ workspace, path })
 	}
 }
 
@@ -503,6 +824,24 @@ async function readWorkspaceItem(
 			return variableToItem(
 				await VariableService.getVariable({ workspace, path, decryptSecret: false })
 			)
+		case 'app': {
+			// Returns lightweight metadata only — file/runnable contents come via read_app_file.
+			const app = await AppService.getAppByPath({ workspace, path })
+			const value = (app.value ?? {}) as Partial<AppDraftValue>
+			const metadata = summarizeAppValue({
+				summary: app.summary,
+				files: value.files ?? {},
+				runnables: value.runnables ?? {},
+				data: value.data
+			})
+			return {
+				type: 'app',
+				path: app.path,
+				summary: app.summary,
+				value: metadata as unknown as AppDraftValue,
+				isDraft: false
+			}
+		}
 	}
 }
 
@@ -572,6 +911,15 @@ async function listWorkspaceItems(
 			perPage
 		})
 		for (const variable of variables) items.push(variableToItem(variable))
+	}
+
+	if (types.includes('app')) {
+		const apps = await AppService.listApps({
+			workspace,
+			pathStart: pathPrefix,
+			perPage
+		})
+		for (const app of apps) items.push(appToItem(app, false))
 	}
 
 	return items
@@ -662,7 +1010,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			listWorkspaceItemsSchema,
 			'list_workspace_items',
-			'List workspace items (scripts, flows, schedules, triggers) and AI drafts. Returns metadata only (no value). Defaults to scripts and flows.'
+			'List workspace items (scripts, flows, schedules, triggers, resources, variables, apps) and AI drafts. Returns metadata only (no value). Defaults to scripts and flows.'
 		),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
@@ -965,6 +1313,82 @@ export const globalTools: Tool<{}>[] = [
 				2
 			)
 		}
+	},
+	{
+		def: createToolDef(
+			readAppFileSchema,
+			'read_app_file',
+			'Read one frontend file or inline backend runnable script from a raw app. Use file_path "/foo.tsx" for frontend files and "backend/<key>/main.{ts|py}" for inline runnables. Prefers the AI draft when one exists.'
+		),
+		fn: async (ctx) => {
+			const parsed = readAppFileSchema.parse(ctx.args)
+			return readAppFile(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
+			writeAppFileSchema,
+			'write_app_file',
+			'Create or overwrite a frontend file in an app draft. Saves to the AI draft only — does not deploy. First write snapshots the workspace app onto the draft.'
+		),
+		showDetails: true,
+		streamArguments: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = writeAppFileSchema.parse(ctx.args)
+			return writeAppFile(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
+			deleteAppFileSchema,
+			'delete_app_file',
+			'Remove a frontend file from an app draft. Saves to the AI draft only — does not deploy.'
+		),
+		fn: async (ctx) => {
+			const parsed = deleteAppFileSchema.parse(ctx.args)
+			return deleteAppFile(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
+			patchAppFileSchema,
+			'patch_app_file',
+			'Find/replace exact text in a frontend file or inline backend runnable script. Saves the result to the AI draft.'
+		),
+		showDetails: true,
+		streamArguments: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = patchAppFileSchema.parse(ctx.args)
+			return patchAppFile(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
+			writeAppRunnableSchema,
+			'write_app_runnable',
+			'Create or overwrite a backend runnable in an app draft. Saves to the AI draft only — does not deploy. Re-derives the app policy after the change.',
+			{ strict: false }
+		),
+		showDetails: true,
+		streamArguments: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = writeAppRunnableSchema.parse(ctx.args)
+			return writeAppRunnable(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
+			deleteAppRunnableSchema,
+			'delete_app_runnable',
+			'Remove a backend runnable from an app draft. Saves to the AI draft only — does not deploy. Re-derives the app policy after the change.'
+		),
+		fn: async (ctx) => {
+			const parsed = deleteAppRunnableSchema.parse(ctx.args)
+			return deleteAppRunnable(parsed, ctx)
+		}
 	}
 ]
 
@@ -1086,6 +1510,291 @@ async function patchFlowJson(
 	)
 }
 
+async function readAppFile(
+	args: { path: string; file_path: string },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const target = resolveAppFileTarget(args.file_path)
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Reading ${target.filePath} from app "${args.path}"...`
+	})
+
+	const value = await loadAppDraftValue(args.path, workspace)
+
+	if (target.kind === 'frontend') {
+		const content = value.files[target.filePath]
+		if (content === undefined) {
+			throw new Error(`Frontend file "${target.filePath}" not found in app "${args.path}".`)
+		}
+		toolCallbacks.setToolStatus(toolId, { content: `Read ${target.filePath}` })
+		return content
+	}
+
+	const runnable = value.runnables[target.key] as PersistedRunnable | undefined
+	if (!runnable) {
+		throw new Error(`Backend runnable "${target.key}" not found in app "${args.path}".`)
+	}
+	if (runnable.type !== 'inline' && runnable.type !== 'runnableByName') {
+		throw new Error(
+			`Runnable "${target.key}" is not inline. Use read_workspace_item on the referenced ${runnable.runType ?? 'item'} instead.`
+		)
+	}
+	const expected = getInlineScriptExtension(runnable)
+	if (target.extension !== expected) {
+		throw new Error(
+			`Runnable "${target.key}" language is ${expected}. Use backend/${target.key}/main.${expected}.`
+		)
+	}
+	const content = runnable.inlineScript?.content ?? ''
+	toolCallbacks.setToolStatus(toolId, { content: `Read ${target.filePath}` })
+	return content
+}
+
+async function writeAppFile(
+	args: { path: string; file_path: string; content: string },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const target = resolveAppFileTarget(args.file_path)
+	if (target.kind !== 'frontend') {
+		throw new Error(
+			`write_app_file only writes frontend files. Use write_app_runnable to set inline backend script content.`
+		)
+	}
+	if (GENERATED_APP_FILE_PATHS.has(target.filePath)) {
+		throw new Error(`"${target.filePath}" is generated automatically. Edit backend runnables instead.`)
+	}
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Writing ${target.filePath} to app "${args.path}"...`
+	})
+
+	const value = await loadAppDraftValue(args.path, workspace)
+	value.files = { ...value.files, [target.filePath]: args.content }
+	const stored = saveAppDraft(args.path, value)
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Updated ${target.filePath} in app "${args.path}"`,
+		result: 'Draft updated'
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message: `Updated AI draft app "${args.path}" with frontend file "${target.filePath}".`,
+			item: stored
+		},
+		null,
+		2
+	)
+}
+
+async function deleteAppFile(
+	args: { path: string; file_path: string },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const target = resolveAppFileTarget(args.file_path)
+	if (target.kind !== 'frontend') {
+		throw new Error(
+			`delete_app_file only deletes frontend files. Use delete_app_runnable for backend runnables.`
+		)
+	}
+	if (GENERATED_APP_FILE_PATHS.has(target.filePath)) {
+		throw new Error(`"${target.filePath}" is generated automatically and cannot be deleted.`)
+	}
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Deleting ${target.filePath} from app "${args.path}"...`
+	})
+
+	const value = await loadAppDraftValue(args.path, workspace)
+	if (!(target.filePath in value.files)) {
+		throw new Error(`Frontend file "${target.filePath}" not found in app "${args.path}".`)
+	}
+	const { [target.filePath]: _removed, ...remaining } = value.files
+	value.files = remaining
+	const stored = saveAppDraft(args.path, value)
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Removed ${target.filePath} from app "${args.path}"`,
+		result: 'Draft updated'
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message: `Removed "${target.filePath}" from AI draft app "${args.path}".`,
+			item: stored
+		},
+		null,
+		2
+	)
+}
+
+async function patchAppFile(
+	args: {
+		path: string
+		file_path: string
+		old_string: string
+		new_string: string
+		replace_all: boolean
+	},
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const { path, file_path: filePath, old_string: oldString, new_string: newString, replace_all: replaceAll } = args
+	const target = resolveAppFileTarget(filePath)
+	if (target.kind === 'frontend' && GENERATED_APP_FILE_PATHS.has(target.filePath)) {
+		throw new Error(`"${target.filePath}" is generated automatically. Edit backend runnables instead.`)
+	}
+
+	toolCallbacks.setToolStatus(toolId, { content: `Patching ${target.filePath} in app "${path}"...` })
+
+	const value = await loadAppDraftValue(path, workspace)
+	let currentContent: string
+	let runnable: PersistedRunnable | undefined
+
+	if (target.kind === 'frontend') {
+		const existing = value.files[target.filePath]
+		if (existing === undefined) {
+			throw new Error(`Frontend file "${target.filePath}" not found in app "${path}".`)
+		}
+		currentContent = existing
+	} else {
+		runnable = value.runnables[target.key] as PersistedRunnable | undefined
+		if (!runnable) {
+			throw new Error(`Backend runnable "${target.key}" not found in app "${path}".`)
+		}
+		if (runnable.type !== 'inline' && runnable.type !== 'runnableByName') {
+			throw new Error(
+				`Runnable "${target.key}" is not inline; only inline runnables can be patched as files.`
+			)
+		}
+		const expected = getInlineScriptExtension(runnable)
+		if (target.extension !== expected) {
+			throw new Error(
+				`Runnable "${target.key}" language is ${expected}. Use backend/${target.key}/main.${expected}.`
+			)
+		}
+		currentContent = runnable.inlineScript?.content ?? ''
+	}
+
+	const matchCount = countExactMatches(currentContent, oldString)
+	if (matchCount === 0) {
+		throw new Error('old_string was not found in the current file content.')
+	}
+	if (!replaceAll && matchCount !== 1) {
+		throw new Error(
+			`old_string matched ${matchCount} locations. Make it more specific or set replace_all to true.`
+		)
+	}
+
+	const updated = applyExactReplace(currentContent, oldString, newString, replaceAll)
+
+	if (target.kind === 'frontend') {
+		value.files = { ...value.files, [target.filePath]: updated }
+	} else {
+		value.runnables = {
+			...value.runnables,
+			[target.key]: {
+				...runnable!,
+				inlineScript: {
+					language: runnable!.inlineScript?.language ?? (target.extension === 'py' ? 'python3' : 'bun'),
+					content: updated
+				}
+			}
+		}
+	}
+
+	const stored = saveAppDraft(path, value)
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Patched ${target.filePath} in app "${path}"`,
+		result: 'Draft updated'
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message: `Patched "${target.filePath}" in AI draft app "${path}".`,
+			item: stored
+		},
+		null,
+		2
+	)
+}
+
+async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
+	value.policy = (await updateRawAppPolicy(
+		value.runnables as any,
+		value.policy as any
+	)) as any
+}
+
+async function writeAppRunnable(
+	args: { path: string; key: string; runnable: BackendRunnableInput },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const { path, key, runnable: input } = args
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Writing runnable "${key}" to app "${path}"...`
+	})
+
+	const value = await loadAppDraftValue(path, workspace)
+	const existing = value.runnables[key] as PersistedRunnable | undefined
+	const persisted = buildPersistedRunnable(input, existing)
+	value.runnables = { ...value.runnables, [key]: persisted }
+	await recomputeAppPolicy(value)
+	const stored = saveAppDraft(path, value)
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Updated runnable "${key}" in app "${path}"`,
+		result: 'Draft updated'
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message: `Updated AI draft app "${path}" with runnable "${key}".`,
+			item: stored
+		},
+		null,
+		2
+	)
+}
+
+async function deleteAppRunnable(
+	args: { path: string; key: string },
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const { path, key } = args
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Removing runnable "${key}" from app "${path}"...`
+	})
+
+	const value = await loadAppDraftValue(path, workspace)
+	if (!(key in value.runnables)) {
+		throw new Error(`Backend runnable "${key}" not found in app "${path}".`)
+	}
+	const { [key]: _removed, ...remaining } = value.runnables
+	value.runnables = remaining
+	await recomputeAppPolicy(value)
+	const stored = saveAppDraft(path, value)
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Removed runnable "${key}" from app "${path}"`,
+		result: 'Draft updated'
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message: `Removed runnable "${key}" from AI draft app "${path}".`,
+			item: stored
+		},
+		null,
+		2
+	)
+}
+
 const triggerLabels: Record<TriggerKind, string> = {
 	http: 'HTTP trigger',
 	websocket: 'WebSocket trigger',
@@ -1159,6 +1868,12 @@ async function deployDraft(
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
 	const { type, path, trigger_kind: triggerKind, deployment_message: deploymentMessage } = args
+
+	if (type === 'app') {
+		throw new Error(
+			'Apps cannot be deployed from chat. Open the app editor to deploy (the editor bundles JS/CSS before save).'
+		)
+	}
 
 	if (type === 'trigger' && !triggerKind) {
 		throw new Error('trigger_kind is required when deploying a trigger.')
@@ -1313,6 +2028,9 @@ async function deleteWorkspaceItem(
 			break
 		case 'variable':
 			await VariableService.deleteVariable({ workspace, path })
+			break
+		case 'app':
+			await AppService.deleteApp({ workspace, path })
 			break
 	}
 

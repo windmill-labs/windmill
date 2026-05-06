@@ -12,6 +12,7 @@ import type {
 	NewSchedule,
 	NewSqsTrigger,
 	NewWebsocketTrigger,
+	Policy,
 	ScriptLang
 } from '$lib/gen/types.gen'
 
@@ -40,7 +41,23 @@ export type TriggerRequestBody =
 	| GcpTriggerData
 	| AzureTriggerData
 
-export type WorkspaceItemType = 'script' | 'flow' | 'schedule' | 'trigger' | 'resource' | 'variable'
+export type WorkspaceItemType =
+	| 'script'
+	| 'flow'
+	| 'schedule'
+	| 'trigger'
+	| 'resource'
+	| 'variable'
+	| 'app'
+
+export type AppDraftValue = {
+	summary?: string
+	files: Record<string, string>
+	runnables: Record<string, any>
+	data?: any
+	policy?: Policy
+	custom_path?: string
+}
 
 export type WorkspaceItem = {
 	type: WorkspaceItemType
@@ -55,6 +72,7 @@ export type WorkspaceItem = {
 		| TriggerRequestBody
 		| CreateResource
 		| CreateVariable
+		| AppDraftValue
 	isDraft: boolean
 }
 
@@ -125,6 +143,10 @@ class GlobalDraftStore {
 
 	getVariableDraft(path: string): WorkspaceItem | undefined {
 		return this.getDraft('variable', path)
+	}
+
+	getAppDraft(path: string): WorkspaceItem | undefined {
+		return this.getDraft('app', path)
 	}
 }
 
