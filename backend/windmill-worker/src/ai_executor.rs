@@ -1,12 +1,10 @@
-#[cfg(feature = "bedrock")]
-use crate::ai::providers::bedrock::check_env_credentials;
 use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
     filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
     get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, load_mcp_tools,
-    parse_raw_script_schema, should_use_structured_output_tool,
-    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
+    parse_raw_script_schema, update_flow_status_module_with_actions,
+    update_flow_status_module_with_actions_success,
 };
 use crate::memory_oss::{read_from_memory, write_to_memory};
 use crate::worker_flow::{get_previous_job_result, get_transform_context};
@@ -15,12 +13,19 @@ use regex::Regex;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
+#[cfg(feature = "bedrock")]
+use windmill_ai::ai_bedrock::check_env_credentials;
 #[cfg(feature = "mcp")]
 use windmill_mcp::McpClient;
 
 #[cfg(not(feature = "mcp"))]
 use crate::ai::tools::McpClientStub as McpClient;
-use windmill_ai::{ai_providers::AIProvider, utils::AI_HTTP_HEADERS};
+use windmill_ai::{
+    ai_providers::AIProvider,
+    query_builder::{BuildRequestArgs, ParsedResponse},
+    types::*,
+    utils::{should_use_structured_output_tool, AI_HTTP_HEADERS},
+};
 use windmill_common::{
     cache,
     client::AuthedClient,
@@ -40,10 +45,7 @@ use windmill_queue::{cancel_single_job, CanceledBy, MiniPulledJob};
 use crate::{
     ai::{
         image_handler::upload_image_to_s3,
-        query_builder::{
-            create_query_builder, BuildRequestArgs, ParsedResponse, StreamEventProcessor,
-        },
-        types::*,
+        query_builder::{create_query_builder, StreamEventProcessor},
     },
     common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
     handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
@@ -764,7 +766,7 @@ pub async fn run_agent(
 
     let mut actions = vec![];
     let mut content = None;
-    let mut final_usage: Option<crate::ai::types::TokenUsage> = None;
+    let mut final_usage: Option<TokenUsage> = None;
 
     // Check if this provider supports tools with the current output type
     let supports_tools = query_builder.supports_tools_with_output_type(output_type);

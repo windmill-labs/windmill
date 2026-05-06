@@ -6,14 +6,12 @@
 //! - Stream event parsing
 //! - Helper utilities
 
-use crate::ai::{
-    image_handler::prepare_messages_for_api,
-    query_builder::{ParsedResponse, StreamEventSink},
-    types::StreamingEvent,
-    types::TokenUsage,
-    types::{OpenAIMessage, ToolDef},
-};
+use crate::ai::image_handler::prepare_messages_for_api;
 use std::collections::HashMap;
+use windmill_ai::{
+    query_builder::{ParsedResponse, StreamEventSink},
+    types::{OpenAIMessage, StreamingEvent, TokenUsage, ToolDef},
+};
 use windmill_common::{client::AuthedClient, error::Error};
 
 // Re-export from shared module for use by other parts of the worker
@@ -22,9 +20,8 @@ use windmill_ai::ai_bedrock::{
     bedrock_stream_event_to_text, bedrock_stream_event_to_tool_delta,
     bedrock_stream_event_to_tool_start, build_tool_config, create_inference_config,
     format_bedrock_error, openai_messages_to_bedrock, streaming_tool_calls_to_openai,
-    StreamingToolCall,
+    BedrockClient, StreamingToolCall,
 };
-pub use windmill_ai::ai_bedrock::{check_env_credentials, BedrockClient};
 
 // ============================================================================
 // Query Builder (Worker-specific orchestration)

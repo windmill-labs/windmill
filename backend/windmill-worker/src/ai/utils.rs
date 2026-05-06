@@ -1,7 +1,3 @@
-pub use crate::ai::types::McpToolSource;
-pub use windmill_ai::utils::{extract_text_content, should_use_structured_output_tool};
-
-use crate::ai::types::ToolDef;
 use anyhow::Context;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
@@ -10,6 +6,7 @@ use std::{
     sync::Arc,
 };
 use uuid::Uuid;
+use windmill_ai::types::*;
 use windmill_common::flows::FlowModuleValue;
 use windmill_common::{
     db::DB,
@@ -25,7 +22,7 @@ use windmill_common::{
 use windmill_mcp::{McpClient, McpResource, McpTool};
 use windmill_queue::{flow_status::get_step_of_flow_status, MiniPulledJob};
 
-use crate::{ai::types::*, parse_sig_of_lang};
+use crate::parse_sig_of_lang;
 
 pub fn parse_raw_script_schema(
     content: &str,

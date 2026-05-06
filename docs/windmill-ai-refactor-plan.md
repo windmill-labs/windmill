@@ -31,8 +31,10 @@ Do not jump directly from the current state to provider moves, proxy unification
 
 Pull the shared plumbing forward before moving provider implementations:
 - Move tiny shared utilities first, including `AI_HTTP_HEADERS`, `extract_text_content`, and `should_use_structured_output_tool`.
-- Move SSE parsers next, using the existing `StreamEventSink` abstraction and keeping worker-side re-exports.
+- Move SSE parsers next, using the existing `StreamEventSink` abstraction, and update callers to import from `windmill_ai` directly.
 - Leave provider implementations, image upload/download handling, API proxy changes, and credential unification out of that PR.
+
+Avoid adding modules whose only purpose is to re-export moved code. Direct imports from `windmill_ai` make ownership and dependency direction clearer at each call site.
 
 Also do not make `build_proxy_request(raw_body, path)` too narrow. The proxy path needs method, incoming headers, resolved credentials, base URL/platform, organization/user fields, custom headers, and Bedrock/Azure/Vertex-specific context. Introduce a structured `ProxyBuildArgs`/`ProviderCredentials` shape before deleting `AIRequestConfig::prepare_request`, `google.rs`, or `bedrock.rs`.
 
@@ -47,8 +49,8 @@ Scope:
 - Move the duplicated `AI_HTTP_HEADERS` parsing into `windmill_ai::utils` with identical parsing behavior.
 - Move `extract_text_content` and `should_use_structured_output_tool` from `windmill-worker/src/ai/utils.rs` to `windmill_ai::utils`.
 - Move `windmill-worker/src/ai/sse.rs` to `windmill-ai/src/sse.rs`.
-- Keep `windmill-worker/src/ai/sse.rs` as a compatibility re-export: `pub use windmill_ai::sse::*;`.
-- Update provider imports only as needed for compilation. Prefer importing through the worker re-export in the first commit, then optionally switch direct imports to `windmill_ai::sse` in a second small commit.
+- Delete `windmill-worker/src/ai/sse.rs` and update callers to import parser types from `windmill_ai::sse`.
+- Update callers of moved utility functions to import from `windmill_ai::utils` directly.
 - Add the minimal new `windmill-ai` dependencies required by `sse.rs` (`eventsource-stream`, `tokio-stream`) and avoid adding worker/queue dependencies.
 
 Out of scope:
@@ -64,7 +66,7 @@ Implementation checklist:
 2. Move `AI_HTTP_HEADERS` exactly once, then update `windmill-api/src/ai.rs` and `windmill-worker/src/ai_executor.rs` to import it.
 3. Move the two provider-independent helper functions into `windmill_ai::utils`; leave worker-specific flow/MCP/conversation utilities in `windmill-worker/src/ai/utils.rs`.
 4. Move `sse.rs` into `windmill-ai`, change imports from `crate::ai::{query_builder, types}` to `crate::{query_builder, types}`, and keep behavior unchanged.
-5. Replace worker `ai/sse.rs` with a re-export so existing provider imports keep working.
+5. Remove worker `ai/sse.rs` and update provider imports to use `windmill_ai::sse` directly.
 6. Run focused grep checks for duplicate `AI_HTTP_HEADERS`, old local helper definitions, and accidental `windmill_queue`/worker dependencies from `windmill-ai`.
 7. Validate with `cargo check -p windmill-ai`, `cargo check -p windmill-worker`, and `cargo check -p windmill-api`. For `bedrock` builds, also check the existing bedrock feature path.
 
