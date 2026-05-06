@@ -16,6 +16,20 @@ import type {
 	ScriptLang
 } from '$lib/gen/types.gen'
 
+/**
+ * Flow draft value. Mirrors what the backend's create/update flow API expects
+ * — the OpenFlow value, plus the inputs schema and (optional) groups.
+ *
+ * Schema and groups are split out from FlowValue intentionally so that
+ * deploy_workspace_item can preserve them through the draft → workspace
+ * round-trip; an earlier version dropped them on every deploy.
+ */
+export type FlowDraftValue = {
+	value: FlowValue
+	schema?: Record<string, any> | null
+	groups?: NonNullable<FlowValue['groups']> | null
+}
+
 export const TRIGGER_KINDS = [
 	'http',
 	'websocket',
@@ -67,7 +81,7 @@ export type WorkspaceItem = {
 	triggerKind?: TriggerKind
 	value?:
 		| string
-		| FlowValue
+		| FlowDraftValue
 		| NewSchedule
 		| TriggerRequestBody
 		| CreateResource

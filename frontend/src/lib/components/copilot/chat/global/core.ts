@@ -19,6 +19,7 @@ import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
 	AppWithLastVersion,
 	Flow,
+	FlowValue,
 	ListableApp,
 	ListableResource,
 	ListableVariable,
@@ -65,6 +66,7 @@ import {
 	globalDraftStore,
 	TRIGGER_KINDS,
 	type AppDraftValue,
+	type FlowDraftValue,
 	type TriggerKind,
 	type WorkspaceItem,
 	type WorkspaceItemType
@@ -402,7 +404,7 @@ Important rules:
 - Use search_resource_types before write_resource to discover the resource_type name and the JSON Schema its value must match.
 - Use get_instructions before writing a script, flow, resource, or app. For scripts, pass the target language; when modifying, use the language from the item you read.
 - Schedules, triggers, and variables do not need get_instructions — their tool schemas describe every field.
-- A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, value is the OpenFlow value object. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data?, policy?, custom_path? } with frontend file contents and backend runnable definitions.
+- A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, value is { value: <OpenFlow value>, schema, groups } so the inputs schema and groups round-trip through deploy. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data?, policy?, custom_path? } with frontend file contents and backend runnable definitions.
 - Apps (raw apps): use list_workspace_items with types: ['app'] to find them, read_workspace_item with type 'app' for a metadata summary (file paths + runnable list, no contents), then read_app_file to read individual files. Edit with write_app_file / patch_app_file / delete_app_file for frontend files and write_app_runnable / delete_app_runnable for backend runnables. Frontend file paths start with "/" (e.g. /index.tsx). Backend inline runnables are addressed as "backend/<key>/main.{ts|py}". /wmill.d.ts is generated and cannot be written.
 - To create a new raw app, use init_app. Before calling it, confirm framework (react19 / react18 / svelte5 / vue), path, and summary with the user — do not silently default to react19, even though it is the recommended choice.
 - Apps cannot be deployed from chat. The app editor bundles JS/CSS before save; tell the user to open the app editor to deploy app drafts.
@@ -443,7 +445,9 @@ function flowToItem(flow: Flow, includeValue: boolean): WorkspaceItem {
 		type: 'flow',
 		path: flow.path,
 		summary: flow.summary,
-		value: includeValue ? flow.value : undefined,
+		value: includeValue
+			? { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null }
+			: undefined,
 		isDraft: false
 	}
 }
@@ -980,7 +984,7 @@ function getFlowInstructions(): string {
 	return `# Global draft flow instructions
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
-- A flow draft is a workspace item: \`{ type: 'flow', path, summary?, value, isDraft }\` where \`value\` is the OpenFlow value object.
+- A flow draft is a workspace item: \`{ type: 'flow', path, summary?, value, isDraft }\` where \`value\` is \`{ value: <OpenFlow value object>, schema, groups }\`. The inputs schema and groups are kept alongside the OpenFlow value so deploy round-trips them.
 - \`value.modules\` contains normal sequential modules. Use top-level \`value.preprocessor_module\` and \`value.failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`value.modules\`.
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 - Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
@@ -1192,7 +1196,7 @@ export const globalTools: Tool<{}>[] = [
 					type: 'flow',
 					path: parsed.path,
 					summary: parsed.summary,
-					value: validated.data,
+					value: { value: validated.data as FlowValue, schema: null, groups: null },
 					isDraft: true
 				},
 				ctx
@@ -1530,19 +1534,22 @@ async function editScript(
 	)
 }
 
-async function loadFlowValueForEdit(
+async function loadFlowDraftValue(
 	path: string,
 	workspace: string
-): Promise<{ value: unknown; summary?: string }> {
+): Promise<{ flow: FlowDraftValue; summary?: string }> {
 	const draft = globalDraftStore.getDraft('flow', path)
 	if (draft) {
-		if (draft.value === undefined) {
+		if (draft.value === undefined || typeof draft.value === 'string') {
 			throw new Error(`Draft flow "${path}" has no value.`)
 		}
-		return { value: draft.value, summary: draft.summary }
+		return { flow: draft.value as FlowDraftValue, summary: draft.summary }
 	}
 	const flow = await FlowService.getFlowByPath({ workspace, path })
-	return { value: flow.value, summary: flow.summary }
+	return {
+		flow: { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null },
+		summary: flow.summary
+	}
 }
 
 async function patchFlowJson(
@@ -1552,8 +1559,8 @@ async function patchFlowJson(
 	const { path, old_string: oldString, new_string: newString, replace_all: replaceAll } = args
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: `Patching flow "${path}"...` })
 
-	const base = await loadFlowValueForEdit(path, ctx.workspace)
-	const currentJson = JSON.stringify(base.value)
+	const base = await loadFlowDraftValue(path, ctx.workspace)
+	const currentJson = JSON.stringify(base.flow.value)
 	const matchCount = countExactMatches(currentJson, oldString)
 	if (matchCount === 0) {
 		throw new Error('old_string was not found in the flow value JSON.')
@@ -1588,7 +1595,7 @@ async function patchFlowJson(
 			type: 'flow',
 			path,
 			summary: base.summary,
-			value: validated.data,
+			value: { ...base.flow, value: validated.data as FlowValue },
 			isDraft: true
 		},
 		ctx
@@ -2058,12 +2065,12 @@ async function deployDraft(
 			break
 		}
 		case 'flow': {
-			const value = draft.value as Flow['value']
+			const flowDraft = draft.value as FlowDraftValue
 			const requestBody = {
 				path,
 				summary: draft.summary ?? '',
-				value,
-				schema: {},
+				value: flowDraft.value,
+				schema: flowDraft.schema ?? {},
 				deployment_message: deploymentMessage
 			}
 			if (await FlowService.existsFlowByPath({ workspace, path })) {
