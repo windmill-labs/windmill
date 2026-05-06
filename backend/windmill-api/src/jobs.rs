@@ -3852,23 +3852,73 @@ fn batch_rerun_jobs_inner(
     tokio::spawn(async move {
         let mut job_stream = sqlx::query_as!(
                 BatchReRunQueryReturnType,
-                r#"SELECT
-                        j.id,
-                        j.kind AS "kind: _",
-                        COALESCE(s.path, f.path) AS "script_path!",
-                        COALESCE(s.hash, f.id) AS "script_hash!: _",
+                r#"WITH norm AS (
+                        SELECT
+                            j.id, j.workspace_id, j.runnable_path, j.runnable_id, j.kind, j.args,
+                            -- Project effective kind for dispatch: pass script/flow through;
+                            -- for singlestepflow, read the wrapped runnable's type from
+                            -- raw_flow.modules[id='a'].value.type (always 'script' or 'flow').
+                            CASE
+                                WHEN j.kind IN ('script', 'flow') THEN j.kind::text
+                                WHEN j.kind = 'singlestepflow' THEN
+                                    COALESCE(
+                                        (SELECT m->'value'->>'type'
+                                            FROM jsonb_array_elements(j.raw_flow->'modules') m
+                                            WHERE m->>'id' = 'a'
+                                            LIMIT 1),
+                                        'script'
+                                    )
+                            END AS norm_kind,
+                            -- Pinned script hash for script-wrapped singlestepflow lives in
+                            -- raw_flow.modules[id='a'].value.hash. Flow-wrapped doesn't pin a
+                            -- version, so this is NULL there (Flow rerun pushes by path).
+                            (CASE WHEN j.kind = 'singlestepflow' THEN
+                                (SELECT (m->'value'->>'hash')::bigint
+                                    FROM jsonb_array_elements(j.raw_flow->'modules') m
+                                    WHERE m->>'id' = 'a'
+                                    LIMIT 1)
+                            END) AS ssf_hash
+                        FROM v2_job j
+                        WHERE j.id = ANY($1)
+                            AND j.workspace_id = $2
+                            AND j.kind IN ('script', 'flow', 'singlestepflow')
+                    )
+                    SELECT
+                        n.id,
+                        n.norm_kind::JOB_KIND AS "kind!: _",
+                        COALESCE(s.path, f.path, n.runnable_path) AS "script_path!",
+                        -- script_hash is unused on the Flow rerun path (path-based push), so
+                        -- 0 is a safe placeholder when no version is pinned.
+                        COALESCE(s.hash, f.id, n.ssf_hash, 0::bigint) AS "script_hash!: _",
                         COALESCE(jc.started_at, jq.scheduled_for, make_date(1970, 1, 1)) AS "scheduled_for!: _",
-                        args AS input,
-                        COALESCE(s.schema, f.schema) AS "schema: _"
-                    FROM v2_job j
-                    LEFT JOIN script s ON j.runnable_id = s.hash AND j.kind = 'script'
-                    LEFT JOIN flow_version f ON j.runnable_id = f.id AND j.runnable_path = f.path AND j.kind = 'flow'
-                    LEFT JOIN v2_job_completed jc ON jc.id = j.id
-                    LEFT JOIN v2_job_queue jq ON jq.id = j.id
-                    WHERE j.id = ANY($1)
-                        AND j.workspace_id = $2
-                        AND COALESCE(s.hash, f.id) IS NOT NULL
-                        AND COALESCE(s.path, f.path) IS NOT NULL"#,
+                        n.args AS input,
+                        -- Pinned schema for script/flow; latest-by-path fallback for
+                        -- singlestepflow so input_transforms still resolve at rerun time.
+                        COALESCE(
+                            s.schema,
+                            f.schema,
+                            (CASE WHEN n.kind = 'singlestepflow' AND n.norm_kind = 'script' THEN
+                                (SELECT s2.schema FROM script s2
+                                    WHERE s2.workspace_id = $2 AND s2.path = n.runnable_path
+                                    ORDER BY s2.created_at DESC LIMIT 1)
+                            END),
+                            (CASE WHEN n.kind = 'singlestepflow' AND n.norm_kind = 'flow' THEN
+                                (SELECT fv.schema FROM flow
+                                    LEFT JOIN flow_version fv ON fv.id = flow.versions[array_upper(flow.versions, 1)]
+                                    WHERE flow.workspace_id = $2 AND flow.path = n.runnable_path)
+                            END)
+                        ) AS "schema: _"
+                    FROM norm n
+                    LEFT JOIN script s ON s.hash = n.runnable_id AND n.kind = 'script'
+                    LEFT JOIN flow_version f ON f.id = n.runnable_id AND f.path = n.runnable_path AND n.kind = 'flow'
+                    LEFT JOIN v2_job_completed jc ON jc.id = n.id
+                    LEFT JOIN v2_job_queue jq ON jq.id = n.id
+                    WHERE n.norm_kind IS NOT NULL
+                        AND COALESCE(s.path, f.path, n.runnable_path) IS NOT NULL
+                        AND (
+                            n.kind = 'singlestepflow'
+                            OR (COALESCE(s.hash, f.id) IS NOT NULL AND COALESCE(s.path, f.path) IS NOT NULL)
+                        )"#,
                 &body.job_ids,
                 w_id
             ).fetch(&db);
