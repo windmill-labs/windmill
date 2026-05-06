@@ -464,26 +464,15 @@ pub fn should_renew_channel(service_config: &serde_json::Value) -> bool {
     remaining_ms < renewal_window_ms
 }
 
-/// Outcome of a per-trigger renewal attempt.
 enum RenewOutcome {
-    /// Renewed successfully; the trigger row was updated.
     Renewed,
-    /// Another replica is renewing this row, or the row was already renewed since we last
-    /// listed triggers. No action taken.
+    /// Another replica holds the lock, or the row was already renewed.
     Skipped,
 }
 
-/// Attempt to renew a single Google watch channel under a row lock.
-///
-/// `sync_all_triggers` runs every ~5 minutes on every `windmill-app` replica with no
-/// leader election. Without a guard, multiple replicas would each rotate the webhook
-/// token, create a new Google channel, and race the trigger UPDATE — leaving the
-/// loser's new token and channel orphaned (see PR description).
-///
-/// The lock follows the same pattern used by other batch-cleanup paths in the codebase
-/// (e.g. `monitor.rs` job-retention sweep): wrap the critical section in a transaction
-/// and acquire the row with `FOR UPDATE SKIP LOCKED` so contending replicas skip the
-/// row instead of queueing.
+/// Renew one Google watch channel under a row lock.
+/// `sync_all_triggers` runs on every replica with no leader election — without
+/// the lock, parallel renewals orphan the losers' new tokens and Google channels.
 async fn try_renew_channel_locked(
     handler: &Google,
     db: &DB,
@@ -509,7 +498,6 @@ async fn try_renew_channel_locked(
     .await?;
 
     let Some(row) = row else {
-        // Another replica holds the lock, or the row was deleted.
         return Ok(RenewOutcome::Skipped);
     };
 
@@ -517,14 +505,12 @@ async fn try_renew_channel_locked(
         return Ok(RenewOutcome::Skipped);
     };
 
-    // Re-check the renewal predicate against the freshly-read row: a replica that
-    // committed a renewal moments ago will leave us with a row that no longer needs one.
+    // Re-check after the lock — a contending replica may have just renewed.
     if !should_renew_channel(&service_config) {
         return Ok(RenewOutcome::Skipped);
     }
 
-    // Use the freshly-read fields — webhook_token_hash may have moved if a concurrent
-    // manual update raced through, and service_config holds the latest channel state.
+    // Use freshly-read fields — webhook_token_hash may have rotated since list time.
     let fresh_trigger = NativeTrigger {
         service_config: Some(service_config),
         webhook_token_hash: row.webhook_token_hash,
