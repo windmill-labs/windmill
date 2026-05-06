@@ -215,6 +215,11 @@
 							size="sm"
 							drawerOffset={4000}
 						/>
+						{#if savedPath && path && path !== savedPath}
+							<Alert type="info" size="xs">
+								Deploy the {kind} to make the path change effective.
+							</Alert>
+						{/if}
 						{#if onBehalfOfEmail}
 							<Alert type="info" title="Run on behalf of" size="xs">
 								This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
