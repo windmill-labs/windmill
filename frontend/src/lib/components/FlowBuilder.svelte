@@ -198,6 +198,11 @@
 			savedValue: savedFlow,
 			modifiedValue: {
 				...flowStore.val,
+				// `$pathStore` is the live-edited path (the pen popover binds it).
+				// `flowStore.val.path` doesn't track those edits, so without this the
+				// rename wouldn't show up in the diff and the unsaved-changes warning
+				// wouldn't fire when leaving with a pending rename.
+				path: $pathStore,
 				draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
 			}
 		}
@@ -1018,9 +1023,20 @@
 			untrack(() => saveSessionDraft())
 		}
 	})
+	// Sync `$pathStore` from `flowStore.val.path` (which `initFlow` populates
+	// from the loaded flow — including the draft's rename, when there is one).
+	// This effect only tracks `flowStore.val.path`, so popover edits that go
+	// straight to `$pathStore` don't trigger it and aren't overwritten.
+	// Replaces the previous `$pathStore = initialPath` push (added in #2536 for
+	// the VSCode extension), which silently dropped any draft-renamed path
+	// because `initialPath` is the URL, not the loaded path.
 	$effect.pre(() => {
-		initialPath && ($pathStore = initialPath)
+		// `flowStore.val` is typed `OpenFlow` here but `initFlow` actually puts a
+		// `Flow` (with `path`) in it.
+		const p = (flowStore.val as Flow | undefined)?.path
+		if (p) untrack(() => ($pathStore = p))
 	})
+
 	$effect.pre(() => {
 		selectedId && untrack(() => select(selectedId))
 	})

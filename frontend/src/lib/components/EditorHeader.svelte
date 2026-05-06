@@ -216,9 +216,11 @@
 							drawerOffset={4000}
 						/>
 						{#if savedPath && path && path !== savedPath}
-							<Alert type="info" size="xs">
-								Deploy the {kind} to make the path change effective.
-							</Alert>
+							<Alert
+								type="info"
+								size="xs"
+								title="Deploy the {kind} to make the path change effective."
+							/>
 						{/if}
 						{#if onBehalfOfEmail}
 							<Alert type="info" title="Run on behalf of" size="xs">

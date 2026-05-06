@@ -140,9 +140,12 @@
 							kind="flow"
 						/>
 						{#if $initialPathStore && $pathStore && $pathStore !== $initialPathStore}
-							<Alert type="info" size="xs" class="mt-2">
-								Deploy the flow to make the path change effective.
-							</Alert>
+							<Alert
+								type="info"
+								size="xs"
+								title="Deploy the flow to make the path change effective."
+								class="mt-2"
+							/>
 						{/if}
 					</Label>
 				{/if}
