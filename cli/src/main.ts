@@ -29,6 +29,7 @@ import dev from "./commands/dev/dev.ts";
 import { GlobalOptions } from "./types.ts";
 import { OpenAPI } from "../gen/index.ts";
 import { getHeaders } from "./utils/utils.ts";
+import { detectAuthGatewayChallenge } from "./utils/http_guards.ts";
 import { setShowDiffs } from "./core/conf.ts";
 import { NpmProvider } from "./utils/upgrade.ts";
 import { pull as hubPull } from "./commands/hub/hub.ts";
@@ -277,6 +278,10 @@ async function main() {
     if (extraHeaders) {
       OpenAPI.HEADERS = extraHeaders;
     }
+    OpenAPI.interceptors.response.use(async (response) => {
+      await detectAuthGatewayChallenge(response);
+      return response;
+    });
     await command.parse(args);
   } catch (e) {
     if (e && typeof e === "object" && "name" in e && e.name === "ApiError") {
