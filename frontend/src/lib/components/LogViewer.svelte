@@ -15,6 +15,7 @@
 	import { Button, Drawer, DrawerContent } from './common'
 	import { copyToClipboard } from '$lib/utils'
 	import { base } from '$lib/base'
+	import { externalDomain, withExternalDomain } from '$lib/externalDomain'
 	import { workspaceStore } from '$lib/stores'
 	import { AnsiUp } from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
@@ -204,6 +205,9 @@
 			scroll = true
 		}
 	})
+	let downloadHref = $derived(
+		withExternalDomain(`${base}/api/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`, $externalDomain)
+	)
 	let truncatedContent = $derived(truncateContent(content, loadedFromObjectStore, LOG_LIMIT))
 	let prefixInfo = $derived(findPrefixInfo(truncatedContent))
 	let downloadStartUrl = $derived(findStartUrl(truncatedContent, prefixInfo))
@@ -244,7 +248,7 @@
 		{#snippet actions()}
 			{#if jobId && download}
 				<Button
-					href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
+					href={downloadHref}
 					download="windmill_logs_{jobId}.txt"
 					color="light"
 					size="xs"
@@ -273,12 +277,12 @@
 				>{#if content}{@const len =
 						(content?.length ?? 0) +
 						(loadedFromObjectStore?.length ?? 0)}{#if splitHtml}{@html splitHtml.before}<button
-								onclick={getStoreLogs}
-								>Show more... <Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
-							>{@html splitHtml.after}{:else if downloadStartUrl}<button
 							onclick={getStoreLogs}
 							>Show more... <Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
-						><br />{@html html}{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)...<br
+						>{@html splitHtml.after}{:else if downloadStartUrl}<button onclick={getStoreLogs}
+							>Show more... <Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
+						><br
+						/>{@html html}{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)...<br
 						/><button onclick={() => showMoreTruncate(len)}>Show more..</button><br
 						/>{@html html}{:else}{@html html}{/if}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
 			>
@@ -300,7 +304,7 @@
 							<a
 								class="text-primary pb-0.5"
 								target="_blank"
-								href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
+								href={downloadHref}
 								download="windmill_logs_{jobId}.txt"
 								><Download size="14" />
 							</a>
@@ -356,19 +360,18 @@
 					noPadding ? '' : 'p-2'
 				)}
 				>{#if content}{@const len =
-						(content?.length ?? 0) +
-						(loadedFromObjectStore?.length ?? 0)}{#if splitHtml}<span>{@html splitHtml.before}</span><button
-								onclick={getStoreLogs}
-								>Show more... &nbsp;<Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
-							><span>{@html splitHtml.after}</span
-						>{:else if downloadStartUrl}<button
+						(content?.length ?? 0) + (loadedFromObjectStore?.length ?? 0)}{#if splitHtml}<span
+							>{@html splitHtml.before}</span
+						><button onclick={getStoreLogs}
+							>Show more... &nbsp;<Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
+						><span>{@html splitHtml.after}</span>{:else if downloadStartUrl}<button
 							onclick={getStoreLogs}
 							>Show more... &nbsp;<Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
-						><br /><span>{@html html}</span
-						>{:else if len > LOG_LIMIT}<button onclick={() => showMoreTruncate(len)}
-							>Show more..</button
-						>&nbsp;({LOG_LIMIT}/{len} chars)<br /><span>{@html html}</span
-						>{:else}<span>{@html html}</span>{/if}{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
+						><br /><span>{@html html}</span>{:else if len > LOG_LIMIT}<button
+							onclick={() => showMoreTruncate(len)}>Show more..</button
+						>&nbsp;({LOG_LIMIT}/{len} chars)<br /><span>{@html html}</span>{:else}<span
+							>{@html html}</span
+						>{/if}{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
 			>
 		</div>
 	</div>
