@@ -152,7 +152,18 @@
 	let filter = $state('')
 	let openItems = $state<Set<string>>(new Set(initialOpen))
 
-	let loaded = $state<Partial<Record<Kind_, Item[]>>>({})
+	// Seed from the module-level cache so kinds already fetched in this session
+	// render their scopes/leaves on the first frame (no async microtask gap, no
+	// flash of "kind label only" while opening).
+	let loaded = $state<Partial<Record<Kind_, Item[]>>>(
+		(() => {
+			const ws = $workspaceStore && cache.get($workspaceStore)
+			if (!ws) return {}
+			const out: Partial<Record<Kind_, Item[]>> = {}
+			for (const k of kinds) if (ws[k]) out[k] = ws[k]
+			return out
+		})()
+	)
 	let loadingKind = $state<Partial<Record<Kind_, boolean>>>({})
 
 	async function ensureLoaded(kind: Kind_) {
