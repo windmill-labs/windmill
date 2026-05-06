@@ -524,8 +524,11 @@
 				/>
 				<!-- <span class="font-mono text-sm break-all">{path}</span> -->
 			</div>
-			<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{error}</div>
 		</div>
+	{/if}
+
+	{#if error}
+		<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{error}</div>
 	{/if}
 
 	{#if pathUsageInFlowsPromise || pathUsageInAppsPromise || pathUsageInScriptsPromise}
