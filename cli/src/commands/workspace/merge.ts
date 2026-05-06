@@ -427,8 +427,14 @@ async function mergeWorkspaces(
   if (opts.all) {
     selectedDiffs = selectableDiffs;
   } else if (opts.skipConflicts) {
+    // Default-exclude triggers/schedules only when `--include` isn't set —
+    // mirrors the `--yes` branch below. With `--include`, the user has
+    // explicitly opted into specific items, so the default exclusion would
+    // make the include filter return nothing for those kinds.
     selectedDiffs = selectableDiffs.filter(
-      (d) => !(d.ahead > 0 && d.behind > 0) && !isTriggerOrScheduleKind(d.kind)
+      (d) =>
+        !(d.ahead > 0 && d.behind > 0) &&
+        (!!opts.include || !isTriggerOrScheduleKind(d.kind))
     );
   } else if (opts.yes && !opts.include && !opts.exclude) {
     selectedDiffs = selectableDiffs.filter(

@@ -345,7 +345,10 @@ const TRIGGER_RUNTIME_IGNORE = new Set([
 	'server_id',
 	'last_server_ping',
 	'extra_perms',
-	'permissioned_as'
+	'permissioned_as',
+	// Server-managed (kept in sync with backend `TRIGGER_COMPARE_IGNORE`).
+	'subscription_id',
+	'push_auth_config'
 ])
 
 function stripTriggerRuntimeFields<T extends Record<string, any>>(row: T): Partial<T> {

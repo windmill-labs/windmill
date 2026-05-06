@@ -793,6 +793,9 @@ function stripTriggerOrScheduleRuntimeFields(row: unknown): unknown {
     "last_server_ping",
     "extra_perms",
     "permissioned_as",
+    // Server-managed (kept in sync with backend `TRIGGER_COMPARE_IGNORE`).
+    "subscription_id",
+    "push_auth_config",
   ]);
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(row as Record<string, unknown>)) {
