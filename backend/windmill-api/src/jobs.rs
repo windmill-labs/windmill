@@ -897,13 +897,39 @@ async fn list_selected_job_groups(
 ) -> error::Result<Response> {
     let mut tx = user_db.begin(&authed).await?;
 
+    // Single-step-flows wrap either a script or a flow. The wrapped runnable type
+    // sits in raw_flow.modules under id='a' (id='main' is also tolerated). We use
+    // that to project singlestepflow rows onto the same `script`/`flow` grouping
+    // and join keys the rest of the query already uses.
     let results = sqlx::query_scalar!(
-            r#"SELECT jsonb_build_object(
-                'kind', jb.kind,
-                'script_path', jb.runnable_path,
+            r#"WITH normalized AS (
+                SELECT
+                    jb.id,
+                    jb.workspace_id,
+                    jb.runnable_path,
+                    jb.runnable_id,
+                    CASE
+                        WHEN jb.kind IN ('flow', 'script') THEN jb.kind::text
+                        WHEN jb.kind = 'singlestepflow' THEN
+                            COALESCE(
+                                (SELECT m->'value'->>'type'
+                                    FROM jsonb_array_elements(jb.raw_flow->'modules') m
+                                    WHERE m->>'id' IN ('a', 'main')
+                                    LIMIT 1),
+                                'script'
+                            )
+                        ELSE NULL
+                    END AS norm_kind
+                FROM v2_job jb
+                WHERE jb.kind IN ('flow', 'script', 'singlestepflow')
+                    AND jb.workspace_id = $1 AND jb.id = ANY($2)
+            )
+            SELECT jsonb_build_object(
+                'kind', n.norm_kind,
+                'script_path', n.runnable_path,
                 'latest_schema', COALESCE(
-                    (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.workspace_id = $1 AND s.path = jb.runnable_path AND jb.kind = 'script' ORDER BY s.path, s.created_at DESC),
-                    (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.workspace_id = $1 AND flow.path = jb.runnable_path AND jb.kind = 'flow')
+                    (SELECT DISTINCT ON (s.path) s.schema FROM script s WHERE s.workspace_id = $1 AND s.path = n.runnable_path AND n.norm_kind = 'script' ORDER BY s.path, s.created_at DESC),
+                    (SELECT flow_version.schema FROM flow LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)] WHERE flow.workspace_id = $1 AND flow.path = n.runnable_path AND n.norm_kind = 'flow')
                 ),
                 'schemas', ARRAY(
                     SELECT jsonb_build_object(
@@ -911,15 +937,14 @@ async fn list_selected_job_groups(
                         'job_ids', ARRAY_AGG(DISTINCT j.id),
                         'schema', (ARRAY_AGG(COALESCE(s.schema, f.schema)))[1]
                     ) FROM v2_job j
-                    LEFT JOIN script s ON s.hash = j.runnable_id AND j.kind = 'script'
-                    LEFT JOIN flow_version f ON f.id = j.runnable_id AND j.kind = 'flow'
-                    WHERE j.id = ANY(ARRAY_AGG(jb.id))
+                    LEFT JOIN script s ON s.hash = j.runnable_id AND n.norm_kind = 'script'
+                    LEFT JOIN flow_version f ON f.id = j.runnable_id AND n.norm_kind = 'flow'
+                    WHERE j.id = ANY(ARRAY_AGG(n.id))
                     GROUP BY COALESCE(s.hash, f.id)
                 )
-            ) FROM v2_job jb
-            WHERE (jb.kind = 'flow' OR jb.kind = 'script')
-                AND jb.workspace_id = $1 AND jb.id = ANY($2)
-            GROUP BY jb.kind, jb.runnable_path"#,
+            ) FROM normalized n
+            WHERE n.norm_kind IS NOT NULL
+            GROUP BY n.norm_kind, n.runnable_path"#,
             &w_id,
             &uuids
         )
@@ -3234,11 +3259,11 @@ async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowI
             q.suspend AS "suspend!",
             j.runnable_path AS script_path,
             j.permissioned_as_email AS email,
-            (ji.kind IN ('flow', 'flowpreview')) AS "is_flow_level!",
-            (ji.kind NOT IN ('flow', 'flowpreview') AND q.id = ji.id) AS "is_wac!"
+            (ji.kind IN ('flow', 'flowpreview', 'singlestepflow')) AS "is_flow_level!",
+            (ji.kind NOT IN ('flow', 'flowpreview', 'singlestepflow') AND q.id = ji.id) AS "is_wac!"
         FROM job_info ji
         JOIN v2_job_queue q ON q.id = CASE
-            WHEN ji.kind IN ('flow', 'flowpreview') THEN ji.id
+            WHEN ji.kind IN ('flow', 'flowpreview', 'singlestepflow') THEN ji.id
             ELSE COALESCE(ji.parent_job, ji.id)
         END
         JOIN v2_job j ON j.id = q.id
@@ -3536,7 +3561,7 @@ pub async fn set_flow_user_state(
             r#"
             UPDATE v2_job_status f SET flow_status = JSONB_SET(flow_status,  ARRAY['user_states'], JSONB_SET(COALESCE(flow_status->'user_states', '{}'::jsonb), ARRAY[$1], $2))
             FROM v2_job j
-            WHERE f.id = $3 AND f.id = j.id AND j.workspace_id = $4 AND kind IN ('flow', 'flowpreview', 'flownode') RETURNING 1
+            WHERE f.id = $3 AND f.id = j.id AND j.workspace_id = $4 AND kind IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') RETURNING 1
             "#,
             key,
             value,
