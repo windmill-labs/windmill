@@ -39,6 +39,7 @@
 	import FolderPicker from './FolderPicker.svelte'
 	import PathNameAutocomplete from './PathNameAutocomplete.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import InputError from './InputError.svelte'
 
 	type PathKind =
 		| 'resource'
@@ -527,9 +528,7 @@
 		</div>
 	{/if}
 
-	{#if error}
-		<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5">{error}</div>
-	{/if}
+	<InputError {error} />
 
 	{#if pathUsageInFlowsPromise || pathUsageInAppsPromise || pathUsageInScriptsPromise}
 		{#await Promise.all( [pathUsageInAppsPromise, pathUsageInFlowsPromise, pathUsageInScriptsPromise] ) then [apps, flows, scripts]}
