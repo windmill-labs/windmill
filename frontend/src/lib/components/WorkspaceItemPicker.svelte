@@ -131,6 +131,14 @@
 		searchInput?.select()
 	}
 
+	// Fallback for switching between sibling breadcrumb popovers (closeOnOtherPopoverOpen):
+	// melt-ui's `openFocus` runs once during the close→open transition and the new
+	// picker may not be mounted yet when it tries to query the search input. Retry
+	// after the transition has settled.
+	$effect(() => {
+		setTimeout(() => focus(), 50)
+	})
+
 	const KIND_LABEL: Record<Kind_, string> = {
 		flow: 'Flows',
 		script: 'Scripts',
