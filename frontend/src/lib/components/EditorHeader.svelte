@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
 	import { ChevronRight, Pencil } from 'lucide-svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
@@ -47,13 +46,20 @@
 	let pickerSlugOpen = $state(false)
 	let pathPopoverOpen = $state(false)
 	let dirtyPath = $state(false)
-	let initialPathSnapshot = $state<string>('')
+	/** Snapshot of `path` taken when the pen popover opens; cleared on close.
+	 * While set, the breadcrumb derives from it instead of `path` so the pen
+	 * anchor doesn't reflow as the user types in the popover (which would drag
+	 * the popover with it via floating-ui's auto-update). */
+	let snapshotPath = $state<string | undefined>(undefined)
+
+	function setPathPopoverOpen(open: boolean) {
+		pathPopoverOpen = open
+		snapshotPath = open ? (path ?? '') : undefined
+		if (open) dirtyPath = false
+	}
 
 	// Path segments. e.g. "f/demo/weather_report" → scope "f/demo", slug "weather_report".
-	// While the pen popover is open we display a snapshot of the path so the
-	// breadcrumb (and therefore the pen, which the popover anchors to) doesn't
-	// reflow as the user types — otherwise the popover drifts mid-edit.
-	let displayPath = $derived(pathPopoverOpen ? initialPathSnapshot : (path ?? ''))
+	let displayPath = $derived(snapshotPath ?? path ?? '')
 	let segments = $derived.by(() => {
 		const parts = displayPath.split('/')
 		if (parts.length < 3) return null
@@ -65,18 +71,6 @@
 	const leafKeyOf = (k: WorkspaceItemKind, p: string) => `leaf:${k}:${p}`
 
 	let own = $derived(isOwner(path ?? '', $userStore, $workspaceStore))
-
-	$effect(() => {
-		if (pathPopoverOpen) {
-			// Snapshot the path at popover open. Untrack the body so subsequent
-			// path edits (live-bound from the popover) don't refresh the snapshot —
-			// the breadcrumb and the pen anchor stay frozen, preventing popover drift.
-			untrack(() => {
-				initialPathSnapshot = path ?? ''
-				dirtyPath = false
-			})
-		}
-	})
 
 	function handleSummarySave(newValue: string) {
 		const trimmed = newValue.trim()
@@ -166,7 +160,7 @@
 			excludeSelectors=".drawer"
 			disableFocusTrap
 			closeOnOtherPopoverOpen
-			bind:isOpen={pathPopoverOpen}
+			bind:isOpen={() => pathPopoverOpen, setPathPopoverOpen}
 			{disabled}
 		>
 			{#snippet trigger()}
@@ -190,7 +184,7 @@
 							autofocus={false}
 							bind:path
 							bind:dirty={dirtyPath}
-							initialPath={initialPathSnapshot}
+							initialPath={snapshotPath ?? path ?? ''}
 							namePlaceholder={kind}
 							{kind}
 							hideFullPath
