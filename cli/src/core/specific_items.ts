@@ -171,6 +171,18 @@ function matchesPatterns(path: string, patterns: string[]): boolean {
 }
 
 /**
+ * Normalize a `.json` extension to `.yaml` for pattern matching. Patterns in
+ * wmill.yaml (and those appended by mergeWsSpecificFromServer) are expressed
+ * with `.yaml` regardless of opts.json, so a `.json` local file would never
+ * match without this. The rest of `isSpecificItem`/`isItemTypeConfigured`
+ * checks `endsWith('.X.yaml')`, so normalizing once at the entry point keeps
+ * both the helpers and the patterns single-extension.
+ */
+function normalizeJsonToYaml(path: string): string {
+  return path.endsWith('.json') ? path.slice(0, -'.json'.length) + '.yaml' : path;
+}
+
+/**
  * Check if the item type for a given path is configured in specificItems.
  * This checks if the TYPE is configured, not whether it matches the pattern.
  * Used to determine if workspace-specific files should be used for this type.
@@ -179,6 +191,8 @@ export function isItemTypeConfigured(path: string, specificItems: SpecificItemsC
   if (!specificItems) {
     return false;
   }
+
+  path = normalizeJsonToYaml(path);
 
   if (path.endsWith('.variable.yaml')) {
     return specificItems.variables !== undefined;
@@ -218,6 +232,8 @@ export function isSpecificItem(path: string, specificItems: SpecificItemsConfig 
   if (!specificItems) {
     return false;
   }
+
+  path = normalizeJsonToYaml(path);
 
   // Determine the item type from the file path
   if (path.endsWith('.variable.yaml')) {

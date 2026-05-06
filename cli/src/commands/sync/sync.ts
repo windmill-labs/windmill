@@ -18,6 +18,7 @@ import {
   GlobalOptions,
   parseFromPath,
   pushObj,
+  removeType,
   showConflict,
   showDiff,
   extractNativeTriggerInfo,
@@ -119,13 +120,28 @@ import {
 
 let branchDeprecationWarned = false;
 
-// Map ws_specific item_kind values to SpecificItemsConfig keys and file suffixes.
-// isSpecificItem() matches against the full file path (e.g. "u/admin/a.resource.yaml"),
-// so server paths (e.g. "u/admin/a") must be converted to file-path patterns.
-const WS_SPECIFIC_KIND_MAP: Record<string, { configKey: keyof Omit<SpecificItemsConfig, "settings">; suffix: string }> = {
-  resource: { configKey: "resources", suffix: ".resource.yaml" },
-  variable: { configKey: "variables", suffix: ".variable.yaml" },
-};
+// Map a ws_specific `item_kind` returned by the backend to its corresponding
+// SpecificItemsConfig array. The backend currently only emits `resource` and
+// `variable`, but the mapping rule (kind → its plural — `_trigger` kinds all
+// fold into `triggers`) is generic so a future kind doesn't require a change
+// here. Returns null for kinds we have no place to store (e.g. `settings`,
+// which is a single boolean, not a list).
+function configKeyForItemKind(
+  kind: string,
+): keyof Omit<SpecificItemsConfig, "settings"> | null {
+  switch (kind) {
+    case "resource":
+      return "resources";
+    case "variable":
+      return "variables";
+    case "schedule":
+      return "schedules";
+    case "folder":
+      return "folders";
+    default:
+      return kind.endsWith("_trigger") ? "triggers" : null;
+  }
+}
 
 // Fetch ws_specific items from the server and merge their paths into specificItems.
 // Each ws_specific entry (item_kind + path) is appended as an exact file-path pattern
@@ -169,12 +185,15 @@ async function mergeWsSpecificFromServer(
   const merged: SpecificItemsConfig = specificItems ? { ...specificItems } : {};
 
   for (const item of wsSpecificItems) {
-    const kindInfo = WS_SPECIFIC_KIND_MAP[item.item_kind];
-    if (!kindInfo) continue;
-    if (!merged[kindInfo.configKey]) {
-      merged[kindInfo.configKey] = [];
+    const configKey = configKeyForItemKind(item.item_kind);
+    if (!configKey) continue;
+    if (!merged[configKey]) {
+      merged[configKey] = [];
     }
-    merged[kindInfo.configKey]!.push(item.path + kindInfo.suffix);
+    // Patterns are .yaml regardless of opts.json — isSpecificItem normalizes
+    // .json file paths to .yaml before matching, so a single .yaml pattern
+    // covers both extensions for the same item.
+    merged[configKey]!.push(`${item.path}.${item.item_kind}.yaml`);
   }
 
   return { merged, serverItems: wsSpecificItems };
@@ -184,30 +203,36 @@ async function mergeWsSpecificFromServer(
 // config (specificItems) but are *not* marked ws_specific on the server. These
 // represent flag-only changes that the file-content diff misses (because the
 // flag isn't part of the YAML body), so push needs to handle them explicitly.
+//
+// Generic over item kind (uses getTypeStrFromPath + removeType so .yaml/.json
+// work the same), gated by configKeyForItemKind so only kinds the backend can
+// mark ws_specific make it through. As of writing the backend only emits
+// `resource` and `variable`, but the gating handles future kinds without
+// touching this function.
 function computeWsSpecificFlagOnlyPushes(
   localMap: Record<string, string>,
   localSpecificItems: SpecificItemsConfig | undefined,
   serverItems: Array<{ item_kind: string; path: string }> | null,
-): Array<{ kind: "resource" | "variable"; serverPath: string; filePath: string }> {
+): Array<{ kind: string; serverPath: string; filePath: string }> {
   if (!localSpecificItems || serverItems === null) return [];
 
   const serverSet = new Set(
     serverItems.map((i) => `${i.item_kind}:${i.path}`),
   );
 
-  const out: Array<{ kind: "resource" | "variable"; serverPath: string; filePath: string }> = [];
+  const out: Array<{ kind: string; serverPath: string; filePath: string }> = [];
   for (const filePath of Object.keys(localMap)) {
-    let kind: "resource" | "variable" | null = null;
-    let suffixLen = 0;
-    if (filePath.endsWith(".resource.yaml")) { kind = "resource"; suffixLen = ".resource.yaml".length; }
-    else if (filePath.endsWith(".resource.json")) { kind = "resource"; suffixLen = ".resource.json".length; }
-    else if (filePath.endsWith(".variable.yaml")) { kind = "variable"; suffixLen = ".variable.yaml".length; }
-    else if (filePath.endsWith(".variable.json")) { kind = "variable"; suffixLen = ".variable.json".length; }
-    if (!kind) continue;
+    let kind: string;
+    try {
+      kind = getTypeStrFromPath(filePath);
+    } catch {
+      continue;
+    }
+    if (configKeyForItemKind(kind) === null) continue;
 
     if (!isSpecificItem(filePath, localSpecificItems)) continue;
 
-    const serverPath = filePath.slice(0, -suffixLen);
+    const serverPath = removeType(filePath, kind);
     if (serverSet.has(`${kind}:${serverPath}`)) continue;
 
     out.push({ kind, serverPath, filePath });
