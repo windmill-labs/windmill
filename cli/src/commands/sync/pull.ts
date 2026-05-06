@@ -127,6 +127,8 @@ export async function downloadZip(
     const tarUrl = baseUrl + "archive_type=tar" + baseParams;
     const tarResponse = await fetch(tarUrl, { headers: requestHeaders, method: "GET" });
 
+    await detectAuthGatewayChallenge(tarResponse, tarUrl);
+
     if (tarResponse.ok) {
       log.debug("Downloaded tar archive successfully");
       return await parseTarResponse(tarResponse);

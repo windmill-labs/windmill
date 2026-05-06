@@ -35,12 +35,12 @@ export async function detectAuthGatewayChallenge(
   response: Response,
   url?: string,
 ): Promise<void> {
-  const contentType = response.headers.get("content-type") ?? "";
+  const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
   const cfMitigated = response.headers.get("cf-mitigated") ?? undefined;
   const looksHtml = contentType.includes("text/html");
 
   // Cheap check first; only peek the body when something already smells off.
-  if (!looksHtml && !cfMitigated) return;
+  if (!looksHtml && cfMitigated !== "challenge") return;
 
   let snippet = "";
   try {
@@ -57,7 +57,7 @@ export async function detectAuthGatewayChallenge(
   if (!isChallenge) return;
 
   throw new AuthGatewayChallengeError(
-    url ?? response.url ?? "(unknown)",
+    url || response.url || "(unknown)",
     response.headers.get("cf-ray") ?? undefined,
     cfMitigated,
     response.status,
