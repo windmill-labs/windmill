@@ -1967,6 +1967,12 @@ const TS_SDK_LANGUAGES = ['bun', 'deno', 'nativets', 'bunnative'];
 // Languages that use the Python SDK
 const PY_SDK_LANGUAGES = ['python3'];
 
+// Languages that use the TypeScript Workflow-as-Code SDK
+const WAC_TS_SDK_LANGUAGES = ['bun'];
+
+// Languages that use the Python Workflow-as-Code SDK
+const WAC_PY_SDK_LANGUAGES = PY_SDK_LANGUAGES;
+
 // Helper to combine prompts for scripts
 export function getScriptPrompt(language: string): string {
   const langKey = `LANG_${language.toUpperCase()}` as keyof typeof prompts;
@@ -2004,15 +2010,37 @@ export function getDatatableSdkReference(): string {
 }
 
 // Helper to combine prompts for Workflow-as-Code scripts
-export function getWorkflowAsCodePrompt(): string {
+export function getWorkflowAsCodePrompt(language?: string): string {
+  let sdkPrompt = '';
+
+  if (language == null) {
+    sdkPrompt = [
+      prompts.WAC_SDK_TYPESCRIPT,
+      prompts.WAC_SDK_PYTHON
+    ].filter(Boolean).join('\\n\\n');
+  } else if (WAC_TS_SDK_LANGUAGES.includes(language)) {
+    sdkPrompt = prompts.WAC_SDK_TYPESCRIPT;
+  } else if (WAC_PY_SDK_LANGUAGES.includes(language)) {
+    sdkPrompt = prompts.WAC_SDK_PYTHON;
+  } else {
+    return '';
+  }
+
   return [
     prompts.WORKFLOW_AS_CODE_BASE,
-    prompts.WAC_SDK_TYPESCRIPT,
-    prompts.WAC_SDK_PYTHON
+    sdkPrompt
   ].filter(Boolean).join('\\n\\n');
 }
 """
     (OUTPUT_GENERATED_DIR / "index.ts").write_text(index_content)
+
+    index_dts_content = """export * from './prompts';
+export declare function getScriptPrompt(language: string): string;
+export declare function getFlowPrompt(): string;
+export declare function getDatatableSdkReference(): string;
+export declare function getWorkflowAsCodePrompt(language?: string): string;
+"""
+    (OUTPUT_GENERATED_DIR / "index.d.ts").write_text(index_dts_content)
 
     # Generate skill files for Claude Code
     CLI_GUIDANCE_DIR.mkdir(parents=True, exist_ok=True)

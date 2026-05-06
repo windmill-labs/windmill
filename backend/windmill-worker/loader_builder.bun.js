@@ -1,5 +1,6 @@
+let buildResult;
 try {
-  await Bun.build({
+  buildResult = await Bun.build({
     entrypoints: ["./main.ts"],
     outdir: "./out",
     plugins: [p],
@@ -15,6 +16,11 @@ try {
     console.log("Failed to build bundle");
   }
   console.log(err);
+  process.exit(1);
+}
+if (!buildResult?.success || !(buildResult.outputs?.length > 0)) {
+  for (const log of buildResult?.logs ?? []) console.log(log);
+  console.log("Failed to build bundle: success=" + buildResult?.success + ", outputs=" + (buildResult?.outputs?.length ?? 0));
   process.exit(1);
 }
 

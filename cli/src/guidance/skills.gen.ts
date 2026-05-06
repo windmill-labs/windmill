@@ -6165,12 +6165,12 @@ Use this guide when writing or modifying Windmill Workflow-as-Code (WAC) scripts
 WAC is authored as a Windmill script and deployed with the normal script workflow. It is not an OpenFlow YAML flow.
 
 Supported WAC authoring targets:
-- TypeScript scripts that import from \`windmill-client\`
+- Bun TypeScript scripts that import from \`windmill-client\`
 - Python 3 scripts that import from \`wmill\`
 
 ## File Shape
 
-TypeScript:
+Bun TypeScript:
 
 \`\`\`typescript
 import {
@@ -6212,7 +6212,7 @@ async def main(x: str):
 
 Rules:
 - Do not call \`main\`.
-- TypeScript should export the workflow entrypoint, preferably \`export const main = workflow(async (...) => { ... })\`.
+- Bun TypeScript should export the workflow entrypoint, preferably \`export const main = workflow(async (...) => { ... })\`.
 - Python must use \`@workflow\` on an async top-level function, usually \`main\`.
 - Define task functions and \`taskScript\`/\`task_script\` or \`taskFlow\`/\`task_flow\` assignments at module top level with stable names.
 - Use the exact SDK names. Do not alias \`workflow\`, \`task\`, \`taskScript\`, \`taskFlow\`, \`step\`, \`sleep\`, \`waitForApproval\`, \`task_script\`, \`task_flow\`, or \`wait_for_approval\`; the WAC parser recognizes these names directly.
@@ -7175,6 +7175,7 @@ workspace related commands
 - \`workspace whoami\` - Show the currently active user
 - \`workspace list\` - List local workspace profiles
 - \`workspace list-remote\` - List workspaces on the remote server that you have access to
+  - \`--as-superadmin\` - List ALL workspaces on the instance (requires the token to belong to a superadmin/devops user)
 - \`workspace list-forks\` - List forked workspaces on the remote server
 - \`workspace bind\` - Create or update a workspace entry in wmill.yaml from the active profile
   - \`--workspace <name:string>\` - Workspace name (default: current branch or workspaceId)

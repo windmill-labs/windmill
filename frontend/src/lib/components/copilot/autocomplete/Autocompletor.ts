@@ -66,6 +66,7 @@ export class Autocompletor {
 		max: 10
 	})
 	#scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
+	#workflowAsCode: boolean
 	#abortController: AbortController = new AbortController()
 	#completionDisposable: IDisposable
 	#cursorDisposable: IDisposable
@@ -76,7 +77,8 @@ export class Autocompletor {
 
 	constructor(
 		editor: meditor.IStandaloneCodeEditor,
-		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
+		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json',
+		options: { workflowAsCode?: boolean } = {}
 	) {
 		setGlobalCSS(
 			'ai-chat-autocomplete',
@@ -87,6 +89,7 @@ export class Autocompletor {
 		`
 		)
 		this.#scriptLang = scriptLang
+		this.#workflowAsCode = options.workflowAsCode ?? false
 
 		const deletionsCues = editor.createDecorationsCollection()
 
@@ -520,7 +523,8 @@ export class Autocompletor {
 				suffix,
 				scriptLang: this.#scriptLang,
 				markers: markersAtCursor,
-				libraries: librariesCompletions
+				libraries: librariesCompletions,
+				workflowAsCode: this.#workflowAsCode
 			},
 			this.#abortController
 		)
