@@ -20929,7 +20929,10 @@ components:
           description: Azure AD application (client) ID
         client_secret:
           type: string
-          description: Azure AD client secret
+          description: >-
+            Azure AD client secret. Optional — when omitted, the integration falls back to
+            Azure Workload Identity Federation, exchanging the Kubernetes-projected service-account
+            JWT at AZURE_FEDERATED_TOKEN_FILE for an access token (no long-lived secret stored).
         token:
           type: string
           description: Static Bearer token for testing/development (optional, if provided this is used instead of OAuth2 authentication)
