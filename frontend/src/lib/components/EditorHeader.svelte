@@ -49,8 +49,11 @@
 	}: Props = $props()
 
 	let pickerTypeOpen = $state(false)
-	let pickerScopeOpen = $state(false)
-	let pickerSlugOpen = $state(false)
+	/** A single key tracks which dir/leaf segment popover is open (only one at a
+	 * time thanks to `closeOnOtherPopoverOpen`); each segment compares against
+	 * its own `fullPath`. Replaces the fixed `pickerScopeOpen` / `pickerSlugOpen`
+	 * pair so we can render an arbitrary number of nested dir segments. */
+	let openSegmentKey = $state<string | undefined>(undefined)
 	let pathPopoverOpen = $state(false)
 	/** Snapshot of `path` taken when the pen popover opens; cleared on close.
 	 * While set, the breadcrumb derives from it instead of `path` so the pen
@@ -69,14 +72,30 @@
 	// follows the live `path` — coherent with the picker because we inject a
 	// virtual current-item entry at that same live path (see `currentItem`).
 	let displayPath = $derived(snapshotPath ?? path ?? '')
+	/** Breakdown for breadcrumb rendering. Top-level dirs (scopes) come first
+	 * — `f/<folder>` or `u/<user>` — then any number of subfolders, then the
+	 * item name. Each dir entry's `fullPath` is the cumulative path up to
+	 * that level, used to key the picker's `initialOpen` / `initialHighlight`. */
 	let segments = $derived.by(() => {
 		const parts = displayPath.split('/')
 		if (parts.length < 3) return null
-		return { scope: parts.slice(0, 2).join('/'), slug: parts.slice(2).join('/') }
+		const scope = parts.slice(0, 2).join('/')
+		const slug = parts.slice(2)
+		const dirs: { name: string; fullPath: string }[] = []
+		// Top-level scope is a dir.
+		dirs.push({ name: scope, fullPath: scope })
+		// Intermediate slug parts (everything except the last one).
+		let acc = scope
+		for (let i = 0; i < slug.length - 1; i++) {
+			acc = `${acc}/${slug[i]}`
+			dirs.push({ name: slug[i], fullPath: acc })
+		}
+		const leaf = { name: slug[slug.length - 1], fullPath: displayPath }
+		return { dirs, leaf }
 	})
 
 	const kindKey = (k: WorkspaceItemKind) => `kind:${k}`
-	const scopeKeyOf = (k: WorkspaceItemKind, scope: string) => `scope:${k}:${scope}`
+	const dirKeyOf = (k: WorkspaceItemKind, fullPath: string) => `dir:${k}:${fullPath}`
 	const leafKeyOf = (k: WorkspaceItemKind, p: string) => `leaf:${k}:${p}`
 
 	let own = $derived(isOwner(path ?? '', $userStore, $workspaceStore))
@@ -99,8 +118,7 @@
 
 	function handlePickerSelect(item: WorkspaceItem) {
 		pickerTypeOpen = false
-		pickerScopeOpen = false
-		pickerSlugOpen = false
+		openSegmentKey = undefined
 		onNavigate?.(item)
 	}
 
@@ -157,21 +175,30 @@
 			''
 		)}
 		{#if segments}
+			{#each segments.dirs as dir, i (dir.fullPath)}
+				{@const dKey = dirKeyOf(kind, dir.fullPath)}
+				{@const open = [
+					kindKey(kind),
+					...segments.dirs.slice(0, i + 1).map((d) => dirKeyOf(kind, d.fullPath))
+				]}
+				{@render breadcrumbSegment(
+					dir.name,
+					() => openSegmentKey === dKey,
+					(v) => (openSegmentKey = v ? dKey : undefined),
+					open,
+					dKey,
+					true,
+					i === 0 ? 'gap-0.5 min-w-0 max-w-[40%]' : 'gap-0.5 min-w-0'
+				)}
+			{/each}
+			{@const leafKey = leafKeyOf(kind, segments.leaf.fullPath)}
+			{@const leafOpen = [kindKey(kind), ...segments.dirs.map((d) => dirKeyOf(kind, d.fullPath))]}
 			{@render breadcrumbSegment(
-				segments.scope,
-				() => pickerScopeOpen,
-				(v) => (pickerScopeOpen = v),
-				[kindKey(kind), scopeKeyOf(kind, segments.scope)],
-				scopeKeyOf(kind, segments.scope),
-				true,
-				'gap-0.5 min-w-0 max-w-[40%]'
-			)}
-			{@render breadcrumbSegment(
-				segments.slug,
-				() => pickerSlugOpen,
-				(v) => (pickerSlugOpen = v),
-				[kindKey(kind), scopeKeyOf(kind, segments.scope)],
-				leafKeyOf(kind, displayPath),
+				segments.leaf.name,
+				() => openSegmentKey === leafKey,
+				(v) => (openSegmentKey = v ? leafKey : undefined),
+				leafOpen,
+				leafKey,
 				true,
 				'gap-0.5 min-w-0'
 			)}

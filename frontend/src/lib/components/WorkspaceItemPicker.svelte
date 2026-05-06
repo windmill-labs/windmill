@@ -151,7 +151,7 @@
 	}
 
 	const kindKey = (k: Kind_) => `kind:${k}`
-	const scopeKey = (k: Kind_, scope: string) => `scope:${k}:${scope}`
+	const dirKey = (k: Kind_, fullPath: string) => `dir:${k}:${fullPath}`
 	const leafKey = (it: Item) => `leaf:${it.kind}:${it.path}`
 
 	let filter = $state('')
@@ -202,7 +202,67 @@
 		}
 	})
 
-	const scopeOf = (path: string) => path.split('/').slice(0, 2).join('/')
+	type DirNode = {
+		/** Full path prefix, e.g. "f/demo" or "f/demo/sub". */
+		fullPath: string
+		/** Last segment of the path. For top-level dirs (scopes), the full scope
+		 * (e.g. "f/demo"); for nested dirs, just the leaf segment. */
+		name: string
+		/** True for a top-level scope dir; controls icon (User vs Folder). */
+		isScope: boolean
+		children: DirNode[]
+		leaves: Item[]
+	}
+
+	/** Build a directory tree per kind from a flat item list. Each item's slug
+	 * (path parts after the scope owner) is split on `/`; intermediate parts
+	 * become nested dir nodes, the last part is the leaf. */
+	function buildTrees(): Record<Kind_, DirNode[]> {
+		const out: Record<Kind_, DirNode[]> = { flow: [], script: [], app: [] }
+		for (const k of kinds) {
+			if (!loaded[k] && !(currentItem && currentItem.kind === k)) continue
+			const list = itemsForKind(k)
+			const scopeRoots = new Map<string, DirNode>()
+			for (const it of list) {
+				const parts = it.path.split('/')
+				if (parts.length < 3) continue
+				const scope = parts.slice(0, 2).join('/')
+				let node = scopeRoots.get(scope)
+				if (!node) {
+					node = { fullPath: scope, name: scope, isScope: true, children: [], leaves: [] }
+					scopeRoots.set(scope, node)
+				}
+				const slug = parts.slice(2)
+				let cur = node
+				for (let i = 0; i < slug.length - 1; i++) {
+					const seg = slug[i]
+					const fullPath = cur.fullPath + '/' + seg
+					let next = cur.children.find((c) => c.name === seg)
+					if (!next) {
+						next = { fullPath, name: seg, isScope: false, children: [], leaves: [] }
+						cur.children.push(next)
+					}
+					cur = next
+				}
+				cur.leaves.push(it)
+			}
+			// Sort scopes (folders first, then alpha) and recurse for children/leaves.
+			const scopes = Array.from(scopeRoots.values()).sort((a, b) => {
+				const af = a.fullPath.startsWith('f/') ? 0 : 1
+				const bf = b.fullPath.startsWith('f/') ? 0 : 1
+				if (af !== bf) return af - bf
+				return a.fullPath.localeCompare(b.fullPath)
+			})
+			const sortNode = (n: DirNode) => {
+				n.children.sort((a, b) => a.name.localeCompare(b.name))
+				n.leaves.sort((a, b) => a.path.localeCompare(b.path))
+				n.children.forEach(sortNode)
+			}
+			scopes.forEach(sortNode)
+			out[k] = scopes
+		}
+		return out
+	}
 
 	type DisplayItem = Item & { marked?: string }
 	type SearchInput = Item & { _key: string }
@@ -238,44 +298,7 @@
 
 	const searchOpts: uFuzzy.Options = {}
 
-	let groupedByScope = $derived.by(() => {
-		const out: Record<Kind_, Map<string, Item[]>> = {
-			flow: new Map(),
-			script: new Map(),
-			app: new Map()
-		}
-		for (const k of kinds) {
-			// Skip kinds we haven't loaded yet, but always run the merge if there's a
-			// current item for that kind — its scope/leaf must show even before the
-			// real list resolves.
-			if (!loaded[k] && !(currentItem && currentItem.kind === k)) continue
-			const list = itemsForKind(k)
-			const map = out[k]
-			for (const it of list) {
-				const scope = scopeOf(it.path)
-				const arr = map.get(scope) ?? []
-				arr.push(it)
-				map.set(scope, arr)
-			}
-			for (const arr of map.values()) {
-				arr.sort((a, b) => a.path.localeCompare(b.path))
-			}
-		}
-		return out
-	})
-
-	let scopesByKind = $derived.by(() => {
-		const out: Record<Kind_, string[]> = { flow: [], script: [], app: [] }
-		for (const k of kinds) {
-			out[k] = Array.from(groupedByScope[k].keys()).sort((a, b) => {
-				const af = a.startsWith('f/') ? 0 : 1
-				const bf = b.startsWith('f/') ? 0 : 1
-				if (af !== bf) return af - bf
-				return a.localeCompare(b)
-			})
-		}
-		return out
-	})
+	let dirTreeByKind = $derived.by(() => buildTrees())
 
 	let isSearching = $derived(filter.trim() !== '')
 
@@ -300,7 +323,7 @@
 
 	type NavNode =
 		| { type: 'kind'; key: string; kind: Kind_ }
-		| { type: 'scope'; key: string; kind: Kind_; scope: string }
+		| { type: 'dir'; key: string; kind: Kind_; node: DirNode }
 		| { type: 'leaf'; key: string; item: Item }
 
 	let navNodes: NavNode[] = $derived.by(() => {
@@ -310,20 +333,19 @@
 			)
 		}
 		const nodes: NavNode[] = []
+		const walk = (k: Kind_, dir: DirNode) => {
+			const dKey = dirKey(k, dir.fullPath)
+			nodes.push({ type: 'dir', key: dKey, kind: k, node: dir })
+			if (!openItems.has(dKey)) return
+			for (const child of dir.children) walk(k, child)
+			for (const it of dir.leaves) nodes.push({ type: 'leaf', key: leafKey(it), item: it })
+		}
 		for (const k of kinds) {
 			const kKey = kindKey(k)
 			nodes.push({ type: 'kind', key: kKey, kind: k })
 			if (!openItems.has(kKey)) continue
-			const items = loaded[k]
-			if (!items) continue
-			for (const scope of scopesByKind[k]) {
-				const sKey = scopeKey(k, scope)
-				nodes.push({ type: 'scope', key: sKey, kind: k, scope })
-				if (!openItems.has(sKey)) continue
-				for (const it of groupedByScope[k].get(scope) ?? []) {
-					nodes.push({ type: 'leaf', key: leafKey(it), item: it })
-				}
-			}
+			if (!loaded[k] && !(currentItem && currentItem.kind === k)) continue
+			for (const scope of dirTreeByKind[k]) walk(k, scope)
 		}
 		return nodes
 	})
@@ -411,7 +433,7 @@
 	opts={searchOpts}
 />
 
-{#snippet leafRow(it: Item, secondary: string, paddingClass: string)}
+{#snippet leafRow(it: Item, secondary: string, baseClass: string, paddingLeftRem: number = 0)}
 	{@const key = leafKey(it)}
 	{@const isHl = key === highlightedKey}
 	{@const isCur = isCurrent(it)}
@@ -419,9 +441,10 @@
 		type="button"
 		data-nav-key={key}
 		aria-current={isCur ? 'page' : undefined}
-		class="w-full text-left flex items-center gap-2 transition-colors {paddingClass} {isHl
+		class="w-full text-left flex items-center gap-2 transition-colors {baseClass} {isHl
 			? 'bg-surface-hover'
 			: ''} {isCur ? 'cursor-default text-emphasis font-medium' : ''}"
+		style={paddingLeftRem ? `padding-left: ${paddingLeftRem}rem` : ''}
 		onclick={() => pick(it)}
 		onmouseenter={() => (highlightedKey = key)}
 	>
@@ -435,6 +458,47 @@
 			{/if}
 		</div>
 	</button>
+{/snippet}
+
+{#snippet dirSubtree(k: Kind_, dir: DirNode, depth: number)}
+	{@const dKey = dirKey(k, dir.fullPath)}
+	{@const isOpen = openItems.has(dKey)}
+	{@const isHl = dKey === highlightedKey}
+	<button
+		type="button"
+		data-nav-key={dKey}
+		aria-expanded={isOpen}
+		class="flex items-center gap-1.5 w-full text-left pr-3 py-1.5 text-xs font-medium font-mono text-emphasis transition-colors {isHl
+			? 'bg-surface-hover'
+			: ''}"
+		style="padding-left: {0.75 + depth * 1.25}rem"
+		onclick={() => toggleOpen(dKey)}
+		onmouseenter={() => (highlightedKey = dKey)}
+	>
+		<ChevronRight
+			size={10}
+			class="transition-transform shrink-0 text-secondary {isOpen ? 'rotate-90' : ''}"
+		/>
+		{#if dir.isScope && dir.fullPath.startsWith('u/')}
+			<User size={12} class="shrink-0 text-tertiary" />
+		{:else}
+			<Folder size={12} class="shrink-0 text-tertiary" />
+		{/if}
+		<span class="truncate">{dir.name}</span>
+	</button>
+	{#if isOpen}
+		{#each dir.children as child (child.fullPath)}
+			{@render dirSubtree(k, child, depth + 1)}
+		{/each}
+		{#each dir.leaves as it (it.path)}
+			{@render leafRow(
+				it,
+				it.path.slice(dir.fullPath.length + 1),
+				'pr-3 py-1.5',
+				0.75 + (depth + 1) * 1.25
+			)}
+		{/each}
+	{/if}
 {/snippet}
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -506,47 +570,13 @@
 						{/if}
 					</button>
 					{#if kindOpen}
-						{#if !loaded[k] && !loadingKind[k]}
+						{#if !loaded[k] && !loadingKind[k] && !(currentItem && currentItem.kind === k)}
 							<div class="px-8 py-1 text-2xs text-tertiary">Empty</div>
-						{:else if loaded[k]?.length === 0}
+						{:else if loaded[k]?.length === 0 && !(currentItem && currentItem.kind === k)}
 							<div class="px-8 py-1 text-2xs text-tertiary">No {KIND_LABEL[k].toLowerCase()}</div>
-						{:else if loaded[k]}
-							{#each scopesByKind[k] as scope (scope)}
-								{@const sKey = scopeKey(k, scope)}
-								{@const scopeOpen = openItems.has(sKey)}
-								{@const scopeHl = sKey === highlightedKey}
-								<button
-									type="button"
-									data-nav-key={sKey}
-									aria-expanded={scopeOpen}
-									class="flex items-center gap-1.5 w-full text-left pl-7 pr-3 py-1.5 text-xs font-medium font-mono text-emphasis transition-colors {scopeHl
-										? 'bg-surface-hover'
-										: ''}"
-									onclick={() => toggleOpen(sKey)}
-									onmouseenter={() => (highlightedKey = sKey)}
-								>
-									<ChevronRight
-										size={10}
-										class="transition-transform shrink-0 text-secondary {scopeOpen
-											? 'rotate-90'
-											: ''}"
-									/>
-									{#if scope.startsWith('u/')}
-										<User size={12} class="shrink-0 text-tertiary" />
-									{:else}
-										<Folder size={12} class="shrink-0 text-tertiary" />
-									{/if}
-									<span class="truncate">{scope}</span>
-								</button>
-								{#if scopeOpen}
-									<ul>
-										{#each groupedByScope[k].get(scope) ?? [] as it (it.path)}
-											<li>
-												{@render leafRow(it, it.path.slice(scope.length + 1), 'pl-12 pr-3 py-1.5')}
-											</li>
-										{/each}
-									</ul>
-								{/if}
+						{:else}
+							{#each dirTreeByKind[k] as scope (scope.fullPath)}
+								{@render dirSubtree(k, scope, 1)}
 							{/each}
 						{/if}
 					{/if}
