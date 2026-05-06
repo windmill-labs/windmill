@@ -1,14 +1,15 @@
 <script lang="ts">
-	import { ChevronRight, Pencil } from 'lucide-svelte'
+	import { Pencil } from 'lucide-svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Label from '$lib/components/Label.svelte'
-	import WorkspaceItemPicker, {
+	import {
 		type WorkspaceItem,
 		type WorkspaceItemKind
 	} from '$lib/components/WorkspaceItemPicker.svelte'
+	import BreadcrumbSegment from '$lib/components/BreadcrumbSegment.svelte'
 	import { isOwner } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 
@@ -48,12 +49,6 @@
 		disabled = false
 	}: Props = $props()
 
-	let pickerTypeOpen = $state(false)
-	/** A single key tracks which dir/leaf segment popover is open (only one at a
-	 * time thanks to `closeOnOtherPopoverOpen`); each segment compares against
-	 * its own `fullPath`. Replaces the fixed `pickerScopeOpen` / `pickerSlugOpen`
-	 * pair so we can render an arbitrary number of nested dir segments. */
-	let openSegmentKey = $state<string | undefined>(undefined)
 	let pathPopoverOpen = $state(false)
 	/** Snapshot of `path` taken when the pen popover opens; cleared on close.
 	 * While set, the breadcrumb derives from it instead of `path` so the pen
@@ -117,91 +112,49 @@
 	}
 
 	function handlePickerSelect(item: WorkspaceItem) {
-		pickerTypeOpen = false
-		openSegmentKey = undefined
 		onNavigate?.(item)
 	}
-
-	const SEGMENT_BASE_CLASS =
-		'font-normal inline-flex items-center px-1 rounded hover:bg-surface-hover hover:text-primary transition-colors'
 </script>
-
-{#snippet breadcrumbSegment(
-	label: string,
-	getOpen: () => boolean,
-	setOpen: (v: boolean) => void,
-	initialOpen: string[],
-	initialHighlight: string,
-	withChevron: boolean,
-	extraClass: string
-)}
-	<Popover
-		placement="bottom-start"
-		usePointerDownOutside
-		excludeSelectors=".drawer"
-		disableFocusTrap
-		closeOnOtherPopoverOpen
-		class="{SEGMENT_BASE_CLASS} {extraClass} {disabled ? 'cursor-default' : 'cursor-pointer'}"
-		bind:isOpen={getOpen, setOpen}
-		openFocus="[data-workspace-picker-search]"
-		{disabled}
-	>
-		{#snippet trigger()}
-			{#if withChevron}<ChevronRight size={10} class="shrink-0" /><span class="truncate"
-					>{label}</span
-				>{:else}{label}{/if}
-		{/snippet}
-		{#snippet content()}
-			<WorkspaceItemPicker
-				{initialOpen}
-				{initialHighlight}
-				{currentItem}
-				onPick={handlePickerSelect}
-			/>
-		{/snippet}
-	</Popover>
-{/snippet}
 
 <div class="inline-block max-w-full align-top group px-2 py-0.5 leading-tight">
 	<!-- Path row -->
 	<div class="flex items-center max-w-full text-2xs text-secondary font-mono">
-		{@render breadcrumbSegment(
-			KIND_LABEL[kind],
-			() => pickerTypeOpen,
-			(v) => (pickerTypeOpen = v),
-			[kindKey(kind)],
-			kindKey(kind),
-			false,
-			''
-		)}
+		<BreadcrumbSegment
+			label={KIND_LABEL[kind]}
+			initialOpen={[kindKey(kind)]}
+			initialHighlight={kindKey(kind)}
+			{currentItem}
+			{disabled}
+			onPick={handlePickerSelect}
+		/>
 		{#if segments}
 			{#each segments.dirs as dir, i (dir.fullPath)}
 				{@const dKey = dirKeyOf(kind, dir.fullPath)}
-				{@const open = [
-					kindKey(kind),
-					...segments.dirs.slice(0, i + 1).map((d) => dirKeyOf(kind, d.fullPath))
-				]}
-				{@render breadcrumbSegment(
-					dir.name,
-					() => openSegmentKey === dKey,
-					(v) => (openSegmentKey = v ? dKey : undefined),
-					open,
-					dKey,
-					true,
-					i === 0 ? 'gap-0.5 min-w-0 max-w-[40%]' : 'gap-0.5 min-w-0'
-				)}
+				<BreadcrumbSegment
+					label={dir.name}
+					withChevron
+					extraClass={i === 0 ? 'gap-0.5 min-w-0 max-w-[40%]' : 'gap-0.5 min-w-0'}
+					initialOpen={[
+						kindKey(kind),
+						...segments.dirs.slice(0, i + 1).map((d) => dirKeyOf(kind, d.fullPath))
+					]}
+					initialHighlight={dKey}
+					{currentItem}
+					{disabled}
+					onPick={handlePickerSelect}
+				/>
 			{/each}
 			{@const leafKey = leafKeyOf(kind, segments.leaf.fullPath)}
-			{@const leafOpen = [kindKey(kind), ...segments.dirs.map((d) => dirKeyOf(kind, d.fullPath))]}
-			{@render breadcrumbSegment(
-				segments.leaf.name,
-				() => openSegmentKey === leafKey,
-				(v) => (openSegmentKey = v ? leafKey : undefined),
-				leafOpen,
-				leafKey,
-				true,
-				'gap-0.5 min-w-0'
-			)}
+			<BreadcrumbSegment
+				label={segments.leaf.name}
+				withChevron
+				extraClass="gap-0.5 min-w-0"
+				initialOpen={[kindKey(kind), ...segments.dirs.map((d) => dirKeyOf(kind, d.fullPath))]}
+				initialHighlight={leafKey}
+				{currentItem}
+				{disabled}
+				onPick={handlePickerSelect}
+			/>
 		{/if}
 
 		<!-- Pen → path-edit popover -->
