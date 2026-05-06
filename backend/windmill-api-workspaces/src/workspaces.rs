@@ -40,9 +40,9 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_user_against_rule, get_datatable_resource_from_db_unchecked, DataTable,
-    DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
-    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings, WM_FORK_PREFIX,
+    check_user_against_rule, get_datatable_resource_from_db_unchecked, validate_fork_workspace_id,
+    DataTable, DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind,
+    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -4776,6 +4776,8 @@ async fn create_workspace_fork_branch(
         return Err(Error::PermissionDenied(msg));
     }
 
+    validate_fork_workspace_id(&nw.id)?;
+
     Ok(Json(
         handle_fork_branch_creation(&authed.email, &authed.username, &db, &w_id, &nw.id).await?,
     ))
@@ -4935,13 +4937,7 @@ async fn create_workspace_fork(
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
-    // Generate unique forked workspace ID with wm-fork prefix
-    if !nw.id.starts_with(WM_FORK_PREFIX) {
-        return Err(Error::BadRequest(format!(
-            "The id `{}` is invalid for a forked workspace. It should be prefixed by {}",
-            nw.id, WM_FORK_PREFIX
-        )));
-    }
+    validate_fork_workspace_id(&nw.id)?;
 
     let forked_id = nw.id;
 

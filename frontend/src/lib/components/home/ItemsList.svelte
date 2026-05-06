@@ -40,7 +40,7 @@
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { getContext, untrack } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	interface Props {
@@ -326,9 +326,252 @@
 				)
 	)
 	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)
+	let displayedItems = $derived((items ?? []).slice(0, nbDisplayed))
 	$effect(() => {
 		items && resetScroll()
 	})
+
+	let selectedIndex: number = $state(-1)
+	let hasMore = $derived(items != undefined && items.length > nbDisplayed)
+	let loadMoreIndex = $derived(displayedItems.length)
+	let loadMoreEl: HTMLButtonElement | undefined = $state()
+	let pendingAutoSelect = $state(true)
+	let firstWorkspaceRun = true
+	$effect(() => {
+		$workspaceStore
+		pendingAutoSelect = true
+		if (firstWorkspaceRun) {
+			firstWorkspaceRun = false
+			return
+		}
+		// On workspace switch, melt-ui restores focus to the workspace-picker trigger
+		// button asynchronously after the menu closes. Without overriding it, pressing
+		// an arrow key would re-open / re-highlight the workspace picker instead of
+		// moving the items-list selection. Run several times to win the focus race.
+		const focusSearch = () => {
+			const el = document.getElementById('home-search-input') as HTMLInputElement | null
+			el?.focus()
+		}
+		focusSearch()
+		const raf1 = requestAnimationFrame(() => {
+			focusSearch()
+			requestAnimationFrame(focusSearch)
+		})
+		const timeoutId = setTimeout(focusSearch, 100)
+		return () => {
+			cancelAnimationFrame(raf1)
+			clearTimeout(timeoutId)
+		}
+	})
+	$effect(() => {
+		filter
+		itemKind
+		ownerFilter
+		labelFilter
+		// Skip while pendingAutoSelect is true (initial load / workspace switch);
+		// the auto-select effect below will set the index once items appear.
+		if (!pendingAutoSelect) {
+			selectedIndex = -1
+		}
+	})
+	$effect(() => {
+		if (pendingAutoSelect && displayedItems.length > 0) {
+			selectedIndex = 0
+			pendingAutoSelect = false
+		}
+	})
+	$effect(() => {
+		const max = hasMore ? displayedItems.length : displayedItems.length - 1
+		if (selectedIndex > max) {
+			selectedIndex = max
+		}
+	})
+	$effect(() => {
+		if (hasMore && selectedIndex === loadMoreIndex) {
+			loadMoreEl?.scrollIntoView({ block: 'nearest' })
+		}
+	})
+	// Capture-phase listener so we run before melt-ui's button keydown handlers
+	// (e.g. ArrowDown on the dropdown trigger would otherwise open the menu).
+	$effect(() => {
+		window.addEventListener('keydown', handleGlobalKeydown, true)
+		return () => window.removeEventListener('keydown', handleGlobalKeydown, true)
+	})
+
+	function loadMoreAndPreselectFirstNew() {
+		const previousNbDisplayed = nbDisplayed
+		nbDisplayed += 30
+		selectedIndex = previousNbDisplayed
+	}
+
+	function getSelectedRowActionButtons(): HTMLElement[] {
+		const anchor = document.querySelector<HTMLElement>('a[data-row-keyboard-selected="true"]')
+		const actions = anchor?.parentElement?.querySelector<HTMLElement>('[data-row-actions]')
+		return actions ? Array.from(actions.querySelectorAll<HTMLElement>('button, a[href]')) : []
+	}
+
+	function handleGlobalKeydown(e: KeyboardEvent) {
+		if (treeView) return
+		const target = e.target as HTMLElement | null
+
+		// When focus is inside a row's action buttons, handle arrow keys ourselves:
+		//  - Left/Right cycle between buttons (Left from the first returns to search).
+		//  - Up/Down move to the same-position button on the previous/next row.
+		// All other keys pass through so Enter/Space activate the focused button normally.
+		// This must run BEFORE the skipSelector check, since the dropdown ellipsis
+		// trigger carries [data-menu] (which would otherwise filter the event out).
+		// Up/Down also need stopImmediatePropagation so melt-ui's dropdown trigger
+		// doesn't open the menu (its default ArrowDown behavior).
+		const actionsContainer = target?.closest<HTMLElement>('[data-row-actions]')
+		if (actionsContainer) {
+			if (
+				e.key !== 'ArrowRight' &&
+				e.key !== 'ArrowLeft' &&
+				e.key !== 'ArrowUp' &&
+				e.key !== 'ArrowDown'
+			)
+				return
+			const buttons = Array.from(actionsContainer.querySelectorAll<HTMLElement>('button, a[href]'))
+			const currentIdx = buttons.indexOf(target as HTMLElement)
+			if (currentIdx < 0) return
+			if (e.key === 'ArrowRight') {
+				if (currentIdx < buttons.length - 1) {
+					e.preventDefault()
+					buttons[currentIdx + 1].focus()
+				}
+			} else if (e.key === 'ArrowLeft') {
+				e.preventDefault()
+				if (currentIdx > 0) {
+					buttons[currentIdx - 1].focus()
+				} else {
+					;(document.getElementById('home-search-input') as HTMLInputElement | null)?.focus()
+				}
+			} else {
+				// ArrowUp / ArrowDown: move to same-position button on prev/next row.
+				e.preventDefault()
+				e.stopImmediatePropagation()
+				if (selectedIndex < 0 || selectedIndex >= displayedItems.length) return
+				const newIndex =
+					e.key === 'ArrowDown'
+						? Math.min(selectedIndex + 1, displayedItems.length - 1)
+						: Math.max(selectedIndex - 1, 0)
+				if (newIndex === selectedIndex) return
+				selectedIndex = newIndex
+				tick().then(() => {
+					const newButtons = getSelectedRowActionButtons()
+					if (newButtons.length === 0) return
+					const targetIdx = Math.min(currentIdx, newButtons.length - 1)
+					newButtons[targetIdx]?.focus()
+				})
+			}
+			return
+		}
+
+		// Inside an open dropdown menu: ArrowUp on first item / ArrowDown on last item
+		// closes the menu (so users can leave with arrows instead of needing Escape).
+		// Other arrow keys fall through to melt-ui's default cycle.
+		const menuItem = target?.closest<HTMLElement>('[role="menuitem"]')
+		if (menuItem) {
+			if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+				const menu = menuItem.closest<HTMLElement>('[role="menu"]')
+				if (menu) {
+					const items = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+					const idx = items.indexOf(menuItem)
+					const isFirst = idx === 0
+					const isLast = idx === items.length - 1
+					if ((e.key === 'ArrowUp' && isFirst) || (e.key === 'ArrowDown' && isLast)) {
+						e.preventDefault()
+						e.stopImmediatePropagation()
+						menuItem.dispatchEvent(
+							new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+						)
+					}
+				}
+			}
+			return
+		}
+
+		const skipSelector =
+			'[role="menu"], [role="menuitem"], [role="dialog"], [role="listbox"], [role="combobox"], [aria-expanded="true"], [data-menu]'
+		if (target) {
+			const tag = target.tagName
+			const isEditable =
+				tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
+			const isOurSearch = target.id === 'home-search-input'
+			if (isEditable && !isOurSearch) return
+			if (target.closest(skipSelector)) return
+		}
+		const active = document.activeElement as HTMLElement | null
+		if (active?.closest(skipSelector)) return
+
+		// ArrowRight from search input / body → focus first action button of selected row.
+		// Guard: if cursor is in the middle of typed search text, let the cursor move.
+		if (e.key === 'ArrowRight') {
+			if (target?.id === 'home-search-input') {
+				const inp = target as HTMLInputElement
+				if (inp.value.length > 0 && inp.selectionEnd !== inp.value.length) return
+			}
+			if (selectedIndex < 0 || selectedIndex >= displayedItems.length) return
+			const buttons = getSelectedRowActionButtons()
+			if (buttons.length > 0) {
+				e.preventDefault()
+				buttons[0].focus()
+			}
+			return
+		}
+		// ArrowLeft from search input with cursor at start: no-op (let default handle).
+		if (e.key === 'ArrowLeft') {
+			if (target?.id === 'home-search-input') {
+				const inp = target as HTMLInputElement
+				if (inp.value.length > 0 && inp.selectionStart !== 0) return
+			}
+			return
+		}
+
+		if (e.key === 'ArrowDown') {
+			if (displayedItems.length === 0) return
+			e.preventDefault()
+			if (selectedIndex === -1) {
+				selectedIndex = 0
+			} else if (selectedIndex === loadMoreIndex && hasMore) {
+				selectedIndex = 0
+			} else if (selectedIndex === displayedItems.length - 1) {
+				selectedIndex = hasMore ? loadMoreIndex : 0
+			} else {
+				selectedIndex = selectedIndex + 1
+			}
+		} else if (e.key === 'ArrowUp') {
+			if (displayedItems.length === 0) return
+			e.preventDefault()
+			if (selectedIndex === -1) {
+				selectedIndex = displayedItems.length - 1
+			} else if (selectedIndex === loadMoreIndex && hasMore) {
+				selectedIndex = displayedItems.length - 1
+			} else if (selectedIndex === 0) {
+				selectedIndex = hasMore ? loadMoreIndex : displayedItems.length - 1
+			} else {
+				selectedIndex = selectedIndex - 1
+			}
+		} else if (e.key === 'Enter') {
+			if (selectedIndex === loadMoreIndex && hasMore) {
+				e.preventDefault()
+				loadMoreAndPreselectFirstNew()
+			} else if (selectedIndex >= 0 && selectedIndex < displayedItems.length) {
+				const anchor = document.querySelector<HTMLAnchorElement>(
+					'a[data-row-keyboard-selected="true"]'
+				)
+				if (anchor) {
+					e.preventDefault()
+					anchor.click()
+				}
+			}
+		} else if (e.key === 'Escape') {
+			if (selectedIndex !== -1) {
+				e.preventDefault()
+				selectedIndex = -1
+			}
+		}
+	}
 	$effect(() => {
 		storeLocalSetting(TREE_VIEW_SETTING_NAME, treeView ? 'true' : undefined)
 	})
@@ -572,7 +815,7 @@
 			/>
 		{:else}
 			<div class="border rounded-md bg-surface-tertiary">
-				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
+				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
 						on:scriptChanged={() => loadScripts(includeWithoutMain)}
@@ -587,6 +830,7 @@
 						}}
 						{showCode}
 						showEditButton={showEditButtons}
+						keyboardSelected={selectedIndex === i}
 					/>
 				{/each}
 			</div>
@@ -594,7 +838,11 @@
 				<span class="text-xs font-normal text-secondary"
 					>{nbDisplayed} items out of {items.length}
 					<button
-						class="ml-4 text-xs font-normal text-primary hover:text-emphasis"
+						bind:this={loadMoreEl}
+						class="ml-4 text-xs font-normal text-primary hover:text-emphasis rounded px-1 {selectedIndex ===
+						loadMoreIndex
+							? 'bg-gray-200 dark:bg-gray-700 underline'
+							: ''}"
 						onclick={() => (nbDisplayed += 30)}>load 30 more</button
 					></span
 				>

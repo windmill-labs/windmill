@@ -305,8 +305,6 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                 )
                 .await?;
 
-                let _ = windmill_common::worker::write_file(&job_dir, "main.js", &res.content)?;
-
                 if let Err(e) = windmill_worker::prebundle_bun_script(
                     &res.content,
                     &lock,
