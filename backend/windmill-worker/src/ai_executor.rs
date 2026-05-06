@@ -20,7 +20,7 @@ use windmill_mcp::McpClient;
 
 #[cfg(not(feature = "mcp"))]
 use crate::ai::tools::McpClientStub as McpClient;
-use windmill_ai::ai_providers::AIProvider;
+use windmill_ai::{ai_providers::AIProvider, utils::AI_HTTP_HEADERS};
 use windmill_common::{
     cache,
     client::AuthedClient,
@@ -51,33 +51,6 @@ use crate::{
 
 lazy_static::lazy_static! {
     static ref TOOL_NAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
-
-    /// Parse AI_HTTP_HEADERS environment variable into a vector of (header_name, header_value) tuples
-    /// Format: "header1: value1, header2: value2"
-    static ref AI_HTTP_HEADERS: Vec<(String, String)> = {
-        std::env::var("AI_HTTP_HEADERS")
-            .ok()
-            .map(|headers_str| {
-                headers_str
-                    .split(',')
-                    .filter_map(|header| {
-                        let parts: Vec<&str> = header.splitn(2, ':').collect();
-                        if parts.len() == 2 {
-                            let name = parts[0].trim().to_string();
-                            let value = parts[1].trim().to_string();
-                            if !name.is_empty() && !value.is_empty() {
-                                Some((name, value))
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
 
     static ref AI_AGENT_TOOL_SCHEMA: Box<RawValue> = to_raw_value(&serde_json::json!({
         "type": "object",
