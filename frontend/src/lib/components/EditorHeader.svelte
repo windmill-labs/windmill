@@ -8,8 +8,8 @@
 	import WorkspaceItemPicker from '$lib/components/WorkspaceItemPicker.svelte'
 	import { isOwner } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/toast'
-	import { updateItemPathAndSummary, checkFlowOnBehalfOf } from './moveRenameManager'
+	import { checkFlowOnBehalfOf } from './moveRenameManager'
+	import type { Snippet } from 'svelte'
 
 	type Kind = 'flow' | 'script' | 'app'
 	const KIND_LABEL: Record<Kind, string> = { flow: 'flows', script: 'scripts', app: 'apps' }
@@ -20,11 +20,10 @@
 		/** Kind of the item being edited; used to label the first breadcrumb segment. */
 		kind?: Kind
 		onNavigate?: (item: { path: string; kind: Kind; raw_app?: boolean }) => void
-		onSaved?: (newPath: string) => void
-		/** Custom path-save handler. When provided, replaces the built-in call to
-		 * `updateItemPathAndSummary` from the pen popover's Save button. Use this when
-		 * the parent owns persistence (e.g. raw apps that bundle assets on deploy). */
-		onPathSubmit?: (newPath: string) => void | Promise<void>
+		/** Optional override for the pen popover's content. When provided, it replaces
+		 * the default `<Path>` editor. Use this when the parent owns its own
+		 * draft-path editor component (e.g. apps reusing the deploy drawer's path editor). */
+		pathPopoverContent?: Snippet<[{ close: () => void }]>
 		penVisibility?: 'hover' | 'always'
 		disabled?: boolean
 	}
@@ -34,8 +33,7 @@
 		path = $bindable(''),
 		kind = 'flow',
 		onNavigate,
-		onSaved,
-		onPathSubmit,
+		pathPopoverContent,
 		penVisibility = 'hover',
 		disabled = false
 	}: Props = $props()
@@ -59,16 +57,18 @@
 	const scopeKeyOf = (k: Kind, scope: string) => `scope:${k}:${scope}`
 	const leafKeyOf = (k: Kind, p: string) => `leaf:${k}:${p}`
 
-	let editPath = $state('')
 	let dirtyPath = $state(false)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
+	let initialPathSnapshot = $state<string>('')
 
 	let own = $derived(isOwner(path ?? '', $userStore, $workspaceStore))
-	let hasPathChanges = $derived(own && dirtyPath)
 
 	$effect(() => {
 		if (pathPopoverOpen) {
-			editPath = path ?? ''
+			// Snapshot the path at popover open so the Path component's diff/dirty
+			// indicator stays anchored to the saved path, not the live edit.
+			initialPathSnapshot = path ?? ''
+			dirtyPath = false
 			onBehalfOfEmail = undefined
 			if (kind === 'flow' && $workspaceStore && path) {
 				checkFlowOnBehalfOf($workspaceStore, path).then((email) => {
@@ -89,41 +89,6 @@
 		pickerScopeOpen = false
 		pickerSlugOpen = false
 		onNavigate?.(item)
-	}
-
-	async function savePath(close: () => void) {
-		const initialPath = path ?? ''
-		const newPath = own ? editPath : initialPath
-
-		if (onPathSubmit) {
-			try {
-				await onPathSubmit(newPath)
-				close()
-				onSaved?.(newPath)
-			} catch (e: any) {
-				sendUserToast(`Could not update path: ${e.body ?? e.message}`, true)
-			}
-			return
-		}
-
-		try {
-			await updateItemPathAndSummary({
-				workspace: $workspaceStore!,
-				kind,
-				initialPath,
-				newPath,
-				newSummary: summary ?? ''
-			})
-			sendUserToast(`${KIND_LABEL[kind].slice(0, -1)} updated`)
-			path = newPath
-			close()
-			onSaved?.(newPath)
-		} catch (e: any) {
-			sendUserToast(
-				`Could not update ${KIND_LABEL[kind].slice(0, -1)}: ${e.body ?? e.message}`,
-				true
-			)
-		}
 	}
 </script>
 
@@ -240,38 +205,31 @@
 			{/snippet}
 			{#snippet content({ close })}
 				<div class="flex flex-col gap-6 w-[480px]">
-					<Label label="Path">
-						{#if own}
-							<Path
-								autofocus={false}
-								bind:path={editPath}
-								bind:dirty={dirtyPath}
-								initialPath={path ?? ''}
-								namePlaceholder={kind}
-								{kind}
-								hideFullPath
-								size="sm"
-								drawerOffset={4000}
-							/>
-						{:else}
+					{#if pathPopoverContent}
+						{@render pathPopoverContent({ close })}
+					{:else if own}
+						<Path
+							autofocus={false}
+							bind:path
+							bind:dirty={dirtyPath}
+							initialPath={initialPathSnapshot}
+							namePlaceholder={kind}
+							{kind}
+							hideFullPath
+							size="sm"
+							drawerOffset={4000}
+						/>
+						{#if onBehalfOfEmail}
+							<Alert type="info" title="Run on behalf of" size="xs">
+								This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
+							</Alert>
+						{/if}
+					{:else}
+						<Label label="Path">
 							<span class="text-xs font-mono text-secondary">{path}</span>
 							<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
-						{/if}
-					</Label>
-					{#if onBehalfOfEmail}
-						<Alert type="info" title="Run on behalf of" size="xs">
-							This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
-						</Alert>
+						</Label>
 					{/if}
-					<Button
-						size="xs"
-						variant="accent"
-						disabled={!hasPathChanges}
-						title="Save path"
-						onclick={() => savePath(close)}
-					>
-						Save
-					</Button>
 				</div>
 			{/snippet}
 		</Popover>

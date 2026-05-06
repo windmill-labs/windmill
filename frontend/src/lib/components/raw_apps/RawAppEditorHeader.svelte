@@ -857,9 +857,6 @@
 			bind:summary
 			path={defaultIfEmptyString(newEditedPath, defaultIfEmptyString(newPath, appPath))}
 			kind="app"
-			onPathSubmit={(np) => {
-				newEditedPath = np
-			}}
 			onNavigate={(item) => {
 				const editPath =
 					item.kind === 'flow'
@@ -871,7 +868,18 @@
 								: `/apps_raw/edit/${item.path}`
 				goto(editPath)
 			}}
-		/>
+		>
+			{#snippet pathPopoverContent()}
+				<AppEditorHeaderDeployInitialDraft
+					bind:summary
+					appPath={appPath ?? ''}
+					bind:pathError
+					bind:newEditedPath
+					hideSummary
+					initialPath={appPath ?? ''}
+				/>
+			{/snippet}
+		</EditorHeader>
 		<div></div>
 	</div>
 

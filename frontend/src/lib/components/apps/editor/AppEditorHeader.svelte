@@ -8,7 +8,6 @@
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { defaultIfEmptyString, isMac, type Item } from '$lib/utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
-	import { updateItemPathAndSummary } from '$lib/components/moveRenameManager'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
@@ -938,21 +937,6 @@
 			bind:summary={$summary}
 			path={defaultIfEmptyString(newEditedPath, defaultIfEmptyString(newPath, $appPath))}
 			kind="app"
-			onPathSubmit={async (np) => {
-				if ($appPath === '') {
-					newEditedPath = np
-				} else {
-					await updateItemPathAndSummary({
-						workspace: $workspaceStore!,
-						kind: 'app',
-						initialPath: $appPath,
-						newPath: np,
-						newSummary: $summary ?? ''
-					})
-					$appPath = np
-					sendUserToast('app updated')
-				}
-			}}
 			onNavigate={(item) => {
 				const editPath =
 					item.kind === 'flow'
@@ -964,7 +948,18 @@
 								: `/apps/edit/${item.path}`
 				goto(editPath)
 			}}
-		/>
+		>
+			{#snippet pathPopoverContent()}
+				<AppEditorHeaderDeployInitialDraft
+					bind:summary={$summary}
+					bind:appPath={$appPath}
+					bind:pathError
+					bind:newEditedPath
+					hideSummary
+					initialPath={$appPath ?? ''}
+				/>
+			{/snippet}
+		</EditorHeader>
 		<div class="flex gap-2">
 			{#if $app}
 				<ToggleButtonGroup
