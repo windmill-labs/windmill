@@ -12,7 +12,11 @@
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import FileEditorIcon from '$lib/components/raw_apps/FileEditorIcon.svelte'
-	import { react18Template, react19Template, svelte5Template } from './templates'
+	import {
+		react18Template,
+		react19Template,
+		svelte5Template
+	} from '$lib/components/raw_apps/templates'
 	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 	import {

@@ -28,6 +28,12 @@ import type {
 } from '$lib/gen/types.gen'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import {
+	FRAMEWORK_TEMPLATES,
+	STARTER_RUNNABLE,
+	STARTER_RUNNABLE_KEY,
+	type FrameworkKey
+} from '$lib/components/raw_apps/templates'
+import {
 	getFlowPrompt,
 	getRawAppPrompt,
 	getResourcePrompt,
@@ -337,6 +343,37 @@ const deleteAppRunnableSchema = z.object({
 	key: z.string().describe('Key of the backend runnable to remove.')
 })
 
+const FRAMEWORK_KEYS = ['react19', 'react18', 'svelte5', 'vue'] as const satisfies readonly FrameworkKey[]
+
+const initAppSchema = z.object({
+	path: z
+		.string()
+		.describe(
+			'Workspace path for the new app, e.g. f/folder/my_app or u/username/my_app. Errors if an app already exists at this path or a draft is already in flight.'
+		),
+	summary: z.string().optional().describe('Short human-readable summary of the app.'),
+	framework: z
+		.enum(FRAMEWORK_KEYS)
+		.optional()
+		.default('react19')
+		.describe(
+			'Frontend framework template. Confirm with the user before calling — never default silently. react19 is recommended for new apps.'
+		),
+	data: z
+		.object({
+			datatable: z.string().optional().describe('Default datatable name (e.g. "main").'),
+			schema: z.string().optional().describe('Default schema (PostgreSQL schema, optional).'),
+			tables: z
+				.array(z.string())
+				.optional()
+				.describe(
+					'Initially-whitelisted tables, in the format "<datatable>/<table>" or "<datatable>/<schema>:<table>".'
+				)
+		})
+		.optional()
+		.describe('Optional datatable configuration. Omit unless the user asked to wire one up.')
+})
+
 const GLOBAL_SYSTEM_PROMPT = `You are Windmill's global workspace assistant.
 
 You can inspect workspace scripts, flows, schedules, triggers, resources, variables, and apps, then create draft changes in the frontend AI draft store.
@@ -355,6 +392,7 @@ Important rules:
 - Schedules, triggers, and variables do not need get_instructions — their tool schemas describe every field.
 - A workspace item is { type, path, summary?, language?, triggerKind?, value, isDraft }. For scripts, value is the source code string. For flows, value is the OpenFlow value object. For schedules/triggers/resources/variables, value is the full request body for that type. For apps, value is { files, runnables, data?, policy?, custom_path? } with frontend file contents and backend runnable definitions.
 - Apps (raw apps): use list_workspace_items with types: ['app'] to find them, read_workspace_item with type 'app' for a metadata summary (file paths + runnable list, no contents), then read_app_file to read individual files. Edit with write_app_file / patch_app_file / delete_app_file for frontend files and write_app_runnable / delete_app_runnable for backend runnables. Frontend file paths start with "/" (e.g. /index.tsx). Backend inline runnables are addressed as "backend/<key>/main.{ts|py}". /wmill.d.ts is generated and cannot be written.
+- To create a new raw app, use init_app. Before calling it, confirm framework (react19 / react18 / svelte5 / vue), path, and summary with the user — do not silently default to react19, even though it is the recommended choice.
 - Apps cannot be deployed from chat. The app editor bundles JS/CSS before save; tell the user to open the app editor to deploy app drafts.
 - Keep context targeted. Do not read unrelated items.
 - Be explicit with the user when you create or update a draft.`
@@ -972,6 +1010,8 @@ function getAppInstructions(): string {
 
 - Global mode edits raw app drafts only; it does not save, deploy, or bundle.
 - App drafts are addressed by workspace path (e.g. \`f/folder/my_app\`). The first write tool snapshots the workspace app onto the draft, and subsequent writes accumulate.
+- To create a new app, use \`init_app\` with a path, optional summary, and a framework (\`react19\` / \`react18\` / \`svelte5\` / \`vue\`). Confirm framework + path + summary with the user before calling — do not silently default to \`react19\` even though it is the recommended choice. \`init_app\` errors if an app already exists at the path or a draft is already in flight; in that case, edit the existing one rather than re-initializing.
+- \`init_app\` seeds a starter inline runnable named \`a\` (bun, \`main(x: string) => string\`) so the React/Svelte demo button works on first render. Replace or remove it once you start building real backend runnables.
 - Frontend file paths start with \`/\` (e.g. \`/index.tsx\`, \`/App.tsx\`, \`/styles.css\`). Use \`write_app_file\` / \`patch_app_file\` / \`delete_app_file\`.
 - Backend inline runnables are addressed as \`backend/<key>/main.{ts|py}\` from the file tools, but you create or update them via \`write_app_runnable\` / \`delete_app_runnable\` (which take the runnable shape directly: \`{ name, type, inlineScript?, path?, staticInputs? }\`).
 - \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.
@@ -1342,6 +1382,20 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
+			initAppSchema,
+			'init_app',
+			'Initialize a new raw app draft from a framework template. Errors if an app already exists at the path or a draft is already in flight. Confirm framework, path, and summary with the user before calling — do not silently default to react19.',
+			{ strict: false }
+		),
+		showDetails: true,
+		showFade: true,
+		fn: async (ctx) => {
+			const parsed = initAppSchema.parse(ctx.args)
+			return initApp(parsed, ctx)
+		}
+	},
+	{
+		def: createToolDef(
 			readAppFileSchema,
 			'read_app_file',
 			'Read one frontend file or inline backend runnable script from a raw app. Use file_path "/foo.tsx" for frontend files and "backend/<key>/main.{ts|py}" for inline runnables. Prefers the AI draft when one exists.'
@@ -1533,6 +1587,64 @@ async function patchFlowJson(
 			isDraft: true
 		},
 		ctx
+	)
+}
+
+async function initApp(
+	args: {
+		path: string
+		summary?: string
+		framework: FrameworkKey
+		data?: { datatable?: string; schema?: string; tables?: string[] }
+	},
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const { path, summary, framework, data } = args
+
+	if (globalDraftStore.getDraft('app', path)) {
+		throw new Error(
+			`An AI draft for app "${path}" already exists. Use write_app_file / write_app_runnable to modify it, or delete the existing draft first.`
+		)
+	}
+	if (await AppService.existsApp({ workspace, path })) {
+		throw new Error(
+			`An app already exists at "${path}". Use read_workspace_item + write_app_file / write_app_runnable to modify it.`
+		)
+	}
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Initializing app draft "${path}" with ${framework} template...`
+	})
+
+	const template = FRAMEWORK_TEMPLATES[framework]
+	const value: AppDraftValue = {
+		summary,
+		files: { ...template },
+		runnables: { [STARTER_RUNNABLE_KEY]: { ...STARTER_RUNNABLE } },
+		...(data && {
+			data: {
+				tables: data.tables ?? [],
+				datatable: data.datatable,
+				schema: data.schema
+			}
+		})
+	}
+	await recomputeAppPolicy(value)
+	const stored = saveAppDraft(path, value)
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Initialized app draft "${path}" (${framework})`,
+		result: 'Draft initialized'
+	})
+	return JSON.stringify(
+		{
+			success: true,
+			message: `Initialized AI draft app "${path}" from the ${framework} template with a starter runnable "${STARTER_RUNNABLE_KEY}". Use write_app_file / write_app_runnable to evolve the draft.`,
+			item: stored
+		},
+		null,
+		2
 	)
 }
 
