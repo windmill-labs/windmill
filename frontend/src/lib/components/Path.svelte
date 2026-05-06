@@ -140,10 +140,11 @@
 	$effect(() => {
 		// Sync `meta` from `path` on external changes (sibling Path bound to the
 		// same store, parent assignment, etc.). Skip if the change came from us.
-		if (path && path !== lastComputedPath && !path.startsWith('tmp/') && !path.startsWith('hub/')) {
+		const p = path
+		if (p && p !== lastComputedPath && !p.startsWith('tmp/') && !p.startsWith('hub/')) {
 			untrack(() => {
-				meta = pathToMeta(path, hideUser)
-				lastComputedPath = path
+				meta = pathToMeta(p, hideUser)
+				lastComputedPath = p
 			})
 		}
 	})

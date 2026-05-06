@@ -170,7 +170,7 @@
 					title="Edit path"
 					aria-label="Edit path"
 					{disabled}
-					btnClasses={penVisibility === 'hover'
+					btnClasses={penVisibility === 'hover' && !pathPopoverOpen
 						? 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100'
 						: ''}
 				/>

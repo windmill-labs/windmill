@@ -106,7 +106,7 @@
 	type Kind_ = 'flow' | 'script' | 'app'
 
 	interface Props {
-		onPick: (item: { path: string; kind: Kind_; raw_app?: boolean }) => void
+		onPick: (item: WorkspaceItem) => void
 		kinds?: Kind_[]
 		/** Composite-keyed nodes to open on mount. e.g. `['kind:flow', 'scope:flow:f/demo']`. */
 		initialOpen?: string[]
@@ -246,7 +246,7 @@
 	})
 
 	function pick(it: Item) {
-		onPick({ path: it.path, kind: it.kind, raw_app: it.raw_app })
+		onPick({ path: it.path, summary: it.summary, kind: it.kind, raw_app: it.raw_app })
 	}
 
 	type NavNode =
