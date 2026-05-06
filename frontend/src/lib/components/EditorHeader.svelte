@@ -45,7 +45,6 @@
 	let pickerScopeOpen = $state(false)
 	let pickerSlugOpen = $state(false)
 	let pathPopoverOpen = $state(false)
-	let dirtyPath = $state(false)
 	/** Snapshot of `path` taken when the pen popover opens; cleared on close.
 	 * While set, the breadcrumb derives from it instead of `path` so the pen
 	 * anchor doesn't reflow as the user types in the popover (which would drag
@@ -55,7 +54,6 @@
 	function setPathPopoverOpen(open: boolean) {
 		pathPopoverOpen = open
 		snapshotPath = open ? (path ?? '') : undefined
-		if (open) dirtyPath = false
 	}
 
 	// Path segments. e.g. "f/demo/weather_report" → scope "f/demo", slug "weather_report".
@@ -183,7 +181,6 @@
 						<Path
 							autofocus={false}
 							bind:path
-							bind:dirty={dirtyPath}
 							initialPath={snapshotPath ?? path ?? ''}
 							namePlaceholder={kind}
 							{kind}
