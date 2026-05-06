@@ -155,12 +155,22 @@ const flowValueSchema = z
 	})
 	.describe('OpenFlow value: modules plus optional preprocessor_module and failure_module.')
 
+// `value` is taken as a JSON string rather than a typed object because the
+// underlying flowValueSchema is recursive (modules can contain modules), which
+// makes z.toJSONSchema emit $defs/$ref. Gemini's tools API rejects those
+// keywords ("Unknown name $ref/$defs"). The string is parsed and validated
+// against flowValueSchema inside the handler. Same trick as set_flow_json in
+// chat/flow/core.ts (see comment on its schema).
 const writeFlowSchema = z.object({
 	path: z
 		.string()
 		.describe('Workspace path of the flow, e.g. f/folder/name or u/user/name.'),
 	summary: z.string().optional().describe('Short human-readable summary.'),
-	value: flowValueSchema
+	value: z
+		.string()
+		.describe(
+			'JSON string of the OpenFlow value object: { modules, preprocessor_module?, failure_module? }. Pass it as a JSON-encoded string, not a nested object.'
+		)
 })
 
 const writeScheduleSchema = scheduleRequestSchema
@@ -1175,19 +1185,35 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			writeFlowSchema,
 			'write_flow',
-			'Create or overwrite an AI draft flow. Does not save or deploy. Read the existing flow first when overwriting.'
+			'Create or overwrite an AI draft flow. Does not save or deploy. Read the existing flow first when overwriting. value must be a JSON-encoded string of the OpenFlow value object.'
 		),
 		showDetails: true,
 		streamArguments: true,
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeFlowSchema.parse(ctx.args)
+			let value: unknown
+			try {
+				value = JSON.parse(parsed.value)
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error)
+				throw new Error(`Invalid JSON for value: ${message}`)
+			}
+			const validated = flowValueSchema.safeParse(value)
+			if (!validated.success) {
+				throw new Error(
+					`Invalid flow value: ${validated.error.issues
+						.slice(0, 5)
+						.map((i) => `${i.path.join('.')}: ${i.message}`)
+						.join('; ')}`
+				)
+			}
 			return writeDraft(
 				{
 					type: 'flow',
 					path: parsed.path,
 					summary: parsed.summary,
-					value: parsed.value,
+					value: validated.data,
 					isDraft: true
 				},
 				ctx
