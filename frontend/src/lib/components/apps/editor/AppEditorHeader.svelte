@@ -520,19 +520,10 @@
 
 		lock = true
 
-		switch (event.key) {
-			case 'Z':
-				if (event.ctrlKey || event.metaKey) {
-					const napp = redo(history)
-					for (const key in napp) {
-						$app[key] = napp[key]
-					}
-					event.preventDefault()
-				}
-				break
+		switch (event.key.toLowerCase()) {
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
-					const napp = undo(history, $app)
+					const napp = event.shiftKey ? redo(history) : undo(history, $app)
 					for (const key in napp) {
 						$app[key] = napp[key]
 					}

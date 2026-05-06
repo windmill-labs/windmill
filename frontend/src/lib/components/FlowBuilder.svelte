@@ -755,16 +755,11 @@
 			return
 		}
 
-		switch (event.key) {
-			case 'Z':
-				if (event.ctrlKey || event.metaKey) {
-					handleRedo()
-					event.preventDefault()
-				}
-				break
+		switch (event.key.toLowerCase()) {
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
-					handleUndo()
+					if (event.shiftKey) handleRedo()
+					else handleUndo()
 					event.preventDefault()
 				}
 				break
