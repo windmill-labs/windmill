@@ -336,6 +336,7 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
+		onKeyDown?.(e)
 		if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') return
 		const cursorPos = getCursorPosition()
 		const text = getTextContent()
@@ -405,9 +406,6 @@
 				}
 			}
 		}
-
-		// If not handled by our logic, call external onKeyDown handler if provided
-		onKeyDown?.(e)
 	}
 
 	function getCursorPosition(): number {
