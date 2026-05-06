@@ -10,6 +10,7 @@
 	interface Props {
 		marked: string | undefined
 		selected?: boolean
+		keyboardSelected?: boolean
 		disabled?: boolean
 		canFavorite?: boolean
 		isSelectable?: boolean
@@ -47,6 +48,7 @@
 	let {
 		marked,
 		selected = false,
+		keyboardSelected = false,
 		disabled = false,
 		canFavorite = true,
 		isSelectable = false,
@@ -73,6 +75,13 @@
 			: untrack(() => path)
 					?.split('/')
 					?.slice(-1)?.[0]) ?? ''
+
+	let rowEl: HTMLDivElement | undefined = $state()
+	$effect(() => {
+		if (keyboardSelected) {
+			rowEl?.scrollIntoView({ block: 'nearest' })
+		}
+	})
 </script>
 
 {#if href}
@@ -88,11 +97,12 @@
 	></div>
 {/if}
 <div
+	bind:this={rowEl}
 	class={twMerge(
 		'w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-3 border-b last:border-b-0',
 		depth > 0 ? '!rounded-none' : '',
 		disabled ? 'opacity-25' : 'hover:bg-surface-hover',
-		selected ? 'bg-surface-accent-selected' : ''
+		selected ? 'bg-surface-accent-selected' : keyboardSelected ? 'bg-gray-200 dark:bg-gray-700' : ''
 	)}
 	style={depth > 0 ? `padding-left: ${depth * 32}px;` : ''}
 >
@@ -105,6 +115,7 @@
 	{#if href}
 		<a
 			{href}
+			data-row-keyboard-selected={keyboardSelected ? 'true' : undefined}
 			class="min-w-0 grow hover:underline decoration-gray-400 inline-flex items-center gap-4"
 		>
 			{@render rowContent()}
@@ -131,7 +142,7 @@
 		<div class="w-9"></div>
 	{/if}
 
-	<div class="flex gap-1 items-center justify-end pr-2">
+	<div data-row-actions class="flex gap-1 items-center justify-end pr-2">
 		{@render actions?.()}
 	</div>
 </div>

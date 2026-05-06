@@ -433,7 +433,9 @@ async function whoami(_opts: GlobalOptions) {
   }
 }
 
-async function listRemote(_opts: GlobalOptions) {
+async function listRemote(
+  _opts: GlobalOptions & { asSuperadmin?: boolean }
+) {
   let remote: string;
 
   if (_opts.baseUrl && _opts.token && !_opts.workspace) {
@@ -446,6 +448,40 @@ async function listRemote(_opts: GlobalOptions) {
     const workspace = await resolveWorkspace(_opts);
     await requireLogin(_opts);
     remote = workspace.remote;
+  }
+
+  if (_opts.asSuperadmin) {
+    const perPage = 100;
+    let page = 1;
+    const all: Awaited<ReturnType<typeof wmill.listWorkspacesAsSuperAdmin>> = [];
+    while (true) {
+      const batch = await wmill.listWorkspacesAsSuperAdmin({ page, perPage });
+      all.push(...batch);
+      if (batch.length < perPage) break;
+      page++;
+    }
+
+    const hasForks = all.some((x) => x.parent_workspace_id);
+    const headers = hasForks
+      ? ["id", "name", "owner", "fork of"]
+      : ["id", "name", "owner"];
+
+    new Table()
+      .header(headers)
+      .padding(2)
+      .border(true)
+      .body(
+        all.map((x) => {
+          const row = [x.id, x.name, x.owner];
+          if (hasForks) row.push(x.parent_workspace_id ?? "-");
+          return row;
+        })
+      )
+      .render();
+
+    log.info(`Remote: ${colors.bold(remote)}`);
+    log.info(`Total workspaces: ${colors.green.bold(all.length.toString())} (superadmin)`);
+    return;
   }
 
   const userWorkspaces = await wmill.listUserWorkspaces();
@@ -747,6 +783,10 @@ const command = new Command()
   .action(list as any)
   .command("list-remote")
   .description("List workspaces on the remote server that you have access to")
+  .option(
+    "--as-superadmin",
+    "List ALL workspaces on the instance (requires the token to belong to a superadmin/devops user)"
+  )
   .action(listRemote as any)
   .command("list-forks")
   .description("List forked workspaces on the remote server")

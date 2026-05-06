@@ -16,9 +16,11 @@
 	import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import FilterSearchbar, {
-		useUrlSyncedFilterInstance
+		useUrlSyncedFilterInstance,
+		type FilterInstanceRec
 	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
+	import { buildResourceTypesFilterSchema } from '$lib/components/resources/resourceTypesFilter'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -156,6 +158,25 @@
 			.sort()
 			.map((f) => f.replace(/^f\//, ''))
 	)
+	let resourceTypesFilterSchema = buildResourceTypesFilterSchema()
+	let resourceTypesFilters: {
+		val: Partial<FilterInstanceRec<typeof resourceTypesFilterSchema>>
+	} = $state({ val: {} })
+	let filteredResourceTypes = $derived.by(() => {
+		if (!resourceTypes) return resourceTypes
+		const f = resourceTypesFilters.val
+		const defaultSearch = f._default_?.toLowerCase()
+		const nameSearch = f.name?.toLowerCase()
+		const descSearch = f.description?.toLowerCase()
+		if (!defaultSearch && !nameSearch && !descSearch) return resourceTypes
+		return resourceTypes.filter((rt) => {
+			if (defaultSearch && !rt.name.toLowerCase().includes(defaultSearch)) return false
+			if (nameSearch && !rt.name.toLowerCase().includes(nameSearch)) return false
+			if (descSearch && !(rt.description ?? '').toLowerCase().includes(descSearch)) return false
+			return true
+		})
+	})
+
 	let folderPresets = $derived([
 		...itemFolders.map((f) => ({ name: `f/${f}`, value: `path_start:\\ f/${f}/` })),
 		...allLabels.map((l) => ({ name: l, value: `label:\\ ${l}` })),
@@ -922,13 +943,22 @@
 						classes: loading.resources || loading.types ? 'animate-spin' : ''
 					}}
 				/>
-				<FilterSearchbar
-					schema={resourcesFilterSchema}
-					class="max-w-[26rem] grow"
-					bind:value={filters.val}
-					placeholder="Filter resources..."
-					presets={folderPresets}
-				/>
+				{#if tab == 'types'}
+					<FilterSearchbar
+						schema={resourceTypesFilterSchema}
+						class="max-w-[26rem] grow"
+						bind:value={resourceTypesFilters.val}
+						placeholder="Filter resource types..."
+					/>
+				{:else}
+					<FilterSearchbar
+						schema={resourcesFilterSchema}
+						class="max-w-[26rem] grow"
+						bind:value={filters.val}
+						placeholder="Filter resources..."
+						presets={folderPresets}
+					/>
+				{/if}
 			</div>
 		</div>
 		{#if showTable}
@@ -1199,6 +1229,13 @@
 				{#each new Array(6) as _}
 					<Skeleton layout={[[4], 0.7]} />
 				{/each}
+			{:else if filteredResourceTypes?.length == 0}
+				<div class="flex flex-col items-center justify-center h-full mt-4">
+					<div class="text-xs text-emphasis font-semibold">No resource types found</div>
+					<div class="text-2xs text-secondary font-normal">
+						Try changing the filters or creating a new resource type
+					</div>
+				</div>
 			{:else}
 				<div class="overflow-auto mt-4">
 					<DataTable>
@@ -1210,8 +1247,8 @@
 							</Row>
 						</Head>
 						<tbody class="divide-y bg-surface">
-							{#if resourceTypes}
-								{#each resourceTypes as { name, description, schema, canWrite, format_extension, is_fileset }}
+							{#if filteredResourceTypes}
+								{#each filteredResourceTypes as { name, description, schema, canWrite, format_extension, is_fileset }}
 									<Row>
 										<Cell first>
 											<a
