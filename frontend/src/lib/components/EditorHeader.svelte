@@ -12,7 +12,6 @@
 	} from '$lib/components/WorkspaceItemPicker.svelte'
 	import { isOwner } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { checkFlowOnBehalfOf } from './moveRenameManager'
 
 	const KIND_LABEL: Record<WorkspaceItemKind, string> = {
 		flow: 'flows',
@@ -26,6 +25,9 @@
 		/** Kind of the item being edited; used to label the first breadcrumb segment. */
 		kind?: WorkspaceItemKind
 		onNavigate?: (item: WorkspaceItem) => void
+		/** When set, shows a "redeployed on behalf of" warning in the path-edit
+		 * popover. Parents already know this from their loaded item — no API call. */
+		onBehalfOfEmail?: string | undefined
 		penVisibility?: 'hover' | 'always'
 		disabled?: boolean
 	}
@@ -35,6 +37,7 @@
 		path = $bindable(''),
 		kind = 'flow',
 		onNavigate,
+		onBehalfOfEmail,
 		penVisibility = 'hover',
 		disabled = false
 	}: Props = $props()
@@ -44,7 +47,6 @@
 	let pickerSlugOpen = $state(false)
 	let pathPopoverOpen = $state(false)
 	let dirtyPath = $state(false)
-	let onBehalfOfEmail = $state<string | undefined>(undefined)
 	let initialPathSnapshot = $state<string>('')
 
 	// Path segments. e.g. "f/demo/weather_report" → scope "f/demo", slug "weather_report".
@@ -72,12 +74,6 @@
 			untrack(() => {
 				initialPathSnapshot = path ?? ''
 				dirtyPath = false
-				onBehalfOfEmail = undefined
-				if (kind === 'flow' && $workspaceStore && path) {
-					checkFlowOnBehalfOf($workspaceStore, path).then((email) => {
-						onBehalfOfEmail = email
-					})
-				}
 			})
 		}
 	})
