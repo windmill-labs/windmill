@@ -2427,23 +2427,6 @@ export async function pull(
   const wsSpecificMerge = await mergeWsSpecificFromServer(workspace.workspaceId, specificItems);
   specificItems = wsSpecificMerge.merged;
 
-  // Warn about items the server marks ws_specific that aren't covered by
-  // wmill.yaml's specificItems patterns — the pull will still treat them as
-  // ws_specific (the merge ensures correctness), but the user's config drifts
-  // from the remote and a future push from another machine would push the
-  // item as non-ws_specific.
-  if (wsSpecificMerge.serverItems) {
-    for (const item of wsSpecificMerge.serverItems) {
-      const filePath = `${item.path}.${item.item_kind}.yaml`;
-      if (!isSpecificItem(filePath, localSpecificItems)) {
-        log.warn(
-          `${item.item_kind} ${item.path} is workspace-specific on the remote ` +
-            `but not flagged in wmill.yaml's specificItems — consider adding it.`,
-        );
-      }
-    }
-  }
-
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
 
@@ -2516,6 +2499,27 @@ export async function pull(
   log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`,
   );
+
+  // Warn about items the server marks ws_specific that aren't covered by
+  // wmill.yaml's specificItems patterns — but only for items affected by
+  // this pull (changes list), so unrelated server-flagged items don't
+  // spam the log. The merge above already ensures correctness for the
+  // pull itself; this is a heads-up that the user's config drifts from
+  // the remote and a future push from another machine without that config
+  // would push the item as non-ws_specific.
+  if (wsSpecificMerge.serverItems && wsSpecificMerge.serverItems.length > 0) {
+    const changedPaths = new Set(changes.map((c) => c.path));
+    for (const item of wsSpecificMerge.serverItems) {
+      const filePath = `${item.path}.${item.item_kind}.yaml`;
+      if (!changedPaths.has(filePath)) continue;
+      if (!isSpecificItem(filePath, localSpecificItems)) {
+        log.warn(
+          `${item.item_kind} ${item.path} is workspace-specific on the remote ` +
+            `but not flagged in wmill.yaml's specificItems — consider adding it.`,
+        );
+      }
+    }
+  }
 
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
