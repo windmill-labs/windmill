@@ -335,7 +335,13 @@ async fn create_schedule(
         ns.is_flow,
         to_json_raw_opt(ns.args.as_ref())
             as Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
-        ns.enabled.unwrap_or(false),
+        // Default-on matches the enqueue check below (line ~410) and the trigger
+        // create path (`BaseTriggerData::mode()` defaults to `Enabled`). Every
+        // production caller passes `enabled` explicitly except the fork→parent
+        // flows (CLI merge, UI merge, `wmill push` of a fork tarball) — which
+        // either send the source's actual flag (create case) or omit `enabled`
+        // entirely (update case, where `EditSchedule` lacks the field).
+        ns.enabled.unwrap_or(true),
         resolved_email,
         resolved_permissioned_as,
         ns.on_failure,

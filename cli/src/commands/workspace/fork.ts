@@ -202,7 +202,7 @@ async function createWorkspaceFork(
       workspace: workspace.workspaceId,
       requestBody: {
         id: trueWorkspaceId,
-        name: opts.createWorkspaceName ?? trueWorkspaceId,
+        name: opts.createWorkspaceName ?? workspaceName ?? trueWorkspaceId,
         color: forkColor,
       },
     });
@@ -228,7 +228,7 @@ async function createWorkspaceFork(
       workspace: workspace.workspaceId,
       requestBody: {
         id: trueWorkspaceId,
-        name: opts.createWorkspaceName ?? trueWorkspaceId,
+        name: opts.createWorkspaceName ?? workspaceName ?? trueWorkspaceId,
         color: forkColor,
         forked_datatables: forkedDatatables,
       },

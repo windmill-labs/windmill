@@ -147,6 +147,8 @@ pub struct ListableResource {
     pub account: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ws_specific: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -156,6 +158,8 @@ pub struct CreateResource {
     pub description: Option<String>,
     pub resource_type: String,
     pub labels: Option<Vec<String>>,
+    #[serde(default)]
+    pub ws_specific: Option<bool>,
 }
 #[derive(Deserialize)]
 struct EditResource {
@@ -163,6 +167,7 @@ struct EditResource {
     description: Option<String>,
     value: Option<Box<RawValue>>,
     labels: Option<Vec<String>>,
+    ws_specific: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -260,10 +265,14 @@ async fn list_resources(
             "resource.created_by",
             "resource.edited_at",
             "resource.labels",
+            "ws_specific.path IS NOT NULL as ws_specific",
         ])
         .left()
         .join("variable")
         .on("variable.path = resource.path AND variable.workspace_id = resource.workspace_id")
+        .left()
+        .join("ws_specific")
+        .on("ws_specific.path = resource.path AND ws_specific.workspace_id = resource.workspace_id AND ws_specific.item_kind = 'resource'")
         .left()
         .join("account")
         .on("variable.account = account.id AND account.workspace_id = variable.workspace_id")
@@ -350,14 +359,19 @@ async fn get_resource(
 
     let resource_o = sqlx::query_as!(
         ListableResource,
-        "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
+        "SELECT resource.workspace_id, resource.path, resource.value, resource.description,
+        resource.resource_type, resource.extra_perms, resource.created_by, resource.edited_at,
+        resource.labels,
+        (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
         account.refresh_error,
         variable.path IS NOT NULL as is_linked,
         variable.is_oauth as \"is_oauth?\",
-        variable.account
+        variable.account,
+        ws_specific.path IS NOT NULL as ws_specific
         FROM resource
         LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2
         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2
+        LEFT JOIN ws_specific ON ws_specific.path = resource.path AND ws_specific.workspace_id = $2 AND ws_specific.item_kind = 'resource'
         WHERE resource.path = $1 AND resource.workspace_id = $2",
         path.to_owned(),
         &w_id
@@ -849,6 +863,34 @@ async fn create_resource(
     )
     .execute(&mut *tx)
     .await?;
+
+    // Mirror update_resource: Some(true) inserts, Some(false) clears (only
+    // meaningful on the upsert path, since a pure create has no existing row),
+    // None leaves the existing flag alone.
+    match resource.ws_specific {
+        Some(true) => {
+            sqlx::query!(
+                "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, 'resource', $2) ON CONFLICT DO NOTHING",
+                w_id,
+                resource.path,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            mark_linked_variables_ws_specific(&mut tx, &authed, &w_id, &resource.path).await?;
+        }
+        Some(false) if update_if_exists => {
+            sqlx::query!(
+                "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
+                w_id,
+                resource.path,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        _ => {}
+    }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -971,6 +1013,20 @@ async fn delete_resource(
     let deleted_linked_variables: Vec<String> = if linked_var_paths.is_empty() {
         Vec::new()
     } else {
+        // Clean up any ws_specific rows for these variables first
+        // (mark_linked_variables_ws_specific may have auto-inserted them) so
+        // they don't survive the variable deletion as orphans — a variable
+        // later recreated at the same path would otherwise inherit the stale
+        // ws_specific flag.
+        sqlx::query!(
+            "DELETE FROM ws_specific
+             WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+            w_id,
+            &linked_var_paths
+        )
+        .execute(&mut *tx)
+        .await?;
+
         let placeholders: Vec<String> = linked_var_paths
             .iter()
             .enumerate()
@@ -1082,6 +1138,66 @@ fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
     }
 }
 
+async fn mark_linked_variables_ws_specific(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    w_id: &str,
+    resource_path: &str,
+) -> Result<()> {
+    let resource_value: Option<Option<serde_json::Value>> =
+        sqlx::query_scalar("SELECT value FROM resource WHERE path = $1 AND workspace_id = $2")
+            .bind(resource_path)
+            .bind(w_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+    let mut linked_var_paths: Vec<String> = Vec::new();
+    if let Some(Some(ref value)) = resource_value {
+        collect_var_refs(value, &mut linked_var_paths);
+    }
+
+    linked_var_paths.sort();
+    linked_var_paths.dedup();
+
+    if linked_var_paths.is_empty() {
+        return Ok(());
+    }
+
+    // RETURNING gives us only the rows actually inserted (RFC: ON CONFLICT
+    // DO NOTHING + RETURNING returns the affected rows, i.e. the new ones).
+    let newly_marked: Vec<String> = sqlx::query_scalar(
+        "INSERT INTO ws_specific (workspace_id, item_kind, path)
+         SELECT workspace_id, 'variable', path
+         FROM variable
+         WHERE workspace_id = $1 AND path = ANY($2::text[])
+         ON CONFLICT DO NOTHING
+         RETURNING path",
+    )
+    .bind(w_id)
+    .bind(&linked_var_paths)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    // Audit each variable that was actually flipped to ws_specific so the
+    // change is traceable to the resource save that caused it.
+    for var_path in &newly_marked {
+        let mut params = HashMap::new();
+        params.insert("via_resource", resource_path);
+        audit_log(
+            &mut **tx,
+            authed,
+            "variables.set_ws_specific",
+            ActionKind::Update,
+            w_id,
+            Some(var_path),
+            Some(params),
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
 async fn delete_resources_bulk(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1108,7 +1224,10 @@ async fn delete_resources_bulk(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    // Capture resources for trashbin per path before bulk delete
+    // Capture resources for trashbin per path before bulk delete, and
+    // collect $var: references so we can cascade-delete the linked variables
+    // (matching single-resource delete semantics).
+    let mut linked_var_paths: Vec<String> = Vec::new();
     for path in &request.paths {
         let trash_resource: Option<serde_json::Value> = sqlx::query_scalar(
             "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
@@ -1119,6 +1238,9 @@ async fn delete_resources_bulk(
         .await?;
 
         if let Some(res_data) = trash_resource {
+            if let Some(value) = res_data.get("value") {
+                collect_var_refs(value, &mut linked_var_paths);
+            }
             let trash_data = serde_json::json!({"row": res_data});
             windmill_common::trashbin::move_to_trash(
                 &mut *tx,
@@ -1131,6 +1253,8 @@ async fn delete_resources_bulk(
             .await?;
         }
     }
+    linked_var_paths.sort();
+    linked_var_paths.dedup();
 
     sqlx::query!(
         "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
@@ -1147,6 +1271,30 @@ async fn delete_resources_bulk(
     )
     .fetch_all(&mut *tx)
     .await?;
+
+    // Cascade-clean linked variables: delete any ws_specific 'variable' rows
+    // (typically auto-inserted by mark_linked_variables_ws_specific when the
+    // resource was ws_specific) BEFORE deleting the variable rows themselves
+    // — otherwise those ws_specific rows survive as orphans and a later
+    // variable created at the same path would inherit a stale flag.
+    if !linked_var_paths.is_empty() {
+        sqlx::query!(
+            "DELETE FROM ws_specific
+             WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+            w_id,
+            &linked_var_paths
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query!(
+            "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2)",
+            w_id,
+            &linked_var_paths
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -1219,7 +1367,7 @@ async fn update_resource(
     if let Some(npath) = &ns.path {
         sqlb.set_str("path", npath);
     }
-    if let Some(nvalue) = ns.value {
+    if let Some(nvalue) = &ns.value {
         sqlb.set_str("value", nvalue.to_string());
     }
     if let Some(ndesc) = ns.description {
@@ -1302,6 +1450,15 @@ async fn update_resource(
             )
             .execute(&mut *tx)
             .await?;
+
+            sqlx::query!(
+                "UPDATE ws_specific SET path = $1 WHERE workspace_id = $2 AND item_kind = 'variable' AND path = $3",
+                npath,
+                w_id,
+                path
+            )
+            .execute(&mut *tx)
+            .await?;
         }
     }
 
@@ -1319,6 +1476,49 @@ async fn update_resource(
         )
         .execute(&mut *tx)
         .await?;
+    }
+
+    if let Some(ws_specific) = ns.ws_specific {
+        if ws_specific {
+            sqlx::query!(
+                "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, 'resource', $2) ON CONFLICT DO NOTHING",
+                w_id,
+                &npath,
+            )
+            .execute(&mut *tx)
+            .await?;
+        } else {
+            sqlx::query!(
+                "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
+                w_id,
+                &npath,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    // Only re-mark linked variables when something that could change them
+    // actually changed: a new value (different $var: refs) or ws_specific
+    // freshly enabled. Skipping when neither changed avoids re-running an
+    // INSERT (and audit logs) on every save.
+    let needs_remark = ns.value.is_some() || ns.ws_specific == Some(true);
+    if needs_remark {
+        let effective_ws_specific = if let Some(ws_specific) = ns.ws_specific {
+            ws_specific
+        } else {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2)",
+            )
+            .bind(&w_id)
+            .bind(&npath)
+            .fetch_one(&mut *tx)
+            .await?
+        };
+
+        if effective_ws_specific {
+            mark_linked_variables_ws_specific(&mut tx, &authed, &w_id, &npath).await?;
+        }
     }
 
     audit_log(

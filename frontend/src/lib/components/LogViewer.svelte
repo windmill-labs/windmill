@@ -15,6 +15,7 @@
 	import { Button, Drawer, DrawerContent } from './common'
 	import { copyToClipboard } from '$lib/utils'
 	import { base } from '$lib/base'
+	import { withExternalDomain } from '$lib/externalDomain'
 	import { workspaceStore } from '$lib/stores'
 	import { AnsiUp } from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
@@ -204,6 +205,9 @@
 			scroll = true
 		}
 	})
+	let downloadHref = $derived(
+		withExternalDomain(`${base}/api/w/${$workspaceStore}/jobs_u/get_logs/${jobId}`)
+	)
 	let truncatedContent = $derived(truncateContent(content, loadedFromObjectStore, LOG_LIMIT))
 	let prefixInfo = $derived(findPrefixInfo(truncatedContent))
 	let downloadStartUrl = $derived(findStartUrl(truncatedContent, prefixInfo))
@@ -244,7 +248,7 @@
 		{#snippet actions()}
 			{#if jobId && download}
 				<Button
-					href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
+					href={downloadHref}
 					download="windmill_logs_{jobId}.txt"
 					color="light"
 					size="xs"
@@ -323,7 +327,7 @@
 							<a
 								class="text-primary pb-0.5"
 								target="_blank"
-								href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
+								href={downloadHref}
 								download="windmill_logs_{jobId}.txt"
 								><Download size="14" />
 							</a>

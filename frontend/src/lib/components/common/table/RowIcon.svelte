@@ -4,6 +4,7 @@
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
+	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 	import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
 	import {
 		Boxes,
@@ -18,38 +19,62 @@
 		Unplug
 	} from 'lucide-svelte'
 
-
-	
 	interface Props {
-		kind: 
-		| 'script'
-		| 'flow'
-		| 'app'
-		| 'raw_app'
-		| 'resource'
-		| 'variable'
-		| 'resource_type'
-		| 'folder'
-		| 'schedule'
-		| 'trigger'
-		| 'routes'
-		| 'schedules'
-		| 'websockets'
-		| 'postgres'
-		| 'kafka'
-		| 'nats'
-		| 'mqtt'
-		| 'sqs'
-		| 'gcp'
-		| 'emails';
+		kind:
+			| 'script'
+			| 'flow'
+			| 'app'
+			| 'raw_app'
+			| 'resource'
+			| 'variable'
+			| 'resource_type'
+			| 'folder'
+			| 'schedule'
+			| 'trigger'
+			| 'routes'
+			| 'schedules'
+			| 'websockets'
+			| 'postgres'
+			| 'kafka'
+			| 'nats'
+			| 'mqtt'
+			| 'sqs'
+			| 'gcp'
+			| 'emails'
+			| 'http_trigger'
+			| 'websocket_trigger'
+			| 'kafka_trigger'
+			| 'nats_trigger'
+			| 'postgres_trigger'
+			| 'mqtt_trigger'
+			| 'sqs_trigger'
+			| 'gcp_trigger'
+			| 'azure_trigger'
+			| 'email_trigger'
 		/** For 'trigger' kind, specifies the specific trigger type (routes, schedules, etc.) */
-		triggerKind?: string | undefined;
+		triggerKind?: string | undefined
 	}
 
-	let { kind, triggerKind = undefined }: Props = $props();
+	let { kind, triggerKind = undefined }: Props = $props()
 
-	// Use triggerKind if kind is 'trigger' and triggerKind is provided
-	let effectiveKind = $derived(kind === 'trigger' && triggerKind ? triggerKind : kind)
+	// Map per-kind backend names (e.g. `kafka_trigger`) to the legacy short
+	// names the icon switch already handles, so we don't have to duplicate cases.
+	const PER_KIND_TO_SHORT: Record<string, string> = {
+		http_trigger: 'routes',
+		websocket_trigger: 'websockets',
+		kafka_trigger: 'kafka',
+		nats_trigger: 'nats',
+		postgres_trigger: 'postgres',
+		mqtt_trigger: 'mqtt',
+		sqs_trigger: 'sqs',
+		gcp_trigger: 'gcp',
+		azure_trigger: 'azure',
+		email_trigger: 'emails'
+	}
+
+	let effectiveKind = $derived(
+		kind === 'trigger' && triggerKind ? triggerKind : (PER_KIND_TO_SHORT[kind] ?? kind)
+	)
 </script>
 
 <div class="flex justify-center items-center" title={effectiveKind}>
@@ -85,6 +110,8 @@
 		<AwsIcon size={16} class="text-gray-400" />
 	{:else if effectiveKind === 'gcp'}
 		<GoogleCloudIcon size={16} />
+	{:else if effectiveKind === 'azure'}
+		<AzureIcon size={16} />
 	{:else if effectiveKind === 'emails'}
 		<Mail size={16} class="text-gray-400" />
 	{:else if effectiveKind === 'trigger'}

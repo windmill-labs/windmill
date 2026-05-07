@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,\n        account.refresh_error,\n        variable.path IS NOT NULL as is_linked,\n        variable.is_oauth as \"is_oauth?\",\n        variable.account\n        FROM resource\n        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2\n        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2\n        WHERE resource.path = $1 AND resource.workspace_id = $2",
+  "query": "SELECT resource.workspace_id, resource.path, resource.value, resource.description,\n        resource.resource_type, resource.extra_perms, resource.created_by, resource.edited_at,\n        resource.labels,\n        (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,\n        account.refresh_error,\n        variable.path IS NOT NULL as is_linked,\n        variable.is_oauth as \"is_oauth?\",\n        variable.account,\n        ws_specific.path IS NOT NULL as ws_specific\n        FROM resource\n        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = $2\n        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2\n        LEFT JOIN ws_specific ON ws_specific.path = resource.path AND ws_specific.workspace_id = $2 AND ws_specific.item_kind = 'resource'\n        WHERE resource.path = $1 AND resource.workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -35,13 +35,13 @@
       },
       {
         "ordinal": 6,
-        "name": "edited_at",
-        "type_info": "Timestamptz"
+        "name": "created_by",
+        "type_info": "Varchar"
       },
       {
         "ordinal": 7,
-        "name": "created_by",
-        "type_info": "Varchar"
+        "name": "edited_at",
+        "type_info": "Timestamptz"
       },
       {
         "ordinal": 8,
@@ -77,6 +77,11 @@
         "ordinal": 14,
         "name": "account",
         "type_info": "Int4"
+      },
+      {
+        "ordinal": 15,
+        "name": "ws_specific",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -100,8 +105,9 @@
       true,
       null,
       false,
-      true
+      true,
+      null
     ]
   },
-  "hash": "41f2c271514ee254739c3a097871526adcecdd8729f28c15e0db8cd28eaa8cf0"
+  "hash": "9254e2a0e1be830fa4cab660c69a659e2eb3f3d912e1c062bb8000a2e0a653e8"
 }

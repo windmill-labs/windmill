@@ -29,44 +29,46 @@ export interface SpecificItemsConfig {
   settings?: boolean;
 }
 
-// Define all workspace-specific file types (computed lazily)
-function getWorkspaceSpecificTypes() {
-  return {
-    variable: '.variable.yaml',
-    resource: '.resource.yaml',
-    schedule: '.schedule.yaml',
-    // Generate trigger patterns from the list
-    ...Object.fromEntries(
-      TRIGGER_TYPES.map(t => [`${t}_trigger`, `.${t}_trigger.yaml`])
-    )
-  } as const;
+// Define all workspace-specific file type *kinds* (extension-less). The
+// actual on-disk file is `<kind>.yaml` or `<kind>.json` depending on
+// opts.json — every helper below treats both as equivalent.
+function getWorkspaceSpecificTypeKinds(): string[] {
+  return [
+    'variable',
+    'resource',
+    'schedule',
+    ...TRIGGER_TYPES.map(t => `${t}_trigger`),
+  ];
 }
 
 /**
  * Check if a path ends with any trigger type
  */
 function isTriggerFile(path: string): boolean {
-  return TRIGGER_TYPES.some(type => path.endsWith(`.${type}_trigger.yaml`));
+  return TRIGGER_TYPES.some(type =>
+    path.endsWith(`.${type}_trigger.yaml`) || path.endsWith(`.${type}_trigger.json`)
+  );
 }
 
 /**
  * Check if a path is a schedule file
  */
 function isScheduleFile(path: string): boolean {
-  return path.endsWith('.schedule.yaml');
+  return path.endsWith('.schedule.yaml') || path.endsWith('.schedule.json');
 }
 
 /**
- * Extract the file type suffix from a path
+ * Extract the file type suffix from a path. Preserves the original `.yaml`
+ * or `.json` extension so callers like toWorkspaceSpecificPath round-trip
+ * correctly.
  */
 function getFileTypeSuffix(path: string): string | null {
-  for (const [_, suffix] of Object.entries(getWorkspaceSpecificTypes())) {
-    if (path.endsWith(suffix)) {
-      return suffix;
-    }
+  for (const kind of getWorkspaceSpecificTypeKinds()) {
+    if (path.endsWith(`.${kind}.yaml`)) return `.${kind}.yaml`;
+    if (path.endsWith(`.${kind}.json`)) return `.${kind}.json`;
   }
 
-  const resourceFileMatch = path.match(/(\\.resource\\.file\\..+)$/);
+  const resourceFileMatch = path.match(/(\.resource\.file\..+)$/);
   if (resourceFileMatch) {
     return resourceFileMatch[1];
   }
@@ -75,9 +77,9 @@ function getFileTypeSuffix(path: string): string | null {
 }
 
 /**
- * Build regex pattern for all supported yaml file types
+ * Build regex pattern for all supported item-kind file types
  */
-function buildYamlTypePattern(): string {
+function buildItemTypePattern(): string {
   const basicTypes = ['variable', 'resource', 'schedule'];
   const triggerTypes = TRIGGER_TYPES.map(t => `${t}_trigger`);
   return `((${basicTypes.join('|')})|(${triggerTypes.join('|')}))`;
@@ -171,6 +173,18 @@ function matchesPatterns(path: string, patterns: string[]): boolean {
 }
 
 /**
+ * Normalize a `.json` extension to `.yaml` for pattern matching. Patterns in
+ * wmill.yaml (and those appended by mergeWsSpecificFromServer) are expressed
+ * with `.yaml` regardless of opts.json, so a `.json` local file would never
+ * match without this. The rest of `isSpecificItem`/`isItemTypeConfigured`
+ * checks `endsWith('.X.yaml')`, so normalizing once at the entry point keeps
+ * both the helpers and the patterns single-extension.
+ */
+function normalizeJsonToYaml(path: string): string {
+  return path.endsWith('.json') ? path.slice(0, -'.json'.length) + '.yaml' : path;
+}
+
+/**
  * Check if the item type for a given path is configured in specificItems.
  * This checks if the TYPE is configured, not whether it matches the pattern.
  * Used to determine if workspace-specific files should be used for this type.
@@ -179,6 +193,8 @@ export function isItemTypeConfigured(path: string, specificItems: SpecificItemsC
   if (!specificItems) {
     return false;
   }
+
+  path = normalizeJsonToYaml(path);
 
   if (path.endsWith('.variable.yaml')) {
     return specificItems.variables !== undefined;
@@ -218,6 +234,8 @@ export function isSpecificItem(path: string, specificItems: SpecificItemsConfig 
   if (!specificItems) {
     return false;
   }
+
+  path = normalizeJsonToYaml(path);
 
   // Determine the item type from the file path
   if (path.endsWith('.variable.yaml')) {
@@ -286,15 +304,16 @@ export function toWorkspaceSpecificPath(basePath: string, workspaceName: string)
     console.warn(`Warning: Workspace name "${workspaceName}" contains filesystem-unsafe characters (/ \\ : * ? " < > | .) and was sanitized to "${sanitizedName}". This may cause collisions with other similarly named branches.`);
   }
 
-  // Check for folder meta file pattern: folder.meta.yaml -> folder.workspaceName.meta.yaml
-  if (basePath.endsWith('/folder.meta.yaml')) {
-    const pathWithoutMeta = basePath.substring(0, basePath.length - '/folder.meta.yaml'.length);
-    return `${pathWithoutMeta}/folder.${sanitizedName}.meta.yaml`;
+  // Check for folder meta file pattern: folder.meta.{yaml,json} -> folder.workspaceName.meta.{yaml,json}
+  const folderMetaMatch = basePath.match(/^(.*)\/folder\.meta\.(yaml|json)$/);
+  if (folderMetaMatch) {
+    return `${folderMetaMatch[1]}/folder.${sanitizedName}.meta.${folderMetaMatch[2]}`;
   }
 
-  // Check for settings.yaml: settings.yaml -> settings.workspaceName.yaml
-  if (basePath === 'settings.yaml') {
-    return `settings.${sanitizedName}.yaml`;
+  // Check for settings.{yaml,json}: settings.{ext} -> settings.workspaceName.{ext}
+  const settingsMatch = basePath.match(/^settings\.(yaml|json)$/);
+  if (settingsMatch) {
+    return `settings.${sanitizedName}.${settingsMatch[1]}`;
   }
 
   // Check for resource file pattern (e.g., .resource.file.ini)
@@ -327,16 +346,18 @@ export function fromWorkspaceSpecificPath(workspaceSpecificPath: string, workspa
   const sanitizedName = workspaceName.replace(/[\/\\:*?"<>|.]/g, '_');
   const escapedName = sanitizedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  // Check for folder meta file pattern: /folder.workspaceName.meta.yaml -> /folder.meta.yaml
-  const folderPattern = new RegExp(`/folder\\.${escapedName}\\.meta\\.yaml$`);
-  if (folderPattern.test(workspaceSpecificPath)) {
-    return workspaceSpecificPath.replace(folderPattern, '/folder.meta.yaml');
+  // Check for folder meta file pattern: /folder.workspaceName.meta.{yaml,json} -> /folder.meta.{ext}
+  const folderPattern = new RegExp(`/folder\\.${escapedName}\\.meta\\.(yaml|json)$`);
+  const folderMatch = workspaceSpecificPath.match(folderPattern);
+  if (folderMatch) {
+    return workspaceSpecificPath.replace(folderPattern, `/folder.meta.${folderMatch[1]}`);
   }
 
-  // Check for settings file pattern: settings.workspaceName.yaml -> settings.yaml
-  const settingsPattern = new RegExp(`^settings\\.${escapedName}\\.yaml$`);
-  if (settingsPattern.test(workspaceSpecificPath)) {
-    return 'settings.yaml';
+  // Check for settings file pattern: settings.workspaceName.{yaml,json} -> settings.{ext}
+  const settingsPattern = new RegExp(`^settings\\.${escapedName}\\.(yaml|json)$`);
+  const settingsMatch = workspaceSpecificPath.match(settingsPattern);
+  if (settingsMatch) {
+    return `settings.${settingsMatch[1]}`;
   }
 
   // Check for resource file pattern
@@ -352,14 +373,14 @@ export function fromWorkspaceSpecificPath(workspaceSpecificPath: string, workspa
     return `${pathWithoutBranchAndExtension}${extension}`;
   }
 
-  const yamlPattern = new RegExp(`\\.${escapedName}(\\.${buildYamlTypePattern()}\\.yaml)$`);
-  const yamlMatch = workspaceSpecificPath.match(yamlPattern);
+  const typedPattern = new RegExp(`\\.${escapedName}(\\.${buildItemTypePattern()}\\.(yaml|json))$`);
+  const typedMatch = workspaceSpecificPath.match(typedPattern);
 
-  if (!yamlMatch) {
+  if (!typedMatch) {
     return workspaceSpecificPath; // Return unchanged if not a workspace-specific path
   }
 
-  const extension = yamlMatch[1];
+  const extension = typedMatch[1];
   const pathWithoutBranchAndExtension = workspaceSpecificPath.substring(
     0,
     workspaceSpecificPath.length - `.${sanitizedName}${extension}`.length
@@ -427,10 +448,10 @@ export function isCurrentWorkspaceFile(path: string, workspaceNameOverride?: str
   let pattern = workspacePatternCache.get(currentWorkspace);
   if (!pattern) {
     pattern = new RegExp(
-      `\\.${escapedName}\\.${buildYamlTypePattern()}\\.yaml$|` +
+      `\\.${escapedName}\\.${buildItemTypePattern()}\\.(yaml|json)$|` +
       `\\.${escapedName}\\.resource\\.file\\..+$|` +
-      `/folder\\.${escapedName}\\.meta\\.yaml$|` +
-      `^settings\\.${escapedName}\\.yaml$`
+      `/folder\\.${escapedName}\\.meta\\.(yaml|json)$|` +
+      `^settings\\.${escapedName}\\.(yaml|json)$`
     );
     workspacePatternCache.set(currentWorkspace, pattern);
   }
@@ -443,11 +464,11 @@ export function isCurrentWorkspaceFile(path: string, workspaceNameOverride?: str
  * Used to identify and skip files from other branches during sync operations
  */
 export function isWorkspaceSpecificFile(path: string): boolean {
-  const yamlTypePattern = buildYamlTypePattern();
+  const typePattern = buildItemTypePattern();
   return new RegExp(
-    `\\.[^.]+\\.${yamlTypePattern}\\.yaml$|` +
+    `\\.[^.]+\\.${typePattern}\\.(yaml|json)$|` +
     `\\.[^.]+\\.resource\\.file\\..+$|` +
-    `/folder\\.[^.]+\\.meta\\.yaml$|` +
-    `^settings\\.[^.]+\\.yaml$`
+    `/folder\\.[^.]+\\.meta\\.(yaml|json)$|` +
+    `^settings\\.[^.]+\\.(yaml|json)$`
   ).test(path);
 }
