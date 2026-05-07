@@ -7193,10 +7193,30 @@ async fn list_ws_specific(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<WsSpecificItem>> {
+    // ws_specific itself has no per-item RLS — only the workspace_id column.
+    // Joining against resource/variable under user_db forces the same
+    // path-based RLS policies that govern those tables (see_own / see_member /
+    // see_extra_perms_* / see_folder_extra_perms_user) to also gate visibility
+    // here. Without these joins, any workspace member could enumerate paths
+    // in folders they lack read access to (e.g. f/finance/prod_db_creds).
     let mut tx = user_db.begin(&authed).await?;
     let items = sqlx::query_as!(
         WsSpecificItem,
-        "SELECT item_kind, path FROM ws_specific WHERE workspace_id = $1",
+        r#"
+        SELECT s.item_kind, s.path
+        FROM ws_specific s
+        WHERE s.workspace_id = $1
+          AND (
+              (s.item_kind = 'resource' AND EXISTS (
+                  SELECT 1 FROM resource r
+                  WHERE r.workspace_id = s.workspace_id AND r.path = s.path
+              ))
+              OR (s.item_kind = 'variable' AND EXISTS (
+                  SELECT 1 FROM variable v
+                  WHERE v.workspace_id = s.workspace_id AND v.path = s.path
+              ))
+          )
+        "#,
         &w_id
     )
     .fetch_all(&mut *tx)
