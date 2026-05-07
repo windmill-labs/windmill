@@ -323,9 +323,10 @@ impl Google {
     }
 
     /// Renew an expiring Google watch channel.
-    /// Rotates the webhook token (creating a new one with the same label),
-    /// stops the old channel and creates a new one with a fresh channel ID
-    /// (Google rejects reused channel IDs with `channelIdNotUnique`).
+    /// Rotates the webhook token (mints a fresh `ephemeral-webhook-google-{rd5}` label
+    /// and a 14-day expiration via `rotate_webhook_token`), stops the old channel and
+    /// creates a new one with a fresh channel ID (Google rejects reused channel IDs
+    /// with `channelIdNotUnique`).
     /// Returns (new_service_config, new_plaintext_token, old_token_hash).
     /// Callers should delete old_token_hash after successfully updating the trigger.
     pub async fn renew_channel(

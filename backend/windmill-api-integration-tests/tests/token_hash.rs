@@ -352,16 +352,27 @@ async fn test_rotate_webhook_token(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_ne!(rotated.new_token, original_token);
     assert_eq!(rotated.old_token_hash, original_hash);
 
-    // New token's hash should exist in DB
+    // New token's hash should exist in DB with the per-service label and expiration
     let new_hash = hash_token(&rotated.new_token);
-    let exists: bool = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM token WHERE token_hash = $1) AS exists",
+    let new_row = sqlx::query!(
+        "SELECT label, expiration FROM token WHERE token_hash = $1",
         new_hash
     )
-    .fetch_one(&db)
+    .fetch_optional(&db)
     .await?
-    .unwrap_or(false);
-    assert!(exists, "new token hash must exist in DB after rotation");
+    .expect("new token hash must exist in DB after rotation");
+    assert!(
+        new_row
+            .label
+            .as_deref()
+            .is_some_and(|l| l.starts_with("ephemeral-webhook-google-")),
+        "rotated token must carry an ephemeral-webhook-google-* label, got {:?}",
+        new_row.label
+    );
+    assert!(
+        new_row.expiration.is_some(),
+        "rotated Google token must carry an expiration"
+    );
 
     // Old token should still exist (deletion deferred to caller)
     let old_exists: bool = sqlx::query_scalar!(
