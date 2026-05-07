@@ -200,7 +200,7 @@
 				'w-full whitespace-pre overflow-hidden leading-8',
 				'focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0',
 				open ? '' : 'cursor-pointer',
-				(clearable || RightIcon) && !disabled && value ? 'pr-8' : '',
+				loading || (clearable && !disabled && value) || RightIcon ? 'pr-8' : '',
 				inputClass ?? '',
 				'empty:before:content-[attr(data-placeholder)]',
 				!value ? 'empty:before:text-hint' : 'empty:before:text-primary'
@@ -239,7 +239,7 @@
 				open ? '' : 'cursor-pointer',
 				// Show value as placeholder when opening the dropdown and the search is empty
 				!value ? 'placeholder-hint' : '!placeholder-primary',
-				(clearable || RightIcon) && !disabled && value ? 'pr-8' : '',
+				loading || (clearable && !disabled && value) || RightIcon ? 'pr-8' : '',
 				inputClass ?? ''
 			)}
 			autocomplete="off"
