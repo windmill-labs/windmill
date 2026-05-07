@@ -37,14 +37,32 @@
 		md: twMerge(ButtonType.UnifiedSizingClasses.md, ButtonType.UnifiedMinHeightClasses.md, 'px-2'),
 		lg: twMerge(ButtonType.UnifiedSizingClasses.lg, ButtonType.UnifiedMinHeightClasses.lg, 'px-2')
 	}
+
+	// Matches each unified height so a single-line contenteditable div centers
+	// its text the way an <input> does natively.
+	export const inputLeadingClasses: Record<ButtonType.UnifiedSize, string> = {
+		xs: 'leading-5',
+		sm: 'leading-7',
+		md: 'leading-8',
+		lg: 'leading-10'
+	}
 </script>
 
-<script lang="ts" generics="UnderlyingInputElT extends 'input' | 'textarea' = 'input'">
-	import type { HTMLInputAttributes, HTMLTextareaAttributes } from 'svelte/elements'
+<script lang="ts" generics="UnderlyingInputElT extends 'input' | 'textarea' | 'div' = 'input'">
+	import type { HTMLAttributes, HTMLInputAttributes, HTMLTextareaAttributes } from 'svelte/elements'
 	import { twMerge } from 'tailwind-merge'
 
-	type Props<UnderlyingInputElT extends 'input' | 'textarea'> = {
-		inputProps?: UnderlyingInputElT extends 'input' ? HTMLInputAttributes : HTMLTextareaAttributes
+	type DivInputProps = HTMLAttributes<HTMLDivElement> & {
+		disabled?: boolean
+		placeholder?: string
+	}
+
+	type Props<UnderlyingInputElT extends 'input' | 'textarea' | 'div'> = {
+		inputProps?: UnderlyingInputElT extends 'input'
+			? HTMLInputAttributes
+			: UnderlyingInputElT extends 'textarea'
+				? HTMLTextareaAttributes
+				: DivInputProps
 		value?: string | number
 		class?: string
 		error?: string | boolean
@@ -58,10 +76,18 @@
 	}
 
 	export function select() {
-		inputEl?.select()
+		if (inputEl instanceof HTMLDivElement) {
+			const range = document.createRange()
+			range.selectNodeContents(inputEl)
+			const sel = window.getSelection()
+			sel?.removeAllRanges()
+			sel?.addRange(range)
+		} else {
+			inputEl?.select()
+		}
 	}
 
-	let inputEl: HTMLInputElement | HTMLTextAreaElement | undefined = $state()
+	let inputEl: HTMLInputElement | HTMLTextAreaElement | HTMLDivElement | undefined = $state()
 
 	let {
 		inputProps: _inputProps,
@@ -87,6 +113,17 @@
 			className
 		)
 	)
+
+	// contenteditable is mutated by the browser as the user types — a templated
+	// `>{value}</div>` would race with that and produce duplicated text. Sync
+	// imperatively, with an equality guard so user input doesn't echo back.
+	$effect(() => {
+		if (underlyingInputEl !== 'div' || !inputEl) return
+		const target = value == null ? '' : String(value)
+		if (inputEl.textContent !== target) {
+			inputEl.textContent = target
+		}
+	})
 </script>
 
 {#if underlyingInputEl === 'textarea'}
@@ -108,4 +145,26 @@
 		bind:this={inputEl}
 		bind:value
 	/>
+{:else if underlyingInputEl === 'div'}
+	{@const { disabled, placeholder, ...divProps } = (inputProps ?? {}) as DivInputProps}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		role="textbox"
+		tabindex={disabled ? -1 : 0}
+		contenteditable={!disabled}
+		{...divProps}
+		class={twMerge(
+			fullClassName,
+			'whitespace-pre overflow-hidden',
+			inputLeadingClasses[size],
+			'focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0',
+			'empty:before:content-[attr(data-placeholder)] empty:before:text-hint'
+		)}
+		data-placeholder={placeholder ?? ''}
+		onpointerdown={(e) => e.stopImmediatePropagation()}
+		oninput={(e) => {
+			value = e.currentTarget.textContent ?? ''
+		}}
+		bind:this={inputEl}
+	></div>
 {/if}

@@ -418,7 +418,8 @@
 						]}
 						RightIcon={ChevronDown}
 						transformInputSelectedText={(t) => t.substring(0, 1).toLowerCase()}
-						inputClass="border-none !w-12"
+						inputClass="border-none"
+						useContentEditable
 						bind:value={
 							() => meta?.ownerKind,
 							(v) => {
@@ -445,11 +446,11 @@
 				{#if meta.ownerKind === 'user'}
 					<label class="block shrink min-w-0">
 						<TextInput
-							class="!w-36 !border-none"
+							class="!border-none"
 							{size}
+							underlyingInputEl="div"
 							bind:value={meta.owner}
 							inputProps={{
-								type: 'text',
 								placeholder: $userStore?.username ?? '',
 								onkeydown: setDirty,
 								disabled:
