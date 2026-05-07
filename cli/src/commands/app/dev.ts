@@ -54,13 +54,20 @@ const createHTML = (jsPath: string, cssPath: string) => `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Windmill App Dev Preview</title>
+  <style>
+    /* Declared before the user stylesheet so Tailwind's layers (theme, base,
+       components, utilities) are appended after wmill-shell and win the
+       cascade. Unlayered styles would override Tailwind utilities. */
+    @layer wmill-shell {
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+    }
+  </style>
   <link rel="stylesheet" href="${cssPath}">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
         'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;

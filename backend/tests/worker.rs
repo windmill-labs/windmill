@@ -5061,6 +5061,88 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
 
 #[cfg(all(feature = "quickjs", feature = "python"))]
 #[sqlx::test(fixtures("base"))]
+async fn test_whileloop_propagates_inner_iterator_eval_failure(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    // Regression test: while-loop with skip_failures=false whose body has
+    // a successful step followed by a for-loop whose iterator expression
+    // throws. Previously the iterator-eval failure was silently swallowed
+    // because `handle_flow` returning `Err` left the local `success` set to
+    // the prior step's outcome (true). The parent while-loop received
+    // success=true and kept iterating despite the inner failure.
+    let port = 123;
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "id": "outer",
+                "value": {
+                    "type": "whileloopflow",
+                    "skip_failures": false,
+                    "modules": [
+                        {
+                            "id": "prev",
+                            "value": {
+                                "input_transforms": {
+                                    "i": {
+                                        "type": "javascript",
+                                        "expr": "flow_input.iter.index",
+                                    },
+                                },
+                                "type": "rawscript",
+                                "language": "python3",
+                                "content": "def main(i): return i",
+                            },
+                        },
+                        {
+                            "id": "inner",
+                            "value": {
+                                "type": "forloopflow",
+                                // results.prev is null, so `.does_not_exist` throws.
+                                "iterator": {
+                                    "type": "javascript",
+                                    "expr": "results.prev.does_not_exist",
+                                },
+                                "skip_failures": false,
+                                "parallel": false,
+                                "modules": [{
+                                    "id": "leaf",
+                                    "value": {
+                                        "type": "rawscript",
+                                        "language": "python3",
+                                        "content": "def main(): return 1",
+                                    },
+                                }],
+                            },
+                        },
+                    ],
+                },
+                // bound iteration count so without the fix the test fails fast
+                // with success=true (rather than running forever); with the fix
+                // the loop stops at iter 0 with success=false.
+                "stop_after_if": {
+                    "expr": "result >= 2",
+                    "skip_if_stopped": false,
+                },
+            },
+        ],
+    }))
+    .unwrap();
+    let job = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
+
+    let cjob = RunJob::from(job).run_until_complete(&db, false, port).await;
+
+    assert!(
+        !cjob.success,
+        "flow should fail when inner forloop iterator throws inside a while-loop with skip_failures=false"
+    );
+
+    Ok(())
+}
+
+#[cfg(all(feature = "quickjs", feature = "python"))]
+#[sqlx::test(fixtures("base"))]
 async fn test_stop_after_all_iters_if_bad_expr_parallel_branchall(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {

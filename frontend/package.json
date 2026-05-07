@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.696.1",
+	"version": "1.696.2",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -378,6 +378,10 @@
 		"./stores": {
 			"types": "./package/stores.d.ts",
 			"default": "./package/stores.js"
+		},
+		"./externalDomain": {
+			"types": "./package/externalDomain.d.ts",
+			"default": "./package/externalDomain.js"
 		},
 		"./gen": {
 			"types": "./package/gen/index.d.ts",
