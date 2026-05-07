@@ -998,6 +998,20 @@ async fn delete_resource(
     let deleted_linked_variables: Vec<String> = if linked_var_paths.is_empty() {
         Vec::new()
     } else {
+        // Clean up any ws_specific rows for these variables first
+        // (mark_linked_variables_ws_specific may have auto-inserted them) so
+        // they don't survive the variable deletion as orphans — a variable
+        // later recreated at the same path would otherwise inherit the stale
+        // ws_specific flag.
+        sqlx::query!(
+            "DELETE FROM ws_specific
+             WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+            w_id,
+            &linked_var_paths
+        )
+        .execute(&mut *tx)
+        .await?;
+
         let placeholders: Vec<String> = linked_var_paths
             .iter()
             .enumerate()
@@ -1195,7 +1209,10 @@ async fn delete_resources_bulk(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    // Capture resources for trashbin per path before bulk delete
+    // Capture resources for trashbin per path before bulk delete, and
+    // collect $var: references so we can cascade-delete the linked variables
+    // (matching single-resource delete semantics).
+    let mut linked_var_paths: Vec<String> = Vec::new();
     for path in &request.paths {
         let trash_resource: Option<serde_json::Value> = sqlx::query_scalar(
             "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
@@ -1206,6 +1223,9 @@ async fn delete_resources_bulk(
         .await?;
 
         if let Some(res_data) = trash_resource {
+            if let Some(value) = res_data.get("value") {
+                collect_var_refs(value, &mut linked_var_paths);
+            }
             let trash_data = serde_json::json!({"row": res_data});
             windmill_common::trashbin::move_to_trash(
                 &mut *tx,
@@ -1218,6 +1238,8 @@ async fn delete_resources_bulk(
             .await?;
         }
     }
+    linked_var_paths.sort();
+    linked_var_paths.dedup();
 
     sqlx::query!(
         "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
@@ -1234,6 +1256,30 @@ async fn delete_resources_bulk(
     )
     .fetch_all(&mut *tx)
     .await?;
+
+    // Cascade-clean linked variables: delete any ws_specific 'variable' rows
+    // (typically auto-inserted by mark_linked_variables_ws_specific when the
+    // resource was ws_specific) BEFORE deleting the variable rows themselves
+    // — otherwise those ws_specific rows survive as orphans and a later
+    // variable created at the same path would inherit a stale flag.
+    if !linked_var_paths.is_empty() {
+        sqlx::query!(
+            "DELETE FROM ws_specific
+             WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+            w_id,
+            &linked_var_paths
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query!(
+            "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2)",
+            w_id,
+            &linked_var_paths
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,

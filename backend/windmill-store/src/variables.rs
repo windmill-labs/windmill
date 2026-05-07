@@ -571,6 +571,18 @@ async fn delete_variable(
     )
     .execute(&mut *tx)
     .await?;
+    // Clean up any ws_specific row for the linked resource at the same path
+    // before deleting the resource itself — symmetric with the cleanup
+    // delete_resource does for linked variables. Without this, a resource
+    // later recreated at the same path would inherit a stale ws_specific flag.
+    sqlx::query!(
+        "DELETE FROM ws_specific
+         WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
+        w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
     let deleted_linked_resource = sqlx::query_scalar!(
         "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
         path,
