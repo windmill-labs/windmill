@@ -1,4 +1,6 @@
 <script lang="ts" module>
+	import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
+
 	export type OnBehalfOfChoice = 'target' | 'me' | 'custom' | undefined
 
 	export interface OnBehalfOfDetails {
@@ -11,14 +13,14 @@
 	 * Shows the selector when the source item has an on_behalf_of value set.
 	 */
 	export function needsOnBehalfOfSelection(kind: string, sourceValue: string | undefined): boolean {
-		if (
-			kind !== 'flow' &&
-			kind !== 'script' &&
-			kind !== 'app' &&
-			kind !== 'raw_app' &&
-			kind !== 'trigger'
-		)
-			return false
+		const supported =
+			kind === 'flow' ||
+			kind === 'script' ||
+			kind === 'app' ||
+			kind === 'raw_app' ||
+			kind === 'trigger' ||
+			isTriggerOrScheduleKind(kind)
+		if (!supported) return false
 		return !!sourceValue
 	}
 </script>
@@ -69,7 +71,7 @@
 		folderDefault = undefined
 	}: Props = $props()
 
-	const isTrigger = $derived(kind === 'trigger')
+	const isTrigger = $derived(kind === 'trigger' || isTriggerOrScheduleKind(kind))
 
 	let label = $derived(
 		isTrigger

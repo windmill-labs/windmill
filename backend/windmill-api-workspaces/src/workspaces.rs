@@ -184,6 +184,8 @@ pub fn workspaced_service() -> Router {
         .route("/log_chat", post(log_ai_chat))
         .route("/cloud_quotas", get(get_cloud_quotas))
         .route("/prune_versions", post(prune_versions))
+        .route("/list_ws_specific", get(list_ws_specific))
+        .route("/list_ws_specific_versions", get(list_ws_specific_versions))
 }
 pub fn global_service() -> Router {
     Router::new()
@@ -6166,6 +6168,8 @@ pub struct CompareSummary {
     pub variables_changed: usize,
     pub resource_types_changed: usize,
     pub folders_changed: usize,
+    pub schedules_changed: usize,
+    pub triggers_changed: usize,
     pub conflicts: usize, // Items that are both ahead and behind
 }
 
@@ -6289,6 +6293,20 @@ async fn compare_workspaces(
                 compare_two_folders(&db, &source_workspace_id, &fork_workspace_id, &item.path)
                     .await?,
             ),
+            // Triggers and schedules are diffed against a hardcoded ignore list
+            // (mode/enabled/server_id/last_server_ping/edited_at/by/error/extra_perms/permissioned_as/email)
+            // so that fork-clones — which differ from the parent only in the runtime
+            // mode/enabled flag — don't show as diffs.
+            k if TRIGGER_OR_SCHEDULE_TABLES.contains(&k) => Some(
+                compare_two_trigger_or_schedule(
+                    &db,
+                    item.kind.as_str(),
+                    &source_workspace_id,
+                    &fork_workspace_id,
+                    &item.path,
+                )
+                .await?,
+            ),
             k => {
                 tracing::error!("Received unrecognized item kind `{k}` with path: `{}` while computing diff of {fork_workspace_id} and {source_workspace_id} workspaces. Skipping this item", item.path);
                 None
@@ -6377,6 +6395,14 @@ async fn compare_workspaces(
             .filter(|s| s.kind == "resource_type")
             .count(),
         folders_changed: visible_diffs.iter().filter(|s| s.kind == "folder").count(),
+        schedules_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "schedule")
+            .count(),
+        triggers_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind.ends_with("_trigger"))
+            .count(),
         conflicts: visible_diffs
             .iter()
             .filter(|s| s.ahead > 0 && s.behind > 0)
@@ -6528,6 +6554,17 @@ async fn query_visible_items<'c>(
                 )
                 .fetch_all(&mut **tx)
                 .await?
+            }
+            k if TRIGGER_OR_SCHEDULE_TABLES.contains(&k) => {
+                // SAFETY: `kind` comes from a hardcoded allowlist
+                // TRIGGER_OR_SCHEDULE_TABLES, not user input.
+                let sql =
+                    format!("SELECT path FROM {kind} WHERE workspace_id = $1 AND path = ANY($2)");
+                sqlx::query_scalar(&sql)
+                    .bind(workspace_id)
+                    .bind(&paths_vec)
+                    .fetch_all(&mut **tx)
+                    .await?
             }
             _ => vec![], // Unknown kind
         };
@@ -6787,6 +6824,35 @@ async fn compare_two_variables(
     fork_workspace_id: &str,
     path: &str,
 ) -> Result<ItemComparison> {
+    // Combine the four EXISTS checks (ws_specific × {source, fork}, variable
+    // × {source, fork}) into a single round-trip; this runs per variable
+    // during a workspace diff so the savings add up.
+    let presence = sqlx::query!(
+        r#"SELECT
+            EXISTS(SELECT 1 FROM ws_specific
+                   WHERE workspace_id = $1 AND item_kind = 'variable' AND path = $3) AS "src_ws!",
+            EXISTS(SELECT 1 FROM ws_specific
+                   WHERE workspace_id = $2 AND item_kind = 'variable' AND path = $3) AS "tgt_ws!",
+            EXISTS(SELECT 1 FROM variable
+                   WHERE workspace_id = $1 AND path = $3) AS "src_var!",
+            EXISTS(SELECT 1 FROM variable
+                   WHERE workspace_id = $2 AND path = $3) AS "tgt_var!""#,
+        source_workspace_id,
+        fork_workspace_id,
+        path,
+    )
+    .fetch_one(db)
+    .await?;
+
+    // If either side is ws_specific, consider unchanged
+    if presence.src_ws || presence.tgt_ws {
+        return Ok(ItemComparison {
+            has_changes: false,
+            exists_in_source: presence.src_var,
+            exists_in_fork: presence.tgt_var,
+        });
+    }
+
     // Get variable from each workspace
     let source_variable = sqlx::query!(
         "SELECT value, is_secret, description
@@ -6929,6 +6995,106 @@ async fn compare_two_folders(
         exists_in_fork: target_folder.is_some(),
     });
 }
+
+/// Fields stripped before comparing two trigger or schedule rows.
+///
+/// `mode` and `enabled` are forced to disabled/false on fork clone so they always
+/// differ between fork and parent — comparing them would mark every cloned row as
+/// "changed". The rest are runtime state (`server_id`, `last_server_ping`, `error`)
+/// or per-row metadata that diverges naturally (`edited_at/by`, `email`, `extra_perms`,
+/// `permissioned_as`). Comparing without these answers "is this trigger/schedule
+/// configured the same way?" rather than "are the rows byte-identical?".
+const TRIGGER_COMPARE_IGNORE: &[&str] = &[
+    "workspace_id",
+    "edited_by",
+    "edited_at",
+    "email",
+    "error",
+    "enabled",
+    "mode",
+    "server_id",
+    "last_server_ping",
+    "extra_perms",
+    "permissioned_as",
+    // Server-managed fields that the merge feature treats as workspace-local
+    // (regenerated by the deploy handler): GCP `subscription_id` is rewritten
+    // to `windmill_<workspace_id>_<path>` in `CreateUpdate` mode, and Azure's
+    // `push_auth_config` carries only the regenerated `secret_hash`. Without
+    // stripping, GCP/Azure push triggers stay flagged as "changed" forever.
+    "subscription_id",
+    "push_auth_config",
+];
+
+async fn compare_two_trigger_or_schedule(
+    db: &DB,
+    table: &str,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Whitelist guard: callers in `compare_workspaces` and `query_visible_items`
+    // already match `table` against a closed set, but a stray future caller
+    // could open an injection hole. Bail loudly in debug, fail safe in release.
+    debug_assert!(
+        TRIGGER_OR_SCHEDULE_TABLES.contains(&table),
+        "compare_two_trigger_or_schedule called with unrecognized table: {table}"
+    );
+    if !TRIGGER_OR_SCHEDULE_TABLES.contains(&table) {
+        return Ok(ItemComparison {
+            has_changes: false,
+            exists_in_source: false,
+            exists_in_fork: false,
+        });
+    }
+
+    let mut select_expr = String::from("to_jsonb(t)");
+    for f in TRIGGER_COMPARE_IGNORE {
+        // The `-` operator on jsonb returns the object without the named key,
+        // or the unchanged object if the key is absent — so one ignore list
+        // works across tables with different column sets.
+        select_expr.push_str(&format!(" - '{f}'"));
+    }
+    // SAFETY: `table` comes from a hardcoded allowlist TRIGGER_OR_SCHEDULE_TABLES
+    // (guarded by the debug_assert + runtime check above), not user input.
+    // `select_expr` is built from `TRIGGER_COMPARE_IGNORE`, also a static const.
+    let sql = format!("SELECT {select_expr} FROM {table} t WHERE workspace_id = $1 AND path = $2");
+
+    let source_fut = sqlx::query_scalar::<_, serde_json::Value>(&sql)
+        .bind(source_workspace_id)
+        .bind(path)
+        .fetch_optional(db);
+    let target_fut = sqlx::query_scalar::<_, serde_json::Value>(&sql)
+        .bind(fork_workspace_id)
+        .bind(path)
+        .fetch_optional(db);
+    let (source, target) = tokio::try_join!(source_fut, target_fut)?;
+
+    let has_changes = match (source.as_ref(), target.as_ref()) {
+        (Some(s), Some(t)) => s != t,
+        (None, None) => false,
+        _ => true,
+    };
+
+    Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source.is_some(),
+        exists_in_fork: target.is_some(),
+    })
+}
+
+const TRIGGER_OR_SCHEDULE_TABLES: &[&str] = &[
+    "schedule",
+    "http_trigger",
+    "websocket_trigger",
+    "kafka_trigger",
+    "nats_trigger",
+    "postgres_trigger",
+    "mqtt_trigger",
+    "sqs_trigger",
+    "gcp_trigger",
+    "azure_trigger",
+    "email_trigger",
+];
 
 #[derive(Deserialize)]
 struct LogAiChatPayload {
@@ -7149,4 +7315,79 @@ async fn prune_versions(
     };
 
     Ok(Json(PruneVersionsResponse { pruned }))
+}
+
+#[derive(Serialize)]
+struct WsSpecificItem {
+    item_kind: String,
+    path: String,
+}
+
+async fn list_ws_specific(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<WsSpecificItem>> {
+    // ws_specific itself has no per-item RLS — only the workspace_id column.
+    // Joining against resource/variable under user_db forces the same
+    // path-based RLS policies that govern those tables (see_own / see_member /
+    // see_extra_perms_* / see_folder_extra_perms_user) to also gate visibility
+    // here. Without these joins, any workspace member could enumerate paths
+    // in folders they lack read access to (e.g. f/finance/prod_db_creds).
+    let mut tx = user_db.begin(&authed).await?;
+    let items = sqlx::query_as!(
+        WsSpecificItem,
+        r#"
+        SELECT s.item_kind, s.path
+        FROM ws_specific s
+        WHERE s.workspace_id = $1
+          AND (
+              (s.item_kind = 'resource' AND EXISTS (
+                  SELECT 1 FROM resource r
+                  WHERE r.workspace_id = s.workspace_id AND r.path = s.path
+              ))
+              OR (s.item_kind = 'variable' AND EXISTS (
+                  SELECT 1 FROM variable v
+                  WHERE v.workspace_id = s.workspace_id AND v.path = s.path
+              ))
+          )
+        "#,
+        &w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(items))
+}
+
+#[derive(Deserialize)]
+struct ListWsSpecificVersionsQuery {
+    kind: String,
+    path: String,
+}
+
+async fn list_ws_specific_versions(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(q): Query<ListWsSpecificVersionsQuery>,
+) -> JsonResult<Vec<String>> {
+    if q.kind != "resource" && q.kind != "variable" {
+        return Err(Error::BadRequest(format!(
+            "Invalid kind '{}'. Must be 'resource' or 'variable'",
+            q.kind
+        )));
+    }
+
+    let versions: Vec<String> = sqlx::query_scalar!(
+        r#"SELECT ws AS "ws!" FROM list_ws_specific_versions($1, $2, $3, $4)"#,
+        &w_id,
+        &authed.email,
+        &q.kind,
+        &q.path,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(versions))
 }

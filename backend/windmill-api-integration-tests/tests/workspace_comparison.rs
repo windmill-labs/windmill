@@ -119,7 +119,9 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
 
     let fork_response = client
         .client()
-        .post(&format!("{base_url}/w/test-workspace/workspaces/create_fork"))
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
         .json(&json!({
             "id": "wm-fork-test-workspace",
             "name": "Test Fork",
@@ -129,7 +131,11 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
         .await?;
 
     let status = fork_response.status();
-    assert!(status.is_success(), "Fork creation should succeed: {}", status);
+    assert!(
+        status.is_success(),
+        "Fork creation should succeed: {}",
+        status
+    );
 
     // Verify fork was created
     let fork_exists = sqlx::query_scalar!(
@@ -346,16 +352,24 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
 
     let comparison: serde_json::Value = client
         .client()
-        .get(&format!("{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"))
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
         .send()
         .await?
         .json()
         .await?;
 
     // Verify basic structure
-    assert!(!comparison["skipped_comparison"].as_bool().unwrap_or(true), "Should not skip comparison");
+    assert!(
+        !comparison["skipped_comparison"].as_bool().unwrap_or(true),
+        "Should not skip comparison"
+    );
     assert!(comparison["diffs"].is_array(), "Should have diffs array");
-    assert!(comparison["summary"].is_object(), "Should have summary object");
+    assert!(
+        comparison["summary"].is_object(),
+        "Should have summary object"
+    );
 
     let diffs = comparison["diffs"].as_array().unwrap();
     let summary = &comparison["summary"];
@@ -379,12 +393,30 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
     assert!(conflicts >= 1, "Should have at least 1 conflict (flow)");
 
     // Verify per-item-type counts
-    assert!(summary["scripts_changed"].as_u64().unwrap() > 0, "Should have script changes");
-    assert!(summary["flows_changed"].as_u64().unwrap() > 0, "Should have flow changes");
-    assert!(summary["apps_changed"].as_u64().unwrap() > 0, "Should have app changes");
-    assert!(summary["resources_changed"].as_u64().unwrap() > 0, "Should have resource changes");
-    assert!(summary["variables_changed"].as_u64().unwrap() > 0, "Should have variable changes");
-    assert!(summary["resource_types_changed"].as_u64().unwrap() > 0, "Should have resource_type changes");
+    assert!(
+        summary["scripts_changed"].as_u64().unwrap() > 0,
+        "Should have script changes"
+    );
+    assert!(
+        summary["flows_changed"].as_u64().unwrap() > 0,
+        "Should have flow changes"
+    );
+    assert!(
+        summary["apps_changed"].as_u64().unwrap() > 0,
+        "Should have app changes"
+    );
+    assert!(
+        summary["resources_changed"].as_u64().unwrap() > 0,
+        "Should have resource changes"
+    );
+    assert!(
+        summary["variables_changed"].as_u64().unwrap() > 0,
+        "Should have variable changes"
+    );
+    assert!(
+        summary["resource_types_changed"].as_u64().unwrap() > 0,
+        "Should have resource_type changes"
+    );
     // Note: folders_changed may be 0 if folder comparison didn't detect changes
     // assert!(summary["folders_changed"].as_u64().unwrap() > 0, "Should have folder changes");
 
@@ -393,51 +425,130 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
     // ==============================================================
 
     // Scenario 1: New in parent
-    let new_in_parent = diffs.iter()
+    let new_in_parent = diffs
+        .iter()
         .find(|d| d["path"] == "f/shared/new_in_parent" && d["kind"] == "script")
         .expect("Should find new_in_parent diff");
-    assert_eq!(new_in_parent["ahead"].as_i64().unwrap(), 1, "new_in_parent should be ahead");
-    assert_eq!(new_in_parent["behind"].as_i64().unwrap(), 0, "new_in_parent should not be behind");
-    assert_eq!(new_in_parent["has_changes"].as_bool().unwrap(), true, "new_in_parent should have changes");
-    assert_eq!(new_in_parent["exists_in_source"].as_bool().unwrap(), true, "new_in_parent should exist in source");
-    assert_eq!(new_in_parent["exists_in_fork"].as_bool().unwrap(), false, "new_in_parent should not exist in fork");
+    assert_eq!(
+        new_in_parent["ahead"].as_i64().unwrap(),
+        1,
+        "new_in_parent should be ahead"
+    );
+    assert_eq!(
+        new_in_parent["behind"].as_i64().unwrap(),
+        0,
+        "new_in_parent should not be behind"
+    );
+    assert_eq!(
+        new_in_parent["has_changes"].as_bool().unwrap(),
+        true,
+        "new_in_parent should have changes"
+    );
+    assert_eq!(
+        new_in_parent["exists_in_source"].as_bool().unwrap(),
+        true,
+        "new_in_parent should exist in source"
+    );
+    assert_eq!(
+        new_in_parent["exists_in_fork"].as_bool().unwrap(),
+        false,
+        "new_in_parent should not exist in fork"
+    );
 
     // Scenario 2: New in fork
-    let new_in_fork = diffs.iter()
+    let new_in_fork = diffs
+        .iter()
         .find(|d| d["path"] == "f/shared/new_in_fork" && d["kind"] == "script")
         .expect("Should find new_in_fork diff");
-    assert_eq!(new_in_fork["ahead"].as_i64().unwrap(), 0, "new_in_fork should not be ahead");
-    assert_eq!(new_in_fork["behind"].as_i64().unwrap(), 1, "new_in_fork should be behind");
-    assert_eq!(new_in_fork["has_changes"].as_bool().unwrap(), true, "new_in_fork should have changes");
-    assert_eq!(new_in_fork["exists_in_source"].as_bool().unwrap(), false, "new_in_fork should not exist in source");
-    assert_eq!(new_in_fork["exists_in_fork"].as_bool().unwrap(), true, "new_in_fork should exist in fork");
+    assert_eq!(
+        new_in_fork["ahead"].as_i64().unwrap(),
+        0,
+        "new_in_fork should not be ahead"
+    );
+    assert_eq!(
+        new_in_fork["behind"].as_i64().unwrap(),
+        1,
+        "new_in_fork should be behind"
+    );
+    assert_eq!(
+        new_in_fork["has_changes"].as_bool().unwrap(),
+        true,
+        "new_in_fork should have changes"
+    );
+    assert_eq!(
+        new_in_fork["exists_in_source"].as_bool().unwrap(),
+        false,
+        "new_in_fork should not exist in source"
+    );
+    assert_eq!(
+        new_in_fork["exists_in_fork"].as_bool().unwrap(),
+        true,
+        "new_in_fork should exist in fork"
+    );
 
     // Scenario 5: Conflict
-    let conflict_flow = diffs.iter()
+    let conflict_flow = diffs
+        .iter()
         .find(|d| d["path"] == "f/shared/original_flow" && d["kind"] == "flow")
         .expect("Should find conflict flow diff");
-    assert!(conflict_flow["ahead"].as_i64().unwrap() > 0, "conflict should be ahead");
-    assert!(conflict_flow["behind"].as_i64().unwrap() > 0, "conflict should be behind");
-    assert_eq!(conflict_flow["has_changes"].as_bool().unwrap(), true, "conflict should have changes");
-    assert_eq!(conflict_flow["exists_in_source"].as_bool().unwrap(), true, "conflict should exist in source");
-    assert_eq!(conflict_flow["exists_in_fork"].as_bool().unwrap(), true, "conflict should exist in fork");
+    assert!(
+        conflict_flow["ahead"].as_i64().unwrap() > 0,
+        "conflict should be ahead"
+    );
+    assert!(
+        conflict_flow["behind"].as_i64().unwrap() > 0,
+        "conflict should be behind"
+    );
+    assert_eq!(
+        conflict_flow["has_changes"].as_bool().unwrap(),
+        true,
+        "conflict should have changes"
+    );
+    assert_eq!(
+        conflict_flow["exists_in_source"].as_bool().unwrap(),
+        true,
+        "conflict should exist in source"
+    );
+    assert_eq!(
+        conflict_flow["exists_in_fork"].as_bool().unwrap(),
+        true,
+        "conflict should exist in fork"
+    );
 
     // Scenario 6: Deleted in fork
-    let deleted = diffs.iter()
+    let deleted = diffs
+        .iter()
         .find(|d| d["path"] == "f/shared/to_delete" && d["kind"] == "script")
         .expect("Should find deleted diff");
-    assert_eq!(deleted["exists_in_source"].as_bool().unwrap(), true, "deleted should exist in source");
-    assert_eq!(deleted["exists_in_fork"].as_bool().unwrap(), false, "deleted should not exist in fork (archived)");
-    assert_eq!(deleted["has_changes"].as_bool().unwrap(), true, "deleted should have changes");
+    assert_eq!(
+        deleted["exists_in_source"].as_bool().unwrap(),
+        true,
+        "deleted should exist in source"
+    );
+    assert_eq!(
+        deleted["exists_in_fork"].as_bool().unwrap(),
+        false,
+        "deleted should not exist in fork (archived)"
+    );
+    assert_eq!(
+        deleted["has_changes"].as_bool().unwrap(),
+        true,
+        "deleted should have changes"
+    );
 
     // Scenario 7: Rename (should show as two entries)
-    let old_name = diffs.iter()
+    let old_name = diffs
+        .iter()
         .find(|d| d["path"] == "f/shared/old_name" && d["kind"] == "resource");
-    let new_name = diffs.iter()
+    let new_name = diffs
+        .iter()
         .find(|d| d["path"] == "f/shared/new_name" && d["kind"] == "resource");
 
     // At least one of these should exist (depending on how the comparison handles renames)
-    assert!(old_name.is_some() || new_name.is_some(), "Should find at least one rename-related diff");
+    assert!(
+        old_name.is_some() || new_name.is_some(),
+        "Should find at least one rename-related diff"
+    );
 
     // ==============================================================
     // Database State Assertions
@@ -450,9 +561,21 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
     )
     .fetch_one(&db)
     .await?;
-    assert_eq!(cached_new_in_parent.has_changes, Some(true), "has_changes should be cached as true");
-    assert_eq!(cached_new_in_parent.exists_in_source, Some(true), "exists_in_source should be cached");
-    assert_eq!(cached_new_in_parent.exists_in_fork, Some(false), "exists_in_fork should be cached");
+    assert_eq!(
+        cached_new_in_parent.has_changes,
+        Some(true),
+        "has_changes should be cached as true"
+    );
+    assert_eq!(
+        cached_new_in_parent.exists_in_source,
+        Some(true),
+        "exists_in_source should be cached"
+    );
+    assert_eq!(
+        cached_new_in_parent.exists_in_fork,
+        Some(false),
+        "exists_in_fork should be cached"
+    );
 
     // Verify unchanged items were deleted from workspace_diff
     let unchanged_original_script = sqlx::query!(
@@ -465,7 +588,11 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
     // The unchanged item should either be deleted or marked as has_changes = false
     // Based on the code, items with has_changes = false are deleted
     if let Some(record) = unchanged_original_script {
-        assert_ne!(record.has_changes, Some(false), "unchanged items with has_changes=false should be deleted");
+        assert_ne!(
+            record.has_changes,
+            Some(false),
+            "unchanged items with has_changes=false should be deleted"
+        );
     }
 
     // ==============================================================
@@ -485,7 +612,9 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
     // Call the endpoint again
     let _comparison2: serde_json::Value = client
         .client()
-        .get(&format!("{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"))
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
         .send()
         .await?
         .json()
@@ -500,7 +629,171 @@ async fn test_compare_workspaces_comprehensive(db: Pool<Postgres>) -> anyhow::Re
     .await?;
 
     // Should be deleted since the item doesn't actually exist in either workspace
-    assert!(lazy_test.is_none(), "Non-existent item should be deleted from workspace_diff");
+    assert!(
+        lazy_test.is_none(),
+        "Non-existent item should be deleted from workspace_diff"
+    );
+
+    Ok(())
+}
+
+/// Trigger/schedule diffs go through the same `compare_workspaces` flow as
+/// scripts/flows once tally tracks them. The compare_two_trigger_or_schedule
+/// helper strips runtime fields (mode/enabled/server_id/last_server_ping/
+/// edited_at-by/email/error/extra_perms/permissioned_as), so:
+///   - a real config change shows `has_changes = true`
+///   - a runtime-only change (mode toggle, enabled flip) shows `has_changes = false`
+///     and the row is deleted from `workspace_diff`
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_workspaces_trigger_and_schedule(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let base_url = format!("http://localhost:{port}/api");
+
+    // Parent + fork workspaces (fork created via INSERT to bypass
+    // clone_triggers_and_schedules — we want to control the rows manually).
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id)
+         VALUES ('wm-fork-test-workspace', 'Fork', 'test-user', 'test-workspace')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!("INSERT INTO workspace_settings (workspace_id) VALUES ('wm-fork-test-workspace')")
+        .execute(&db)
+        .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_key(workspace_id, kind, key)
+         VALUES ('wm-fork-test-workspace', 'cloud', 'test-key')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO usr(workspace_id, email, username, is_admin, role)
+         VALUES ('wm-fork-test-workspace', 'test@windmill.dev', 'test-user', true, 'Admin')"
+    )
+    .execute(&db)
+    .await?;
+
+    // ------ Schedule: identical config in parent and fork, except `enabled`.
+    // Should be filtered out (no real diff).
+    sqlx::query!(
+        "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, enabled,
+            script_path, args, is_flow, email, timezone, summary, permissioned_as)
+         VALUES
+         ('test-workspace', 'f/sch/runtime_only', 'test-user', NOW(), '0 * * * * *', true,
+            'f/scripts/x', '{}', false, 'test@windmill.dev', 'UTC', 'sch', 'u/test-user'),
+         ('wm-fork-test-workspace', 'f/sch/runtime_only', 'test-user', NOW(), '0 * * * * *', false,
+            'f/scripts/x', '{}', false, 'test@windmill.dev', 'UTC', 'sch', 'u/test-user')"
+    )
+    .execute(&db)
+    .await?;
+
+    // ------ Schedule: config change (script_path) in fork. Should diff.
+    sqlx::query!(
+        "INSERT INTO schedule (workspace_id, path, edited_by, edited_at, schedule, enabled,
+            script_path, args, is_flow, email, timezone, summary, permissioned_as)
+         VALUES
+         ('test-workspace', 'f/sch/config_change', 'test-user', NOW(), '0 * * * * *', false,
+            'f/scripts/parent_path', '{}', false, 'test@windmill.dev', 'UTC', 'sch', 'u/test-user'),
+         ('wm-fork-test-workspace', 'f/sch/config_change', 'test-user', NOW(), '0 * * * * *', false,
+            'f/scripts/fork_path', '{}', false, 'test@windmill.dev', 'UTC', 'sch', 'u/test-user')"
+    )
+    .execute(&db)
+    .await?;
+
+    // ------ HTTP trigger: identical config except `mode`. Should be filtered out.
+    sqlx::query!(
+        "INSERT INTO http_trigger (workspace_id, path, edited_by, edited_at, route_path,
+            route_path_key, script_path, is_flow, http_method, request_type,
+            authentication_method, mode, permissioned_as)
+         VALUES
+         ('test-workspace', 'f/rt/runtime_only', 'test-user', NOW(), 'foo', 'foo',
+            'f/scripts/y', false, 'get', 'sync',
+            'none', 'enabled', 'u/test-user'),
+         ('wm-fork-test-workspace', 'f/rt/runtime_only', 'test-user', NOW(), 'foo', 'foo',
+            'f/scripts/y', false, 'get', 'sync',
+            'none', 'disabled', 'u/test-user')"
+    )
+    .execute(&db)
+    .await?;
+
+    // ------ HTTP trigger: config change (route_path) in fork. Should diff.
+    sqlx::query!(
+        "INSERT INTO http_trigger (workspace_id, path, edited_by, edited_at, route_path,
+            route_path_key, script_path, is_flow, http_method, request_type,
+            authentication_method, mode, permissioned_as)
+         VALUES
+         ('test-workspace', 'f/rt/config_change', 'test-user', NOW(), 'parent', 'parent',
+            'f/scripts/y', false, 'get', 'sync',
+            'none', 'disabled', 'u/test-user'),
+         ('wm-fork-test-workspace', 'f/rt/config_change', 'test-user', NOW(), 'fork', 'fork',
+            'f/scripts/y', false, 'get', 'sync',
+            'none', 'disabled', 'u/test-user')"
+    )
+    .execute(&db)
+    .await?;
+
+    // Seed workspace_diff with NULL has_changes so compare_workspaces evaluates them lazily.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+            (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
+         VALUES
+         ('test-workspace', 'wm-fork-test-workspace', 'f/sch/runtime_only', 'schedule', 0, 1, NULL),
+         ('test-workspace', 'wm-fork-test-workspace', 'f/sch/config_change', 'schedule', 0, 1, NULL),
+         ('test-workspace', 'wm-fork-test-workspace', 'f/rt/runtime_only', 'http_trigger', 0, 1, NULL),
+         ('test-workspace', 'wm-fork-test-workspace', 'f/rt/config_change', 'http_trigger', 0, 1, NULL)"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison: serde_json::Value = client
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    let diffs = comparison["diffs"].as_array().unwrap();
+
+    // The runtime-only rows should be filtered out (compare_two_trigger_or_schedule
+    // returned has_changes=false → row deleted from workspace_diff).
+    assert!(
+        !diffs.iter().any(|d| d["path"] == "f/sch/runtime_only"),
+        "schedule with only enabled-flag difference should be filtered out"
+    );
+    assert!(
+        !diffs.iter().any(|d| d["path"] == "f/rt/runtime_only"),
+        "http_trigger with only mode difference should be filtered out"
+    );
+
+    // The config-change rows should be present with has_changes=true.
+    let sch_change = diffs
+        .iter()
+        .find(|d| d["path"] == "f/sch/config_change" && d["kind"] == "schedule")
+        .expect("schedule with config change should appear in diffs");
+    assert_eq!(sch_change["has_changes"].as_bool().unwrap(), true);
+    assert_eq!(sch_change["exists_in_source"].as_bool().unwrap(), true);
+    assert_eq!(sch_change["exists_in_fork"].as_bool().unwrap(), true);
+
+    let rt_change = diffs
+        .iter()
+        .find(|d| d["path"] == "f/rt/config_change" && d["kind"] == "http_trigger")
+        .expect("http_trigger with config change should appear in diffs");
+    assert_eq!(rt_change["has_changes"].as_bool().unwrap(), true);
+
+    // Summary counts.
+    let summary = &comparison["summary"];
+    assert_eq!(summary["schedules_changed"].as_u64().unwrap(), 1);
+    assert_eq!(summary["triggers_changed"].as_u64().unwrap(), 1);
 
     Ok(())
 }
