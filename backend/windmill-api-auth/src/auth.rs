@@ -714,15 +714,9 @@ pub async fn resolve_opt_job_authed(
 
 fn username_override_from_label(label: Option<String>) -> Option<String> {
     match label {
-        // Native-trigger webhook tokens use the `ephemeral-webhook-{service}-{rd5}` label
-        // so the existing `ephemeral-` filter excludes them from user-token notifications.
-        // Strip the `ephemeral-` prefix so `created_by` stays `webhook-{service}-{rd5}`,
-        // matching the pre-rename audit/job-list convention.
-        Some(label) if label.starts_with("ephemeral-webhook-") => {
-            Some(label.trim_start_matches("ephemeral-").to_string())
-        }
         Some(label)
-            if label.starts_with("webhook-")
+            if label.starts_with("ephemeral-webhook-")
+                || label.starts_with("webhook-")
                 || label.starts_with("http-")
                 || label.starts_with("email-")
                 || label.starts_with("ws-") =>
