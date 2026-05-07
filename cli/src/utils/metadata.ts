@@ -1216,13 +1216,14 @@ export async function beginLockfileBatch(): Promise<void> {
 
 export async function flushLockfileBatch(): Promise<void> {
   if (!inMemoryLock) return;
-  const toWrite = inMemoryLock;
-  inMemoryLock = null;
+  // Write first, then clear: if the disk write throws (e.g. ENOSPC), the
+  // buffered updates remain in memory and a retry can re-attempt the flush.
   await writeFile(
     WMILL_LOCKFILE,
-    yamlStringify(toWrite as Record<string, any>, yamlOptions),
+    yamlStringify(inMemoryLock as Record<string, any>, yamlOptions),
     "utf-8",
   );
+  inMemoryLock = null;
 }
 
 export async function readLockfile(): Promise<Lock> {

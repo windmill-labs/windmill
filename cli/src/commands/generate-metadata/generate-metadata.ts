@@ -244,8 +244,11 @@ export async function rehashOnly(
     }
   }
 
-  let parallelism = opts.parallel ?? 1;
-  if (parallelism <= 0) parallelism = 1;
+  let parallelism = Number(opts.parallel ?? 1);
+  if (!Number.isFinite(parallelism) || parallelism <= 0) parallelism = 1;
+  if (parallelism > 1) {
+    log.info(`Parallelizing ${parallelism} items at a time`);
+  }
 
   // Buffer wmill-lock.yaml writes during the parallel phase: each task mutates
   // the shared in-memory lockfile, then we flush once.
@@ -551,8 +554,8 @@ export async function generateMetadata(
 
   const errors: { path: string; error: string }[] = [];
 
-  let parallelism = opts.parallel ?? 1;
-  if (parallelism <= 0) parallelism = 1;
+  let parallelism = Number(opts.parallel ?? 1);
+  if (!Number.isFinite(parallelism) || parallelism <= 0) parallelism = 1;
   if (parallelism > 1) {
     log.info(`Parallelizing ${parallelism} items at a time`);
   }
@@ -704,7 +707,7 @@ const command = new Command()
   .option("--skip-flows", "Skip processing flows")
   .option("--skip-apps", "Skip processing apps")
   .option("--strict-folder-boundaries", "Only update items inside the specified folder (requires folder argument)")
-  .option("--parallel <number>", "Number of items to process in parallel")
+  .option("--parallel <n:number>", "Number of items to process in parallel")
   .option(
     "-i --includes <patterns:file[]>",
     "Comma separated patterns to specify which files to include"
@@ -726,7 +729,7 @@ const command = new Command()
       .option("--skip-scripts", "Skip processing scripts")
       .option("--skip-flows", "Skip processing flows")
       .option("--skip-apps", "Skip processing apps")
-      .option("--parallel <number>", "Number of items to process in parallel")
+      .option("--parallel <n:number>", "Number of items to process in parallel")
       .option(
         "-i --includes <patterns:file[]>",
         "Comma separated patterns to specify which files to include"
