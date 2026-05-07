@@ -74,10 +74,25 @@ async fn process_jc(
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
     #[cfg(feature = "benchmark")] bench_infos: &mut BenchmarkInfo,
 ) {
-    // If the script returned a `windmill_failure: <string>` field in its result,
-    // tag the run as a failure even though the worker reported success.
-    if jc.success && jc.result.windmill_failure().is_some() {
-        jc.success = false;
+    // If the script returned a `windmill_failure: <string>` field in its
+    // result, tag the run as a failure. Inject an `error: { name, message }`
+    // at the top level so error handlers / UI / OTel see the standard error
+    // shape, while preserving sibling fields (`windmill_status_code`,
+    // `windmill_content_type`, `windmill_headers`, the user's data) at the
+    // top level so sync webhook responses still honor them.
+    if jc.success {
+        if let Some(failure_msg) = jc.result.windmill_failure() {
+            if let Ok(Value::Object(mut map)) = serde_json::from_str::<Value>(jc.result.get()) {
+                map.insert(
+                    "error".to_string(),
+                    json!({ "name": "WindmillFailure", "message": failure_msg }),
+                );
+                if let Ok(raw) = serde_json::value::to_raw_value(&Value::Object(map)) {
+                    jc.result = Arc::new(raw);
+                }
+            }
+            jc.success = false;
+        }
     }
 
     let success: bool = jc.success;
@@ -799,19 +814,39 @@ pub async fn process_completed_job(
             }
         }
     } else {
-        let result = add_completed_job_error(
-            db,
-            &job,
-            mem_peak.to_owned(),
-            canceled_by.clone(),
-            serde_json::from_str(result.get()).unwrap_or_else(
-                |_| json!({ "message": format!("Non serializable error: {}", result.get()) }),
-            ),
-            worker_name,
-            false,
-            None,
-        )
-        .await?;
+        // The result already carries a top-level `error` key when
+        // `windmill_failure` was injected in process_jc — store it as-is to
+        // preserve sibling fields like `windmill_status_code`. Otherwise wrap
+        // in the standard `WrappedError { error: ... }` shape.
+        let downstream_result: Arc<Box<RawValue>> = if result.windmill_failure().is_some() {
+            windmill_queue::add_completed_job_pre_shaped_failure(
+                db,
+                &job,
+                mem_peak.to_owned(),
+                canceled_by.clone(),
+                Json(&*result),
+                worker_name,
+                false,
+                None,
+            )
+            .await?;
+            result.clone()
+        } else {
+            let wrapped = add_completed_job_error(
+                db,
+                &job,
+                mem_peak.to_owned(),
+                canceled_by.clone(),
+                serde_json::from_str(result.get()).unwrap_or_else(
+                    |_| json!({ "message": format!("Non serializable error: {}", result.get()) }),
+                ),
+                worker_name,
+                false,
+                None,
+            )
+            .await?;
+            Arc::new(serde_json::value::to_raw_value(&wrapped).unwrap())
+        };
         if job.is_flow_step() {
             if let Some(parent_job) = job.parent_job {
                 tracing::error!(parent_flow = %parent_job, subflow = %job.id, "process completed job error, updating flow status");
@@ -823,7 +858,7 @@ pub async fn process_completed_job(
                     &job.workspace_id,
                     false,
                     canceled_by,
-                    Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
+                    downstream_result,
                     duration.and_then(|d| {
                         job.started_at.map(|started_at| FlowJobDuration {
                             started_at: started_at,
@@ -861,13 +896,12 @@ pub async fn process_completed_job(
             .fetch_optional(db)
             .await?;
             if let Some(Some(job_ids)) = job_ids_json {
-                let err_result = Arc::new(serde_json::value::to_raw_value(&result).unwrap());
                 if let Ok(Some(_)) = handle_wac_child_completion(
                     db,
                     &job.id,
                     parent_job,
                     &job.workspace_id,
-                    err_result,
+                    downstream_result,
                     false,
                     job_ids,
                 )

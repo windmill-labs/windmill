@@ -768,16 +768,7 @@ where
     }
 }
 
-pub async fn add_completed_job_error(
-    db: &Pool<Postgres>,
-    completed_job: &MiniCompletedJob,
-    mem_peak: i32,
-    canceled_by: Option<CanceledBy>,
-    e: serde_json::Value,
-    _worker_name: &str,
-    flow_is_done: bool,
-    duration: Option<i64>,
-) -> Result<WrappedError, Error> {
+async fn record_failure_metrics(completed_job: &MiniCompletedJob, _worker_name: &str) {
     #[cfg(feature = "prometheus")]
     register_metric(
         &WORKER_EXECUTION_FAILED,
@@ -798,6 +789,58 @@ pub async fn add_completed_job_error(
     .await;
 
     otel_incr_worker_execution_failed(&completed_job.tag);
+}
+
+/// Tag a completed job as a failure while storing the result as-is, without
+/// the standard `WrappedError` `{ error: ... }` wrap. Use for jobs whose result
+/// is already shaped (e.g. when `windmill_failure` injected a top-level
+/// `error` key, while preserving sibling fields like `windmill_status_code`).
+pub async fn add_completed_job_pre_shaped_failure<T: Serialize + Send + Sync + ValidableJson>(
+    db: &Pool<Postgres>,
+    completed_job: &MiniCompletedJob,
+    mem_peak: i32,
+    canceled_by: Option<CanceledBy>,
+    result: Json<&T>,
+    worker_name: &str,
+    flow_is_done: bool,
+    duration: Option<i64>,
+) -> Result<(), Error> {
+    record_failure_metrics(completed_job, worker_name).await;
+
+    tracing::error!(
+        "job {} in {} did not succeed (windmill_failure)",
+        completed_job.id,
+        completed_job.workspace_id,
+    );
+    let _ = add_completed_job(
+        db,
+        completed_job,
+        false,
+        false,
+        result,
+        None,
+        mem_peak,
+        canceled_by,
+        flow_is_done,
+        duration,
+        false,
+    )
+    .warn_after_seconds(10)
+    .await?;
+    Ok(())
+}
+
+pub async fn add_completed_job_error(
+    db: &Pool<Postgres>,
+    completed_job: &MiniCompletedJob,
+    mem_peak: i32,
+    canceled_by: Option<CanceledBy>,
+    e: serde_json::Value,
+    worker_name: &str,
+    flow_is_done: bool,
+    duration: Option<i64>,
+) -> Result<WrappedError, Error> {
+    record_failure_metrics(completed_job, worker_name).await;
 
     let result = WrappedError { error: e };
     tracing::error!(
