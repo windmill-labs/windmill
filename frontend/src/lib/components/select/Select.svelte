@@ -138,7 +138,15 @@
 		return transformInputSelectedText?.(text, value) ?? text
 	})
 
-	let contentEditableText = $derived(open ? filterText : inputText)
+	// contenteditable is owned by the browser while typing, so the text node
+	// must be set imperatively — `>{expr}</div>` would race with the browser's
+	// own DOM mutations and produce duplicated text.
+	$effect(() => {
+		const target = open ? filterText : inputText
+		if (useContentEditable && inputEl && inputEl.textContent !== target) {
+			inputEl.textContent = target
+		}
+	})
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -208,8 +216,8 @@
 					e.preventDefault()
 				}
 			}}
-			bind:this={inputEl}>{contentEditableText}</div
-		>
+			bind:this={inputEl}
+		></div>
 	{:else}
 		<input
 			{autofocus}
