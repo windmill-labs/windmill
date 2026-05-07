@@ -247,20 +247,4 @@
 			</button>
 		{/snippet}
 	</Select>
-	{#if folderName && !loadingFolders && !disabled && !disableEditing}
-		<div class="absolute right-2 z-20 hidden group-hover:block bg-surface-input">
-			<Button
-				variant="subtle"
-				unifiedSize="xs"
-				wrapperClasses="pl-1 -mr-1"
-				btnClasses="hover:bg-surface-tertiary"
-				onClick={() => {
-					editingFolder = folderName
-					viewFolder?.openDrawer()
-				}}
-				startIcon={{ icon: Pen }}
-				iconOnly
-			/>
-		</div>
-	{/if}
 </div>
