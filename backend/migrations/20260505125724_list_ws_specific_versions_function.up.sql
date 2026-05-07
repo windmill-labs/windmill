@@ -1,3 +1,13 @@
+-- Index supporting the recursive CTE in list_ws_specific_versions: each
+-- iteration probes `WHERE ws.deploy_to = r.ws_id`, which without an index
+-- on workspace_settings.deploy_to seq-scans the whole table per iteration
+-- (up to depth-cap × |workspace_settings| row reads per call). deploy_to
+-- is sparse — most workspaces don't deploy anywhere — so a partial index
+-- keeps the index small while still covering every probe.
+CREATE INDEX IF NOT EXISTS workspace_settings_deploy_to_idx
+    ON workspace_settings (deploy_to)
+    WHERE deploy_to IS NOT NULL;
+
 -- Returns the list of workspace ids related to `seed_workspace` via the
 -- `workspace_settings.deploy_to` graph (in either direction) for which a
 -- `resource` or `variable` row at `item_path` exists AND is visible to
