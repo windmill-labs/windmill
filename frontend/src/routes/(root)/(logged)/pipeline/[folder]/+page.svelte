@@ -643,6 +643,11 @@
 	// The most recently dispatched job id — surfaces to AssetRunsPanel so
 	// the new run auto-selects without an extra click.
 	let runsPendingJobId = $state<string | undefined>(undefined)
+	// Counter bumped from the runnable-node action menu to ask the pane to
+	// open its archive/delete confirmation modal for the loaded script.
+	// Counter (vs boolean) so successive triggers re-fire even if the user
+	// dismissed the previous modal without acting.
+	let requestRemoveSignal = $state(0)
 
 	// Producers (write/rw edges) for the currently-selected asset, derived
 	// from `graphWithDraft.edges`. Threaded into the details pane so the
@@ -913,6 +918,22 @@
 							}}
 							onAddPipelineScript={(language, scriptPath, source, outputKind) =>
 								openMaterializerDraft(language, scriptPath, [source], outputKind)}
+							onRunnableMenuRemove={(info) => {
+								// Drafts: drop the local entry immediately — the
+								// existing onDiscard pathway already handles this
+								// without a confirm modal. Persisted: select the
+								// script (so the pane loads it), then bump the
+								// remove-signal counter so the pane opens its
+								// archive/delete modal.
+								if (info.unsaved) {
+									discardDraft(info.path)
+									return
+								}
+								if (info.runnable_kind !== 'script') return
+								activeDraftPath = undefined
+								selection = { kind: 'runnable', runnable_kind: 'script', path: info.path }
+								requestRemoveSignal++
+							}}
 							onRunProducer={async (producer) => {
 								// Saved scripts go through runScriptByPath; drafts
 								// have no DB row yet, so dispatch to runScriptPreview
@@ -959,6 +980,7 @@
 								selectionProducers={activeDraft ? [] : selectionProducers}
 								{runsRefreshKey}
 								{runsPendingJobId}
+								{requestRemoveSignal}
 								draftScript={activeDraft?.script}
 								{pathPrefix}
 								onDraftPathChange={renameDraft}

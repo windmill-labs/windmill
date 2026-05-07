@@ -70,6 +70,15 @@
 			path: string
 			unsaved?: boolean
 		}) => Promise<string | undefined>
+		// Page-supplied dispatch for the per-runnable-node action menu.
+		// Drafts are discarded immediately by the page; persisted scripts
+		// are routed through the details pane's archive/delete confirmation
+		// flow. Without this callback, the node menu button is hidden.
+		onRunnableMenuRemove?: (info: {
+			runnable_kind: 'script' | 'flow'
+			path: string
+			unsaved?: boolean
+		}) => void
 	}
 	let {
 		graph,
@@ -80,7 +89,8 @@
 		pathPrefix = '',
 		defaultPathSuffix = '',
 		defaultScheduleCron = '',
-		onRunProducer
+		onRunProducer,
+		onRunnableMenuRemove
 	}: Props = $props()
 
 	const ADD_NODE_ID = '__add__'
@@ -178,7 +188,15 @@
 					in_pipeline: r.in_pipeline ?? false,
 					partition_kind: r.partition_kind,
 					freshness: r.freshness,
-					unsaved: r.unsaved ?? false
+					unsaved: r.unsaved ?? false,
+					onRequestRemove: onRunnableMenuRemove
+						? () =>
+								onRunnableMenuRemove({
+									runnable_kind: r.usage_kind,
+									path: r.path,
+									unsaved: r.unsaved ?? false
+								})
+						: undefined
 				}
 			})
 		}

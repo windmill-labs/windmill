@@ -85,6 +85,12 @@
 		// true on success; false on collision/validation failure so the
 		// popover can keep itself open and surface the error inline.
 		onDraftPathChange?: (oldPath: string, newPath: string) => boolean | string
+		// Bumped by the parent (e.g. from the runnable-node action menu) to
+		// auto-open the archive/delete confirmation modal for the currently
+		// loaded persisted script. No-ops while the pane is showing a draft
+		// or is still loading. Counter pattern (not a boolean) so successive
+		// triggers re-fire even if the modal was just closed.
+		requestRemoveSignal?: number
 	}
 	let {
 		selection,
@@ -100,7 +106,8 @@
 		runsRefreshKey,
 		runsPendingJobId,
 		pathPrefix = '',
-		onDraftPathChange
+		onDraftPathChange,
+		requestRemoveSignal
 	}: Props = $props()
 
 	// Bumped when the runs panel reports a watched job has reached a
@@ -146,6 +153,21 @@
 	let removeOpen = $state(false)
 	let removing = $state(false)
 	let canHardDelete = $derived(!!($userStore?.is_admin || $userStore?.is_super_admin))
+
+	// React to the parent's remove-signal counter and pop the same modal
+	// the in-pane trash button uses. Skipped for drafts (the parent calls
+	// `onDiscard` directly there) and while the script hasn't loaded.
+	// Counter pattern (not boolean) so successive triggers re-fire even if
+	// the modal was just closed without acting.
+	let lastRemoveSignal = $state<number | undefined>(undefined)
+	$effect(() => {
+		if (requestRemoveSignal === undefined) return
+		if (requestRemoveSignal === lastRemoveSignal) return
+		lastRemoveSignal = requestRemoveSignal
+		if (isDraft) return
+		if (!script || !script.hash) return
+		removeOpen = true
+	})
 
 	async function archive() {
 		if (!script || !script.hash) return
@@ -527,7 +549,7 @@
 				Failed to load: {scriptRes.error.message}
 			</div>
 		{:else if script}
-			{#key (script.hash ?? 'draft') + script.language}
+			{#key (script.hash ?? `draft:${script.path}`) + script.language}
 				<ScriptEditor
 					showCaptures={false}
 					noSyncFromGithub

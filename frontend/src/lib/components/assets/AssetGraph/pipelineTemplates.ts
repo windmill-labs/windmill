@@ -1,4 +1,5 @@
 import type { ScriptLang, AssetKind } from '$lib/gen'
+import { random_adj } from '$lib/components/random_positive_adjetive'
 
 // What kind of asset the new script will produce. Drives the auto-generated
 // output annotation, the random output path scheme, and the body skeleton.
@@ -82,42 +83,70 @@ export function compatibleOutputKinds(lang: ScriptLang): PipelineOutputKind[] {
 	return LANG_COMPATIBILITY[lang] ?? ['none']
 }
 
-// Generates the random suffix portion of an auto-named output asset. Same
-// 7-char Crockford-ish alphabet we use for script paths so the slugs read
-// consistently.
-function randomSlug(len = 7): string {
+// Short uniqueness backstop appended to the human-readable name, so that two
+// drafts created in the same session don't collide on `<adj>_<noun>`. 4 chars
+// of base36 → ~1.7M variants, more than enough alongside the adj×noun prefix.
+function shortSlug(len = 4): string {
 	const a = 'abcdefghijklmnopqrstuvwxyz0123456789'
 	let out = ''
 	for (let i = 0; i < len; i++) out += a[Math.floor(Math.random() * a.length)]
 	return out
 }
 
+// Asset-shaped noun pools. Mirrors the `random_adj() + '_' + namePlaceholder`
+// convention used by Path.svelte for scripts/flows/apps, but the noun is
+// chosen to read like the thing the asset *is*: a table for datatable /
+// ducklake, a dataset / file payload for S3 outputs.
+const TABLE_NOUNS = [
+	'table',
+	'dataset',
+	'records',
+	'events',
+	'rows',
+	'entries',
+	'metrics',
+	'snapshot'
+]
+const DATASET_NOUNS = ['dataset', 'snapshot', 'extract', 'export', 'records', 'batch']
+const FILE_NOUNS = ['payload', 'output', 'report', 'extract', 'snapshot', 'dump']
+
+function pick(arr: string[]): string {
+	return arr[Math.floor(Math.random() * arr.length)]
+}
+
 // Fully-qualified asset URI for a freshly-created output, given the picked
-// kind. The path is auto-generated to land under `pipelines/<folder>/` for
-// s3 / parquet, and uses the more conventional `main/<name>` form for
-// datatable / ducklake (matches what the schema/preview UI expects). The
-// name suffix is randomized to avoid collisions when the user adds multiple
-// downstream scripts in one session.
+// kind. Names follow `<adjective>_<noun>_<slug>` to read like real assets
+// (e.g. `nimble_dataset_a3kp`) instead of opaque hashes — matches the
+// `random_adj()_*` naming we already use for scripts/flows/apps. Layout:
+//   - datatable / ducklake → `main/<adj>_<noun>_<slug>` (table refs)
+//   - s3 parquet / object  → `pipelines/<folder>/<adj>_<noun>_<slug>.<ext>`
 export function autoOutputAsset(
 	kind: PipelineOutputKind,
 	folder: string,
 	language?: ScriptLang
 ): { kind: AssetKind; path: string } | undefined {
-	const slug = randomSlug()
+	const slug = shortSlug()
+	const adj = random_adj()
 	switch (kind) {
 		case 'datatable':
-			return { kind: 'datatable', path: `main/${folder}_${slug}` }
+			return { kind: 'datatable', path: `main/${adj}_${pick(TABLE_NOUNS)}_${slug}` }
 		case 'ducklake':
-			return { kind: 'ducklake', path: `main/${folder}_${slug}` }
+			return { kind: 'ducklake', path: `main/${adj}_${pick(TABLE_NOUNS)}_${slug}` }
 		case 's3_parquet':
-			return { kind: 's3object', path: `pipelines/${folder}/out_${slug}.parquet` }
+			return {
+				kind: 's3object',
+				path: `pipelines/${folder}/${adj}_${pick(DATASET_NOUNS)}_${slug}.parquet`
+			}
 		case 's3_object': {
 			// duckdb's natural output for a generic blob is CSV (one COPY TO
 			// statement). TS/Python templates serialize JSON, so default to
 			// .json for those — keeps the body and the file extension in
 			// sync without the user having to rename anything.
 			const ext = language === 'duckdb' ? 'csv' : 'json'
-			return { kind: 's3object', path: `pipelines/${folder}/out_${slug}.${ext}` }
+			return {
+				kind: 's3object',
+				path: `pipelines/${folder}/${adj}_${pick(FILE_NOUNS)}_${slug}.${ext}`
+			}
 		}
 		case 'none':
 			return undefined
@@ -165,6 +194,19 @@ function parseDatatablePath(p: string): {
 function qualifiedDatatableRef(p: string, defaultSchema = 'public'): string {
 	const parsed = parseDatatablePath(p)
 	return `${parsed.schema ?? defaultSchema}.${parsed.table || 'table_name'}`
+}
+
+// Catalog-relative table reference. Emits `<schema>.<table>` only when the
+// asset path explicitly carries a schema (`main/myschema.mytable`); otherwise
+// returns the bare `<table>`. Used inside DuckDB attached-catalog references
+// (`pg.<ref>`, `lake.<ref>`) where the asset parser maps a 2-part name like
+// `pg.foo` straight to `datatable://main/foo` — adding a redundant `public.`
+// would shift the parsed asset to `datatable://main/public.foo` and silently
+// desync from the `// Output: ...` annotation.
+function catalogTableRef(p: string): string {
+	const parsed = parseDatatablePath(p)
+	const table = parsed.table || 'table_name'
+	return parsed.schema ? `${parsed.schema}.${table}` : table
 }
 
 // Comment prefix per language; mirrors what the parser accepts.
@@ -401,30 +443,47 @@ function bodyDuckdb(ctx: TemplateContext): string {
 	if (output) lines.push(`-- Output: ${assetUri(output)}`)
 	lines.push('')
 
+	// Resolve the catalog db name to ATTACH. Output's db wins when both sides
+	// share a kind (the typical pipeline shape: read from one table, write to
+	// another in the same database). We emit at most one ATTACH per catalog
+	// kind so the generated script stays readable.
+	const datatableDb = (() => {
+		if (output?.kind === 'datatable') return parseDatatablePath(output.path).db
+		if (input?.kind === 'datatable') return parseDatatablePath(input.path).db
+		return undefined
+	})()
+	const ducklakeDb = (() => {
+		if (outputKind === 'ducklake' && output?.kind === 'ducklake')
+			return parseDatatablePath(output.path).db
+		if (input?.kind === 'ducklake') return parseDatatablePath(input.path).db
+		return undefined
+	})()
+	if (datatableDb) {
+		lines.push(`ATTACH 'datatable://${datatableDb}' AS pg;`)
+	}
+	if (ducklakeDb) {
+		lines.push(`ATTACH 'ducklake://${ducklakeDb}' AS lake;`)
+	}
+	if (datatableDb || ducklakeDb) lines.push('')
+
 	const inSql = (() => {
 		if (!input) return null
 		switch (input.kind) {
 			case 's3object':
 				return `read_parquet('s3://${input.path}')`
 			case 'datatable':
-				// `pg` is the attached Postgres catalog; we schema-qualify
-				// the table reference so the SELECT doesn't rely on the
-				// catalog's default schema setting.
-				return `pg.${qualifiedDatatableRef(input.path)}`
-			case 'ducklake': {
-				return null // attach + read shown below
-			}
+				// `pg` is the attached Postgres catalog (see ATTACH above).
+				// Use a 2-part `pg.<table>` ref so the asset parser maps it
+				// back to `datatable://<db>/<table>` — matching the
+				// `// Upstream` annotation. Schema is only emitted if the
+				// asset path explicitly includes one (`main/myschema.mytable`).
+				return `pg.${catalogTableRef(input.path)}`
+			case 'ducklake':
+				return `lake.${catalogTableRef(input.path)}`
 			default:
 				return null
 		}
 	})()
-
-	if (input?.kind === 'ducklake') {
-		lines.push(
-			`-- DuckLake catalog is auto-attached as 'lake' inside windmill duckdb scripts.`,
-			`-- Reference upstream tables as lake.<table_name>.`
-		)
-	}
 
 	switch (outputKind) {
 		case 's3_parquet':
@@ -451,23 +510,23 @@ function bodyDuckdb(ctx: TemplateContext): string {
 			break
 		case 'ducklake':
 			if (output) {
-				const tableName = output.path.split('/').slice(1).join('_') || 'table_name'
+				const ref = `lake.${catalogTableRef(output.path)}`
 				lines.push(
-					`-- Write into the auto-attached DuckLake catalog.`,
-					`CREATE TABLE IF NOT EXISTS lake.${tableName} AS`,
+					`CREATE TABLE IF NOT EXISTS ${ref} AS`,
 					`SELECT * FROM ${inSql ?? '(SELECT 1 AS placeholder)'};`
 				)
 			}
 			break
 		case 'datatable':
 			if (output) {
-				// Schema-qualified `pg.<schema>.<table>` (rather than
-				// `pg.<table>`) so the CREATE TABLE doesn't silently
-				// land in whatever default schema the attached catalog
-				// resolves to.
-				const ref = `pg.${qualifiedDatatableRef(output.path)}`
+				// 2-part `pg.<table>` so the asset parser resolves the
+				// CREATE TABLE write to `datatable://<db>/<table>` —
+				// matching the `// Output` annotation. Postgres'
+				// search_path defaults to `public`, so the DDL still
+				// lands in the right schema. We only schema-qualify
+				// when the asset path itself carries an explicit schema.
+				const ref = `pg.${catalogTableRef(output.path)}`
 				lines.push(
-					`-- DataTable is exposed as the 'pg' attached database in duckdb scripts.`,
 					`CREATE TABLE IF NOT EXISTS ${ref} AS`,
 					`SELECT * FROM ${inSql ?? '(SELECT 1 AS placeholder)'};`
 				)
