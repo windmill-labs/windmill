@@ -864,16 +864,31 @@ async fn create_resource(
     .execute(&mut *tx)
     .await?;
 
-    if resource.ws_specific.unwrap_or(false) {
-        sqlx::query!(
-            "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, 'resource', $2) ON CONFLICT DO NOTHING",
-            w_id,
-            resource.path,
-        )
-        .execute(&mut *tx)
-        .await?;
+    // Mirror update_resource: Some(true) inserts, Some(false) clears (only
+    // meaningful on the upsert path, since a pure create has no existing row),
+    // None leaves the existing flag alone.
+    match resource.ws_specific {
+        Some(true) => {
+            sqlx::query!(
+                "INSERT INTO ws_specific (workspace_id, item_kind, path) VALUES ($1, 'resource', $2) ON CONFLICT DO NOTHING",
+                w_id,
+                resource.path,
+            )
+            .execute(&mut *tx)
+            .await?;
 
-        mark_linked_variables_ws_specific(&mut tx, &authed, &w_id, &resource.path).await?;
+            mark_linked_variables_ws_specific(&mut tx, &authed, &w_id, &resource.path).await?;
+        }
+        Some(false) if update_if_exists => {
+            sqlx::query!(
+                "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
+                w_id,
+                resource.path,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        _ => {}
     }
 
     audit_log(
