@@ -137,8 +137,6 @@ function configKeyForItemKind(
       return "variables";
     case "schedule":
       return "schedules";
-    case "folder":
-      return "folders";
     default:
       return kind.endsWith("_trigger") ? "triggers" : null;
   }
