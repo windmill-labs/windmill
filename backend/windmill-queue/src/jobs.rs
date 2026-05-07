@@ -630,12 +630,14 @@ pub struct WrappedError {
 pub trait ValidableJson {
     fn is_valid_json(&self) -> bool;
     fn wm_labels(&self) -> Option<Vec<String>>;
+    fn windmill_failure(&self) -> Option<String>;
     fn size(&self) -> usize;
 }
 
 #[derive(serde::Deserialize)]
-struct ResultLabels {
-    wm_labels: Vec<String>,
+struct ResultMetadata {
+    wm_labels: Option<Vec<String>>,
+    windmill_failure: Option<String>,
 }
 
 impl ValidableJson for WrappedError {
@@ -644,6 +646,10 @@ impl ValidableJson for WrappedError {
     }
 
     fn wm_labels(&self) -> Option<Vec<String>> {
+        None
+    }
+
+    fn windmill_failure(&self) -> Option<String> {
         None
     }
 
@@ -658,9 +664,15 @@ impl ValidableJson for Box<RawValue> {
     }
 
     fn wm_labels(&self) -> Option<Vec<String>> {
-        serde_json::from_str::<ResultLabels>(self.get())
+        serde_json::from_str::<ResultMetadata>(self.get())
             .ok()
-            .map(|r| r.wm_labels)
+            .and_then(|r| r.wm_labels)
+    }
+
+    fn windmill_failure(&self) -> Option<String> {
+        serde_json::from_str::<ResultMetadata>(self.get())
+            .ok()
+            .and_then(|r| r.windmill_failure)
     }
 
     fn size(&self) -> usize {
@@ -677,6 +689,10 @@ impl<T: ValidableJson> ValidableJson for Arc<T> {
         T::wm_labels(&self)
     }
 
+    fn windmill_failure(&self) -> Option<String> {
+        T::windmill_failure(&self)
+    }
+
     fn size(&self) -> usize {
         T::size(&self)
     }
@@ -688,9 +704,15 @@ impl ValidableJson for serde_json::Value {
     }
 
     fn wm_labels(&self) -> Option<Vec<String>> {
-        serde_json::from_value::<ResultLabels>(self.clone())
+        serde_json::from_value::<ResultMetadata>(self.clone())
             .ok()
-            .map(|r| r.wm_labels)
+            .and_then(|r| r.wm_labels)
+    }
+
+    fn windmill_failure(&self) -> Option<String> {
+        serde_json::from_value::<ResultMetadata>(self.clone())
+            .ok()
+            .and_then(|r| r.windmill_failure)
     }
 
     fn size(&self) -> usize {
@@ -705,6 +727,10 @@ impl<T: ValidableJson> ValidableJson for Json<T> {
 
     fn wm_labels(&self) -> Option<Vec<String>> {
         self.0.wm_labels()
+    }
+
+    fn windmill_failure(&self) -> Option<String> {
+        self.0.windmill_failure()
     }
 
     fn size(&self) -> usize {

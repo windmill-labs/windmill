@@ -62,7 +62,7 @@ struct ErrorMessage {
 }
 
 async fn process_jc(
-    jc: JobCompleted,
+    mut jc: JobCompleted,
     worker_name: &str,
     base_internal_url: &str,
     db: &DB,
@@ -74,6 +74,12 @@ async fn process_jc(
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
     #[cfg(feature = "benchmark")] bench_infos: &mut BenchmarkInfo,
 ) {
+    // If the script returned a `windmill_failure: <string>` field in its result,
+    // tag the run as a failure even though the worker reported success.
+    if jc.success && jc.result.windmill_failure().is_some() {
+        jc.success = false;
+    }
+
     let success: bool = jc.success;
 
     let span = if success {
