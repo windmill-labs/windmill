@@ -134,26 +134,6 @@ impl AuthedClient {
         .await
     }
 
-    pub async fn get_flow_env_by_flow_job_id<T: DeserializeOwned>(
-        &self,
-        root_job_id: &str,
-        var_name: &str,
-        json_path: Option<String>,
-    ) -> anyhow::Result<T> {
-        let url = format!(
-            "{}/api/w/{}/jobs/flow_env_by_flow_job_id/{}/{}",
-            self.base_internal_url, self.workspace, root_job_id, var_name
-        );
-        let query = query_from_json_path(json_path);
-        make_basic_get_request(
-            self,
-            &url,
-            Some(query),
-            Some("decoding flow env variable as json"),
-        )
-        .await
-    }
-
     pub async fn get_result_by_id<T: DeserializeOwned>(
         &self,
         flow_job_id: &str,

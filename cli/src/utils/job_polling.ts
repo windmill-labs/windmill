@@ -6,6 +6,7 @@ const DEFAULT_FAST_POLL_INTERVAL_MS = 100;
 const DEFAULT_FAST_POLL_DURATION_MS = 2000;
 const DEFAULT_SLOW_POLL_INTERVAL_MS = 2000;
 const QUEUE_LOG_INTERVAL_MS = 5000;
+const HEARTBEAT_INTERVAL_MS = 60000;
 const MAX_CONSECUTIVE_POLL_ERRORS = 10;
 
 export type JobCompletion = { result: unknown; success: boolean };
@@ -14,32 +15,32 @@ export async function logQueueStatus(
   workspace: string,
   jobId: string,
   label: string = "Job ",
-): Promise<void> {
+): Promise<boolean> {
   try {
     const job: any = await wmill.getJob({ workspace, id: jobId });
-    if (!job) return;
+    if (!job) return false;
 
     if (job.running === true) {
       log.info(
         colors.gray(`${label}${jobId}: running, waiting for completion...`),
       );
-      return;
+      return true;
     }
 
     if (typeof job.running !== "boolean") {
-      return;
+      return false;
     }
 
     const scheduledFor = job.scheduled_for as string | undefined;
     if (!scheduledFor) {
       log.info(colors.gray(`${label}${jobId}: queued, waiting for executor...`));
-      return;
+      return true;
     }
 
     const scheduledForMs = new Date(scheduledFor).getTime();
     if (!Number.isFinite(scheduledForMs)) {
       log.info(colors.gray(`${label}${jobId}: queued, waiting for executor...`));
-      return;
+      return true;
     }
 
     try {
@@ -59,11 +60,13 @@ export async function logQueueStatus(
           colors.gray(`${label}${jobId}: queued, waiting for executor...`),
         );
       }
+      return true;
     } catch {
       log.info(colors.gray(`${label}${jobId}: queued, waiting for executor...`));
+      return true;
     }
   } catch {
-    // getJob may fail transiently; ignore and retry on next tick
+    return false;
   }
 }
 
@@ -86,6 +89,7 @@ export async function pollJobWithQueueLogging(
   const label = options?.label ? `[${options.label}] ` : "Job ";
   const startedAt = Date.now();
   let lastQueueLogAt = Date.now();
+  let lastHeartbeatAt = Date.now();
   let consecutiveErrors = 0;
 
   while (true) {
@@ -108,6 +112,7 @@ export async function pollJobWithQueueLogging(
           `${label}${jobId}: error checking job status (${consecutiveErrors}/${MAX_CONSECUTIVE_POLL_ERRORS}): ${err?.message ?? err}`,
         ),
       );
+      lastHeartbeatAt = Date.now();
       if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
         throw new Error(
           `Giving up polling job ${jobId} after ${MAX_CONSECUTIVE_POLL_ERRORS} consecutive errors. Last error: ${err?.message ?? err}`,
@@ -117,7 +122,17 @@ export async function pollJobWithQueueLogging(
 
     if (Date.now() - lastQueueLogAt >= QUEUE_LOG_INTERVAL_MS) {
       lastQueueLogAt = Date.now();
-      await logQueueStatus(workspace, jobId, label);
+      const logged = await logQueueStatus(workspace, jobId, label);
+      if (logged) lastHeartbeatAt = Date.now();
+    }
+
+    if (Date.now() - lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS) {
+      lastHeartbeatAt = Date.now();
+      log.info(
+        colors.gray(
+          `${label}${jobId}: still polling, queue status unavailable...`,
+        ),
+      );
     }
 
     const delayMs =

@@ -1380,7 +1380,42 @@ export async function generateMetadata(
       log.info(colors.green.bold("No metadata to update"));
       return;
     }
-    // TODO: test this
+
+    // Build a DoubleLinkedDependencyTree and upload mismatched scripts to
+    // raw_script_temp before the actual generation pass. Without this,
+    // dep jobs for scripts that import other not-yet-deployed scripts via
+    // relative paths would 404 on the import target (the very bug this
+    // alias was introducing on fresh-DB pushes).
+    const { DoubleLinkedDependencyTree, uploadScripts } = await import(
+      "../../utils/dependency_tree.ts"
+    );
+    const tree = new DoubleLinkedDependencyTree();
+    tree.setWorkspaceDeps(rawWorkspaceDependencies);
+    for (const e of Object.keys(elems)) {
+      await generateScriptMetadataInternal(
+        e,
+        workspace,
+        opts,
+        true, // dryRun: populate tree
+        true,
+        rawWorkspaceDependencies,
+        codebases,
+        false,
+        tree,
+      );
+    }
+    tree.propagateStaleness();
+    try {
+      await uploadScripts(tree, workspace);
+    } catch (e) {
+      log.warn(
+        colors.yellow(
+          `Failed to upload scripts to temp storage (backend may be too old): ${e}. ` +
+            `Locks will be generated using deployed script versions only — locally modified ` +
+            `relative imports may not be reflected.`,
+        ),
+      );
+    }
     for (const e of Object.keys(elems)) {
       await generateScriptMetadataInternal(
         e,
@@ -1390,7 +1425,8 @@ export async function generateMetadata(
         true,
         rawWorkspaceDependencies,
         codebases,
-        false
+        false,
+        tree,
       );
     }
   }
