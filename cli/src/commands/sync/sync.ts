@@ -2423,7 +2423,26 @@ export async function pull(
   let wsNameForFiles = wsNameForConfig ? resolveWsNameForFiles(opts, wsNameForConfig) : workspace.workspaceId;
 
   // Augment specificItems with server-side ws_specific entries
-  specificItems = (await mergeWsSpecificFromServer(workspace.workspaceId, specificItems)).merged;
+  const localSpecificItems = specificItems;
+  const wsSpecificMerge = await mergeWsSpecificFromServer(workspace.workspaceId, specificItems);
+  specificItems = wsSpecificMerge.merged;
+
+  // Warn about items the server marks ws_specific that aren't covered by
+  // wmill.yaml's specificItems patterns — the pull will still treat them as
+  // ws_specific (the merge ensures correctness), but the user's config drifts
+  // from the remote and a future push from another machine would push the
+  // item as non-ws_specific.
+  if (wsSpecificMerge.serverItems) {
+    for (const item of wsSpecificMerge.serverItems) {
+      const filePath = `${item.path}.${item.item_kind}.yaml`;
+      if (!isSpecificItem(filePath, localSpecificItems)) {
+        log.warn(
+          `${item.item_kind} ${item.path} is workspace-specific on the remote ` +
+            `but not flagged in wmill.yaml's specificItems — consider adding it.`,
+        );
+      }
+    }
+  }
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -3553,8 +3572,11 @@ export async function push(
         userEmail: user.email,
       };
 
+      // ws_specific_flag changes have no content payload, so they don't
+      // affect permissioned_as resolution — filter them out before the
+      // pre-check (which expects only added/edited/deleted).
       await preCheckPermissionedAs(
-        changes,
+        changes.filter((c) => c.name !== "ws_specific_flag"),
         user.email,
         userIsAdminOrDeployer,
         opts.acceptOverridingPermissionedAsWithSelf ?? false,
