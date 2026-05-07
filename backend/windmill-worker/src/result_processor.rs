@@ -35,8 +35,9 @@ use windmill_common::{
 use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
-    append_logs, get_mini_completed_job, CanceledBy, FlowRunners, JobCompleted, MiniCompletedJob,
-    MiniPulledJob, ValidableJson, WrappedError, INIT_SCRIPT_TAG,
+    append_logs, get_mini_completed_job, is_pre_shaped_windmill_manual_failure_result, CanceledBy,
+    FlowRunners, JobCompleted, MiniCompletedJob, MiniPulledJob, ValidableJson, WrappedError,
+    INIT_SCRIPT_TAG, MANUAL_FAILURE_ERROR_NAME,
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -61,6 +62,26 @@ struct ErrorMessage {
     name: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct NestedErrorMessage {
+    error: ErrorMessage,
+}
+
+/// Extract `{ name, message }` from a result. Accepts both the standard
+/// top-level shape (regular runtime errors) and the nested `{ error: { name,
+/// message }, ... }` shape produced by the windmill_manual_failure injection.
+fn extract_error_message(raw: &str) -> Option<ErrorMessage> {
+    if let Ok(em) = serde_json::from_str::<ErrorMessage>(raw) {
+        return Some(em);
+    }
+    serde_json::from_str::<NestedErrorMessage>(raw)
+        .ok()
+        .map(|n| n.error)
+}
+
+/// Returns the post-processing `success` value (after any `windmill_manual_failure`
+/// override). Callers use this to make worker-loop decisions that depend on
+/// whether the job ultimately succeeded — e.g. the init-script killpill.
 async fn process_jc(
     mut jc: JobCompleted,
     worker_name: &str,
@@ -73,19 +94,23 @@ async fn process_jc(
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
     #[cfg(feature = "benchmark")] bench_infos: &mut BenchmarkInfo,
-) {
-    // If the script returned a `windmill_failure: <string>` field in its
+) -> bool {
+    // Parse `wm_labels` and `windmill_manual_failure` together (single `from_str`)
+    // so we don't deserialize the whole result twice on every job.
+    let metadata = jc.result.result_metadata();
+
+    // If the script returned a `windmill_manual_failure: <string>` field in its
     // result, tag the run as a failure. Inject an `error: { name, message }`
     // at the top level so error handlers / UI / OTel see the standard error
     // shape, while preserving sibling fields (`windmill_status_code`,
     // `windmill_content_type`, `windmill_headers`, the user's data) at the
     // top level so sync webhook responses still honor them.
     if jc.success {
-        if let Some(failure_msg) = jc.result.windmill_failure() {
+        if let Some(failure_msg) = metadata.windmill_manual_failure.as_ref() {
             if let Ok(Value::Object(mut map)) = serde_json::from_str::<Value>(jc.result.get()) {
                 map.insert(
                     "error".to_string(),
-                    json!({ "name": "WindmillFailure", "message": failure_msg }),
+                    json!({ "name": MANUAL_FAILURE_ERROR_NAME, "message": failure_msg }),
                 );
                 if let Ok(raw) = serde_json::value::to_raw_value(&Value::Object(map)) {
                     jc.result = Arc::new(raw);
@@ -146,7 +171,7 @@ async fn process_jc(
         jc.job.id
     };
 
-    if let Some(labels) = jc.result.wm_labels() {
+    if let Some(labels) = metadata.wm_labels.as_ref() {
         if !labels.is_empty() {
             span.record("labels", labels.join(","));
         }
@@ -184,7 +209,7 @@ async fn process_jc(
         span.record("script_hash", script_hash.to_string().as_str());
     }
     if !success {
-        if let Ok(result_error) = serde_json::from_str::<ErrorMessage>(jc.result.get()) {
+        if let Some(result_error) = extract_error_message(jc.result.get()) {
             span.record("error.message", result_error.message.as_str());
             span.record("error.name", result_error.name.as_str());
             span.record(
@@ -239,6 +264,8 @@ async fn process_jc(
         )
         .await;
     }
+
+    success
 }
 
 enum JobCompletedRx {
@@ -332,8 +359,7 @@ pub fn start_background_processor(
                     result: SendResultPayload::JobCompleted(jc),
                     time,
                 }) => {
-                    let is_init_script_and_failure =
-                        !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
+                    let is_init_script = jc.job.tag.as_str() == INIT_SCRIPT_TAG;
                     let is_dependency_job = matches!(
                         jc.job.kind,
                         JobKind::Dependencies | JobKind::FlowDependencies
@@ -343,7 +369,10 @@ pub fn start_background_processor(
                     #[cfg(feature = "benchmark")]
                     let is_top_level_job = jc.job.parent_job.is_none();
 
-                    process_jc(
+                    // process_jc returns the post-override success value so a
+                    // job that flipped to failure via `windmill_manual_failure` still
+                    // triggers the init-script killpill.
+                    let final_success = process_jc(
                         jc,
                         &worker_name,
                         &base_internal_url,
@@ -361,7 +390,7 @@ pub fn start_background_processor(
                     .warn_after_seconds(10)
                     .await;
 
-                    if is_init_script_and_failure {
+                    if is_init_script && !final_success {
                         tracing::error!("init script errored, exiting");
                         killpill_tx.send();
                         break;
@@ -814,25 +843,30 @@ pub async fn process_completed_job(
             }
         }
     } else {
-        // The result already carries a top-level `error` key when
-        // `windmill_failure` was injected in process_jc — store it as-is to
-        // preserve sibling fields like `windmill_status_code`. Otherwise wrap
-        // in the standard `WrappedError { error: ... }` shape.
-        let downstream_result: Arc<Box<RawValue>> = if result.windmill_failure().is_some() {
-            windmill_queue::add_completed_job_pre_shaped_failure(
-                db,
-                &job,
-                mem_peak.to_owned(),
-                canceled_by.clone(),
-                Json(&*result),
-                worker_name,
-                false,
-                None,
-            )
-            .await?;
-            result.clone()
-        } else {
-            let wrapped = add_completed_job_error(
+        // The result already carries our injected
+        // `error: { name: "ManualFailure", ... }` marker when process_jc
+        // retagged a successful run as a failure — store it as-is to preserve
+        // sibling fields like `windmill_status_code`. We check for the
+        // injected marker specifically (not just the presence of a
+        // `windmill_manual_failure` field) so a real runtime failure whose raw
+        // result happens to contain a `windmill_manual_failure` field still goes
+        // through the standard `WrappedError { error: ... }` wrap path.
+        let downstream_result: Arc<Box<RawValue>> =
+            if is_pre_shaped_windmill_manual_failure_result(result.get()) {
+                windmill_queue::add_completed_job_pre_shaped_failure(
+                    db,
+                    &job,
+                    mem_peak.to_owned(),
+                    canceled_by.clone(),
+                    Json(&*result),
+                    worker_name,
+                    false,
+                    None,
+                )
+                .await?;
+                result.clone()
+            } else {
+                let wrapped = add_completed_job_error(
                 db,
                 &job,
                 mem_peak.to_owned(),
@@ -845,8 +879,8 @@ pub async fn process_completed_job(
                 None,
             )
             .await?;
-            Arc::new(serde_json::value::to_raw_value(&wrapped).unwrap())
-        };
+                Arc::new(serde_json::value::to_raw_value(&wrapped).unwrap())
+            };
         if job.is_flow_step() {
             if let Some(parent_job) = job.parent_job {
                 tracing::error!(parent_flow = %parent_job, subflow = %job.id, "process completed job error, updating flow status");

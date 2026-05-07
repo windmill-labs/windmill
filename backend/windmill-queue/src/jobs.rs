@@ -630,14 +630,45 @@ pub struct WrappedError {
 pub trait ValidableJson {
     fn is_valid_json(&self) -> bool;
     fn wm_labels(&self) -> Option<Vec<String>>;
-    fn windmill_failure(&self) -> Option<String>;
+    fn windmill_manual_failure(&self) -> Option<String>;
+    fn result_metadata(&self) -> ResultMetadata;
     fn size(&self) -> usize;
 }
 
-#[derive(serde::Deserialize)]
-struct ResultMetadata {
-    wm_labels: Option<Vec<String>>,
-    windmill_failure: Option<String>,
+/// The Windmill-specific markers we look for inside a job's result.
+/// `windmill_manual_failure` retags a successful run as a failure with the
+/// given message; `wm_labels` adds runtime labels to the job row.
+#[derive(serde::Deserialize, Default, Debug, Clone)]
+pub struct ResultMetadata {
+    pub wm_labels: Option<Vec<String>>,
+    pub windmill_manual_failure: Option<String>,
+}
+
+/// Sentinel `error.name` we inject into a result when retagging a successful
+/// run as a failure due to `windmill_manual_failure`. Used downstream to detect that
+/// the result is already in the standard `{ error: { name, message }, ... }`
+/// shape and must not be wrapped a second time by `WrappedError`.
+pub const MANUAL_FAILURE_ERROR_NAME: &str = "ManualFailure";
+
+/// Returns true when the result already carries our injected
+/// `error: { name: "ManualFailure", ... }` marker — i.e. it was shaped by
+/// `process_jc`'s windmill_manual_failure path. A real runtime failure whose raw
+/// result happens to contain a `windmill_manual_failure` field but no such error
+/// key returns false (and so still goes through the standard wrap path).
+pub fn is_pre_shaped_windmill_manual_failure_result(result: &str) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Marker {
+        error: Option<NameOnly>,
+    }
+    #[derive(serde::Deserialize)]
+    struct NameOnly {
+        name: String,
+    }
+    serde_json::from_str::<Marker>(result)
+        .ok()
+        .and_then(|m| m.error)
+        .map(|e| e.name == MANUAL_FAILURE_ERROR_NAME)
+        .unwrap_or(false)
 }
 
 impl ValidableJson for WrappedError {
@@ -649,8 +680,12 @@ impl ValidableJson for WrappedError {
         None
     }
 
-    fn windmill_failure(&self) -> Option<String> {
+    fn windmill_manual_failure(&self) -> Option<String> {
         None
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        ResultMetadata::default()
     }
 
     fn size(&self) -> usize {
@@ -664,15 +699,15 @@ impl ValidableJson for Box<RawValue> {
     }
 
     fn wm_labels(&self) -> Option<Vec<String>> {
-        serde_json::from_str::<ResultMetadata>(self.get())
-            .ok()
-            .and_then(|r| r.wm_labels)
+        self.result_metadata().wm_labels
     }
 
-    fn windmill_failure(&self) -> Option<String> {
-        serde_json::from_str::<ResultMetadata>(self.get())
-            .ok()
-            .and_then(|r| r.windmill_failure)
+    fn windmill_manual_failure(&self) -> Option<String> {
+        self.result_metadata().windmill_manual_failure
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        serde_json::from_str::<ResultMetadata>(self.get()).unwrap_or_default()
     }
 
     fn size(&self) -> usize {
@@ -689,8 +724,12 @@ impl<T: ValidableJson> ValidableJson for Arc<T> {
         T::wm_labels(&self)
     }
 
-    fn windmill_failure(&self) -> Option<String> {
-        T::windmill_failure(&self)
+    fn windmill_manual_failure(&self) -> Option<String> {
+        T::windmill_manual_failure(&self)
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        T::result_metadata(&self)
     }
 
     fn size(&self) -> usize {
@@ -704,15 +743,15 @@ impl ValidableJson for serde_json::Value {
     }
 
     fn wm_labels(&self) -> Option<Vec<String>> {
-        serde_json::from_value::<ResultMetadata>(self.clone())
-            .ok()
-            .and_then(|r| r.wm_labels)
+        self.result_metadata().wm_labels
     }
 
-    fn windmill_failure(&self) -> Option<String> {
-        serde_json::from_value::<ResultMetadata>(self.clone())
-            .ok()
-            .and_then(|r| r.windmill_failure)
+    fn windmill_manual_failure(&self) -> Option<String> {
+        self.result_metadata().windmill_manual_failure
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        serde_json::from_value::<ResultMetadata>(self.clone()).unwrap_or_default()
     }
 
     fn size(&self) -> usize {
@@ -729,8 +768,12 @@ impl<T: ValidableJson> ValidableJson for Json<T> {
         self.0.wm_labels()
     }
 
-    fn windmill_failure(&self) -> Option<String> {
-        self.0.windmill_failure()
+    fn windmill_manual_failure(&self) -> Option<String> {
+        self.0.windmill_manual_failure()
+    }
+
+    fn result_metadata(&self) -> ResultMetadata {
+        self.0.result_metadata()
     }
 
     fn size(&self) -> usize {
@@ -793,8 +836,14 @@ async fn record_failure_metrics(completed_job: &MiniCompletedJob, _worker_name: 
 
 /// Tag a completed job as a failure while storing the result as-is, without
 /// the standard `WrappedError` `{ error: ... }` wrap. Use for jobs whose result
-/// is already shaped (e.g. when `windmill_failure` injected a top-level
+/// is already shaped (e.g. when `windmill_manual_failure` injected a top-level
 /// `error` key, while preserving sibling fields like `windmill_status_code`).
+///
+/// This is a worker-internal helper called by trusted result-processing code
+/// after the worker has authenticated and pulled the job. Callers MUST verify
+/// upstream auth (i.e. the job was legitimately pulled by this worker) — this
+/// function performs no authorization check itself, mirroring the contract of
+/// `add_completed_job_error`.
 pub async fn add_completed_job_pre_shaped_failure<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
     completed_job: &MiniCompletedJob,
@@ -808,7 +857,7 @@ pub async fn add_completed_job_pre_shaped_failure<T: Serialize + Send + Sync + V
     record_failure_metrics(completed_job, worker_name).await;
 
     tracing::error!(
-        "job {} in {} did not succeed (windmill_failure)",
+        "job {} in {} did not succeed (windmill_manual_failure)",
         completed_job.id,
         completed_job.workspace_id,
     );
