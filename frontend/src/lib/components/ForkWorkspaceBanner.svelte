@@ -216,6 +216,22 @@
 												: ''}
 										</span>
 									{/if}
+									{#if comparison.summary.schedules_changed > 0}
+										<span class="text-blue-700 dark:text-blue-100">
+											{comparison.summary.schedules_changed} schedule{comparison.summary
+												.schedules_changed !== 1
+												? 's'
+												: ''}
+										</span>
+									{/if}
+									{#if comparison.summary.triggers_changed > 0}
+										<span class="text-blue-700 dark:text-blue-100">
+											{comparison.summary.triggers_changed} trigger{comparison.summary
+												.triggers_changed !== 1
+												? 's'
+												: ''}
+										</span>
+									{/if}
 								</div>
 
 								{#if ciTestTotal > 0}

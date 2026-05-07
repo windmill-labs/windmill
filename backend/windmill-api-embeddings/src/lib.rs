@@ -365,7 +365,7 @@ impl EmbeddingsDb {
         let hub_resource_types = response.json::<Vec<HubResourceType>>().await?;
 
         let resource_types: Vec<ResourceType> =
-            sqlx::query_as!(ResourceType, "SELECT * from resource_type ORDER BY name",)
+            sqlx::query_as!(ResourceType, "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type ORDER BY name",)
                 .fetch_all(pg_db)
                 .await?;
 

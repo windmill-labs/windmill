@@ -27,7 +27,7 @@ import { getModelContextWindow } from '../../lib'
 import type { ReviewChangesOpts } from '../monaco-adapter'
 import { getCurrentModel } from '$lib/aiStore'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
-import { getScriptPrompt } from '$system_prompts'
+import { getScriptPrompt, getWorkflowAsCodePrompt } from '$system_prompts'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
@@ -104,11 +104,22 @@ export function getLangContext(
 	lang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json',
 	{
 		allowResourcesFetch = false,
-		isPreprocessor = false
-	}: { allowResourcesFetch?: boolean; isPreprocessor?: boolean; isFailure?: boolean } = {}
+		isPreprocessor = false,
+		workflowAsCode = false
+	}: {
+		allowResourcesFetch?: boolean
+		isPreprocessor?: boolean
+		isFailure?: boolean
+		workflowAsCode?: boolean
+	} = {}
 ): string {
 	// Get base language context from centralized prompts
-	let context = getScriptPrompt(lang)
+	let context = workflowAsCode ? getWorkflowAsCodePrompt(lang) : getScriptPrompt(lang)
+
+	// Fallback to the regular script prompt if WAC context is requested for an unsupported language.
+	if (!context) {
+		context = getScriptPrompt(lang)
+	}
 
 	// Add tool usage instructions for applicable languages
 	if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(lang)) {
@@ -117,8 +128,8 @@ export function getLangContext(
 		}
 	}
 
-	// Note preprocessor function naming if applicable
-	if (isPreprocessor) {
+	// Note preprocessor function naming if applicable. WAC scripts are not preprocessors.
+	if (isPreprocessor && !workflowAsCode) {
 		context +=
 			'\n\nThe main function for this script should be named `preprocessor` instead of `main`.'
 	}
@@ -277,8 +288,15 @@ export async function main() {
 \`\`\`
 `
 
-export function prepareInlineChatSystemPrompt(lang: ScriptLang | 'bunnative') {
-	return INLINE_CHAT_SYSTEM_PROMPT + getLangContext(lang, { allowResourcesFetch: true })
+export function prepareInlineChatSystemPrompt(
+	lang: ScriptLang | 'bunnative',
+	options: { workflowAsCode?: boolean } = {}
+) {
+	return (
+		INLINE_CHAT_SYSTEM_PROMPT +
+		'\n\n' +
+		getLangContext(lang, { allowResourcesFetch: true, workflowAsCode: options.workflowAsCode })
+	)
 }
 
 export const CHAT_USER_PROMPT = `
@@ -290,7 +308,7 @@ INSTRUCTIONS:
 export function prepareScriptSystemMessage(
 	currentModel: AIProviderModel,
 	language: ScriptLang | 'bunnative',
-	options: { isPreprocessor?: boolean; allowResourcesFetch?: boolean } = {},
+	options: { isPreprocessor?: boolean; allowResourcesFetch?: boolean; workflowAsCode?: boolean } = {},
 	customPrompt?: string
 ): ChatCompletionSystemMessageParam {
 	let content = buildChatSystemPrompt(currentModel)

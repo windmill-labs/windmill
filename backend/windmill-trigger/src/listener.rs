@@ -234,6 +234,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
         error: Option<&str>,
     ) -> Option<()> {
+        // SAFETY: Self::TABLE_NAME is a compile-time constant, not user input.
         let updated = sqlx::query_scalar::<_, i32>(&format!(
             r#"
                 UPDATE
@@ -336,6 +337,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
     ) {
         if listening_trigger.trigger_mode {
+            // SAFETY: Self::TABLE_NAME is a compile-time constant.
             let _ = sqlx::query(&format!(
                 r#"
                 UPDATE
@@ -384,6 +386,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         error: String,
     ) {
         if listening_trigger.trigger_mode {
+            // SAFETY: Self::TABLE_NAME is a compile-time constant.
             let report_status = sqlx::query(&format!(
                 r#"
                     UPDATE
@@ -660,6 +663,7 @@ pub async fn listen_to_unlistened_events<T: Copy + Listener>(
         Ok(mut unlistend_enabled_triggers) => {
             unlistend_enabled_triggers.shuffle(&mut rand::rng());
             for trigger in unlistend_enabled_triggers {
+                // SAFETY: T::TABLE_NAME is a compile-time constant.
                 let has_lock = sqlx::query_scalar(&format!(
                     r#"
                         UPDATE

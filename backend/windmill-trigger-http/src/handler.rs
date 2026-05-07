@@ -628,6 +628,7 @@ impl TriggerCrud for HttpTrigger {
         workspace_id: &str,
         path: &str,
     ) -> Result<bool> {
+        // SAFETY: Self::TABLE_NAME is a compile-time constant, not user input.
         let deleted = sqlx::query(&format!(
             "DELETE FROM {} WHERE workspace_id = $1 AND path = $2",
             Self::TABLE_NAME

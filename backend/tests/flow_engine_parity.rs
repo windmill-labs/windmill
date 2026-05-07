@@ -2097,3 +2097,1049 @@ export function main(
 
     Ok(())
 }
+
+// =============================================================================
+// flow_env inside predicates of nested sub-flows (BranchOne / loops).
+//
+// Sub-flows spawned by `payload_from_modules` for branches/loops don't carry
+// the parent's `flow_env` in their own FlowValue, so without explicit lookup
+// the predicate evaluators receive `None` and `flow_env.X` resolves to
+// `undefined` inside QuickJS. Verify `handle_flow` walks up to the nearest
+// enclosing scope so predicates see the inherited env.
+// =============================================================================
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_skip_if_inside_branchone(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert(
+        "SKIP".to_string(),
+        windmill_common::worker::to_raw_value(&json!(true)),
+    );
+
+    let inner_step = {
+        let mut m = flow_module(
+            "inner",
+            FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {ran: true};
+}
+"#
+                .to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            },
+        );
+        // skip_if uses `Boolean(...)`-wrapped expression, so it falls through
+        // to QuickJS and exercises the local flow_env propagation path.
+        m.skip_if =
+            Some(windmill_common::flows::SkipIf { expr: "flow_env.SKIP === true".to_string() });
+        m
+    };
+
+    // Branch with two modules: a marker that runs first, then `inner` which
+    // should be skipped via `flow_env.SKIP === true`. When skipped, `inner`
+    // becomes an identity job and the branch's terminal result is whatever
+    // `previous_result` was at that point — i.e. the branch_marker output.
+    let branch_marker = flow_module(
+        "branch_marker",
+        FlowModuleValue::RawScript {
+            input_transforms: Default::default(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main() {
+    return {marker: "branch-marker"};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let flow = FlowValue {
+        modules: vec![
+            flow_module(
+                "router",
+                FlowModuleValue::BranchOne {
+                    branches: vec![Branch {
+                        summary: None,
+                        expr: "true".to_string(),
+                        modules: vec![branch_marker, inner_step],
+                        modules_node: None,
+                        skip_failure: false,
+                        parallel: false,
+                    }],
+                    default: vec![],
+                    default_node: None,
+                },
+            ),
+            flow_module(
+                "after",
+                FlowModuleValue::RawScript {
+                    input_transforms: [js_input("prev", "previous_result")].into(),
+                    language: ScriptLang::Deno,
+                    content: r#"
+export function main(prev: any) {
+    return {prev};
+}
+"#
+                    .to_string(),
+                    path: None,
+                    lock: None,
+                    tag: None,
+                    concurrency_settings: Default::default(),
+                    is_trigger: None,
+                    assets: None,
+                },
+            ),
+        ],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // With the fix, skip_if sees `flow_env.SKIP === true`, `inner` becomes an
+    // identity step and passes through `previous_result` (branch_marker).
+    // Without the fix, flow_env was None inside the sub-flow, the predicate
+    // returned false, and `inner` ran, leaving `{ran: true}` in `prev`.
+    assert_eq!(
+        result["prev"]["marker"], "branch-marker",
+        "skip_if with flow_env should skip `inner`; expected branch_marker passed through (got {result:?})"
+    );
+    assert!(
+        result["prev"].get("ran").is_none(),
+        "`inner` ran when it should have been skipped (got {result:?})"
+    );
+
+    Ok(())
+}
+
+// Nested sub-flows: branch inside branch. The recursive CTE in
+// `fetch_root_flow_env` must walk past more than one layer of
+// `payload_from_modules`-constructed FlowValue (each of which has
+// `flow_env = None`) to reach the root's flow_env.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_skip_if_nested_branchone(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert(
+        "SKIP".to_string(),
+        windmill_common::worker::to_raw_value(&json!(true)),
+    );
+
+    let leaf = {
+        let mut m = flow_module(
+            "leaf",
+            FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {ran: true};
+}
+"#
+                .to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            },
+        );
+        m.skip_if =
+            Some(windmill_common::flows::SkipIf { expr: "flow_env.SKIP === true".to_string() });
+        m
+    };
+
+    let inner_marker = flow_module(
+        "inner_marker",
+        FlowModuleValue::RawScript {
+            input_transforms: Default::default(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main() {
+    return {marker: "inner"};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    // Inner BranchOne: contains the marker + the leaf with skip_if.
+    let inner_branch = flow_module(
+        "inner_router",
+        FlowModuleValue::BranchOne {
+            branches: vec![Branch {
+                summary: None,
+                expr: "true".to_string(),
+                modules: vec![inner_marker, leaf],
+                modules_node: None,
+                skip_failure: false,
+                parallel: false,
+            }],
+            default: vec![],
+            default_node: None,
+        },
+    );
+
+    // Outer BranchOne: contains the inner BranchOne. So the leaf is two
+    // levels deep in payload_from_modules-constructed sub-flows.
+    let outer = flow_module(
+        "outer_router",
+        FlowModuleValue::BranchOne {
+            branches: vec![Branch {
+                summary: None,
+                expr: "true".to_string(),
+                modules: vec![inner_branch],
+                modules_node: None,
+                skip_failure: false,
+                parallel: false,
+            }],
+            default: vec![],
+            default_node: None,
+        },
+    );
+
+    let after = flow_module(
+        "after",
+        FlowModuleValue::RawScript {
+            input_transforms: [js_input("prev", "previous_result")].into(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main(prev: any) {
+    return {prev};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let flow = FlowValue {
+        modules: vec![outer, after],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // Leaf's skip_if should see flow_env.SKIP=true → leaf becomes identity →
+    // previous_result inside the inner branch is `inner_marker`. That bubbles
+    // up to the outer branch and into `after`.
+    assert_eq!(
+        result["prev"]["marker"], "inner",
+        "skip_if with flow_env should skip `leaf` even nested two layers deep (got {result:?})"
+    );
+    assert!(
+        result["prev"].get("ran").is_none(),
+        "`leaf` ran when it should have been skipped two layers deep (got {result:?})"
+    );
+
+    Ok(())
+}
+
+// Complex input-transform expression inside a sub-flow exercises the
+// QuickJS evaluation path (it doesn't match the `flow_env.X` /
+// `flow_env.X.Y` regex that hits the API fast path). Without flow_env
+// inheritance, QuickJS would see an empty `flow_env` and the expression
+// would NaN/undefined out.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_complex_input_transform_in_branch(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert(
+        "LIMIT".to_string(),
+        windmill_common::worker::to_raw_value(&json!(7)),
+    );
+    flow_env.insert(
+        "OFFSET".to_string(),
+        windmill_common::worker::to_raw_value(&json!(3)),
+    );
+
+    let inner = flow_module(
+        "compute",
+        FlowModuleValue::RawScript {
+            // Expression doesn't match the regex fast path (uses arithmetic
+            // and Math.min), so the worker falls through to QuickJS using
+            // the local flow_env. Without inheritance, this is empty.
+            input_transforms: [js_input(
+                "value",
+                "Math.min(flow_env.LIMIT, 10) + flow_env.OFFSET",
+            )]
+            .into(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main(value: number) {
+    return {value};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let flow = FlowValue {
+        modules: vec![flow_module(
+            "router",
+            FlowModuleValue::BranchOne {
+                branches: vec![Branch {
+                    summary: None,
+                    expr: "true".to_string(),
+                    modules: vec![inner],
+                    modules_node: None,
+                    skip_failure: false,
+                    parallel: false,
+                }],
+                default: vec![],
+                default_node: None,
+            },
+        )],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // min(7, 10) + 3 = 10
+    assert_eq!(
+        result["value"], 10,
+        "complex input transform `Math.min(flow_env.LIMIT, 10) + flow_env.OFFSET` should resolve via QuickJS with inherited flow_env (got {result:?})"
+    );
+
+    Ok(())
+}
+
+// Parallel for-loop iterations are pushed with `flow_innermost_root_job =
+// None` (worker_flow.rs:3941), so the recursive CTE in `fetch_root_flow_env`
+// must use `parent_job` to walk up. Verify a skip_if inside an iteration
+// sub-flow sees the parent's flow_env.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_skip_if_in_parallel_forloop(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert(
+        "SKIP".to_string(),
+        windmill_common::worker::to_raw_value(&json!(true)),
+    );
+
+    let inner_marker = flow_module(
+        "marker",
+        FlowModuleValue::RawScript {
+            input_transforms: [js_input("i", "flow_input.iter.value")].into(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main(i: number) {
+    return {marker: i};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let leaf = {
+        let mut m = flow_module(
+            "leaf",
+            FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {ran: true};
+}
+"#
+                .to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            },
+        );
+        m.skip_if =
+            Some(windmill_common::flows::SkipIf { expr: "flow_env.SKIP === true".to_string() });
+        m
+    };
+
+    let flow = FlowValue {
+        modules: vec![flow_module(
+            "loop",
+            FlowModuleValue::ForloopFlow {
+                iterator: InputTransform::Javascript { expr: "[1, 2]".to_string() },
+                modules: vec![inner_marker, leaf],
+                modules_node: None,
+                skip_failures: false,
+                parallel: true,
+                parallelism: None,
+                squash: None,
+            },
+        )],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // Each iteration's `leaf` is skipped (skip_if reads flow_env.SKIP=true via
+    // parent_job lookup since parallel iterations have flow_innermost_root_job
+    // = None). The skipped step passes through previous_result = marker's
+    // output. So iteration result = `{marker: i}`, not `{ran: true}`.
+    let arr = result.as_array().expect("parallel loop result is an array");
+    assert_eq!(arr.len(), 2, "expected 2 iterations, got {result:?}");
+    for (i, iter_result) in arr.iter().enumerate() {
+        assert_eq!(
+            iter_result["marker"],
+            json!(i + 1),
+            "iteration {i} marker mismatch (got {result:?})"
+        );
+        assert!(
+            iter_result.get("ran").is_none(),
+            "leaf ran in iteration {i} when it should have been skipped (got {result:?})"
+        );
+    }
+
+    Ok(())
+}
+
+// Imported flows (`FlowModuleValue::Flow { path }`) load their value from
+// `flow_version`. Two cases:
+//   (a) the imported flow defines its own flow_env → that wins, parent's is
+//       NOT merged (current behavior; option (i) per design discussion).
+//   (b) the imported flow defines no flow_env → it inherits from the parent
+//       via the recursive CTE.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_imported_flow_uses_own_env(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    // Imported flow with its own flow_env: a single step that returns
+    // `flow_env.KEY`. Saved at f/system/imported_with_env.
+    let imported_path = "f/system/imported_with_env";
+    let imported_value = json!({
+        "modules": [{
+            "id": "leaf",
+            "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export function main(key: string) { return {key}; }",
+                "input_transforms": {
+                    "key": { "type": "javascript", "expr": "flow_env.KEY" }
+                }
+            }
+        }],
+        "flow_env": { "KEY": "imported" }
+    });
+    let imported_version_id: i64 = 9991001;
+    sqlx::query!(
+        "INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES ($1, '', '', $2, ARRAY[$3]::bigint[], '{}'::jsonb, $4, 'system')",
+        "test-workspace",
+        imported_path,
+        imported_version_id,
+        imported_value.clone(),
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO public.flow_version(id, workspace_id, path, schema, value, created_by) VALUES ($1, $2, $3, '{}'::jsonb, $4, 'system')",
+        imported_version_id,
+        "test-workspace",
+        imported_path,
+        imported_value.clone(),
+    )
+    .execute(&db)
+    .await?;
+
+    let mut parent_env = std::collections::HashMap::new();
+    parent_env.insert(
+        "KEY".to_string(),
+        windmill_common::worker::to_raw_value(&json!("parent")),
+    );
+
+    let parent = FlowValue {
+        modules: vec![flow_module(
+            "import",
+            FlowModuleValue::Flow {
+                input_transforms: Default::default(),
+                path: imported_path.to_string(),
+                pass_flow_input_directly: None,
+            },
+        )],
+        flow_env: Some(parent_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: parent, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // The imported flow's `leaf` reads flow_env.KEY. The imported flow has its
+    // own flow_env so it wins — result should be "imported", not "parent".
+    assert_eq!(
+        result["key"], "imported",
+        "imported flow's own flow_env should win over parent's (got {result:?})"
+    );
+
+    Ok(())
+}
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_imported_flow_inherits_when_unset(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    // Imported flow without its own flow_env. The leaf step's `skip_if` uses
+    // a Boolean()-wrapped expression — that always falls through to QuickJS
+    // (no regex/API fast path) and reads the LOCAL flow_env. Without the fix,
+    // local flow_env inside the imported sub-flow is None and the predicate
+    // returns false; with the fix, the imported flow inherits the parent's
+    // env via the recursive CTE.
+    let imported_path = "f/system/imported_no_env";
+    let imported_value = json!({
+        "modules": [
+            {
+                "id": "marker",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return {marker: \"from-imported\"}; }",
+                    "input_transforms": {}
+                }
+            },
+            {
+                "id": "leaf",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return {ran: true}; }",
+                    "input_transforms": {}
+                },
+                "skip_if": { "expr": "flow_env.KEY === 'parent'" }
+            }
+        ]
+    });
+    let imported_version_id: i64 = 9991002;
+    sqlx::query!(
+        "INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES ($1, '', '', $2, ARRAY[$3]::bigint[], '{}'::jsonb, $4, 'system')",
+        "test-workspace",
+        imported_path,
+        imported_version_id,
+        imported_value.clone(),
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO public.flow_version(id, workspace_id, path, schema, value, created_by) VALUES ($1, $2, $3, '{}'::jsonb, $4, 'system')",
+        imported_version_id,
+        "test-workspace",
+        imported_path,
+        imported_value.clone(),
+    )
+    .execute(&db)
+    .await?;
+
+    let mut parent_env = std::collections::HashMap::new();
+    parent_env.insert(
+        "KEY".to_string(),
+        windmill_common::worker::to_raw_value(&json!("parent")),
+    );
+
+    let parent = FlowValue {
+        modules: vec![flow_module(
+            "import",
+            FlowModuleValue::Flow {
+                input_transforms: Default::default(),
+                path: imported_path.to_string(),
+                pass_flow_input_directly: None,
+            },
+        )],
+        flow_env: Some(parent_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: parent, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // Imported flow has no flow_env → inherits parent's via lookup. The
+    // leaf's skip_if (`flow_env.KEY === 'parent'`) evaluates to true → leaf
+    // becomes identity, passes through `previous_result` (marker's output).
+    // Without the fix, skip_if's QuickJS context has flow_env=None inside
+    // the imported sub-flow, the predicate is false, and `leaf` runs.
+    assert_eq!(
+        result["marker"], "from-imported",
+        "imported flow's leaf should be skipped via inherited flow_env (got {result:?})"
+    );
+    assert!(
+        result.get("ran").is_none(),
+        "leaf ran when it should have been skipped (got {result:?})"
+    );
+
+    Ok(())
+}
+
+// Imported flow with its own flow_env contains a nested BranchOne whose
+// inner step has a skip_if predicate. The branch sub-flow inside the
+// imported flow has `root_job` pointing to the **top parent**, but its
+// `flow_innermost_root_job` points to the imported flow — so the lookup
+// must walk via flow_innermost_root_job to find the imported flow's scope,
+// not jump straight to root_job (which would surface the parent's env and
+// give the wrong answer).
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_imported_flow_with_nested_branch(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    // Imported flow: own flow_env={KEY: "imported"}, contains a BranchOne
+    // whose inner step has skip_if = "flow_env.KEY === 'imported'". The
+    // predicate must see the IMPORTED flow's env, not the parent's
+    // ({KEY: "parent"}).
+    let imported_path = "f/system/imported_with_nested_branch";
+    let imported_value = json!({
+        "modules": [{
+            "id": "router",
+            "value": {
+                "type": "branchone",
+                "branches": [{
+                    "summary": null,
+                    "expr": "true",
+                    "modules": [
+                        {
+                            "id": "marker",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "deno",
+                                "content": "export function main() { return {marker: \"from-imported-branch\"}; }",
+                                "input_transforms": {}
+                            }
+                        },
+                        {
+                            "id": "leaf",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "deno",
+                                "content": "export function main() { return {ran: true}; }",
+                                "input_transforms": {}
+                            },
+                            "skip_if": { "expr": "flow_env.KEY === 'imported'" }
+                        }
+                    ],
+                    "skip_failure": false,
+                    "parallel": false,
+                }],
+                "default": [],
+            }
+        }],
+        "flow_env": { "KEY": "imported" }
+    });
+    let imported_version_id: i64 = 9991003;
+    sqlx::query!(
+        "INSERT INTO public.flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES ($1, '', '', $2, ARRAY[$3]::bigint[], '{}'::jsonb, $4, 'system')",
+        "test-workspace",
+        imported_path,
+        imported_version_id,
+        imported_value.clone(),
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO public.flow_version(id, workspace_id, path, schema, value, created_by) VALUES ($1, $2, $3, '{}'::jsonb, $4, 'system')",
+        imported_version_id,
+        "test-workspace",
+        imported_path,
+        imported_value.clone(),
+    )
+    .execute(&db)
+    .await?;
+
+    let mut parent_env = std::collections::HashMap::new();
+    parent_env.insert(
+        "KEY".to_string(),
+        windmill_common::worker::to_raw_value(&json!("parent")),
+    );
+
+    let parent = FlowValue {
+        modules: vec![flow_module(
+            "import",
+            FlowModuleValue::Flow {
+                input_transforms: Default::default(),
+                path: imported_path.to_string(),
+                pass_flow_input_directly: None,
+            },
+        )],
+        flow_env: Some(parent_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: parent, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // skip_if must see imported's env (KEY="imported") → predicate is true →
+    // leaf is skipped → branch returns marker's output. If the lookup
+    // shortcuts via root_job to the top parent, KEY would be "parent",
+    // skip_if would be false, leaf would run and return {ran: true}.
+    assert_eq!(
+        result["marker"], "from-imported-branch",
+        "skip_if inside imported flow's branch must see imported's flow_env, not parent's (got {result:?})"
+    );
+    assert!(
+        result.get("ran").is_none(),
+        "leaf ran — predicate didn't see imported flow's flow_env scope (got {result:?})"
+    );
+
+    Ok(())
+}
+
+// stop_after_if predicate sees flow_env. Regression for the eval at line 614
+// of `update_flow_status_after_job_completion_internal` which used to pass
+// `None` for flow_env unconditionally.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_in_stop_after_if(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert(
+        "STOP".to_string(),
+        windmill_common::worker::to_raw_value(&json!(true)),
+    );
+
+    let first = {
+        let mut m = flow_module(
+            "first",
+            FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {stage: "first"};
+}
+"#
+                .to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            },
+        );
+        m.stop_after_if = Some(windmill_common::flows::StopAfterIf {
+            expr: "flow_env.STOP === true".to_string(),
+            skip_if_stopped: true,
+            error_message: None,
+        });
+        m
+    };
+
+    let second = flow_module(
+        "second",
+        FlowModuleValue::RawScript {
+            input_transforms: Default::default(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main() {
+    return {stage: "second"};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let flow = FlowValue {
+        modules: vec![first, second],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // With fix: stop_after_if reads flow_env.STOP=true → flow stops early
+    // after `first`, result is first's output.
+    // Without fix: stop_after_if sees flow_env=None, predicate is false, the
+    // flow continues to `second` whose output overrides the result.
+    assert_eq!(
+        result["stage"], "first",
+        "stop_after_if with flow_env should stop after `first`; got {result:?}"
+    );
+
+    Ok(())
+}
+
+// retry_if predicate sees flow_env. Regression for the two evaluate_retry
+// call sites in `update_flow_status_after_job_completion_internal` (lines
+// 1194 and 1576) which used to pass `None` for flow_env.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_in_retry_if(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert(
+        "SHOULD_RETRY".to_string(),
+        windmill_common::worker::to_raw_value(&json!(true)),
+    );
+
+    let fails = {
+        let mut m = flow_module(
+            "fails",
+            FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    throw new Error("nope");
+}
+"#
+                .to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            },
+        );
+        m.retry = Some(windmill_common::flows::Retry {
+            constant: windmill_common::flows::ConstantDelay { attempts: 2, seconds: 0 },
+            exponential: Default::default(),
+            retry_if: Some(windmill_common::flows::RetryIf {
+                expr: "flow_env.SHOULD_RETRY === true".to_string(),
+            }),
+        });
+        m
+    };
+
+    let flow = FlowValue {
+        modules: vec![fails],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let completed =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await;
+
+    // The flow always fails (script throws every attempt), but retry_if
+    // controls whether retries happen at all. With the fix, retry_if sees
+    // flow_env.SHOULD_RETRY=true and retries fire (fail_count > 0). Without
+    // the fix, the predicate gets `None` for flow_env, evaluates to false,
+    // and the flow fails on the first attempt with fail_count = 0.
+    let flow_status = completed
+        .flow_status
+        .as_ref()
+        .expect("flow should have a flow_status");
+    let module_status = &flow_status["modules"][0];
+    let failed_retries = module_status["failed_retries"].as_array();
+    assert!(
+        failed_retries.is_some_and(|v| !v.is_empty()),
+        "retry_if with flow_env should have triggered retries; module status: {module_status:?}"
+    );
+
+    Ok(())
+}
+
+// stop_after_all_iters_if predicate sees flow_env. Regression for the
+// signature change to `evaluate_stop_after_all_iters_if`.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_in_stop_after_all_iters_if(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert(
+        "STOP".to_string(),
+        windmill_common::worker::to_raw_value(&json!(true)),
+    );
+
+    let inner = flow_module(
+        "iter_step",
+        FlowModuleValue::RawScript {
+            input_transforms: [js_input("i", "flow_input.iter.value")].into(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main(i: number) {
+    return {iter: i};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let loop_module = {
+        let mut m = flow_module(
+            "loop",
+            FlowModuleValue::ForloopFlow {
+                iterator: InputTransform::Javascript { expr: "[1, 2, 3]".to_string() },
+                modules: vec![inner],
+                modules_node: None,
+                skip_failures: false,
+                parallel: false,
+                parallelism: None,
+                squash: None,
+            },
+        );
+        m.stop_after_all_iters_if = Some(windmill_common::flows::StopAfterIf {
+            expr: "flow_env.STOP === true".to_string(),
+            skip_if_stopped: true,
+            error_message: None,
+        });
+        m
+    };
+
+    let after = flow_module(
+        "after",
+        FlowModuleValue::RawScript {
+            input_transforms: Default::default(),
+            language: ScriptLang::Deno,
+            content: r#"
+export function main() {
+    return {stage: "after-loop"};
+}
+"#
+            .to_string(),
+            path: None,
+            lock: None,
+            tag: None,
+            concurrency_settings: Default::default(),
+            is_trigger: None,
+            assets: None,
+        },
+    );
+
+    let flow = FlowValue {
+        modules: vec![loop_module, after],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await
+            .json_result()
+            .unwrap();
+
+    // With fix: stop_after_all_iters_if reads flow_env.STOP=true after the
+    // loop completes → flow stops, `after` does not run, final result is
+    // the loop's output.
+    // Without fix: predicate sees flow_env=None, returns false, `after` runs
+    // and overrides the result.
+    assert!(
+        result.get("stage").is_none() || result["stage"] != "after-loop",
+        "stop_after_all_iters_if with flow_env should stop after the loop; got {result:?}"
+    );
+
+    Ok(())
+}

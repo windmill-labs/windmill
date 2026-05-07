@@ -129,6 +129,7 @@
 		useWebsockets?: boolean
 		small?: boolean
 		scriptLang: Preview['language'] | 'bunnative' | 'tsx' | 'jsx' | 'json' | undefined
+		workflowAsCode?: boolean
 		disabled?: boolean
 		lineNumbersMinChars?: number
 		files?: Record<string, { code: string; readonly?: boolean }> | undefined
@@ -163,6 +164,7 @@
 		useWebsockets = true,
 		small = false,
 		scriptLang,
+		workflowAsCode = false,
 		disabled = false,
 		lineNumbersMinChars = 3,
 		files = {},
@@ -819,12 +821,13 @@
 
 	function addAutoCompletor(
 		editor: meditor.IStandaloneCodeEditor,
-		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json'
+		scriptLang: ScriptLang | 'bunnative' | 'jsx' | 'tsx' | 'json',
+		workflowAsCode: boolean
 	) {
 		if (autocompletor) {
 			autocompletor.dispose()
 		}
-		autocompletor = new Autocompletor(editor, scriptLang)
+		autocompletor = new Autocompletor(editor, scriptLang, { workflowAsCode })
 	}
 
 	const outputChannel = {
@@ -1875,13 +1878,14 @@
 		;(!dbSchema || lang !== 'graphql') && untrack(() => disposeGaphqlService())
 	})
 	$effect(() => {
+		const currentWorkflowAsCode = workflowAsCode
 		$copilotInfo.enabled &&
 			$codeCompletionSessionEnabled &&
 			Autocompletor.isProviderModelSupported($copilotInfo.codeCompletionModel) &&
 			initialized &&
 			editor &&
 			scriptLang &&
-			untrack(() => editor && addAutoCompletor(editor, scriptLang))
+			untrack(() => editor && addAutoCompletor(editor, scriptLang, currentWorkflowAsCode))
 	})
 	$effect(() => {
 		$copilotInfo.enabled && initialized && editor && untrack(() => editor && addChatHandler(editor))

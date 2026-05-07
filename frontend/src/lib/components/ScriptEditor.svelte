@@ -116,6 +116,7 @@
 		path: string | undefined
 		lang: Preview['language']
 		kind?: string | undefined
+		autoKind?: string | undefined
 		template?:
 			| 'pgsql'
 			| 'mysql'
@@ -168,6 +169,7 @@
 		path,
 		lang,
 		kind = undefined,
+		autoKind = undefined,
 		template = 'script',
 		tag,
 		fixedOverflowWidgets = true,
@@ -1242,7 +1244,16 @@
 		)
 	}
 
-	let isWac = $derived(code && lang ? isWorkflowAsCode(code, lang) : false)
+	const WAC_CONTEXT_LANGUAGES = ['python3', 'bun']
+	let isWac = $derived(
+		template === 'wac_python' ||
+			template === 'wac_typescript' ||
+			autoKind === 'wac' ||
+			(code && lang ? isWorkflowAsCode(code, lang) : false)
+	)
+	let workflowAsCodeAiContext = $derived(
+		activeModuleTab === null && isWac && WAC_CONTEXT_LANGUAGES.includes(lang ?? '')
+	)
 	let showTabs = $derived(hasPreprocessor || isWac)
 	$effect(() => {
 		!hasPreprocessor && (selectedTab = 'main')
@@ -1312,7 +1323,8 @@
 			path,
 			lastSavedCode,
 			lastDeployedCode,
-			diffMode
+			diffMode,
+			workflowAsCode: workflowAsCodeAiContext
 		}
 		untrack(() => {
 			aiChatManager.scriptEditorOptions = options
@@ -2121,6 +2133,7 @@
 			automaticLayout={true}
 			{fixedOverflowWidgets}
 			{args}
+			workflowAsCode={workflowAsCodeAiContext}
 			{enablePreprocessorSnippet}
 			preparedAssetsSqlQueries={preparedSqlQueries.current}
 			customTag={tag}
