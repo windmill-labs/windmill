@@ -1999,6 +1999,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                     None,
                 )
                 .await;
+                // override prior child's success so the parent learns this flow failed
+                success = false;
                 true
             }
             Ok(_) => false,

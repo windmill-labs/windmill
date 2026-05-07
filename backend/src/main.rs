@@ -288,40 +288,56 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             let job_dir = format!("{}/cache_init/{}", *WINDMILL_DIR, job_id);
             create_dir_all(&job_dir)?;
             if let Some(lock) = res.lockfile {
-                let _ = windmill_worker::prepare_job_dir(&lock, &job_dir).await?;
-                let envs = windmill_worker::get_common_bun_proc_envs(None).await;
-                let _ = windmill_worker::install_bun_lockfile(
-                    &mut 0,
-                    &mut None,
-                    &job_id,
-                    "admins",
-                    None,
-                    &job_dir,
-                    "cache_init",
-                    envs.clone(),
-                    false,
-                    &mut None,
-                    false,
-                )
-                .await?;
-
-                if let Err(e) = windmill_worker::prebundle_bun_script(
-                    &res.content,
-                    &lock,
-                    &path,
-                    &job_id,
-                    "admins",
-                    None,
-                    &job_dir,
-                    "",
-                    "cache_init",
-                    "",
-                    &mut None,
-                    &None,
-                )
-                .await
-                {
-                    panic!("Error prebundling bun script: {e:#}");
+                // The hub occasionally returns a malformed `lockfile` field — e.g. the
+                // raw script source instead of the expected `<package.json>\n//bun.lockb\n<base64>`
+                // shape. A valid lockfile always starts with the package.json (`{...}`),
+                // so anything else is bogus and would make `bun install` choke trying to
+                // parse TypeScript as JSON. Skip those rather than aborting the entire cache.
+                if !lock.trim_start().starts_with('{') {
+                    tracing::warn!(
+                        "Hub script {path} returned a malformed lockfile (does not start with a package.json object), skipping prebundling"
+                    );
+                } else {
+                    let _ = windmill_worker::prepare_job_dir(&lock, &job_dir).await?;
+                    let envs = windmill_worker::get_common_bun_proc_envs(None).await;
+                    if let Err(e) = windmill_worker::install_bun_lockfile(
+                        &mut 0,
+                        &mut None,
+                        &job_id,
+                        "admins",
+                        None,
+                        &job_dir,
+                        "cache_init",
+                        envs.clone(),
+                        false,
+                        &mut None,
+                        false,
+                    )
+                    .await
+                    {
+                        // A single broken hub script (malformed lockfile, missing dep, …)
+                        // shouldn't abort the entire cache run — log and move on.
+                        tracing::error!(
+                            "Failed to install lockfile for hub script {path}, skipping: {e:#}"
+                        );
+                    } else if let Err(e) = windmill_worker::prebundle_bun_script(
+                        &res.content,
+                        &lock,
+                        &path,
+                        &job_id,
+                        "admins",
+                        None,
+                        &job_dir,
+                        "",
+                        "cache_init",
+                        "",
+                        &mut None,
+                        &None,
+                    )
+                    .await
+                    {
+                        tracing::error!("Failed to prebundle hub script {path}, skipping: {e:#}");
+                    }
                 }
             } else {
                 tracing::warn!("No lockfile found for bun script {path}, skipping...");
@@ -598,6 +614,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             return Ok(());
         }
         "cache" => {
+            tracing_subscriber::fmt::init();
             #[cfg(feature = "embedding")]
             {
                 println!("Caching embedding model...");

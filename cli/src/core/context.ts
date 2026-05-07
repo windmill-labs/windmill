@@ -8,6 +8,7 @@ import { Table } from "@cliffy/table";
 import { loginInteractive } from "./login.ts";
 import { GlobalOptions } from "../types.ts";
 import { getHeaders } from "../utils/utils.ts";
+import { detectAuthGatewayChallenge } from "../utils/http_guards.ts";
 
 import {
   getActiveWorkspace,
@@ -704,10 +705,13 @@ export async function fetchVersion(baseUrl: string): Promise<string> {
     }
   }
 
-  const response = await fetch(
-    new URL(new URL(baseUrl).origin + "/api/version"),
-    { headers: requestHeaders, method: "GET" }
-  );
+  const versionUrl = new URL(new URL(baseUrl).origin + "/api/version");
+  const response = await fetch(versionUrl, {
+    headers: requestHeaders,
+    method: "GET",
+  });
+
+  await detectAuthGatewayChallenge(response, versionUrl.toString());
 
   if (!response.ok) {
     // Consume response body even on error to avoid resource leak
