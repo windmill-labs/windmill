@@ -209,7 +209,7 @@ async function mergeWsSpecificFromServer(
 // mark ws_specific make it through. As of writing the backend only emits
 // `resource` and `variable`, but the gating handles future kinds without
 // touching this function.
-function computeWsSpecificFlagOnlyPushes(
+export function computeWsSpecificFlagOnlyPushes(
   localMap: Record<string, string>,
   localSpecificItems: SpecificItemsConfig | undefined,
   serverItems: Array<{ item_kind: string; path: string }> | null,
