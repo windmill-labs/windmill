@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.697.0](https://github.com/windmill-labs/windmill/compare/v1.696.2...v1.697.0) (2026-05-07)
+
+
+### Features
+
+* add workspace-specific flag for resources and variables ([#8836](https://github.com/windmill-labs/windmill/issues/8836)) ([4427a3d](https://github.com/windmill-labs/windmill/commit/4427a3d37f6e1edef93082322ee346077e0c1ff6))
+* **forks:** handle triggers and schedules in wmill workspace merge ([#9023](https://github.com/windmill-labs/windmill/issues/9023)) ([9de38f9](https://github.com/windmill-labs/windmill/commit/9de38f9a09d2a5759de98849c78f5470bffef94b))
+* **kafka-trigger:** OAUTHBEARER + SASL_SSL support ([#9054](https://github.com/windmill-labs/windmill/issues/9054)) ([80475f0](https://github.com/windmill-labs/windmill/commit/80475f011bf8f7ffbd5afa50fb5df37cdac0825d))
+* **secret-backend:** add Workload Identity Federation for Azure Key Vault ([#9061](https://github.com/windmill-labs/windmill/issues/9061)) ([0c203e8](https://github.com/windmill-labs/windmill/commit/0c203e8cf1cd23fa61675c5691c2649bf0664de0))
+
+
+### Bug Fixes
+
+* **cli:** stable auto-numbered inline-script names in app pull ([#9071](https://github.com/windmill-labs/windmill/issues/9071)) ([8c67e5f](https://github.com/windmill-labs/windmill/commit/8c67e5fdb78b4f17b8866e97bc04168519a65021))
+* **concurrency:** two-phase admit to skip FOR UPDATE on over-limit pulls ([#9064](https://github.com/windmill-labs/windmill/issues/9064)) ([153c4e6](https://github.com/windmill-labs/windmill/commit/153c4e6aff9344a9d6059737c8614c25c9b4443a))
+* handle singlestepflow zombies and stop filtering them from runs page ([#9055](https://github.com/windmill-labs/windmill/issues/9055)) ([e74f06c](https://github.com/windmill-labs/windmill/commit/e74f06cb561d2a2652477e2b6d2ea645e9c77964))
+* Log viewer fixed top bar ([#9070](https://github.com/windmill-labs/windmill/issues/9070)) ([23e081b](https://github.com/windmill-labs/windmill/commit/23e081b078df961d9c42ca12472e3daa7479e290))
+* scope dev server CSS reset to a layer so Tailwind utilities win ([#9069](https://github.com/windmill-labs/windmill/issues/9069)) ([6df79a4](https://github.com/windmill-labs/windmill/commit/6df79a457269a02747d8ec37ba5e97deec7a3e42))
+
 ## [1.696.2](https://github.com/windmill-labs/windmill/compare/v1.696.1...v1.696.2) (2026-05-06)
 
 
