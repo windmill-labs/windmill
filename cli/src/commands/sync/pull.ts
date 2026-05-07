@@ -7,6 +7,7 @@ import { extract } from "tar-stream";
 import { Readable } from "node:stream";
 import { Workspace } from "../workspace/workspace.ts";
 import { getHeaders } from "../../utils/utils.ts";
+import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 
 /**
  * Adapter that wraps tar entries in a JSZip-compatible interface
@@ -110,6 +111,8 @@ export async function downloadZip(
   const zipUrl = baseUrl + "archive_type=zip" + baseParams;
   const zipResponse = await fetch(zipUrl, { headers: requestHeaders, method: "GET" });
 
+  await detectAuthGatewayChallenge(zipResponse, zipUrl);
+
   if (zipResponse.ok) {
     log.debug("Downloaded zip archive successfully");
     const blob = await zipResponse.blob();
@@ -123,6 +126,8 @@ export async function downloadZip(
     log.debug("Zip archive not supported by backend, falling back to tar");
     const tarUrl = baseUrl + "archive_type=tar" + baseParams;
     const tarResponse = await fetch(tarUrl, { headers: requestHeaders, method: "GET" });
+
+    await detectAuthGatewayChallenge(tarResponse, tarUrl);
 
     if (tarResponse.ok) {
       log.debug("Downloaded tar archive successfully");

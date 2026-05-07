@@ -3262,12 +3262,15 @@ pub async fn pull(
     let mut pull_loop_count = 0;
     loop {
         pull_loop_count += 1;
-        if pull_loop_count % 10 == 0 {
-            tracing::warn!("Pull job loop count: {}", pull_loop_count);
-            tokio::task::yield_now().await;
-        }
-        if pull_loop_count > 1000 {
-            tracing::error!("Pull job loop count exceeded 1000, breaking");
+        // Cap to bound DB work per pull cycle. Each iteration on an over-limit job runs
+        // the full apply_concurrency_limit query stack (~7 queries), so without a tight
+        // cap a single pull() can issue thousands of queries when the queue is full of
+        // jobs sharing one over-limit concurrency key. Capping at 10 lets workers skip
+        // a few stale jobs in healthy conditions while preventing storm amplification.
+        if pull_loop_count > 10 {
+            tracing::warn!(
+                "Pull job loop count exceeded 10, backing off (likely concurrency re-queue storm)"
+            );
             return Ok(PulledJobResult {
                 job: None,
                 suspended: false,

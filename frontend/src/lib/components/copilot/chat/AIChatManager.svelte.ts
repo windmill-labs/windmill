@@ -256,6 +256,8 @@ class AIChatManager {
 		options?: {
 			closeScriptSettings?: boolean
 			lang?: ScriptLang | 'bunnative'
+			isPreprocessor?: boolean
+			workflowAsCode?: boolean
 		}
 	) {
 		if (mode === AIMode.SCRIPT && !tryGetCurrentModel()) return
@@ -265,8 +267,16 @@ class AIChatManager {
 			const currentModel = getCurrentModel()
 			const customPrompt = getCombinedCustomPrompt(mode)
 			const lang = options?.lang ?? this.scriptEditorOptions?.lang ?? 'bun'
+			const workflowAsCode =
+				options?.workflowAsCode ??
+				(options?.lang ? false : (this.scriptEditorOptions?.workflowAsCode ?? false))
 			const context = this.contextManager.getSelectedContext()
-			this.systemMessage = prepareScriptSystemMessage(currentModel, lang, {}, customPrompt)
+			this.systemMessage = prepareScriptSystemMessage(
+				currentModel,
+				lang,
+				{ isPreprocessor: options?.isPreprocessor, workflowAsCode },
+				customPrompt
+			)
 			this.systemMessage.content = this.systemMessage.content
 			this.tools = [...prepareScriptTools(currentModel, lang, context)]
 			this.helpers = {
@@ -533,7 +543,9 @@ class AIChatManager {
 
 		const systemMessage: ChatCompletionSystemMessageParam = {
 			role: 'system',
-			content: prepareInlineChatSystemPrompt(lang)
+			content: prepareInlineChatSystemPrompt(lang, {
+				workflowAsCode: this.scriptEditorOptions?.workflowAsCode ?? false
+			})
 		}
 
 		let reply = ''
@@ -606,9 +618,15 @@ class AIChatManager {
 		} = {}
 	) => {
 		if (options.mode) {
-			this.changeMode(options.mode, undefined, { lang: options.lang })
+			this.changeMode(options.mode, undefined, {
+				lang: options.lang,
+				isPreprocessor: options.isPreprocessor
+			})
 		} else {
-			this.changeMode(this.mode, undefined, { lang: options.lang })
+			this.changeMode(this.mode, undefined, {
+				lang: options.lang,
+				isPreprocessor: options.isPreprocessor
+			})
 		}
 		if (options.instructions) {
 			this.instructions = options.instructions

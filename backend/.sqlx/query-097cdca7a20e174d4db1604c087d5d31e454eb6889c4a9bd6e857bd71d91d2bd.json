@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\nSELECT COALESCE(\n    (SELECT COUNT(*) \n     FROM jsonb_object_keys(job_uuids) AS keys(key) \n     WHERE key <> $2),\n    0\n)\nFROM concurrency_counter\nWHERE concurrency_id = $1\nFOR UPDATE",
+  "query": "\nSELECT COALESCE(\n    (SELECT COUNT(*)\n     FROM jsonb_object_keys(job_uuids) AS keys(key)\n     WHERE key <> $2),\n    0\n)\nFROM concurrency_counter\nWHERE concurrency_id = $1\nFOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       null
     ]
   },
-  "hash": "54b7d6614bdfae5d9113c1baf9eae6e1f600c0593ba855138b435561687905c5"
+  "hash": "097cdca7a20e174d4db1604c087d5d31e454eb6889c4a9bd6e857bd71d91d2bd"
 }
