@@ -1,5 +1,6 @@
 ---
 name: pr
+user_invocable: true
 description: Open a draft pull request on GitHub. MUST use when you want to create/open a PR.
 ---
 
@@ -50,22 +51,22 @@ The body MUST be explicit about what changed. Structure:
 ## Test plan
 - [ ] <How to verify change 1>
 - [ ] <How to verify change 2>
-
----
-Generated with [Claude Code](https://claude.com/claude-code)
 ```
+
+The harness/tooling that invoked the skill may add its own attribution trailer; the skill itself does not prescribe one.
 
 ## Execution Steps
 
 1. Run `git status` to check for uncommitted changes
 2. Run `git log main..HEAD --oneline` to see all commits in this branch
 3. Run `git diff main...HEAD` to see the full diff against main
-4. Check if remote branch exists and is up to date:
+4. **Invoke the `local-review` skill** before creating the PR (`/local-review` in Claude Code, `$local-review` in Codex, `pi --skill local-review` / `/skill:local-review` in Pi). If issues are found, fix them and commit before proceeding. Do not skip this step.
+5. Check if remote branch exists and is up to date:
    ```bash
    git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "no upstream"
    ```
-5. Push to remote if needed: `git push -u origin HEAD`
-6. Create draft PR using gh CLI:
+6. Push to remote if needed: `git push -u origin HEAD`
+7. Create draft PR using gh CLI:
    ```bash
    gh pr create --draft --title "<type>: <description>" --body "$(cat <<'EOF'
    ## Summary
@@ -78,13 +79,10 @@ Generated with [Claude Code](https://claude.com/claude-code)
    ## Test plan
    - [ ] <test 1>
    - [ ] <test 2>
-
-   ---
-   Generated with [Claude Code](https://claude.com/claude-code)
    EOF
    )"
    ```
-7. Return the PR URL to the user
+8. Return the PR URL to the user
 
 ## EE Companion PR (when `*_ee.rs` files were modified)
 
@@ -100,9 +98,6 @@ Follow the full EE PR workflow in `docs/enterprise.md`. The key PR-specific deta
    ```bash
    gh pr create --draft --repo windmill-labs/windmill-ee-private --title "<type>: <description>" --body "$(cat <<'EOF'
    Companion PR for windmill-labs/windmill#<PR_NUMBER>
-
-   ---
-   Generated with [Claude Code](https://claude.com/claude-code)
    EOF
    )"
    ```

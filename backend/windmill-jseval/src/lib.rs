@@ -56,12 +56,21 @@ const END_BRACKET_PATTERN: &str = "\"]";
 // ── Regex statics ─────────────────────────────────────────────────────
 
 lazy_static! {
+    // `results` is fetched lazily via the `__getResult` async proxy, so we
+    // wrap each `results.X` access with `(await ...)` to drive the proxy.
+    // `flow_env` used to be wrapped here too (it was an async Deno op-backed
+    // proxy in the deno_core era); QuickJS now exposes flow_env as a plain
+    // in-memory object, so no await is needed.
     static ref RE: Regex = Regex::new(
-        r#"(?m)(?P<r>(?:results|flow_env)(?:\?)?(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#
+        r#"(?m)(?P<r>results(?:\?)?(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#
     )
     .unwrap();
+    // SQL fast-path: simple `results.X.Y[i]...` accesses are dispatched to
+    // the API endpoint to fetch a specific result without spinning the eval
+    // engine. flow_env is no longer dispatched here because QuickJS reads
+    // it directly from the in-process global set up by `eval_quickjs_inner`.
     static ref RE_FULL: Regex = Regex::new(
-        r"(?m)^(results|flow_env)(?:\?)?\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$"
+        r"(?m)^results(?:\?)?\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$"
     )
     .unwrap();
 }
@@ -173,10 +182,9 @@ pub async fn handle_full_regex(
     by_id: &IdContext,
 ) -> Option<anyhow::Result<Box<RawValue>>> {
     if let Some(captures) = RE_FULL.captures(&expr) {
-        let obj_name = captures.get(1).unwrap().as_str();
-        let obj_key = captures.get(2).unwrap().as_str();
-        let idx_o = captures.get(3).map(|y| y.as_str());
-        let rest = captures.get(4).map(|y| y.as_str());
+        let obj_key = captures.get(1).unwrap().as_str();
+        let idx_o = captures.get(2).map(|y| y.as_str());
+        let rest = captures.get(3).map(|y| y.as_str());
 
         // Skip the SQL fast path when the expression accesses a JS runtime
         // property (e.g. .length) that the PostgreSQL #> operator can't resolve.
@@ -193,33 +201,19 @@ pub async fn handle_full_regex(
             rest.map(|x| x.trim_start_matches('.').to_string())
         };
 
-        let result = if obj_name == "results" {
-            let res = authed_client
-                .get_result_by_id::<Option<Box<RawValue>>>(
-                    &by_id.flow_job.to_string(),
-                    obj_key,
-                    query,
-                )
-                .await
-                .ok()
-                .flatten();
-            match res {
-                Some(v) => Ok(v),
-                None => serde_json::value::to_raw_value(&serde_json::Value::Null)
-                    .map_err(|e| anyhow::anyhow!("Failed to serialize null: {}", e)),
-            }
-        } else if obj_name == "flow_env" {
-            authed_client
-                .get_flow_env_by_flow_job_id(&by_id.flow_job.to_string(), obj_key, query)
-                .await
-        } else {
-            unreachable!();
+        let res = authed_client
+            .get_result_by_id::<Option<Box<RawValue>>>(&by_id.flow_job.to_string(), obj_key, query)
+            .await
+            .ok()
+            .flatten();
+        let result = match res {
+            Some(v) => Ok(v),
+            None => serde_json::value::to_raw_value(&serde_json::Value::Null)
+                .map_err(|e| anyhow::anyhow!("Failed to serialize null: {}", e)),
         };
-
         return Some(result);
     }
-
-    return None;
+    None
 }
 
 #[cfg(feature = "quickjs")]

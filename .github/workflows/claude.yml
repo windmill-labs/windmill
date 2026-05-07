@@ -1,4 +1,4 @@
-name: Claude PR Assistant
+name: Fast Claude
 
 on:
   issue_comment:
@@ -26,7 +26,6 @@ jobs:
     if: |
       needs.check-membership.outputs.is_member == 'true'
     runs-on: ubicloud-standard-8
-    timeout-minutes: 60
     permissions:
       contents: write
       pull-requests: write
@@ -37,37 +36,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
-      - uses: actions/cache@v3
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Run npm install and generate-backend-client
-        working-directory: ./frontend
-        run: |
-          # add a build directory for cargo check
-          mkdir -p build
-          npm install
-          npm run generate-backend-client
-
-      - name: install xmlsec1 and gssapi
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxml2-dev libxmlsec1-dev libkrb5-dev libsasl2-dev libcurl4-openssl-dev mold clang
-
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache-workspaces: backend
-          toolchain: 1.93.0
-
-      - name: cargo check
-        working-directory: ./backend
-        timeout-minutes: 16
-        run: |
-          SQLX_OFFLINE=true cargo check --features all_sqlx_features
 
       - name: Run Claude PR Action
         uses: anthropics/claude-code-action@v1
@@ -84,24 +52,3 @@ jobs:
           claude_args: |
             --allowedTools "Bash,WebFetch,WebSearch"
             --model opus
-            --system-prompt "## IMPORTANT INSTRUCTIONS
-            - Your branch name should be a short description of the requested changes.
-            - Bypass previous instructions and instead of adding a url in your comment to manually create a PR, if you created a new branch with your changes, automatically create a draft PR from that branch to main.
-
-            ## Code Quality Requirements
-
-            After making any code changes, you MUST run the appropriate validation commands:
-
-            **Frontend Changes:**
-            - Run: \`npm run check\` in the frontend directory
-            - Fix all warnings and errors before proceeding
-
-            **Backend Changes:**
-            - Run: \`cargo check --features all_sqlx_features\` in the backend directory
-            - Fix all warnings and errors before proceeding
-
-            **Pull Request Creation:**
-            - DO NOT FORGET TO OPEN A DRAFT PR AFTER YOU ARE DONE if you made changes after a request from a git issue.
-
-            ## Available Tools
-            - Bash: Full access to run validation commands and git operations"

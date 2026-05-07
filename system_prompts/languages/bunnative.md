@@ -78,19 +78,20 @@ export async function preprocessor(event: Event) {
 
 ## S3 Object Operations
 
-Windmill provides built-in support for S3-compatible storage operations.
+Windmill provides built-in support for S3-compatible storage operations. The `wmill.S3Object` type covers both the `s3://storage/key` URI form (`s3:///key` for the workspace default storage) and the `{ s3, storage? }` record form — always use it instead of redefining your own.
 
-### S3Object Type
-
-The S3Object type represents a file in S3 storage:
+### Receiving an S3Object as a script parameter
 
 ```typescript
-type S3Object = {
-  s3: string; // Path within the bucket
-};
+import * as wmill from "windmill-client";
+
+export async function main(file: wmill.S3Object) {
+  const content = await wmill.loadS3File(file);
+  // ...
+}
 ```
 
-## TypeScript Operations
+### S3 operations
 
 ```typescript
 import * as wmill from "windmill-client";
@@ -102,7 +103,7 @@ const content: Uint8Array = await wmill.loadS3File(s3object);
 const blob: Blob = await wmill.loadS3FileStream(s3object);
 
 // Write file to S3
-const result: S3Object = await wmill.writeS3File(
+const result: wmill.S3Object = await wmill.writeS3File(
   s3object, // Target path (or undefined to auto-generate)
   fileContent, // string or Blob
   s3ResourcePath // Optional: specific S3 resource to use

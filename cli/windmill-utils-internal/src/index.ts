@@ -11,6 +11,5 @@
 export * from "./inline-scripts";
 export * from "./path-utils";
 export * from "./parse";
-export * from "./config";
 export * from "./deploy";
 export { SEP, DELIMITER } from "./constants";

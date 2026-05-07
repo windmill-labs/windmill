@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.696.2](https://github.com/windmill-labs/windmill/compare/v1.696.1...v1.696.2) (2026-05-06)
+
+
+### Bug Fixes
+
+* bubble handle_flow chaining errors to parent flow ([#9058](https://github.com/windmill-labs/windmill/issues/9058)) ([5bca03e](https://github.com/windmill-labs/windmill/commit/5bca03eacdbf147268d8ad9079e9ec45b2819af0))
+* **bun:** make hub script cache resilient to malformed lockfiles ([#9063](https://github.com/windmill-labs/windmill/issues/9063)) ([c6f1c5e](https://github.com/windmill-labs/windmill/commit/c6f1c5e623716df703dd6b37be9981dbe5742550))
+* **cli:** detect upstream auth-gateway HTML responses and add poll heartbeat ([#9065](https://github.com/windmill-labs/windmill/issues/9065)) ([628ab56](https://github.com/windmill-labs/windmill/commit/628ab5692e1825001eac0aaa92638c0067a508ea))
+* **queue:** cap worker pull loop at 10 to avoid DB storm ([#9062](https://github.com/windmill-labs/windmill/issues/9062)) ([e3cc258](https://github.com/windmill-labs/windmill/commit/e3cc2584555d532d91aa888cc52af34a16277036))
+
+## [1.696.1](https://github.com/windmill-labs/windmill/compare/v1.696.0...v1.696.1) (2026-05-06)
+
+
+### Bug Fixes
+
+* **bun:** propagate non-zero exit from generate_bun_bundle on no-DB path ([#9051](https://github.com/windmill-labs/windmill/issues/9051)) ([eebaab9](https://github.com/windmill-labs/windmill/commit/eebaab9c87f975b70049e118a08665fc21653b13))
+* **workspaces:** validate fork id as a git branch name component ([#9049](https://github.com/windmill-labs/windmill/issues/9049)) ([f4553e8](https://github.com/windmill-labs/windmill/commit/f4553e8e7919b115a4239a62ee4587347cc82bb8))
+
+## [1.696.0](https://github.com/windmill-labs/windmill/compare/v1.695.0...v1.696.0) (2026-05-05)
+
+
+### Features
+
+* add ai chat resource action buttons ([#9016](https://github.com/windmill-labs/windmill/issues/9016)) ([502a029](https://github.com/windmill-labs/windmill/commit/502a02998685308e82fab95bae7d3c14efd77d6a))
+* add wac ai context for frontend chat ([#9021](https://github.com/windmill-labs/windmill/issues/9021)) ([0d0557f](https://github.com/windmill-labs/windmill/commit/0d0557fc9dc5addee887911ddfc0fd08a09bc92e))
+* **cli:** add --as-superadmin flag to workspace list-remote ([#9043](https://github.com/windmill-labs/windmill/issues/9043)) ([66c9063](https://github.com/windmill-labs/windmill/commit/66c90639191a77eb4f19da092167384565edb9b3))
+
+
+### Bug Fixes
+
+* **cli:** resolve cross-folder relative imports during lockgen on fresh DB ([#9048](https://github.com/windmill-labs/windmill/issues/9048)) ([40dbab5](https://github.com/windmill-labs/windmill/commit/40dbab531e5166b894f3f94b0d72b2ac456c0097))
+* **flows:** inherit flow_env in sub-flow predicates ([#9042](https://github.com/windmill-labs/windmill/issues/9042)) ([6e5a21a](https://github.com/windmill-labs/windmill/commit/6e5a21a9c7b5db77d325b5916a9ab8799a2eb6e7))
+* navigate home arrows ([#9024](https://github.com/windmill-labs/windmill/issues/9024)) ([c1e52ea](https://github.com/windmill-labs/windmill/commit/c1e52eab09794746bea7dc9adb94552641f87d5b))
+* open job detail header path links in a new tab ([#9039](https://github.com/windmill-labs/windmill/issues/9039)) ([fe68c06](https://github.com/windmill-labs/windmill/commit/fe68c066004d860088e09be32e7ff2e7438f78c4))
+* **rust-client:** re-export models module from wmill crate ([#9038](https://github.com/windmill-labs/windmill/issues/9038)) ([ca6efbf](https://github.com/windmill-labs/windmill/commit/ca6efbff74e7d7e85174b1d8394af79eda7d6535))
+* **windmill-utils-internal:** move config to subpath export ([#9045](https://github.com/windmill-labs/windmill/issues/9045)) ([b86f896](https://github.com/windmill-labs/windmill/commit/b86f8960fcd8a66bc6849638178ef45ac49e06f1))
+
+## [1.695.0](https://github.com/windmill-labs/windmill/compare/v1.694.0...v1.695.0) (2026-05-04)
+
+
+### Features
+
+* add separate filter searchbar for resource types tab ([#9019](https://github.com/windmill-labs/windmill/issues/9019)) ([f1fd245](https://github.com/windmill-labs/windmill/commit/f1fd245073d6bf97a6a6c64e64d545618cccc432))
+
+
+### Bug Fixes
+
+* **autoscaling:** consider dedicated workers in scale decisions ([#9020](https://github.com/windmill-labs/windmill/issues/9020)) ([42be1d4](https://github.com/windmill-labs/windmill/commit/42be1d46a632c23830f97995e9ab1b52a1ed5d3d))
+* bind MySQL table listing to configured database name ([#9007](https://github.com/windmill-labs/windmill/issues/9007)) ([44fad13](https://github.com/windmill-labs/windmill/commit/44fad139fe2076f5faa62de31aaeeb217466b25e))
+* **flows:** don't bubble error when continue_on_error is on the last step ([#9029](https://github.com/windmill-labs/windmill/issues/9029)) ([192866d](https://github.com/windmill-labs/windmill/commit/192866d5197c74ec930d6fe7bf9234fac76763f4))
+* **forks:** strip mode/enabled from merge-UI deploy payload ([#9008](https://github.com/windmill-labs/windmill/issues/9008)) ([da95588](https://github.com/windmill-labs/windmill/commit/da95588b253e8bb2a06b9792674b4d691384f55a))
+* stop sequential whileloop on iteration failure ([#9028](https://github.com/windmill-labs/windmill/issues/9028)) ([1be62ea](https://github.com/windmill-labs/windmill/commit/1be62ea926872882ddbd4c8ce81502d6e341b8c1))
+
 ## [1.694.0](https://github.com/windmill-labs/windmill/compare/v1.693.4...v1.694.0) (2026-05-01)
 
 

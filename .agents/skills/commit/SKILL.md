@@ -1,5 +1,6 @@
 ---
 name: commit
+user_invocable: true
 description: Create a git commit with conventional commit format. MUST use anytime you want to commit changes.
 ---
 

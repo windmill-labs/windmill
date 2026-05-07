@@ -263,7 +263,7 @@ export async function rehashOnly(
   return counts;
 }
 
-async function generateMetadata(
+export async function generateMetadata(
   opts: GlobalOptions & {
     yes?: boolean;
     lockOnly?: boolean;
