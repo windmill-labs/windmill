@@ -67,7 +67,7 @@
 	ansi_up.use_classes = true
 
 	let scroll = $state(true)
-	let div: HTMLElement | null = $state(null)
+	let preEl: HTMLElement | null = $state(null)
 
 	// let downloadStartUrl: string | undefined = undefined
 
@@ -165,8 +165,8 @@
 	}
 
 	export function scrollToBottom() {
-		// console.log('scrollToBottom', scroll, div)
-		scroll && setTimeout(() => div?.scroll({ top: div?.scrollHeight, behavior: 'smooth' }), 100)
+		scroll &&
+			setTimeout(() => preEl?.scroll({ top: preEl?.scrollHeight, behavior: 'smooth' }), 100)
 	}
 
 	let logViewer: Drawer | undefined = $state()
@@ -289,7 +289,6 @@
 <div class="w-full h-full {wrapperClass}">
 	<div class="w-full h-full relative">
 		<div
-			bind:this={div}
 			class="w-full h-full bg-surface-secondary flex flex-col {noMaxH ? '' : 'max-h-screen'}"
 			data-nav-id={navigationId}
 		>
@@ -340,6 +339,7 @@
 				</div>
 			</div>
 			<pre
+				bind:this={preEl}
 				class={twMerge(
 					'whitespace-pre break-words w-full flex-1 overflow-auto',
 					small ? '!text-2xs' : '!text-xs',
