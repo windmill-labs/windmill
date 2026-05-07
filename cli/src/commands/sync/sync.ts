@@ -135,11 +135,12 @@ function configKeyForItemKind(
       return "resources";
     case "variable":
       return "variables";
-    case "schedule":
-      return "schedules";
-    default:
-      return kind.endsWith("_trigger") ? "triggers" : null;
-  }
+      // case "schedule":
+      //   return "schedules";
+      // default:
+      //   return kind.endsWith("_trigger") ? "triggers" : null;
+    }
+    return null
 }
 
 // Fetch ws_specific items from the server and merge their paths into specificItems.
