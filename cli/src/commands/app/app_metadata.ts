@@ -26,7 +26,7 @@ import {
 import { generateHash, getHeaders, readTextFile, writeIfChanged } from "../../utils/utils.ts";
 import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import { exts } from "../script/script.ts";
-import { FSFSElement, yamlOptions } from "../sync/sync.ts";
+import { FSFSElement, yamlOptions, yamlSortedEntries } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import {
   AppFile as RawAppFile,
@@ -441,7 +441,10 @@ async function traverseAndProcessInlineScripts(
 
   const result: Record<string, any> = {};
 
-  for (const [key, value] of Object.entries(obj)) {
+  // Iterate in YAML output order so the path-assigner inside `processor`
+  // sees keys in the same order they appear on disk — matches
+  // extractInlineScriptsForApps and keeps auto-numbered names stable.
+  for (const [key, value] of yamlSortedEntries(obj)) {
     if (key === "inlineScript" && typeof value === "object") {
       // Found an inline script - process it
       result[key] = await processor(value, {

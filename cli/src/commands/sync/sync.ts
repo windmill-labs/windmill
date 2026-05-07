@@ -394,6 +394,30 @@ export const yamlOptions: DocumentOptions & SchemaOptions & CreateNodeOptions & 
   singleQuote: true,
 };
 
+/**
+ * Iterate object/array entries in the same order they will appear in the
+ * YAML output. Arrays preserve their index order; plain objects are sorted
+ * by the same comparator as `yamlOptions.sortMapEntries`.
+ *
+ * Use this whenever traversal order influences a side effect that the YAML
+ * representation also expresses (e.g. auto-numbered inline-script paths in
+ * `extractInlineScriptsForApps`). Without it, the path-assigner walks the
+ * in-memory key order returned by `JSON.parse` (server insertion order),
+ * but the YAML serializer reorders keys alphabetically — so identically
+ * named scripts get numbers that don't line up with their position on disk
+ * and shuffle between pulls when the server returns keys in a different order.
+ */
+export function yamlSortedEntries(rec: any): [string, any][] {
+  const entries = Object.entries(rec);
+  if (Array.isArray(rec)) {
+    return entries;
+  }
+  entries.sort(([a], [b]) =>
+    prioritizeName(a).localeCompare(prioritizeName(b)),
+  );
+  return entries;
+}
+
 export interface InlineScript {
   path: string;
   content: string;
@@ -552,7 +576,11 @@ export function extractInlineScriptsForApps(
     return [];
   }
   if (typeof rec == "object") {
-    return Object.entries(rec).flatMap(([k, v]) => {
+    // Iterate in YAML output order so that auto-numbered names assigned by
+    // the path-assigner line up with the position they will appear in the
+    // serialized YAML — and stay stable across pulls regardless of the key
+    // order the server returns. See yamlSortedEntries above.
+    return yamlSortedEntries(rec).flatMap(([k, v]) => {
       if (k == "inlineScript" && v != null && typeof v == "object") {
         rec["type"] = undefined;
         const o: Record<string, any> = v as any;
