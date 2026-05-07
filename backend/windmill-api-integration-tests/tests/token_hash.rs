@@ -274,7 +274,9 @@ async fn test_plaintext_backward_compat(db: Pool<Postgres>) -> anyhow::Result<()
     );
 
     // --- Phase 2: All workers upgraded (version >= 1.650.0) ---
-    MIN_VERSION.store(std::sync::Arc::new(MIN_VERSION_SUPPORTS_TOKEN_HASH.version().clone()));
+    MIN_VERSION.store(std::sync::Arc::new(
+        MIN_VERSION_SUPPORTS_TOKEN_HASH.version().clone(),
+    ));
 
     let resp = authed(client().post(format!("{base}/tokens/create")))
         .json(&json!({"label": "new-worker-token"}))
@@ -324,7 +326,7 @@ async fn test_plaintext_backward_compat(db: Pool<Postgres>) -> anyhow::Result<()
 async fn test_rotate_webhook_token(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
-    use windmill_native_triggers::{delete_token_by_hash, rotate_webhook_token};
+    use windmill_native_triggers::{delete_token_by_hash, rotate_webhook_token, ServiceName};
 
     // Insert a token directly with known values
     let original_token = "test-webhook-token-original-1234";
@@ -342,7 +344,7 @@ async fn test_rotate_webhook_token(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await?;
 
     // Rotate the token
-    let rotated = rotate_webhook_token(&db, &original_hash)
+    let rotated = rotate_webhook_token(&db, &original_hash, ServiceName::Google)
         .await?
         .expect("rotate must return Some for existing token");
 
@@ -389,7 +391,7 @@ async fn test_rotate_webhook_token(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(!old_gone, "old token must be gone after explicit deletion");
 
     // Rotating a non-existent hash should return None
-    let result = rotate_webhook_token(&db, "nonexistent_hash").await?;
+    let result = rotate_webhook_token(&db, "nonexistent_hash", ServiceName::Google).await?;
     assert!(
         result.is_none(),
         "rotating a non-existent token must return None"

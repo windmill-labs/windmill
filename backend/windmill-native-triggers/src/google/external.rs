@@ -341,7 +341,13 @@ impl Google {
             .transpose()?
             .ok_or_else(|| Error::InternalErr("Missing service config".to_string()))?;
 
-        let rotated = match rotate_webhook_token(db, &trigger.webhook_token_hash).await? {
+        let rotated = match rotate_webhook_token(
+            db,
+            &trigger.webhook_token_hash,
+            ServiceName::Google,
+        )
+        .await?
+        {
             Some(r) => r,
             None => {
                 return Err(Error::InternalErr(format!(
@@ -502,6 +508,11 @@ async fn try_renew_channel_locked(
     };
 
     let Some(service_config) = row.service_config else {
+        // Anomalous: a Google trigger row should always carry a service_config.
+        tracing::warn!(
+            "Google trigger '{}' has NULL service_config — skipping renewal",
+            trigger.external_id
+        );
         return Ok(RenewOutcome::Skipped);
     };
 
@@ -521,7 +532,8 @@ async fn try_renew_channel_locked(
         .renew_channel(workspace_id, &fresh_trigger, db)
         .await?;
 
-    update_native_trigger_service_config(
+    // Past this point a new Google channel exists. Any failure leaks it.
+    if let Err(e) = update_native_trigger_service_config(
         &mut *tx,
         workspace_id,
         ServiceName::Google,
@@ -529,16 +541,39 @@ async fn try_renew_channel_locked(
         &new_config,
         Some(&new_token),
     )
-    .await?;
-
-    tx.commit().await?;
-
-    if let Err(e) = crate::delete_token_by_hash(db, &old_token_hash).await {
-        tracing::warn!(
-            "Failed to delete old webhook token after channel renewal for {}: {}",
+    .await
+    {
+        tracing::error!(
+            "DB update failed after creating new Google channel for '{}' — channel orphaned in Google: {}",
             trigger.external_id,
             e
         );
+        return Err(e);
+    }
+
+    if let Err(e) = tx.commit().await {
+        tracing::error!(
+            "Commit failed after creating new Google channel for '{}' — channel orphaned in Google: {}",
+            trigger.external_id,
+            e
+        );
+        return Err(e.into());
+    }
+
+    // With the lock + rotation in place, the old token row must exist here.
+    // Ok(false) means a concurrent path deleted it (or the expiry sweep collected it).
+    match crate::delete_token_by_hash(db, &old_token_hash).await {
+        Ok(true) => {}
+        Ok(false) => tracing::warn!(
+            "Old webhook token already gone after renewal for '{}' (hash {})",
+            trigger.external_id,
+            old_token_hash
+        ),
+        Err(e) => tracing::warn!(
+            "Failed to delete old webhook token after channel renewal for '{}': {}",
+            trigger.external_id,
+            e
+        ),
     }
 
     Ok(RenewOutcome::Renewed)
@@ -582,7 +617,8 @@ async fn renew_expiring_channels(
                 });
             }
             Ok(RenewOutcome::Skipped) => {
-                tracing::info!(
+                // Expected outcome under SKIP LOCKED: contending replica or already-renewed row.
+                tracing::debug!(
                     "Skipped Google channel renewal for '{}': another replica is renewing or the row was already renewed",
                     trigger.external_id
                 );
