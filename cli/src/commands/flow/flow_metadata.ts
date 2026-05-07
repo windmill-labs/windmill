@@ -21,6 +21,7 @@ import { extractInlineScripts as extractInlineScriptsForFlows, extractCurrentMap
 import { newPathAssigner } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
 import { generateHash, getHeaders, readTextFile, writeIfChanged } from "../../utils/utils.ts";
+import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import { exts } from "../script/script.ts";
 import { FSFSElement, yamlOptions } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
@@ -424,6 +425,11 @@ export async function updateFlow(
       },
       body: JSON.stringify(body),
     }
+  );
+
+  await detectAuthGatewayChallenge(
+    queueResponse,
+    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/flow_dependencies_async`,
   );
 
   if (!queueResponse.ok) {

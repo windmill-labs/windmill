@@ -24,6 +24,7 @@ import {
   workspaceDependenciesLanguages,
 } from "../../utils/script_common.ts";
 import { generateHash, getHeaders, readTextFile, writeIfChanged } from "../../utils/utils.ts";
+import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import { exts } from "../script/script.ts";
 import { FSFSElement, yamlOptions } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
@@ -780,6 +781,11 @@ async function generateInlineScriptLock(
           : {}),
       }),
     }
+  );
+
+  await detectAuthGatewayChallenge(
+    queueResponse,
+    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies_async`,
   );
 
   if (!queueResponse.ok) {

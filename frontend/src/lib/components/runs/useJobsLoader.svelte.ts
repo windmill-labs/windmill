@@ -30,17 +30,12 @@ export function computeJobKinds(jobKindsCat: string | null): string {
 	} else if (jobKindsCat == 'deploymentcallbacks') {
 		let kinds: CompletedJob['job_kind'][] = ['deploymentcallback']
 		return kinds.join(',')
-	} else if (jobKindsCat == 'runs') {
-		let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'singlestepflow']
-		return kinds.join(',')
 	} else {
-		let kinds: CompletedJob['job_kind'][] = [
-			'script',
-			'flow',
-			'flowscript',
-			'flownode',
-			'appscript'
-		]
+		// Default mirrors the explicit 'runs' category — top-level scripts, flows,
+		// and single-step flows. flowscript/flownode/appscript are intermediate
+		// flow children with non-null parent_job, and the loader pairs this with
+		// hasNullParent: true, so they would never match here anyway.
+		let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'singlestepflow']
 		return kinds.join(',')
 	}
 }
