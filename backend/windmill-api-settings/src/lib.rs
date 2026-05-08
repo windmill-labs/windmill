@@ -37,13 +37,13 @@ use axum::{
 use serde_json::json;
 
 use serde::{Deserialize, Serialize};
+use windmill_ai::ai_cache::bump_instance_ai_config_revision;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use windmill_common::secret_backend::{
     AwsSecretsManagerSettings, AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
 };
-use windmill_ai::ai_cache::bump_instance_ai_config_revision;
 use windmill_common::{
     email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
@@ -118,6 +118,7 @@ pub fn global_service() -> Router {
             get(get_latest_key_renewal_attempt),
         )
         .route("/renew_license_key", post(renew_license_key))
+        .route("/license_status", get(get_license_status))
         .route("/customer_portal", post(create_customer_portal_session))
         .route("/test_critical_channels", post(test_critical_channels))
         .route("/critical_alerts", get(get_critical_alerts))
@@ -340,13 +341,61 @@ pub async fn test_license_key(
     Json(TestKey { license_key }): Json<TestKey>,
 ) -> error::Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    let (_, expired) = validate_license_key(license_key, Some(&db)).await?;
+    let (_, expired, _offline_meta) = validate_license_key(license_key, Some(&db)).await?;
 
     if expired {
         Err(error::Error::BadRequest("Expired license key".to_string()))
     } else {
         Ok("Valid license key".to_string())
     }
+}
+
+#[derive(Serialize)]
+pub struct LicenseStatus {
+    pub license_key_id: String,
+    pub license_key_valid: bool,
+    pub kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offline: Option<windmill_common::ee_oss::OfflineMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cap_status: Option<windmill_common::ee_oss::OfflineCapStatus>,
+}
+
+pub async fn get_license_status(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> error::JsonResult<LicenseStatus> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let license_key_id = (**windmill_common::ee_oss::LICENSE_KEY_ID.load()).clone();
+    let offline = (**windmill_common::ee_oss::LICENSE_OFFLINE_METADATA.load()).clone();
+
+    let (kind, cap_status) = match offline.as_ref() {
+        Some(m) if m.is_offline() => {
+            #[cfg(feature = "enterprise")]
+            let cap = windmill_common::ee_oss::enforce_offline_caps(&db)
+                .await
+                .ok()
+                .flatten();
+            #[cfg(not(feature = "enterprise"))]
+            let cap: Option<windmill_common::ee_oss::OfflineCapStatus> = None;
+            ("offline", cap)
+        }
+        _ => ("online", None),
+    };
+
+    // Read after enforce_offline_caps runs so a freshly-flipped invalid state
+    // (cap exceeded + grace expired) is reflected in the same response.
+    let license_key_valid =
+        windmill_common::ee_oss::LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed);
+
+    Ok(Json(LicenseStatus {
+        license_key_id,
+        license_key_valid,
+        kind,
+        offline,
+        cap_status,
+    }))
 }
 
 pub async fn get_local_settings(

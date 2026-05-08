@@ -2377,6 +2377,20 @@ pub async fn monitor_db(
         }
     };
 
+    let enforce_offline_caps_f = async {
+        #[cfg(feature = "enterprise")]
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                // The function itself throttles the expensive worker_ping scan to once
+                // per LICENSE_OFFLINE_CHECK_INTERVAL_SECS, so calling it on every monitor
+                // tick is cheap when nothing has changed.
+                if let Err(e) = windmill_common::ee_oss::enforce_offline_caps(db).await {
+                    tracing::error!("Failed to enforce offline license caps: {e:#}");
+                }
+            }
+        }
+    };
+
     let expose_queue_metrics_f = async {
         if !initial_load && server_mode {
             if let Some(db) = conn.as_sql() {
@@ -2522,6 +2536,7 @@ pub async fn monitor_db(
         vacuum_queue_f,
         expose_queue_metrics_f,
         verify_license_key_f,
+        enforce_offline_caps_f,
         worker_groups_alerts_f,
         jobs_waiting_alerts_f,
         low_disk_alerts_f,
@@ -2852,6 +2867,11 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
     }
 
     IS_SECURE.store(is_secure, Ordering::Relaxed);
+
+    #[cfg(feature = "enterprise")]
+    {
+        crate::ee_oss::verify_license_key().await;
+    }
 
     Ok(())
 }

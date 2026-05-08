@@ -1779,6 +1779,70 @@ paths:
               schema:
                 type: string
 
+  /settings/license_status:
+    get:
+      summary: get current license status (offline metadata + cap usage)
+      operationId: getLicenseStatus
+      tags:
+        - setting
+      responses:
+        "200":
+          description: license status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [license_key_id, license_key_valid, kind]
+                properties:
+                  license_key_id:
+                    type: string
+                  license_key_valid:
+                    type: boolean
+                  kind:
+                    type: string
+                    enum: [offline, online]
+                  offline:
+                    type: object
+                    nullable: true
+                    properties:
+                      v:
+                        type: integer
+                      kind:
+                        type: string
+                      base_url:
+                        type: string
+                      seats:
+                        type: integer
+                        description: Total seats (author-equivalent; 1 author = 1 seat, 1 operator = 0.5 seats)
+                      cu_limit:
+                        type: number
+                  cap_status:
+                    type: object
+                    nullable: true
+                    properties:
+                      seats_used:
+                        type: number
+                        description: Author-equivalent seats consumed (authors + 0.5 × operators)
+                      seats_cap:
+                        type: integer
+                      author_count:
+                        type: integer
+                      operator_count:
+                        type: integer
+                      avg_cu_30d:
+                        type: number
+                      cu_cap:
+                        type: number
+                      cu_over_cap:
+                        type: boolean
+                      cu_over_since:
+                        type: string
+                        format: date-time
+                        nullable: true
+                      cu_seconds_until_invalidation:
+                        type: integer
+                        nullable: true
+
   /settings/customer_portal:
     post:
       summary: create customer portal session

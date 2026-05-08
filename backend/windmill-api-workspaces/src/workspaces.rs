@@ -5233,6 +5233,13 @@ async fn invite_user(
 
     nu.email = nu.email.to_lowercase();
 
+    #[cfg(feature = "enterprise")]
+    if let Some(msg) =
+        windmill_common::ee_oss::check_seat_cap_for_new_user(&db, nu.operator).await?
+    {
+        return Err(Error::BadRequest(msg));
+    }
+
     let mut tx = db.begin().await?;
 
     let already_in_workspace = sqlx::query_scalar!(
@@ -5305,6 +5312,13 @@ async fn add_user(
     }
 
     nu.email = nu.email.to_lowercase();
+
+    #[cfg(feature = "enterprise")]
+    if let Some(msg) =
+        windmill_common::ee_oss::check_seat_cap_for_new_user(&db, nu.operator).await?
+    {
+        return Err(Error::BadRequest(msg));
+    }
 
     let mut tx = db.begin().await?;
 

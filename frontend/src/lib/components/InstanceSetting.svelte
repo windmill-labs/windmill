@@ -56,6 +56,30 @@
 		attempted_at: string
 	} | null = $state(null)
 
+	let licenseStatus: {
+		license_key_id: string
+		license_key_valid: boolean
+		kind: 'offline' | 'online'
+		offline?: {
+			v: number
+			kind: string
+			base_url: string
+			seats: number
+			cu_limit: number
+		}
+		cap_status?: {
+			seats_used: number
+			seats_cap: number
+			author_count: number
+			operator_count: number
+			avg_cu_30d: number
+			cu_cap: number
+			cu_over_cap: boolean
+			cu_over_since?: string | null
+			cu_seconds_until_invalidation?: number | null
+		}
+	} | null = $state(null)
+
 	function showSetting(setting: string, values: Record<string, any>) {
 		if (setting == 'dev_instance') {
 			if (values['license_key'] == undefined) {
@@ -72,6 +96,14 @@
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 	}
 
+	async function reloadLicenseStatus() {
+		try {
+			licenseStatus = (await SettingService.getLicenseStatus()) as any
+		} catch {
+			licenseStatus = null
+		}
+	}
+
 	async function reloadLicenseKey() {
 		$values['license_key'] = await SettingService.getGlobal({
 			key: 'license_key'
@@ -80,7 +112,10 @@
 
 	$effect(() => {
 		if (setting.key == 'license_key') {
-			untrack(() => reloadKeyrenewalAttemptInfo())
+			untrack(() => {
+				reloadKeyrenewalAttemptInfo()
+				reloadLicenseStatus()
+			})
 		}
 	})
 
@@ -508,6 +543,84 @@
 								<Button variant="accent" size="xs" loading={opening} on:click={openCustomerPortal}>
 									Open customer portal
 								</Button>
+							</div>
+						{/if}
+
+						{#if licenseStatus?.kind === 'offline' && licenseStatus.offline}
+							{@const meta = licenseStatus.offline}
+							{@const cap = licenseStatus.cap_status}
+							{@const seatsAtCap = !!cap && cap.seats_used >= cap.seats_cap}
+							{@const cuOver = !!cap?.cu_over_cap}
+							{@const cuDaysLeft =
+								cap?.cu_seconds_until_invalidation != null
+									? Math.max(0, Math.ceil(cap.cu_seconds_until_invalidation / 86400))
+									: null}
+							<div
+								class="mt-3 rounded border p-3 text-xs flex flex-col gap-1.5 {cuOver
+									? 'border-red-400 bg-red-50 dark:bg-red-950/30'
+									: seatsAtCap
+										? 'border-amber-400 bg-amber-50 dark:bg-amber-950/30'
+										: 'border-blue-300 bg-blue-50 dark:bg-blue-950/30'}"
+							>
+								<div class="font-semibold flex items-center gap-1">
+									<Info size={14} />
+									Offline (URL-bound) license
+								</div>
+								<div>
+									Bound to <code class="font-mono">{meta.base_url}</code>. Renewal is disabled —
+									this key is intended for air-gapped instances. To reissue when approaching expiry,
+									self-serve at
+									<a
+										href="https://portal.windmill.dev"
+										target="_blank"
+										rel="noopener noreferrer"
+										class="underline">portal.windmill.dev</a
+									>
+									(if enabled on your subscription) or
+									<a href="mailto:support@windmill.dev" class="underline">contact us</a>.
+								</div>
+								{#if cap}
+									<div class="grid grid-cols-2 gap-2 mt-1">
+										<div>
+											Seats:
+											<span
+												class={cap.seats_used >= cap.seats_cap ? 'text-red-600 font-semibold' : ''}
+												>{cap.seats_used.toFixed(1)} / {cap.seats_cap}</span
+											>
+											<span class="text-tertiary"
+												>({cap.author_count} author{cap.author_count === 1 ? '' : 's'}, {cap.operator_count}
+												op{cap.operator_count === 1 ? '' : 's'} × 0.5)</span
+											>
+										</div>
+										<div>
+											Avg CU (30d): <span
+												class={cap.cu_over_cap ? 'text-red-600 font-semibold' : ''}
+												>{cap.avg_cu_30d.toFixed(2)} / {cap.cu_cap.toFixed(2)}</span
+											>
+										</div>
+									</div>
+									{#if seatsAtCap}
+										<div class="mt-1 flex items-center gap-1 text-amber-700 dark:text-amber-300">
+											<AlertCircle size={14} />
+											Seat cap reached — new invites and additions are blocked until an existing user
+											is removed or deactivated.
+										</div>
+									{/if}
+									{#if cuOver}
+										<div class="mt-1 flex items-center gap-1 text-red-700 dark:text-red-300">
+											<AlertCircle size={14} />
+											{#if cuDaysLeft && cuDaysLeft > 0}
+												Avg CU above cap. License will be invalidated in
+												<strong>{cuDaysLeft} day{cuDaysLeft === 1 ? '' : 's'}</strong
+												>{cap.cu_over_since
+													? ` (since ${new Date(cap.cu_over_since).toLocaleString()})`
+													: ''} unless usage drops back under cap.
+											{:else}
+												Avg CU has been above cap for too long — license is invalidated.
+											{/if}
+										</div>
+									{/if}
+								{/if}
 							</div>
 						{/if}
 					</div>
