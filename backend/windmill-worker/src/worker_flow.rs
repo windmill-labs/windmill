@@ -494,19 +494,34 @@ pub async fn update_flow_status_after_job_completion_internal(
         }
 
         // Resolve flow_env for predicate evaluations (stop_after_if,
-        // stop_after_all_iters_if, retry_if). Only fetch when one of these
-        // predicates is configured to avoid an extra DB query on the common
-        // path. `retry` without `retry_if` doesn't consult flow_env.
-        let retry_uses_flow_env =
-            |module: &FlowModule| module.retry.as_ref().is_some_and(|r| r.retry_if.is_some());
+        // stop_after_all_iters_if, retry_if). Two-level gate:
+        //   1. Structural — at least one such predicate is configured.
+        //   2. Textual — the predicate expression actually references
+        //      `flow_env`. Mirrors the existing `expr.contains("results.")`
+        //      check in `get_id_ctx_for_expr`. A substring match has false
+        //      positives (harmless — just runs an unneeded resolve) but no
+        //      false negatives, since `flow_env` must appear textually for the
+        //      expression engine to read it.
+        let expr_uses_flow_env = |expr: &str| expr.contains("flow_env");
+        let retry_if_uses_flow_env = |module: &FlowModule| {
+            module
+                .retry
+                .as_ref()
+                .and_then(|r| r.retry_if.as_ref())
+                .is_some_and(|r| expr_uses_flow_env(&r.expr))
+        };
         let needs_flow_env = current_module.is_some_and(|m| {
-            m.stop_after_if.is_some()
-                || m.stop_after_all_iters_if.is_some()
-                || retry_uses_flow_env(m)
+            m.stop_after_if
+                .as_ref()
+                .is_some_and(|s| expr_uses_flow_env(&s.expr))
+                || m.stop_after_all_iters_if
+                    .as_ref()
+                    .is_some_and(|s| expr_uses_flow_env(&s.expr))
+                || retry_if_uses_flow_env(m)
         }) || flow_value
             .failure_module
             .as_ref()
-            .is_some_and(|fm| retry_uses_flow_env(fm));
+            .is_some_and(|fm| retry_if_uses_flow_env(fm));
         // The resolved env is constant for a flow's lifetime, so cache it by flow
         // job id and reuse across child-step completions. Cache miss falls back to
         // the existing resolve+persist path; same-worker subsequent completions are
@@ -2729,8 +2744,11 @@ pub async fn handle_flow(
     // Resolve $var: and $res: references in flow_env.
     // We resolve into a separate variable to avoid cloning the entire FlowValue
     // (which includes modules, failure_module, etc.) just to replace flow_env.
+    // `is_cacheable` is `false` only on a transient `transform_json` failure,
+    // matching `resolve_flow_env_for_status_update`'s contract — we must not
+    // freeze a partial resolution into the cache.
     let resolved_env;
-    let flow_env = if let Some(env) = env_source {
+    let (flow_env, is_cacheable) = if let Some(env) = env_source {
         match transform_json(
             client,
             &flow_job.workspace_id,
@@ -2742,17 +2760,30 @@ pub async fn handle_flow(
         {
             Ok(Some(resolved)) => {
                 resolved_env = resolved;
-                Some(&resolved_env)
+                (Some(&resolved_env), true)
             }
-            Ok(None) => Some(env),
+            Ok(None) => (Some(env), true),
             Err(e) => {
                 tracing::warn!("Failed to resolve flow_env references: {e}");
-                Some(env)
+                (Some(env), false)
             }
         }
     } else {
-        None
+        (None, true)
     };
+
+    // Populate the per-flow resolved-env cache so subsequent predicate
+    // evaluations in `update_flow_status_after_job_completion_internal` skip
+    // the recursive CTE + transform_json. Costs one HashMap clone per
+    // sub-flow handle_flow entry; saves up to one CTE + one transform_json
+    // per flow execution that has predicates referencing flow_env.
+    if is_cacheable {
+        if let Some(env) = flow_env {
+            if !env.is_empty() {
+                RESOLVED_FLOW_ENV_CACHE.insert(flow_job.id, Arc::new(env.clone()));
+            }
+        }
+    }
 
     let status = flow_job
         .parse_flow_status()
