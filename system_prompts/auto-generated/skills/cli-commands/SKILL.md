@@ -173,6 +173,7 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
 - `--skip-flows` - Skip processing flows
 - `--skip-apps` - Skip processing apps
 - `--strict-folder-boundaries` - Only update items inside the specified folder (requires folder argument)
+- `--parallel <n:number>` - Number of items to process in parallel
 - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which files to include
 - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which files to exclude
 
@@ -182,6 +183,7 @@ Generate metadata (locks, schemas) for all scripts, flows, and apps
   - `--skip-scripts` - Skip processing scripts
   - `--skip-flows` - Skip processing flows
   - `--skip-apps` - Skip processing apps
+  - `--parallel <n:number>` - Number of items to process in parallel
   - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which files to include
   - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which files to exclude
 
