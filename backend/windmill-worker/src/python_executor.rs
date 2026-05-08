@@ -2113,6 +2113,84 @@ async fn spawn_uv_install(
     }
 }
 
+/// Verify that every file listed in the wheel's RECORD exists on disk under
+/// `venv_p`. Used as a structural integrity check after both a successful
+/// `pull_from_tar` (object-store cache hit) and a successful local
+/// `uv pip install`, so a truncated tar or a dropped wheel entry can never
+/// become an authoritative cache entry. Returns Err with a short description
+/// on the first integrity issue (no .dist-info, no RECORD, or any listed
+/// path missing on disk).
+async fn verify_wheel_record(venv_p: &str) -> Result<(), String> {
+    let mut entries = tokio::fs::read_dir(venv_p)
+        .await
+        .map_err(|e| format!("read_dir({venv_p}): {e}"))?;
+
+    let mut dist_info: Option<String> = None;
+    loop {
+        match entries.next_entry().await {
+            Ok(Some(entry)) => {
+                let name = entry.file_name();
+                let name_s = name.to_string_lossy();
+                if name_s.ends_with(".dist-info") {
+                    if let Ok(ft) = entry.file_type().await {
+                        if ft.is_dir() {
+                            dist_info = Some(name_s.into_owned());
+                            break;
+                        }
+                    }
+                }
+            }
+            Ok(None) => break,
+            Err(e) => return Err(format!("read_dir entry in {venv_p}: {e}")),
+        }
+    }
+
+    let dist_info = match dist_info {
+        Some(d) => d,
+        None => return Err(format!("no .dist-info directory in {venv_p}")),
+    };
+
+    let record_path = format!("{venv_p}/{dist_info}/RECORD");
+    let record_content = tokio::fs::read_to_string(&record_path)
+        .await
+        .map_err(|e| format!("read RECORD at {record_path}: {e}"))?;
+
+    let mut missing: Vec<String> = Vec::new();
+    for line in record_content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let rel_path = match trimmed.split(',').next() {
+            Some(p) if !p.is_empty() => p,
+            _ => continue,
+        };
+        // Defensive: skip absolute paths or escaping entries — we only
+        // validate package-relative files.
+        if rel_path.starts_with('/') || rel_path.contains("..") {
+            continue;
+        }
+        let full = format!("{venv_p}/{rel_path}");
+        if tokio::fs::metadata(&full).await.is_err() {
+            missing.push(rel_path.to_string());
+            // Bound error size in pathological cases (e.g. wholly empty dir).
+            if missing.len() >= 10 {
+                missing.push("...".to_string());
+                break;
+            }
+        }
+    }
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "wheel RECORD lists files missing on disk: {}",
+            missing.join(", ")
+        ))
+    }
+}
+
 /// uv pip install, include cached or pull from S3
 pub async fn handle_python_reqs(
     requirements: Vec<String>,
@@ -2484,6 +2562,30 @@ pub async fn handle_python_reqs(
                                     workspace_id = %w_id,
                                     "No tarball was found for {venv_p} on S3 or different problem occurred {job_id}:\n{e}",
                                 );
+                            } else if let Err(verify_err) = verify_wheel_record(&venv_p).await {
+                                // The object-store tar extracted cleanly but the resulting
+                                // directory is missing files referenced by the wheel RECORD.
+                                // Wipe the broken cache entry and fall through to a fresh
+                                // local install rather than treating it as authoritative.
+                                tracing::warn!(
+                                    workspace_id = %w_id,
+                                    job_id = %job_id,
+                                    "Object-store cache for {venv_p} failed wheel RECORD verification, will reinstall locally: {verify_err}"
+                                );
+                                if let Err(rm_err) = tokio::fs::remove_dir_all(&venv_p).await {
+                                    tracing::warn!(
+                                        workspace_id = %w_id,
+                                        "could not remove broken cache dir {venv_p}: {rm_err}"
+                                    );
+                                }
+                                append_logs(
+                                    &job_id,
+                                    &w_id,
+                                    format!(
+                                        "\n[!] cached wheel for {req} from object store failed integrity check, reinstalling: {verify_err}\n"
+                                    ),
+                                    &conn,
+                                ).await;
                             } else {
                                 print_success(
                                     true,
@@ -2638,6 +2740,39 @@ pub async fn handle_python_reqs(
 
             if is_sandboxing_enabled() {
                 let _ = std::fs::remove_file(format!("{job_dir}/{req}.config.proto"));
+            }
+
+            // Verify the install before declaring success: if uv exited 0 but
+            // the on-disk directory is missing files the wheel RECORD says
+            // should exist, do NOT write .valid.windmill, do NOT queue the
+            // piptar upload, and fail the job. This prevents a broken tar
+            // from ever being pushed to the object store and propagated to
+            // every other replica.
+            if let Err(verify_err) = verify_wheel_record(&venv_p).await {
+                tracing::error!(
+                    workspace_id = %w_id,
+                    job_id = %job_id,
+                    "uv pip install of {req} into {venv_p} failed wheel RECORD verification: {verify_err}"
+                );
+                append_logs(
+                    &job_id,
+                    &w_id,
+                    format!(
+                        "\nWheel RECORD verification failed after install of {req}: {verify_err}. \
+                         Aborting to avoid publishing a corrupt cache entry."
+                    ),
+                    &conn,
+                ).await;
+                if let Err(rm_err) = tokio::fs::remove_dir_all(&venv_p).await {
+                    tracing::warn!(
+                        workspace_id = %w_id,
+                        "could not remove broken install dir {venv_p}: {rm_err}"
+                    );
+                }
+                pids.lock().await.get_mut(i).and_then(|e| e.take());
+                return Err(Error::from(anyhow!(
+                    "wheel RECORD verification failed after install of {req}"
+                )));
             }
 
             print_success(
