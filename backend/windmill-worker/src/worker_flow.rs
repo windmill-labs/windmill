@@ -85,13 +85,24 @@ lazy_static::lazy_static! {
     /// Per-worker LRU cache of resolved `flow_env` values, keyed by flow job id.
     /// `update_flow_status_after_job_completion_internal` runs once per child-step
     /// completion, and re-resolving `$var:`/`$res:` references each time was the
-    /// dominant heap-allocation source under flow-heavy load. Resolved env is
-    /// constant for a flow's lifetime (matches the freeze-at-start semantics
-    /// already used by `handle_flow` for input transforms), so caching by job id
-    /// is safe; entries become dead weight once a flow completes and are evicted
-    /// by LRU pressure. Bounded at 1024 entries; per-entry footprint depends on
-    /// the env's contents (literals are small but a single resolved `$res:` can
-    /// be tens of KB), so worst-case memory scales with workload mix rather than
+    /// dominant heap-allocation source under flow-heavy load. The cache aligns
+    /// predicate evaluation with `handle_flow`'s input-transform path, which
+    /// already resolves once at flow entry — predicates were the only place still
+    /// re-resolving on every read.
+    ///
+    /// Per-worker scope (caveat): the cache lives in process memory, not the DB,
+    /// so different workers processing children of the same flow each compute
+    /// their own snapshot on first miss. If a `$var:`/`$res:` value mutates
+    /// mid-flow, predicate eval on different workers can observe different
+    /// values for the same flow run. For typical use (env values configured at
+    /// flow start, read-only during execution) this is invisible. Cross-worker
+    /// determinism would require persisting the resolved env in `v2_job_status`;
+    /// see follow-up notes.
+    ///
+    /// Entries become dead weight once a flow completes and are evicted by LRU
+    /// pressure. Bounded at 1024 entries; per-entry footprint depends on the
+    /// env's contents (literals are small but a single resolved `$res:` can be
+    /// tens of KB), so worst-case memory scales with workload mix rather than
     /// being fixed.
     static ref RESOLVED_FLOW_ENV_CACHE: quick_cache::sync::Cache<Uuid, Arc<HashMap<String, Box<RawValue>>>> =
         quick_cache::sync::Cache::new(1024);
@@ -499,16 +510,20 @@ pub async fn update_flow_status_after_job_completion_internal(
         // The resolved env is constant for a flow's lifetime, so cache it by flow
         // job id and reuse across child-step completions. Cache miss falls back to
         // the existing resolve+persist path; same-worker subsequent completions are
-        // a single Arc::clone away.
+        // a single Arc::clone away. Transient-failure fallbacks (`is_cacheable ==
+        // false`) bypass the insert so a single API blip doesn't poison the rest
+        // of the flow run.
         let resolved_flow_env: Option<Arc<HashMap<String, Box<RawValue>>>> = if needs_flow_env {
             if let Some(cached) = RESOLVED_FLOW_ENV_CACHE.get(&flow) {
                 Some(cached)
             } else {
                 resolve_flow_env_for_status_update(db, client, flow, w_id, flow_value)
                     .await
-                    .map(|env| {
+                    .map(|(env, is_cacheable)| {
                         let arc = Arc::new(env);
-                        RESOLVED_FLOW_ENV_CACHE.insert(flow, arc.clone());
+                        if is_cacheable {
+                            RESOLVED_FLOW_ENV_CACHE.insert(flow, arc.clone());
+                        }
                         arc
                     })
             }
@@ -2417,13 +2432,19 @@ async fn fetch_root_flow_id(db: &DB, flow_id: Uuid) -> Uuid {
 // `update_flow_status_after_job_completion_internal`: take the current flow's
 // `flow_env` if present, otherwise inherit from the root flow, then interpolate
 // any `$var:`/`$res:` references via `transform_json`.
+//
+// Returns `Some((env, is_cacheable))`. `is_cacheable` is `false` only when the
+// returned env is a partially-resolved fallback after a transient error (e.g.
+// `transform_json` failed mid-resolve, or the mini job fetch failed). Callers
+// must not cache `is_cacheable == false` results — doing so would freeze the
+// transient failure for the rest of the flow run.
 async fn resolve_flow_env_for_status_update(
     db: &DB,
     client: &AuthedClient,
     flow_job_id: Uuid,
     workspace_id: &str,
     flow_value: &FlowValue,
-) -> Option<HashMap<String, Box<RawValue>>> {
+) -> Option<(HashMap<String, Box<RawValue>>, bool)> {
     // Fetch the env source. For the inherited path, we first need to know whether the
     // flow even has a parent — `fetch_root_flow_env` runs a recursive CTE on `v2_job`
     // and is wasted work for top-level flows with no own `flow_env`. The mini job we
@@ -2448,21 +2469,23 @@ async fn resolve_flow_env_for_status_update(
             (env, Some(mini))
         };
     if env.is_empty() {
-        return Some(env);
+        return Some((env, true));
     }
     // Skip the DB roundtrip + `transform_json` when nothing in env needs interpolation.
     // This is the common case: a flow_env containing only literal values.
     if !crate::common::map_needs_resolution(&env) {
-        return Some(env);
+        return Some((env, true));
     }
     let mini = match mini {
         Some(m) => m,
         None => match get_mini_pulled_job(db, &flow_job_id).await {
             Ok(Some(j)) => j,
-            Ok(None) => return Some(env),
+            // Don't cache: we couldn't fetch the job, so the env we'd return is the
+            // pre-interpolation literal — caching that would freeze the broken state.
+            Ok(None) => return Some((env, false)),
             Err(e) => {
                 tracing::warn!("Failed to fetch flow job to resolve flow_env: {e:#}");
-                return Some(env);
+                return Some((env, false));
             }
         },
     };
@@ -2475,11 +2498,13 @@ async fn resolve_flow_env_for_status_update(
     )
     .await
     {
-        Ok(Some(resolved)) => Some(resolved),
-        Ok(None) => Some(env),
+        Ok(Some(resolved)) => Some((resolved, true)),
+        Ok(None) => Some((env, true)),
+        // Don't cache transient resolution failures: one variable/resource API blip
+        // would otherwise poison the literal-only env for the rest of the flow run.
         Err(e) => {
             tracing::warn!("Failed to resolve flow_env references in status update: {e:#}");
-            Some(env)
+            Some((env, false))
         }
     }
 }
