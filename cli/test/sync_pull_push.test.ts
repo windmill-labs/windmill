@@ -493,6 +493,50 @@ async function cleanupTempDir(dir: string): Promise<void> {
   }
 }
 
+// Polls /flows/get + /jobs_u/completed/get until the most recent flow
+// dependency job has completed. After a flow create/update the API queues a
+// FlowDependencies job that asynchronously fills inline-script lockfiles and
+// rewrites flow.value; tests that round-trip through sync push/pull must wait
+// for it or they race the worker (CI-only flake). Returns silently if the
+// flow doesn't exist on the server (treats it as a no-op push).
+async function waitForFlowDependencyJob(
+  backend: any,
+  flowPath: string,
+  timeoutMs: number = 30000,
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const flowResp = await backend.apiRequest!(
+      `/api/w/${backend.workspace}/flows/get/${encodeURIComponent(flowPath)}`,
+    );
+    if (flowResp.status === 404) {
+      await flowResp.text().catch(() => {});
+      return;
+    }
+    if (!flowResp.ok) {
+      await flowResp.text().catch(() => {});
+      throw new Error(
+        `Failed to fetch flow ${flowPath}: ${flowResp.status}`,
+      );
+    }
+    const flow = await flowResp.json();
+    const depJobId: string | undefined = flow?.dependency_job;
+    if (!depJobId) return;
+    const completed = await backend.apiRequest!(
+      `/api/w/${backend.workspace}/jobs_u/completed/get/${depJobId}`,
+    );
+    if (completed.ok) {
+      await completed.text();
+      return;
+    }
+    await completed.text().catch(() => {});
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(
+    `Flow dependency job for ${flowPath} did not complete within ${timeoutMs}ms`,
+  );
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -1796,6 +1840,12 @@ excludes: []
       );
 
       expect(pushResult.code).toEqual(0);
+
+      // sync push of the flow enqueues an async FlowDependencies job that
+      // generates the inline-script lockfile and rewrites flow.value. Wait for
+      // it before pulling back, otherwise pull races the worker and the
+      // dry-run push idempotency check sees phantom diffs (CI-only flake).
+      await waitForFlowDependencyJob(backend, flowName);
 
       // Pull back
       const pullResult = await backend.runCLICommand(

@@ -130,6 +130,37 @@ async function createFlow(
     throw new Error(`Failed to create flow ${flowPath}: ${error}`);
   }
   await response.text();
+
+  // Flow creation queues an async FlowDependencies job that generates the
+  // inline-script lockfile and rewrites flow.value. If we don't wait, a
+  // subsequent pull/push races the worker and the dry-run idempotency
+  // assertion sees a phantom lock-add + flow.yaml-edit diff (CI-only flake).
+  await waitForFlowDependencyJob(backend, flowPath);
+}
+
+async function waitForFlowDependencyJob(
+  backend: any,
+  flowPath: string,
+  timeoutMs: number = 30000,
+): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const flow = await getFlow(backend, flowPath);
+    const depJobId: string | undefined = flow?.dependency_job;
+    if (!depJobId) return;
+    const completed = await backend.apiRequest!(
+      `/api/w/${backend.workspace}/jobs_u/completed/get/${depJobId}`,
+    );
+    if (completed.ok) {
+      await completed.text();
+      return;
+    }
+    await completed.text().catch(() => {});
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(
+    `Flow dependency job for ${flowPath} did not complete within ${timeoutMs}ms`,
+  );
 }
 
 async function createApp(
@@ -383,6 +414,10 @@ excludes: []
       // Verify modification on server
       const updatedFlow = await getFlow(backend, flowPath);
       expect(updatedFlow.summary).toEqual("Modified Data Processor Flow from test");
+
+      // The CLI push enqueues a fresh FlowDependencies job. Wait for it before
+      // the dry-run pull so the lock/flow.value writes have committed.
+      await waitForFlowDependencyJob(backend, flowPath);
 
       // Verify no diff on subsequent pull (idempotency)
       await verifyNoDiffOnPull(backend, tempDir);

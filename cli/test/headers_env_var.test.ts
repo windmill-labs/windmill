@@ -18,6 +18,8 @@
 
 import { expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Server } from "bun";
 import { withTestBackend } from "./test_backend.ts";
 
@@ -113,12 +115,16 @@ async function runCliThroughProxy(
   cwd: string,
   env: Record<string, string>,
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-  const cliDir = new URL("..", import.meta.url).pathname;
+  // Use fileURLToPath + node:path so the CLI entrypoint is a real OS path on
+  // Windows. `new URL(..).pathname` yields `/C:/...` which Bun.spawn fails to
+  // resolve, so the negative case "rejected" on launch instead of reaching
+  // the proxy and the assertion on rejectedRequests > 0 flaked.
+  const cliDir = join(dirname(fileURLToPath(import.meta.url)), "..");
   const useNode = process.env["TEST_CLI_RUNTIME"] === "node";
   const runtime = useNode ? "node" : "bun";
   const entrypoint = useNode
-    ? `${cliDir}/npm/esm/main.js`
-    : `${cliDir}/src/main.ts`;
+    ? join(cliDir, "npm", "esm", "main.js")
+    : join(cliDir, "src", "main.ts");
   const runtimeArgs = useNode ? [entrypoint] : ["run", entrypoint];
 
   const fullArgs = [
