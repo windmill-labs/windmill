@@ -70,13 +70,22 @@ struct NestedErrorMessage {
 /// Extract `{ name, message }` from a result. Accepts both the standard
 /// top-level shape (regular runtime errors) and the nested `{ error: { name,
 /// message }, ... }` shape produced by the wm_failure injection.
+///
+/// For wm_failure-injected results, we prefer the nested error: a successful
+/// run may legitimately contain top-level `name`/`message` fields (user data
+/// named `name`/`message`), and we want OTel to record the ManualFailure
+/// rather than the user's sibling fields.
 fn extract_error_message(raw: &str) -> Option<ErrorMessage> {
+    let nested = serde_json::from_str::<NestedErrorMessage>(raw)
+        .ok()
+        .map(|n| n.error);
+    if matches!(&nested, Some(em) if em.name == MANUAL_FAILURE_ERROR_NAME) {
+        return nested;
+    }
     if let Ok(em) = serde_json::from_str::<ErrorMessage>(raw) {
         return Some(em);
     }
-    serde_json::from_str::<NestedErrorMessage>(raw)
-        .ok()
-        .map(|n| n.error)
+    nested
 }
 
 /// Returns the post-processing `success` value (after any `wm_failure`
