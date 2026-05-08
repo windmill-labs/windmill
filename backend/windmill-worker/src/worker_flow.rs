@@ -81,6 +81,19 @@ use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
 use windmill_queue::{canceled_job_to_result, push};
 
+lazy_static::lazy_static! {
+    /// Per-worker LRU cache of resolved `flow_env` values, keyed by flow job id.
+    /// `update_flow_status_after_job_completion_internal` runs once per child-step
+    /// completion, and re-resolving `$var:`/`$res:` references each time was the
+    /// dominant heap-allocation source under flow-heavy load. Resolved env is
+    /// constant for a flow's lifetime (matches the freeze-at-start semantics
+    /// already used by `handle_flow` for input transforms), so caching by job id
+    /// is safe; entries become dead weight once a flow completes and are evicted
+    /// by LRU pressure. Bounded at 10k entries × ~5KB ≈ 50 MB upper bound.
+    static ref RESOLVED_FLOW_ENV_CACHE: quick_cache::sync::Cache<Uuid, Arc<HashMap<String, Box<RawValue>>>> =
+        quick_cache::sync::Cache::new(10_000);
+}
+
 #[derive(Debug)]
 pub struct SchedulePushZombieError(pub String);
 
@@ -480,8 +493,22 @@ pub async fn update_flow_status_after_job_completion_internal(
             .failure_module
             .as_ref()
             .is_some_and(|fm| retry_uses_flow_env(fm));
-        let resolved_flow_env: Option<HashMap<String, Box<RawValue>>> = if needs_flow_env {
-            resolve_flow_env_for_status_update(db, client, flow, w_id, flow_value).await
+        // The resolved env is constant for a flow's lifetime, so cache it by flow
+        // job id and reuse across child-step completions. Cache miss falls back to
+        // the existing resolve+persist path; same-worker subsequent completions are
+        // a single Arc::clone away.
+        let resolved_flow_env: Option<Arc<HashMap<String, Box<RawValue>>>> = if needs_flow_env {
+            if let Some(cached) = RESOLVED_FLOW_ENV_CACHE.get(&flow) {
+                Some(cached)
+            } else {
+                resolve_flow_env_for_status_update(db, client, flow, w_id, flow_value)
+                    .await
+                    .map(|env| {
+                        let arc = Arc::new(env);
+                        RESOLVED_FLOW_ENV_CACHE.insert(flow, arc.clone());
+                        arc
+                    })
+            }
         } else {
             None
         };
@@ -632,7 +659,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         let bool_res = compute_bool_from_expr(
                             &expr,
                             Marc::new(args),
-                            resolved_flow_env.as_ref(),
+                            resolved_flow_env.as_deref(),
                             result.clone(),
                             all_iters,
                             id_ctx.as_ref(),
@@ -916,7 +943,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early_err_msg,
                             &mut nresult,
                             args,
-                            resolved_flow_env.as_ref(),
+                            resolved_flow_env.as_deref(),
                             flow,
                             &old_status,
                         )
@@ -1136,7 +1163,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early_err_msg,
                             &mut nresult,
                             args,
-                            resolved_flow_env.as_ref(),
+                            resolved_flow_env.as_deref(),
                             flow,
                             &old_status,
                         )
@@ -1219,7 +1246,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &old_status.retry,
                             result.clone(),
                             Marc::new(args),
-                            resolved_flow_env.as_ref(),
+                            resolved_flow_env.as_deref(),
                             Some(client),
                         )
                         .await?
@@ -1601,7 +1628,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 &old_status.retry,
                 result.clone(),
                 Marc::new(args),
-                resolved_flow_env.as_ref(),
+                resolved_flow_env.as_deref(),
                 Some(client),
             )
             .await?

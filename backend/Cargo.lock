@@ -17895,6 +17895,7 @@ dependencies = [
  "process-wrap",
  "prometheus",
  "prost",
+ "quick_cache",
  "rand 0.9.0",
  "rcgen",
  "regex",
