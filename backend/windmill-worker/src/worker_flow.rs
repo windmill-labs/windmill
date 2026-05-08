@@ -89,9 +89,12 @@ lazy_static::lazy_static! {
     /// constant for a flow's lifetime (matches the freeze-at-start semantics
     /// already used by `handle_flow` for input transforms), so caching by job id
     /// is safe; entries become dead weight once a flow completes and are evicted
-    /// by LRU pressure. Bounded at 10k entries × ~5KB ≈ 50 MB upper bound.
+    /// by LRU pressure. Bounded at 1024 entries; per-entry footprint depends on
+    /// the env's contents (literals are small but a single resolved `$res:` can
+    /// be tens of KB), so worst-case memory scales with workload mix rather than
+    /// being fixed.
     static ref RESOLVED_FLOW_ENV_CACHE: quick_cache::sync::Cache<Uuid, Arc<HashMap<String, Box<RawValue>>>> =
-        quick_cache::sync::Cache::new(10_000);
+        quick_cache::sync::Cache::new(1024);
 }
 
 #[derive(Debug)]
