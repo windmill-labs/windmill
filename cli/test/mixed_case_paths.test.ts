@@ -143,11 +143,31 @@ async function waitForFlowDependencyJob(
   flowPath: string,
   timeoutMs: number = 30000,
 ): Promise<void> {
+  // /flows/get does not return `dependency_job`. The deployment_status route
+  // joins flow_version against deployment_metadata, which is populated in the
+  // same tx as the FlowDependencies push, so by the time the create/update
+  // API call returns, job_id is already the latest dep-job UUID.
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const flow = await getFlow(backend, flowPath);
-    const depJobId: string | undefined = flow?.dependency_job;
-    if (!depJobId) return;
+    const statusResp = await backend.apiRequest!(
+      `/api/w/${backend.workspace}/flows/deployment_status/p/${flowPath}`,
+    );
+    if (statusResp.status === 404) {
+      await statusResp.text().catch(() => {});
+      return;
+    }
+    if (!statusResp.ok) {
+      await statusResp.text().catch(() => {});
+      throw new Error(
+        `Failed to fetch deployment status for ${flowPath}: ${statusResp.status}`,
+      );
+    }
+    const status = await statusResp.json();
+    const depJobId: string | undefined = status?.job_id;
+    if (!depJobId) {
+      await new Promise((r) => setTimeout(r, 100));
+      continue;
+    }
     const completed = await backend.apiRequest!(
       `/api/w/${backend.workspace}/jobs_u/completed/get/${depJobId}`,
     );

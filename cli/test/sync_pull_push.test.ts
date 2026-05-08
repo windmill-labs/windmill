@@ -493,12 +493,17 @@ async function cleanupTempDir(dir: string): Promise<void> {
   }
 }
 
-// Polls /flows/get + /jobs_u/completed/get until the most recent flow
-// dependency job has completed. After a flow create/update the API queues a
-// FlowDependencies job that asynchronously fills inline-script lockfiles and
-// rewrites flow.value; tests that round-trip through sync push/pull must wait
-// for it or they race the worker (CI-only flake). Returns silently if the
-// flow doesn't exist on the server (treats it as a no-op push).
+// Polls /flows/deployment_status/p/{path} + /jobs_u/completed/get until the
+// most recent flow dependency job has completed. After a flow create/update
+// the API queues a FlowDependencies job that asynchronously fills inline-
+// script lockfiles and rewrites flow.value; tests that round-trip through
+// sync push/pull must wait for it or they race the worker (CI-only flake).
+// `deployment_status` is the right read here — `/flows/get` does not return
+// `dependency_job`, but the `deployment_metadata.job_id` row is written in
+// the same tx as the dep-job push, so the returned `job_id` is the latest
+// dep-job UUID by the time the create/update API call has returned. Returns
+// silently if the flow doesn't exist on the server (treats it as a no-op
+// push, since the route returns 404 when the flow row is missing).
 async function waitForFlowDependencyJob(
   backend: any,
   flowPath: string,
@@ -506,22 +511,25 @@ async function waitForFlowDependencyJob(
 ): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const flowResp = await backend.apiRequest!(
-      `/api/w/${backend.workspace}/flows/get/${encodeURIComponent(flowPath)}`,
+    const statusResp = await backend.apiRequest!(
+      `/api/w/${backend.workspace}/flows/deployment_status/p/${flowPath}`,
     );
-    if (flowResp.status === 404) {
-      await flowResp.text().catch(() => {});
+    if (statusResp.status === 404) {
+      await statusResp.text().catch(() => {});
       return;
     }
-    if (!flowResp.ok) {
-      await flowResp.text().catch(() => {});
+    if (!statusResp.ok) {
+      await statusResp.text().catch(() => {});
       throw new Error(
-        `Failed to fetch flow ${flowPath}: ${flowResp.status}`,
+        `Failed to fetch deployment status for ${flowPath}: ${statusResp.status}`,
       );
     }
-    const flow = await flowResp.json();
-    const depJobId: string | undefined = flow?.dependency_job;
-    if (!depJobId) return;
+    const status = await statusResp.json();
+    const depJobId: string | undefined = status?.job_id;
+    if (!depJobId) {
+      await new Promise((r) => setTimeout(r, 100));
+      continue;
+    }
     const completed = await backend.apiRequest!(
       `/api/w/${backend.workspace}/jobs_u/completed/get/${depJobId}`,
     );
