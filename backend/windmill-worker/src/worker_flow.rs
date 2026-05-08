@@ -2394,21 +2394,47 @@ async fn resolve_flow_env_for_status_update(
     workspace_id: &str,
     flow_value: &FlowValue,
 ) -> Option<HashMap<String, Box<RawValue>>> {
-    let env = if let Some(ref e) = flow_value.flow_env {
-        e.clone()
-    } else {
-        fetch_root_flow_env(db, flow_job_id, workspace_id).await?
-    };
+    // Fetch the env source. For the inherited path, we first need to know whether the
+    // flow even has a parent — `fetch_root_flow_env` runs a recursive CTE on `v2_job`
+    // and is wasted work for top-level flows with no own `flow_env`. The mini job we
+    // pull here can be reused below if `transform_json` ends up needing it.
+    let (env, mini): (HashMap<String, Box<RawValue>>, Option<MiniPulledJob>) =
+        if let Some(ref e) = flow_value.flow_env {
+            (e.clone(), None)
+        } else {
+            let mini = match get_mini_pulled_job(db, &flow_job_id).await {
+                Ok(Some(j)) => j,
+                Ok(None) => return None,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch flow job to resolve flow_env: {e:#}");
+                    return None;
+                }
+            };
+            if mini.parent_job.is_none() {
+                // No own flow_env and no parent to inherit from — nothing to resolve.
+                return None;
+            }
+            let env = fetch_root_flow_env(db, flow_job_id, workspace_id).await?;
+            (env, Some(mini))
+        };
     if env.is_empty() {
         return Some(env);
     }
-    let mini = match get_mini_pulled_job(db, &flow_job_id).await {
-        Ok(Some(j)) => j,
-        Ok(None) => return Some(env),
-        Err(e) => {
-            tracing::warn!("Failed to fetch flow job to resolve flow_env: {e:#}");
-            return Some(env);
-        }
+    // Skip the DB roundtrip + `transform_json` when nothing in env needs interpolation.
+    // This is the common case: a flow_env containing only literal values.
+    if !crate::common::map_needs_resolution(&env) {
+        return Some(env);
+    }
+    let mini = match mini {
+        Some(m) => m,
+        None => match get_mini_pulled_job(db, &flow_job_id).await {
+            Ok(Some(j)) => j,
+            Ok(None) => return Some(env),
+            Err(e) => {
+                tracing::warn!("Failed to fetch flow job to resolve flow_env: {e:#}");
+                return Some(env);
+            }
+        },
     };
     match transform_json(
         client,
