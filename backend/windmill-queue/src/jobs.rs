@@ -630,32 +630,32 @@ pub struct WrappedError {
 pub trait ValidableJson {
     fn is_valid_json(&self) -> bool;
     fn wm_labels(&self) -> Option<Vec<String>>;
-    fn windmill_manual_failure(&self) -> Option<String>;
+    fn wm_failure(&self) -> Option<String>;
     fn result_metadata(&self) -> ResultMetadata;
     fn size(&self) -> usize;
 }
 
 /// The Windmill-specific markers we look for inside a job's result.
-/// `windmill_manual_failure` retags a successful run as a failure with the
+/// `wm_failure` retags a successful run as a failure with the
 /// given message; `wm_labels` adds runtime labels to the job row.
 #[derive(serde::Deserialize, Default, Debug, Clone)]
 pub struct ResultMetadata {
     pub wm_labels: Option<Vec<String>>,
-    pub windmill_manual_failure: Option<String>,
+    pub wm_failure: Option<String>,
 }
 
 /// Sentinel `error.name` we inject into a result when retagging a successful
-/// run as a failure due to `windmill_manual_failure`. Used downstream to detect that
+/// run as a failure due to `wm_failure`. Used downstream to detect that
 /// the result is already in the standard `{ error: { name, message }, ... }`
 /// shape and must not be wrapped a second time by `WrappedError`.
 pub const MANUAL_FAILURE_ERROR_NAME: &str = "ManualFailure";
 
 /// Returns true when the result already carries our injected
 /// `error: { name: "ManualFailure", ... }` marker — i.e. it was shaped by
-/// `process_jc`'s windmill_manual_failure path. A real runtime failure whose raw
-/// result happens to contain a `windmill_manual_failure` field but no such error
+/// `process_jc`'s wm_failure path. A real runtime failure whose raw
+/// result happens to contain a `wm_failure` field but no such error
 /// key returns false (and so still goes through the standard wrap path).
-pub fn is_pre_shaped_windmill_manual_failure_result(result: &str) -> bool {
+pub fn is_pre_shaped_wm_failure_result(result: &str) -> bool {
     #[derive(serde::Deserialize)]
     struct Marker {
         error: Option<NameOnly>,
@@ -680,7 +680,7 @@ impl ValidableJson for WrappedError {
         None
     }
 
-    fn windmill_manual_failure(&self) -> Option<String> {
+    fn wm_failure(&self) -> Option<String> {
         None
     }
 
@@ -702,8 +702,8 @@ impl ValidableJson for Box<RawValue> {
         self.result_metadata().wm_labels
     }
 
-    fn windmill_manual_failure(&self) -> Option<String> {
-        self.result_metadata().windmill_manual_failure
+    fn wm_failure(&self) -> Option<String> {
+        self.result_metadata().wm_failure
     }
 
     fn result_metadata(&self) -> ResultMetadata {
@@ -724,8 +724,8 @@ impl<T: ValidableJson> ValidableJson for Arc<T> {
         T::wm_labels(&self)
     }
 
-    fn windmill_manual_failure(&self) -> Option<String> {
-        T::windmill_manual_failure(&self)
+    fn wm_failure(&self) -> Option<String> {
+        T::wm_failure(&self)
     }
 
     fn result_metadata(&self) -> ResultMetadata {
@@ -746,8 +746,8 @@ impl ValidableJson for serde_json::Value {
         self.result_metadata().wm_labels
     }
 
-    fn windmill_manual_failure(&self) -> Option<String> {
-        self.result_metadata().windmill_manual_failure
+    fn wm_failure(&self) -> Option<String> {
+        self.result_metadata().wm_failure
     }
 
     fn result_metadata(&self) -> ResultMetadata {
@@ -768,8 +768,8 @@ impl<T: ValidableJson> ValidableJson for Json<T> {
         self.0.wm_labels()
     }
 
-    fn windmill_manual_failure(&self) -> Option<String> {
-        self.0.windmill_manual_failure()
+    fn wm_failure(&self) -> Option<String> {
+        self.0.wm_failure()
     }
 
     fn result_metadata(&self) -> ResultMetadata {
@@ -836,7 +836,7 @@ async fn record_failure_metrics(completed_job: &MiniCompletedJob, _worker_name: 
 
 /// Tag a completed job as a failure while storing the result as-is, without
 /// the standard `WrappedError` `{ error: ... }` wrap. Use for jobs whose result
-/// is already shaped (e.g. when `windmill_manual_failure` injected a top-level
+/// is already shaped (e.g. when `wm_failure` injected a top-level
 /// `error` key, while preserving sibling fields like `windmill_status_code`).
 ///
 /// This is a worker-internal helper called by trusted result-processing code
@@ -857,7 +857,7 @@ pub async fn add_completed_job_pre_shaped_failure<T: Serialize + Send + Sync + V
     record_failure_metrics(completed_job, worker_name).await;
 
     tracing::error!(
-        "job {} in {} did not succeed (windmill_manual_failure)",
+        "job {} in {} did not succeed (wm_failure)",
         completed_job.id,
         completed_job.workspace_id,
     );
