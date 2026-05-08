@@ -4,6 +4,8 @@ import * as log from "../../core/log.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { GlobalOptions } from "../../types.ts";
+import { getHeaders } from "../../utils/utils.ts";
+import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 
 interface DocContentItem {
   title: string;
@@ -36,6 +38,7 @@ async function docs(
 
   console.log(colors.bold(`\nSearching Windmill docs...\n`));
 
+  const extraHeaders = getHeaders();
   let res: Response;
   try {
     res = await fetch(url, {
@@ -43,12 +46,15 @@ async function docs(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${workspace.token}`,
+        ...extraHeaders,
       },
       body: JSON.stringify({ query }),
     });
   } catch (e) {
     throw new Error(`Network error connecting to ${workspace.remote}: ${e}`);
   }
+
+  await detectAuthGatewayChallenge(res, url);
 
   if (res.status === 403) {
     log.info(
