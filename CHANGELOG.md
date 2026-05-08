@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.698.0](https://github.com/windmill-labs/windmill/compare/v1.697.0...v1.698.0) (2026-05-08)
+
+
+### Features
+
+* **cli:** add --parallel flag to generate-metadata ([#9074](https://github.com/windmill-labs/windmill/issues/9074)) ([bc527fd](https://github.com/windmill-labs/windmill/commit/bc527fd929577ac57d4e24196069ed236b702d71))
+
+
+### Bug Fixes
+
+* **cli-tests:** stabilize flow lock-gen race + Windows path ([#9080](https://github.com/windmill-labs/windmill/issues/9080)) ([1c56148](https://github.com/windmill-labs/windmill/commit/1c56148714861aafc4f489916c71aa4674e938c0))
+* **cli:** forward HEADERS env var on every backend fetch call ([#9075](https://github.com/windmill-labs/windmill/issues/9075)) ([d647686](https://github.com/windmill-labs/windmill/commit/d6476862b30692e450cceda09c58d47964f87d32))
+
+
+### Performance Improvements
+
+* **flows:** cache resolved flow_env per flow execution ([#9079](https://github.com/windmill-labs/windmill/issues/9079)) ([e1a7c75](https://github.com/windmill-labs/windmill/commit/e1a7c75e192b72b3b0d854c1901653e0b9386bf2))
+* **flows:** skip flow_env DB+transform work when no resolution is needed ([#9078](https://github.com/windmill-labs/windmill/issues/9078)) ([2067e07](https://github.com/windmill-labs/windmill/commit/2067e0719fd1fd1b899b015badec0f222c054e66))
+
 ## [1.697.0](https://github.com/windmill-labs/windmill/compare/v1.696.2...v1.697.0) (2026-05-07)
 
 
