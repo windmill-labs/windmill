@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.699.0](https://github.com/windmill-labs/windmill/compare/v1.698.0...v1.699.0) (2026-05-08)
+
+
+### Features
+
+* parse windmill_failure field to tag run as failure ([#9073](https://github.com/windmill-labs/windmill/issues/9073)) ([dd53202](https://github.com/windmill-labs/windmill/commit/dd5320205f200dd058db2ff7d44d5c4bbcf25ec9))
+
+
+### Bug Fixes
+
+* **cli:** bump svelte version in `wmill app new` template ([#9084](https://github.com/windmill-labs/windmill/issues/9084)) ([4b4aa0e](https://github.com/windmill-labs/windmill/commit/4b4aa0e303f9c47c4f931511977107f42f93abc3))
+* **flows:** populate error handler input args from failure picker ([#9087](https://github.com/windmill-labs/windmill/issues/9087)) ([f37d360](https://github.com/windmill-labs/windmill/commit/f37d3606446d23f8b11a94ea1ce5f5d4836fae17))
+* hide _ENTRYPOINT_OVERRIDE jobs from script/flow history panel ([#9088](https://github.com/windmill-labs/windmill/issues/9088)) ([935c666](https://github.com/windmill-labs/windmill/commit/935c666d50ef30d89a3669c76094af7506fbb448))
+* **native-triggers:** serialize Google channel renewal across replicas ([#9060](https://github.com/windmill-labs/windmill/issues/9060)) ([ee3d82f](https://github.com/windmill-labs/windmill/commit/ee3d82f01f52d835218f544dad6de9b7c3184fbb))
+* **python:** verify wheel RECORD on cache pull/install, finalize piptar ([#9090](https://github.com/windmill-labs/windmill/issues/9090)) ([98ff146](https://github.com/windmill-labs/windmill/commit/98ff146cfabf45418c95c027ad6d07b08069cfcd))
+* reject root-rooted paths in ansible playbook validator on windows ([#9081](https://github.com/windmill-labs/windmill/issues/9081)) ([d37277d](https://github.com/windmill-labs/windmill/commit/d37277d2341c83faf72efa0035cbf70e2cfbd596))
+
+
+### Performance Improvements
+
+* **flows:** gate flow_env resolve on expr text and share cache with handle_flow ([#9085](https://github.com/windmill-labs/windmill/issues/9085)) ([23af6c2](https://github.com/windmill-labs/windmill/commit/23af6c2ea31265a1898d0632e72cd2fd826e4044))
+
 ## [1.698.0](https://github.com/windmill-labs/windmill/compare/v1.697.0...v1.698.0) (2026-05-08)
 
 
