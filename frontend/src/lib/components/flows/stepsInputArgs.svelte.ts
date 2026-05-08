@@ -4,10 +4,10 @@ import {
 	dfs,
 	getPreviousModule,
 	getStepPropPicker,
-	type PickableProperties
+	type PickableProperties,
+	getFailureStepPropPicker
 } from './previousResults'
 import { evalValue } from './utils.svelte'
-import { getFailureStepPropPicker } from './previousResults'
 export class StepsInputArgs {
 	#stepsEvaluated = $state<Record<string, Record<string, any>>>({})
 	#steps = $state<Record<string, Record<string, any>>>({})
@@ -159,13 +159,13 @@ export class StepsInputArgs {
 		previewArgs: Record<string, any> | undefined
 	) {
 		if (id === 'failure' && flow && flow.value.failure_module && flowState) {
-    		const picker = getFailureStepPropPicker(flowState, flow, previewArgs)
+			const picker = getFailureStepPropPicker(flowState, flow, previewArgs)
 			this.initializeFromSchema(
-			flow.value.failure_module,
-			flowState['failure']?.schema ?? {},
-			picker.pickableProperties
+				flow.value.failure_module,
+				flowState['failure']?.schema ?? {},
+				picker.pickableProperties
 			)
-    	return
+			return
 		}
 		if (!flowState || !flow) {
 			return
