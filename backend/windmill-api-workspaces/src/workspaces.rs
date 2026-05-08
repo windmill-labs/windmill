@@ -124,6 +124,10 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_datatable_config", post(edit_datatable_config))
         .route("/git_sync_enabled", get(get_git_sync_enabled))
+        .route(
+            "/git_init_repo_script_path",
+            get(get_git_init_repo_script_path),
+        )
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
         .route(
@@ -2532,6 +2536,12 @@ async fn get_git_sync_enabled(
         "max_repos": if enabled { Some(1) } else { None::<i32> },
         "user_count": user_count,
         "max_users": CE_GIT_SYNC_MAX_USERS,
+    })))
+}
+
+async fn get_git_init_repo_script_path() -> JsonResult<serde_json::Value> {
+    Ok(Json(serde_json::json!({
+        "script_path": windmill_common::workspaces::LATEST_GIT_INIT_REPO_SCRIPT_PATH,
     })))
 }
 

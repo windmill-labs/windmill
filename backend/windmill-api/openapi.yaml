@@ -4376,6 +4376,27 @@ paths:
                     type: integer
                     nullable: true
 
+  /w/{workspace}/workspaces/git_init_repo_script_path:
+    get:
+      summary: Get the latest git init repository hub script path
+      operationId: getGitInitRepoScriptPath
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Latest hub script path used to initialize a git repository
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  script_path:
+                    type: string
+                required:
+                  - script_path
+
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
       summary: edit workspace git sync settings

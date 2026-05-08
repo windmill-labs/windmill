@@ -12,10 +12,9 @@
 		Edit3
 	} from 'lucide-svelte'
 	import GitDiffPreview from '../GitDiffPreview.svelte'
-	import { JobService } from '$lib/gen'
+	import { JobService, WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import hubPaths from '$lib/hubPaths.json'
 	import { jobManager } from '$lib/services/JobManager'
 	import type { SyncResponse, SettingsResponse, SettingsObject } from '$lib/git-sync'
 
@@ -158,9 +157,10 @@
 					currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch === true
 			}
 
+			const { script_path } = await WorkspaceService.getGitInitRepoScriptPath({ workspace })
 			const jobId = await JobService.runScriptByPath({
 				workspace,
-				path: hubPaths.gitInitRepo,
+				path: script_path,
 				requestBody: payload,
 				skipPreprocessor: true
 			})

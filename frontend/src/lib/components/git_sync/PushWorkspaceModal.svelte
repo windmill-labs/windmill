@@ -3,9 +3,8 @@
 	import { Button, Alert } from '$lib/components/common'
 	import { Loader2, CheckCircle2, XCircle, Terminal, ChevronDown, ChevronUp } from 'lucide-svelte'
 	import GitDiffPreview from '../GitDiffPreview.svelte'
-	import { JobService } from '$lib/gen'
+	import { JobService, WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import hubPaths from '$lib/hubPaths.json'
 	import { jobManager } from '$lib/services/JobManager'
 	import type { SyncResponse, SettingsObject } from '$lib/git-sync'
 
@@ -89,9 +88,10 @@
 				settings_json: JSON.stringify(uiState)
 			}
 
+			const { script_path } = await WorkspaceService.getGitInitRepoScriptPath({ workspace })
 			const jobId = await JobService.runScriptByPath({
 				workspace,
-				path: hubPaths.gitInitRepo,
+				path: script_path,
 				requestBody: payload,
 				skipPreprocessor: true
 			})

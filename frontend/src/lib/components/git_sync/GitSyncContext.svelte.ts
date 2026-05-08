@@ -301,9 +301,10 @@ export function createGitSyncContext(workspace: string) {
 		const detectionTimestamp = Date.now()
 
 		try {
+			const { script_path } = await WorkspaceService.getGitInitRepoScriptPath({ workspace })
 			const jobId = await JobService.runScriptByPath({
 				workspace,
-				path: hubPaths.gitInitRepo,
+				path: script_path,
 				requestBody: {
 					workspace_id: workspace,
 					repo_url_resource_path: repo.git_repo_resource_path,
