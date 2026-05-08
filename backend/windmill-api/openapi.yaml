@@ -12000,6 +12000,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: excludes_entrypoint_override
+          description: exclude jobs that were started with a `_ENTRYPOINT_OVERRIDE` arg (e.g. dynamic-select helper runs and preprocessor previews)
+          in: query
+          schema:
+            type: boolean
         - name: broad_filter
           description: broad search across multiple fields (case-insensitive substring match on path, tag, schedule path, trigger kind, label)
           in: query
