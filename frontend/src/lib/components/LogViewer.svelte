@@ -295,7 +295,9 @@
 			class="w-full h-full bg-surface-secondary flex flex-col {noMaxH ? '' : 'max-h-screen'}"
 			data-nav-id={navigationId}
 		>
-			<div class="flex gap-2 ml-2 {small ? 'py-1' : 'py-2'} border-b">
+			<div
+				class="flex gap-2 ml-2 {small ? 'py-1' : 'py-2'} border-b overflow-x-auto overflow-y-hidden"
+			>
 				{#if isLoading}
 					<div class="flex gap-2 items-center">
 						<Loader2 class="animate-spin" />
@@ -359,7 +361,7 @@
 			<pre
 				bind:this={preEl}
 				class={twMerge(
-					'whitespace-pre break-words w-full flex-1 overflow-y-auto overflow-x-scroll',
+					'whitespace-pre break-words w-full flex-1 overflow-auto',
 					small ? '!text-2xs' : '!text-xs',
 					noPadding ? '' : 'p-2'
 				)}
