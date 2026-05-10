@@ -258,6 +258,17 @@
 		assets: AssetWithAltAccessType[]
 	}>({ scriptPath: undefined, assets: [] })
 
+	// Sticky cache of inferred body assets per script path — accumulates as
+	// the user opens scripts in this session, so once we've seen a write
+	// for `f/foo/bar`, the edge stays on the canvas even after the user
+	// selects a different node. Without this, switching selection would
+	// drop the previous script's edges back to whatever's in `base.edges`
+	// (often nothing for scripts whose deploy didn't extract body assets,
+	// e.g. when an older WASM was used at save time).
+	let inferredWritesByPath = $state<Map<string, Array<{ kind: AssetKind; path: string }>>>(
+		new Map()
+	)
+
 	// Build a runnable Script from picked language / triggers / output.
 	// Delegates to the shared template generator (pipelineTemplates.ts) so
 	// the same logic is reachable from anywhere a draft is needed.
@@ -556,6 +567,22 @@
 	}
 	function handleAssetsChange(scriptPath: string | undefined, assets: AssetWithAltAccessType[]) {
 		liveBodyAssets = { scriptPath, assets }
+		// Seed the sticky cache so the script's writes survive selection
+		// changes. Only the active script's entry is updated (the
+		// scriptPath the WASM just parsed); other entries are untouched
+		// so previously-seen scripts retain their last-known writes.
+		if (scriptPath) {
+			const writes = assets
+				.filter((a) => {
+					const at = a.access_type ?? a.alt_access_type
+					return at === 'w' || at === 'rw'
+				})
+				.map((a) => ({ kind: a.kind, path: a.path }))
+			const next = new Map(inferredWritesByPath)
+			if (writes.length > 0) next.set(scriptPath, writes)
+			else next.delete(scriptPath)
+			inferredWritesByPath = next
+		}
 	}
 	function handleDraftPersist(
 		p: string,
@@ -782,36 +809,34 @@
 			}
 		}
 
-		// Live body-asset writes for the currently-open script (draft OR
-		// persisted). The draft loop above already covers drafts via
-		// `liveForThisDraft`; this branch covers the persisted-script case
-		// — when the user edits a deployed script's body and adds e.g. a
-		// new CREATE TABLE / writeS3File, the canvas now shows the new
-		// output node and write edge live, instead of waiting for the
-		// next deploy to populate the asset table. Persisted writes for
-		// the same path are skipped so we don't duplicate the edge.
-		const liveBodyPath = liveBodyAssets.scriptPath
-		if (liveBodyPath && !drafts.has(liveBodyPath)) {
+		// Live body-asset writes for any persisted script we've inferred
+		// at least once this session — the source-of-truth Map is filled
+		// by `handleAssetsChange`. Drafts are handled by the loop above
+		// (via `liveForThisDraft` / `d.outputAssets`). For persisted
+		// scripts whose deploy didn't extract their body assets (e.g.
+		// older WASM at save time), this is what keeps the write edge
+		// on the canvas across selection changes — not just while the
+		// script is selected.
+		for (const [scriptPath, writes] of inferredWritesByPath) {
+			if (drafts.has(scriptPath)) continue
 			const persistedWriteKeys = new Set(
 				base.edges
 					.filter(
 						(e) =>
-							e.runnable_path === liveBodyPath &&
+							e.runnable_path === scriptPath &&
 							e.runnable_kind === 'script' &&
 							(e.access_type === 'w' || e.access_type === 'rw')
 					)
 					.map((e) => `${e.asset_kind}:${e.asset_path}`)
 			)
-			for (const a of liveBodyAssets.assets) {
-				const at = a.access_type ?? a.alt_access_type
-				if (at !== 'w' && at !== 'rw') continue
+			for (const a of writes) {
 				const key = `${a.kind}:${a.path}`
 				if (persistedWriteKeys.has(key)) continue
 				if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
 					assets.push({ kind: a.kind, path: a.path })
 				}
 				edges.push({
-					runnable_path: liveBodyPath,
+					runnable_path: scriptPath,
 					runnable_kind: 'script',
 					asset_kind: a.kind,
 					asset_path: a.path,
