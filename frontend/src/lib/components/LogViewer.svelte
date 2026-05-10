@@ -11,7 +11,7 @@
 </script>
 
 <script lang="ts">
-	import { ClipboardCopy, Download, Expand, Loader2 } from 'lucide-svelte'
+	import { ClipboardCopy, Download, Expand, Loader2, Timer, Cpu } from 'lucide-svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { copyToClipboard } from '$lib/utils'
 	import { base } from '$lib/base'
@@ -166,8 +166,7 @@
 	}
 
 	export function scrollToBottom() {
-		scroll &&
-			setTimeout(() => preEl?.scroll({ top: preEl?.scrollHeight, behavior: 'smooth' }), 100)
+		scroll && setTimeout(() => preEl?.scroll({ top: preEl?.scrollHeight, behavior: 'smooth' }), 100)
 	}
 
 	let logViewer: Drawer | undefined = $state()
@@ -312,14 +311,27 @@
 					</div>
 				{:else if duration}
 					<span
-						class={twMerge('text-secondary dark:text-gray-400', small ? '!text-2xs' : '!text-xs')}
-						>took {duration}ms</span
+						class={twMerge(
+							'flex items-center gap-1 text-secondary dark:text-gray-400',
+							small ? '!text-2xs' : '!text-xs'
+						)}
+						title="Duration"
 					>
+						<Timer size={small ? 10 : 12} />
+						{duration}ms
+					</span>
 				{/if}
 				{#if mem}
-					<span class="{small ? '!text-2xs' : '!text-xs'} text-secondary dark:text-gray-400"
-						>mem peak: {(mem / 1024).toPrecision(4)}MB</span
+					<span
+						class={twMerge(
+							'flex items-center gap-1 text-secondary dark:text-gray-400',
+							small ? '!text-2xs' : '!text-xs'
+						)}
+						title="Memory peak"
 					>
+						<Cpu size={small ? 10 : 12} />
+						{(mem / 1024).toPrecision(4)}MB
+					</span>
 				{/if}
 				<div class="flex gap-2 justify-end flex-1">
 					{#if jobId && download}
