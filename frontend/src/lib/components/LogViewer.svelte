@@ -347,8 +347,10 @@
 					{/if}
 					<button onclick={logViewer.openDrawer}><Expand size="12" /></button>
 					{#if !noAutoScroll}
-						<label class="pr-2 text-2xs flex gap-2 font-normal text-primary items-center">
-							Auto scroll
+						<label
+							class="pr-2 text-2xs flex gap-2 font-normal text-primary items-center whitespace-nowrap"
+						>
+							Auto-scroll
 							<input class="windmillapp" type="checkbox" bind:checked={scroll} />
 						</label>
 					{/if}
