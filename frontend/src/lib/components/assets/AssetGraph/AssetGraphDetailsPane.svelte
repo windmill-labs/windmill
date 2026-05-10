@@ -355,7 +355,17 @@
 					is_template: false,
 					tag: script.tag,
 					kind: script.kind as Script['kind'] | undefined,
-					lock: undefined
+					lock: undefined,
+					// Inferred body assets — without this the backend's
+					// `clear_static_asset_usage` + reinsert at deploy time
+					// would write zero asset rows for the script (the spread
+					// `...script` doesn't carry inferAssets results, those
+					// live on `liveBodyAssets`). Result on a deployed script
+					// with a CREATE TABLE / writeS3File body: no edges from
+					// the script to its outputs in the asset graph until the
+					// user re-selects it client-side. Same shape the full
+					// /scripts/edit page sends.
+					assets: (liveBodyAssets ?? []) as any
 				}
 			})
 			sendUserToast(`Saved ${script.path}`)
