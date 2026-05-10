@@ -571,6 +571,12 @@
 		// changes. Only the active script's entry is updated (the
 		// scriptPath the WASM just parsed); other entries are untouched
 		// so previously-seen scripts retain their last-known writes.
+		// `untrack` around the read+write of `inferredWritesByPath` is
+		// crucial: this fn is called from AssetGraphDetailsPane's $effect
+		// for onAssetsChange, and Svelte tracks every state read inside
+		// that effect's closure. Without `untrack`, cloning the Map
+		// registers it as a dep, and writing the new Map immediately
+		// re-fires the effect → infinite loop.
 		if (scriptPath) {
 			const writes = assets
 				.filter((a) => {
@@ -578,10 +584,12 @@
 					return at === 'w' || at === 'rw'
 				})
 				.map((a) => ({ kind: a.kind, path: a.path }))
-			const next = new Map(inferredWritesByPath)
-			if (writes.length > 0) next.set(scriptPath, writes)
-			else next.delete(scriptPath)
-			inferredWritesByPath = next
+			untrack(() => {
+				const next = new Map(inferredWritesByPath)
+				if (writes.length > 0) next.set(scriptPath, writes)
+				else next.delete(scriptPath)
+				inferredWritesByPath = next
+			})
 		}
 	}
 	function handleDraftPersist(
