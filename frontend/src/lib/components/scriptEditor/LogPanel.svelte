@@ -175,7 +175,7 @@
 						</div>
 					{:else}
 						<SplitPanesWrapper>
-							<Splitpanes horizontal>
+							<Splitpanes horizontal={customUi?.logsResultSideBySide !== true}>
 								<Pane class="relative">
 									<LogViewer
 										jobId={previewJob?.id}

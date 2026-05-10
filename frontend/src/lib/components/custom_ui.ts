@@ -61,6 +61,16 @@ export type PreviewPanelUi = {
 	disableVariablePicker?: boolean
 	disableDownload?: boolean
 	tagLabel?: string
+	// Hide the args/SchemaForm pane entirely (use cases where the script
+	// is known to take no inputs — e.g. the pipeline editor's per-script
+	// preview). When set, the Test/Cancel button is rendered as a small
+	// floating affordance at the top-left of the preview area instead of
+	// inside the (now-absent) args column.
+	hideArgs?: boolean
+	// Render the LogPanel's logs/result as a left/right split instead of
+	// the default top/bottom. Pairs naturally with `hideArgs` when the
+	// preview area is the full bottom band.
+	logsResultSideBySide?: boolean
 }
 
 export type EditorBarUi = {

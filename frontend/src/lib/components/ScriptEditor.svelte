@@ -161,6 +161,13 @@
 		 * orientation the flow editor uses for module step editing.
 		 */
 		previewLayout?: 'right' | 'bottom'
+		/**
+		 * Fires whenever the test/preview run state changes — used by the
+		 * pipeline editor to mirror the running script onto the canvas
+		 * (animate its incoming/outgoing edges) so Test feels equivalent
+		 * to clicking a run button on the graph.
+		 */
+		onTestStateChange?: (running: boolean) => void
 	}
 
 	let {
@@ -195,8 +202,13 @@
 		modules = $bindable(undefined),
 		editorBarRight,
 		enablePreprocessorSnippet = false,
-		previewLayout = 'right'
+		previewLayout = 'right',
+		onTestStateChange
 	}: Props = $props()
+
+	$effect(() => {
+		onTestStateChange?.(testIsLoading)
+	})
 
 	let initialArgs = structuredClone($state.snapshot(args))
 	let jsonView = $state(false)
@@ -1485,8 +1497,16 @@
 				{@render editorContent()}
 			{/if}
 		</Pane>
-		<Pane bind:size={testPanelSize} minSize={0}>
-			<div class="flex flex-col h-full">
+		<Pane
+			bind:size={testPanelSize}
+			minSize={0}
+			class={customUi?.previewPanel?.hideArgs ? '!overflow-visible' : ''}
+		>
+			<div
+				class={customUi?.previewPanel?.hideArgs
+					? 'flex flex-col h-full !overflow-visible'
+					: 'flex flex-col h-full'}
+			>
 				{#if showTabs}
 					<div transition:slide={{ duration: 200 }}>
 						<Tabs bind:selected={selectedTab}>
@@ -1604,171 +1624,244 @@
 							</div>
 						</div>
 					{/if}
-					{#key previewLayout}
-						<Splitpanes
-							horizontal={previewLayout !== 'bottom'}
-							class="!max-h-[calc(100%-{debugMode && isDebuggableScript
-								? '83'
-								: previewLayout === 'bottom'
-									? '0'
-									: '43'}px)]"
-						>
-							<Pane size={previewLayout === 'bottom' ? 40 : 33}>
-								{#if previewLayout === 'bottom' && !(debugMode && isDebuggableScript)}
-									<div class="px-3 pt-2 pb-1 flex items-center gap-2">
-										{#if testIsLoading}
-											<Button on:click={jobLoader?.cancelJob} unifiedSize="sm" btnClasses="w-full">
-												<WindmillIcon
-													white={true}
-													class="mr-2 text-white"
-													height="14px"
-													width="16px"
-													spin="fast"
-												/>
-												Cancel
-											</Button>
-										{:else}
-											<Button
-												on:click={() => runTest()}
-												unifiedSize="sm"
-												btnClasses="w-full"
-												variant="accent-secondary"
-												startIcon={{ icon: Play, classes: 'animate-none' }}
-												shortCut={{ Icon: CornerDownLeft }}
-											>
-												Test
-											</Button>
-										{/if}
-									</div>
-								{/if}
-								{#if jsonView}
-									<div
-										class="py-2"
-										style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
-										data-schema-picker
-									>
-										<JsonInputs
-											on:select={(e) => {
-												if (e.detail) {
-													if (activeModuleTab !== null) {
-														testPanelArgs = e.detail
-													} else {
-														args = e.detail
-													}
-												}
-											}}
-											updateOnBlur={false}
-											placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
+					{#if customUi?.previewPanel?.hideArgs}
+						<!-- Compact preview layout used by the pipeline editor:
+						     no args column (the script is known to take no
+						     inputs), LogPanel takes the full width, and the
+						     Test/Cancel button floats at the top-left with a
+						     -translate-y so it visually attaches to the editor
+						     panel above instead of stealing vertical space
+						     inside the preview band. -->
+						<div class="relative h-full">
+							<div class="absolute top-0 left-2 -translate-y-1/2 z-10">
+								{#if testIsLoading}
+									<Button on:click={jobLoader?.cancelJob} unifiedSize="sm" btnClasses="shadow-md">
+										<WindmillIcon
+											white={true}
+											class="mr-2 text-white"
+											height="14px"
+											width="16px"
+											spin="fast"
 										/>
-									</div>
+										Cancel
+									</Button>
 								{:else}
-									<div class="px-4">
-										<div class="break-words relative font-sans" bind:clientHeight={schemaHeight}>
-											{#key argsRender}
-												{#if activeModuleTab !== null}
-													<SchemaForm
-														helperScript={{
-															source: 'inline',
-															code: editorCode,
-															//@ts-ignore
-															lang: effectiveLang
-														}}
-														compact
-														schema={testPanelSchema}
-														bind:args={testPanelArgs}
-														bind:isValid
-														noVariablePicker={customUi?.previewPanel?.disableVariablePicker ===
-															true}
-														showSchemaExplorer
+									<Button
+										on:click={() => runTest()}
+										unifiedSize="sm"
+										btnClasses="shadow-md"
+										variant="accent-secondary"
+										startIcon={{ icon: Play, classes: 'animate-none' }}
+										shortCut={{ Icon: CornerDownLeft }}
+									>
+										Test
+									</Button>
+								{/if}
+							</div>
+							<LogPanel
+								bind:this={logPanel}
+								{lang}
+								previewJob={debugMode
+									? ({
+											id: 'debug',
+											logs: $debugState.logs,
+											result: $debugState.result,
+											success: !$debugState.error,
+											type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
+										} as any)
+									: testJob}
+								{pastPreviews}
+								previewIsLoading={debugMode
+									? $debugState.running && !$debugState.stopped
+									: testIsLoading}
+								{editor}
+								{diffEditor}
+								args={activeModuleTab !== null ? testPanelArgs : args}
+								{showCaptures}
+								customUi={customUi?.previewPanel}
+								showCustomResultPanel={showDebugPanel}
+							>
+								{#if scriptProgress && !debugMode}
+									<JobProgressBar
+										job={testJob}
+										{scriptProgress}
+										bind:this={jobProgressBar}
+										compact={true}
+									/>
+								{/if}
+							</LogPanel>
+						</div>
+					{:else}
+						{#key previewLayout}
+							<Splitpanes
+								horizontal={previewLayout !== 'bottom'}
+								class="!max-h-[calc(100%-{debugMode && isDebuggableScript
+									? '83'
+									: previewLayout === 'bottom'
+										? '0'
+										: '43'}px)]"
+							>
+								<Pane size={previewLayout === 'bottom' ? 40 : 33}>
+									{#if previewLayout === 'bottom' && !(debugMode && isDebuggableScript)}
+										<div class="px-3 pt-2 pb-1 flex items-center gap-2">
+											{#if testIsLoading}
+												<Button
+													on:click={jobLoader?.cancelJob}
+													unifiedSize="sm"
+													btnClasses="w-full"
+												>
+													<WindmillIcon
+														white={true}
+														class="mr-2 text-white"
+														height="14px"
+														width="16px"
+														spin="fast"
 													/>
-												{:else}
-													<SchemaForm
-														helperScript={{
-															source: 'inline',
-															code,
-															//@ts-ignore
-															lang
-														}}
-														compact
-														{schema}
-														bind:args
-														bind:isValid
-														noVariablePicker={customUi?.previewPanel?.disableVariablePicker ===
-															true}
-														showSchemaExplorer
-													/>
-												{/if}
-											{/key}
-											{#if showPsCommonParams}
-												<div class="mt-2">
-													<PowerShellCommonParams bind:args={psCommonParams} />
-												</div>
+													Cancel
+												</Button>
+											{:else}
+												<Button
+													on:click={() => runTest()}
+													unifiedSize="sm"
+													btnClasses="w-full"
+													variant="accent-secondary"
+													startIcon={{ icon: Play, classes: 'animate-none' }}
+													shortCut={{ Icon: CornerDownLeft }}
+												>
+													Test
+												</Button>
 											{/if}
 										</div>
-									</div>
-								{/if}
-							</Pane>
-							<Pane size={previewLayout === 'bottom' ? 60 : 67} class="relative">
-								<LogPanel
-									bind:this={logPanel}
-									{lang}
-									previewJob={debugMode
-										? ({
-												id: 'debug',
-												logs: $debugState.logs,
-												result: $debugState.result,
-												success: !$debugState.error,
-												type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
-											} as any)
-										: testJob}
-									{pastPreviews}
-									previewIsLoading={debugMode
-										? $debugState.running && !$debugState.stopped
-										: testIsLoading}
-									{editor}
-									{diffEditor}
-									args={activeModuleTab !== null ? testPanelArgs : args}
-									{showCaptures}
-									customUi={customUi?.previewPanel}
-									showCustomResultPanel={showDebugPanel}
-								>
-									{#if scriptProgress && !debugMode}
-										<!-- Put to the slot in logpanel -->
-										<JobProgressBar
-											job={testJob}
-											{scriptProgress}
-											bind:this={jobProgressBar}
-											compact={true}
-										/>
 									{/if}
-									{#snippet capturesTab()}
-										<div class="h-full p-2">
-											<CaptureTable
-												bind:this={captureTable}
-												{hasPreprocessor}
-												canHavePreprocessor={canHavePreprocessor(lang)}
-												isFlow={false}
-												path={stablePathForCaptures}
-												canEdit={true}
-												on:applyArgs
-												on:updateSchema
-												on:addPreprocessor
+									{#if jsonView}
+										<div
+											class="py-2"
+											style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
+											data-schema-picker
+										>
+											<JsonInputs
+												on:select={(e) => {
+													if (e.detail) {
+														if (activeModuleTab !== null) {
+															testPanelArgs = e.detail
+														} else {
+															args = e.detail
+														}
+													}
+												}}
+												updateOnBlur={false}
+												placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 											/>
 										</div>
-									{/snippet}
-									{#snippet customResultPanel()}
-										<DebugPanel
-											stackFrames={$debugState.stackFrames}
-											scopes={$debugState.scopes}
-											variables={$debugState.variables}
-											client={dapClient}
-											bind:selectedFrameId={selectedDebugFrameId}
-										/>
-									{/snippet}
-								</LogPanel>
-							</Pane>
-						</Splitpanes>
-					{/key}
+									{:else}
+										<div class="px-4">
+											<div class="break-words relative font-sans" bind:clientHeight={schemaHeight}>
+												{#key argsRender}
+													{#if activeModuleTab !== null}
+														<SchemaForm
+															helperScript={{
+																source: 'inline',
+																code: editorCode,
+																//@ts-ignore
+																lang: effectiveLang
+															}}
+															compact
+															schema={testPanelSchema}
+															bind:args={testPanelArgs}
+															bind:isValid
+															noVariablePicker={customUi?.previewPanel?.disableVariablePicker ===
+																true}
+															showSchemaExplorer
+														/>
+													{:else}
+														<SchemaForm
+															helperScript={{
+																source: 'inline',
+																code,
+																//@ts-ignore
+																lang
+															}}
+															compact
+															{schema}
+															bind:args
+															bind:isValid
+															noVariablePicker={customUi?.previewPanel?.disableVariablePicker ===
+																true}
+															showSchemaExplorer
+														/>
+													{/if}
+												{/key}
+												{#if showPsCommonParams}
+													<div class="mt-2">
+														<PowerShellCommonParams bind:args={psCommonParams} />
+													</div>
+												{/if}
+											</div>
+										</div>
+									{/if}
+								</Pane>
+								<Pane size={previewLayout === 'bottom' ? 60 : 67} class="relative">
+									<LogPanel
+										bind:this={logPanel}
+										{lang}
+										previewJob={debugMode
+											? ({
+													id: 'debug',
+													logs: $debugState.logs,
+													result: $debugState.result,
+													success: !$debugState.error,
+													type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
+												} as any)
+											: testJob}
+										{pastPreviews}
+										previewIsLoading={debugMode
+											? $debugState.running && !$debugState.stopped
+											: testIsLoading}
+										{editor}
+										{diffEditor}
+										args={activeModuleTab !== null ? testPanelArgs : args}
+										{showCaptures}
+										customUi={customUi?.previewPanel}
+										showCustomResultPanel={showDebugPanel}
+									>
+										{#if scriptProgress && !debugMode}
+											<!-- Put to the slot in logpanel -->
+											<JobProgressBar
+												job={testJob}
+												{scriptProgress}
+												bind:this={jobProgressBar}
+												compact={true}
+											/>
+										{/if}
+										{#snippet capturesTab()}
+											<div class="h-full p-2">
+												<CaptureTable
+													bind:this={captureTable}
+													{hasPreprocessor}
+													canHavePreprocessor={canHavePreprocessor(lang)}
+													isFlow={false}
+													path={stablePathForCaptures}
+													canEdit={true}
+													on:applyArgs
+													on:updateSchema
+													on:addPreprocessor
+												/>
+											</div>
+										{/snippet}
+										{#snippet customResultPanel()}
+											<DebugPanel
+												stackFrames={$debugState.stackFrames}
+												scopes={$debugState.scopes}
+												variables={$debugState.variables}
+												client={dapClient}
+												bind:selectedFrameId={selectedDebugFrameId}
+											/>
+										{/snippet}
+									</LogPanel>
+								</Pane>
+							</Splitpanes>
+						{/key}
+					{/if}
 				{/if}
 			</div>
 		</Pane>

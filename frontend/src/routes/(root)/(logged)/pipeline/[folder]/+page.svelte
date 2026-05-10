@@ -782,6 +782,12 @@
 	// AssetRunsPanel reports the run is done. The same hook will later
 	// be reused for live pipeline status.
 	let activeRunnable = $state<{ kind: 'script' | 'flow'; path: string } | undefined>(undefined)
+	// Counter bumped when the canvas Run button targets the currently-open
+	// script — the pane intercepts and routes through ScriptEditor.runTest
+	// so logs/result/cancel land in the test panel instead of going off
+	// into nowhere with only edge animation as feedback. Counter rather
+	// than boolean so back-to-back runs re-fire.
+	let requestRunSignal = $state(0)
 	// Counter bumped from the runnable-node action menu to ask the pane to
 	// open its archive/delete confirmation modal for the loaded script.
 	// Counter (vs boolean) so successive triggers re-fire even if the user
@@ -1092,6 +1098,20 @@
 									// immediately — its background poll only kicks in
 									// for already-listed in-flight jobs.
 									if (!$workspaceStore || producer.kind !== 'script') return undefined
+									// If the producer being run is the script currently
+									// edited in the pane, route through ScriptEditor's
+									// Test path — the test panel then shows logs/result
+									// and the user can cancel from there. Same UX as
+									// hitting the Test button directly.
+									const openPath =
+										activeDraftPath ??
+										(selection?.kind === 'runnable' && selection.runnable_kind === 'script'
+											? selection.path
+											: undefined)
+									if (openPath === producer.path) {
+										requestRunSignal++
+										return undefined
+									}
 									let jobId: string | undefined
 									if (producer.unsaved) {
 										const draft = drafts.get(producer.path)
@@ -1150,7 +1170,25 @@
 								{runsPendingJobId}
 								{activeRunnable}
 								onRunCompleted={() => (activeRunnable = undefined)}
+								onTestStateChange={(running) => {
+									// Bridge: ScriptEditor's Test button triggers the
+									// same canvas-level "is running" hint as the
+									// per-node Run button. The currently-edited script
+									// is whichever path is open in the pane (active
+									// draft, or the persisted-script selection).
+									const openPath =
+										activeDraftPath ??
+										(selection?.kind === 'runnable' && selection.runnable_kind === 'script'
+											? selection.path
+											: undefined)
+									if (running && openPath) {
+										activeRunnable = { kind: 'script', path: openPath }
+									} else if (!running && activeRunnable?.path === openPath) {
+										activeRunnable = undefined
+									}
+								}}
 								{requestRemoveSignal}
+								{requestRunSignal}
 								draftScript={activeDraft?.script}
 								{pathPrefix}
 								onDraftPathChange={renameDraft}

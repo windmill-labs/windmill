@@ -110,6 +110,19 @@
 		// gets a "Recomputing…" banner so the user knows the rendered
 		// snapshot is about to be replaced.
 		activeRunnable?: { kind: 'script' | 'flow'; path: string } | undefined
+		// Forwarded from ScriptEditor when the user hits the Test button —
+		// gives the page a chance to mark the script as the active
+		// runnable on the canvas (animates its edges) so Test and the
+		// canvas Run button feel equivalent.
+		onTestStateChange?: (running: boolean) => void
+		// Counter pattern (cf. `requestRemoveSignal`) — bumped by the
+		// page when the user clicks the canvas Run button on the
+		// currently-open script, so we can route the dispatch through
+		// ScriptEditor.runTest() and surface the running state in the
+		// preview panel (logs/result/cancel) instead of just animating
+		// the edges. Counter rather than boolean so back-to-back runs
+		// re-fire the effect even if no other prop changed.
+		requestRunSignal?: number
 		// Folder-scoped non-editable prefix shown next to the suffix
 		// editor when the user renames a draft (e.g. `f/<folder>/`). The
 		// new path = pathPrefix + suffix.
@@ -144,10 +157,23 @@
 		runsPendingJobId,
 		onRunCompleted,
 		activeRunnable,
+		onTestStateChange,
+		requestRunSignal,
 		pathPrefix = '',
 		onDraftPathChange,
 		requestRemoveSignal
 	}: Props = $props()
+
+	// Held ref to ScriptEditor so we can route a canvas-side Run dispatch
+	// through .runTest() — gives the test panel logs/result/cancel for
+	// runs initiated from the graph, not just the in-pane Test button.
+	let scriptEditorRef: { runTest: () => Promise<unknown> } | undefined = $state(undefined)
+	$effect(() => {
+		// Track the counter; ignore the initial 0/undefined.
+		const sig = requestRunSignal
+		if (sig === undefined || sig === 0) return
+		void scriptEditorRef?.runTest()
+	})
 
 	// True when the script that writes to the currently-selected asset is
 	// running right now. Drives the "Recomputing…" banner above the
@@ -671,6 +697,7 @@
 		{:else if script}
 			{#key (script.hash ?? `draft:${script.path}`) + script.language}
 				<ScriptEditor
+					bind:this={scriptEditorRef}
 					showCaptures={false}
 					noSyncFromGithub
 					lang={script.language}
@@ -683,12 +710,21 @@
 							disableHistory: true,
 							disableTracing: true,
 							disableTriggerCaptures: true,
-							disableJsonView: true
+							disableJsonView: true,
+							// Pipeline scripts in this view are dispatched without
+							// args (the page's runScriptByPath / runScriptPreview
+							// passes `{}`), so the SchemaForm column is dead
+							// space. Drop it, render the LogPanel full-width with
+							// logs|result side by side, and float the Test/Cancel
+							// button onto the editor band above.
+							hideArgs: true,
+							logsResultSideBySide: true
 						}
 					}}
 					bind:code={script.content}
 					bind:schema={script.schema}
 					bind:assets={liveBodyAssets}
+					{onTestStateChange}
 					{args}
 				>
 					{#snippet editorBarRight()}
