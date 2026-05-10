@@ -7,6 +7,7 @@
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import AssetGraphDetailsPane from '$lib/components/assets/AssetGraph/AssetGraphDetailsPane.svelte'
 	import PipelinePickerModal from '$lib/components/assets/AssetGraph/PipelinePickerModal.svelte'
+	import type { AssetWithAltAccessType } from '$lib/components/assets/lib'
 	import type {
 		AssetGraphResponse,
 		AssetGraphSelection
@@ -48,6 +49,7 @@
 	import { beforeNavigate, goto } from '$app/navigation'
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { inferArgs } from '$lib/infer'
 
 	// Variables and resources are declarative config, not pipeline assets —
@@ -98,6 +100,48 @@
 	// undefined and `selection` is set, the pane shows the persisted
 	// selection's script. Never both at once.
 	let activeDraftPath = $state<string | undefined>(undefined)
+
+	// Splitpanes sizes: bound so user-resized widths persist when the
+	// details pane is hidden + re-shown, or when switching between draft
+	// and persisted selections (previously the panes were sized inline,
+	// which made the right pane jump width when activeDraft was set
+	// since the left was hardcoded to 100%). When the right pane
+	// unmounts, svelte-splitpanes does NOT auto-stretch the remaining
+	// pane — the bound `leftPaneSize` stays at its last value and the
+	// other 40% renders as blank space. We explicitly set leftPaneSize
+	// to 100 in that state via a $derived effect below, and restore the
+	// stored split when the pane comes back.
+	let leftPaneSize = $state(60)
+	let rightPaneSize = $state(40)
+	let storedRightPaneSize = $state(40)
+	// Explicit hide flag — keeps `selection` / `activeDraftPath` intact
+	// so re-opening the pane re-uses them. Mirrors AppEditor's
+	// hideRightPanel/showRightPanel pattern.
+	let panelHidden = $state(false)
+	let detailsPaneOpen = $derived(
+		(selection != undefined || activeDraftPath != undefined) && !panelHidden
+	)
+
+	$effect(() => {
+		if (detailsPaneOpen) {
+			// Pane visible: reapply the stored split. We don't depend on
+			// rightPaneSize here (only stored) so user resizes via the
+			// splitter handle aren't immediately overridden.
+			const restore = storedRightPaneSize
+			untrack(() => {
+				rightPaneSize = restore
+				leftPaneSize = 100 - restore
+			})
+		} else {
+			// About to hide. Stash the current right size so the next show
+			// restores it, then expand the left pane to fill — splitpanes
+			// won't do this automatically when a Pane unmounts.
+			untrack(() => {
+				if (rightPaneSize > 0) storedRightPaneSize = rightPaneSize
+				leftPaneSize = 100
+			})
+		}
+	})
 
 	// Per-folder localStorage key. Matches the flow-builder pattern so
 	// reloading /pipeline/<folder> restores in-flight drafts. We serialize
@@ -172,6 +216,17 @@
 			nativeTriggers: []
 		}
 	})
+
+	// Live-inferred body assets (read/write usages parsed by inferAssets
+	// — e.g. CREATE TABLE in SQL, loadS3File / writeS3File in TS/Python).
+	// Refreshed via onAssetsChange. We use the write subset as the
+	// authoritative output node set for drafts whose body has been edited
+	// past the seeded template; without this, renaming a CREATE TABLE
+	// target leaves the stale auto-output node on the graph.
+	let liveBodyAssets = $state<{
+		scriptPath: string | undefined
+		assets: AssetWithAltAccessType[]
+	}>({ scriptPath: undefined, assets: [] })
 
 	// Build a runnable Script from picked language / triggers / output.
 	// Delegates to the shared template generator (pipelineTemplates.ts) so
@@ -249,6 +304,11 @@
 			return
 		}
 		if (drafts.size === 0) return
+		// `leave` covers tab close / hard reload / cross-origin nav. SvelteKit
+		// turns a cancelled leave into a browser-native "Leave site?" prompt,
+		// which we explicitly don't want — match the rest of the editors and
+		// rely on debounced localStorage to keep drafts safe across reloads.
+		if (nav.type === 'leave') return
 		// Same-folder URL changes (search params, hash) shouldn't re-prompt;
 		// the guard is for actually leaving the editor.
 		if (nav.to && nav.from && nav.to.url.pathname === nav.from.url.pathname) {
@@ -259,25 +319,14 @@
 		leaveModalOpen = true
 	})
 
-	// Native browser tab close / reload — we can't show a custom modal
-	// here, only the browser's generic confirm. Modern browsers require
-	// BOTH preventDefault() *and* a non-empty `returnValue` to actually
-	// pop the prompt; the assigned text is then ignored in favour of a
-	// browser-controlled string ("Leave site? Changes you made may not be
-	// saved."). Empty string used to work but Chromium 119+ silently
-	// suppresses the dialog in that case. The handler also requires that
-	// the user has interacted with the page (Chrome's user-activation
-	// requirement) — a fresh tab with no clicks/keystrokes won't get the
-	// prompt. This is enforced by the browser, not us.
-	$effect(() => {
-		function onBeforeUnload(e: BeforeUnloadEvent) {
-			if (drafts.size === 0) return
-			e.preventDefault()
-			e.returnValue = 'You have unsaved drafts.'
-		}
-		window.addEventListener('beforeunload', onBeforeUnload)
-		return () => window.removeEventListener('beforeunload', onBeforeUnload)
-	})
+	// Hard navigations (tab close / reload / cross-origin) don't go through
+	// `beforeNavigate`, so there's no in-app modal in that case. We
+	// intentionally skip the native `beforeunload` confirm here to match
+	// the rest of the editors (FlowBuilder, ScriptEditor, AppEditor) — they
+	// don't pop the browser-controlled "Leave site?" prompt either, and
+	// drafts are debounce-persisted to localStorage on every keystroke, so
+	// a hard close at most loses ~500 ms of typing. The in-app modal still
+	// guards SvelteKit-handled navigation via `beforeNavigate` above.
 
 	function leaveModalCancel() {
 		leaveModalOpen = false
@@ -491,8 +540,29 @@
 				freshness: parsed.freshness?.duration,
 				unsaved: true
 			})
-			const out = d.outputAsset
-			if (out) {
+			// Output asset(s): for the *active* draft (whose body the user
+			// is editing right now), live body inference takes precedence
+			// when it detects at least one write — renaming a CREATE TABLE
+			// target or a writeS3File path retires the old output node and
+			// surfaces the new one as the user types. We fall back to the
+			// static outputAsset (seeded at draft creation) when:
+			//   - the draft isn't the active one (we only run inference on
+			//     the open buffer), or
+			//   - the body parser missed every write (e.g. wmill.writeS3File
+			//     with an object literal — see WIN-1943). Better to keep a
+			//     possibly-stale node than to erase it on a parser limit.
+			const liveForThisDraft = liveBodyAssets.scriptPath === path
+			const writeOuts: Array<{ kind: AssetKind; path: string }> = []
+			if (liveForThisDraft) {
+				for (const a of liveBodyAssets.assets) {
+					const at = a.access_type ?? a.alt_access_type
+					if (at === 'w' || at === 'rw') writeOuts.push({ kind: a.kind, path: a.path })
+				}
+			}
+			if (writeOuts.length === 0 && d.outputAsset) {
+				writeOuts.push(d.outputAsset)
+			}
+			for (const out of writeOuts) {
 				const hasAsset = assets.some((a) => a.kind === out.kind && a.path === out.path)
 				if (!hasAsset) assets.push({ kind: out.kind, path: out.path })
 				edges.push({
@@ -585,6 +655,13 @@
 					runnable_path: livePath,
 					unsaved: true
 				})
+				// Synthesize the asset node so the new trigger edge has a
+				// target — without this, typing `// on s3:///...` adds an
+				// edge to a node that doesn't exist and the canvas silently
+				// drops it. Mirrors the draft branch above.
+				if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
+					assets.push({ kind: a.kind, path: a.path })
+				}
 			}
 			for (const cron of liveAnnotations.annotations.schedules) {
 				if (persistedScheduleCrons.has(cron)) continue
@@ -884,97 +961,124 @@
 				</div>
 			{:else}
 				<Splitpanes class="!h-full">
-					<Pane size={selection ? 60 : 100}>
-						<AssetGraphCanvas
-							graph={graphWithDraft}
-							selection={effectiveSelection}
-							{pathPrefix}
-							defaultPathSuffix={DEFAULT_PATH_SUFFIX}
-							defaultScheduleCron={DEFAULT_SCHEDULE_CRON}
-							onselect={(s) => {
-								// Clicking a draft runnable node re-opens it in the pane;
-								// clicking anything else selects it normally and detaches
-								// from any active draft (drafts stay overlaid until saved
-								// or discarded).
-								if (
-									s &&
-									s.kind === 'runnable' &&
-									s.runnable_kind === 'script' &&
-									drafts.has(s.path)
-								) {
-									activeDraftPath = s.path
-									selection = undefined
-								} else {
-									activeDraftPath = undefined
-									selection = s
-								}
-							}}
-							onAddScriptForAsset={(asset, language, scriptPath, outputKind) => {
-								const ref = `${ASSET_PREFIX[asset.kind]}${asset.path}`
-								openMaterializerDraft(language, scriptPath, [{ kind: 'asset', ref }], outputKind, {
-									kind: asset.kind,
-									path: asset.path
-								})
-							}}
-							onAddPipelineScript={(language, scriptPath, source, outputKind) =>
-								openMaterializerDraft(language, scriptPath, [source], outputKind)}
-							onRunnableMenuRemove={(info) => {
-								// Drafts: drop the local entry immediately — the
-								// existing onDiscard pathway already handles this
-								// without a confirm modal. Persisted: select the
-								// script (so the pane loads it), then bump the
-								// remove-signal counter so the pane opens its
-								// archive/delete modal.
-								if (info.unsaved) {
-									discardDraft(info.path)
-									return
-								}
-								if (info.runnable_kind !== 'script') return
-								activeDraftPath = undefined
-								selection = { kind: 'runnable', runnable_kind: 'script', path: info.path }
-								requestRemoveSignal++
-							}}
-							onRunProducer={async (producer) => {
-								// Saved scripts go through runScriptByPath; drafts
-								// have no DB row yet, so dispatch to runScriptPreview
-								// with the locally-cached content/language. Keeping
-								// this dispatch in the page (rather than the canvas
-								// or AssetNode) so the asset-graph components stay
-								// stateless wrt drafts. Bump runsRefreshKey on
-								// success so the runs panel picks up the new job
-								// immediately — its background poll only kicks in
-								// for already-listed in-flight jobs.
-								if (!$workspaceStore || producer.kind !== 'script') return undefined
-								let jobId: string | undefined
-								if (producer.unsaved) {
-									const draft = drafts.get(producer.path)
-									if (!draft?.script.content || !draft.script.language) return undefined
-									jobId = await JobService.runScriptPreview({
-										workspace: $workspaceStore,
-										requestBody: {
-											content: draft.script.content,
-											language: draft.script.language,
-											path: producer.path,
-											args: {}
+					<Pane bind:size={leftPaneSize}>
+						<div class="relative h-full">
+							<AssetGraphCanvas
+								graph={graphWithDraft}
+								selection={effectiveSelection}
+								{pathPrefix}
+								defaultPathSuffix={DEFAULT_PATH_SUFFIX}
+								defaultScheduleCron={DEFAULT_SCHEDULE_CRON}
+								onselect={(s) => {
+									// Clicking a draft runnable node re-opens it in the pane;
+									// clicking anything else selects it normally and detaches
+									// from any active draft (drafts stay overlaid until saved
+									// or discarded).
+									if (
+										s &&
+										s.kind === 'runnable' &&
+										s.runnable_kind === 'script' &&
+										drafts.has(s.path)
+									) {
+										activeDraftPath = s.path
+										selection = undefined
+									} else {
+										activeDraftPath = undefined
+										selection = s
+									}
+								}}
+								onAddScriptForAsset={(asset, language, scriptPath, outputKind) => {
+									const ref = `${ASSET_PREFIX[asset.kind]}${asset.path}`
+									openMaterializerDraft(
+										language,
+										scriptPath,
+										[{ kind: 'asset', ref }],
+										outputKind,
+										{
+											kind: asset.kind,
+											path: asset.path
 										}
-									})
-								} else {
-									jobId = await JobService.runScriptByPath({
-										workspace: $workspaceStore,
-										path: producer.path,
-										requestBody: {}
-									})
-								}
-								if (jobId) {
-									runsPendingJobId = jobId
-									runsRefreshKey++
-								}
-								return jobId
-							}}
-						/>
-					</Pane>
-					{#if (selection || activeDraft) && $workspaceStore}
-						<Pane size={40} minSize={25}>
+									)
+								}}
+								onAddPipelineScript={(language, scriptPath, source, outputKind) =>
+									openMaterializerDraft(language, scriptPath, [source], outputKind)}
+								onRunnableMenuRemove={(info) => {
+									// Drafts: drop the local entry immediately — the
+									// existing onDiscard pathway already handles this
+									// without a confirm modal. Persisted: select the
+									// script (so the pane loads it), then bump the
+									// remove-signal counter so the pane opens its
+									// archive/delete modal.
+									if (info.unsaved) {
+										discardDraft(info.path)
+										return
+									}
+									if (info.runnable_kind !== 'script') return
+									activeDraftPath = undefined
+									selection = { kind: 'runnable', runnable_kind: 'script', path: info.path }
+									requestRemoveSignal++
+								}}
+								onRunProducer={async (producer) => {
+									// Saved scripts go through runScriptByPath; drafts
+									// have no DB row yet, so dispatch to runScriptPreview
+									// with the locally-cached content/language. Keeping
+									// this dispatch in the page (rather than the canvas
+									// or AssetNode) so the asset-graph components stay
+									// stateless wrt drafts. Bump runsRefreshKey on
+									// success so the runs panel picks up the new job
+									// immediately — its background poll only kicks in
+									// for already-listed in-flight jobs.
+									if (!$workspaceStore || producer.kind !== 'script') return undefined
+									let jobId: string | undefined
+									if (producer.unsaved) {
+										const draft = drafts.get(producer.path)
+										if (!draft?.script.content || !draft.script.language) return undefined
+										jobId = await JobService.runScriptPreview({
+											workspace: $workspaceStore,
+											requestBody: {
+												content: draft.script.content,
+												language: draft.script.language,
+												path: producer.path,
+												args: {}
+											}
+										})
+									} else {
+										jobId = await JobService.runScriptByPath({
+											workspace: $workspaceStore,
+											path: producer.path,
+											requestBody: {}
+										})
+									}
+									if (jobId) {
+										runsPendingJobId = jobId
+										runsRefreshKey++
+									}
+									return jobId
+								}}
+							/>
+							{#if selection != undefined || activeDraftPath != undefined}
+								<!-- Floating panel toggle, mirrors the app builder's
+								     hide-bar pattern. Anchored to the canvas (not the
+								     toolbar) so it stays adjacent to the splitter
+								     handle. z-50 + bg-surface keep it visible above
+								     the SvelteFlow internals (panels, edges, controls
+								     all render at z>10) and against the canvas
+								     background — the bare HideButton uses
+								     bg-transparent which disappears on light themes. -->
+								<div
+									class="absolute top-2 right-2 z-50 rounded-md bg-surface shadow-sm border border-gray-200 dark:border-gray-700"
+								>
+									<HideButton
+										hidden={panelHidden}
+										direction="right"
+										on:click={() => (panelHidden = !panelHidden)}
+									/>
+								</div>
+							{/if}
+						</div></Pane
+					>
+					{#if detailsPaneOpen && $workspaceStore}
+						<Pane bind:size={rightPaneSize} minSize={25}>
 							<AssetGraphDetailsPane
 								selection={activeDraft ? undefined : selection}
 								selectionProducers={activeDraft ? [] : selectionProducers}
@@ -987,6 +1091,9 @@
 								workspace={$workspaceStore}
 								onAnnotationsChange={(scriptPath, annotations) => {
 									liveAnnotations = { scriptPath, annotations }
+								}}
+								onAssetsChange={(scriptPath, assets) => {
+									liveBodyAssets = { scriptPath, assets }
 								}}
 								onclose={() => {
 									// Close dismisses the pane but preserves drafts so
@@ -1004,6 +1111,7 @@
 										}
 									}
 								}}
+								onHide={() => (panelHidden = true)}
 								onDiscard={() => {
 									if (activeDraftPath) discardDraft(activeDraftPath)
 								}}

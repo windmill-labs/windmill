@@ -6,13 +6,14 @@
 	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
 	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
-	import { formatAssetKind } from '$lib/components/assets/lib'
+	import { formatAssetKind, type AssetWithAltAccessType } from '$lib/components/assets/lib'
 	import {
 		AlertTriangle,
 		Code2,
 		ExternalLink,
 		GitBranch,
 		Loader2,
+		PanelRightClose,
 		Save,
 		Trash2,
 		X,
@@ -41,6 +42,10 @@
 		draftScript?: Script | undefined
 		workspace: string
 		onclose: () => void
+		// Optional: dismiss the pane while preserving the current selection /
+		// activeDraft so re-opening (toolbar HideButton) restores the same
+		// view. When undefined, the hide button isn't shown.
+		onHide?: () => void
 		// Called after a draft is saved for the first time so the page can
 		// refetch the graph and clear its local draft.
 		onDraftSaved?: (savedPath: string) => void
@@ -52,6 +57,13 @@
 		// canvas can overlay unsaved schedule / trigger nodes in real time.
 		// Fires whenever the script content changes.
 		onAnnotationsChange?: (scriptPath: string | undefined, annotations: PipelineAnnotations) => void
+		// Emits live-inferred body assets (read/write usages parsed by
+		// inferAssets — e.g. CREATE TABLE in SQL, loadS3File / writeS3File
+		// in TS/Python). The page uses the write subset to overlay write
+		// edges + synthesize asset nodes for drafts whose body has been
+		// edited past the seeded template. Fires on every keystroke that
+		// changes the inferred set.
+		onAssetsChange?: (scriptPath: string | undefined, assets: AssetWithAltAccessType[]) => void
 		// Called after the user moves/renames a persisted script via the
 		// summary/path popover. The page repoints `selection` at `newPath`
 		// and refetches the graph so the runnable node label updates.
@@ -97,9 +109,11 @@
 		draftScript,
 		workspace,
 		onclose,
+		onHide,
 		onDraftSaved,
 		onDiscard,
 		onAnnotationsChange,
+		onAssetsChange,
 		onScriptRenamed,
 		onScriptRemoved,
 		selectionProducers = [],
@@ -109,6 +123,12 @@
 		onDraftPathChange,
 		requestRemoveSignal
 	}: Props = $props()
+
+	// Bound from ScriptEditor — populated by inferAssets on every code
+	// change. Forwarded to the page so the canvas can re-derive write
+	// edges as the user edits the body (e.g. renaming a CREATE TABLE
+	// target updates the output asset node in real time).
+	let liveBodyAssets = $state<AssetWithAltAccessType[] | undefined>(undefined)
 
 	// Bumped when the runs panel reports a watched job has reached a
 	// terminal state. Drives S3FilePreview's refreshKey so the preview
@@ -219,6 +239,9 @@
 	)
 	$effect(() => {
 		onAnnotationsChange?.(script?.path, liveAnnotations)
+	})
+	$effect(() => {
+		onAssetsChange?.(script?.path, liveBodyAssets ?? [])
 	})
 
 	async function save() {
@@ -490,6 +513,16 @@
 					{saving ? 'Saving…' : isDraft ? 'Create' : 'Save'}
 				</Button>
 			{/if}
+			{#if onHide}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					startIcon={{ icon: PanelRightClose }}
+					onclick={onHide}
+					iconOnly
+					title="Hide panel"
+				/>
+			{/if}
 			<Button
 				variant="subtle"
 				unifiedSize="sm"
@@ -568,6 +601,7 @@
 					}}
 					bind:code={script.content}
 					bind:schema={script.schema}
+					bind:assets={liveBodyAssets}
 					{args}
 				>
 					{#snippet editorBarRight()}
