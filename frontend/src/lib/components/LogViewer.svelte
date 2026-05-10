@@ -350,7 +350,7 @@
 						<label
 							class="pr-2 text-2xs flex gap-2 font-normal text-primary items-center whitespace-nowrap"
 						>
-							Auto-scroll
+							auto-scroll
 							<input class="windmillapp" type="checkbox" bind:checked={scroll} />
 						</label>
 					{/if}
@@ -359,7 +359,7 @@
 			<pre
 				bind:this={preEl}
 				class={twMerge(
-					'whitespace-pre break-words w-full flex-1 overflow-auto',
+					'whitespace-pre break-words w-full flex-1 overflow-y-scroll overflow-x-auto',
 					small ? '!text-2xs' : '!text-xs',
 					noPadding ? '' : 'p-2'
 				)}
