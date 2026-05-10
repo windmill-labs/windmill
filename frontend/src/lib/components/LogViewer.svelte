@@ -359,7 +359,7 @@
 			<pre
 				bind:this={preEl}
 				class={twMerge(
-					'whitespace-pre break-words w-full flex-1 overflow-y-scroll overflow-x-auto',
+					'whitespace-pre break-words w-full flex-1 overflow-y-auto overflow-x-scroll',
 					small ? '!text-2xs' : '!text-xs',
 					noPadding ? '' : 'p-2'
 				)}
