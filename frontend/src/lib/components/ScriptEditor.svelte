@@ -1627,13 +1627,17 @@
 					{#if customUi?.previewPanel?.hideArgs}
 						<!-- Compact preview layout used by the pipeline editor:
 						     no args column (the script is known to take no
-						     inputs), LogPanel takes the full width, and the
-						     Test/Cancel button floats at the top-left with a
-						     -translate-y so it visually attaches to the editor
-						     panel above instead of stealing vertical space
-						     inside the preview band. -->
-						<div class="relative h-full">
-							<div class="absolute top-0 left-2 -translate-y-1/2 z-10">
+						     inputs), LogPanel takes the full width, with a
+						     small Test/Cancel button at the top-left of the
+						     preview band. The earlier `-translate-y-1/2`
+						     "float onto the editor" version was clipped in
+						     Firefox (transform + overflow: visible interaction
+						     on the parent splitpane Pane), so the button is
+						     now positioned inside the panel — `top-1` keeps
+						     it visually pinned to the top edge without
+						     relying on cross-browser overflow behaviour. -->
+						<div class="relative h-full pt-9">
+							<div class="absolute top-1 left-2 z-10">
 								{#if testIsLoading}
 									<Button on:click={jobLoader?.cancelJob} unifiedSize="sm" btnClasses="shadow-md">
 										<WindmillIcon
