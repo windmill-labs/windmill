@@ -1,12 +1,23 @@
 <script lang="ts">
 	import { Handle, Position } from '@xyflow/svelte'
-	import { Code2, EllipsisVertical, GitBranch, Layers, Timer, Trash2 } from 'lucide-svelte'
+	import {
+		Code2,
+		EllipsisVertical,
+		GitBranch,
+		Layers,
+		Loader2,
+		Play,
+		Timer,
+		Trash2
+	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 	import type { GraphUsageKind } from './types'
 	import { NODE } from '$lib/components/graph/util'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import type { Item } from '$lib/utils'
+	import { workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/utils'
 
 	interface Props {
 		data: {
@@ -18,14 +29,28 @@
 			// True for nodes synthesized from local drafts (script not yet
 			// persisted). Same convention as `unsaved` on triggers/edges.
 			unsaved?: boolean
+			// Page-supplied dispatch that runs THIS node (saved → runScriptByPath,
+			// unsaved → runScriptPreview with the locally-cached draft content).
+			// Wired only for script runnables — flows are ignored upstream. When
+			// undefined, the play button is hidden — matches the asset-node
+			// behaviour outside editor contexts.
+			onRunSelf?: () => Promise<string | undefined>
+			// Called before running so the details pane focuses this script —
+			// mirrors AssetNode.onSelectAsset, keeps the runs/output in view
+			// instead of dispatching into nowhere.
+			onSelectSelf?: () => void
 			// Wired by the canvas. When set, the node renders an
 			// EllipsisVertical hover-button that opens a small action menu —
 			// "Discard" for drafts, "Delete…" (which the page maps to its
 			// archive/delete confirmation flow) for persisted scripts.
 			onRequestRemove?: () => void
 		}
+		// SvelteFlow injects this when the user clicks the node. Combined with
+		// hover state to drive the run-button visibility (same pattern as
+		// AssetNode).
+		selected?: boolean
 	}
-	let { data }: Props = $props()
+	let { data, selected = false }: Props = $props()
 
 	// Icon + emerald accent already convey "pipeline script" vs "flow"; the
 	// uppercase kind label was visually noisy and redundant. Tooltip on hover
@@ -41,6 +66,27 @@
 
 	let hover = $state(false)
 	let menuOpen = $state(false)
+	let running = $state(false)
+	let canRun = $derived(data.runnable_kind === 'script' && data.onRunSelf != undefined)
+	// Reveal pattern matches AssetNode: visible while hovering, selected, or
+	// already running (so the loader doesn't disappear under the cursor).
+	let showRun = $derived(canRun && (hover || selected || running))
+
+	async function runSelf(e: MouseEvent) {
+		e.stopPropagation()
+		if (!$workspaceStore || running || !data.onRunSelf) return
+		// Focus this runnable so the details pane opens to its editor — same
+		// rationale as AssetNode.onSelectAsset before runProducers.
+		if (!selected) data.onSelectSelf?.()
+		running = true
+		try {
+			await data.onRunSelf()
+		} catch (err: any) {
+			sendUserToast(`Failed to run: ${err.body ?? err.message}`, true)
+		} finally {
+			running = false
+		}
+	}
 
 	let menuItems: Item[] = $derived(
 		data.onRequestRemove
@@ -103,6 +149,27 @@
 			</div>
 		{/if}
 	</div>
+	{#if showRun}
+		<!-- Run button revealed on hover/select. Matches the placement, size,
+		     and behaviour of AssetNode's run button so both nodes feel
+		     consistent. Drafts are runnable too (the page handler routes to
+		     runScriptPreview), so no greyed-out state. -->
+		<div class="absolute -left-3 top-1/2 -translate-y-1/2 z-10">
+			<button
+				type="button"
+				onclick={runSelf}
+				disabled={running}
+				class="bg-blue-500 hover:bg-blue-600 disabled:opacity-60 text-white rounded-full w-6 h-6 grid place-items-center shadow border-2 border-surface-secondary leading-none"
+				title={`Run ${data.path}${data.unsaved ? ' (draft, runs as preview)' : ''}`}
+			>
+				{#if running}
+					<Loader2 size={14} class="animate-spin" />
+				{:else}
+					<Play size={14} strokeWidth={2.5} class="translate-x-px" />
+				{/if}
+			</button>
+		</div>
+	{/if}
 
 	{#if menuItems.length > 0}
 		<!--

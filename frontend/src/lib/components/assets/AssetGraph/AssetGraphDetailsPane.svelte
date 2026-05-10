@@ -105,6 +105,11 @@
 		// `activeRunnable` overlay (which animates edges around the
 		// running script) once execution finishes.
 		onRunCompleted?: () => void
+		// Runnable currently executing — shared with the canvas. When it
+		// matches one of the selected asset's producers, the preview
+		// gets a "Recomputing…" banner so the user knows the rendered
+		// snapshot is about to be replaced.
+		activeRunnable?: { kind: 'script' | 'flow'; path: string } | undefined
 		// Folder-scoped non-editable prefix shown next to the suffix
 		// editor when the user renames a draft (e.g. `f/<folder>/`). The
 		// new path = pathPrefix + suffix.
@@ -138,10 +143,22 @@
 		runsRefreshKey,
 		runsPendingJobId,
 		onRunCompleted,
+		activeRunnable,
 		pathPrefix = '',
 		onDraftPathChange,
 		requestRemoveSignal
 	}: Props = $props()
+
+	// True when the script that writes to the currently-selected asset is
+	// running right now. Drives the "Recomputing…" banner above the
+	// preview and pairs with `onRunCompleted` (which bumps
+	// `previewRefreshKey`) to reload the preview when the run finishes.
+	let producerRunning = $derived(
+		!!activeRunnable &&
+			selectionProducers.some(
+				(p) => p.kind === activeRunnable!.kind && p.path === activeRunnable!.path
+			)
+	)
 
 	// Bound from ScriptEditor — populated by inferAssets on every code
 	// change. Forwarded to the page so the canvas can re-derive write
@@ -588,21 +605,43 @@
 			     not by asset kind, so it's useful for every asset. -->
 			<Splitpanes horizontal class="!h-full">
 				<Pane size={55} minSize={20}>
-					{#if selection.asset_kind === 's3object'}
-						<S3FilePreview
-							fileKey={selection.path}
-							showMetadata
-							class="h-full"
-							refreshKey={previewRefreshKey}
-						/>
-					{:else if selection.asset_kind === 'datatable'}
-						<DataTablePreview path={selection.path} class="h-full" refreshKey={previewRefreshKey} />
-					{:else}
-						<div class="p-3 text-xs text-secondary">
-							No inline preview yet for {selection.asset_kind}. Use the producer/consumer arrows in
-							the graph to navigate. Runs of the upstream script are below.
+					<div class="flex flex-col h-full">
+						{#if producerRunning}
+							<!-- The asset's producing script is executing right now;
+							     the snapshot below is stale until the run finishes,
+							     at which point onRunCompleted bumps previewRefreshKey
+							     and the preview component refetches automatically. -->
+							<div
+								class="shrink-0 flex items-center gap-2 px-3 py-1.5 text-2xs bg-blue-50 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-300"
+							>
+								<Loader2 size={12} class="animate-spin shrink-0" />
+								<span class="truncate">
+									Recomputing — preview will refresh when {activeRunnable?.path} finishes
+								</span>
+							</div>
+						{/if}
+						<div class="flex-1 min-h-0 relative">
+							{#if selection.asset_kind === 's3object'}
+								<S3FilePreview
+									fileKey={selection.path}
+									showMetadata
+									class="h-full"
+									refreshKey={previewRefreshKey}
+								/>
+							{:else if selection.asset_kind === 'datatable'}
+								<DataTablePreview
+									path={selection.path}
+									class="h-full"
+									refreshKey={previewRefreshKey}
+								/>
+							{:else}
+								<div class="p-3 text-xs text-secondary">
+									No inline preview yet for {selection.asset_kind}. Use the producer/consumer arrows
+									in the graph to navigate. Runs of the upstream script are below.
+								</div>
+							{/if}
 						</div>
-					{/if}
+					</div>
 				</Pane>
 				<Pane size={45} minSize={20}>
 					<AssetRunsPanel

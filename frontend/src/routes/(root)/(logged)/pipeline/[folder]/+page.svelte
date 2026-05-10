@@ -1148,6 +1148,7 @@
 								selectionProducers={activeDraft ? [] : selectionProducers}
 								{runsRefreshKey}
 								{runsPendingJobId}
+								{activeRunnable}
 								onRunCompleted={() => (activeRunnable = undefined)}
 								{requestRemoveSignal}
 								draftScript={activeDraft?.script}

@@ -195,6 +195,25 @@
 					partition_kind: r.partition_kind,
 					freshness: r.freshness,
 					unsaved: r.unsaved ?? false,
+					// Same dispatch the asset node uses, only routed when the
+					// runnable is a script (the page handler short-circuits
+					// flows). The run button mirrors the asset-node affordance:
+					// click → run with no extra UI clutter.
+					onRunSelf:
+						r.usage_kind === 'script' && onRunProducer
+							? () =>
+									onRunProducer({
+										kind: 'script',
+										path: r.path,
+										unsaved: r.unsaved ?? false
+									})
+							: undefined,
+					onSelectSelf: () =>
+						onselect?.({
+							kind: 'runnable',
+							runnable_kind: r.usage_kind,
+							path: r.path
+						}),
 					onRequestRemove: onRunnableMenuRemove
 						? () =>
 								onRunnableMenuRemove({
