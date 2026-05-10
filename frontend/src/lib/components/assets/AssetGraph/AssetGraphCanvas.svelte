@@ -79,6 +79,11 @@
 			path: string
 			unsaved?: boolean
 		}) => void
+		// Runnable currently executing — its incoming asset/trigger edges and
+		// outgoing write edges get an animated stroke to convey "this is
+		// running right now". Cleared by the page when the run reaches a
+		// terminal state. Future: same hook for live pipeline status.
+		activeRunnable?: { kind: 'script' | 'flow'; path: string } | undefined
 	}
 	let {
 		graph,
@@ -90,7 +95,8 @@
 		defaultPathSuffix = '',
 		defaultScheduleCron = '',
 		onRunProducer,
-		onRunnableMenuRemove
+		onRunnableMenuRemove,
+		activeRunnable
 	}: Props = $props()
 
 	const ADD_NODE_ID = '__add__'
@@ -350,11 +356,20 @@
 		})
 	})
 
+	// Runnable graph-id, if a job is currently running for it. Used below
+	// to animate the edges into and out of that node — keeps the static
+	// graph quiet and reserves animation as an "is happening now" signal.
+	let activeRunnableId = $derived(
+		activeRunnable ? `${activeRunnable.kind}:${activeRunnable.path}` : undefined
+	)
 	let flowEdges = $derived.by(() =>
 		model.edges
 			// Anchor edges are layout-only.
 			.filter((e) => e.kind !== 'add-anchor')
 			.map<Edge>((e) => {
+				const touchesActiveRunnable =
+					activeRunnableId !== undefined &&
+					(e.source === activeRunnableId || e.target === activeRunnableId)
 				let style: string
 				let animated = false
 				let markerColor: string | undefined = undefined
@@ -364,13 +379,15 @@
 				switch (e.kind) {
 					case 'lineage-write':
 						style = 'stroke: rgb(59 130 246); stroke-width: 1.5px;'
+						animated = touchesActiveRunnable
 						break
 					case 'lineage-read':
 						style = 'stroke: rgb(107 114 128); stroke-width: 1.25px;'
+						animated = touchesActiveRunnable
 						break
 					case 'trigger-asset':
 						style = 'stroke: rgb(16 185 129); stroke-width: 2px;'
-						animated = true
+						animated = touchesActiveRunnable
 						markerColor = 'rgb(16 185 129)'
 						label = 'triggers'
 						labelStyle = 'fill: rgb(16 185 129); font-size: 10px; font-weight: 600;'

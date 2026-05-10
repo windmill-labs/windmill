@@ -100,6 +100,11 @@
 		// Job id of the most recently dispatched run. Forwarded to the
 		// runs panel so that clicking play auto-selects the new run.
 		runsPendingJobId?: string | undefined
+		// Bubbled up from AssetRunsPanel when a watched run reaches a
+		// terminal state. The pipeline page uses it to clear the
+		// `activeRunnable` overlay (which animates edges around the
+		// running script) once execution finishes.
+		onRunCompleted?: () => void
 		// Folder-scoped non-editable prefix shown next to the suffix
 		// editor when the user renames a draft (e.g. `f/<folder>/`). The
 		// new path = pathPrefix + suffix.
@@ -132,6 +137,7 @@
 		selectionProducers = [],
 		runsRefreshKey,
 		runsPendingJobId,
+		onRunCompleted,
 		pathPrefix = '',
 		onDraftPathChange,
 		requestRemoveSignal
@@ -603,7 +609,10 @@
 						producers={selectionProducers}
 						refreshKey={runsRefreshKey}
 						pendingJobId={runsPendingJobId}
-						onRunCompleted={() => (previewRefreshKey += 1)}
+						onRunCompleted={() => {
+							previewRefreshKey += 1
+							onRunCompleted?.()
+						}}
 					/>
 				</Pane>
 			</Splitpanes>

@@ -777,6 +777,11 @@
 	// The most recently dispatched job id — surfaces to AssetRunsPanel so
 	// the new run auto-selects without an extra click.
 	let runsPendingJobId = $state<string | undefined>(undefined)
+	// Runnable currently executing a previewed/run job — animates the
+	// edges going into and out of its node on the canvas. Cleared when
+	// AssetRunsPanel reports the run is done. The same hook will later
+	// be reused for live pipeline status.
+	let activeRunnable = $state<{ kind: 'script' | 'flow'; path: string } | undefined>(undefined)
 	// Counter bumped from the runnable-node action menu to ask the pane to
 	// open its archive/delete confirmation modal for the loaded script.
 	// Counter (vs boolean) so successive triggers re-fire even if the user
@@ -1023,6 +1028,7 @@
 							<AssetGraphCanvas
 								graph={graphWithDraft}
 								selection={effectiveSelection}
+								{activeRunnable}
 								{pathPrefix}
 								defaultPathSuffix={DEFAULT_PATH_SUFFIX}
 								defaultScheduleCron={DEFAULT_SCHEDULE_CRON}
@@ -1109,6 +1115,7 @@
 									if (jobId) {
 										runsPendingJobId = jobId
 										runsRefreshKey++
+										activeRunnable = { kind: producer.kind, path: producer.path }
 									}
 									return jobId
 								}}
@@ -1141,6 +1148,7 @@
 								selectionProducers={activeDraft ? [] : selectionProducers}
 								{runsRefreshKey}
 								{runsPendingJobId}
+								onRunCompleted={() => (activeRunnable = undefined)}
 								{requestRemoveSignal}
 								draftScript={activeDraft?.script}
 								{pathPrefix}
