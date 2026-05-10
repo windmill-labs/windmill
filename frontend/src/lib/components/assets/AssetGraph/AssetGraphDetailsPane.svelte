@@ -64,12 +64,18 @@
 		// edited past the seeded template. Fires on every keystroke that
 		// changes the inferred set.
 		onAssetsChange?: (scriptPath: string | undefined, assets: AssetWithAltAccessType[]) => void
-		// Fires whenever the user edits a draft's content. The parent
-		// must persist the new content into its drafts Map — otherwise
-		// switching to another node and back discards the edits, since
-		// this component clones the incoming `draftScript` into a local
-		// `script` $state on every prop change.
-		onDraftContentChange?: (path: string, content: string) => void
+		// Fires when the user navigates away from a draft (selects another
+		// node, closes the pane, etc.) — the parent must persist the new
+		// content + write outputs into its drafts Map. Without this,
+		// re-cloning from the unchanged Map discards local edits, and the
+		// draft's overlay nodes (write edges) revert to the seeded values.
+		onDraftPersist?: (
+			path: string,
+			snapshot: {
+				content: string
+				writes: { kind: AssetWithAltAccessType['kind']; path: string }[]
+			}
+		) => void
 		// Called after the user moves/renames a persisted script via the
 		// summary/path popover. The page repoints `selection` at `newPath`
 		// and refetches the graph so the runnable node label updates.
@@ -120,7 +126,7 @@
 		onDiscard,
 		onAnnotationsChange,
 		onAssetsChange,
-		onDraftContentChange,
+		onDraftPersist,
 		onScriptRenamed,
 		onScriptRemoved,
 		selectionProducers = [],
@@ -172,13 +178,25 @@
 	// (selection change, pane close), not on every keystroke — a per-key
 	// sync triggered drafts → activeDraft → draftScript → re-clone → emit
 	// loops that exceed Svelte's effect depth limit. The closure captures
-	// the active script reference; cleanup reads its (mutated-by-typing)
-	// content right before the next clone replaces it.
+	// the active script; cleanup reads its (mutated-by-typing) content
+	// AND the latest inferred body writes right before the next clone
+	// replaces it. liveBodyAssets is read inside cleanup (not body) so
+	// the $effect doesn't re-fire when ScriptEditor updates the inferred
+	// asset list.
 	$effect(() => {
 		if (!draftScript || !script) return
 		const captured = script
 		return () => {
-			onDraftContentChange?.(captured.path, captured.content ?? '')
+			const writes = (liveBodyAssets ?? [])
+				.filter((a) => {
+					const t = a.access_type ?? a.alt_access_type
+					return t === 'w' || t === 'rw'
+				})
+				.map((a) => ({ kind: a.kind, path: a.path }))
+			onDraftPersist?.(captured.path, {
+				content: captured.content ?? '',
+				writes
+			})
 		}
 	})
 

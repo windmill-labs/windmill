@@ -93,6 +93,12 @@
 		// has no auto-generated output asset, so the graph overlay skips
 		// synthesizing a write edge for it.
 		outputAsset?: { kind: AssetKind; path: string }
+		// Inferred body writes from the last time this draft was open in
+		// the details pane. Captured on transition (selection change /
+		// pane close) so the canvas keeps showing the user's renamed
+		// outputs after they've clicked away. Falls back to outputAsset
+		// when undefined (initial state or parser miss).
+		outputAssets?: Array<{ kind: AssetKind; path: string }>
 	}
 	let drafts = $state<Map<string, Draft>>(new Map())
 
@@ -527,15 +533,33 @@
 	function handleAssetsChange(scriptPath: string | undefined, assets: AssetWithAltAccessType[]) {
 		liveBodyAssets = { scriptPath, assets }
 	}
-	function handleDraftContentChange(p: string, content: string) {
-		// Persist body edits back into the drafts Map so they survive
-		// switching to another node and back (the details pane clones
-		// draftScript locally on every prop change, so the local edits
-		// would be lost without this round-trip).
+	function handleDraftPersist(
+		p: string,
+		snapshot: {
+			content: string
+			writes: { kind: AssetKind; path: string }[]
+		}
+	) {
+		// Persist body edits + inferred outputs back into the drafts Map so
+		// they survive switching to another node and back (the details pane
+		// clones draftScript locally on every prop change, and `outputAsset`
+		// would otherwise stay frozen at the value seeded when the draft
+		// was opened — leaving a stale write edge on the canvas after the
+		// user has renamed a CREATE TABLE / writeS3File target).
 		const d = drafts.get(p)
-		if (!d || d.script.content === content) return
+		if (!d) return
+		const writesEqual =
+			d.outputAssets?.length === snapshot.writes.length &&
+			(d.outputAssets ?? []).every(
+				(a, i) => a.kind === snapshot.writes[i]?.kind && a.path === snapshot.writes[i]?.path
+			)
+		if (d.script.content === snapshot.content && writesEqual) return
 		const next = new Map(drafts)
-		next.set(p, { ...d, script: { ...d.script, content } })
+		next.set(p, {
+			...d,
+			script: { ...d.script, content: snapshot.content },
+			outputAssets: snapshot.writes.length > 0 ? snapshot.writes : undefined
+		})
 		drafts = next
 	}
 
@@ -568,17 +592,20 @@
 				freshness: parsed.freshness?.duration,
 				unsaved: true
 			})
-			// Output asset(s): for the *active* draft (whose body the user
-			// is editing right now), live body inference takes precedence
-			// when it detects at least one write — renaming a CREATE TABLE
-			// target or a writeS3File path retires the old output node and
-			// surfaces the new one as the user types. We fall back to the
-			// static outputAsset (seeded at draft creation) when:
-			//   - the draft isn't the active one (we only run inference on
-			//     the open buffer), or
-			//   - the body parser missed every write (e.g. wmill.writeS3File
-			//     with an object literal — see WIN-1943). Better to keep a
-			//     possibly-stale node than to erase it on a parser limit.
+			// Output asset(s): three-tier resolution.
+			//   1. Active draft (the body the user is editing right now):
+			//      live body inference is authoritative — renaming a
+			//      CREATE TABLE target or writeS3File path retires the
+			//      old output node and surfaces the new one as the user
+			//      types.
+			//   2. Inactive draft with a captured `outputAssets` snapshot
+			//      (taken on the last pane transition): use those, so a
+			//      draft the user already edited keeps its renamed outputs
+			//      after they've clicked elsewhere.
+			//   3. Fallback to the static `outputAsset` seeded at draft
+			//      creation — covers fresh drafts and parser misses (e.g.
+			//      WIN-1943: wmill.writeS3File({s3, storage}) object form
+			//      not yet detected by the TS parser).
 			const liveForThisDraft = liveBodyAssets.scriptPath === path
 			const writeOuts: Array<{ kind: AssetKind; path: string }> = []
 			if (liveForThisDraft) {
@@ -586,6 +613,8 @@
 					const at = a.access_type ?? a.alt_access_type
 					if (at === 'w' || at === 'rw') writeOuts.push({ kind: a.kind, path: a.path })
 				}
+			} else if (d.outputAssets) {
+				writeOuts.push(...d.outputAssets)
 			}
 			if (writeOuts.length === 0 && d.outputAsset) {
 				writeOuts.push(d.outputAsset)
@@ -1119,7 +1148,7 @@
 								workspace={$workspaceStore}
 								onAnnotationsChange={handleAnnotationsChange}
 								onAssetsChange={handleAssetsChange}
-								onDraftContentChange={handleDraftContentChange}
+								onDraftPersist={handleDraftPersist}
 								onclose={() => {
 									// Close dismisses the pane but preserves drafts so
 									// the user can come back to them. Discarding is
