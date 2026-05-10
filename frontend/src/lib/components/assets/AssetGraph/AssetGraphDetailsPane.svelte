@@ -64,6 +64,12 @@
 		// edited past the seeded template. Fires on every keystroke that
 		// changes the inferred set.
 		onAssetsChange?: (scriptPath: string | undefined, assets: AssetWithAltAccessType[]) => void
+		// Fires whenever the user edits a draft's content. The parent
+		// must persist the new content into its drafts Map — otherwise
+		// switching to another node and back discards the edits, since
+		// this component clones the incoming `draftScript` into a local
+		// `script` $state on every prop change.
+		onDraftContentChange?: (path: string, content: string) => void
 		// Called after the user moves/renames a persisted script via the
 		// summary/path popover. The page repoints `selection` at `newPath`
 		// and refetches the graph so the runnable node label updates.
@@ -114,6 +120,7 @@
 		onDiscard,
 		onAnnotationsChange,
 		onAssetsChange,
+		onDraftContentChange,
 		onScriptRenamed,
 		onScriptRemoved,
 		selectionProducers = [],
@@ -159,6 +166,20 @@
 		}
 		const fresh = scriptRes.current
 		script = fresh ? structuredClone($state.snapshot(fresh) as Script) : undefined
+	})
+
+	// Persist draft edits back to the parent's drafts Map on transitions
+	// (selection change, pane close), not on every keystroke — a per-key
+	// sync triggered drafts → activeDraft → draftScript → re-clone → emit
+	// loops that exceed Svelte's effect depth limit. The closure captures
+	// the active script reference; cleanup reads its (mutated-by-typing)
+	// content right before the next clone replaces it.
+	$effect(() => {
+		if (!draftScript || !script) return
+		const captured = script
+		return () => {
+			onDraftContentChange?.(captured.path, captured.content ?? '')
+		}
 	})
 
 	let args = $state<Record<string, any>>({})

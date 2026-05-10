@@ -511,6 +511,34 @@
 	// Currently-open draft shape (if any) — fed into the details pane.
 	let activeDraft = $derived(activeDraftPath ? drafts.get(activeDraftPath) : undefined)
 
+	// Named handlers for the details pane's live callbacks. Inline arrows
+	// would be rebuilt on every parent re-render, and the pane's $effects
+	// track those refs as deps — combined with the drafts mutation in
+	// `handleDraftContentChange`, that creates a parent ↔ child feedback
+	// loop ("effect_update_depth_exceeded"). Named functions keep the
+	// prop reference stable so the $effects only re-fire on real
+	// content changes.
+	function handleAnnotationsChange(
+		scriptPath: string | undefined,
+		annotations: PipelineAnnotations
+	) {
+		liveAnnotations = { scriptPath, annotations }
+	}
+	function handleAssetsChange(scriptPath: string | undefined, assets: AssetWithAltAccessType[]) {
+		liveBodyAssets = { scriptPath, assets }
+	}
+	function handleDraftContentChange(p: string, content: string) {
+		// Persist body edits back into the drafts Map so they survive
+		// switching to another node and back (the details pane clones
+		// draftScript locally on every prop change, so the local edits
+		// would be lost without this round-trip).
+		const d = drafts.get(p)
+		if (!d || d.script.content === content) return
+		const next = new Map(drafts)
+		next.set(p, { ...d, script: { ...d.script, content } })
+		drafts = next
+	}
+
 	// Overlay the draft runnable + live-parsed trigger edges onto the fetched
 	// graph. Live edges come from the editor buffer's `// on <spec>` lines
 	// and are marked `unsaved: true` unless they already match a persisted
@@ -1089,12 +1117,9 @@
 								{pathPrefix}
 								onDraftPathChange={renameDraft}
 								workspace={$workspaceStore}
-								onAnnotationsChange={(scriptPath, annotations) => {
-									liveAnnotations = { scriptPath, annotations }
-								}}
-								onAssetsChange={(scriptPath, assets) => {
-									liveBodyAssets = { scriptPath, assets }
-								}}
+								onAnnotationsChange={handleAnnotationsChange}
+								onAssetsChange={handleAssetsChange}
+								onDraftContentChange={handleDraftContentChange}
 								onclose={() => {
 									// Close dismisses the pane but preserves drafts so
 									// the user can come back to them. Discarding is
