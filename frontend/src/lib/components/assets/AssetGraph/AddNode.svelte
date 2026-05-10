@@ -31,7 +31,8 @@
 				source:
 					| { kind: 'schedule'; cron: string }
 					| { kind: NativeTriggerKind; path: string | undefined },
-				outputKind: PipelineOutputKind
+				outputKind: PipelineOutputKind,
+				aiPrompt?: string
 			) => void
 			pathPrefix: string
 			defaultPathSuffix: string
@@ -49,7 +50,8 @@
 				pick.language as ScriptLang,
 				pick.path,
 				{ kind: 'schedule', cron: data.defaultScheduleCron },
-				outputKind
+				outputKind,
+				pick.aiPrompt
 			)
 		} else {
 			// Native trigger reference: user is expected to fill in the
@@ -60,7 +62,8 @@
 				pick.language as ScriptLang,
 				pick.path,
 				{ kind: kindId, path: undefined },
-				outputKind
+				outputKind,
+				pick.aiPrompt
 			)
 		}
 	}

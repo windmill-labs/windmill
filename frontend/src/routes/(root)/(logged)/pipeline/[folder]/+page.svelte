@@ -23,7 +23,8 @@
 		type DraftTriggerSource
 	} from '$lib/components/assets/AssetGraph/pipelineTemplates'
 	import { decodeState, encodeState } from '$lib/utils'
-	import { onMount, untrack } from 'svelte'
+	import { onMount, tick, untrack } from 'svelte'
+	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import {
 		AlertTriangle,
 		ArrowLeft,
@@ -314,7 +315,8 @@
 		scriptPath: string,
 		triggers: DraftTriggerSource[],
 		outputKind: PipelineOutputKind,
-		input?: { kind: AssetKind; path: string }
+		input?: { kind: AssetKind; path: string },
+		aiPrompt?: string
 	) {
 		const out = autoOutputAsset(outputKind, folder, language)
 		const script = buildDraft(language, scriptPath, triggers, outputKind, out, input)
@@ -327,6 +329,43 @@
 		drafts = next
 		activeDraftPath = scriptPath
 		selection = undefined
+
+		// User filled the optional prompt on the path stage — fire off a
+		// chat request so the AI bootstraps the body. The seeded template
+		// (already in `script.content`) acts as scaffolding the AI
+		// rewrites; language + chosen output + upstream input go in as
+		// context so the model knows what to read from / write to.
+		if (aiPrompt && aiPrompt.trim().length > 0) {
+			void triggerAiBootstrap({ scriptPath, language, outputKind, input, out, prompt: aiPrompt })
+		}
+	}
+
+	async function triggerAiBootstrap(args: {
+		scriptPath: string
+		language: ScriptLang
+		outputKind: PipelineOutputKind
+		input?: { kind: AssetKind; path: string }
+		out?: { kind: AssetKind; path: string }
+		prompt: string
+	}) {
+		// Wait one tick for AssetGraphDetailsPane to mount the ScriptEditor
+		// and register itself with aiChatManager (scriptEditorApplyCode etc.).
+		// Without this, openChat fires before the chat has a target editor.
+		await tick()
+		const lines: string[] = [args.prompt]
+		lines.push('')
+		lines.push(`Language: ${args.language}.`)
+		if (args.input) {
+			lines.push(`Read input from ${args.input.kind} \`${args.input.path}\`.`)
+		}
+		if (args.out) {
+			lines.push(`Write output to ${args.out.kind} \`${args.out.path}\`.`)
+		} else if (args.outputKind === 'none') {
+			lines.push('No output asset is expected.')
+		}
+		const instructions = lines.join('\n')
+		aiChatManager.openChat()
+		aiChatManager.sendRequest({ instructions })
 	}
 
 	// Navigation guard state. `pendingNavigationUrl` holds the URL the user
@@ -1152,7 +1191,7 @@
 										selection = s
 									}
 								}}
-								onAddScriptForAsset={(asset, language, scriptPath, outputKind) => {
+								onAddScriptForAsset={(asset, language, scriptPath, outputKind, aiPrompt) => {
 									const ref = `${ASSET_PREFIX[asset.kind]}${asset.path}`
 									openMaterializerDraft(
 										language,
@@ -1162,11 +1201,19 @@
 										{
 											kind: asset.kind,
 											path: asset.path
-										}
+										},
+										aiPrompt
 									)
 								}}
-								onAddPipelineScript={(language, scriptPath, source, outputKind) =>
-									openMaterializerDraft(language, scriptPath, [source], outputKind)}
+								onAddPipelineScript={(language, scriptPath, source, outputKind, aiPrompt) =>
+									openMaterializerDraft(
+										language,
+										scriptPath,
+										[source],
+										outputKind,
+										undefined,
+										aiPrompt
+									)}
 								onRunnableMenuRemove={(info) => {
 									// Drafts: drop the local entry immediately — the
 									// existing onDiscard pathway already handles this

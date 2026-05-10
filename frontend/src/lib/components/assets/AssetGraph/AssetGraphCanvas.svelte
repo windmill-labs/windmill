@@ -36,11 +36,15 @@
 			asset: { kind: AssetKind; path: string },
 			language: import('$lib/gen').ScriptLang,
 			scriptPath: string,
-			outputKind: import('./pipelineTemplates').PipelineOutputKind
+			outputKind: import('./pipelineTemplates').PipelineOutputKind,
+			aiPrompt?: string
 		) => void
 		// Pipeline-wide + node shown at the top of the graph. Picking any
 		// kind from the menu invokes this one callback with the chosen
 		// trigger source — the page uses it to seed the draft's annotation.
+		// `aiPrompt` is set when the user filled the optional prompt field
+		// on the path stage; the page is expected to bootstrap the body via
+		// AI instead of using the seeded template.
 		onAddPipelineScript?: (
 			language: import('$lib/gen').ScriptLang,
 			path: string,
@@ -50,7 +54,8 @@
 						kind: 'webhook' | 'email' | 'kafka' | 'mqtt' | 'nats' | 'postgres' | 'sqs' | 'gcp'
 						path: string | undefined
 				  },
-			outputKind: import('./pipelineTemplates').PipelineOutputKind
+			outputKind: import('./pipelineTemplates').PipelineOutputKind,
+			aiPrompt?: string
 		) => void
 		// Folder-scoped prefix shown as a read-only chip in the insert menu
 		// path input (e.g. `f/{folder}/`). Shared across top + and per-asset +.

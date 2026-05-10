@@ -21,6 +21,11 @@
 		// Picked output asset kind. Optional because some menu instances
 		// (those without `pickOutputKind`) skip that stage entirely.
 		outputKind?: string
+		// Optional natural-language prompt entered on the path stage.
+		// When set, the caller is expected to bootstrap the script body
+		// from this prompt via AI (using language + outputKind + the
+		// upstream input as context) instead of using the seeded template.
+		aiPrompt?: string
 	}
 </script>
 
@@ -28,7 +33,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
-	import { ArrowLeft, ChevronRight } from 'lucide-svelte'
+	import { ArrowLeft, ChevronRight, Sparkles } from 'lucide-svelte'
 	import { tick } from 'svelte'
 	import {
 		PIPELINE_OUTPUT_KINDS,
@@ -91,6 +96,11 @@
 	let selectedOutputKind = $state<PipelineOutputKind | undefined>(undefined)
 	let pathSuffix = $state('')
 	let pathInput: HTMLInputElement | undefined = $state(undefined)
+	// Optional AI prompt — when filled the caller bootstraps the script
+	// body via AI instead of the seeded template (see the PipelineInsertPick
+	// docstring above). Cleared on menu close along with the rest of the
+	// stage state so a stale prompt from a previous open doesn't leak.
+	let aiPrompt = $state('')
 
 	// Keyboard navigation state. `focusCol` tracks which column the arrow
 	// keys steer; per-column indexes survive column switches so the user's
@@ -128,6 +138,7 @@
 		selectedLanguage = languages[defaultLangIdx()]?.lang
 		selectedOutputKind = undefined
 		pathSuffix = ''
+		aiPrompt = ''
 		focusCol = 'lang'
 		kindIdx = 0
 		langIdx = defaultLangIdx()
@@ -302,11 +313,13 @@
 		const suffix = pathSuffix.trim()
 		if (!suffix || !selectedLanguage) return
 		if (pickOutputKind && !selectedOutputKind) return
+		const trimmedPrompt = aiPrompt.trim()
 		onPick({
 			kindId: selectedKindId,
 			language: selectedLanguage,
 			path: pathPrefix + suffix,
-			outputKind: pickOutputKind ? selectedOutputKind : undefined
+			outputKind: pickOutputKind ? selectedOutputKind : undefined,
+			aiPrompt: trimmedPrompt.length > 0 ? trimmedPrompt : undefined
 		})
 		close()
 	}
@@ -522,14 +535,38 @@
 							</div>
 							<span class="text-2xs text-tertiary">Press Enter to create</span>
 						</div>
+						<div class="flex flex-col gap-1">
+							<span class="flex items-center gap-1 text-2xs font-normal text-secondary">
+								<Sparkles size={11} />
+								AI prompt (optional)
+							</span>
+							<textarea
+								bind:value={aiPrompt}
+								onkeydown={(e) => {
+									// Cmd/Ctrl-Enter to submit even when focus is in
+									// the textarea — bare Enter inserts a newline
+									// (multi-line prompts are common).
+									if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+										e.preventDefault()
+										confirmPath(close)
+									}
+								}}
+								class="border rounded-md bg-surface px-2 py-1.5 text-2xs font-normal min-h-[60px] resize-y focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+								placeholder="Describe what the script should do — leave empty to use the seeded template"
+							></textarea>
+							<span class="text-2xs text-tertiary">
+								Filled in: AI generates the body using language + selected output as context.
+							</span>
+						</div>
 						<div class="flex justify-end mt-auto">
 							<Button
 								variant="accent"
 								unifiedSize="sm"
 								disabled={!pathSuffix.trim()}
 								onClick={() => confirmPath(close)}
+								startIcon={aiPrompt.trim() ? { icon: Sparkles } : undefined}
 							>
-								Create
+								{aiPrompt.trim() ? 'Generate' : 'Create'}
 							</Button>
 						</div>
 					</div>

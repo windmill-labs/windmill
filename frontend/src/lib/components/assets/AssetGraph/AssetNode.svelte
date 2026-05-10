@@ -30,7 +30,8 @@
 				asset: { kind: AssetKind; path: string },
 				language: ScriptLang,
 				scriptPath: string,
-				outputKind: PipelineOutputKind
+				outputKind: PipelineOutputKind,
+				aiPrompt?: string
 			) => void
 			pathPrefix?: string
 			defaultPathSuffix?: string
@@ -102,7 +103,8 @@
 				{ kind: data.asset_kind, path: data.path },
 				pick.language as ScriptLang,
 				pick.path,
-				(pick.outputKind ?? 'none') as PipelineOutputKind
+				(pick.outputKind ?? 'none') as PipelineOutputKind,
+				pick.aiPrompt
 			)
 		}
 	}
