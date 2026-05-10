@@ -183,7 +183,31 @@
 	let persistTimer: number | undefined = undefined
 	$effect(() => {
 		// Track deps explicitly so Svelte 5 re-runs on mutation.
-		const serialized = Array.from(drafts.entries())
+		// For the active draft, also snapshot the latest live body writes
+		// at serialize time. Without this, edits made since the last
+		// pane-transition (the cleanup that calls onDraftPersist) are
+		// lost on reload — the draft restores with stale `outputAssets`
+		// and the graph drops the corresponding edges until the user
+		// re-opens the draft and types something new.
+		const liveWritesSnapshot =
+			liveBodyAssets.scriptPath != undefined && drafts.has(liveBodyAssets.scriptPath)
+				? liveBodyAssets.assets
+						.filter((a) => {
+							const at = a.access_type ?? a.alt_access_type
+							return at === 'w' || at === 'rw'
+						})
+						.map((a) => ({ kind: a.kind, path: a.path }))
+				: undefined
+		const liveWritesPath = liveBodyAssets.scriptPath
+		const serialized = Array.from(drafts.entries()).map(([p, d]) => {
+			if (liveWritesSnapshot != undefined && liveWritesPath === p) {
+				return [
+					p,
+					{ ...d, outputAssets: liveWritesSnapshot.length > 0 ? liveWritesSnapshot : undefined }
+				] as [string, Draft]
+			}
+			return [p, d] as [string, Draft]
+		})
 		const activePath = activeDraftPath
 		const key = storageKey
 		untrack(() => {
