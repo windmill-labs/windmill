@@ -1316,6 +1316,16 @@
 									discardDraft(savedPath)
 									await graphRes.refetch()
 								}}
+								onPersistedSaved={async () => {
+									// Refresh the asset graph so the rows the deploy
+									// just inserted (from the body-asset write list we
+									// pass at save time) make it into base.edges. The
+									// in-memory `inferredWritesByPath` overlay
+									// dedupes against base, so the edge stays put
+									// instead of flickering when the ScriptEditor
+									// remounts on the new hash.
+									await graphRes.refetch()
+								}}
 								onScriptRenamed={async (oldPath, newPath) => {
 									// Repoint the selection at the new path before the
 									// graph refetches so the pane stays focused on the

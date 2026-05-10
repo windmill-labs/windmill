@@ -49,6 +49,13 @@
 		// Called after a draft is saved for the first time so the page can
 		// refetch the graph and clear its local draft.
 		onDraftSaved?: (savedPath: string) => void
+		// Fired after a successful save of a *persisted* script so the
+		// page can refetch the asset graph (the new asset rows the
+		// deploy just inserted live in `base.edges`, and the live
+		// overlay's cache gets cleared during the ScriptEditor remount
+		// on the new hash — without a base refresh, the corresponding
+		// write edges briefly vanish from the canvas).
+		onPersistedSaved?: (savedPath: string) => void
 		// Called when the user hits "Discard" on the draft header. Separate
 		// from `onclose` so the page can drop the draft from its map vs
 		// just dismissing the pane.
@@ -146,6 +153,7 @@
 		onclose,
 		onHide,
 		onDraftSaved,
+		onPersistedSaved,
 		onDiscard,
 		onAnnotationsChange,
 		onAssetsChange,
@@ -373,6 +381,7 @@
 				onDraftSaved?.(script.path)
 			} else {
 				await scriptRes.refetch()
+				onPersistedSaved?.(script.path)
 			}
 		} catch (e: any) {
 			sendUserToast(`Save failed: ${e?.body ?? e?.message ?? e}`, true)
