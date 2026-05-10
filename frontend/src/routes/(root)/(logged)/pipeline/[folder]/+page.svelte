@@ -758,6 +758,45 @@
 			}
 		}
 
+		// Live body-asset writes for the currently-open script (draft OR
+		// persisted). The draft loop above already covers drafts via
+		// `liveForThisDraft`; this branch covers the persisted-script case
+		// — when the user edits a deployed script's body and adds e.g. a
+		// new CREATE TABLE / writeS3File, the canvas now shows the new
+		// output node and write edge live, instead of waiting for the
+		// next deploy to populate the asset table. Persisted writes for
+		// the same path are skipped so we don't duplicate the edge.
+		const liveBodyPath = liveBodyAssets.scriptPath
+		if (liveBodyPath && !drafts.has(liveBodyPath)) {
+			const persistedWriteKeys = new Set(
+				base.edges
+					.filter(
+						(e) =>
+							e.runnable_path === liveBodyPath &&
+							e.runnable_kind === 'script' &&
+							(e.access_type === 'w' || e.access_type === 'rw')
+					)
+					.map((e) => `${e.asset_kind}:${e.asset_path}`)
+			)
+			for (const a of liveBodyAssets.assets) {
+				const at = a.access_type ?? a.alt_access_type
+				if (at !== 'w' && at !== 'rw') continue
+				const key = `${a.kind}:${a.path}`
+				if (persistedWriteKeys.has(key)) continue
+				if (!assets.some((x) => x.kind === a.kind && x.path === a.path)) {
+					assets.push({ kind: a.kind, path: a.path })
+				}
+				edges.push({
+					runnable_path: liveBodyPath,
+					runnable_kind: 'script',
+					asset_kind: a.kind,
+					asset_path: a.path,
+					access_type: 'w',
+					unsaved: true
+				})
+			}
+		}
+
 		return { ...base, assets, runnables, edges, triggers: [...base.triggers, ...extraTriggers] }
 	})
 
