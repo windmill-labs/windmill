@@ -154,6 +154,18 @@ impl AuthedClient {
         .await
     }
 
+    pub async fn get_flow_user_state(
+        &self,
+        job_id: &str,
+        key: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let url = format!(
+            "{}/api/w/{}/jobs/flow/user_states/{}/{}",
+            self.base_internal_url, self.workspace, job_id, key
+        );
+        make_basic_get_request(self, &url, None, Some("decoding flow user state as json")).await
+    }
+
     pub async fn upload_s3_file<S>(
         &self,
         workspace_id: &str,

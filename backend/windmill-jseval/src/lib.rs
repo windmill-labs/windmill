@@ -350,7 +350,7 @@ async fn eval_quickjs_inner(
     let by_id_clone = by_id.clone();
 
     // Transform expression to add await for variable/resource/results access
-    let expr_with_funcs = ["variable", "resource"]
+    let expr_with_funcs = ["variable", "resource", "flow_user_state"]
         .into_iter()
         .fold(expr.to_string(), replace_with_await);
     let transformed_expr = replace_with_await_result(expr_with_funcs);
@@ -547,6 +547,10 @@ fn setup_stub_functions<'js>(
         function resource(path) {
             return Promise.reject(new Error(`resource() is not available without an authenticated client`));
         }
+
+        function flow_user_state(key) {
+            return Promise.reject(new Error('flow_user_state() is not available without an authenticated client'));
+        }
     "#;
 
     ctx.eval::<(), _>(setup_code)
@@ -567,6 +571,8 @@ fn setup_results_proxy<'js>(
 
     if let Some(state) = op_state {
         let by_id_for_result = by_id.clone();
+        let state_for_user_state = state.clone();
+        let flow_job_id_for_state = by_id.flow_job.to_string();
         globals.set(
             "__fetchResult",
             Func::from(Async(MutFn::new(move |step_id: String| {
@@ -638,10 +644,35 @@ fn setup_results_proxy<'js>(
             }))),
         )?;
 
+        globals.set(
+            "__fetchFlowUserState",
+            Func::from(Async(MutFn::new(move |key: String| {
+                let client = state_for_user_state.client.clone();
+                let job_id = flow_job_id_for_state.clone();
+                async move {
+                    const ERR_PREFIX: &str = "\x00__WINDMILL_ERR__\x00";
+                    match client.get_flow_user_state(&job_id, &key).await {
+                        Ok(value) => {
+                            serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string())
+                        }
+                        Err(e) => format!("{}{}", ERR_PREFIX, e),
+                    }
+                }
+            }))),
+        )?;
+
         let wrapper_code = r#"
             const __RESULT_ERR_PREFIX = '\x00__WINDMILL_ERR__\x00';
             async function __getResult(stepId) {
                 const result = await __fetchResult(stepId);
+                if (typeof result === 'string' && result.startsWith(__RESULT_ERR_PREFIX)) {
+                    throw new Error(result.substring(__RESULT_ERR_PREFIX.length));
+                }
+                return JSON.parse(result);
+            }
+
+            async function flow_user_state(key) {
+                const result = await __fetchFlowUserState(key);
                 if (typeof result === 'string' && result.startsWith(__RESULT_ERR_PREFIX)) {
                     throw new Error(result.substring(__RESULT_ERR_PREFIX.length));
                 }
@@ -655,6 +686,10 @@ fn setup_results_proxy<'js>(
         let stub_code = r#"
             function __getResult(stepId) {
                 return Promise.reject(new Error('Result fetching not available without authenticated client'));
+            }
+
+            function flow_user_state(key) {
+                return Promise.reject(new Error('flow_user_state() is not available without an authenticated client'));
             }
         "#;
         ctx.eval::<(), _>(stub_code)
