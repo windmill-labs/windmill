@@ -446,6 +446,19 @@ async fn eval_quickjs_inner(
             setup_results_proxy(&ctx, &globals, by_id, op_state_clone.clone())?;
         }
 
+        // The auto-await rewrite at the top of eval_timeout always rewrites
+        // `flow_user_state(...)` regardless of context, so install a stub if
+        // nothing above defined it (e.g. authed sleep transforms with no by_id).
+        ctx.eval::<(), _>(r#"
+            if (typeof flow_user_state === 'undefined') {
+                globalThis.flow_user_state = function(key) {
+                    return Promise.reject(new Error(`flow_user_state() is not available in this context`));
+                };
+            }
+        "#)
+        .catch(&ctx)
+        .map_err(quickjs_error_to_anyhow)?;
+
         // Determine if we need to add return statement.
         let code = if should_add_return_quickjs(&transformed_expr) {
             format!("(async function() {{ return {}; }})().then((x) => JSON.stringify(x ?? null))", transformed_expr)
