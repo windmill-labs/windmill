@@ -17,6 +17,10 @@ Start every review with a single verdict line, before any other section. Pick ex
 
 The names in the list must match findings detailed later in the review. If you list a nit or issue here, it must appear with full context in the body. Do not invent items that aren't in the body, and do not bury blockers in the body without surfacing them in the verdict.
 
+## Pinging the author
+
+If the prompt context provides a `PR AUTHOR` (GitHub login) and the verdict is NOT "Good to merge" (i.e. it is "Mergeable, but should ideally address nits: ..." or "Should address issues before merging: ..."), prepend a single line `cc @<PR_AUTHOR>` to the top-level review comment, above the verdict line. This pings the author so they get a notification that there are items to address. Skip the ping entirely when the verdict is "Good to merge" — there is nothing for the author to act on. Do not add the ping to inline comments; the top-level summary comment is the only place it belongs.
+
 ## Review policy
 
 - Only report issues you are confident are real and introduced by this pull request.
