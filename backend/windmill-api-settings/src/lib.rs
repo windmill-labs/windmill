@@ -374,8 +374,7 @@ pub async fn get_offline_license_status(
     #[cfg(feature = "enterprise")]
     let cap = windmill_common::ee_oss::enforce_offline_caps(&db)
         .await
-        .ok()
-        .flatten();
+        .map_err(|e| error::Error::internal_err(format!("enforce_offline_caps: {e:#}")))?;
     #[cfg(not(feature = "enterprise"))]
     let cap: Option<windmill_common::ee_oss::OfflineCapStatus> = None;
 

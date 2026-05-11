@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(\n            SELECT 1 FROM usr WHERE email = $1\n            UNION ALL\n            SELECT 1 FROM workspace_invite WHERE email = $1\n        )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6bb64cc64926b7e662b7c72167ec0cc51b543d2c7630c17cef175c07d40c7682"
+}

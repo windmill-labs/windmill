@@ -121,13 +121,13 @@ pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
 pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
 
-/// Canonical form of a base URL, used to compare instance base_url against an offline
-/// license key's URL binding. Both sides (instance + customer-service issuer) must run
-/// the same normalization for the equality check to be meaningful.
+/// Canonical form of a base URL, used as one of the inputs to the offline-license
+/// instance hash (`compute_instance_hash`).
 ///
 /// Rules: lowercase scheme and host, drop default ports (80/443), strip path/query/fragment,
-/// strip trailing slash. Returns the trimmed input unchanged if parsing fails so the caller
-/// gets a deterministic value to compare against.
+/// strip trailing slash. If URL parsing fails, falls back to a best-effort lowercase +
+/// trailing-slash strip so two semantically-equivalent inputs still produce the same
+/// canonical form.
 pub fn canonical_base_url(input: &str) -> String {
     let trimmed = input.trim();
     if trimmed.is_empty() {

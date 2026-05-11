@@ -5235,7 +5235,7 @@ async fn invite_user(
 
     #[cfg(feature = "enterprise")]
     if let Some(msg) =
-        windmill_common::ee_oss::check_seat_cap_for_new_user(&db, nu.operator).await?
+        windmill_common::ee_oss::check_seat_cap_for_new_user(&db, &nu.email, nu.operator).await?
     {
         return Err(Error::BadRequest(msg));
     }
@@ -5315,7 +5315,7 @@ async fn add_user(
 
     #[cfg(feature = "enterprise")]
     if let Some(msg) =
-        windmill_common::ee_oss::check_seat_cap_for_new_user(&db, nu.operator).await?
+        windmill_common::ee_oss::check_seat_cap_for_new_user(&db, &nu.email, nu.operator).await?
     {
         return Err(Error::BadRequest(msg));
     }

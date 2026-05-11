@@ -56,6 +56,7 @@ pub struct OfflineCapStatus {
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
 pub async fn check_seat_cap_for_new_user(
     _db: &DB,
+    _email: &str,
     _new_user_is_operator: bool,
 ) -> anyhow::Result<Option<String>> {
     Ok(None)
