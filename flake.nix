@@ -79,11 +79,11 @@
         # ---------------------------------------------------------------
 
         rustyV8Archive = let
-          version = "130.0.7";
+          version = "137.1.0";
           target = stdenv.hostPlatform.rust.rustcTarget;
           sha256 = {
             x86_64-linux =
-              "sha256-pkdsuU6bAkcIHEZUJOt5PXdzK424CEgTLXjLtQ80t10=";
+              "sha256-Tiscfy2bzYGR3s0T+SC1IB3xWvTVpVcSEdjq3MCRoRw=";
             aarch64-linux = lib.fakeHash;
             x86_64-darwin = lib.fakeHash;
             aarch64-darwin = lib.fakeHash;
