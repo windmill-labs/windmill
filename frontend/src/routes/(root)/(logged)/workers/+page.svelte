@@ -194,19 +194,6 @@
 		}
 	}
 
-	let defaultTagPerWorkspace: boolean | undefined = $state(undefined)
-	let defaultTagWorkspaces: string[] = $state([])
-	async function loadDefaultTagsPerWorkspace() {
-		try {
-			defaultTagPerWorkspace = await WorkerService.isDefaultTagsPerWorkspace()
-			defaultTagWorkspaces = (await SettingService.getGlobal({
-				key: DEFAULT_TAGS_WORKSPACES_SETTING
-			})) as any
-		} catch (err) {
-			sendUserToast(`Could not load default tag per workspace setting: ${err}`, true)
-		}
-	}
-
 	function parseLicenseKey(key: string): {
 		valid: boolean
 		expiration?: Date
@@ -247,13 +234,11 @@
 			const { valid, expiration } = parseLicenseKey(licenseKey)
 
 			if (!valid && expiration) {
-				// License is expired
 				sendUserToast(
 					`Enterprise license key expired on ${expiration.toLocaleDateString()}. Please renew your license key to continue using Windmill.`,
 					true
 				)
 			} else if (expiration) {
-				// Check if expires within 7 days
 				const daysUntilExpiration = Math.floor(
 					(expiration.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
 				)
@@ -266,8 +251,20 @@
 				}
 			}
 		} catch (err) {
-			// Silently fail - don't show errors for license check
 			console.error('Failed to check license expiration:', err)
+		}
+	}
+
+	let defaultTagPerWorkspace: boolean | undefined = $state(undefined)
+	let defaultTagWorkspaces: string[] = $state([])
+	async function loadDefaultTagsPerWorkspace() {
+		try {
+			defaultTagPerWorkspace = await WorkerService.isDefaultTagsPerWorkspace()
+			defaultTagWorkspaces = (await SettingService.getGlobal({
+				key: DEFAULT_TAGS_WORKSPACES_SETTING
+			})) as any
+		} catch (err) {
+			sendUserToast(`Could not load default tag per workspace setting: ${err}`, true)
 		}
 	}
 

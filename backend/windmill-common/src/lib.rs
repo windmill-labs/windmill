@@ -121,6 +121,36 @@ pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
 pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
 
+/// Canonical form of a base URL, used as one of the inputs to the offline-license
+/// instance hash (`compute_instance_hash`).
+///
+/// Rules: lowercase scheme and host, drop default ports (80/443), strip path/query/fragment,
+/// strip trailing slash. If URL parsing fails, falls back to a best-effort lowercase +
+/// trailing-slash strip so two semantically-equivalent inputs still produce the same
+/// canonical form.
+pub fn canonical_base_url(input: &str) -> String {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    match url::Url::parse(trimmed) {
+        Ok(u) => {
+            let scheme = u.scheme().to_ascii_lowercase();
+            let host = u
+                .host_str()
+                .map(|h| h.to_ascii_lowercase())
+                .unwrap_or_default();
+            let port = match (u.port(), scheme.as_str()) {
+                (Some(80), "http") | (Some(443), "https") => String::new(),
+                (Some(p), _) => format!(":{p}"),
+                (None, _) => String::new(),
+            };
+            format!("{scheme}://{host}{port}")
+        }
+        Err(_) => trimmed.trim_end_matches('/').to_ascii_lowercase(),
+    }
+}
+
 /// Checks if the user is allowed to preserve on_behalf_of values (admin or deployer).
 pub fn can_preserve_on_behalf_of(authed: &impl db::Authable) -> bool {
     authed.is_admin() || authed.groups().iter().any(|g| g == &WM_DEPLOYERS_GROUP)
