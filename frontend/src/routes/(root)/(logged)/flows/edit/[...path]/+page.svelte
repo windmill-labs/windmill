@@ -152,6 +152,16 @@
 			flowBuilder?.setLoadedFromHistory(loadedFromHistoryFromUrl)
 			const selectedId = stateLoadedFromUrl?.selectedId ?? 'settings-metadata'
 			const reloadAction = () => {
+				// Discard the localStorage autosave so the next `loadFlow`
+				// (re-)read sees an empty slot and falls through to the
+				// fetch branch — otherwise we'd re-enter this branch and
+				// loop. Scripts dodge this because their state lives in
+				// the URL fragment, which `goto` clears for us.
+				try {
+					localStorage.removeItem(`flow-${statePath}`)
+				} catch (e) {
+					console.error('error interacting with local storage', e)
+				}
 				goto(`/flows/edit/${statePath}?selected=${selectedId}`)
 				loadFlow()
 			}
